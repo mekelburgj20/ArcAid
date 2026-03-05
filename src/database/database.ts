@@ -31,6 +31,8 @@ export async function initDatabase(): Promise<Database> {
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             type TEXT NOT NULL, -- 'daily', 'weekly', 'monthly', 'custom'
+            cadence TEXT,       -- JSON string of CadenceConfig
+            guild_id TEXT,      -- Discord Server ID
             discord_channel_id TEXT,
             discord_role_id TEXT,
             is_active INTEGER DEFAULT 1
@@ -45,9 +47,14 @@ export async function initDatabase(): Promise<Database> {
             name TEXT NOT NULL,
             iscored_id TEXT, -- Link to iScored game ID
             style_id TEXT,   -- iScored style ID
+            status TEXT NOT NULL DEFAULT 'ACTIVE', -- 'QUEUED', 'ACTIVE', 'COMPLETED', 'HIDDEN'
+            picker_discord_id TEXT,
+            picker_type TEXT,
+            picker_designated_at TEXT,
+            reminder_count INTEGER DEFAULT 0,
+            won_game_id TEXT,
             start_date TEXT,
             end_date TEXT,
-            is_active INTEGER DEFAULT 1,
             FOREIGN KEY (tournament_id) REFERENCES tournaments (id)
         )
     `);

@@ -3,6 +3,7 @@ import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { Command } from './commands/index.js';
 import { ping } from './commands/ping.js';
 import { setup } from './commands/setup.js';
+import { mapuser } from './commands/mapuser.js';
 
 export class DiscordClient {
     private client: Client;
@@ -22,7 +23,8 @@ export class DiscordClient {
             intents: [
                 GatewayIntentBits.Guilds,
                 GatewayIntentBits.GuildMessages,
-                GatewayIntentBits.MessageContent
+                GatewayIntentBits.MessageContent,
+                GatewayIntentBits.GuildMembers // Required for identity mapping auto-match
             ]
         });
 
@@ -31,7 +33,7 @@ export class DiscordClient {
     }
 
     private registerCommands(): void {
-        const commandList = [ping, setup];
+        const commandList = [ping, setup, mapuser];
         for (const command of commandList) {
             this.commands.set(command.data.name, command);
         }
