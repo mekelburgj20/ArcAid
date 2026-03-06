@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  arcaid:
+    build: .
+    container_name: arcaid-bot
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+    environment:
+      # Optional: You can still use a .env file locally with compose
+      - NODE_ENV=production

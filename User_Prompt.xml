@@ -1,0 +1,12 @@
+<context>
+@README.md @checkpoint.md @TODO.md @package.json
+</context>
+
+<task>
+Read @ArcAid/ArcAid_Project_Handover.md to get up to speed. Take a look at the project contents in @TableFlipper/ repo to familiarize yourself with the original TableFlipper application that we are basing this new ArcAid app on. The @TableFlipper/TODO_v2.md will show you what we are going to work on next. Create a new TODO.md in the @ArcAid repo based off the one in TableFlipper, to track all of our tasks. All work should be done on a feature branch using proper git best practices. The repo is initialized already. All new work you will do will only be done in the @ArcAid repo. 
+</task>
+
+<final_instruction>
+Remember to think step-by-step before answering.
+</final_instruction>
+

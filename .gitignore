@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+dist/
+
+# Environment Variables
+.env
+.env.*
+
+# Database and Logs
+data/*.db
+data/*.log
+*.png
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Admin UI (Frontend)
+admin-ui/node_modules/
+admin-ui/dist/
+admin-ui/.eslintcache
+admin-ui/dist-ssr
+admin-ui/*.local
