@@ -66,14 +66,27 @@ export function startApiServer(port: number = 3001) {
         try {
             const db = await getDatabase();
             const settings = req.body;
+            let needsRestart = false;
 
             for (const [key, value] of Object.entries(settings)) {
                 await db.run(
                     'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
                     key, String(value)
                 );
+                if (key === 'SETUP_COMPLETE' && value === 'true') {
+                    needsRestart = true;
+                }
             }
+            
             res.json({ success: true });
+
+            // If this was the first-run wizard, restart the server so the bot connects.
+            // Docker Compose will automatically restart the process.
+            if (needsRestart) {
+                logInfo('🔄 Setup complete! Restarting process to connect bot...');
+                setTimeout(() => process.exit(0), 1000);
+            }
+
         } catch (error) {
             logError('API Error (POST /api/settings):', error);
             res.status(500).json({ error: 'Internal Server Error' });
@@ -99,14 +112,14 @@ export function startApiServer(port: number = 3001) {
         app.use(express.static(frontendPath));
         
         // Catch-all to route React Router requests back to index.html
-        app.get('*', (req, res) => {
-            if (!req.path.startsWith('/api')) {
-                res.sendFile(path.join(frontendPath, 'index.html'));
-            }
+        // Express 5+ requires valid regex syntax for catch-alls
+        app.get(/^(?!\/api).*/, (req, res) => {
+            res.sendFile(path.join(frontendPath, 'index.html'));
         });
     }
 
-    app.listen(port, () => {
+    // Explicitly bind to 0.0.0.0 so it's accessible outside the Docker container
+    app.listen(port, '0.0.0.0', () => {
         logInfo(`🌐 Admin API Server listening on port ${port}`);
     });
 }
