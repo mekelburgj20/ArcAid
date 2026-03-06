@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, Trophy, Activity } from 'lucide-react';
+import { Home, Settings as SettingsIcon, Trophy, Activity, Library } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
 import SetupWizard from './pages/SetupWizard';
 import Logs from './pages/Logs';
+import Tournaments from './pages/Tournaments';
+import GameLibrary from './pages/GameLibrary';
 import './App.css';
 
 function App() {
@@ -30,6 +32,7 @@ function App() {
   const navItems = [
     { path: '/', label: 'Dashboard', icon: <Home size={20} /> },
     { path: '/tournaments', label: 'Tournaments', icon: <Trophy size={20} /> },
+    { path: '/library', label: 'Game Library', icon: <Library size={20} /> },
     { path: '/logs', label: 'Activity Logs', icon: <Activity size={20} /> },
     { path: '/settings', label: 'Settings', icon: <SettingsIcon size={20} /> },
   ];
@@ -60,7 +63,8 @@ function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/tournaments" element={<div className="page"><h1>Tournaments</h1><p>Coming soon...</p></div>} />
+          <Route path="/tournaments" element={<Tournaments />} />
+          <Route path="/library" element={<GameLibrary />} />
           <Route path="/logs" element={<Logs />} />
         </Routes>
       </main>

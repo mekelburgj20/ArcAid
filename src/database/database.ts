@@ -39,6 +39,21 @@ export async function initDatabase(): Promise<Database> {
         )
     `);
 
+    // 1.5 Game Library (Master list of all available games to pick from)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS game_library (
+            name TEXT PRIMARY KEY,
+            aliases TEXT,
+            style_id TEXT,
+            css_title TEXT,
+            css_initials TEXT,
+            css_scores TEXT,
+            css_box TEXT,
+            bg_color TEXT,
+            tournament_types TEXT -- JSON array or comma separated list of tournament types this game is eligible for
+        )
+    `);
+
     // 2. Games (The individual games within a tournament, e.g., "Medieval Madness")
     await db.exec(`
         CREATE TABLE IF NOT EXISTS games (

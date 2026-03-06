@@ -105,6 +105,84 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    app.post('/api/tournaments', async (req, res) => {
+        try {
+            const db = await getDatabase();
+            const { id, name, type, cadence, guild_id, discord_channel_id, discord_role_id, is_active } = req.body;
+            await db.run(
+                'INSERT INTO tournaments (id, name, type, cadence, guild_id, discord_channel_id, discord_role_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                id, name, type, JSON.stringify(cadence), guild_id, discord_channel_id, discord_role_id, is_active ? 1 : 0
+            );
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (POST /api/tournaments):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.put('/api/tournaments/:id', async (req, res) => {
+        try {
+            const db = await getDatabase();
+            const { name, type, cadence, guild_id, discord_channel_id, discord_role_id, is_active } = req.body;
+            await db.run(
+                'UPDATE tournaments SET name = ?, type = ?, cadence = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ? WHERE id = ?',
+                name, type, JSON.stringify(cadence), guild_id, discord_channel_id, discord_role_id, is_active ? 1 : 0, req.params.id
+            );
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (PUT /api/tournaments):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.delete('/api/tournaments/:id', async (req, res) => {
+        try {
+            const db = await getDatabase();
+            await db.run('DELETE FROM tournaments WHERE id = ?', req.params.id);
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (DELETE /api/tournaments):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Game Library Endpoints ---
+    app.get('/api/game_library', async (req, res) => {
+        try {
+            const db = await getDatabase();
+            const rows = await db.all('SELECT * FROM game_library');
+            res.json(rows);
+        } catch (error) {
+            logError('API Error (/api/game_library):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/game_library/import', async (req, res) => {
+        try {
+            const db = await getDatabase();
+            const games = req.body.games; // Expected to be an array of game objects
+
+            await db.exec('BEGIN TRANSACTION');
+            for (const game of games) {
+                await db.run(
+                    `INSERT OR REPLACE INTO game_library 
+                    (name, aliases, style_id, css_title, css_initials, css_scores, css_box, bg_color, tournament_types) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    game.name, game.aliases || '', game.style_id || '', game.css_title || '', game.css_initials || '', 
+                    game.css_scores || '', game.css_box || '', game.bg_color || '', game.tournament_types || ''
+                );
+            }
+            await db.exec('COMMIT');
+            
+            res.json({ success: true, imported: games.length });
+        } catch (error) {
+            await getDatabase().then(db => db.exec('ROLLBACK').catch(() => {}));
+            logError('API Error (POST /api/game_library/import):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
     // --- Serve React Frontend (Production) ---
     const frontendPath = path.join(process.cwd(), 'admin-ui', 'dist');
     if (fs.existsSync(frontendPath)) {
