@@ -92,7 +92,21 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    // --- Serve React Frontend (Production) ---
+    const frontendPath = path.join(process.cwd(), 'admin-ui', 'dist');
+    if (fs.existsSync(frontendPath)) {
+        logInfo('📦 Found built Admin UI, serving static files.');
+        app.use(express.static(frontendPath));
+        
+        // Catch-all to route React Router requests back to index.html
+        app.get('*', (req, res) => {
+            if (!req.path.startsWith('/api')) {
+                res.sendFile(path.join(frontendPath, 'index.html'));
+            }
+        });
+    }
+
     app.listen(port, () => {
-        logInfo(`🌐 Admin API Server listening on http://localhost:${port}`);
+        logInfo(`🌐 Admin API Server listening on port ${port}`);
     });
 }

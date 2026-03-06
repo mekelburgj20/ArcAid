@@ -4,7 +4,14 @@
 
 ## 🚀 Installation & Setup
 
-### 1. Discord Bot Configuration
+### Docker Deployment (Recommended)
+The easiest way to run ArcAid is using Docker.
+1. Copy `.env.example` to `.env` and fill in your Discord credentials.
+2. Run `docker-compose up -d --build`.
+3. Access the Admin UI at `http://localhost:3001`.
+
+### Manual Local Setup
+#### 1. Discord Bot Configuration
 Before running the app, you must set up a Discord bot:
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications).
 2. Create a new application (e.g., "ArcAid Beta").

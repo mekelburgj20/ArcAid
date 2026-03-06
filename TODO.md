@@ -37,5 +37,5 @@
 - [ ] **Real-time API**: REST/WebSockets for leaderboard data.
 
 ## Phase 7: Deployment
-- [ ] **Dockerization**: Provide `Dockerfile` and `docker-compose.yml`.
-- [ ] **Cross-Platform Support**: Ensure Windows, Linux, and Mac compatibility.
+- [x] **Dockerization**: Provide `Dockerfile` and `docker-compose.yml`.
+- [x] **Cross-Platform Support**: Ensure Windows, Linux, and Mac compatibility.
