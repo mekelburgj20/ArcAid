@@ -4,6 +4,8 @@ import { Command } from './commands/index.js';
 import { ping } from './commands/ping.js';
 import { setup } from './commands/setup.js';
 import { mapuser } from './commands/mapuser.js';
+import { pickgame } from './commands/pickgame.js';
+import { submitscore } from './commands/submitscore.js';
 
 export class DiscordClient {
     private client: Client;
@@ -33,7 +35,7 @@ export class DiscordClient {
     }
 
     private registerCommands(): void {
-        const commandList = [ping, setup, mapuser];
+        const commandList = [ping, setup, mapuser, pickgame, submitscore];
         for (const command of commandList) {
             this.commands.set(command.data.name, command);
         }
