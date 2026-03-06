@@ -29,8 +29,8 @@
 - [x] **Log Viewer**: Integrated UI for monitoring activity.
 
 ## Phase 5: Reliability & Data
-- [ ] **Cadence Backups**: Automated snapshots of tournament and database state.
-- [ ] **Standalone Restore**: Decoupled script for leaderboard restoration.
+- [x] **Cadence Backups**: Automated snapshots of tournament and database state.
+- [x] **Standalone Restore**: Decoupled script for leaderboard restoration.
 
 ## Phase 6: Internal Leaderboard (Future)
 - [ ] **Lightweight Leaderboard**: Internal, high-performance scoreboard engine.
