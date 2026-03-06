@@ -16,6 +16,7 @@ export const submitscore: Command = {
             option.setName('game')
                 .setDescription(`The active ${getTerminology().game} to submit for`)
                 .setRequired(true)
+                .setAutocomplete(true)
         )
         .addIntegerOption(option =>
             option.setName('score')
@@ -32,6 +33,25 @@ export const submitscore: Command = {
                 .setDescription('Your iScored username (if different from mapping)')
                 .setRequired(false)
         ) as SlashCommandBuilder,
+
+    async autocomplete(interaction) {
+        const focusedOption = interaction.options.getFocused(true);
+        const db = await getDatabase();
+
+        if (focusedOption.name === 'game') {
+            // Only suggest ACTIVE games for score submission
+            const rows = await db.all("SELECT name FROM games WHERE status = 'ACTIVE'");
+            const choices = rows.map(r => r.name);
+            
+            const filtered = choices.filter(choice => 
+                choice.toLowerCase().includes(focusedOption.value.toLowerCase())
+            ).slice(0, 25);
+            
+            await interaction.respond(
+                filtered.map(choice => ({ name: choice, value: choice }))
+            );
+        }
+    },
         
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();

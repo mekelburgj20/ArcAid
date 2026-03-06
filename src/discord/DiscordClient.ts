@@ -80,6 +80,18 @@ export class DiscordClient {
         });
 
         this.client.on(Events.InteractionCreate, async (interaction) => {
+            if (interaction.isAutocomplete()) {
+                const command = this.commands.get(interaction.commandName);
+                if (!command || !command.autocomplete) return;
+
+                try {
+                    await command.autocomplete(interaction);
+                } catch (error) {
+                    logError(`Error in autocomplete for ${interaction.commandName}:`, error);
+                }
+                return;
+            }
+
             if (!interaction.isChatInputCommand()) return;
 
             const command = this.commands.get(interaction.commandName);

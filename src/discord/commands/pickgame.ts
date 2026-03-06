@@ -20,7 +20,41 @@ export const pickgame: Command = {
             option.setName('game_name')
                 .setDescription(`The name of the ${getTerminology().game}`)
                 .setRequired(true)
+                .setAutocomplete(true)
         ) as SlashCommandBuilder,
+
+    async autocomplete(interaction) {
+        const focusedOption = interaction.options.getFocused(true);
+        const db = await getDatabase();
+
+        if (focusedOption.name === 'tournament') {
+            // Fetch active tournaments
+            const rows = await db.all("SELECT name FROM tournaments WHERE is_active = 1");
+            const choices = rows.map(r => r.name);
+            
+            const filtered = choices.filter(choice => 
+                choice.toLowerCase().includes(focusedOption.value.toLowerCase())
+            ).slice(0, 25);
+            
+            await interaction.respond(
+                filtered.map(choice => ({ name: choice, value: choice }))
+            );
+        }
+        else if (focusedOption.name === 'game_name') {
+            // For picking a new game, we usually search the entire history or a master list.
+            // Since we rely heavily on iScored tags (or historical games), we'll query all unique game names.
+            const rows = await db.all("SELECT DISTINCT name FROM games");
+            const choices = rows.map(r => r.name);
+            
+            const filtered = choices.filter(choice => 
+                choice.toLowerCase().includes(focusedOption.value.toLowerCase())
+            ).slice(0, 25);
+            
+            await interaction.respond(
+                filtered.map(choice => ({ name: choice, value: choice }))
+            );
+        }
+    },
         
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
