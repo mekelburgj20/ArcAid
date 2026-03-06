@@ -142,6 +142,30 @@ export class IScoredClient {
     }
 
     /**
+     * Sets the visibility and lock status of a game.
+     */
+    public async setGameStatus(gameId: string, status: { hidden?: boolean, locked?: boolean }): Promise<void> {
+        await this.navigateToLineup();
+        const mainFrame = this.page!.frameLocator('#main');
+        
+        if (status.locked !== undefined) {
+            const lockCheckbox = mainFrame.locator(`#lock${gameId}`);
+            if (status.locked) await lockCheckbox.check({ force: true });
+            else await lockCheckbox.uncheck({ force: true });
+            await this.page!.waitForTimeout(1000);
+        }
+
+        if (status.hidden !== undefined) {
+            const hideCheckbox = mainFrame.locator(`#hide${gameId}`);
+            if (status.hidden) await hideCheckbox.check({ force: true });
+            else await hideCheckbox.uncheck({ force: true });
+            await this.page!.waitForTimeout(1000);
+        }
+
+        logInfo(`✅ Updated status for game ID ${gameId}: ${JSON.stringify(status)}`);
+    }
+
+    /**
      * Creates a new game on iScored.
      */
     public async createGame(gameName: string, styleId?: string): Promise<string> {
@@ -257,7 +281,9 @@ export class IScoredClient {
 
             // Prepend in reverse to put them at the top in correct order
             for (let i = validTargetIds.length - 1; i >= 0; i--) {
-                const li = document.getElementById(validTargetIds[i]);
+                const id = validTargetIds[i];
+                if (!id) continue;
+                const li = document.getElementById(id);
                 if (li) lineupUl.prepend(li);
             }
 

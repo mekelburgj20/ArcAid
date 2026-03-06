@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../database/database.js';
 import { Tournament, Game, TournamentType, CadenceConfig } from '../types/index.js';
 import { logInfo, logError } from '../utils/logger.js';
-import { getTerminology } from '../utils/terminology.ts';
+import { getTerminology } from '../utils/terminology.js';
 
 export class TournamentEngine {
     private static instance: TournamentEngine;

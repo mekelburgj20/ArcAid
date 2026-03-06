@@ -6,7 +6,7 @@ import { TournamentEngine } from './TournamentEngine.js';
 
 export class Scheduler {
     private static instance: Scheduler;
-    private tasks: Map<string, cron.ScheduledTask> = new Map();
+    private tasks: Map<string, any> = new Map();
 
     private constructor() {}
 
@@ -67,7 +67,6 @@ export class Scheduler {
                 logError(`❌ Maintenance failed for tournament ${name}:`, error);
             }
         }, {
-            scheduled: true,
             timezone: "America/Chicago" // Central Time (Consistent with TableFlipper)
         });
 
