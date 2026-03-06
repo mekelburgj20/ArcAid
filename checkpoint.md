@@ -3,30 +3,24 @@
 ## Current State
 **Date**: March 4, 2026
 **Branch**: `feature/arcaid-init`
-**Phase**: Completed Phase 3 (Feature Porting: Logic). Ready for Phase 4 (Admin UI).
+**Phase**: Completed Phase 4 (Admin UI). Ready for Phase 5 (Reliability & Data).
 
 ### Completed Features
 1. **Foundation & Architecture (Phase 1)**
-   - Generic "Games" and "Tournaments" terminology engine implemented.
-   - SQLite Database Schema with multi-server (guild_id) and cadence support.
-   - Generic cron-based Scheduler.
-   - Core `TournamentEngine` structure with game rotation logic.
-
+   - Generic terminology engine and SQLite DB schema.
 2. **iScored Integration (Phase 2)**
-   - Playwright-powered `IScoredClient` implemented.
-   - Supports robust login, game creation, DOM-based lineup repositioning, public score scraping, and style sync.
-
+   - Playwright-powered API for login, creation, scraping, and repositioning.
 3. **Feature Porting: Logic (Phase 3)**
-   - **Eligibility Logic**: 120-day game variety lookback implemented in `TournamentEngine.ts`.
-   - **Runner-Up Fallback**: Tiered timeout logic implemented in `TimeoutManager.ts`.
-   - **Identity Mapping**: Auto-mapping and `/map-user` command implemented (`IdentityManager.ts`).
+   - Eligibility lookbacks, tiered timeouts, and identity mapping.
+4. **Admin UI & Configuration (Phase 4)**
+   - **Backend**: Express API server running alongside the bot (`src/api/server.ts`).
+   - **Frontend**: React/Vite dashboard (`admin-ui/`).
+   - Features a Setup Wizard for first-time users, a Settings editor, and a live Log Viewer.
 
-### Next Steps (Phase 4: Admin UI & Configuration)
-- Scaffold React (Vite) local dashboard.
-- Implement First-Run Wizard.
-- Build Settings UI for database-backed configuration.
+### Next Steps (Phase 5: Reliability & Data)
+- Implement Automated database/state backups.
+- Create standalone script for leaderboard restoration.
 
 ### Important Context for New AI Sessions
-- The app uses `TerminologyMode` ('legacy' vs 'generic') to dynamically adapt its language.
-- Run `npm run dev` to start the bot.
-- All secrets are excluded via `.gitignore`.
+- To run the app: Start the bot (`npm run dev` in root) AND start the UI (`npm run dev` in `admin-ui/`).
+- The bot and UI communicate over `http://localhost:3001/api/`.

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { logInfo, logError } from './utils/logger.js';
 import { initDatabase } from './database/database.js';
 import { DiscordClient } from './discord/DiscordClient.js';
+import { startApiServer } from './api/server.js';
 
 async function bootstrap() {
     logInfo('🚀 Starting ArcAid...');
@@ -11,10 +12,13 @@ async function bootstrap() {
         await initDatabase();
         logInfo('✅ Database initialized.');
 
-        // 2. Initialize Discord Client
+        // 2. Start API Server for Admin UI
+        startApiServer(3001);
+
+        // 3. Initialize Discord Client
         const discord = new DiscordClient();
         
-        // 3. Deploy Commands (Guild-specific for beta testing)
+        // 4. Deploy Commands (Guild-specific for beta testing)
         const guildId = process.env.DISCORD_GUILD_ID;
         if (guildId) {
             await discord.deployCommands(guildId);
@@ -22,7 +26,7 @@ async function bootstrap() {
             logError('⚠️ DISCORD_GUILD_ID not found in .env. Skipping guild-specific command deployment.');
         }
 
-        // 4. Connect to Discord
+        // 5. Connect to Discord
         await discord.connect();
 
     } catch (error) {

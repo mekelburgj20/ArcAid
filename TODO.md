@@ -23,10 +23,10 @@
 - [x] **Identity Mapping**: Port Discord-to-Leaderboard user mapping.
 
 ## Phase 4: Admin UI & Configuration
-- [ ] **Admin Dashboard**: Scaffold React (Vite) local dashboard.
-- [ ] **First-Run Wizard**: Guided setup for initial configuration.
-- [ ] **Settings UI**: Database-backed configuration management.
-- [ ] **Log Viewer**: Integrated UI for monitoring activity.
+- [x] **Admin Dashboard**: Scaffold React (Vite) local dashboard.
+- [x] **First-Run Wizard**: Guided setup for initial configuration.
+- [x] **Settings UI**: Database-backed configuration management.
+- [x] **Log Viewer**: Integrated UI for monitoring activity.
 
 ## Phase 5: Reliability & Data
 - [ ] **Cadence Backups**: Automated snapshots of tournament and database state.
