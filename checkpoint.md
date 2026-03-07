@@ -2,30 +2,39 @@
 
 ## Current State
 **Date**: March 5, 2026
-**Branch**: `feature/arcaid-init`
-**Phase**: Completed Phase 7 (Deployment). Phase 6 (Internal Leaderboard) was skipped for now.
+**Branch**: `main`
+**Phase**: Ready for Phase 6 (Feature Parity Completion).
 
-### Completed Features
-1. **Foundation & Architecture (Phase 1)**
-   - Generic terminology engine and SQLite DB schema.
+### What Has Been Built (The Foundation is Complete)
+1. **Core Architecture (Phase 1)**
+   - Generic terminology engine (`TerminologyMode`: 'legacy' vs 'generic').
+   - SQLite Database Schema with multi-server support and dynamic Tournament/Game Library tables.
+   - Generic cron-based Scheduler.
 2. **iScored Integration (Phase 2)**
-   - Playwright-powered API for login, creation, scraping, and repositioning.
-3. **Feature Porting: Logic (Phase 3)**
-   - Eligibility lookbacks, tiered timeouts, and identity mapping.
-4. **Admin UI & Configuration (Phase 4)**
-   - **Backend**: Express API server running alongside the bot (`src/api/server.ts`).
-   - **Frontend**: React/Vite dashboard (`admin-ui/`).
-   - Features a Setup Wizard for first-time users, a Settings editor, and a live Log Viewer.
-5. **Reliability & Data (Phase 5)**
-   - Automated DB + iScored State Backups (`BackupManager.ts`).
-   - Standalone CLI restore script (`npm run restore`).
-7. **Deployment (Phase 7)**
-   - Multi-stage `Dockerfile` capturing the React UI and Node backend.
-   - `docker-compose.yml` with persistent volume mounts.
+   - Playwright-powered `IScoredClient` handles headless login, game creation, tagging, and score submission.
+3. **Logic Engines (Phase 3)**
+   - 120-day eligibility lookbacks (`TournamentEngine.ts`).
+   - Tiered timeouts (`TimeoutManager.ts` - *Note: Discord DMs are currently stubbed*).
+   - Identity auto-mapping.
+4. **Admin UI & Deployment (Phase 4, 5, 7)**
+   - **Frontend**: React/Vite dashboard (`admin-ui/`) for Settings, Logs, Tournaments, and Game Library imports.
+   - **Backend**: Express API serving the UI and handling bot configuration.
+   - **Deployment**: Fully dockerized via `docker-compose up -d --build`.
+   - **Backups**: Automated state snapshots and a standalone `npm run restore` CLI tool.
+5. **Initial Commands**
+   - `/ping`, `/setup`, `/map-user`, `/pick-game`, `/submit-score`.
 
-### Skipped for Later
-- **Phase 6: Internal Leaderboard** (We will return to this once the core iScored functionality is thoroughly tested).
+### What Needs to be Built Next (Phase 6: Parity)
+The underlying engine is incredibly robust, but we lack the front-facing commands and the final execution loop to match the old TableFlipper app.
+
+**Immediate Priorities for the Next Session:**
+1. **Maintenance Execution:** Implement the actual logic inside `TournamentEngine.runMaintenance()`. It currently just logs a message. It needs to lock the active game on iScored, scrape the winner, declare the winner in Discord, and promote the queued game.
+2. **Discord Communication:** Wire up `TimeoutManager.ts` to actually send DMs and channel warnings using the `DiscordClient`.
+3. **User Commands:** Implement `/list-active`, `/list-scores`, `/view-stats`, `/list-winners`, `/view-selection`.
+4. **Admin Commands:** Implement `/force-maintenance`, `/sync-state`, `/run-cleanup`, `/create-backup`, `/pause-pick`, `/nominate-picker`.
 
 ### Important Context for New AI Sessions
-- To run locally via Docker: `docker-compose up -d --build`. The UI will be available at `http://localhost:3001`.
-- The bot and UI communicate over the Express API (`/api/*`).
+- The project is fully Dockerized. Use `docker-compose up -d --build` to run everything.
+- The Admin UI is accessible at `http://localhost:3001`.
+- **CRITICAL:** Do NOT attempt to run Playwright without the Docker container, as the dependencies are strictly bound to the `mcr.microsoft.com/playwright:v1.58.2-jammy` image.
+- Review `TODO.md` for the exact checklist of missing parity features.
