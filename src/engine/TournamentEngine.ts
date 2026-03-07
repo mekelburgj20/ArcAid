@@ -45,12 +45,13 @@ export class TournamentEngine {
     /**
      * Activates a new game for a specific tournament.
      */
-    public async activateGame(tournamentId: string, gameName: string, styleId?: string): Promise<Game> {
+    public async activateGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string): Promise<Game> {
         const db = await getDatabase();
         const game: Game = {
             id: uuidv4(),
             tournamentId,
             name: gameName,
+            iscoredId,
             styleId,
             status: 'ACTIVE',
             startDate: new Date()
@@ -66,8 +67,8 @@ export class TournamentEngine {
 
         // 2. Insert the new game
         await db.run(
-            'INSERT INTO games (id, tournament_id, name, style_id, status, start_date) VALUES (?, ?, ?, ?, ?, ?)',
-            game.id, game.tournamentId, game.name, game.styleId, game.status, game.startDate?.toISOString()
+            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, start_date) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, game.startDate?.toISOString()
         );
 
         return game;

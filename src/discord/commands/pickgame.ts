@@ -4,6 +4,7 @@ import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
+import { IScoredClient } from '../../engine/IScoredClient.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export const pickgame: Command = {
@@ -41,14 +42,36 @@ export const pickgame: Command = {
             );
         }
         else if (focusedOption.name === 'game_name') {
-            // For picking a new game, we usually search the entire history or a master list.
-            // Since we rely heavily on iScored tags (or historical games), we'll query all unique game names.
-            const rows = await db.all("SELECT DISTINCT name FROM games");
-            const choices = rows.map(r => r.name);
+            // Fetch the currently selected tournament to filter games by type
+            const selectedTournamentName = interaction.options.getString('tournament');
+            let tournamentType = null;
             
-            const filtered = choices.filter(choice => 
-                choice.toLowerCase().includes(focusedOption.value.toLowerCase())
-            ).slice(0, 25);
+            if (selectedTournamentName) {
+                const tournamentRow = await db.get("SELECT type FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
+                if (tournamentRow) {
+                    tournamentType = tournamentRow.type;
+                }
+            }
+
+            // Fetch from the master Game Library
+            const rows = await db.all("SELECT name, tournament_types FROM game_library");
+            
+            let choices = rows;
+            
+            // Filter by tournament type if one is selected
+            if (tournamentType) {
+                choices = choices.filter(r => {
+                    if (!r.tournament_types) return true; // If no tags, assume eligible for all
+                    const tags = r.tournament_types.split(',').map((t: string) => t.trim().toUpperCase());
+                    return tags.includes(tournamentType.toUpperCase());
+                });
+            }
+            
+            // Filter by what the user is currently typing
+            const filtered = choices
+                .map(r => r.name)
+                .filter(name => name.toLowerCase().includes(focusedOption.value.toLowerCase()))
+                .slice(0, 25);
             
             await interaction.respond(
                 filtered.map(choice => ({ name: choice, value: choice }))
@@ -65,7 +88,7 @@ export const pickgame: Command = {
 
         try {
             const db = await getDatabase();
-            const tournament = await db.get('SELECT id FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
+            const tournament = await db.get('SELECT id, type FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
 
             if (!tournament) {
                 await interaction.editReply(`❌ Could not find a ${term.tournament} named '${tournamentName}'.`);
@@ -81,15 +104,31 @@ export const pickgame: Command = {
                 return;
             }
 
-            // For now, directly activate it. (A full implementation would queue it if another game is active).
-            await engine.activateGame(tournament.id, gameName);
+            // Look up style_id from game_library
+            const gameLibEntry = await db.get('SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
+            const styleId = gameLibEntry?.style_id || undefined;
+
+            await interaction.editReply(`⏳ Creating **${gameName}** on iScored... This may take a moment.`);
+
+            // Create game on iScored
+            const client = new IScoredClient();
+            await client.connect();
+            const iscoredId = await client.createGame(gameName, styleId);
+            
+            // Apply appropriate tags or status if needed, but for now just unlock it
+            await client.setGameStatus(iscoredId, { locked: false, hidden: false });
+            
+            await client.disconnect();
+
+            // Directly activate it locally
+            await engine.activateGame(tournament.id, gameName, styleId, iscoredId);
 
             logInfo(`User ${interaction.user.tag} picked ${gameName} for ${tournamentName}`);
-            await interaction.editReply(`🎉 Successfully picked **${gameName}** for the **${tournamentName}** ${term.tournament}!`);
+            await interaction.editReply(`🎉 Successfully created and picked **${gameName}** for the **${tournamentName}** ${term.tournament}!`);
 
         } catch (error) {
             logError('Error in /pick-game:', error);
-            await interaction.editReply('❌ An error occurred while picking the game.');
+            await interaction.editReply('❌ An error occurred while picking the game. Check the logs for details.');
         }
     },
 };
