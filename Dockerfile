@@ -16,7 +16,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # Stage 3: Production Image
-FROM mcr.microsoft.com/playwright:v1.41.0-jammy AS production
+FROM mcr.microsoft.com/playwright:v1.58.2-jammy AS production
 
 # Install Node.js on the Playwright Ubuntu image
 RUN apt-get update && apt-get install -y curl \
