@@ -115,7 +115,8 @@ export const pickgame: Command = {
             await client.connect();
             const iscoredId = await client.createGame(gameName, styleId);
             
-            // Apply appropriate tags or status if needed, but for now just unlock it
+            // Apply the tournament tag and unlock the game
+            await client.setGameTags(iscoredId, tournament.type);
             await client.setGameStatus(iscoredId, { locked: false, hidden: false });
             
             await client.disconnect();

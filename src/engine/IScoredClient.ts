@@ -166,6 +166,33 @@ export class IScoredClient {
     }
 
     /**
+     * Adds a tag to a game using the Tagify input.
+     */
+    public async setGameTags(gameId: string, tag: string): Promise<void> {
+        await this.navigateToLineup();
+        const mainFrame = this.page!.frameLocator('#main');
+
+        logInfo(`🏷️ Adding tag '${tag}' to game ID: ${gameId}`);
+        try {
+            const gameRow = mainFrame.locator(`li[id="${gameId}"]`);
+            const tagifyInput = gameRow.locator('.tagify__input').first();
+
+            const isVisible = await tagifyInput.isVisible();
+            if (isVisible) {
+                await tagifyInput.click({ force: true });
+                await this.page!.keyboard.type(tag);
+                await this.page!.keyboard.press('Enter');
+                await this.page!.waitForTimeout(1000);
+                logInfo(`✅ Tag '${tag}' added.`);
+            } else {
+                 logWarn(`⚠️ Could not find tag input for game ${gameId}.`);
+            }
+        } catch (e) {
+            logError(`❌ Error adding tag to game ${gameId}:`, e);
+        }
+    }
+
+    /**
      * Creates a new game on iScored.
      */
     public async createGame(gameName: string, styleId?: string): Promise<string> {
