@@ -5,6 +5,7 @@ import { getTerminology } from '../../utils/terminology.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
+import { checkCooldown } from '../../utils/cooldown.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export const pickgame: Command = {
@@ -80,8 +81,15 @@ export const pickgame: Command = {
     },
         
     async execute(interaction: ChatInputCommandInteraction) {
+        // Check cooldown (10 seconds)
+        const remaining = checkCooldown(interaction.user.id, 'pick-game', 10);
+        if (remaining > 0) {
+            await interaction.reply({ content: `Please wait ${remaining}s before picking again.`, ephemeral: true });
+            return;
+        }
+
         await interaction.deferReply();
-        
+
         const term = getTerminology();
         const tournamentName = interaction.options.getString('tournament', true);
         const gameName = interaction.options.getString('game_name', true);
@@ -113,16 +121,27 @@ export const pickgame: Command = {
             // Create game on iScored
             const client = new IScoredClient();
             await client.connect();
-            const iscoredId = await client.createGame(gameName, styleId);
-            
-            // Apply the tournament tag and unlock the game
-            await client.setGameTags(iscoredId, tournament.type);
-            await client.setGameStatus(iscoredId, { locked: false, hidden: false });
-            
-            await client.disconnect();
+            let iscoredId: string;
+            try {
+                iscoredId = await client.createGame(gameName, styleId);
 
-            // Directly activate it locally
-            await engine.activateGame(tournament.id, gameName, styleId, iscoredId);
+                // Apply the tournament tag and unlock the game
+                await client.setGameTags(iscoredId, tournament.type);
+                await client.setGameStatus(iscoredId, { locked: false, hidden: false });
+            } finally {
+                await client.disconnect();
+            }
+
+            // Activate locally in a transaction — if this fails, the iScored game
+            // still exists but we don't have a dangling DB entry
+            await db.exec('BEGIN TRANSACTION');
+            try {
+                await engine.activateGame(tournament.id, gameName, styleId, iscoredId);
+                await db.exec('COMMIT');
+            } catch (dbError) {
+                await db.exec('ROLLBACK');
+                throw dbError;
+            }
 
             logInfo(`User ${interaction.user.tag} picked ${gameName} for ${tournamentName}`);
             await interaction.editReply(`🎉 Successfully created and picked **${gameName}** for the **${tournamentName}** ${term.tournament}!`);

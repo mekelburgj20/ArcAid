@@ -1,5 +1,6 @@
-import fs from 'fs';
 import path from 'path';
+import { createStream } from 'rotating-file-stream';
+import type { RotatingFileStream } from 'rotating-file-stream';
 
 export enum LogLevel {
     DEBUG = 0,
@@ -11,21 +12,38 @@ export enum LogLevel {
 const CURRENT_LOG_LEVEL = (process.env.LOG_LEVEL?.toUpperCase() as keyof typeof LogLevel) || 'INFO';
 const level = LogLevel[CURRENT_LOG_LEVEL as keyof typeof LogLevel] ?? LogLevel.INFO;
 
-const logFilePath = path.join(process.cwd(), 'data', 'arcaid.log');
+const logDir = path.join(process.cwd(), 'data');
+
+// Rotating file stream: max 10MB per file, keep last 5 rotated files
+let logStream: RotatingFileStream | null = null;
+
+function getLogStream(): RotatingFileStream {
+    if (!logStream) {
+        logStream = createStream('arcaid.log', {
+            path: logDir,
+            size: '10M',
+            interval: '1d',
+            maxFiles: 5,
+            compress: false
+        });
+        logStream.on('error', (err) => {
+            console.error('Log stream error:', err);
+        });
+    }
+    return logStream;
+}
 
 function writeToFile(prefix: string, message: string, ...args: any[]) {
     try {
-        const dir = path.dirname(logFilePath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        
         const timestamp = new Date().toISOString();
         let formattedArgs = '';
         if (args.length > 0) {
-             formattedArgs = ' ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+            formattedArgs = ' ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
         }
-        
+
         const logLine = `[${timestamp}] [${prefix}] ${message}${formattedArgs}\n`;
-        fs.appendFileSync(logFilePath, logLine);
+        // Async write via stream — non-blocking
+        getLogStream().write(logLine);
     } catch (e) {
         console.error("Failed to write to log file:", e);
     }

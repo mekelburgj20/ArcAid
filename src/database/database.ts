@@ -128,6 +128,24 @@ export async function initDatabase(): Promise<Database> {
         }
     }
 
+    // --- Normalize tournament_types to JSON array format ---
+    try {
+        const rows = await db.all("SELECT name, tournament_types FROM game_library WHERE tournament_types IS NOT NULL AND tournament_types != ''");
+        for (const row of rows) {
+            const val = row.tournament_types.trim();
+            // Skip if already a JSON array
+            if (val.startsWith('[')) continue;
+            // Convert CSV to JSON array
+            const types = val.split(',').map((t: string) => t.trim()).filter(Boolean);
+            await db.run(
+                'UPDATE game_library SET tournament_types = ? WHERE name = ?',
+                JSON.stringify(types), row.name
+            );
+        }
+    } catch {
+        // game_library may not have data yet — safe to ignore
+    }
+
     // --- Seed default configurable settings (INSERT OR IGNORE preserves user values) ---
     const defaultSettings = [
         ['GAME_ELIGIBILITY_DAYS', '120'],
