@@ -8,21 +8,21 @@
 **Branch:** `sprint-1/stabilize`
 
 ### Critical Bugs
-- [ ] **BUG-01** — Create `admin-ui/src/lib/api.ts` API client using relative paths; replace all hardcoded `http://localhost:3001` fetch calls in every React page
-- [ ] **BUG-02** — Implement full `TournamentEngine.runMaintenance()`: lock game on iScored, scrape winner, resolve to Discord user, send announcement, activate queued game, start pick timer; uncomment Scheduler maintenance invocation
-- [ ] **BUG-03** — Implement `TimeoutManager` runner-up pivot (query 2nd highest score → assign as picker) and auto-select (random eligible game from `game_library`)
-- [ ] **BUG-04** — Add API auth middleware: admin password → bcrypt hash in settings, JWT session tokens, `Authorization: Bearer` header required on all write endpoints; add `/api/auth/login` endpoint
-- [ ] **BUG-05** — Replace `process.exit(0)` in `server.ts` with graceful reload (close Discord client + DB cleanly, or live-reload credentials without restart)
+- [x] **BUG-01** — Create `admin-ui/src/lib/api.ts` API client using relative paths; replace all hardcoded `http://localhost:3001` fetch calls in every React page
+- [x] **BUG-02** — Implement full `TournamentEngine.runMaintenance()`: lock game on iScored, scrape winner, resolve to Discord user, send announcement, activate queued game, start pick timer; uncomment Scheduler maintenance invocation
+- [x] **BUG-03** — Implement `TimeoutManager` runner-up pivot (query 2nd highest score → assign as picker) and auto-select (random eligible game from `game_library`)
+- [x] **BUG-04** — Add API auth middleware: admin password → bcrypt hash in settings, JWT session tokens, `Authorization: Bearer` header required on all write endpoints; add `/api/auth/login` endpoint
+- [x] **BUG-05** — Replace `process.exit(0)` in `server.ts` with graceful reload (close Discord client + DB cleanly, or live-reload credentials without restart)
 
 ### Backend
-- [ ] Add `zod` validation schemas for all API request bodies (tournaments, settings, game library import)
-- [ ] Add DB indexes (`games.tournament_id`, `games.status`, `submissions.game_id`, `submissions.discord_user_id`)
-- [ ] Add `created_at` / `updated_at` timestamps to `tournaments` and `games` tables
-- [ ] Make hardcoded values configurable in settings: `GAME_ELIGIBILITY_DAYS` (120), `WINNER_PICK_WINDOW_MIN` (60), `RUNNERUP_PICK_WINDOW_MIN` (30), `BOT_TIMEZONE` (America/Chicago), `PORT` (3001)
+- [x] Add `zod` validation schemas for all API request bodies (tournaments, settings, game library import)
+- [x] Add DB indexes (`games.tournament_id`, `games.status`, `submissions.game_id`, `submissions.discord_user_id`)
+- [x] Add `created_at` / `updated_at` timestamps to `tournaments` and `games` tables
+- [x] Make hardcoded values configurable in settings: `GAME_ELIGIBILITY_DAYS` (120), `WINNER_PICK_WINDOW_MIN` (60), `RUNNERUP_PICK_WINDOW_MIN` (30), `BOT_TIMEZONE` (America/Chicago), `PORT` (3001)
 - [ ] Fix inconsistent `tournament_types` format in `game_library` (normalize to JSON array)
 
 ### Discord
-- [ ] Fix temp photo file leak in `submitscore.ts` — use `finally` block for cleanup
+- [x] Fix temp photo file leak in `submitscore.ts` — use `finally` block for cleanup
 - [ ] Add score validation before iScored submission (positive integer check)
 
 ---

@@ -16,14 +16,18 @@
 
 | # | Task | Status | Branch/Notes |
 |---|------|--------|--------------|
-| 1 | BUG-01: API client module (fix hardcoded localhost) | `todo` | Frontend only — `admin-ui/src/lib/api.ts` |
-| 2 | BUG-04: API authentication middleware | `todo` | Backend only — `src/api/` |
-| 3 | BUG-05: Replace `process.exit()` with graceful reload | `todo` | `src/index.ts`, `src/api/server.ts` |
-| 4 | DB indexes + configurable settings | `todo` | `src/database/database.ts` |
-| 5 | Zod validation on all API endpoints | `todo` | `src/api/server.ts` |
-| 6 | BUG-02: Implement full `runMaintenance()` | `todo` | `src/engine/TournamentEngine.ts` + iScored + Discord |
-| 7 | BUG-03: TimeoutManager runner-up + auto-select | `todo` | `src/engine/TimeoutManager.ts` |
-| 8 | Fix temp photo file leak in `/submit-score` | `todo` | `src/discord/commands/submitscore.ts` |
+| 1 | BUG-01: API client module (fix hardcoded localhost) | `done` | `admin-ui/src/lib/api.ts` + all pages wired |
+| 2 | BUG-04: API authentication middleware | `done` | JWT + bcrypt in `src/api/auth.ts`, middleware in `src/api/middleware.ts` |
+| 3 | BUG-05: Replace `process.exit()` with graceful reload | `done` | `serverEvents` emitter in `src/api/server.ts`, listener in `src/index.ts` |
+| 4 | DB indexes + configurable settings | `done` | 5 indexes, default settings seeding, `created_at` columns |
+| 5 | Zod validation on all API endpoints | `done` | `src/api/schemas.ts`, validated on all write endpoints |
+| 6 | BUG-02: Implement full `runMaintenance()` | `done` | 4-phase maintenance: lock → scrape → complete → activate → assign picker |
+| 7 | BUG-03: TimeoutManager runner-up + auto-select | `done` | Tiered timeouts, pivotToRunnerUp, fallbackToAutoSelection, wired into Scheduler |
+| 8 | Fix temp photo file leak in `/submit-score` | `done` | try/finally for temp file + browser session cleanup |
+
+## Sprint 1 — COMPLETE
+
+All 8 tasks done. Ready to merge `sprint-1/stabilize` to `main` and begin Sprint 2.
 
 ## Upcoming Sprints
 
@@ -36,8 +40,8 @@
 ## Last Session
 
 **Date:** 2026-03-08
-**What happened:** Plan approved. Set up branch strategy, state tracking files, and memory. Sprint 1 ready to begin.
-**Next:** Begin Sprint 1 — run parallel agents for tasks 1–4, then tackle BUG-02/03 in main thread.
+**What happened:** Completed all Sprint 1 tasks. BUG-03 (TimeoutManager tiered timeouts + Scheduler wiring), admin-ui API client wiring, and submit-score temp file fix all committed. Build is clean.
+**Next:** Merge sprint-1/stabilize to main, then begin Sprint 2 (Harden).
 
 ## Blockers
 
