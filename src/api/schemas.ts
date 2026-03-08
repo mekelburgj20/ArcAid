@@ -40,7 +40,7 @@ export const ImportGamesSchema = z.object({
         tournament_types: z.union([
             z.array(z.string()),
             z.string(),
-        ]).transform(v => Array.isArray(v) ? JSON.stringify(v) : v).optional().default('[]'),
+        ]).transform((v: string[] | string) => Array.isArray(v) ? JSON.stringify(v) : v).optional().default('[]'),
     })).min(1, 'At least one game required'),
 });
 

@@ -13,12 +13,12 @@ import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, Sett
 
 export const serverEvents = new EventEmitter();
 
-function validate<T>(schema: z.ZodSchema<T>, data: unknown): { data: T } | { error: string } {
+function validate<S extends z.ZodTypeAny>(schema: S, data: unknown): { data: z.infer<S> } | { error: string } {
     const result = schema.safeParse(data);
     if (!result.success) {
-        return { error: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') };
+        return { error: result.error.issues.map((i: z.ZodIssue) => `${i.path.join('.')}: ${i.message}`).join('; ') };
     }
-    return { data: result.data };
+    return { data: result.data as z.infer<S> };
 }
 
 export function startApiServer(port: number = 3001) {
