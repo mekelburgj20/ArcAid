@@ -8,6 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. Read `TODO.md` for remaining tasks with checkboxes
 3. Verify git branch matches the current sprint (`git branch --show-current`)
 4. Run `npm run build` to confirm the codebase compiles cleanly
+5. If admin-ui changes are expected, also run `cd admin-ui && npm run build`
+
+**"Resume" command:** When the user says "Resume", execute this full checklist, then present a status summary and proceed with the next tasks indicated by the status file.
 
 ## Project Summary
 
@@ -37,14 +40,17 @@ cd admin-ui && npm run lint    # ESLint
 Two sub-applications in one process:
 
 **Backend (`src/`):**
-- `src/index.ts` — Bootstrap (DB → settings → API → Discord)
+- `src/index.ts` — Bootstrap (DB → settings → env validation → API → Discord)
 - `src/engine/TournamentEngine.ts` — Core singleton: tournament CRUD + `runMaintenance()` (lock → scrape winner → complete → activate next → assign picker → announce)
-- `src/engine/IScoredClient.ts` — Playwright browser automation for iScored.info
+- `src/engine/IScoredClient.ts` — Playwright browser automation for iScored.info (retry with backoff, persistent sessions, screenshot-on-failure, DOM change detection)
 - `src/engine/Scheduler.ts` — Cron-based maintenance scheduling (reads `BOT_TIMEZONE` from settings)
 - `src/engine/TimeoutManager.ts` — Winner/runner-up pick window tracking
-- `src/api/server.ts` — Express REST API (JWT auth via `src/api/auth.ts` + `src/api/middleware.ts`, Zod validation via `src/api/schemas.ts`)
+- `src/api/server.ts` — Express REST API routing (delegates to service layer)
+- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LogService`
 - `src/utils/discord.ts` — Shared `sendChannelMessage()` for engine classes
 - `src/utils/terminology.ts` — `getTerminology()` — "legacy" (Table/Grind) vs "generic" (Game/Tournament)
+- `src/utils/cooldown.ts` — Per-user Discord command cooldown tracker
+- `src/utils/startup.ts` — Startup environment validation
 
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
