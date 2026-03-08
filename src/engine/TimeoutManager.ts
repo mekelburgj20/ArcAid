@@ -2,6 +2,7 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { Game } from '../types/index.js';
+import { REST, Routes } from 'discord.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -83,12 +84,29 @@ export class TimeoutManager {
         }
     }
 
+    private async sendDiscordMessage(channelId: string, content: string): Promise<void> {
+        const token = process.env.DISCORD_BOT_TOKEN;
+        if (!token) return;
+        try {
+            const rest = new REST({ version: '10' }).setToken(token);
+            await rest.post(Routes.channelMessages(channelId), { body: { content } });
+        } catch (err) {
+            logError('❌ Error sending Discord message via REST:', err);
+        }
+    }
+
     private async sendReminder(game: Game, minsRemaining: number): Promise<void> {
         const db = await getDatabase();
         try {
-            // In a real scenario, this would integrate with the DiscordClient to send a message.
-            logInfo(`🔔 Reminder: <@${game.pickerDiscordId}> has ${minsRemaining} minutes left to pick the next ${getTerminology().game}.`);
+            const term = getTerminology();
+            const message = `🔔 Reminder: <@${game.pickerDiscordId}> has ${minsRemaining} minutes left to pick the next ${term.game}.`;
+            logInfo(message);
             
+            const channelId = process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+            if (channelId) {
+                await this.sendDiscordMessage(channelId, message);
+            }
+
             await db.run(
                 'UPDATE games SET reminder_count = reminder_count + 1 WHERE id = ?',
                 game.id
@@ -110,6 +128,12 @@ export class TimeoutManager {
             // Future: Fetch runner-up ID from submissions/history using wonGameId
             // For now, simulate fallback if runner-up isn't found
             logWarn(`⚠️ Runner-Up logic requires Identity Mapping (Phase 3). Falling back to auto-selection for now.`);
+            
+            const channelId = process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+            if (channelId) {
+                await this.sendDiscordMessage(channelId, `⏰ The winner timed out! Pivoting to runner up for game ${game.id}... (Simulation)`);
+            }
+
             await this.fallbackToAutoSelection(game);
             
         } catch (error) {
@@ -125,6 +149,11 @@ export class TimeoutManager {
         try {
             logInfo(`🤖 Auto-selecting random eligible ${term.game} for ${game.tournamentId}...`);
             
+            const channelId = process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+            if (channelId) {
+                await this.sendDiscordMessage(channelId, `⏰ All pickers timed out! Falling back to auto-selection for ${game.tournamentId}.`);
+            }
+
             // Future: Query a pool of available games, select one that is isGameEligible(), and activate it
             // For now, mark as failed picker
             await db.run(

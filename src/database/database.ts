@@ -58,7 +58,7 @@ export async function initDatabase(): Promise<Database> {
     await db.exec(`
         CREATE TABLE IF NOT EXISTS games (
             id TEXT PRIMARY KEY,
-            tournament_id TEXT NOT NULL,
+            tournament_id TEXT, -- Nullable to support untracked/manual games
             name TEXT NOT NULL,
             iscored_id TEXT, -- Link to iScored game ID
             style_id TEXT,   -- iScored style ID

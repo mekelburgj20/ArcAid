@@ -50,5 +50,28 @@ Before running the app, you must set up a Discord bot:
 ## 🛠 Features
 - Generic "Games" and "Tournaments" engine with "Pinball Legacy" mode.
 - Playwright-powered iScored automation.
+- **Managed vs. Manual Protection**: Automatically protects your personal iScored games from bot interference while still tracking their scores.
+- **Discovery Mode**: Automatically syncs and tracks manual games into the local database for historical stats.
 - Local React-based Admin Dashboard.
 - Automated database backups and snapshots.
+
+## 🕹️ Discord Commands
+
+### User Commands
+- `/list-active`: Show currently active tournament and manual games.
+- `/list-scores`: Display the leaderboard for recent games.
+- `/submit-score`: Post your score and photo directly to iScored.
+- `/view-stats`: Show historical stats (play count, high scores) for any game.
+- `/list-winners`: Display a hall of fame for recent tournament winners.
+- `/view-selection`: Check which game is currently queued for the next rotation.
+- `/pick-game`: Nominated pickers can select the next game in the rotation.
+- `/map-user`: Link your Discord ID to your iScored username.
+
+### Admin Commands
+- `/force-maintenance`: Manually trigger a tournament rotation.
+- `/sync-state`: Reconcile local database with live iScored board and sync scores.
+- `/run-cleanup`: Sweep and hide old finished tournament games from iScored.
+- `/create-backup`: Manually trigger a database backup.
+- `/pause-pick`: Inject a specific game into the queue (Manual Override).
+- `/nominate-picker`: Manually assign picker rights to a user.
+- `/setup`: Configure tournament channels and roles.

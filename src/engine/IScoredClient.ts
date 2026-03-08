@@ -50,7 +50,10 @@ export class IScoredClient {
 
             // Handle cookie consent if it appears
             try {
-                await this.page.click('button:has-text("I agree")', { timeout: 3000 });
+                const cookieBtn = this.page.locator('button:has-text("I agree")');
+                if (await cookieBtn.count() > 0) {
+                     await cookieBtn.click({ timeout: 3000 });
+                }
             } catch (e) {
                 logDebug('Cookie consent not found or already dismissed.');
             }
@@ -61,8 +64,8 @@ export class IScoredClient {
             await mainFrame.getByRole('textbox', { name: 'Password', exact: true }).fill(process.env.ISCORED_PASSWORD!);
             await mainFrame.getByRole('button', { name: 'Log In' }).click();
 
-            // Wait for successful login (user dropdown appears)
-            await mainFrame.locator('#userDropdown').waitFor({ state: 'visible', timeout: 15000 });
+            // Wait for successful login (user dropdown appears inside the main iframe)
+            await mainFrame.locator('#userDropdown').waitFor({ state: 'attached', timeout: 15000 });
             
             logInfo('✅ Successfully logged into iScored.');
         } catch (error) {
@@ -90,26 +93,24 @@ export class IScoredClient {
      */
     private async navigateToLineup(): Promise<void> {
         if (!this.page) throw new Error('Client not connected. Call connect() first.');
-
-        const mainFrame = this.page.frameLocator('#main');
         
-        // Check if already there
-        if (await mainFrame.locator('ul#orderGameUL').isVisible()) return;
-
-        logDebug('Navigating to Lineup tab...');
+        logDebug('Ensuring we are on settings page...');
         
-        // Go to settings first if needed
+        // Directly navigate to settings.php
         if (!this.page.url().includes('settings.php')) {
-            const userDropdown = mainFrame.locator('#userDropdown').getByRole('link');
-            await userDropdown.click();
-            const settingsLink = mainFrame.locator('a[href="/settings.php"]').filter({ hasText: 'Settings' });
-            await settingsLink.click();
-            await mainFrame.locator('ul.nav.nav-tabs.settingsTabs').waitFor({ state: 'visible' });
+            await this.page.goto(this.SETTINGS_URL);
+            await this.page.locator('ul.nav.nav-tabs.settingsTabs').waitFor({ state: 'visible' });
         }
 
-        const lineupTab = mainFrame.locator('a[href="#order"]');
+        const lineupTab = this.page.locator('a[href="#order"]');
         await lineupTab.click();
-        await mainFrame.locator('ul#orderGameUL').waitFor({ state: 'attached' });
+        
+        // Wait for the specific list container
+        const list = this.page.locator('ul#orderGameUL');
+        await list.waitFor({ state: 'attached', timeout: 10000 });
+        
+        // Give AJAX a moment to populate the list
+        await this.page.waitForTimeout(2000);
     }
 
     /**
@@ -117,13 +118,24 @@ export class IScoredClient {
      */
     public async getAllGames(): Promise<IScoredGame[]> {
         await this.navigateToLineup();
-        const mainFrame = this.page!.frameLocator('#main');
-        const rows = await mainFrame.locator('li.list-group-item').all();
+        
+        // Wait for at least one row to appear if we expect games
+        try {
+            await this.page!.locator('li.list-group-item').first().waitFor({ state: 'attached', timeout: 5000 });
+        } catch (e) {
+            logWarn('   -> No games found in lineup (Timeout waiting for first row).');
+        }
+
+        const rows = await this.page!.locator('li.list-group-item').all();
+        logDebug(`   -> Scraper found ${rows.length} rows in the DOM.`);
         
         const games: IScoredGame[] = [];
         for (const row of rows) {
             const id = (await row.getAttribute('id')) || '';
-            const name = (await row.locator('span.dragHandle').innerText()).trim();
+            const nameElement = row.locator('span.dragHandle');
+            if (await nameElement.count() === 0) continue;
+            
+            const name = (await nameElement.innerText()).trim();
             const isHidden = await row.locator(`#hide${id}`).isChecked();
             const isLocked = await row.locator(`#lock${id}`).isChecked();
             
@@ -146,17 +158,16 @@ export class IScoredClient {
      */
     public async setGameStatus(gameId: string, status: { hidden?: boolean, locked?: boolean }): Promise<void> {
         await this.navigateToLineup();
-        const mainFrame = this.page!.frameLocator('#main');
         
         if (status.locked !== undefined) {
-            const lockCheckbox = mainFrame.locator(`#lock${gameId}`);
+            const lockCheckbox = this.page!.locator(`#lock${gameId}`);
             if (status.locked) await lockCheckbox.check({ force: true });
             else await lockCheckbox.uncheck({ force: true });
             await this.page!.waitForTimeout(1000);
         }
 
         if (status.hidden !== undefined) {
-            const hideCheckbox = mainFrame.locator(`#hide${gameId}`);
+            const hideCheckbox = this.page!.locator(`#hide${gameId}`);
             if (status.hidden) await hideCheckbox.check({ force: true });
             else await hideCheckbox.uncheck({ force: true });
             await this.page!.waitForTimeout(1000);
@@ -170,11 +181,10 @@ export class IScoredClient {
      */
     public async setGameTags(gameId: string, tag: string): Promise<void> {
         await this.navigateToLineup();
-        const mainFrame = this.page!.frameLocator('#main');
 
         logInfo(`🏷️ Adding tag '${tag}' to game ID: ${gameId}`);
         try {
-            const gameRow = mainFrame.locator(`li[id="${gameId}"]`);
+            const gameRow = this.page!.locator(`li[id="${gameId}"]`);
             const tagifyInput = gameRow.locator('.tagify__input').first();
 
             const isVisible = await tagifyInput.isVisible();
@@ -200,21 +210,19 @@ export class IScoredClient {
 
         logInfo(`✨ Creating new ${getTerminology().game}: ${gameName}${styleId ? ` (Style ID: ${styleId})` : ''}`);
 
-        const mainFrame = this.page.frameLocator('#main');
+        // Directly navigate to settings.php
+        if (!this.page.url().includes('settings.php')) {
+            await this.page.goto(this.SETTINGS_URL);
+            await this.page.locator('ul.nav.nav-tabs.settingsTabs').waitFor({ state: 'visible' });
+        }
+        await this.page.locator('a[href="#games"]').click();
         
-        // Navigate to Games tab
-        const userDropdown = mainFrame.locator('#userDropdown').getByRole('link');
-        await userDropdown.click();
-        const settingsLink = mainFrame.locator('a[href="/settings.php"]').filter({ hasText: 'Settings' });
-        await settingsLink.click();
-        await mainFrame.locator('a[href="#games"]').click();
-        
-        await mainFrame.locator('button:has-text("Add New Game")').click();
-        const searchInput = mainFrame.locator('input[type="search"][aria-controls="stylesTable"]');
+        await this.page.locator('button:has-text("Add New Game")').click();
+        const searchInput = this.page.locator('input[type="search"][aria-controls="stylesTable"]');
 
         if (styleId) {
             // Apply style via JS
-            await mainFrame.locator(':root').evaluate((el, id) => {
+            await this.page.locator(':root').evaluate((el, id) => {
                 if (typeof (window as any).loadStylePreview === 'function') {
                     (window as any).loadStylePreview(id);
                 }
@@ -222,11 +230,11 @@ export class IScoredClient {
             await this.page.waitForTimeout(1000);
             
             await searchInput.fill(gameName);
-            const createBtn = mainFrame.locator('button:has-text("Create Game Using Selected Style")');
+            const createBtn = this.page.locator('button:has-text("Create Game Using Selected Style")');
             await createBtn.evaluate(el => (el as HTMLElement).click());
         } else {
             await searchInput.fill(gameName);
-            await mainFrame.locator('button:has-text("Create Blank Game")').click();
+            await this.page.locator('button:has-text("Create Blank Game")').click();
         }
 
         await this.page.waitForTimeout(3000); // Wait for creation redirect

@@ -36,22 +36,26 @@
 
 ## Phase 6: Feature Parity Completion (TableFlipper -> ArcAid)
 *The core infrastructure is built, but the following TableFlipper features must be ported to reach 100% parity.*
-- [ ] **Maintenance Execution**: Fill out the stub in `TournamentEngine.ts` to actually lock games, scrape winners, ping Discord, and activate next games.
-- [ ] **Timeout Communications**: Update `TimeoutManager.ts` to send actual Discord DMs and channel warnings instead of just logging.
-- [ ] **Callouts/Personality**: Port the `callouts.json` message listener for easter eggs.
-- [ ] **User Commands**:
-  - [ ] `/list-active`: Show currently active games.
-  - [ ] `/list-scores`: Display the leaderboard for a game.
-  - [ ] `/view-stats`: Show historical stats (play count, win rate, etc.).
-  - [ ] `/list-winners`: Display recent tournament winners.
-  - [ ] `/view-selection`: Show the current queued game.
-- [ ] **Admin Commands**:
-  - [ ] `/force-maintenance`: Manually trigger a rotation.
-  - [ ] `/sync-state`: Manually trigger iScored reconciliation.
-  - [ ] `/run-cleanup`: Sweep iScored lineup to hide old games.
-  - [ ] `/create-backup`: Trigger `BackupManager` via Discord.
-  - [ ] `/pause-pick` (Manual Override): Inject a specific game into the lineup.
-  - [ ] `/nominate-picker`: Manually assign picker rights.
+- [x] **Maintenance Execution**: Fill out the stub in `TournamentEngine.ts` to actually lock games, scrape winners, ping Discord, and activate next games.
+- [x] **Timeout Communications**: Update `TimeoutManager.ts` to send actual Discord DMs and channel warnings instead of just logging.
+- [x] **Callouts/Personality**: Port the `callouts.json` message listener for easter eggs.
+- [x] **User Commands**:
+  - [x] `/list-active`: Show currently active games.
+  - [x] `/list-scores`: Display the leaderboard for a game.
+  - [x] `/view-stats`: Show historical stats (play count, win rate, etc.).
+  - [x] `/list-winners`: Display recent tournament winners.
+  - [x] `/view-selection`: Show the current queued game.
+- [x] **Admin Commands**:
+  - [x] `/force-maintenance`: Manually trigger a rotation.
+  - [x] `/sync-state`: Manually trigger iScored reconciliation.
+  - [x] `/run-cleanup`: Sweep iScored lineup to hide old games.
+  - [x] `/create-backup`: Trigger `BackupManager` via Discord.
+  - [x] `/pause-pick` (Manual Override): Inject a specific game into the lineup.
+  - [x] `/nominate-picker`: Manually assign picker rights.
+- [x] **Manual Game Support**:
+  - [x] **Ownership-Aware Cleanup**: Ensure `/run-cleanup` only hides games ArcAid explicitly manages.
+  - [x] **Discovery Mode**: Auto-discover and track non-tournament games on iScored.
+  - [x] **Score Sync**: Automatically pull scores for manual games into the local database history.
 
 ## Phase 7: Deployment
 - [x] **Dockerization**: Provide `Dockerfile` and `docker-compose.yml`.

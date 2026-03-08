@@ -1,0 +1,264 @@
+[
+  {
+    "triggers": ["seafood", "milk"],
+    "responses": ["MEOW MEOW MEOW MEOW!"]
+  },
+  {
+    "triggers": ["addams family", "taf", "mamushka"],
+    "responses": ["Show me the vault!", "THIIIING!", "Dirty pool, old man!", "Look out!", "The Mamushka!", "It's Showtime!"]
+  },
+  {
+    "triggers": ["medieval madness", "mm"],
+    "responses": ["They're taking our babies!", "The King of Payne!", "I am the Duke of Bourbon!", "Troll! In the pantry!", "Sir Psycho!", "Ordered to be destroyed!"]
+  },
+  {
+    "triggers": ["attack from mars", "afm", "mars", "martian"],
+    "responses": ["ACK! ACK! ACK!", "Return to your planet!", "Martian Multiball!", "Don't move! They're right behind you!"]
+  },
+  {
+    "triggers": ["monster bash"],
+    "responses": ["I'm a vvvampire!", "I'm a little bit Frankenstein!", "Let's get this party started!", "Dig him up!", "The Creature is ALIVE!", "Welcome back, Mummy!"]
+  },
+  {
+    "triggers": ["twilight zone", "tz"],
+    "responses": ["The clock... the clock is the key!", "You have just entered... The Twilight Zone.", "Greed is good!", "Don't touch the door!"]
+  },
+  {
+    "triggers": ["funhouse", "fh"],
+    "responses": ["Quit playing with the clock!", "Hey, Biff! Get yourself a hot dog!", "I'm still hungry!", "You big sausage!", "Sleep? I don't need no sleep!", "Get yourself a hot dog!"]
+  },
+  {
+    "triggers": ["creature", "cftbl", "creature from the black lagoon", "snack bar"],
+    "responses": ["Move your car!", "Focus!", "Stay cool, daddy-o!", "Thank you, enjoy the film!"]
+  },
+  {
+    "triggers": ["indiana jones", "indy"],
+    "responses": ["Choose wisely!", "Nothing shocks me, I'm a scientist!", "Indy, the bridge is out!", "You cheat, Dr. Jones!", "Don't look at it, Marion!"]
+  },
+  {
+    "triggers": ["star trek", "sttng"],
+    "responses": ["Engage!", "Make it so.", "Resistance is futile.", "Thank you, Mr. Data.", "Return to duty."]
+  },
+  {
+    "triggers": ["white water", "wh2o"],
+    "responses": ["Welcome to Wet Willie’s!", "Watch out for Bigfoot!", "Disaster Drop!", "Go for the mountains!"]
+  },
+  {
+    "triggers": ["theatre of magic", "tom"],
+    "responses": ["You have the magic!", "Illusion!", "Shoot the trunk!", "Now you see it..."]
+  },
+  {
+    "triggers": ["tales of the arabian nights", "totan"],
+    "responses": ["Your wish is granted!", "Destroy the Genie!", "Fly to the Bazaar!"]
+  },
+  {
+    "triggers": ["cirqus voltaire", "cv"],
+    "responses": ["Join the Cirqus!", "I am the Ringmaster!", "Step right up!"]
+  },
+  {
+    "triggers": ["bram stoker", "dracula", "bsd"],
+    "responses": ["THIRTY MILLION!", "I am Dracula.", "Listen to them. Children of the night.", "Your willpower is fading!"]
+  },
+  {
+    "triggers": ["elvira", "scared stiff", "party monsters", "ehoh"],
+    "responses": ["Thank you, boys!", "Let's get scared stiff!", "I'm having a multiple... jackpot!", "Head for the crypt!", "Unpleasant dreams!"]
+  },
+  {
+    "triggers": ["fish tales", "ft", "boat", "fishing"],
+    "responses": ["You're gonna need a bigger boat!", "Catch of the day!", "Keep your pants on!", "It was THIS big!"]
+  },
+  {
+    "triggers": ["earthshaker", "earthquake"],
+    "responses": ["It's an earthquake!", "Ooh, give me shelter!", "Sunny driving!"]
+  },
+  {
+    "triggers": ["whirlwind"],
+    "responses": ["The storm is coming!", "Return to your homes!", "Feel the power of the wind!"]
+  },
+  {
+    "triggers": ["taxi"],
+    "responses": ["Taxi!", "Hey, buddy!", "I vant to go to Transylvania!", "Give me a ride!"]
+  },
+  {
+    "triggers": ["bride of pinbot", "bop", "pinbot"],
+    "responses": ["I can speak!", "Now I see you!", "Oh no!"]
+  },
+  {
+    "triggers": ["lord of the rings", "lotr", "gollum", "balrog"],
+    "responses": ["Destroy the ring!", "Fly, you fools!", "My precious!", "Keep it secret, keep it safe.", "Baruk Khazâd!"]
+  },
+  {
+    "triggers": ["simpsons", "tspp", "itchy", "scratchy", "homer", "marge", "bart", "lisa"],
+    "responses": ["Worst. Pinball. Ever.", "Release the hounds!", "Ay caramba!", "D'oh!"]
+  },
+  {
+    "triggers": ["spider-man", "spiderman"],
+    "responses": ["I'm gonna put some dirt in your eye!", "The power of the sun, in the palm of my hand.", "We'll meet again, Spider-Man!"]
+  },
+  {
+    "triggers": ["deadpool", "dp"],
+    "responses": ["Chimichanga time!", "BOOM!", "Maximum effort!", "Snikt!"]
+  },
+  {
+    "triggers": ["black knight", "bk", "bk2k", "bksor"],
+    "responses": ["WILL YOU CHALLENGE THE BLACK KNIGHT?", "GIVE ME YOUR MONEY!", "YOU CAN'T WIN!", "HAHAHAHAHA!", "I AM THE BLACK KNIGHT!"]
+  },
+  {
+    "triggers": ["godzilla", "gz", "kaiju", "mechagodzilla"],
+    "responses": ["KAIJU ATTACK!", "GODZILLA MULTIBALL!", "The city is in ruins!", "King of the Monsters!", "Shin-Gojira!", "Gojira no ikari da!", "Mecha-Gojira shutsugeki!"]
+  },
+  {
+    "triggers": ["jurassic park", "jp"],
+    "responses": ["Life finds a way!", "Clever girl.", "Welcome to Jurassic Park!", "System ready!"]
+  },
+  {
+    "triggers": ["iron maiden", "maiden", "imdn"],
+    "responses": ["Up the irons!", "Aces High!", "Can I play with madness?", "Scream for me!", "Two minutes to midnight!", "The Trooper!"]
+  },
+  {
+    "triggers": ["avengers", "aiq", "thanos"],
+    "responses": ["Avengers Assemble!", "Soul Gem Collected!", "Thanos is near!", "I am Iron Man."]
+  },
+  {
+    "triggers": ["high speed", "hs"],
+    "responses": ["Dispatch, we have a code 3!", "Pull over, buddy!", "He's getting away!"]
+  },
+  {
+    "triggers": ["getaway", "hs2"],
+    "responses": ["SHIFT INTO HIGH GEAR!", "Red light! Red light!", "You're going 120, pull over!"]
+  },
+  {
+    "triggers": ["terminator", "t2", "arnold"],
+    "responses": ["Stay cool.", "I'll be back.", "Excellent.", "Payback time!", "GET OUT!"]
+  },
+  {
+    "triggers": ["acdc", "ac/dc"],
+    "responses": ["FOR THOSE ABOUT TO ROCK!", "THUNDERSTRUCK!", "Let there be light!", "FIRE!"]
+  },
+  {
+    "triggers": ["gorgar"],
+    "responses": ["GORGAR SPEAKS!", "ME GORGAR, BEAT YOU!", "GORGAR... HURT!", "YOU... DIE!"]
+  },
+  {
+    "triggers": ["eight ball deluxe", "ebd"],
+    "responses": ["Told ya you could do it!", "Quit talkin' and chalk up!", "Behind the eight ball!", "Corner pocket!"]
+  },
+  {
+    "triggers": ["xenon"],
+    "responses": ["Xeeeee-noooon...", "Enter Xenon!", "Welcome!"]
+  },
+  {
+    "triggers": ["centaur"],
+    "responses": ["Only the ORBS can save you now!", "DESTROY CENTAUR!", "POWER UP!"]
+  },
+  {
+    "triggers": ["cactus canyon", "cc", "ccr"],
+    "responses": ["Stick 'em up!", "Yee-haw!", "Move 'em out!"]
+  },
+  {
+    "triggers": ["willy wonka", "wonka", "wwktcf"],
+    "responses": ["You get nothing! You lose! Good day sir!", "Come with me and you'll be in a world of pure imagination."]
+  },
+  {
+    "triggers": ["congo"],
+    "responses": ["Stop eating my sesame cake!", "Ugly gorilla!", "Amy want green drop drink!"]
+  },
+  {
+    "triggers": ["ghostbusters"],
+    "responses": ["Don't cross the streams!", "Are you a god?", "He slimed me!", "I've been slimed!"]
+  },
+  {
+    "triggers": ["rick and morty"],
+    "responses": ["I'm Pickle Rick!", "Wubba lubba dub dub!", "Get schwifty!", "Existence is pain!"]
+  },
+  {
+    "triggers": ["metallica"],
+    "responses": ["Master! Master!", "Seek and Destroy!", "Fuel!", "Gimme fuel, gimme fire!"]
+  },
+  {
+    "triggers": ["star wars", "vader", "yoda", "death star"],
+    "responses": ["Use the Force, Luke.", "It's a trap!", "Join the Dark Side.", "I am your father."]
+  },
+  {
+    "triggers": ["tron"],
+    "responses": ["I fight for the users!", "End of line.", "Greetings, programs!", "The grid... a digital frontier."]
+  },
+  {
+    "triggers": ["world cup soccer", "wcs"],
+    "responses": ["GOAAAAAL!", "Kickoff!", "I'm the goalie!", "Final match!"]
+  },
+  {
+    "triggers": ["no good gofers", "ngg", "gofer"],
+    "responses": ["I'm gonna get you, gofer!", "Fore!", "Buzz off!", "It's in the hole!"]
+  },
+  {
+    "triggers": ["guardians"],
+    "responses": ["I am Groot.", "We are Groot.", "Hooked on a feeling!", "Dance off, bro!"]
+  },
+  {
+    "triggers": ["guns n roses", "gnr", "slash", "axl"],
+    "responses": ["Welcome to the jungle!", "Sweet child o' mine!", "Paradise City!"]
+  },
+  {
+    "triggers": ["dr. dude"],
+    "responses": ["I'm the Dude!", "Way cool!", "Stay cool!"]
+  },
+  {
+    "triggers": ["flintstones"],
+    "responses": ["Yabba-dabba-doo!", "Wilma!", "Order! Order in the court!"]
+  },
+  {
+    "triggers": ["junkyard", "junk yard", "crazy bob"],
+    "responses": [
+      "Welcome to my junk yard!", 
+      "I'm Crazy Bob!", 
+      "You're trash!", 
+      "Keep your hands off my junk!", 
+      "Go fetch!",
+      "Where do you think you're going with that?"
+    ]
+  },
+  {
+    "triggers": ["cow", "moo", "dork cow"],
+    "responses": [
+      "```text\n   (___)\n   (o o)____/\n    @@ `    \\\n     \\ ____,/\n     //   //\n    ^^   ^^\n```\n*Secret Cow Mode Activated!*"
+    ]
+  },
+  {
+    "triggers": ["no fear"],
+    "responses": ["Go for it!", "No Fear!", "Talk is cheap!", "Second is first loser!"]
+  },
+  {
+    "triggers": ["game of thrones", "got", "winter is coming", "!got", "!Got"],
+    "responses": ["Winter is coming!", "A Lannister always pays his debts.", "Dracarys!", "The North remembers."]
+  },
+  {
+    "triggers": ["the walking dead", "twd"],
+    "responses": ["Fight the dead, fear the living.", "Don't open, dead inside.", "Lucille is thirsty!", "We are the walking dead."]
+  },
+  {
+    "triggers": ["beavis and butt-head", "beavis", "butt-head"],
+    "responses": ["Huh-huh, that was cool.", "I am Cornholio!", "Fire! Fire!", "Settle down, Beavis."]
+  },
+  {
+    "triggers": ["good bot"],
+    "responses": [
+      "Just doing my job, sir!", 
+      "I live to flip!", 
+      "beep boop *blushes*", 
+      "Finally, someone appreciates the silicon struggle.", 
+      "Does this mean I get a raise in electricity?"
+    ]
+  },
+  {
+    "triggers": ["fuck you table flipper", "fuck you bot"],
+    "responses": [
+      "Is that any way to talk to your robot butler?", 
+      "Tilt! Someone's getting salty...", 
+      "My feelings are made of silicon and indifference.", 
+      "I've been called worse by a Speak & Spell.", 
+      "Error 404: Fucks not found.",
+      "Go flip yourself."
+    ]
+  }
+]

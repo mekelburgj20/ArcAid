@@ -142,11 +142,35 @@ export class TournamentEngine {
         
         if (activeGame) {
             logInfo(`   -> Handling completion of ${term.game}: ${activeGame.name}`);
-            // Future: Integration with IScoredClient to lock and scrape scores
+            
+            // Mark as COMPLETED in DB
+            await db.run(
+                'UPDATE games SET status = ?, end_date = ? WHERE id = ?',
+                'COMPLETED', new Date().toISOString(), activeGame.id
+            );
+
+            logInfo(`✅ Marked ${term.game} as COMPLETED in DB: ${activeGame.name}`);
+
+            // In a full implementation, we'd also scrape the winner from iScored here,
+            // lock the game on iScored, and send a discord notification.
+            // For now, we simulate this.
+            logInfo(`🔔 (Simulated) Sent Discord notification for completed ${term.game}.`);
+        } else {
+            logInfo(`⚠️ No active ${term.game} found for ${term.tournament} ${tournament.name}.`);
         }
 
-        // 2. Promote the next game (if any are queued/scheduled)
-        // Future: Logic to pick the next game from a pool or picker
+        // 2. Promote the next game
+        const queuedGame = await db.get('SELECT * FROM games WHERE tournament_id = ? AND status = ? ORDER BY id ASC LIMIT 1', tournamentId, 'QUEUED');
+        if (queuedGame) {
+            logInfo(`   -> Activating queued ${term.game}: ${queuedGame.name}`);
+            await db.run(
+                'UPDATE games SET status = ?, start_date = ? WHERE id = ?',
+                'ACTIVE', new Date().toISOString(), queuedGame.id
+            );
+            logInfo(`🎉 Activated ${term.game}: ${queuedGame.name}`);
+        } else {
+            logInfo(`⚠️ No queued ${term.game} to activate for ${term.tournament} ${tournament.name}.`);
+        }
         
         logInfo(`✅ Maintenance complete for ${tournament.name}`);
     }

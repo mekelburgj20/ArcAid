@@ -10,6 +10,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups
+    env_file:
+      - .env
     environment:
       # Optional: You can still use a .env file locally with compose
       - NODE_ENV=production
