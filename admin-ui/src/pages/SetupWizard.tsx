@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { api } from '../lib/api';
 
 export default function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(1);
@@ -19,11 +20,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   const handleFinish = async () => {
     setSaving(true);
     try {
-      await fetch('http://localhost:3001/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...config, SETUP_COMPLETE: 'true' }),
-      });
+      await api.post('/settings', { ...config, SETUP_COMPLETE: 'true' });
       onComplete();
     } catch (err) {
       console.error(err);

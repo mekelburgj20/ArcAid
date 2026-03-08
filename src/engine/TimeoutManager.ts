@@ -2,7 +2,10 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { Game } from '../types/index.js';
-import { REST, Routes } from 'discord.js';
+import { sendChannelMessage } from '../utils/discord.js';
+import { TournamentEngine } from './TournamentEngine.js';
+import { IScoredClient } from './IScoredClient.js';
+import { v4 as uuidv4 } from 'uuid';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -18,17 +21,17 @@ export class TimeoutManager {
 
     /**
      * Checks all QUEUED games for picker timeouts and handles pivots/auto-selections.
+     * Called periodically by the Scheduler (every minute).
      */
     public async checkTimeouts(): Promise<void> {
         const db = await getDatabase();
-        const term = getTerminology();
-        
+
         try {
             // Find all queued games that have a designated picker
             const pendingGames = await db.all(`
-                SELECT * FROM games 
-                WHERE status = 'QUEUED' 
-                AND picker_discord_id IS NOT NULL 
+                SELECT * FROM games
+                WHERE status = 'QUEUED'
+                AND picker_discord_id IS NOT NULL
                 AND picker_designated_at IS NOT NULL
             `);
 
@@ -41,7 +44,7 @@ export class TimeoutManager {
                     pickerDiscordId: row.picker_discord_id,
                     pickerType: row.picker_type as any,
                     pickerDesignatedAt: row.picker_designated_at ? new Date(row.picker_designated_at) : undefined,
-                    reminderCount: row.reminder_count,
+                    reminderCount: row.reminder_count ?? 0,
                     wonGameId: row.won_game_id
                 };
 
@@ -52,46 +55,55 @@ export class TimeoutManager {
         }
     }
 
+    /**
+     * Resolves the announcement channel for a tournament.
+     * Uses the tournament's discord_channel_id, falling back to the global env var.
+     */
+    private async getChannelId(tournamentId: string | undefined): Promise<string | undefined> {
+        if (!tournamentId) return process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+
+        const db = await getDatabase();
+        const row = await db.get('SELECT discord_channel_id FROM tournaments WHERE id = ?', tournamentId);
+        return row?.discord_channel_id || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+    }
+
     private async handleTieredTimeout(game: Game): Promise<void> {
         if (!game.pickerDesignatedAt) return;
 
+        const db = await getDatabase();
         const now = new Date();
         const elapsedMins = (now.getTime() - game.pickerDesignatedAt.getTime()) / (1000 * 60);
-        const term = getTerminology();
+
+        // Read configurable timeout windows from settings
+        const winnerWindowRow = await db.get("SELECT value FROM settings WHERE key = 'WINNER_PICK_WINDOW_MIN'");
+        const runnerUpWindowRow = await db.get("SELECT value FROM settings WHERE key = 'RUNNERUP_PICK_WINDOW_MIN'");
+        const winnerWindowMin = parseInt(winnerWindowRow?.value ?? '60', 10);
+        const runnerUpWindowMin = parseInt(runnerUpWindowRow?.value ?? '30', 10);
 
         if (game.pickerType === 'WINNER') {
-            // WINNER TIMEOUT: 60 mins
-            if (elapsedMins >= 60) {
-                logInfo(`⏰ Winner for ${term.tournament} (Game ID: ${game.id}) has timed out. Pivoting to Runner-Up...`);
+            if (elapsedMins >= winnerWindowMin) {
+                logInfo(`⏰ Winner for game slot ${game.id} timed out after ${winnerWindowMin}min. Pivoting to runner-up...`);
                 await this.pivotToRunnerUp(game);
             } else {
-                const nextReminder = (game.reminderCount! + 1) * 15;
-                if (elapsedMins >= nextReminder) {
-                    await this.sendReminder(game, 60 - Math.floor(elapsedMins));
+                // Send reminders at 15-minute intervals
+                const reminderInterval = 15;
+                const nextReminderAt = ((game.reminderCount ?? 0) + 1) * reminderInterval;
+                if (elapsedMins >= nextReminderAt) {
+                    await this.sendReminder(game, winnerWindowMin - Math.floor(elapsedMins));
                 }
             }
         } else if (game.pickerType === 'RUNNER_UP') {
-            // RUNNER-UP TIMEOUT: 30 mins
-            if (elapsedMins >= 30) {
-                logInfo(`⏰ Runner-Up for ${term.tournament} (Game ID: ${game.id}) has timed out. Falling back to auto-selection...`);
+            if (elapsedMins >= runnerUpWindowMin) {
+                logInfo(`⏰ Runner-up for game slot ${game.id} timed out after ${runnerUpWindowMin}min. Auto-selecting...`);
                 await this.fallbackToAutoSelection(game);
             } else {
-                const nextReminder = (game.reminderCount! + 1) * 10;
-                if (elapsedMins >= nextReminder) {
-                    await this.sendReminder(game, 30 - Math.floor(elapsedMins));
+                // Send reminders at 10-minute intervals
+                const reminderInterval = 10;
+                const nextReminderAt = ((game.reminderCount ?? 0) + 1) * reminderInterval;
+                if (elapsedMins >= nextReminderAt) {
+                    await this.sendReminder(game, runnerUpWindowMin - Math.floor(elapsedMins));
                 }
             }
-        }
-    }
-
-    private async sendDiscordMessage(channelId: string, content: string): Promise<void> {
-        const token = process.env.DISCORD_BOT_TOKEN;
-        if (!token) return;
-        try {
-            const rest = new REST({ version: '10' }).setToken(token);
-            await rest.post(Routes.channelMessages(channelId), { body: { content } });
-        } catch (err) {
-            logError('❌ Error sending Discord message via REST:', err);
         }
     }
 
@@ -99,12 +111,12 @@ export class TimeoutManager {
         const db = await getDatabase();
         try {
             const term = getTerminology();
-            const message = `🔔 Reminder: <@${game.pickerDiscordId}> has ${minsRemaining} minutes left to pick the next ${term.game}.`;
+            const message = `🔔 <@${game.pickerDiscordId}>, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`;
             logInfo(message);
-            
-            const channelId = process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+
+            const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {
-                await this.sendDiscordMessage(channelId, message);
+                await sendChannelMessage(channelId, message);
             }
 
             await db.run(
@@ -116,53 +128,189 @@ export class TimeoutManager {
         }
     }
 
+    /**
+     * Winner timed out — find the runner-up from the completed game's submissions
+     * and assign them picking rights.
+     */
     private async pivotToRunnerUp(game: Game): Promise<void> {
         const db = await getDatabase();
+        const term = getTerminology();
+
         try {
             if (!game.wonGameId) {
-                logWarn(`⚠️ No won_game_id found for ${game.id}. Falling back to auto-selection.`);
+                logWarn(`⚠️ No won_game_id on slot ${game.id}. Cannot determine runner-up. Falling back to auto-select.`);
                 await this.fallbackToAutoSelection(game);
                 return;
             }
 
-            // Future: Fetch runner-up ID from submissions/history using wonGameId
-            // For now, simulate fallback if runner-up isn't found
-            logWarn(`⚠️ Runner-Up logic requires Identity Mapping (Phase 3). Falling back to auto-selection for now.`);
-            
-            const channelId = process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
-            if (channelId) {
-                await this.sendDiscordMessage(channelId, `⏰ The winner timed out! Pivoting to runner up for game ${game.id}... (Simulation)`);
+            // Query the 2nd highest scorer from the completed game's submissions
+            const runnerUpRow = await db.get(
+                `SELECT s.iscored_username, um.discord_user_id
+                 FROM submissions s
+                 LEFT JOIN user_mappings um ON LOWER(s.iscored_username) = LOWER(um.iscored_username)
+                 WHERE s.game_id = ?
+                 ORDER BY s.score DESC
+                 LIMIT 1 OFFSET 1`,
+                game.wonGameId
+            );
+
+            if (!runnerUpRow?.discord_user_id) {
+                // No mapped runner-up found — try scraping if we have public URL
+                if (runnerUpRow?.iscored_username) {
+                    logWarn(`⚠️ Runner-up '${runnerUpRow.iscored_username}' has no Discord mapping. Falling back to auto-select.`);
+                } else {
+                    logWarn(`⚠️ No runner-up found in submissions for game ${game.wonGameId}. Falling back to auto-select.`);
+                }
+
+                const channelId = await this.getChannelId(game.tournamentId);
+                if (channelId) {
+                    await sendChannelMessage(channelId,
+                        `⏰ The winner timed out and no eligible runner-up was found. Auto-selecting a ${term.game}...`
+                    );
+                }
+                await this.fallbackToAutoSelection(game);
+                return;
             }
 
-            await this.fallbackToAutoSelection(game);
-            
+            const runnerUpId = runnerUpRow.discord_user_id;
+            logInfo(`   -> Pivoting to runner-up: <@${runnerUpId}> (${runnerUpRow.iscored_username})`);
+
+            // Reassign the QUEUED slot to the runner-up
+            const runnerUpWindowMin = parseInt(
+                (await db.get("SELECT value FROM settings WHERE key = 'RUNNERUP_PICK_WINDOW_MIN'"))?.value ?? '30', 10
+            );
+
+            await db.run(
+                `UPDATE games
+                 SET picker_discord_id = ?, picker_type = 'RUNNER_UP', picker_designated_at = ?, reminder_count = 0
+                 WHERE id = ?`,
+                runnerUpId, new Date().toISOString(), game.id
+            );
+
+            const channelId = await this.getChannelId(game.tournamentId);
+            if (channelId) {
+                await sendChannelMessage(channelId,
+                    `⏰ The winner's pick window expired!\n\n<@${runnerUpId}> — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`
+                );
+            }
+
         } catch (error) {
-            logError(`❌ Failed to pivot to runner-up for game ${game.id}:`, error);
+            logError(`❌ Failed to pivot to runner-up for slot ${game.id}:`, error);
             await this.fallbackToAutoSelection(game);
         }
     }
 
+    /**
+     * All pickers timed out — select a random eligible game from the game_library,
+     * create it on iScored, and fill the QUEUED slot.
+     */
     private async fallbackToAutoSelection(game: Game): Promise<void> {
         const db = await getDatabase();
         const term = getTerminology();
-        
+
         try {
-            logInfo(`🤖 Auto-selecting random eligible ${term.game} for ${game.tournamentId}...`);
-            
-            const channelId = process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
-            if (channelId) {
-                await this.sendDiscordMessage(channelId, `⏰ All pickers timed out! Falling back to auto-selection for ${game.tournamentId}.`);
+            if (!game.tournamentId) {
+                logError(`❌ Cannot auto-select: no tournament_id on game slot ${game.id}.`);
+                return;
             }
 
-            // Future: Query a pool of available games, select one that is isGameEligible(), and activate it
-            // For now, mark as failed picker
+            const engine = TournamentEngine.getInstance();
+
+            // Get the tournament's type tag to filter eligible games
+            const tournament = await db.get('SELECT * FROM tournaments WHERE id = ?', game.tournamentId);
+            if (!tournament) {
+                logError(`❌ Cannot auto-select: tournament ${game.tournamentId} not found.`);
+                return;
+            }
+
+            // Read eligibility lookback from settings
+            const eligibilityRow = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
+            const eligibilityDays = parseInt(eligibilityRow?.value ?? '120', 10);
+
+            // Get all games from the library that match the tournament type
+            const libraryGames = await db.all('SELECT name, style_id, tournament_types FROM game_library');
+            const typeMatches = libraryGames.filter(g => {
+                if (!g.tournament_types) return true; // no type restriction = eligible for all
+                const types = g.tournament_types.split(',').map((t: string) => t.trim().toUpperCase());
+                // Also try parsing as JSON array
+                try {
+                    const parsed = JSON.parse(g.tournament_types);
+                    if (Array.isArray(parsed)) {
+                        return parsed.map((t: string) => t.toUpperCase()).includes(tournament.type.toUpperCase());
+                    }
+                } catch { /* not JSON, use comma-split above */ }
+                return types.includes(tournament.type.toUpperCase());
+            });
+
+            // Filter by eligibility (not played within lookback period)
+            const eligible: typeof typeMatches = [];
+            for (const g of typeMatches) {
+                const isEligible = await engine.isGameEligible(game.tournamentId, g.name, eligibilityDays);
+                if (isEligible) eligible.push(g);
+            }
+
+            if (eligible.length === 0) {
+                logWarn(`⚠️ No eligible ${term.games} found for auto-selection in ${tournament.name}.`);
+                await db.run(
+                    'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL WHERE id = ?',
+                    game.id
+                );
+                const channelId = await this.getChannelId(game.tournamentId);
+                if (channelId) {
+                    await sendChannelMessage(channelId,
+                        `⚠️ All pickers timed out and no eligible ${term.games} were found for **${tournament.name}**. A moderator must use \`/pick-game\` or \`/pause-pick\`.`
+                    );
+                }
+                return;
+            }
+
+            // Pick one at random
+            const pick = eligible[Math.floor(Math.random() * eligible.length)]!;
+            logInfo(`🎲 Auto-selected: ${pick.name} for ${tournament.name}`);
+
+            // Create on iScored if credentials are available
+            let iscoredId: string | null = null;
+            const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+
+            if (hasCredentials) {
+                const client = new IScoredClient();
+                try {
+                    await client.connect();
+                    iscoredId = await client.createGame(pick.name, pick.style_id || undefined);
+                    await client.setGameTags(iscoredId, tournament.type);
+                    await client.setGameStatus(iscoredId, { locked: false, hidden: false });
+                    logInfo(`   -> Created on iScored: ${pick.name} (ID: ${iscoredId})`);
+                } catch (err) {
+                    logError('   -> Failed to create auto-selected game on iScored:', err);
+                } finally {
+                    await client.disconnect();
+                }
+            }
+
+            // Update the QUEUED slot with the selected game details
             await db.run(
-                'UPDATE games SET picker_discord_id = NULL, picker_type = NULL WHERE id = ?',
-                game.id
+                `UPDATE games
+                 SET name = ?, style_id = ?, iscored_id = ?,
+                     picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL, reminder_count = 0
+                 WHERE id = ?`,
+                pick.name, pick.style_id || null, iscoredId, game.id
             );
-            
+            logInfo(`   -> Updated QUEUED slot ${game.id} with: ${pick.name}`);
+
+            const channelId = await this.getChannelId(game.tournamentId);
+            if (channelId) {
+                await sendChannelMessage(channelId,
+                    `🎲 All pickers timed out! **${pick.name}** has been auto-selected as the next ${term.game} for **${tournament.name}**.`
+                );
+            }
+
         } catch (error) {
-            logError(`❌ Auto-selection failed for game ${game.id}:`, error);
+            logError(`❌ Auto-selection failed for slot ${game.id}:`, error);
+            // Last resort: clear picker so the slot doesn't loop forever
+            await db.run(
+                'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL WHERE id = ?',
+                game.id
+            ).catch(() => {});
         }
     }
 }

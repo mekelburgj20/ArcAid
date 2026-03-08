@@ -1,15 +1,12 @@
 import { useEffect, useState } from 'react';
+import { api } from '../lib/api';
 
 export default function Dashboard() {
   const [status, setStatus] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/status')
-      .then(res => {
-        if (!res.ok) throw new Error('Network response was not ok');
-        return res.json();
-      })
+    api.get('/status')
       .then(data => setStatus(data))
       .catch(err => setError(err.message));
   }, []);
@@ -21,7 +18,7 @@ export default function Dashboard() {
       {error && (
         <div className="card error-card">
           <h3>Connection Error</h3>
-          <p>Could not connect to the ArcAid backend API (http://localhost:3001).</p>
+          <p>Could not connect to the ArcAid backend.</p>
           <p className="small">Ensure the main bot process is running.</p>
         </div>
       )}

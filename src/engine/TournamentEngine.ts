@@ -1,8 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../database/database.js';
 import { Tournament, Game, TournamentType, CadenceConfig } from '../types/index.js';
-import { logInfo, logError } from '../utils/logger.js';
+import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
+import { sendChannelMessage } from '../utils/discord.js';
+import { IScoredClient } from './IScoredClient.js';
 
 export class TournamentEngine {
     private static instance: TournamentEngine;
@@ -43,7 +45,7 @@ export class TournamentEngine {
     }
 
     /**
-     * Activates a new game for a specific tournament.
+     * Activates a new game for a specific tournament immediately (used by /pick-game).
      */
     public async activateGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string): Promise<Game> {
         const db = await getDatabase();
@@ -96,26 +98,33 @@ export class TournamentEngine {
     }
 
     /**
-     * Checks if a game is eligible to be played based on a lookback period.
-     * Default lookback is 120 days.
+     * Checks if a game is eligible to be played based on a rolling lookback period.
+     * Lookback days defaults to the GAME_ELIGIBILITY_DAYS setting (default 120).
      */
-    public async isGameEligible(tournamentId: string, gameName: string, lookbackDays: number = 120): Promise<boolean> {
+    public async isGameEligible(tournamentId: string, gameName: string, lookbackDays?: number): Promise<boolean> {
         const db = await getDatabase();
-        
+
+        // Read from configurable setting, fallback to parameter, then hardcoded default
+        if (lookbackDays === undefined) {
+            const setting = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
+            lookbackDays = parseInt(setting?.value ?? '120', 10);
+        }
+
         const lookbackDate = new Date();
         lookbackDate.setDate(lookbackDate.getDate() - lookbackDays);
         const lookbackString = lookbackDate.toISOString();
 
         const row = await db.get<{ count: number }>(
-            `SELECT COUNT(*) as count FROM games 
-             WHERE tournament_id = ? 
-             AND (name = ? OR name LIKE ? || ' %') 
-             AND start_date >= ?`,
+            `SELECT COUNT(*) as count FROM games
+             WHERE tournament_id = ?
+             AND (name = ? OR name LIKE ? || ' %')
+             AND start_date >= ?
+             AND status != 'QUEUED'`,
             tournamentId, gameName, gameName, lookbackString
         );
 
         const count = row?.count ?? 0;
-        
+
         if (count > 0) {
             logInfo(`🚫 ${getTerminology().game} '${gameName}' is NOT eligible (played within last ${lookbackDays} days).`);
             return false;
@@ -126,52 +135,205 @@ export class TournamentEngine {
     }
 
     /**
-     * Executes the maintenance routine for a specific tournament.
-     * This handles locking the old game, determining winners, and promoting the next game.
+     * Executes the full maintenance routine for a specific tournament:
+     * 1. Lock the active game on iScored and scrape the final winner.
+     * 2. Mark the active game COMPLETED in the database.
+     * 3. Announce the winner to the tournament's Discord channel.
+     * 4. Activate the next QUEUED game (on iScored + in DB).
+     * 5. Assign picking rights to the winner for the following slot.
+     * 6. Announce the new active game and the winner's pick window.
      */
     public async runMaintenance(tournamentId: string): Promise<void> {
         const db = await getDatabase();
-        const tournament = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
-        if (!tournament) throw new Error(`Tournament ${tournamentId} not found.`);
+        const tournamentRow = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
+        if (!tournamentRow) throw new Error(`Tournament ${tournamentId} not found.`);
 
         const term = getTerminology();
-        logInfo(`⚙️ Starting maintenance for ${term.tournament}: ${tournament.name}`);
+        const channelId: string | undefined = tournamentRow.discord_channel_id || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
 
-        // 1. Get currently active game
+        logInfo(`⚙️ Starting maintenance for ${term.tournament}: ${tournamentRow.name}`);
+
+        // --- Phase 1: Gather what we need from the DB ---
         const activeGame = await this.getActiveGame(tournamentId);
-        
+        const queuedRow = await db.get(
+            'SELECT * FROM games WHERE tournament_id = ? AND status = ? ORDER BY rowid ASC LIMIT 1',
+            tournamentId, 'QUEUED'
+        );
+
+        if (!activeGame && !queuedRow) {
+            logWarn(`⚠️ No active or queued ${term.game} for ${term.tournament} "${tournamentRow.name}". Nothing to do.`);
+            return;
+        }
+
+        // --- Phase 2: iScored work (one session for all operations) ---
+        let winnerIscoredName: string | null = null;
+        let winnerScore: number | null = null;
+        let newIscoredId: string | null = null;
+
+        const hasIscoredCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+        const hasPublicUrl = !!process.env.ISCORED_PUBLIC_URL;
+        const needsIscoredSession = hasIscoredCredentials && (
+            (activeGame?.iscoredId) ||
+            (queuedRow && !queuedRow.iscored_id) ||
+            (queuedRow?.iscored_id)
+        );
+
+        if (needsIscoredSession) {
+            const client = new IScoredClient();
+            try {
+                await client.connect();
+
+                // 2a. Lock the completed game on iScored
+                if (activeGame?.iscoredId) {
+                    try {
+                        await client.setGameStatus(activeGame.iscoredId, { locked: true });
+                        logInfo(`   -> Locked on iScored: ${activeGame.name}`);
+                    } catch (err) {
+                        logError('   -> Failed to lock game on iScored (continuing):', err);
+                    }
+                }
+
+                // 2b. Scrape final standings to determine the winner
+                if (activeGame?.iscoredId && hasPublicUrl) {
+                    try {
+                        const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId);
+                        if (scores.length > 0) {
+                            winnerIscoredName = scores[0].name;
+                            const rawScore = String(scores[0].score).replace(/[^0-9]/g, '');
+                            winnerScore = parseInt(rawScore, 10) || null;
+                            logInfo(`   -> Top scorer: ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
+                        } else {
+                            logWarn('   -> No scores found on iScored for this game.');
+                        }
+                    } catch (err) {
+                        logError('   -> Failed to scrape public scores (continuing):', err);
+                    }
+                }
+
+                // 2c. Handle the queued game on iScored
+                if (queuedRow) {
+                    if (!queuedRow.iscored_id) {
+                        // Pre-injected via /pause-pick without an iScored game — create it now
+                        try {
+                            const styleId = queuedRow.style_id || undefined;
+                            newIscoredId = await client.createGame(queuedRow.name, styleId);
+                            await client.setGameTags(newIscoredId, tournamentRow.type);
+                            await client.setGameStatus(newIscoredId, { locked: false, hidden: false });
+                            logInfo(`   -> Created on iScored: ${queuedRow.name} (ID: ${newIscoredId})`);
+                        } catch (err) {
+                            logError('   -> Failed to create queued game on iScored (continuing):', err);
+                        }
+                    } else {
+                        // Already exists on iScored — just unlock it
+                        try {
+                            await client.setGameStatus(queuedRow.iscored_id, { locked: false, hidden: false });
+                            logInfo(`   -> Unlocked on iScored: ${queuedRow.name}`);
+                        } catch (err) {
+                            logError('   -> Failed to unlock queued game on iScored (continuing):', err);
+                        }
+                    }
+                }
+
+            } catch (err) {
+                logError('❌ iScored session error during maintenance:', err);
+            } finally {
+                await client.disconnect();
+            }
+        } else if (!hasIscoredCredentials) {
+            logWarn('   -> Skipping iScored operations: credentials not configured.');
+        }
+
+        // --- Phase 3: Mark active game COMPLETED in DB ---
+        let winnerId: string | null = null;
+
         if (activeGame) {
-            logInfo(`   -> Handling completion of ${term.game}: ${activeGame.name}`);
-            
-            // Mark as COMPLETED in DB
             await db.run(
                 'UPDATE games SET status = ?, end_date = ? WHERE id = ?',
                 'COMPLETED', new Date().toISOString(), activeGame.id
             );
+            logInfo(`   -> Marked COMPLETED in DB: ${activeGame.name}`);
 
-            logInfo(`✅ Marked ${term.game} as COMPLETED in DB: ${activeGame.name}`);
+            // Resolve winner's iScored name to a Discord user ID
+            if (winnerIscoredName) {
+                const mapping = await db.get(
+                    'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
+                    winnerIscoredName
+                );
+                if (mapping?.discord_user_id) {
+                    winnerId = mapping.discord_user_id;
+                    logInfo(`   -> Winner Discord ID resolved: <@${winnerId}>`);
+                } else {
+                    logWarn(`   -> Winner '${winnerIscoredName}' has no Discord mapping. Use /map-user to link them.`);
+                }
+            }
 
-            // In a full implementation, we'd also scrape the winner from iScored here,
-            // lock the game on iScored, and send a discord notification.
-            // For now, we simulate this.
-            logInfo(`🔔 (Simulated) Sent Discord notification for completed ${term.game}.`);
-        } else {
-            logInfo(`⚠️ No active ${term.game} found for ${term.tournament} ${tournament.name}.`);
+            // Send completion announcement
+            if (channelId) {
+                let msg = `**${tournamentRow.name} — Rotation**\n\n`;
+                msg += `**Closed:** ${activeGame.name}\n`;
+                if (winnerIscoredName) {
+                    const displayName = winnerId ? `<@${winnerId}>` : `\`${winnerIscoredName}\``;
+                    msg += `**Winner:** ${displayName}`;
+                    if (winnerScore) msg += ` — **${winnerScore.toLocaleString()}**`;
+                    msg += '\n';
+                }
+                await sendChannelMessage(channelId, msg);
+            }
         }
 
-        // 2. Promote the next game
-        const queuedGame = await db.get('SELECT * FROM games WHERE tournament_id = ? AND status = ? ORDER BY id ASC LIMIT 1', tournamentId, 'QUEUED');
-        if (queuedGame) {
-            logInfo(`   -> Activating queued ${term.game}: ${queuedGame.name}`);
+        // --- Phase 4: Activate the queued game ---
+        if (queuedRow) {
+            const finalIscoredId = newIscoredId ?? queuedRow.iscored_id ?? null;
+
             await db.run(
-                'UPDATE games SET status = ?, start_date = ? WHERE id = ?',
-                'ACTIVE', new Date().toISOString(), queuedGame.id
+                'UPDATE games SET status = ?, start_date = ?, iscored_id = COALESCE(?, iscored_id) WHERE id = ?',
+                'ACTIVE', new Date().toISOString(), finalIscoredId, queuedRow.id
             );
-            logInfo(`🎉 Activated ${term.game}: ${queuedGame.name}`);
+            logInfo(`   -> Activated in DB: ${queuedRow.name}`);
+
+            // Create a new QUEUED placeholder slot so the winner can queue the next game
+            // and TimeoutManager can track the pick window.
+            if (winnerId) {
+                const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
+                const slotId = uuidv4();
+                await db.run(
+                    `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id)
+                     VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?)`,
+                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame?.id ?? null
+                );
+                logInfo(`   -> Created picker slot for winner (${winnerPickWindowMin}min window).`);
+            }
+
+            // Announce new active game
+            if (channelId) {
+                const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
+                let msg = `**Now Active:** ${queuedRow.name}\n`;
+                if (winnerId) {
+                    msg += `\n<@${winnerId}> — you won! You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` to queue the next ${term.game}.`;
+                } else if (winnerIscoredName) {
+                    msg += `\n**${winnerIscoredName}** — you won! Ask a moderator to link your iScored account with \`/map-user\`, then use \`/pick-game\`.`;
+                } else {
+                    msg += `\nA moderator can use \`/nominate-picker\` to assign picking rights.`;
+                }
+                await sendChannelMessage(channelId, msg);
+            }
+
         } else {
-            logInfo(`⚠️ No queued ${term.game} to activate for ${term.tournament} ${tournament.name}.`);
+            // No queued game — winner picks directly into the next slot
+            logInfo(`   -> No ${term.game} queued. Winner must use /pick-game.`);
+
+            if (channelId) {
+                const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
+                let msg = `⚠️ No ${term.game} is queued for **${tournamentRow.name}**.`;
+                if (winnerId) {
+                    msg += `\n<@${winnerId}> — you won! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game}.`;
+                } else {
+                    msg += ` A moderator should use \`/pick-game\` or \`/nominate-picker\`.`;
+                }
+                await sendChannelMessage(channelId, msg);
+            }
         }
-        
-        logInfo(`✅ Maintenance complete for ${tournament.name}`);
+
+        logInfo(`✅ Maintenance complete for ${tournamentRow.name}`);
     }
 }

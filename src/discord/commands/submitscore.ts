@@ -93,23 +93,28 @@ export const submitscore: Command = {
             
             await fs.writeFile(tempPhotoPath, buffer);
 
-            // Submit to iScored
-            const client = new IScoredClient();
-            await client.connect();
-            await client.submitScore(game.iscored_id, username!, score, tempPhotoPath);
-            await client.disconnect();
+            try {
+                // Submit to iScored
+                const client = new IScoredClient();
+                await client.connect();
+                try {
+                    await client.submitScore(game.iscored_id, username!, score, tempPhotoPath);
+                } finally {
+                    await client.disconnect();
+                }
 
-            // Record internally
-            await db.run(
-                'INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                uuidv4(), game.id, interaction.user.id, username, score, photo.url, new Date().toISOString()
-            );
+                // Record internally
+                await db.run(
+                    'INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    uuidv4(), game.id, interaction.user.id, username, score, photo.url, new Date().toISOString()
+                );
 
-            // Cleanup temp photo
-            await fs.unlink(tempPhotoPath).catch(() => {});
-
-            logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
-            await interaction.editReply(`✅ Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!`);
+                logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
+                await interaction.editReply(`✅ Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!`);
+            } finally {
+                // Always cleanup temp photo, even on error
+                await fs.unlink(tempPhotoPath).catch(() => {});
+            }
 
         } catch (error) {
             logError('Error in /submit-score:', error);

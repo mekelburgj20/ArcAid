@@ -1,6 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { api } from './lib/api';
 import { Home, Settings as SettingsIcon, Trophy, Activity } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
@@ -11,8 +12,7 @@ function App() {
     const location = useLocation();
     const [needsSetup, setNeedsSetup] = useState(null);
     useEffect(() => {
-        fetch('http://localhost:3001/api/status')
-            .then(res => res.json())
+        api.get('/status')
             .then(data => setNeedsSetup(data.needsSetup))
             .catch(err => {
             console.error('Failed to check setup status:', err);

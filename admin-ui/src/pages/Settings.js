@@ -1,13 +1,13 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from 'react';
+import { api } from '../lib/api';
 export default function Settings() {
     const [settings, setSettings] = useState({});
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState(null);
     useEffect(() => {
-        fetch('http://localhost:3001/api/settings')
-            .then(res => res.json())
+        api.get('/settings')
             .then(data => {
             setSettings(data);
             setLoading(false);
@@ -24,13 +24,7 @@ export default function Settings() {
         setSaving(true);
         setMessage(null);
         try {
-            const res = await fetch('http://localhost:3001/api/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings),
-            });
-            if (!res.ok)
-                throw new Error('Failed to save');
+            await api.post('/settings', settings);
             setMessage({ type: 'success', text: 'Settings saved successfully!' });
         }
         catch (err) {
