@@ -3,6 +3,7 @@ import { logInfo, logError } from './utils/logger.js';
 import { initDatabase, getDatabase } from './database/database.js';
 import { DiscordClient } from './discord/DiscordClient.js';
 import { startApiServer } from './api/server.js';
+import { serverEvents } from './api/server.js';
 
 async function bootstrap() {
     logInfo('🚀 Starting ArcAid...');
@@ -23,10 +24,18 @@ async function bootstrap() {
         // 2. Start API Server for Admin UI
         startApiServer(3001);
 
+        // BUG-05: Listen for graceful restart signal from server
+        serverEvents.on('restart', async () => {
+            logInfo('🔄 Graceful restart initiated...');
+            // Give the response time to reach the client
+            await new Promise(r => setTimeout(r, 1000));
+            process.exit(0); // Docker/PM2 will restart
+        });
+
         // 3. Initialize Discord Client (Optional if not configured yet)
         if (process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_CLIENT_ID) {
             const discord = new DiscordClient();
-            
+
             // 4. Deploy Commands (Guild-specific for beta testing)
             const guildId = process.env.DISCORD_GUILD_ID;
             if (guildId) {

@@ -35,7 +35,8 @@ export async function initDatabase(): Promise<Database> {
             guild_id TEXT,      -- Discord Server ID
             discord_channel_id TEXT,
             discord_role_id TEXT,
-            is_active INTEGER DEFAULT 1
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
         )
     `);
 
@@ -70,6 +71,7 @@ export async function initDatabase(): Promise<Database> {
             won_game_id TEXT,
             start_date TEXT,
             end_date TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (tournament_id) REFERENCES tournaments (id)
         )
     `);
@@ -103,6 +105,45 @@ export async function initDatabase(): Promise<Database> {
             value TEXT NOT NULL
         )
     `);
+
+    // --- Indexes for performance ---
+    await db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_games_tournament_id ON games(tournament_id);
+        CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
+        CREATE INDEX IF NOT EXISTS idx_submissions_game_id ON submissions(game_id);
+        CREATE INDEX IF NOT EXISTS idx_submissions_discord_user_id ON submissions(discord_user_id);
+        CREATE INDEX IF NOT EXISTS idx_submissions_timestamp ON submissions(timestamp);
+    `);
+
+    // --- Migrations for existing databases ---
+    const migrations = [
+        `ALTER TABLE tournaments ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`,
+        `ALTER TABLE games ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`,
+    ];
+    for (const migration of migrations) {
+        try {
+            await db.exec(migration);
+        } catch {
+            // Column already exists — safe to ignore
+        }
+    }
+
+    // --- Seed default configurable settings (INSERT OR IGNORE preserves user values) ---
+    const defaultSettings = [
+        ['GAME_ELIGIBILITY_DAYS', '120'],
+        ['WINNER_PICK_WINDOW_MIN', '60'],
+        ['RUNNERUP_PICK_WINDOW_MIN', '30'],
+        ['BOT_TIMEZONE', 'America/Chicago'],
+        ['PORT', '3001'],
+        ['MAX_LOG_LINES', '500'],
+        ['BACKUP_RETENTION_DAYS', '30'],
+    ];
+    for (const [key, value] of defaultSettings) {
+        await db.run(
+            'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
+            key, value
+        );
+    }
 
     return db;
 }
