@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { api } from '../lib/api';
 
 interface CadenceConfig {
     cron: string;
@@ -30,8 +31,7 @@ export default function Tournaments() {
 
   const fetchTournaments = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/tournaments');
-      const data = await res.json();
+      const data = await api.get<Tournament[]>('/tournaments');
       setTournaments(data);
     } catch (err) {
       console.error(err);
@@ -65,11 +65,7 @@ export default function Tournaments() {
     };
 
     try {
-      await fetch('http://localhost:3001/api/tournaments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newTourney),
-      });
+      await api.post('/tournaments', newTourney);
       setNewName('');
       fetchTournaments();
     } catch (err) {
@@ -81,7 +77,7 @@ export default function Tournaments() {
   const handleDelete = async (id: string) => {
       if (!confirm('Are you sure you want to delete this tournament?')) return;
       try {
-          await fetch(`http://localhost:3001/api/tournaments/${id}`, { method: 'DELETE' });
+          await api.delete(`/tournaments/${id}`);
           fetchTournaments();
       } catch (err) {
           console.error(err);

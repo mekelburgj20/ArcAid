@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Papa from 'papaparse';
+import { api } from '../lib/api';
 
 interface GameRow {
     name: string;
@@ -27,8 +28,7 @@ export default function GameLibrary() {
 
   const fetchGames = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/game_library');
-      const data = await res.json();
+      const data = await api.get<GameRow[]>('/game_library');
       setGames(data);
     } catch (err) {
       console.error(err);
@@ -54,18 +54,9 @@ export default function GameLibrary() {
               const parsedGames = results.data as GameRow[];
               
               try {
-                const res = await fetch('http://localhost:3001/api/game_library/import', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ games: parsedGames }),
-                });
-                
-                if (res.ok) {
-                    alert(`Successfully imported ${parsedGames.length} games!`);
-                    fetchGames();
-                } else {
-                    alert('Failed to import games. Check console.');
-                }
+                await api.post('/game_library/import', { games: parsedGames });
+                alert(`Successfully imported ${parsedGames.length} games!`);
+                fetchGames();
               } catch (err) {
                   console.error(err);
                   alert('Network error during import.');
@@ -100,19 +91,10 @@ export default function GameLibrary() {
 
       setSaving(true);
       try {
-          const res = await fetch('http://localhost:3001/api/game_library/import', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ games: [newGame] }),
-          });
-          
-          if (res.ok) {
-              setNewGame({ name: '', aliases: '', style_id: '', css_title: '', css_initials: '', css_scores: '', css_box: '', bg_color: '', tournament_types: '' });
-              setShowAddForm(false);
-              fetchGames();
-          } else {
-              alert('Failed to add game. Check console.');
-          }
+          await api.post('/game_library/import', { games: [newGame] });
+          setNewGame({ name: '', aliases: '', style_id: '', css_title: '', css_initials: '', css_scores: '', css_box: '', bg_color: '', tournament_types: '' });
+          setShowAddForm(false);
+          fetchGames();
       } catch (err) {
           console.error(err);
           alert('Network error while saving.');

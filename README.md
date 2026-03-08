@@ -2,6 +2,8 @@
 
 **ArcAid** is a modern, platform-agnostic tournament management system, the successor to TableFlipper. Designed to be server-independent and highly customizable.
 
+> **Development Status:** Active overhaul in progress. See [OVERHAUL_PLAN.md](./OVERHAUL_PLAN.md) for the full plan and [SPRINT_STATUS.md](./SPRINT_STATUS.md) for current progress. Currently on **Sprint 1 — Stabilize**.
+
 ## 🚀 Installation & Setup
 
 ### Docker Deployment (Recommended)

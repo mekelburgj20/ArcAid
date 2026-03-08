@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { api } from '../lib/api';
 
 export default function Logs() {
   const [logs, setLogs] = useState<string>('Loading logs...');
@@ -6,11 +7,8 @@ export default function Logs() {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/logs');
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data.logs);
-      }
+      const data = await api.get<{ logs: string }>('/logs');
+      setLogs(data.logs);
     } catch (err) {
       setLogs('Failed to fetch logs. Is the backend running?');
     }
