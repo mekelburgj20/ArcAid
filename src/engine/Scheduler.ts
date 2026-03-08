@@ -3,6 +3,7 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { Tournament, CadenceConfig } from '../types/index.js';
 import { TournamentEngine } from './TournamentEngine.js';
+import { TimeoutManager } from './TimeoutManager.js';
 
 export class Scheduler {
     private static instance: Scheduler;
@@ -18,7 +19,8 @@ export class Scheduler {
     }
 
     /**
-     * Starts the scheduler and loads all active tournament tasks.
+     * Starts the scheduler: loads all active tournament maintenance tasks
+     * and starts the global timeout checker (every minute).
      */
     public async start(): Promise<void> {
         logInfo('⏰ Starting Scheduler...');
@@ -38,6 +40,26 @@ export class Scheduler {
 
             this.scheduleTournament(tournament);
         }
+
+        // Run the timeout checker every minute to handle winner/runner-up pick windows
+        this.startTimeoutChecker();
+    }
+
+    /**
+     * Schedules a per-minute check for picker timeouts across all tournaments.
+     */
+    private startTimeoutChecker(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('* * * * *', async () => {
+            try {
+                await TimeoutManager.getInstance().checkTimeouts();
+            } catch (error) {
+                logError('❌ Timeout checker error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__timeout_checker__', task);
+        logInfo('⏱️ Timeout checker started (every minute).');
     }
 
     /**
