@@ -1,5 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState } from 'react';
+import { api } from '../lib/api';
 export default function SetupWizard({ onComplete }) {
     const [step, setStep] = useState(1);
     const [config, setConfig] = useState({
@@ -17,11 +18,7 @@ export default function SetupWizard({ onComplete }) {
     const handleFinish = async () => {
         setSaving(true);
         try {
-            await fetch('http://localhost:3001/api/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...config, SETUP_COMPLETE: 'true' }),
-            });
+            await api.post('/settings', { ...config, SETUP_COMPLETE: 'true' });
             onComplete();
         }
         catch (err) {
