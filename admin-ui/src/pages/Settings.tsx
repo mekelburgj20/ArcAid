@@ -1,22 +1,34 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { useToast } from '../components/Toast';
+import NeonCard from '../components/NeonCard';
+import NeonButton from '../components/NeonButton';
+import LoadingState from '../components/LoadingState';
+
+const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
+
+const CATEGORIES: Record<string, string[]> = {
+  'Discord': ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_GUILD_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
+  'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
+  'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
+  'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'TERMINOLOGY_MODE', 'SETUP_COMPLETE'],
+};
+
+const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
 
 export default function Settings() {
+  const { toast } = useToast();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
 
   useEffect(() => {
     api.get<Record<string, string>>('/settings')
-      .then(data => {
-        setSettings(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setLoading(false);
-      });
+      .then(data => { setSettings(data); setLoading(false); })
+      .catch(() => { toast('Failed to load settings', 'error'); setLoading(false); });
   }, []);
 
   const handleChange = (key: string, value: string) => {
@@ -25,103 +37,103 @@ export default function Settings() {
 
   const handleSave = async () => {
     setSaving(true);
-    setMessage(null);
     try {
       await api.post('/settings', settings);
-      setMessage({ type: 'success', text: 'Settings saved successfully!' });
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Error saving settings. Check console.' });
+      toast('Settings saved', 'success');
+    } catch {
+      toast('Failed to save settings', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  // Allow adding new keys
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
-  
-  const handleAddSetting = () => {
-      if (!newKey.trim()) return;
-      setSettings(prev => ({...prev, [newKey.trim().toUpperCase()]: newValue}));
-      setNewKey('');
-      setNewValue('');
-  }
+  const handleAdd = () => {
+    if (!newKey.trim()) return;
+    setSettings(prev => ({ ...prev, [newKey.trim().toUpperCase()]: newValue }));
+    setNewKey('');
+    setNewValue('');
+  };
 
-  if (loading) return <div className="page">Loading settings...</div>;
+  const toggleReveal = (key: string) => {
+    setRevealed(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const isSensitive = (key: string) => SENSITIVE_KEYS.some(s => key.includes(s));
+
+  // Group settings by category
+  const categorized = Object.entries(CATEGORIES).map(([category, keys]) => ({
+    category,
+    entries: keys.filter(k => k in settings).map(k => [k, settings[k]] as [string, string]),
+  }));
+
+  const uncategorizedKeys = Object.keys(settings).filter(k => !Object.values(CATEGORIES).flat().includes(k));
+
+  if (loading) return <LoadingState message="Loading settings..." />;
 
   return (
-    <div className="page">
-      <h1>Configuration Settings</h1>
-      
-      {message && (
-        <div className={`card ${message.type === 'error' ? 'error-card' : ''}`} style={message.type === 'success' ? { backgroundColor: '#ecfdf5', borderColor: '#10b981' } : {}}>
-            <p style={{ margin: 0, color: message.type === 'success' ? '#047857' : 'inherit' }}>{message.text}</p>
-        </div>
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="font-display text-2xl font-bold">Settings</h1>
+        <NeonButton onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving...' : 'Save All Changes'}
+        </NeonButton>
+      </div>
+
+      {categorized.map(({ category, entries }) => entries.length > 0 && (
+        <NeonCard key={category} title={category} className="mb-4">
+          <div className="space-y-3">
+            {entries.map(([key, value]) => (
+              <div key={key} className="flex items-center gap-3">
+                <label className="w-64 shrink-0 text-sm font-mono text-muted">{key}</label>
+                <input
+                  type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
+                  value={value}
+                  onChange={e => handleChange(key, e.target.value)}
+                  className={`${inputClass} flex-1`}
+                />
+                {isSensitive(key) && (
+                  <button
+                    onClick={() => toggleReveal(key)}
+                    className="text-xs text-faint hover:text-muted cursor-pointer bg-transparent border-none"
+                  >
+                    {revealed.has(key) ? 'Hide' : 'Show'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </NeonCard>
+      ))}
+
+      {uncategorizedKeys.length > 0 && (
+        <NeonCard title="Other" className="mb-4">
+          <div className="space-y-3">
+            {uncategorizedKeys.map(key => (
+              <div key={key} className="flex items-center gap-3">
+                <label className="w-64 shrink-0 text-sm font-mono text-muted">{key}</label>
+                <input
+                  type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
+                  value={settings[key]}
+                  onChange={e => handleChange(key, e.target.value)}
+                  className={`${inputClass} flex-1`}
+                />
+              </div>
+            ))}
+          </div>
+        </NeonCard>
       )}
 
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <p style={{ margin: 0 }}>Database-backed system configuration.</p>
-            <button 
-                onClick={handleSave} 
-                disabled={saving}
-                style={{ background: 'var(--primary-color)', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer' }}
-            >
-                {saving ? 'Saving...' : 'Save All Changes'}
-            </button>
+      <NeonCard title="Add Custom Setting" className="mb-4">
+        <div className="flex gap-3">
+          <input type="text" placeholder="KEY_NAME" value={newKey} onChange={e => setNewKey(e.target.value)} className={`${inputClass} w-48`} />
+          <input type="text" placeholder="Value" value={newValue} onChange={e => setNewValue(e.target.value)} className={`${inputClass} flex-1`} />
+          <NeonButton variant="secondary" onClick={handleAdd}>Add</NeonButton>
         </div>
-        
-        <table className="data-table">
-        <thead>
-            <tr>
-            <th>Key</th>
-            <th>Value</th>
-            </tr>
-        </thead>
-        <tbody>
-            {Object.entries(settings).map(([key, value]) => (
-            <tr key={key}>
-                <td style={{ width: '30%' }}><code>{key}</code></td>
-                <td>
-                    <input 
-                        type="text" 
-                        value={value} 
-                        onChange={(e) => handleChange(key, e.target.value)}
-                        style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px' }}
-                    />
-                </td>
-            </tr>
-            ))}
-            {/* Add new row */}
-            <tr>
-                <td>
-                    <input 
-                        type="text" 
-                        placeholder="NEW_KEY" 
-                        value={newKey} 
-                        onChange={(e) => setNewKey(e.target.value)}
-                        style={{ width: '100%', padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px' }}
-                    />
-                </td>
-                <td style={{ display: 'flex', gap: '0.5rem' }}>
-                     <input 
-                        type="text" 
-                        placeholder="Value" 
-                        value={newValue} 
-                        onChange={(e) => setNewValue(e.target.value)}
-                        style={{ flex: 1, padding: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '4px' }}
-                    />
-                    <button 
-                        onClick={handleAddSetting}
-                        style={{ background: '#e2e8f0', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer' }}
-                    >
-                        Add
-                    </button>
-                </td>
-            </tr>
-        </tbody>
-        </table>
-      </div>
+      </NeonCard>
     </div>
   );
 }
