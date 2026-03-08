@@ -33,6 +33,7 @@
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.2.1",
     "playwright": "^1.58.2",
+    "rotating-file-stream": "^3.2.9",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
     "uuid": "^13.0.0",

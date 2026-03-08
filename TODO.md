@@ -19,30 +19,30 @@
 - [x] Add DB indexes (`games.tournament_id`, `games.status`, `submissions.game_id`, `submissions.discord_user_id`)
 - [x] Add `created_at` / `updated_at` timestamps to `tournaments` and `games` tables
 - [x] Make hardcoded values configurable in settings: `GAME_ELIGIBILITY_DAYS` (120), `WINNER_PICK_WINDOW_MIN` (60), `RUNNERUP_PICK_WINDOW_MIN` (30), `BOT_TIMEZONE` (America/Chicago), `PORT` (3001)
-- [ ] Fix inconsistent `tournament_types` format in `game_library` (normalize to JSON array)
+- [x] Fix inconsistent `tournament_types` format in `game_library` (normalize to JSON array)
 
 ### Discord
 - [x] Fix temp photo file leak in `submitscore.ts` — use `finally` block for cleanup
-- [ ] Add score validation before iScored submission (positive integer check)
+- [x] Add score validation before iScored submission (positive integer check)
 
 ---
 
 ## Sprint 2 — Harden
 **Branch:** `sprint-2/harden`
 
-- [ ] Add retry logic with exponential backoff to `IScoredClient` operations
-- [ ] Replace all `page.waitForTimeout()` in `IScoredClient` with deterministic waits (`waitForSelector`, `waitForLoadState`)
-- [ ] Add persistent browser session — keep login alive between operations
-- [ ] Add screenshot-on-failure in `IScoredClient` (saves to `data/playwright-errors/`)
-- [ ] Add iScored DOM change detection (hash comparison, alert on change)
-- [ ] Implement log rotation (`rotating-file-stream`, max 10MB, keep 5 files)
-- [ ] Replace synchronous `fs.appendFileSync` in logger with async stream
-- [ ] Add startup environment validation with clear error messages
-- [ ] Add Docker health check (`HEALTHCHECK` in Dockerfile)
-- [ ] Add non-root user to Docker image
-- [ ] Add service layer (`src/services/`) — separate routing from business logic
-- [ ] Add per-user command cooldowns in Discord (submit: 30s, pick: 10s, list: 5s)
-- [ ] Add transaction safety for multi-step Discord command operations
+- [x] Add retry logic with exponential backoff to `IScoredClient` operations
+- [x] Replace all `page.waitForTimeout()` in `IScoredClient` with deterministic waits (`waitForSelector`, `waitForLoadState`)
+- [x] Add persistent browser session — keep login alive between operations
+- [x] Add screenshot-on-failure in `IScoredClient` (saves to `data/playwright-errors/`)
+- [x] Add iScored DOM change detection (hash comparison, alert on change)
+- [x] Implement log rotation (`rotating-file-stream`, max 10MB, keep 5 files)
+- [x] Replace synchronous `fs.appendFileSync` in logger with async stream
+- [x] Add startup environment validation with clear error messages
+- [x] Add Docker health check (`HEALTHCHECK` in Dockerfile)
+- [x] Add non-root user to Docker image
+- [x] Add service layer (`src/services/`) — separate routing from business logic
+- [x] Add per-user command cooldowns in Discord (submit: 30s, pick: 10s, list: 5s)
+- [x] Add transaction safety for multi-step Discord command operations
 
 ---
 

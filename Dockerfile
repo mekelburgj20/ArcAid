@@ -39,8 +39,17 @@ COPY --from=frontend-build /app/admin-ui/dist ./admin-ui/dist
 # Ensure data directory exists
 RUN mkdir -p data
 
+# Add non-root user for security
+RUN groupadd -r arcaid && useradd -r -g arcaid -d /app arcaid \
+    && chown -R arcaid:arcaid /app
+USER arcaid
+
 # Expose the API/Frontend port
 EXPOSE 3001
+
+# Health check — verify API is responding
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3001/api/status || exit 1
 
 # Start the application
 CMD ["npm", "start"]

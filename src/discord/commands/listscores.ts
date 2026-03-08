@@ -3,12 +3,20 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logError } from '../../utils/logger.js';
+import { checkCooldown } from '../../utils/cooldown.js';
 
 export const listscores: Command = {
     data: new SlashCommandBuilder()
         .setName('list-scores')
         .setDescription('Displays the leaderboard for active games.'),
     async execute(interaction: ChatInputCommandInteraction) {
+        // Check cooldown (5 seconds)
+        const remaining = checkCooldown(interaction.user.id, 'list-scores', 5);
+        if (remaining > 0) {
+            await interaction.reply({ content: `Please wait ${remaining}s before listing scores again.`, ephemeral: true });
+            return;
+        }
+
         await interaction.deferReply();
         const term = getTerminology();
         const db = await getDatabase();

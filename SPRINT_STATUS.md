@@ -8,40 +8,55 @@
 
 ## Current Sprint
 
-**Sprint 1 — Stabilize**
-**Branch:** `sprint-1/stabilize`
-**Goal:** Fix all critical bugs. Get the core maintenance loop working end-to-end.
+**Sprint 2 — Harden**
+**Branch:** `sprint-2/harden`
+**Goal:** Resilience, security, and code quality. Make iScored integration robust, improve logging, add Docker hardening.
 
 ## Sprint Progress
 
-| # | Task | Status | Branch/Notes |
-|---|------|--------|--------------|
-| 1 | BUG-01: API client module (fix hardcoded localhost) | `done` | `admin-ui/src/lib/api.ts` + all pages wired |
-| 2 | BUG-04: API authentication middleware | `done` | JWT + bcrypt in `src/api/auth.ts`, middleware in `src/api/middleware.ts` |
-| 3 | BUG-05: Replace `process.exit()` with graceful reload | `done` | `serverEvents` emitter in `src/api/server.ts`, listener in `src/index.ts` |
-| 4 | DB indexes + configurable settings | `done` | 5 indexes, default settings seeding, `created_at` columns |
-| 5 | Zod validation on all API endpoints | `done` | `src/api/schemas.ts`, validated on all write endpoints |
-| 6 | BUG-02: Implement full `runMaintenance()` | `done` | 4-phase maintenance: lock → scrape → complete → activate → assign picker |
-| 7 | BUG-03: TimeoutManager runner-up + auto-select | `done` | Tiered timeouts, pivotToRunnerUp, fallbackToAutoSelection, wired into Scheduler |
-| 8 | Fix temp photo file leak in `/submit-score` | `done` | try/finally for temp file + browser session cleanup |
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 1 | Retry logic with exponential backoff for IScoredClient | `done` | `withRetry()` wrapper, configurable max attempts |
+| 2 | Replace `waitForTimeout` with deterministic waits | `done` | `waitForSelector`, `waitForLoadState('networkidle')` |
+| 3 | Persistent browser session (keep login alive) | `done` | `isSessionAlive()` check, reuse existing session |
+| 4 | Screenshot-on-failure in IScoredClient | `done` | Saves to `data/playwright-errors/`, auto-created dir |
+| 5 | iScored DOM change detection | `done` | Hash comparison on lineup DOM, warns on change |
+| 6 | Log rotation (rotating-file-stream) | `done` | Max 10MB/file, daily rotation, keep 5 files |
+| 7 | Replace sync fs.appendFileSync with async stream | `done` | Uses `rotating-file-stream` writable stream |
+| 8 | Startup environment validation | `done` | `src/utils/startup.ts`, clear messages for missing config |
+| 9 | Docker health check | `done` | `HEALTHCHECK` hitting `/api/status` |
+| 10 | Docker non-root user | `done` | `arcaid` user + group, `chown` data dir |
+| 11 | Service layer (src/services/) | `done` | `SettingsService`, `TournamentService`, `GameLibraryService`, `LogService` |
+| 12 | Per-user command cooldowns in Discord | `done` | submit: 30s, pick: 10s, list: 5s via `src/utils/cooldown.ts` |
+| 13 | Transaction safety for multi-step commands | `done` | `pickgame.ts` wraps DB ops in BEGIN/COMMIT/ROLLBACK |
 
-## Sprint 1 — COMPLETE
+**Also completed (Sprint 1 leftovers):**
+- Fix inconsistent `tournament_types` format in `game_library` (normalize CSV to JSON array migration)
+- Add score validation before iScored submission (positive integer check in `submitscore.ts`)
 
-All 8 tasks done. Ready to merge `sprint-1/stabilize` to `main` and begin Sprint 2.
+## Sprint 2 — COMPLETE
+
+All 13 tasks done, plus 2 Sprint 1 leftovers. Ready to commit and merge.
 
 ## Upcoming Sprints
 
 | Sprint | Name | Goal |
 |--------|------|------|
-| Sprint 2 | Harden | Retry logic, Playwright resilience, log rotation, security |
 | Sprint 3 | Redesign | Full frontend overhaul — Tailwind, arcade theme, new pages |
 | Sprint 4 | Phase 8 | Internal leaderboard, WebSockets, public scoreboard |
 
 ## Last Session
 
 **Date:** 2026-03-08
-**What happened:** Completed all Sprint 1 tasks. BUG-03 (TimeoutManager tiered timeouts + Scheduler wiring), admin-ui API client wiring, and submit-score temp file fix all committed. Build is clean.
-**Next:** Merge sprint-1/stabilize to main, then begin Sprint 2 (Harden).
+**What happened:** Completed all Sprint 2 tasks in one session:
+- IScoredClient: retry logic, deterministic waits, persistent sessions, screenshot-on-failure, DOM change detection
+- Logger: async rotating-file-stream (10MB, 5 files)
+- Startup: environment validation with clear messages
+- Docker: HEALTHCHECK + non-root `arcaid` user
+- Service layer: 4 services extracted from server.ts
+- Discord: per-user cooldowns (submit/pick/list), score validation, transaction safety
+- DB: tournament_types normalization migration
+**Next:** Commit Sprint 2 changes, then begin Sprint 3 (Redesign).
 
 ## Blockers
 

@@ -4,6 +4,7 @@ import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
+import { checkCooldown } from '../../utils/cooldown.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -54,13 +55,26 @@ export const submitscore: Command = {
     },
         
     async execute(interaction: ChatInputCommandInteraction) {
+        // Check cooldown (30 seconds)
+        const remaining = checkCooldown(interaction.user.id, 'submit-score', 30);
+        if (remaining > 0) {
+            await interaction.reply({ content: `Please wait ${remaining}s before submitting another score.`, ephemeral: true });
+            return;
+        }
+
         await interaction.deferReply();
-        
+
         const term = getTerminology();
         const gameName = interaction.options.getString('game', true);
         const score = interaction.options.getInteger('score', true);
         const photo = interaction.options.getAttachment('photo', true);
         let username = interaction.options.getString('username');
+
+        // Validate score is a positive integer
+        if (score <= 0) {
+            await interaction.editReply('Score must be a positive number.');
+            return;
+        }
 
         const db = await getDatabase();
 

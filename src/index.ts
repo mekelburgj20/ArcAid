@@ -4,36 +4,39 @@ import { initDatabase, getDatabase } from './database/database.js';
 import { DiscordClient } from './discord/DiscordClient.js';
 import { startApiServer } from './api/server.js';
 import { serverEvents } from './api/server.js';
+import { validateEnvironment } from './utils/startup.js';
 
 async function bootstrap() {
-    logInfo('🚀 Starting ArcAid...');
+    logInfo('Starting ArcAid...');
 
     try {
         // 1. Initialize Database
         await initDatabase();
-        logInfo('✅ Database initialized.');
+        logInfo('Database initialized.');
 
         // 1.5 Load settings from DB into environment
         const db = await getDatabase();
         const settings = await db.all('SELECT key, value FROM settings');
         for (const row of settings) {
-            // Only set if not already set by .env (or override it, up to you. Overriding is probably better for UI changes)
             process.env[row.key] = row.value;
         }
 
+        // 1.6 Validate environment configuration
+        const { canStartBot } = validateEnvironment();
+
         // 2. Start API Server for Admin UI
-        startApiServer(3001);
+        const port = parseInt(process.env.PORT || '3001', 10);
+        startApiServer(port);
 
         // BUG-05: Listen for graceful restart signal from server
         serverEvents.on('restart', async () => {
-            logInfo('🔄 Graceful restart initiated...');
-            // Give the response time to reach the client
+            logInfo('Graceful restart initiated...');
             await new Promise(r => setTimeout(r, 1000));
             process.exit(0); // Docker/PM2 will restart
         });
 
-        // 3. Initialize Discord Client (Optional if not configured yet)
-        if (process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_CLIENT_ID) {
+        // 3. Initialize Discord Client (if configured)
+        if (canStartBot) {
             const discord = new DiscordClient();
 
             // 4. Deploy Commands (Guild-specific for beta testing)
@@ -41,17 +44,15 @@ async function bootstrap() {
             if (guildId) {
                 await discord.deployCommands(guildId);
             } else {
-                logError('⚠️ DISCORD_GUILD_ID not found in DB or .env. Skipping guild-specific command deployment.');
+                logError('DISCORD_GUILD_ID not found in DB or .env. Skipping guild-specific command deployment.');
             }
 
             // 5. Connect to Discord
             await discord.connect();
-        } else {
-            logError('⚠️ Discord credentials missing. Bot will not connect. Please use the Admin UI to configure them.');
         }
 
     } catch (error) {
-        logError('❌ Critical failure during bootstrap:', error);
+        logError('Critical failure during bootstrap:', error);
         process.exit(1);
     }
 }
