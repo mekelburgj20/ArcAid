@@ -58,17 +58,15 @@ export class Scheduler {
 
         logInfo(`📅 Scheduling maintenance for ${name} using cron: '${cadence.cron}'`);
 
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
         const task = cron.schedule(cadence.cron, async () => {
             logInfo(`🔄 Running scheduled maintenance for tournament: ${name}`);
             try {
-                // Future: Call maintenance logic in TournamentEngine
-                // await TournamentEngine.getInstance().runMaintenance(id);
+                await TournamentEngine.getInstance().runMaintenance(id);
             } catch (error) {
                 logError(`❌ Maintenance failed for tournament ${name}:`, error);
             }
-        }, {
-            timezone: "America/Chicago" // Central Time (Consistent with TableFlipper)
-        });
+        }, { timezone });
 
         this.tasks.set(id, task);
     }

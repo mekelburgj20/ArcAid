@@ -2,7 +2,7 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { Game } from '../types/index.js';
-import { REST, Routes } from 'discord.js';
+import { sendChannelMessage } from '../utils/discord.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -85,14 +85,7 @@ export class TimeoutManager {
     }
 
     private async sendDiscordMessage(channelId: string, content: string): Promise<void> {
-        const token = process.env.DISCORD_BOT_TOKEN;
-        if (!token) return;
-        try {
-            const rest = new REST({ version: '10' }).setToken(token);
-            await rest.post(Routes.channelMessages(channelId), { body: { content } });
-        } catch (err) {
-            logError('❌ Error sending Discord message via REST:', err);
-        }
+        await sendChannelMessage(channelId, content);
     }
 
     private async sendReminder(game: Game, minsRemaining: number): Promise<void> {
