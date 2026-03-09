@@ -78,6 +78,12 @@
 - [x] Improve `/view-stats` — add win percentage, all-time high holder mention
 - [x] Expand `/setup` to configure channel IDs, role IDs, pick windows via Discord
 
+### Player Portal
+- [x] `/my-stats` Discord command — personal stats card (wins, win%, avg, best, recent scores)
+- [x] Public `/players` page — searchable player list, ranked by best score
+- [x] Public `/players/:id` page — player profile with stat cards, recent scores, game links
+- [x] Public `/games/:name` page — game stats, record holder, recent results
+
 ---
 
 ## Sprint 4 — Phase 8 (New Features)
