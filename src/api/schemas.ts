@@ -45,3 +45,17 @@ export const ImportGamesSchema = z.object({
 });
 
 export const SettingsSchema = z.record(z.string().min(1), z.string());
+
+export const HistoryQuerySchema = z.object({
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    tournament_id: z.string().optional(),
+    type: z.string().optional(),
+});
+
+export const BackupRestoreParamsSchema = z.object({
+    name: z.string().min(1).refine(
+        (val) => !val.includes('..') && !val.includes('/') && !val.includes('\\'),
+        'Invalid backup name'
+    ),
+});

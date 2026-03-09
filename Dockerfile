@@ -36,13 +36,12 @@ COPY --from=backend-build /app/dist ./dist
 # Copy built frontend
 COPY --from=frontend-build /app/admin-ui/dist ./admin-ui/dist
 
-# Ensure data directory exists
-RUN mkdir -p data
+# Ensure data and backups directories exist
+RUN mkdir -p data backups
 
 # Add non-root user for security
 RUN groupadd -r arcaid && useradd -r -g arcaid -d /app arcaid \
     && chown -R arcaid:arcaid /app
-USER arcaid
 
 # Expose the API/Frontend port
 EXPOSE 3001
@@ -51,5 +50,5 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:3001/api/status || exit 1
 
-# Start the application
-CMD ["npm", "start"]
+# Fix ownership of mounted volumes at startup, then drop to non-root user
+CMD chown -R arcaid:arcaid /app/data /app/backups 2>/dev/null; exec su -s /bin/bash arcaid -c "npm start"

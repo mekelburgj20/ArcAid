@@ -2,17 +2,22 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import { createServer } from 'http';
 import { EventEmitter } from 'events';
 import { z } from 'zod';
+import { initWebSocket } from './websocket.js';
+import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { hashPassword, verifyPassword, signToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
 import { requireAuth } from './middleware.js';
-import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, SettingsSchema } from './schemas.js';
+import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema } from './schemas.js';
 import { SettingsService } from '../services/SettingsService.js';
 import { TournamentService } from '../services/TournamentService.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
 import { LogService } from '../services/LogService.js';
+import { getDashboardData } from '../services/DashboardService.js';
+import { listBackups, restoreBackup } from '../services/BackupService.js';
 
 export const serverEvents = new EventEmitter();
 
@@ -206,6 +211,231 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    // --- Dashboard Endpoint ---
+    app.get('/api/dashboard', async (req, res) => {
+        try {
+            const data = await getDashboardData();
+            res.json(data);
+        } catch (error) {
+            logError('API Error (/api/dashboard):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- History Endpoint ---
+    app.get('/api/history', async (req, res) => {
+        try {
+            const validationResult = validate(HistoryQuerySchema, req.query);
+            if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+            const { page, limit, tournament_id, type } = validationResult.data;
+            const offset = (page - 1) * limit;
+            const db = await getDatabase();
+
+            const conditions: string[] = ["g.status = 'COMPLETED'"];
+            const params: unknown[] = [];
+
+            if (tournament_id) {
+                conditions.push('g.tournament_id = ?');
+                params.push(tournament_id);
+            }
+            if (type) {
+                conditions.push('t.type = ?');
+                params.push(type);
+            }
+
+            const whereClause = conditions.join(' AND ');
+
+            const countRow = await db.get(
+                `SELECT COUNT(*) as total FROM games g JOIN tournaments t ON g.tournament_id = t.id WHERE ${whereClause}`,
+                ...params
+            );
+            const total = countRow?.total ?? 0;
+
+            const results = await db.all(
+                `SELECT
+                    g.name AS game_name,
+                    t.name AS tournament_name,
+                    t.type AS tournament_type,
+                    g.start_date,
+                    g.end_date,
+                    s.iscored_username AS winner_name,
+                    s.score AS winner_score
+                FROM games g
+                JOIN tournaments t ON g.tournament_id = t.id
+                LEFT JOIN (
+                    SELECT game_id, iscored_username, score,
+                           ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY score DESC) AS rn
+                    FROM submissions
+                ) s ON s.game_id = g.id AND s.rn = 1
+                WHERE ${whereClause}
+                ORDER BY g.end_date DESC
+                LIMIT ? OFFSET ?`,
+                ...params, limit, offset
+            );
+
+            res.json({ results, total, page, limit });
+        } catch (error) {
+            logError('API Error (/api/history):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Backup Endpoints ---
+    app.get('/api/backups', requireAuth, async (req, res) => {
+        try {
+            const backups = await listBackups();
+            res.json(backups);
+        } catch (error) {
+            logError('API Error (/api/backups):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/backups/:name/restore', requireAuth, async (req, res) => {
+        try {
+            const validationResult = validate(BackupRestoreParamsSchema, { name: req.params.name as string });
+            if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+            await restoreBackup(validationResult.data.name);
+            res.json({ success: true, message: `Backup "${validationResult.data.name}" restored. Restarting...` });
+
+            serverEvents.emit('restart');
+            logInfo('Restart signal emitted after backup restore.');
+            setTimeout(() => process.exit(0), 1000);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            logError('API Error (POST /api/backups/:name/restore):', error);
+            res.status(400).json({ error: message });
+        }
+    });
+
+    // --- Log Stream Endpoint (SSE) ---
+    app.get('/api/logs/stream', (req, res) => {
+        const logPath = path.join(process.cwd(), 'data', 'arcaid.log');
+
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+        });
+
+        res.write(':\n\n');
+
+        let lastSize = 0;
+        try {
+            if (fs.existsSync(logPath)) {
+                lastSize = fs.statSync(logPath).size;
+            }
+        } catch { /* file may not exist yet */ }
+
+        const sendNewLines = () => {
+            try {
+                if (!fs.existsSync(logPath)) return;
+                const stat = fs.statSync(logPath);
+                if (stat.size <= lastSize) {
+                    if (stat.size < lastSize) lastSize = 0;
+                    else return;
+                }
+
+                const fd = fs.openSync(logPath, 'r');
+                const buffer = Buffer.alloc(stat.size - lastSize);
+                fs.readSync(fd, buffer, 0, buffer.length, lastSize);
+                fs.closeSync(fd);
+
+                const lines = buffer.toString('utf-8').split('\n').filter(Boolean);
+                for (const line of lines) {
+                    res.write(`data: ${JSON.stringify(line)}\n\n`);
+                }
+                lastSize = stat.size;
+            } catch { /* ignore read errors during rotation */ }
+        };
+
+        const dataDir = path.dirname(logPath);
+        const logFilename = path.basename(logPath);
+        let watcher: fs.FSWatcher | null = null;
+
+        try {
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir, { recursive: true });
+            }
+            watcher = fs.watch(dataDir, (eventType, filename) => {
+                if (filename === logFilename) sendNewLines();
+            });
+        } catch {
+            const interval = setInterval(sendNewLines, 2000);
+            req.on('close', () => clearInterval(interval));
+        }
+
+        const keepalive = setInterval(() => res.write(':\n\n'), 30000);
+
+        req.on('close', () => {
+            clearInterval(keepalive);
+            if (watcher) watcher.close();
+        });
+    });
+
+    // --- Leaderboard Endpoints ---
+    app.get('/api/leaderboard', async (req, res) => {
+        try {
+            const { LeaderboardService } = await import('../services/LeaderboardService.js');
+            const leaderboards = await LeaderboardService.getActiveLeaderboards();
+            res.json(leaderboards);
+        } catch (error) {
+            logError('API Error (/api/leaderboard):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.get('/api/leaderboard/:gameId', async (req, res) => {
+        try {
+            const { LeaderboardService } = await import('../services/LeaderboardService.js');
+            const rankings = await LeaderboardService.getForGame(req.params.gameId as string);
+            res.json(rankings);
+        } catch (error) {
+            logError('API Error (/api/leaderboard/:gameId):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Stats Endpoints ---
+    app.get('/api/stats/players', async (req, res) => {
+        try {
+            const { StatsService } = await import('../services/StatsService.js');
+            const players = await StatsService.getAllPlayerStats();
+            res.json(players);
+        } catch (error) {
+            logError('API Error (/api/stats/players):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.get('/api/stats/player/:discordUserId', async (req, res) => {
+        try {
+            const { StatsService } = await import('../services/StatsService.js');
+            const stats = await StatsService.getPlayerStats(req.params.discordUserId as string);
+            res.json(stats);
+        } catch (error) {
+            logError('API Error (/api/stats/player):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.get('/api/stats/game/:name', async (req, res) => {
+        try {
+            const { StatsService } = await import('../services/StatsService.js');
+            const stats = await StatsService.getGameStats(decodeURIComponent(req.params.name as string));
+            if (!stats) {
+                res.status(404).json({ error: 'Game not found' });
+                return;
+            }
+            res.json(stats);
+        } catch (error) {
+            logError('API Error (/api/stats/game):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
     // --- Serve React Frontend (Production) ---
     const frontendPath = path.join(process.cwd(), 'admin-ui', 'dist');
     if (fs.existsSync(frontendPath)) {
@@ -217,7 +447,11 @@ export function startApiServer(port: number = 3001) {
         });
     }
 
-    app.listen(port, '0.0.0.0', () => {
+    // Create HTTP server and attach Socket.io
+    const httpServer = createServer(app);
+    initWebSocket(httpServer);
+
+    httpServer.listen(port, '0.0.0.0', () => {
         logInfo(`Admin API Server listening on port ${port}`);
     });
 }

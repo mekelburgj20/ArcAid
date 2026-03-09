@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, Trophy, Activity, Library, LogOut } from 'lucide-react';
+import { Home, Settings as SettingsIcon, Trophy, Activity, Library, LogOut, Clock, HardDrive, BarChart3, Medal } from 'lucide-react';
 import { api, isAuthenticated, setToken } from './lib/api';
 import { ToastProvider } from './components/Toast';
 import Login from './pages/Login';
@@ -10,17 +10,29 @@ import SetupWizard from './pages/SetupWizard';
 import Logs from './pages/Logs';
 import Tournaments from './pages/Tournaments';
 import GameLibrary from './pages/GameLibrary';
+import History from './pages/History';
+import Backups from './pages/Backups';
+import Leaderboard from './pages/Leaderboard';
+import Stats from './pages/Stats';
+import Scoreboard from './pages/Scoreboard';
 
 function App() {
   const location = useLocation();
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [authed, setAuthed] = useState(isAuthenticated());
+  const isScoreboard = location.pathname === '/scoreboard';
 
   useEffect(() => {
+    if (isScoreboard) return;
     api.get<{ needsSetup: boolean }>('/status')
       .then(data => setNeedsSetup(data.needsSetup))
       .catch(() => setNeedsSetup(false));
-  }, []);
+  }, [isScoreboard]);
+
+  // Public scoreboard — no auth required
+  if (isScoreboard) {
+    return <Scoreboard />;
+  }
 
   if (needsSetup === null) {
     return (
@@ -55,7 +67,11 @@ function App() {
     { path: '/', label: 'Dashboard', icon: <Home size={18} /> },
     { path: '/tournaments', label: 'Tournaments', icon: <Trophy size={18} /> },
     { path: '/library', label: 'Game Library', icon: <Library size={18} /> },
+    { path: '/leaderboard', label: 'Leaderboard', icon: <Medal size={18} /> },
+    { path: '/stats', label: 'Stats', icon: <BarChart3 size={18} /> },
+    { path: '/history', label: 'History', icon: <Clock size={18} /> },
     { path: '/logs', label: 'Activity Logs', icon: <Activity size={18} /> },
+    { path: '/backups', label: 'Backups', icon: <HardDrive size={18} /> },
     { path: '/settings', label: 'Settings', icon: <SettingsIcon size={18} /> },
   ];
 
@@ -105,7 +121,11 @@ function App() {
             <Route path="/settings" element={<Settings />} />
             <Route path="/tournaments" element={<Tournaments />} />
             <Route path="/library" element={<GameLibrary />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/stats" element={<Stats />} />
+            <Route path="/history" element={<History />} />
             <Route path="/logs" element={<Logs />} />
+            <Route path="/backups" element={<Backups />} />
           </Routes>
         </main>
       </div>
