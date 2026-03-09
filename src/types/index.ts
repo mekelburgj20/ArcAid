@@ -83,9 +83,10 @@ export interface PlayerStats {
 export interface GameStats {
     gameName: string;
     timesPlayed: number;
-    averageScore: number;
+    avgScore: number;
+    uniquePlayers: number;
     allTimeHigh: number;
-    allTimeHighHolder: string;
+    allTimeHighPlayer: string | null;
     recentResults: Array<{ tournamentName: string; winnerName: string; winnerScore: number; endDate: string }>;
 }
 

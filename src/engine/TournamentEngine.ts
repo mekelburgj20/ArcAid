@@ -1,9 +1,10 @@
+import { EmbedBuilder } from 'discord.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../database/database.js';
 import { Tournament, Game, TournamentType, CadenceConfig } from '../types/index.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
-import { sendChannelMessage } from '../utils/discord.js';
+import { sendChannelMessage, sendChannelEmbed, getTournamentColor } from '../utils/discord.js';
 import { IScoredClient } from './IScoredClient.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 
@@ -270,15 +271,20 @@ export class TournamentEngine {
 
             // Send completion announcement
             if (channelId) {
-                let msg = `**${tournamentRow.name} — Rotation**\n\n`;
-                msg += `**Closed:** ${activeGame.name}\n`;
-                if (winnerIscoredName) {
-                    const displayName = winnerId ? `<@${winnerId}>` : `\`${winnerIscoredName}\``;
-                    msg += `**Winner:** ${displayName}`;
-                    if (winnerScore) msg += ` — **${winnerScore.toLocaleString()}**`;
-                    msg += '\n';
+                const color = getTournamentColor(tournamentRow.type);
+                const embed = new EmbedBuilder()
+                    .setTitle(`${tournamentRow.name} — Rotation`)
+                    .setColor(color)
+                    .setTimestamp();
+
+                const displayName = winnerId ? `<@${winnerId}>` : (winnerIscoredName ? `\`${winnerIscoredName}\`` : null);
+                let desc = `**Closed:** ${activeGame.name}`;
+                if (displayName) {
+                    desc += `\n**Winner:** ${displayName}`;
+                    if (winnerScore) desc += ` — **${winnerScore.toLocaleString()}**`;
                 }
-                await sendChannelMessage(channelId, msg);
+                embed.setDescription(desc);
+                await sendChannelEmbed(channelId, embed);
             }
         }
 
@@ -308,15 +314,21 @@ export class TournamentEngine {
             // Announce new active game
             if (channelId) {
                 const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
-                let msg = `**Now Active:** ${queuedRow.name}\n`;
+                const color = getTournamentColor(tournamentRow.type);
+                const embed = new EmbedBuilder()
+                    .setTitle(`Now Active: ${queuedRow.name}`)
+                    .setColor(color)
+                    .setTimestamp();
+
                 if (winnerId) {
-                    msg += `\n<@${winnerId}> — you won! You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` to queue the next ${term.game}.`;
+                    embed.setDescription(`<@${winnerId}> — you won! You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` to queue the next ${term.game}.`);
                 } else if (winnerIscoredName) {
-                    msg += `\n**${winnerIscoredName}** — you won! Ask a moderator to link your iScored account with \`/map-user\`, then use \`/pick-game\`.`;
+                    embed.setDescription(`**${winnerIscoredName}** — you won! Ask a moderator to link your iScored account with \`/map-user\`, then use \`/pick-game\`.`);
                 } else {
-                    msg += `\nA moderator can use \`/nominate-picker\` to assign picking rights.`;
+                    embed.setDescription(`A moderator can use \`/nominate-picker\` to assign picking rights.`);
                 }
-                await sendChannelMessage(channelId, msg);
+                embed.setFooter({ text: tournamentRow.name });
+                await sendChannelEmbed(channelId, embed);
             }
 
             emitGameRotated({
@@ -340,13 +352,19 @@ export class TournamentEngine {
 
             if (channelId) {
                 const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
-                let msg = `⚠️ No ${term.game} is queued for **${tournamentRow.name}**.`;
+                const color = getTournamentColor(tournamentRow.type);
+                const embed = new EmbedBuilder()
+                    .setTitle(`⚠️ No ${term.game} Queued`)
+                    .setColor(color)
+                    .setFooter({ text: tournamentRow.name })
+                    .setTimestamp();
+
                 if (winnerId) {
-                    msg += `\n<@${winnerId}> — you won! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game}.`;
+                    embed.setDescription(`<@${winnerId}> — you won! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game}.`);
                 } else {
-                    msg += ` A moderator should use \`/pick-game\` or \`/nominate-picker\`.`;
+                    embed.setDescription(`A moderator should use \`/pick-game\` or \`/nominate-picker\`.`);
                 }
-                await sendChannelMessage(channelId, msg);
+                await sendChannelEmbed(channelId, embed);
             }
         }
 

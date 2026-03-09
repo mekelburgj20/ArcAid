@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
@@ -6,6 +6,7 @@ import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
 import { checkCooldown } from '../../utils/cooldown.js';
+import { getTournamentColor } from '../../utils/discord.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export const pickgame: Command = {
@@ -45,37 +46,47 @@ export const pickgame: Command = {
         else if (focusedOption.name === 'game_name') {
             // Fetch the currently selected tournament to filter games by type
             const selectedTournamentName = interaction.options.getString('tournament');
-            let tournamentType = null;
-            
+            let tournamentId: string | null = null;
+            let tournamentType: string | null = null;
+
             if (selectedTournamentName) {
-                const tournamentRow = await db.get("SELECT type FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
+                const tournamentRow = await db.get("SELECT id, type FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
                 if (tournamentRow) {
+                    tournamentId = tournamentRow.id;
                     tournamentType = tournamentRow.type;
                 }
             }
 
             // Fetch from the master Game Library
             const rows = await db.all("SELECT name, tournament_types FROM game_library");
-            
+
             let choices = rows;
-            
+
             // Filter by tournament type if one is selected
             if (tournamentType) {
                 choices = choices.filter(r => {
-                    if (!r.tournament_types) return true; // If no tags, assume eligible for all
+                    if (!r.tournament_types) return true;
                     const tags = r.tournament_types.split(',').map((t: string) => t.trim().toUpperCase());
-                    return tags.includes(tournamentType.toUpperCase());
+                    return tags.includes(tournamentType!.toUpperCase());
                 });
             }
-            
+
             // Filter by what the user is currently typing
             const filtered = choices
-                .map(r => r.name)
-                .filter(name => name.toLowerCase().includes(focusedOption.value.toLowerCase()))
+                .filter(r => r.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
                 .slice(0, 25);
-            
+
+            // Check eligibility for display labels
+            const engine = TournamentEngine.getInstance();
+            const results = await Promise.all(filtered.map(async (r) => {
+                if (!tournamentId) return { name: r.name, label: r.name };
+                const eligible = await engine.isGameEligible(tournamentId, r.name);
+                const label = eligible ? `✅ ${r.name}` : `❌ ${r.name} (recently played)`;
+                return { name: r.name, label };
+            }));
+
             await interaction.respond(
-                filtered.map(choice => ({ name: choice, value: choice }))
+                results.map(r => ({ name: r.label, value: r.name }))
             );
         }
     },
@@ -144,7 +155,14 @@ export const pickgame: Command = {
             }
 
             logInfo(`User ${interaction.user.tag} picked ${gameName} for ${tournamentName}`);
-            await interaction.editReply(`🎉 Successfully created and picked **${gameName}** for the **${tournamentName}** ${term.tournament}!`);
+            const color = getTournamentColor(tournament.type);
+            const embed = new EmbedBuilder()
+                .setTitle(`🎉 ${term.game} Picked!`)
+                .setDescription(`**${gameName}** has been queued for the **${tournamentName}** ${term.tournament}.`)
+                .setColor(color)
+                .setFooter({ text: `Picked by ${interaction.user.displayName}` })
+                .setTimestamp();
+            await interaction.editReply({ embeds: [embed] });
 
         } catch (error) {
             logError('Error in /pick-game:', error);

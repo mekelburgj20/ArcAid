@@ -90,7 +90,8 @@ export class StatsService {
 
         // Score stats across all instances
         const stats = await db.get(`
-            SELECT AVG(score) as avg_score, MAX(score) as high_score
+            SELECT AVG(score) as avg_score, MAX(score) as high_score,
+                   COUNT(DISTINCT discord_user_id) as unique_players
             FROM submissions
             WHERE game_id IN (${placeholders})
         `, ...gameIds);
@@ -126,9 +127,10 @@ export class StatsService {
         return {
             gameName,
             timesPlayed,
-            averageScore: Math.round(stats?.avg_score ?? 0),
+            avgScore: Math.round(stats?.avg_score ?? 0),
+            uniquePlayers: stats?.unique_players ?? 0,
             allTimeHigh: stats?.high_score ?? 0,
-            allTimeHighHolder: highHolder?.iscored_username || 'Unknown',
+            allTimeHighPlayer: highHolder?.iscored_username || null,
             recentResults,
         };
     }
