@@ -72,11 +72,11 @@
 - [x] `GET /api/history` — paginated past game results
 
 ### Discord UX
-- [ ] Consistent embed design across all announcements (color per tournament type)
-- [ ] Improve `/pick-game` autocomplete — show eligibility in option label
-- [ ] Improve `/list-scores` — add `@user` parameter, pagination
-- [ ] Improve `/view-stats` — add win percentage, all-time high holder mention
-- [ ] Expand `/setup` to configure channel IDs, role IDs, pick windows via Discord
+- [x] Consistent embed design across all announcements (color per tournament type)
+- [x] Improve `/pick-game` autocomplete — show eligibility in option label
+- [x] Improve `/list-scores` — add `@user` parameter, pagination
+- [x] Improve `/view-stats` — add win percentage, all-time high holder mention
+- [x] Expand `/setup` to configure channel IDs, role IDs, pick windows via Discord
 
 ---
 

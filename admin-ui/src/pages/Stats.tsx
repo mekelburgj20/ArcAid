@@ -29,9 +29,10 @@ interface PlayerDetail {
 interface GameDetail {
   gameName: string;
   timesPlayed: number;
-  averageScore: number;
+  avgScore: number;
+  uniquePlayers: number;
   allTimeHigh: number;
-  allTimeHighHolder: string;
+  allTimeHighPlayer: string | null;
   recentResults: Array<{ tournament_name: string; winner_name: string; winner_score: number; end_date: string }>;
 }
 
@@ -213,11 +214,11 @@ export default function Stats() {
             </NeonCard>
             <NeonCard glowColor="green">
               <p className="text-xs font-display uppercase tracking-wider text-muted mb-1">Record Holder</p>
-              <p className="font-display text-lg font-bold text-neon-green">{gameDetail.allTimeHighHolder}</p>
+              <p className="font-display text-lg font-bold text-neon-green">{gameDetail.allTimeHighPlayer ?? 'Unknown'}</p>
             </NeonCard>
             <NeonCard glowColor="magenta">
               <p className="text-xs font-display uppercase tracking-wider text-muted mb-1">Avg Score</p>
-              <p className="font-display text-2xl font-bold text-neon-magenta">{gameDetail.averageScore.toLocaleString()}</p>
+              <p className="font-display text-2xl font-bold text-neon-magenta">{gameDetail.avgScore.toLocaleString()}</p>
             </NeonCard>
           </div>
 

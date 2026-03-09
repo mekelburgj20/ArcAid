@@ -1,8 +1,9 @@
+import { EmbedBuilder } from 'discord.js';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { Game } from '../types/index.js';
-import { sendChannelMessage } from '../utils/discord.js';
+import { sendChannelMessage, sendChannelEmbed, getTournamentColor } from '../utils/discord.js';
 import { TournamentEngine } from './TournamentEngine.js';
 import { IScoredClient } from './IScoredClient.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -107,16 +108,29 @@ export class TimeoutManager {
         }
     }
 
+    /** Resolves the tournament type for embed coloring. */
+    private async getTournamentType(tournamentId: string | undefined): Promise<string | null> {
+        if (!tournamentId) return null;
+        const db = await getDatabase();
+        const row = await db.get('SELECT type FROM tournaments WHERE id = ?', tournamentId);
+        return row?.type ?? null;
+    }
+
     private async sendReminder(game: Game, minsRemaining: number): Promise<void> {
         const db = await getDatabase();
         try {
             const term = getTerminology();
-            const message = `🔔 <@${game.pickerDiscordId}>, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`;
-            logInfo(message);
-
             const channelId = await this.getChannelId(game.tournamentId);
+            logInfo(`🔔 Reminder for <@${game.pickerDiscordId}>: ${minsRemaining} minutes left.`);
+
             if (channelId) {
-                await sendChannelMessage(channelId, message);
+                const color = getTournamentColor(await this.getTournamentType(game.tournamentId));
+                const embed = new EmbedBuilder()
+                    .setTitle(`🔔 Pick Reminder`)
+                    .setDescription(`<@${game.pickerDiscordId}>, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`)
+                    .setColor(color)
+                    .setTimestamp();
+                await sendChannelEmbed(channelId, embed);
             }
 
             await db.run(
@@ -164,9 +178,13 @@ export class TimeoutManager {
 
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
-                    await sendChannelMessage(channelId,
-                        `⏰ The winner timed out and no eligible runner-up was found. Auto-selecting a ${term.game}...`
-                    );
+                    const color = getTournamentColor(await this.getTournamentType(game.tournamentId));
+                    const embed = new EmbedBuilder()
+                        .setTitle(`⏰ Winner Timed Out`)
+                        .setDescription(`No eligible runner-up was found. Auto-selecting a ${term.game}...`)
+                        .setColor(color)
+                        .setTimestamp();
+                    await sendChannelEmbed(channelId, embed);
                 }
                 await this.fallbackToAutoSelection(game);
                 return;
@@ -189,9 +207,13 @@ export class TimeoutManager {
 
             const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {
-                await sendChannelMessage(channelId,
-                    `⏰ The winner's pick window expired!\n\n<@${runnerUpId}> — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`
-                );
+                const color = getTournamentColor(await this.getTournamentType(game.tournamentId));
+                const embed = new EmbedBuilder()
+                    .setTitle(`⏰ Winner Timed Out`)
+                    .setDescription(`<@${runnerUpId}> — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`)
+                    .setColor(color)
+                    .setTimestamp();
+                await sendChannelEmbed(channelId, embed);
             }
 
         } catch (error) {
@@ -257,9 +279,14 @@ export class TimeoutManager {
                 );
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
-                    await sendChannelMessage(channelId,
-                        `⚠️ All pickers timed out and no eligible ${term.games} were found for **${tournament.name}**. A moderator must use \`/pick-game\` or \`/pause-pick\`.`
-                    );
+                    const color = getTournamentColor(tournament.type);
+                    const embed = new EmbedBuilder()
+                        .setTitle(`⚠️ No Eligible ${term.games}`)
+                        .setDescription(`All pickers timed out and no eligible ${term.games} were found for **${tournament.name}**. A moderator must use \`/pick-game\` or \`/pause-pick\`.`)
+                        .setColor(color)
+                        .setFooter({ text: tournament.name })
+                        .setTimestamp();
+                    await sendChannelEmbed(channelId, embed);
                 }
                 return;
             }
@@ -299,9 +326,14 @@ export class TimeoutManager {
 
             const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {
-                await sendChannelMessage(channelId,
-                    `🎲 All pickers timed out! **${pick.name}** has been auto-selected as the next ${term.game} for **${tournament.name}**.`
-                );
+                const color = getTournamentColor(tournament.type);
+                const embed = new EmbedBuilder()
+                    .setTitle(`🎲 Auto-Selected: ${pick.name}`)
+                    .setDescription(`All pickers timed out! **${pick.name}** has been auto-selected as the next ${term.game} for **${tournament.name}**.`)
+                    .setColor(color)
+                    .setFooter({ text: tournament.name })
+                    .setTimestamp();
+                await sendChannelEmbed(channelId, embed);
             }
 
         } catch (error) {

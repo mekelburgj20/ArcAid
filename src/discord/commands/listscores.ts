@@ -5,11 +5,25 @@ import { getTerminology } from '../../utils/terminology.js';
 import { logError } from '../../utils/logger.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { LeaderboardService } from '../../services/LeaderboardService.js';
+import { getTournamentColor } from '../../utils/discord.js';
+
+const PAGE_SIZE = 10;
 
 export const listscores: Command = {
     data: new SlashCommandBuilder()
         .setName('list-scores')
-        .setDescription('Displays the leaderboard for active games.'),
+        .setDescription('Displays the leaderboard for active games.')
+        .addUserOption(option =>
+            option.setName('user')
+                .setDescription('Filter scores to a specific player')
+                .setRequired(false)
+        )
+        .addIntegerOption(option =>
+            option.setName('page')
+                .setDescription('Page number (default: 1)')
+                .setRequired(false)
+                .setMinValue(1)
+        ) as SlashCommandBuilder,
     async execute(interaction: ChatInputCommandInteraction) {
         // Check cooldown (5 seconds)
         const remaining = checkCooldown(interaction.user.id, 'list-scores', 5);
@@ -21,10 +35,13 @@ export const listscores: Command = {
         await interaction.deferReply();
         const term = getTerminology();
         const db = await getDatabase();
-        
+        const targetUser = interaction.options.getUser('user');
+        const page = interaction.options.getInteger('page') ?? 1;
+        const offset = (page - 1) * PAGE_SIZE;
+
         try {
             const activeGames = await db.all(`
-                SELECT g.id, g.name as game_name, t.name as tournament_name
+                SELECT g.id, g.name as game_name, t.name as tournament_name, t.type as tournament_type
                 FROM games g
                 LEFT JOIN tournaments t ON g.tournament_id = t.id
                 WHERE g.status IN ('ACTIVE', 'COMPLETED')
@@ -39,21 +56,51 @@ export const listscores: Command = {
 
             const embeds = [];
             for (const game of activeGames) {
-                const rankings = await LeaderboardService.getForGame(game.id);
+                let rankings = await LeaderboardService.getForGame(game.id);
 
+                // Filter to a specific user if requested
+                if (targetUser) {
+                    const mapping = await db.get(
+                        'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?',
+                        targetUser.id
+                    );
+                    if (mapping) {
+                        rankings = rankings.filter(e =>
+                            e.iscored_username.toLowerCase() === mapping.iscored_username.toLowerCase()
+                        );
+                    } else {
+                        rankings = [];
+                    }
+                }
+
+                const total = rankings.length;
+                const paged = rankings.slice(offset, offset + PAGE_SIZE);
                 const tName = game.tournament_name || 'Manual Game';
+                const color = getTournamentColor(game.tournament_type);
+
                 const embed = new EmbedBuilder()
                     .setTitle(`Standings: [${tName}] ${game.game_name}`)
-                    .setColor(0x00AE86)
+                    .setColor(color)
                     .setTimestamp();
 
-                if (rankings.length === 0) {
-                    embed.setDescription(`No ${term.submission.toLowerCase()}s submitted yet.`);
+                if (targetUser) {
+                    embed.setFooter({ text: `Filtered to ${targetUser.displayName}` });
+                }
+
+                if (paged.length === 0) {
+                    embed.setDescription(targetUser
+                        ? `No scores found for ${targetUser.displayName}.`
+                        : `No ${term.submission.toLowerCase()}s submitted yet.`);
                 } else {
                     let desc = '';
-                    rankings.slice(0, 10).forEach((entry) => {
-                        desc += `**${entry.rank}. ${entry.iscored_username}** - ${entry.score.toLocaleString()}\n`;
+                    paged.forEach((entry) => {
+                        const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `**${entry.rank}.**`;
+                        desc += `${medal} **${entry.iscored_username}** — ${entry.score.toLocaleString()}\n`;
                     });
+                    if (total > PAGE_SIZE) {
+                        const totalPages = Math.ceil(total / PAGE_SIZE);
+                        desc += `\n*Page ${page}/${totalPages} — use \`/list-scores page:${page + 1}\` for more*`;
+                    }
                     embed.setDescription(desc);
                 }
                 embeds.push(embed);
