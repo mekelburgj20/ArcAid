@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
+import NeonButton from '../components/NeonButton';
+
+const inputClass = "w-full px-4 py-3 bg-raised border border-border rounded text-primary placeholder-faint focus:outline-none focus:border-neon-cyan transition-colors mb-3";
 
 export default function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(1);
@@ -22,8 +25,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     try {
       await api.post('/settings', { ...config, SETUP_COMPLETE: 'true' });
       onComplete();
-    } catch (err) {
-      console.error(err);
+    } catch {
       alert('Failed to save configuration.');
     } finally {
       setSaving(false);
@@ -31,55 +33,56 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   };
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: 'var(--bg-color)' }}>
-      <div className="card" style={{ width: '500px', padding: '2rem' }}>
-        <h2 style={{ marginTop: 0, color: 'var(--primary-color)' }}>ArcAid Setup Wizard</h2>
-        <div style={{ marginBottom: '1.5rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-          Step {step} of 3
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-md">
+        <h1 className="font-pixel text-neon-cyan text-center text-sm mb-1">ARCAID</h1>
+        <p className="text-muted text-center text-sm mb-6">Setup Wizard</p>
+        <div className="flex justify-center gap-2 mb-6">
+          {[1, 2, 3].map(s => (
+            <div key={s} className={`w-16 h-1 rounded ${s <= step ? 'bg-neon-cyan' : 'bg-border'}`} />
+          ))}
         </div>
 
         {step === 1 && (
           <div>
-            <h3>1. Terminology</h3>
-            <p className="small">Choose the naming convention for your server.</p>
-            <select 
-              name="TERMINOLOGY_MODE" 
-              value={config.TERMINOLOGY_MODE} 
+            <h3 className="font-display text-lg font-bold mb-3">Terminology</h3>
+            <p className="text-muted text-sm mb-4">Choose the naming convention for your server.</p>
+            <select
+              name="TERMINOLOGY_MODE"
+              value={config.TERMINOLOGY_MODE}
               onChange={handleChange}
-              style={{ width: '100%', padding: '0.75rem', borderRadius: '4px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}
+              className={inputClass}
             >
               <option value="generic">Generic (Games & Tournaments)</option>
               <option value="legacy">Pinball Legacy (Tables & Grinds)</option>
             </select>
-            <button onClick={() => setStep(2)} style={btnStyle}>Next: Discord Setup</button>
+            <NeonButton onClick={() => setStep(2)} className="w-full">Next: Discord Setup</NeonButton>
           </div>
         )}
 
         {step === 2 && (
           <div>
-            <h3>2. Discord Credentials</h3>
-            <input type="password" name="DISCORD_BOT_TOKEN" placeholder="Bot Token" value={config.DISCORD_BOT_TOKEN} onChange={handleChange} style={inputStyle} />
-            <input type="text" name="DISCORD_CLIENT_ID" placeholder="Client ID (Application ID)" value={config.DISCORD_CLIENT_ID} onChange={handleChange} style={inputStyle} />
-            <input type="text" name="DISCORD_GUILD_ID" placeholder="Guild ID (Server ID)" value={config.DISCORD_GUILD_ID} onChange={handleChange} style={inputStyle} />
-            
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button onClick={() => setStep(1)} style={{ ...btnStyle, background: 'var(--text-muted)' }}>Back</button>
-              <button onClick={() => setStep(3)} style={{ ...btnStyle, flex: 1 }}>Next: iScored Setup</button>
+            <h3 className="font-display text-lg font-bold mb-3">Discord Credentials</h3>
+            <input type="password" name="DISCORD_BOT_TOKEN" placeholder="Bot Token" value={config.DISCORD_BOT_TOKEN} onChange={handleChange} className={inputClass} />
+            <input type="text" name="DISCORD_CLIENT_ID" placeholder="Client ID" value={config.DISCORD_CLIENT_ID} onChange={handleChange} className={inputClass} />
+            <input type="text" name="DISCORD_GUILD_ID" placeholder="Guild ID" value={config.DISCORD_GUILD_ID} onChange={handleChange} className={inputClass} />
+            <div className="flex gap-3">
+              <NeonButton variant="ghost" onClick={() => setStep(1)}>Back</NeonButton>
+              <NeonButton onClick={() => setStep(3)} className="flex-1">Next: iScored</NeonButton>
             </div>
           </div>
         )}
 
         {step === 3 && (
           <div>
-            <h3>3. iScored Account</h3>
-            <input type="text" name="ISCORED_USERNAME" placeholder="iScored Username" value={config.ISCORED_USERNAME} onChange={handleChange} style={inputStyle} />
-            <input type="password" name="ISCORED_PASSWORD" placeholder="iScored Password" value={config.ISCORED_PASSWORD} onChange={handleChange} style={inputStyle} />
-            
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button onClick={() => setStep(2)} style={{ ...btnStyle, background: 'var(--text-muted)' }} disabled={saving}>Back</button>
-              <button onClick={handleFinish} disabled={saving} style={{ ...btnStyle, flex: 1 }}>
+            <h3 className="font-display text-lg font-bold mb-3">iScored Account</h3>
+            <input type="text" name="ISCORED_USERNAME" placeholder="iScored Username" value={config.ISCORED_USERNAME} onChange={handleChange} className={inputClass} />
+            <input type="password" name="ISCORED_PASSWORD" placeholder="iScored Password" value={config.ISCORED_PASSWORD} onChange={handleChange} className={inputClass} />
+            <div className="flex gap-3">
+              <NeonButton variant="ghost" onClick={() => setStep(2)} disabled={saving}>Back</NeonButton>
+              <NeonButton onClick={handleFinish} disabled={saving} className="flex-1">
                 {saving ? 'Saving...' : 'Finish Setup'}
-              </button>
+              </NeonButton>
             </div>
           </div>
         )}
@@ -87,6 +90,3 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     </div>
   );
 }
-
-const inputStyle = { width: '100%', padding: '0.75rem', borderRadius: '4px', border: '1px solid var(--border-color)', marginBottom: '1rem', boxSizing: 'border-box' as const };
-const btnStyle = { background: 'var(--primary-color)', color: 'white', border: 'none', padding: '0.75rem 1.5rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 };

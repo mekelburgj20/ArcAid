@@ -5,6 +5,7 @@ import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { sendChannelMessage } from '../utils/discord.js';
 import { IScoredClient } from './IScoredClient.js';
+import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 
 export class TournamentEngine {
     private static instance: TournamentEngine;
@@ -316,6 +317,21 @@ export class TournamentEngine {
                     msg += `\nA moderator can use \`/nominate-picker\` to assign picking rights.`;
                 }
                 await sendChannelMessage(channelId, msg);
+            }
+
+            emitGameRotated({
+                tournamentName: tournamentRow.name,
+                oldGame: activeGame ? activeGame.name : '[None]',
+                newGame: queuedRow.name,
+            });
+
+            if (winnerId) {
+                const winnerUsername = winnerIscoredName || 'Unknown';
+                emitPickerAssigned({
+                    tournamentName: tournamentRow.name,
+                    pickerName: winnerUsername,
+                    deadline: new Date(Date.now() + parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60') * 60000).toISOString(),
+                });
             }
 
         } else {

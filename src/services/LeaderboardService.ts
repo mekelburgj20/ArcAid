@@ -1,0 +1,93 @@
+import { getDatabase } from '../database/database.js';
+import { logInfo, logError } from '../utils/logger.js';
+
+export interface RankedEntry {
+    rank: number;
+    discord_user_id: string;
+    iscored_username: string;
+    score: number;
+}
+
+export class LeaderboardService {
+    /**
+     * Recalculate and cache the leaderboard for a specific game.
+     */
+    static async recalculate(gameId: string): Promise<RankedEntry[]> {
+        const db = await getDatabase();
+
+        // Get best score per user for this game (from both submissions and scores tables)
+        const entries = await db.all(`
+            SELECT discord_user_id, iscored_username, MAX(score) as score
+            FROM (
+                SELECT discord_user_id, iscored_username, score FROM submissions WHERE game_id = ?
+                UNION ALL
+                SELECT discord_user_id, iscored_username, score FROM scores WHERE game_id = ?
+            )
+            GROUP BY discord_user_id
+            ORDER BY score DESC
+        `, gameId, gameId);
+
+        const rankings: RankedEntry[] = entries.map((e: any, i: number) => ({
+            rank: i + 1,
+            discord_user_id: e.discord_user_id,
+            iscored_username: e.iscored_username || 'Unknown',
+            score: e.score,
+        }));
+
+        // Cache the result
+        await db.run(
+            `INSERT OR REPLACE INTO leaderboard_cache (game_id, rankings, generated_at) VALUES (?, ?, ?)`,
+            gameId, JSON.stringify(rankings), new Date().toISOString()
+        );
+
+        logInfo(`Leaderboard recalculated for game ${gameId}: ${rankings.length} entries`);
+        return rankings;
+    }
+
+    /**
+     * Get cached leaderboard, recalculating if stale or missing.
+     */
+    static async getForGame(gameId: string): Promise<RankedEntry[]> {
+        const db = await getDatabase();
+        const cached = await db.get('SELECT rankings, generated_at FROM leaderboard_cache WHERE game_id = ?', gameId);
+
+        if (cached) {
+            return JSON.parse(cached.rankings);
+        }
+
+        return await this.recalculate(gameId);
+    }
+
+    /**
+     * Invalidate cache for a game (call after new score submission).
+     */
+    static async invalidate(gameId: string): Promise<void> {
+        const db = await getDatabase();
+        await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', gameId);
+    }
+
+    /**
+     * Get leaderboards for all active games.
+     */
+    static async getActiveLeaderboards(): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; rankings: RankedEntry[] }>> {
+        const db = await getDatabase();
+        const activeGames = await db.all(`
+            SELECT g.id, g.name as game_name, t.name as tournament_name
+            FROM games g
+            LEFT JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.status = 'ACTIVE'
+        `);
+
+        const results = [];
+        for (const game of activeGames) {
+            const rankings = await this.getForGame(game.id);
+            results.push({
+                gameId: game.id,
+                gameName: game.game_name,
+                tournamentName: game.tournament_name || 'Untracked',
+                rankings,
+            });
+        }
+        return results;
+    }
+}

@@ -8,55 +8,46 @@
 
 ## Current Sprint
 
-**Sprint 2 — Harden**
-**Branch:** `sprint-2/harden`
-**Goal:** Resilience, security, and code quality. Make iScored integration robust, improve logging, add Docker hardening.
+**Sprint 4 — Phase 8 (New Features)**
+**Branch:** `sprint-4/phase8`
+**Goal:** Internal leaderboard, WebSocket real-time events, public scoreboard, player/game stats.
 
 ## Sprint Progress
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | Retry logic with exponential backoff for IScoredClient | `done` | `withRetry()` wrapper, configurable max attempts |
-| 2 | Replace `waitForTimeout` with deterministic waits | `done` | `waitForSelector`, `waitForLoadState('networkidle')` |
-| 3 | Persistent browser session (keep login alive) | `done` | `isSessionAlive()` check, reuse existing session |
-| 4 | Screenshot-on-failure in IScoredClient | `done` | Saves to `data/playwright-errors/`, auto-created dir |
-| 5 | iScored DOM change detection | `done` | Hash comparison on lineup DOM, warns on change |
-| 6 | Log rotation (rotating-file-stream) | `done` | Max 10MB/file, daily rotation, keep 5 files |
-| 7 | Replace sync fs.appendFileSync with async stream | `done` | Uses `rotating-file-stream` writable stream |
-| 8 | Startup environment validation | `done` | `src/utils/startup.ts`, clear messages for missing config |
-| 9 | Docker health check | `done` | `HEALTHCHECK` hitting `/api/status` |
-| 10 | Docker non-root user | `done` | `arcaid` user + group, `chown` data dir |
-| 11 | Service layer (src/services/) | `done` | `SettingsService`, `TournamentService`, `GameLibraryService`, `LogService` |
-| 12 | Per-user command cooldowns in Discord | `done` | submit: 30s, pick: 10s, list: 5s via `src/utils/cooldown.ts` |
-| 13 | Transaction safety for multi-step commands | `done` | `pickgame.ts` wraps DB ops in BEGIN/COMMIT/ROLLBACK |
+| 1 | Add `scores` table | `done` | Supplements submissions, verified flag |
+| 2 | Add `leaderboard_cache` table | `done` | Pre-computed rankings, auto-invalidation |
+| 3 | LeaderboardService | `done` | Recalculate, cache, invalidate on new score |
+| 4 | StatsService | `done` | Player stats, game stats, all-player overview |
+| 5 | Update submitscore.ts | `done` | Writes to scores table, invalidates cache |
+| 6 | Update listscores.ts | `done` | Reads from LeaderboardService cache |
+| 7 | WebSocket server (Socket.io) | `done` | websocket.ts, attached to Express HTTP server |
+| 8 | WebSocket events in TournamentEngine | `done` | game:rotated, picker:assigned |
+| 9 | WebSocket events in DiscordClient | `done` | bot:status on connect |
+| 10 | API: GET /api/leaderboard | `done` | Active game leaderboards |
+| 11 | API: GET /api/stats/player/:id | `done` | Player stats with wins, avg, best |
+| 12 | API: GET /api/stats/game/:name | `done` | Game stats with all-time high |
+| 13 | API: GET /api/stats/players | `done` | All players overview |
+| 14 | Leaderboard page (admin) | `done` | Live WebSocket updates, ranked entries |
+| 15 | Stats page (admin) | `done` | Player list, detail view, game lookup |
+| 16 | Public Scoreboard (/scoreboard) | `done` | Full-screen, auto-rotate, OBS-ready |
 
-**Also completed (Sprint 1 leftovers):**
-- Fix inconsistent `tournament_types` format in `game_library` (normalize CSV to JSON array migration)
-- Add score validation before iScored submission (positive integer check in `submitscore.ts`)
-
+## Sprint 3 — COMPLETE
 ## Sprint 2 — COMPLETE
-
-All 13 tasks done, plus 2 Sprint 1 leftovers. Ready to commit and merge.
+## Sprint 1 — COMPLETE
 
 ## Upcoming Sprints
 
 | Sprint | Name | Goal |
 |--------|------|------|
-| Sprint 3 | Redesign | Full frontend overhaul — Tailwind, arcade theme, new pages |
 | Sprint 4 | Phase 8 | Internal leaderboard, WebSockets, public scoreboard |
 
 ## Last Session
 
-**Date:** 2026-03-08
-**What happened:** Completed all Sprint 2 tasks in one session:
-- IScoredClient: retry logic, deterministic waits, persistent sessions, screenshot-on-failure, DOM change detection
-- Logger: async rotating-file-stream (10MB, 5 files)
-- Startup: environment validation with clear messages
-- Docker: HEALTHCHECK + non-root `arcaid` user
-- Service layer: 4 services extracted from server.ts
-- Discord: per-user cooldowns (submit/pick/list), score validation, transaction safety
-- DB: tournament_types normalization migration
-**Next:** Commit Sprint 2 changes, then begin Sprint 3 (Redesign).
+**Date:** 2026-03-09
+**What happened:** Completed Sprint 4. All 16 tasks done: scores + leaderboard_cache tables, LeaderboardService with auto-invalidation, StatsService (player/game analytics), Socket.io WebSocket server with events wired into TournamentEngine + DiscordClient, 4 new API endpoints, Leaderboard + Stats admin pages, public Scoreboard at /scoreboard (full-screen, auto-rotating, OBS-ready). Fixed Tailwind CSS build issue (switched from @tailwindcss/vite to @tailwindcss/postcss for Windows compatibility). Fixed Docker volume permissions.
+**Next:** UAT testing, then merge to main. Discord UX improvements (embeds, autocomplete) as stretch goals.
 
 ## Blockers
 

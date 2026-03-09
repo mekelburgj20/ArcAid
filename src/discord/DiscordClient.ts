@@ -1,5 +1,6 @@
 import { Client, GatewayIntentBits, Collection, Events, REST, Routes, Message } from 'discord.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
+import { emitBotStatus } from '../api/websocket.js';
 import { Command } from './commands/index.js';
 import { ping } from './commands/ping.js';
 import { setup } from './commands/setup.js';
@@ -94,6 +95,7 @@ export class DiscordClient {
     public async connect(): Promise<void> {
         this.client.once(Events.ClientReady, (readyClient) => {
             logInfo(`✅ Discord bot ready! Logged in as ${readyClient.user.tag}`);
+            emitBotStatus({ online: true });
         });
 
         this.client.on(Events.MessageCreate, async (message: Message) => {
