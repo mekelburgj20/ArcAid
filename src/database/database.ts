@@ -106,6 +106,31 @@ export async function initDatabase(): Promise<Database> {
         )
     `);
 
+    // 6. Scores table (supplements submissions with verified flag)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS scores (
+            id TEXT PRIMARY KEY,
+            game_id TEXT NOT NULL,
+            discord_user_id TEXT NOT NULL,
+            iscored_username TEXT,
+            score INTEGER NOT NULL,
+            verified INTEGER DEFAULT 0,
+            synced_at TEXT,
+            timestamp TEXT NOT NULL,
+            FOREIGN KEY (game_id) REFERENCES games (id)
+        )
+    `);
+
+    // 7. Leaderboard cache (pre-computed rankings)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS leaderboard_cache (
+            game_id TEXT PRIMARY KEY,
+            rankings TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            FOREIGN KEY (game_id) REFERENCES games (id)
+        )
+    `);
+
     // --- Indexes for performance ---
     await db.exec(`
         CREATE INDEX IF NOT EXISTS idx_games_tournament_id ON games(tournament_id);
@@ -113,6 +138,9 @@ export async function initDatabase(): Promise<Database> {
         CREATE INDEX IF NOT EXISTS idx_submissions_game_id ON submissions(game_id);
         CREATE INDEX IF NOT EXISTS idx_submissions_discord_user_id ON submissions(discord_user_id);
         CREATE INDEX IF NOT EXISTS idx_submissions_timestamp ON submissions(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_scores_game_id ON scores(game_id);
+        CREATE INDEX IF NOT EXISTS idx_scores_discord_user_id ON scores(discord_user_id);
+        CREATE INDEX IF NOT EXISTS idx_scores_timestamp ON scores(timestamp);
     `);
 
     // --- Migrations for existing databases ---

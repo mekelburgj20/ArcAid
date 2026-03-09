@@ -4,6 +4,7 @@ import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logError } from '../../utils/logger.js';
 import { checkCooldown } from '../../utils/cooldown.js';
+import { LeaderboardService } from '../../services/LeaderboardService.js';
 
 export const listscores: Command = {
     data: new SlashCommandBuilder()
@@ -38,13 +39,7 @@ export const listscores: Command = {
 
             const embeds = [];
             for (const game of activeGames) {
-                const submissions = await db.all(`
-                    SELECT iscored_username, score 
-                    FROM submissions 
-                    WHERE game_id = ?
-                    ORDER BY score DESC
-                    LIMIT 10
-                `, game.id);
+                const rankings = await LeaderboardService.getForGame(game.id);
 
                 const tName = game.tournament_name || 'Manual Game';
                 const embed = new EmbedBuilder()
@@ -52,12 +47,12 @@ export const listscores: Command = {
                     .setColor(0x00AE86)
                     .setTimestamp();
 
-                if (submissions.length === 0) {
+                if (rankings.length === 0) {
                     embed.setDescription(`No ${term.submission.toLowerCase()}s submitted yet.`);
                 } else {
                     let desc = '';
-                    submissions.forEach((s, i) => {
-                        desc += `**${i + 1}. ${s.iscored_username || 'Unknown'}** - ${s.score.toLocaleString()}\n`;
+                    rankings.slice(0, 10).forEach((entry) => {
+                        desc += `**${entry.rank}. ${entry.iscored_username}** - ${entry.score.toLocaleString()}\n`;
                     });
                     embed.setDescription(desc);
                 }

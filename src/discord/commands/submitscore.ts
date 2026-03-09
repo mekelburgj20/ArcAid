@@ -4,6 +4,7 @@ import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
+import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -122,6 +123,15 @@ export const submitscore: Command = {
                     'INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
                     uuidv4(), game.id, interaction.user.id, username, score, photo.url, new Date().toISOString()
                 );
+
+                // Also write to scores table
+                await db.run(
+                    'INSERT INTO scores (id, game_id, discord_user_id, iscored_username, score, verified, synced_at, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    uuidv4(), game.id, interaction.user.id, username, score, 1, new Date().toISOString(), new Date().toISOString()
+                );
+
+                // Invalidate leaderboard cache
+                await LeaderboardService.invalidate(game.id);
 
                 logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
                 await interaction.editReply(`✅ Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!`);
