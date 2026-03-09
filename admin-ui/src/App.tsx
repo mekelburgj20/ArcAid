@@ -15,23 +15,36 @@ import Backups from './pages/Backups';
 import Leaderboard from './pages/Leaderboard';
 import Stats from './pages/Stats';
 import Scoreboard from './pages/Scoreboard';
+import Players from './pages/Players';
+import PlayerDetail from './pages/PlayerDetail';
+import GameDetail from './pages/GameDetail';
 
 function App() {
   const location = useLocation();
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [authed, setAuthed] = useState(isAuthenticated());
-  const isScoreboard = location.pathname === '/scoreboard';
+  const isPublicRoute = location.pathname === '/scoreboard'
+    || location.pathname === '/players'
+    || location.pathname.startsWith('/players/')
+    || location.pathname.startsWith('/games/');
 
   useEffect(() => {
-    if (isScoreboard) return;
+    if (isPublicRoute) return;
     api.get<{ needsSetup: boolean }>('/status')
       .then(data => setNeedsSetup(data.needsSetup))
       .catch(() => setNeedsSetup(false));
-  }, [isScoreboard]);
+  }, [isPublicRoute]);
 
-  // Public scoreboard — no auth required
-  if (isScoreboard) {
-    return <Scoreboard />;
+  // Public pages — no auth required
+  if (isPublicRoute) {
+    return (
+      <Routes>
+        <Route path="/scoreboard" element={<Scoreboard />} />
+        <Route path="/players" element={<Players />} />
+        <Route path="/players/:id" element={<PlayerDetail />} />
+        <Route path="/games/:name" element={<GameDetail />} />
+      </Routes>
+    );
   }
 
   if (needsSetup === null) {
