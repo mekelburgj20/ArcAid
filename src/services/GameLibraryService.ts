@@ -10,6 +10,32 @@ export class GameLibraryService {
     }
 
     /**
+     * Updates a single game by its original name.
+     */
+    static async updateGame(originalName: string, game: {
+        name: string;
+        aliases?: string;
+        style_id?: string;
+        css_title?: string;
+        css_initials?: string;
+        css_scores?: string;
+        css_box?: string;
+        bg_color?: string;
+        tournament_types?: string;
+    }): Promise<boolean> {
+        const db = await getDatabase();
+        const result = await db.run(
+            `UPDATE game_library SET name = ?, aliases = ?, style_id = ?, css_title = ?, css_initials = ?, css_scores = ?, css_box = ?, bg_color = ?, tournament_types = ? WHERE name = ?`,
+            game.name, game.aliases || '', game.style_id || '',
+            game.css_title || '', game.css_initials || '',
+            game.css_scores || '', game.css_box || '',
+            game.bg_color || '', game.tournament_types || '',
+            originalName
+        );
+        return (result.changes ?? 0) > 0;
+    }
+
+    /**
      * Imports an array of games into the library (upsert).
      * Runs in a transaction for atomicity.
      */

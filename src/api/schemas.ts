@@ -44,6 +44,21 @@ export const ImportGamesSchema = z.object({
     })).min(1, 'At least one game required'),
 });
 
+export const UpdateGameSchema = z.object({
+    name: z.string().min(1).max(200),
+    aliases: z.string().optional().default(''),
+    style_id: z.string().optional().default(''),
+    css_title: z.string().optional().default(''),
+    css_initials: z.string().optional().default(''),
+    css_scores: z.string().optional().default(''),
+    css_box: z.string().optional().default(''),
+    bg_color: z.string().optional().default(''),
+    tournament_types: z.union([
+        z.array(z.string()),
+        z.string(),
+    ]).transform((v: string[] | string) => Array.isArray(v) ? JSON.stringify(v) : v).optional().default('[]'),
+});
+
 export const SettingsSchema = z.record(z.string().min(1), z.string());
 
 export const HistoryQuerySchema = z.object({

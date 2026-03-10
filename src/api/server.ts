@@ -11,7 +11,7 @@ import { logInfo, logError } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { hashPassword, verifyPassword, signToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
 import { requireAuth } from './middleware.js';
-import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema } from './schemas.js';
+import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema } from './schemas.js';
 import { SettingsService } from '../services/SettingsService.js';
 import { TournamentService } from '../services/TournamentService.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
@@ -207,6 +207,21 @@ export function startApiServer(port: number = 3001) {
             res.json({ success: true, imported });
         } catch (error) {
             logError('API Error (POST /api/game_library/import):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.put('/api/game_library/:name', requireAuth, async (req, res) => {
+        try {
+            const originalName = decodeURIComponent(req.params.name as string);
+            const validationResult = validate(UpdateGameSchema, req.body);
+            if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+            const updated = await GameLibraryService.updateGame(originalName, validationResult.data);
+            if (!updated) return res.status(404).json({ error: 'Game not found' });
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (PUT /api/game_library/:name):', error);
             res.status(500).json({ error: 'Internal Server Error' });
         }
     });
