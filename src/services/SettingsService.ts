@@ -31,9 +31,13 @@ export class SettingsService {
         let needsRestart = false;
 
         for (const [key, value] of Object.entries(settings)) {
+            const strValue = String(value);
+            // Skip empty values — don't overwrite .env defaults with blanks
+            if (strValue === '' && key !== 'SETUP_COMPLETE') continue;
+
             await db.run(
                 'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
-                key, String(value)
+                key, strValue
             );
             if (key === 'SETUP_COMPLETE' && value === 'true') {
                 needsRestart = true;

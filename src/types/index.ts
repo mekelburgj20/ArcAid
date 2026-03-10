@@ -4,6 +4,7 @@ export interface CadenceConfig {
     cron: string;             // '0 0 * * *' for daily
     autoRotate: boolean;      // Whether to automatically trigger maintenance
     autoLock: boolean;        // Whether to lock the previous game automatically
+    timezone?: string;        // Per-tournament timezone (falls back to BOT_TIMEZONE)
     announcementChannel?: string;
 }
 

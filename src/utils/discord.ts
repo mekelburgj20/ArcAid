@@ -1,20 +1,25 @@
 import { REST, Routes, EmbedBuilder } from 'discord.js';
 import { logError } from './logger.js';
-import { TournamentType } from '../types/index.js';
 
-/** Embed accent colors keyed by tournament type. */
-export const TOURNAMENT_COLORS: Record<TournamentType | 'default', number> = {
-    daily:   0xFFD700,  // gold
-    weekly:  0x00BFFF,  // sky blue
-    monthly: 0xAA00FF,  // purple
-    custom:  0x00FF88,  // green
-    default: 0x888888,  // gray
+/** Embed accent colors keyed by tournament tag or type. */
+const TAG_COLORS: Record<string, number> = {
+    // By tag
+    'DG':      0xFFD700,  // gold
+    'WG-VPXS': 0x00BFFF,  // sky blue
+    'WG-VR':   0xAA00FF,  // purple
+    'MG':      0x00FF88,  // green
+    // By generic type (fallback)
+    'daily':   0xFFD700,
+    'weekly':  0x00BFFF,
+    'monthly': 0xAA00FF,
+    'custom':  0x00FF88,
 };
 
-/** Returns the embed color for a tournament type string. */
+/** Returns the embed color for a tournament type/tag string. */
 export function getTournamentColor(type?: string | null): number {
-    if (type && type in TOURNAMENT_COLORS) return TOURNAMENT_COLORS[type as TournamentType];
-    return TOURNAMENT_COLORS.default;
+    if (!type) return 0x888888;
+    const upper = type.toUpperCase();
+    return TAG_COLORS[upper] ?? TAG_COLORS[type] ?? 0x888888;
 }
 
 /**

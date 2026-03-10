@@ -2,13 +2,15 @@
 
 **Prepared by:** Claude Code (Senior Review)
 **Date:** March 7, 2026
-**Status:** In Progress — Sprint 2 complete, Sprint 3 next
+**Status:** Core overhaul complete (Sprints 1–6)
 
 ### Progress
 - **Sprint 1 (Stabilize):** COMPLETE — All 8 critical bugs fixed, merged to main (2026-03-08)
 - **Sprint 2 (Harden):** COMPLETE — All 13 tasks done: IScoredClient resilience, log rotation, Docker hardening, service layer, cooldowns, transaction safety (2026-03-08)
-- **Sprint 3 (Redesign):** Not started
-- **Sprint 4 (Phase 8):** Not started
+- **Sprint 3 (Redesign):** COMPLETE — Tailwind CSS v4, arcade dark theme, component library, all pages redesigned, login/auth flow (2026-03-09)
+- **Sprint 4 (Phase 8):** COMPLETE — Internal leaderboard, WebSocket, public scoreboard, stats/analytics pages (2026-03-09)
+- **Sprint 5 (Discord UX + Player Portal):** COMPLETE — Embed announcements, autocomplete improvements, /my-stats, public player/game pages (2026-03-09)
+- **Sprint 6 (Schedule UX + UAT):** COMPLETE — ScheduleBuilder component, setup wizard auth fix, tournament editing, per-tournament timezone, UAT passed (2026-03-09)
 
 ---
 

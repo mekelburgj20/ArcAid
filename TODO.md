@@ -4,7 +4,7 @@
 
 ---
 
-## Sprint 1 — Stabilize
+## Sprint 1 — Stabilize (COMPLETE)
 **Branch:** `sprint-1/stabilize`
 
 ### Critical Bugs
@@ -27,7 +27,7 @@
 
 ---
 
-## Sprint 2 — Harden
+## Sprint 2 — Harden (COMPLETE)
 **Branch:** `sprint-2/harden`
 
 - [x] Add retry logic with exponential backoff to `IScoredClient` operations
@@ -46,7 +46,7 @@
 
 ---
 
-## Sprint 3 — Redesign (Frontend)
+## Sprint 3 — Redesign (COMPLETE)
 **Branch:** `sprint-3/redesign`
 
 ### Foundation
@@ -71,22 +71,9 @@
 - [x] `POST /api/backups/:name/restore` — trigger restore with guard
 - [x] `GET /api/history` — paginated past game results
 
-### Discord UX
-- [x] Consistent embed design across all announcements (color per tournament type)
-- [x] Improve `/pick-game` autocomplete — show eligibility in option label
-- [x] Improve `/list-scores` — add `@user` parameter, pagination
-- [x] Improve `/view-stats` — add win percentage, all-time high holder mention
-- [x] Expand `/setup` to configure channel IDs, role IDs, pick windows via Discord
-
-### Player Portal
-- [x] `/my-stats` Discord command — personal stats card (wins, win%, avg, best, recent scores)
-- [x] Public `/players` page — searchable player list, ranked by best score
-- [x] Public `/players/:id` page — player profile with stat cards, recent scores, game links
-- [x] Public `/games/:name` page — game stats, record holder, recent results
-
 ---
 
-## Sprint 4 — Phase 8 (New Features)
+## Sprint 4 — Phase 8 (COMPLETE)
 **Branch:** `sprint-4/phase8`
 
 ### Internal Leaderboard
@@ -115,9 +102,41 @@
 
 ---
 
+## Sprint 5 — Discord UX + Player Portal (COMPLETE)
+**Branch:** `sprint-5/discord-ux`, `sprint-5/player-portal`
+
+### Discord UX
+- [x] Consistent embed design across all announcements (color per tournament type)
+- [x] Improve `/pick-game` autocomplete — show eligibility in option label
+- [x] Improve `/list-scores` — add `@user` parameter, pagination
+- [x] Improve `/view-stats` — add win percentage, all-time high holder mention
+- [x] Expand `/setup` to configure channel IDs, role IDs, pick windows via Discord
+
+### Player Portal
+- [x] `/my-stats` Discord command — personal stats card (wins, win%, avg, best, recent scores)
+- [x] Public `/players` page — searchable player list, ranked by best score
+- [x] Public `/players/:id` page — player profile with stat cards, recent scores, game links
+- [x] Public `/games/:name` page — game stats, record holder, recent results
+
+---
+
+## Sprint 6 — Schedule UX & UAT (COMPLETE)
+**Branch:** `sprint-6/schedule-ux-uat`
+
+- [x] ScheduleBuilder component — friendly day/time/timezone picker (replaces raw cron)
+- [x] Setup wizard password flow — Step 1 creates JWT before settings save
+- [x] SettingsService empty value fix — skip blanks to preserve .env defaults
+- [x] Tournament tag freeform input — replaced dropdown with text input
+- [x] Tournament edit modal — edit name, tag, channel, schedule on existing tournaments
+- [x] Per-tournament timezone — Scheduler reads timezone from cadence config
+- [x] Channel ID clear on create — all form fields reset after creation
+- [x] UAT fresh install — full flow tested with 4 tournaments
+
+---
+
 ## Completed (Pre-Overhaul)
 
-### Phases 0–7 (TableFlipper Feature Parity) ✅
+### Phases 0–7 (TableFlipper Feature Parity)
 - [x] Generic engine with terminology toggle
 - [x] SQLite schema with multi-tournament support
 - [x] Playwright-powered IScoredClient
@@ -127,3 +146,19 @@
 - [x] React/Vite Admin UI (overhauled in Sprint 3)
 - [x] Docker deployment
 - [x] Backup manager
+
+---
+
+## Next Steps (Future)
+
+### UX Polish
+- [ ] Discord OAuth login for player portal (self-service identity linking)
+- [ ] Trend charts / sparklines on player profile pages
+- [ ] Mobile-responsive tweaks for admin UI and public pages
+- [ ] Notification preferences (opt-in/out for reminders, announcements)
+
+### Ops / Infrastructure
+- [ ] CI/CD pipeline (build + test on push)
+- [ ] Automated backup schedule (configurable via admin UI)
+- [ ] Monitoring / alerting (health check dashboard, error rate tracking)
+- [ ] Push to remote repository

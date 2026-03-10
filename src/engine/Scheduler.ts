@@ -80,7 +80,7 @@ export class Scheduler {
 
         logInfo(`📅 Scheduling maintenance for ${name} using cron: '${cadence.cron}'`);
 
-        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const timezone = cadence.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
         const task = cron.schedule(cadence.cron, async () => {
             logInfo(`🔄 Running scheduled maintenance for tournament: ${name}`);
             try {
