@@ -2,7 +2,7 @@
 
 **ArcAid** is a modern tournament management system for virtual pinball and retro gaming communities. Discord bot + React Admin UI + Playwright-powered iScored automation.
 
-> **Development Status:** Core overhaul complete (Sprints 1–6). All major features implemented and UAT-tested. See [OVERHAUL_PLAN.md](./OVERHAUL_PLAN.md) for the full plan and [TODO.md](./TODO.md) for remaining future work.
+> **Development Status:** Core overhaul complete (Sprints 1–7). All major features implemented and UAT-tested. See [OVERHAUL_PLAN.md](./OVERHAUL_PLAN.md) for the full plan and [TODO.md](./TODO.md) for remaining future work.
 
 ## Features
 
@@ -15,7 +15,8 @@
 - **Admin UI** — Retro arcade-themed dashboard with tournament management, game library, logs, settings, history, backups
 - **Public pages** — Scoreboard (OBS-embeddable), player profiles, game stats
 - **Discord commands** — Full slash command suite for players and admins
-- **Terminology modes** — "Pinball Legacy" (Tables & Grinds) or "Generic" (Games & Tournaments)
+- **Per-tournament mode** — Pinball (Tables & Grinds) or Video Game (Games & Tournaments) terminology per tournament
+- **Platform rules** — Required/excluded platform filtering per tournament with master platform list
 - **Docker deployment** — Production-ready with health checks, non-root user, Playwright
 
 ## Quick Start
@@ -25,7 +26,7 @@
 cp .env.example .env    # Fill in Discord credentials
 docker-compose up -d --build
 # Admin UI: http://localhost:3001
-# First visit runs the Setup Wizard (password → terminology → Discord → iScored)
+# First visit runs the Setup Wizard (password → Discord → iScored)
 ```
 
 ### Manual
@@ -77,19 +78,19 @@ npm run dev            # Vite dev server with HMR
 | `/create-backup` | Trigger a database backup |
 | `/pause-pick` | Inject a specific game into the queue |
 | `/nominate-picker` | Manually assign picker rights to a user |
-| `/setup` | Configure terminology, channels, roles, pick windows via Discord |
+| `/setup` | Configure channels, roles, pick windows via Discord |
 
 ## Admin UI Pages
 
 - **Dashboard** — Live stats: active games, next rotations, recent winners, quick actions
 - **Tournaments** — Create, edit, delete tournaments with friendly schedule builder
-- **Game Library** — Search, filter, add games, CSV import
+- **Game Library** — Search, filter by mode, add/edit games, CSV import, platform chips
 - **Leaderboard** — Internal rankings with WebSocket live updates
 - **Stats** — Player and game analytics
 - **History** — Past tournament results, filterable
 - **Backups** — List, create, and restore database backups
 - **Logs** — Real-time streaming, level filters, search, color coding
-- **Settings** — Categorized configuration with sensitive field masking
+- **Settings** — Categorized configuration with sensitive field masking, platform master list editor
 
 ### Public Pages (no auth)
 - `/scoreboard` — Arcade high score display, auto-rotating, OBS-embeddable
@@ -147,8 +148,8 @@ Settings can be configured via `.env` file, the Setup Wizard (first run), or the
 | `DISCORD_GUILD_ID` | — | Discord server ID (required) |
 | `ISCORED_USERNAME` | — | iScored.info login username |
 | `ISCORED_PASSWORD` | — | iScored.info login password |
-| `TERMINOLOGY_MODE` | `generic` | `generic` (Games/Tournaments) or `legacy` (Tables/Grinds) |
 | `BOT_TIMEZONE` | `America/Chicago` | Default timezone (per-tournament override available) |
+| `PLATFORMS` | `["AtGames","VPXS","VR","IRL"]` | Master platform list (JSON array, editable in Settings) |
 | `GAME_ELIGIBILITY_DAYS` | `120` | Days before a game can be replayed |
 | `WINNER_PICK_WINDOW_MIN` | `60` | Minutes for winner to pick next game |
 | `RUNNERUP_PICK_WINDOW_MIN` | `30` | Minutes for runner-up fallback |
