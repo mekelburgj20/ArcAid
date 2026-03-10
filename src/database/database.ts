@@ -147,6 +147,10 @@ export async function initDatabase(): Promise<Database> {
     const migrations = [
         `ALTER TABLE tournaments ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`,
         `ALTER TABLE games ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`,
+        `ALTER TABLE tournaments ADD COLUMN mode TEXT DEFAULT 'pinball'`,
+        `ALTER TABLE tournaments ADD COLUMN platform_rules TEXT DEFAULT '{}'`,
+        `ALTER TABLE game_library ADD COLUMN mode TEXT DEFAULT 'pinball'`,
+        `ALTER TABLE game_library ADD COLUMN platforms TEXT DEFAULT '[]'`,
     ];
     for (const migration of migrations) {
         try {
@@ -156,18 +160,24 @@ export async function initDatabase(): Promise<Database> {
         }
     }
 
-    // --- Normalize tournament_types to JSON array format ---
+    // --- Migrate tournament_types → platforms (rename + normalize) ---
     try {
-        const rows = await db.all("SELECT name, tournament_types FROM game_library WHERE tournament_types IS NOT NULL AND tournament_types != ''");
+        const rows = await db.all("SELECT name, tournament_types, platforms FROM game_library");
         for (const row of rows) {
-            const val = row.tournament_types.trim();
-            // Skip if already a JSON array
-            if (val.startsWith('[')) continue;
-            // Convert CSV to JSON array
-            const types = val.split(',').map((t: string) => t.trim()).filter(Boolean);
+            // If platforms already has data, skip
+            if (row.platforms && row.platforms !== '[]') continue;
+            // Migrate from tournament_types if it has data
+            const val = (row.tournament_types || '').trim();
+            if (!val) continue;
+            let platforms: string[];
+            if (val.startsWith('[')) {
+                platforms = JSON.parse(val);
+            } else {
+                platforms = val.split(',').map((t: string) => t.trim()).filter(Boolean);
+            }
             await db.run(
-                'UPDATE game_library SET tournament_types = ? WHERE name = ?',
-                JSON.stringify(types), row.name
+                'UPDATE game_library SET platforms = ? WHERE name = ?',
+                JSON.stringify(platforms), row.name
             );
         }
     } catch {
@@ -183,6 +193,7 @@ export async function initDatabase(): Promise<Database> {
         ['PORT', '3001'],
         ['MAX_LOG_LINES', '500'],
         ['BACKUP_RETENTION_DAYS', '30'],
+        ['PLATFORMS', JSON.stringify(['AtGames', 'VPXS', 'VR', 'IRL'])],
     ];
     for (const [key, value] of defaultSettings) {
         await db.run(

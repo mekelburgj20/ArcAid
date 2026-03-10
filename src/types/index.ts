@@ -1,4 +1,4 @@
-export type TournamentType = 'daily' | 'weekly' | 'monthly' | 'custom';
+export type TournamentMode = 'pinball' | 'videogame';
 
 export interface CadenceConfig {
     cron: string;             // '0 0 * * *' for daily
@@ -8,11 +8,19 @@ export interface CadenceConfig {
     announcementChannel?: string;
 }
 
+export interface PlatformRules {
+    required: string[];       // Game must be available on at least one of these
+    excluded: string[];       // Game cannot be played on these platforms
+    restrictedText?: string;  // Informational text shown in announcements
+}
+
 export interface Tournament {
     id: string;
     name: string;
-    type: TournamentType;
+    type: string;             // iScored tag (DG, WG-VPXS, etc.)
+    mode: TournamentMode;     // pinball or videogame
     cadence: CadenceConfig;
+    platformRules?: PlatformRules;
     guildId?: string;
     discordChannelId?: string;
     discordRoleId?: string;

@@ -1,6 +1,5 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder, PermissionFlagsBits, ChannelType } from 'discord.js';
 import { Command } from './index.js';
-import { getTerminology } from '../../utils/terminology.js';
 import { getDatabase } from '../../database/database.js';
 import { logInfo } from '../../utils/logger.js';
 
@@ -9,19 +8,6 @@ export const setup: Command = {
         .setName('setup')
         .setDescription('Configure ArcAid settings for this server.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-        .addSubcommand(sub =>
-            sub.setName('terminology')
-                .setDescription('Set the naming convention (legacy or generic).')
-                .addStringOption(opt =>
-                    opt.setName('mode')
-                        .setDescription('Terminology mode')
-                        .setRequired(true)
-                        .addChoices(
-                            { name: 'Pinball Legacy (Tables/Grinds)', value: 'legacy' },
-                            { name: 'Generic (Games/Tournaments)', value: 'generic' }
-                        )
-                )
-        )
         .addSubcommand(sub =>
             sub.setName('announcement-channel')
                 .setDescription('Set the default channel for bot announcements.')
@@ -68,16 +54,7 @@ export const setup: Command = {
         const subcommand = interaction.options.getSubcommand();
         const db = await getDatabase();
 
-        if (subcommand === 'terminology') {
-            const mode = interaction.options.getString('mode', true);
-            await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'TERMINOLOGY_MODE', mode);
-            process.env.TERMINOLOGY_MODE = mode;
-            logInfo(`User ${interaction.user.tag} updated terminology mode to: ${mode}`);
-            const term = getTerminology();
-            await interaction.reply(`✅ Terminology set to **${mode}** (e.g., ${term.games} and ${term.tournaments}).`);
-        }
-
-        else if (subcommand === 'announcement-channel') {
+        if (subcommand === 'announcement-channel') {
             const channel = interaction.options.getChannel('channel', true);
             await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', channel.id);
             process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID = channel.id;
@@ -119,20 +96,18 @@ export const setup: Command = {
         }
 
         else if (subcommand === 'view') {
-            const settings = await db.all('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?)',
-                'TERMINOLOGY_MODE', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_ADMIN_ROLE_ID',
+            const settings = await db.all('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?)',
+                'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_ADMIN_ROLE_ID',
                 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN'
             );
 
             const map = new Map(settings.map((s: any) => [s.key, s.value]));
-            const termMode = map.get('TERMINOLOGY_MODE') || process.env.TERMINOLOGY_MODE || 'generic';
             const channelId = map.get('DISCORD_ANNOUNCEMENT_CHANNEL_ID') || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
             const roleId = map.get('DISCORD_ADMIN_ROLE_ID') || process.env.DISCORD_ADMIN_ROLE_ID;
             const winnerMin = map.get('WINNER_PICK_WINDOW_MIN') || process.env.WINNER_PICK_WINDOW_MIN || '60';
             const runnerUpMin = map.get('RUNNERUP_PICK_WINDOW_MIN') || process.env.RUNNERUP_PICK_WINDOW_MIN || '30';
 
             let msg = '**ArcAid Configuration**\n\n';
-            msg += `**Terminology:** ${termMode}\n`;
             msg += `**Announcement Channel:** ${channelId ? `<#${channelId}>` : '*Not set*'}\n`;
             msg += `**Admin Role:** ${roleId ? `<@&${roleId}>` : '*Not set*'}\n`;
             msg += `**Winner Pick Window:** ${winnerMin} minutes\n`;

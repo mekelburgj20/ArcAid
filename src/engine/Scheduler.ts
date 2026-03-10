@@ -32,6 +32,7 @@ export class Scheduler {
                 id: row.id,
                 name: row.name,
                 type: row.type,
+                mode: row.mode || 'pinball',
                 cadence: JSON.parse(row.cadence || '{}'),
                 discordChannelId: row.discord_channel_id,
                 discordRoleId: row.discord_role_id,

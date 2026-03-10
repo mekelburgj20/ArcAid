@@ -108,23 +108,24 @@ export class TimeoutManager {
         }
     }
 
-    /** Resolves the tournament type for embed coloring. */
-    private async getTournamentType(tournamentId: string | undefined): Promise<string | null> {
-        if (!tournamentId) return null;
+    /** Resolves tournament info for embed coloring and terminology. */
+    private async getTournamentInfo(tournamentId: string | undefined): Promise<{ type: string | null; mode: string | null }> {
+        if (!tournamentId) return { type: null, mode: null };
         const db = await getDatabase();
-        const row = await db.get('SELECT type FROM tournaments WHERE id = ?', tournamentId);
-        return row?.type ?? null;
+        const row = await db.get('SELECT type, mode FROM tournaments WHERE id = ?', tournamentId);
+        return { type: row?.type ?? null, mode: row?.mode ?? null };
     }
 
     private async sendReminder(game: Game, minsRemaining: number): Promise<void> {
         const db = await getDatabase();
         try {
-            const term = getTerminology();
+            const info = await this.getTournamentInfo(game.tournamentId);
+            const term = getTerminology(info.mode);
             const channelId = await this.getChannelId(game.tournamentId);
             logInfo(`🔔 Reminder for <@${game.pickerDiscordId}>: ${minsRemaining} minutes left.`);
 
             if (channelId) {
-                const color = getTournamentColor(await this.getTournamentType(game.tournamentId));
+                const color = getTournamentColor(info.type);
                 const embed = new EmbedBuilder()
                     .setTitle(`🔔 Pick Reminder`)
                     .setDescription(`<@${game.pickerDiscordId}>, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`)
@@ -148,7 +149,8 @@ export class TimeoutManager {
      */
     private async pivotToRunnerUp(game: Game): Promise<void> {
         const db = await getDatabase();
-        const term = getTerminology();
+        const info = await this.getTournamentInfo(game.tournamentId);
+        const term = getTerminology(info.mode);
 
         try {
             if (!game.wonGameId) {
@@ -178,7 +180,7 @@ export class TimeoutManager {
 
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
-                    const color = getTournamentColor(await this.getTournamentType(game.tournamentId));
+                    const color = getTournamentColor(info.type);
                     const embed = new EmbedBuilder()
                         .setTitle(`⏰ Winner Timed Out`)
                         .setDescription(`No eligible runner-up was found. Auto-selecting a ${term.game}...`)
@@ -207,7 +209,7 @@ export class TimeoutManager {
 
             const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {
-                const color = getTournamentColor(await this.getTournamentType(game.tournamentId));
+                const color = getTournamentColor(info.type);
                 const embed = new EmbedBuilder()
                     .setTitle(`⏰ Winner Timed Out`)
                     .setDescription(`<@${runnerUpId}> — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`)
@@ -228,7 +230,6 @@ export class TimeoutManager {
      */
     private async fallbackToAutoSelection(game: Game): Promise<void> {
         const db = await getDatabase();
-        const term = getTerminology();
 
         try {
             if (!game.tournamentId) {
@@ -238,35 +239,54 @@ export class TimeoutManager {
 
             const engine = TournamentEngine.getInstance();
 
-            // Get the tournament's type tag to filter eligible games
             const tournament = await db.get('SELECT * FROM tournaments WHERE id = ?', game.tournamentId);
             if (!tournament) {
                 logError(`❌ Cannot auto-select: tournament ${game.tournamentId} not found.`);
                 return;
             }
 
-            // Read eligibility lookback from settings
+            const term = getTerminology(tournament.mode);
+
+            // Parse platform rules
+            let platformRules = { required: [] as string[], excluded: [] as string[] };
+            try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
+
             const eligibilityRow = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
             const eligibilityDays = parseInt(eligibilityRow?.value ?? '120', 10);
 
-            // Get all games from the library that match the tournament type
-            const libraryGames = await db.all('SELECT name, style_id, tournament_types FROM game_library');
-            const typeMatches = libraryGames.filter(g => {
-                if (!g.tournament_types) return true; // no type restriction = eligible for all
-                const types = g.tournament_types.split(',').map((t: string) => t.trim().toUpperCase());
-                // Also try parsing as JSON array
-                try {
-                    const parsed = JSON.parse(g.tournament_types);
-                    if (Array.isArray(parsed)) {
-                        return parsed.map((t: string) => t.toUpperCase()).includes(tournament.type.toUpperCase());
-                    }
-                } catch { /* not JSON, use comma-split above */ }
-                return types.includes(tournament.type.toUpperCase());
+            // Get games matching tournament mode + platform rules
+            const libraryGames = await db.all('SELECT name, style_id, mode, platforms FROM game_library');
+            const modeAndPlatformMatches = libraryGames.filter(g => {
+                // Mode must match
+                if (g.mode !== tournament.mode) return false;
+
+                // Parse game platforms
+                let gamePlatforms: string[] = [];
+                try { gamePlatforms = JSON.parse(g.platforms || '[]'); } catch {}
+                const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
+
+                // Required: game must have at least one required platform
+                if (platformRules.required.length > 0) {
+                    const hasRequired = platformRules.required.some(
+                        (rp: string) => upperPlatforms.includes(rp.toUpperCase())
+                    );
+                    if (!hasRequired) return false;
+                }
+
+                // Excluded: game must not have any excluded platform
+                if (platformRules.excluded.length > 0) {
+                    const hasExcluded = platformRules.excluded.some(
+                        (ep: string) => upperPlatforms.includes(ep.toUpperCase())
+                    );
+                    if (hasExcluded) return false;
+                }
+
+                return true;
             });
 
             // Filter by eligibility (not played within lookback period)
-            const eligible: typeof typeMatches = [];
-            for (const g of typeMatches) {
+            const eligible: typeof modeAndPlatformMatches = [];
+            for (const g of modeAndPlatformMatches) {
                 const isEligible = await engine.isGameEligible(game.tournamentId, g.name, eligibilityDays);
                 if (isEligible) eligible.push(g);
             }
@@ -338,7 +358,6 @@ export class TimeoutManager {
 
         } catch (error) {
             logError(`❌ Auto-selection failed for slot ${game.id}:`, error);
-            // Last resort: clear picker so the slot doesn't loop forever
             await db.run(
                 'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL WHERE id = ?',
                 game.id

@@ -8,10 +8,17 @@ const cronSchema = z.string().regex(
 
 const discordIdSchema = z.string().regex(/^\d{17,20}$/, 'Must be a valid Discord ID (17-20 digits)');
 
+const platformRulesSchema = z.object({
+    required: z.array(z.string()).default([]),
+    excluded: z.array(z.string()).default([]),
+    restrictedText: z.string().optional().default(''),
+}).default({ required: [], excluded: [], restrictedText: '' });
+
 export const CreateTournamentSchema = z.object({
     id: z.string().uuid(),
     name: z.string().min(1, 'Name required').max(100),
     type: z.string().min(1).max(50),
+    mode: z.enum(['pinball', 'videogame']).default('pinball'),
     cadence: z.object({
         cron: cronSchema,
         autoRotate: z.boolean(),
@@ -19,6 +26,7 @@ export const CreateTournamentSchema = z.object({
         timezone: z.string().optional(),
         announcementChannel: z.string().optional(),
     }),
+    platform_rules: platformRulesSchema,
     guild_id: z.string().optional().default(''),
     discord_channel_id: discordIdSchema.optional().or(z.literal('')).default(''),
     discord_role_id: discordIdSchema.optional().or(z.literal('')).default(''),
@@ -27,37 +35,29 @@ export const CreateTournamentSchema = z.object({
 
 export const UpdateTournamentSchema = CreateTournamentSchema.omit({ id: true });
 
-export const ImportGamesSchema = z.object({
-    games: z.array(z.object({
-        name: z.string().min(1).max(200),
-        aliases: z.string().optional().default(''),
-        style_id: z.string().optional().default(''),
-        css_title: z.string().optional().default(''),
-        css_initials: z.string().optional().default(''),
-        css_scores: z.string().optional().default(''),
-        css_box: z.string().optional().default(''),
-        bg_color: z.string().optional().default(''),
-        tournament_types: z.union([
-            z.array(z.string()),
-            z.string(),
-        ]).transform((v: string[] | string) => Array.isArray(v) ? JSON.stringify(v) : v).optional().default('[]'),
-    })).min(1, 'At least one game required'),
-});
+const platformsField = z.union([
+    z.array(z.string()),
+    z.string(),
+]).transform((v: string[] | string) => Array.isArray(v) ? JSON.stringify(v) : v).optional().default('[]');
 
-export const UpdateGameSchema = z.object({
+const gameFields = {
     name: z.string().min(1).max(200),
     aliases: z.string().optional().default(''),
     style_id: z.string().optional().default(''),
+    mode: z.enum(['pinball', 'videogame']).default('pinball'),
     css_title: z.string().optional().default(''),
     css_initials: z.string().optional().default(''),
     css_scores: z.string().optional().default(''),
     css_box: z.string().optional().default(''),
     bg_color: z.string().optional().default(''),
-    tournament_types: z.union([
-        z.array(z.string()),
-        z.string(),
-    ]).transform((v: string[] | string) => Array.isArray(v) ? JSON.stringify(v) : v).optional().default('[]'),
+    platforms: platformsField,
+};
+
+export const ImportGamesSchema = z.object({
+    games: z.array(z.object(gameFields)).min(1, 'At least one game required'),
 });
+
+export const UpdateGameSchema = z.object(gameFields);
 
 export const SettingsSchema = z.record(z.string().min(1), z.string());
 

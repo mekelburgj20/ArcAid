@@ -9,19 +9,41 @@ import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * Checks if a game passes a tournament's platform rules.
+ */
+function passesplatformRules(
+    gamePlatforms: string[],
+    rules: { required: string[]; excluded: string[] }
+): boolean {
+    const upper = gamePlatforms.map(p => p.toUpperCase());
+
+    if (rules.required.length > 0) {
+        const hasRequired = rules.required.some(rp => upper.includes(rp.toUpperCase()));
+        if (!hasRequired) return false;
+    }
+
+    if (rules.excluded.length > 0) {
+        const hasExcluded = rules.excluded.some(ep => upper.includes(ep.toUpperCase()));
+        if (hasExcluded) return false;
+    }
+
+    return true;
+}
+
 export const pickgame: Command = {
     data: new SlashCommandBuilder()
         .setName('pick-game')
-        .setDescription(`Pick the next ${getTerminology().game} for a ${getTerminology().tournament}.`)
+        .setDescription('Pick the next game for a tournament.')
         .addStringOption(option =>
             option.setName('tournament')
-                .setDescription(`The ${getTerminology().tournament} to pick for`)
+                .setDescription('The tournament to pick for')
                 .setRequired(true)
                 .setAutocomplete(true)
         )
         .addStringOption(option =>
             option.setName('game_name')
-                .setDescription(`The name of the ${getTerminology().game}`)
+                .setDescription('The name of the game')
                 .setRequired(true)
                 .setAutocomplete(true)
         ) as SlashCommandBuilder,
@@ -31,45 +53,48 @@ export const pickgame: Command = {
         const db = await getDatabase();
 
         if (focusedOption.name === 'tournament') {
-            // Fetch active tournaments
             const rows = await db.all("SELECT name FROM tournaments WHERE is_active = 1");
             const choices = rows.map(r => r.name);
-            
-            const filtered = choices.filter(choice => 
+
+            const filtered = choices.filter(choice =>
                 choice.toLowerCase().includes(focusedOption.value.toLowerCase())
             ).slice(0, 25);
-            
+
             await interaction.respond(
                 filtered.map(choice => ({ name: choice, value: choice }))
             );
         }
         else if (focusedOption.name === 'game_name') {
-            // Fetch the currently selected tournament to filter games by type
             const selectedTournamentName = interaction.options.getString('tournament');
             let tournamentId: string | null = null;
-            let tournamentType: string | null = null;
+            let tournamentMode: string | null = null;
+            let platformRules = { required: [] as string[], excluded: [] as string[] };
 
             if (selectedTournamentName) {
-                const tournamentRow = await db.get("SELECT id, type FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
+                const tournamentRow = await db.get("SELECT id, type, mode, platform_rules FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
                 if (tournamentRow) {
                     tournamentId = tournamentRow.id;
-                    tournamentType = tournamentRow.type;
+                    tournamentMode = tournamentRow.mode;
+                    try { platformRules = { ...platformRules, ...JSON.parse(tournamentRow.platform_rules || '{}') }; } catch {}
                 }
             }
 
             // Fetch from the master Game Library
-            const rows = await db.all("SELECT name, tournament_types FROM game_library");
+            const rows = await db.all("SELECT name, mode, platforms FROM game_library");
 
             let choices = rows;
 
-            // Filter by tournament type if one is selected
-            if (tournamentType) {
-                choices = choices.filter(r => {
-                    if (!r.tournament_types) return true;
-                    const tags = r.tournament_types.split(',').map((t: string) => t.trim().toUpperCase());
-                    return tags.includes(tournamentType!.toUpperCase());
-                });
+            // Filter by tournament mode
+            if (tournamentMode) {
+                choices = choices.filter(r => r.mode === tournamentMode);
             }
+
+            // Filter by platform rules
+            choices = choices.filter(r => {
+                let gamePlatforms: string[] = [];
+                try { gamePlatforms = JSON.parse(r.platforms || '[]'); } catch {}
+                return passesplatformRules(gamePlatforms, platformRules);
+            });
 
             // Filter by what the user is currently typing
             const filtered = choices
@@ -90,9 +115,8 @@ export const pickgame: Command = {
             );
         }
     },
-        
+
     async execute(interaction: ChatInputCommandInteraction) {
-        // Check cooldown (10 seconds)
         const remaining = checkCooldown(interaction.user.id, 'pick-game', 10);
         if (remaining > 0) {
             await interaction.reply({ content: `Please wait ${remaining}s before picking again.`, ephemeral: true });
@@ -101,21 +125,21 @@ export const pickgame: Command = {
 
         await interaction.deferReply();
 
-        const term = getTerminology();
         const tournamentName = interaction.options.getString('tournament', true);
         const gameName = interaction.options.getString('game_name', true);
 
         try {
             const db = await getDatabase();
-            const tournament = await db.get('SELECT id, type FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
+            const tournament = await db.get('SELECT id, type, mode FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
 
             if (!tournament) {
-                await interaction.editReply(`❌ Could not find a ${term.tournament} named '${tournamentName}'.`);
+                await interaction.editReply(`❌ Could not find a tournament named '${tournamentName}'.`);
                 return;
             }
 
+            const term = getTerminology(tournament.mode);
             const engine = TournamentEngine.getInstance();
-            
+
             // Check eligibility
             const isEligible = await engine.isGameEligible(tournament.id, gameName);
             if (!isEligible) {
@@ -143,8 +167,7 @@ export const pickgame: Command = {
                 await client.disconnect();
             }
 
-            // Activate locally in a transaction — if this fails, the iScored game
-            // still exists but we don't have a dangling DB entry
+            // Activate locally in a transaction
             await db.exec('BEGIN TRANSACTION');
             try {
                 await engine.activateGame(tournament.id, gameName, styleId, iscoredId);

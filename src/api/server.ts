@@ -8,7 +8,6 @@ import { z } from 'zod';
 import { initWebSocket } from './websocket.js';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
-import { getTerminology } from '../utils/terminology.js';
 import { hashPassword, verifyPassword, signToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
 import { requireAuth } from './middleware.js';
 import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema } from './schemas.js';
@@ -87,8 +86,6 @@ export function startApiServer(port: number = 3001) {
             const isSetup = await SettingsService.isSetupComplete();
             res.json({
                 status: 'online',
-                terminologyMode: process.env.TERMINOLOGY_MODE || 'generic',
-                terms: getTerminology(),
                 needsSetup: !isSetup
             });
         } catch (error) {

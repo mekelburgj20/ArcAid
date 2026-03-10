@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-export type TerminologyMode = 'legacy' | 'generic';
+export type TerminologyMode = 'pinball' | 'videogame' | 'legacy' | 'generic';
 
 export interface Terminology {
     game: string;
@@ -11,13 +11,27 @@ export interface Terminology {
     submission: string;
 }
 
-const TERMINOLOGY_CONFIG: Record<TerminologyMode, Terminology> = {
+const TERMINOLOGY_CONFIG: Record<string, Terminology> = {
+    pinball: {
+        game: 'Table',
+        games: 'Tables',
+        tournament: 'Grind',
+        tournaments: 'Grinds',
+        submission: 'Score',
+    },
     legacy: {
         game: 'Table',
         games: 'Tables',
         tournament: 'Grind',
         tournaments: 'Grinds',
         submission: 'Score',
+    },
+    videogame: {
+        game: 'Game',
+        games: 'Games',
+        tournament: 'Tournament',
+        tournaments: 'Tournaments',
+        submission: 'Result',
     },
     generic: {
         game: 'Game',
@@ -29,12 +43,15 @@ const TERMINOLOGY_CONFIG: Record<TerminologyMode, Terminology> = {
 };
 
 /**
- * Gets the current terminology based on the TERMINOLOGY_MODE environment variable.
- * Defaults to 'generic' if not specified.
+ * Gets terminology based on the provided mode, or falls back to generic.
+ * When called with a tournament mode ('pinball' or 'videogame'), returns
+ * the appropriate terminology for that tournament's context.
  */
-export function getTerminology(): Terminology {
-    const mode = (process.env.TERMINOLOGY_MODE?.toLowerCase() as TerminologyMode) || 'generic';
-    return TERMINOLOGY_CONFIG[mode] || TERMINOLOGY_CONFIG.generic;
+export function getTerminology(mode?: string | null): Terminology {
+    if (mode) {
+        return TERMINOLOGY_CONFIG[mode.toLowerCase()] ?? TERMINOLOGY_CONFIG.generic!;
+    }
+    return TERMINOLOGY_CONFIG.generic!;
 }
 
 /**

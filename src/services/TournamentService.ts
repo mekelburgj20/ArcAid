@@ -17,7 +17,9 @@ export class TournamentService {
         id: string;
         name: string;
         type: string;
+        mode?: string;
         cadence: any;
+        platform_rules?: any;
         guild_id?: string;
         discord_channel_id?: string;
         discord_role_id?: string;
@@ -25,8 +27,9 @@ export class TournamentService {
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'INSERT INTO tournaments (id, name, type, cadence, guild_id, discord_channel_id, discord_role_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            data.id, data.name, data.type, JSON.stringify(data.cadence),
+            'INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            data.id, data.name, data.type, data.mode || 'pinball',
+            JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
             data.is_active ? 1 : 0
         );
@@ -38,7 +41,9 @@ export class TournamentService {
     static async update(id: string, data: {
         name: string;
         type: string;
+        mode?: string;
         cadence: any;
+        platform_rules?: any;
         guild_id?: string;
         discord_channel_id?: string;
         discord_role_id?: string;
@@ -46,8 +51,9 @@ export class TournamentService {
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'UPDATE tournaments SET name = ?, type = ?, cadence = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ? WHERE id = ?',
-            data.name, data.type, JSON.stringify(data.cadence),
+            'UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ? WHERE id = ?',
+            data.name, data.type, data.mode || 'pinball',
+            JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
             data.is_active ? 1 : 0, id
         );

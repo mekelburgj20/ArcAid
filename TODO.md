@@ -149,6 +149,36 @@
 
 ---
 
+## Sprint 7 — Platform & Mode System (IN PROGRESS)
+**Branch:** `sprint-2/harden`
+
+### Core
+- [x] Per-tournament mode (`pinball` / `videogame`) — replaces server-wide `TERMINOLOGY_MODE`
+- [x] Per-game mode field in game library (single mode per entry)
+- [x] Platform master list stored in settings (JSON array, seeded defaults)
+- [x] Platform rules per tournament: `required`, `excluded`, `restrictedText`
+- [x] DB migrations for `mode`, `platform_rules`, `platforms` columns
+- [x] Data migration from `tournament_types` → `platforms`
+
+### Filtering & Terminology
+- [x] `getTerminology(mode?)` — per-tournament terminology (pinball=Table/Grind, videogame=Game/Tournament)
+- [x] Platform-aware pick-game autocomplete (mode + required + excluded filtering)
+- [x] Platform-aware TimeoutManager auto-selection
+- [x] Remove `TERMINOLOGY_MODE` from settings, setup command, server status
+
+### Admin UI
+- [x] Game Library: mode filter toggles, mode selector in add/edit, platform chips
+- [x] Game Library: edit modal for all fields
+- [x] Tournaments: mode selector, PlatformRulesEditor component
+- [x] Settings: Platforms master list editor (add/rename/remove)
+- [x] Setup Wizard: simplified to 3 steps (removed terminology step)
+
+### Future
+- [ ] CSV import: validate unknown platforms with confirmation modal
+- [ ] Docker rebuild and testing
+
+---
+
 ## Next Steps (Future)
 
 ### UX Polish

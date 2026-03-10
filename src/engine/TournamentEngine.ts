@@ -1,7 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../database/database.js';
-import { Tournament, Game, TournamentType, CadenceConfig } from '../types/index.js';
+import { Tournament, Game, TournamentMode, CadenceConfig } from '../types/index.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { sendChannelMessage, sendChannelEmbed, getTournamentColor } from '../utils/discord.js';
@@ -23,12 +23,13 @@ export class TournamentEngine {
     /**
      * Creates a new tournament in the database.
      */
-    public async createTournament(name: string, type: TournamentType, cadence: CadenceConfig, guildId: string, channelId?: string, roleId?: string): Promise<Tournament> {
+    public async createTournament(name: string, type: string, mode: TournamentMode, cadence: CadenceConfig, guildId: string, channelId?: string, roleId?: string): Promise<Tournament> {
         const db = await getDatabase();
         const tournament: Tournament = {
             id: uuidv4(),
             name,
             type,
+            mode,
             cadence,
             guildId,
             discordChannelId: channelId,
@@ -36,7 +37,7 @@ export class TournamentEngine {
             isActive: true
         };
 
-        logInfo(`Creating new ${getTerminology().tournament}: ${name} (${type})`);
+        logInfo(`Creating new ${getTerminology(mode).tournament}: ${name} (${type})`);
 
         await db.run(
             'INSERT INTO tournaments (id, name, type, cadence, guild_id, discord_channel_id, discord_role_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -61,7 +62,7 @@ export class TournamentEngine {
             startDate: new Date()
         };
 
-        logInfo(`Activating new ${getTerminology().game} for tournament ${tournamentId}: ${gameName}`);
+        logInfo(`Activating new game for tournament ${tournamentId}: ${gameName}`);
 
         // 1. Deactivate current active game for this tournament
         await db.run(
@@ -128,11 +129,11 @@ export class TournamentEngine {
         const count = row?.count ?? 0;
 
         if (count > 0) {
-            logInfo(`🚫 ${getTerminology().game} '${gameName}' is NOT eligible (played within last ${lookbackDays} days).`);
+            logInfo(`🚫 Game '${gameName}' is NOT eligible (played within last ${lookbackDays} days).`);
             return false;
         }
 
-        logInfo(`✅ ${getTerminology().game} '${gameName}' is eligible.`);
+        logInfo(`✅ Game '${gameName}' is eligible.`);
         return true;
     }
 
@@ -150,7 +151,7 @@ export class TournamentEngine {
         const tournamentRow = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
         if (!tournamentRow) throw new Error(`Tournament ${tournamentId} not found.`);
 
-        const term = getTerminology();
+        const term = getTerminology(tournamentRow.mode);
         const channelId: string | undefined = tournamentRow.discord_channel_id || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
 
         logInfo(`⚙️ Starting maintenance for ${term.tournament}: ${tournamentRow.name}`);
