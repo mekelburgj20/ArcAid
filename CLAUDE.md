@@ -48,18 +48,23 @@ Two sub-applications in one process:
 - `src/api/server.ts` — Express REST API routing (delegates to service layer)
 - `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LogService`
 - `src/utils/discord.ts` — Shared `sendChannelMessage()` for engine classes
-- `src/utils/terminology.ts` — `getTerminology()` — "legacy" (Table/Grind) vs "generic" (Game/Tournament)
+- `src/utils/terminology.ts` — `getTerminology(mode?)` — per-tournament terminology (pinball=Table/Grind, videogame=Game/Tournament)
 - `src/utils/cooldown.ts` — Per-user Discord command cooldown tracker
 - `src/utils/startup.ts` — Startup environment validation
 
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
-- Pages: Dashboard, Tournaments, GameLibrary, Logs, Settings, SetupWizard
+- Admin pages (require login): Dashboard, Tournaments, GameLibrary, Leaderboard, Stats, History, Logs, Backups, Settings, SetupWizard
+- Public pages (no auth, no sidebar): Scoreboard, Players, PlayerDetail, GameDetail
+- Public pages currently at `/scoreboard`, `/players`, `/players/:id`, `/games/:name` — planned to move under game room slug (see TODO.md Sprint 8)
 
 ## Key Patterns
 
 - Engine classes are **singletons** (`getInstance()`)
-- `getTerminology()` used in all user-facing text
+- `getTerminology(mode?)` — per-tournament terminology based on mode (pinball/videogame); no-arg defaults to generic
+- Tournaments have a `mode` (pinball/videogame) and `platformRules` (required/excluded/restrictedText)
+- Games in library have a `mode` and `platforms` (JSON array)
+- `PLATFORMS` setting = master platform list (JSON array, editable in Settings UI)
 - DB `settings` table = runtime config (overrides `.env` on startup)
 - iScored games identified by tags: `DG`, `WG-VPXS`, `WG-VR`, `MG`
 - Configurable values from settings: `GAME_ELIGIBILITY_DAYS` (120), `WINNER_PICK_WINDOW_MIN` (60), `RUNNERUP_PICK_WINDOW_MIN` (30), `BOT_TIMEZONE` (America/Chicago)
@@ -81,6 +86,13 @@ Two sub-applications in one process:
 
 SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run.
 
-Key tables: `tournaments`, `game_library`, `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `user_mappings`, `settings`
+Key tables: `tournaments`, `game_library`, `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `scores`, `leaderboard_cache`, `user_mappings`, `settings`
 
 Indexed on: `games.tournament_id`, `games.status`, `submissions.game_id`, `submissions.discord_user_id`, `submissions.timestamp`
+
+## Deployment
+
+- **Production:** Always Docker (`docker-compose up -d --build`). No `npm run dev` needed.
+- **After code changes:** Rebuild container to pick up changes.
+- Admin UI production assets built during Docker image build and served by Express.
+- Custom domain mapping is infrastructure-level (DNS + reverse proxy), not app-level.

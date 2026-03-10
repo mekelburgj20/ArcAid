@@ -179,6 +179,33 @@
 
 ---
 
+## Sprint 8 — Public Player Portal
+**Goal:** Give the public pages a dedicated, discoverable URL path based on the game room name.
+
+### Setup
+- [ ] Add "Game Room Name" to Setup Wizard (Step 2, before Discord) — stores display name (e.g. "RTX Pinball") and auto-generates URL slug (e.g. `RTX_Pinball`) as `GAME_ROOM_NAME` / `GAME_ROOM_SLUG` in settings
+- [ ] Allow editing game room name/slug in Admin UI Settings page
+
+### Public Portal Routing
+- [ ] Move public pages under `/:slug/` prefix:
+  - `/:slug` — public landing page (scoreboard + nav)
+  - `/:slug/players` — player list
+  - `/:slug/players/:id` — player profile
+  - `/:slug/games/:name` — game stats
+- [ ] Add shared public nav bar (game room branding, links between public pages)
+- [ ] Root `/` still goes to admin login (unchanged)
+- [ ] Redirect old `/scoreboard`, `/players`, `/games` routes to new slug-based paths (or remove)
+
+### Branding
+- [ ] Public landing page header shows game room display name
+- [ ] Optional: `CUSTOM_DOMAIN` setting for generating shareable links in Discord announcements
+
+### Notes
+- Custom domain mapping (e.g. `www.arcaid.space`) is infrastructure-level (DNS + reverse proxy to port 3001) — no app changes needed
+- The slug is used for URL routing only; display name used for page headers/branding
+
+---
+
 ## Next Steps (Future)
 
 ### UX Polish

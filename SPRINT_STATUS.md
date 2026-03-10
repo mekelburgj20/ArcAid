@@ -40,7 +40,7 @@
 
 **Date:** 2026-03-09
 **What happened:** Implemented full platform & mode system. Added per-tournament mode (pinball/videogame) replacing server-wide TERMINOLOGY_MODE. Added platform rules (required/excluded/restrictedText) per tournament. Game library entries now have a single mode and platforms field. pick-game filtering and TimeoutManager auto-select respect mode + platform rules. Admin UI updated: Game Library has mode filter toggles and edit modal, Tournaments has PlatformRulesEditor, Settings has Platforms master list editor, SetupWizard simplified to 3 steps.
-**Next:** Commit and push. Future: CSV import platform validation modal, Docker rebuild.
+**Next:** Sprint 8 — Public Player Portal (game room slug routing, public nav, setup wizard integration).
 
 ## Blockers
 
