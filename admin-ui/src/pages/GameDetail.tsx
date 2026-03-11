@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import StarRating from '../components/StarRating';
+import { api } from '../lib/api';
 
 interface GameStats {
   gameName: string;
@@ -17,9 +19,10 @@ interface GameStats {
 }
 
 export default function GameDetail() {
-  const { name } = useParams<{ name: string }>();
+  const { slug, name } = useParams<{ slug: string; name: string }>();
   const [stats, setStats] = useState<GameStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
 
   useEffect(() => {
     if (!name) return;
@@ -28,11 +31,22 @@ export default function GameDetail() {
       .then(setStats)
       .catch(() => {})
       .finally(() => setLoading(false));
+    api.get<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`/ratings/${encodeURIComponent(name)}`)
+      .then(setRatingInfo)
+      .catch(() => {});
   }, [name]);
+
+  const handleRate = async (rating: number) => {
+    if (!name) return;
+    try {
+      const info = await api.post<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`/ratings/${encodeURIComponent(name)}`, { rating });
+      setRatingInfo(info);
+    } catch {}
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-deep flex items-center justify-center">
+      <div className="flex items-center justify-center py-24">
         <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
       </div>
     );
@@ -40,25 +54,31 @@ export default function GameDetail() {
 
   if (!stats) {
     return (
-      <div className="min-h-screen bg-deep flex items-center justify-center text-muted">
+      <div className="flex items-center justify-center py-24 text-muted">
         Game not found.
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-deep text-primary relative">
-      {/* Header */}
-      <header className="border-b border-border bg-surface/50 backdrop-blur-sm">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <Link to="/players" className="text-faint text-xs hover:text-muted no-underline transition-colors">
-            &larr; Players
-          </Link>
-          <h1 className="font-pixel text-neon-cyan text-lg tracking-wider mt-1">{stats.gameName}</h1>
-        </div>
-      </header>
+    <div>
+      {/* Page Header */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2">
+        <Link to={`/${slug}`} className="text-faint text-xs hover:text-muted no-underline transition-colors">
+          &larr; Scoreboard
+        </Link>
+        <h2 className="font-display text-xl font-bold mt-1">{stats.gameName}</h2>
+        {ratingInfo && (
+          <div className="flex items-center gap-2 mt-1">
+            <StarRating rating={ratingInfo.user_rating || 0} onRate={handleRate} size="md" />
+            {ratingInfo.rating_count > 0 && (
+              <span className="text-sm text-muted">{ratingInfo.avg_rating} avg ({ratingInfo.rating_count} rating{ratingInfo.rating_count !== 1 ? 's' : ''})</span>
+            )}
+          </div>
+        )}
+      </div>
 
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
         {/* Stat Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <StatCard label="Times Played" value={stats.timesPlayed.toString()} color="text-neon-cyan" />
@@ -110,8 +130,6 @@ export default function GameDetail() {
           </div>
         )}
       </main>
-
-      <div className="fixed inset-0 pointer-events-none z-50 scanlines" />
     </div>
   );
 }

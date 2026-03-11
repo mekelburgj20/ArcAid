@@ -2,7 +2,7 @@
 
 **Prepared by:** Claude Code (Senior Review)
 **Date:** March 7, 2026
-**Status:** Core overhaul complete (Sprints 1–7)
+**Status:** Core overhaul complete (Sprints 1–8)
 
 ### Progress
 - **Sprint 1 (Stabilize):** COMPLETE — All 8 critical bugs fixed, merged to main (2026-03-08)
@@ -12,6 +12,7 @@
 - **Sprint 5 (Discord UX + Player Portal):** COMPLETE — Embed announcements, autocomplete improvements, /my-stats, public player/game pages (2026-03-09)
 - **Sprint 6 (Schedule UX + UAT):** COMPLETE — ScheduleBuilder component, setup wizard auth fix, tournament editing, per-tournament timezone, UAT passed (2026-03-09)
 - **Sprint 7 (Platform & Mode):** COMPLETE — Per-tournament mode (pinball/videogame), platform rules (required/excluded), per-game mode & platforms, terminology per tournament, Settings platform editor, simplified setup wizard (2026-03-09)
+- **Sprint 8 (Public Player Portal):** COMPLETE — Slug-based portal routing, shared nav bar, game room branding, activate/deactivate game, VPS auto-import, 5-star rating system, ArcAid logo, mobile-responsive layout (2026-03-10)
 
 ---
 

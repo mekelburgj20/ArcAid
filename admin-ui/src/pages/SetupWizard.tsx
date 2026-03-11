@@ -4,11 +4,18 @@ import NeonButton from '../components/NeonButton';
 
 const inputClass = "w-full px-4 py-3 bg-raised border border-border rounded text-primary placeholder-faint focus:outline-none focus:border-neon-cyan transition-colors mb-3";
 
+function toSlug(name: string): string {
+  return name.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
 export default function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(1);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [gameRoomName, setGameRoomName] = useState('');
+  const [gameRoomSlug, setGameRoomSlug] = useState('');
+  const [slugEdited, setSlugEdited] = useState(false);
   const [config, setConfig] = useState({
     DISCORD_BOT_TOKEN: '',
     DISCORD_CLIENT_ID: '',
@@ -20,6 +27,13 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setConfig({ ...config, [e.target.name]: e.target.value });
+  };
+
+  const handleNameChange = (value: string) => {
+    setGameRoomName(value);
+    if (!slugEdited) {
+      setGameRoomSlug(toSlug(value));
+    }
   };
 
   const handleSetPassword = async () => {
@@ -44,7 +58,12 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
   const handleFinish = async () => {
     setSaving(true);
     try {
-      await api.post('/settings', { ...config, SETUP_COMPLETE: 'true' });
+      await api.post('/settings', {
+        ...config,
+        GAME_ROOM_NAME: gameRoomName.trim(),
+        GAME_ROOM_SLUG: gameRoomSlug.trim() || toSlug(gameRoomName),
+        SETUP_COMPLETE: 'true',
+      });
       onComplete();
     } catch {
       alert('Failed to save configuration. Please try again.');
@@ -53,14 +72,16 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     }
   };
 
+  const totalSteps = 4;
+
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-md">
         <h1 className="font-pixel text-neon-cyan text-center text-sm mb-1">ARCAID</h1>
         <p className="text-muted text-center text-sm mb-6">Setup Wizard</p>
         <div className="flex justify-center gap-2 mb-6">
-          {[1, 2, 3].map(s => (
-            <div key={s} className={`w-16 h-1 rounded ${s <= step ? 'bg-neon-cyan' : 'bg-border'}`} />
+          {Array.from({ length: totalSteps }, (_, i) => i + 1).map(s => (
+            <div key={s} className={`w-12 h-1 rounded ${s <= step ? 'bg-neon-cyan' : 'bg-border'}`} />
           ))}
         </div>
 
@@ -78,12 +99,49 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
             />
             {passwordError && <p className="text-neon-magenta text-sm mb-3">{passwordError}</p>}
             <NeonButton onClick={handleSetPassword} disabled={!password} className="w-full">
-              Next: Discord Setup
+              Next: Game Room
             </NeonButton>
           </div>
         )}
 
         {step === 2 && (
+          <div>
+            <h3 className="font-display text-lg font-bold mb-3">Game Room</h3>
+            <p className="text-muted text-sm mb-4">
+              Name your game room. This appears on the public player portal and generates the URL path.
+            </p>
+            <input
+              type="text"
+              placeholder="Game Room Name (e.g. RTX Pinball)"
+              value={gameRoomName}
+              onChange={e => handleNameChange(e.target.value)}
+              className={inputClass}
+            />
+            <div className="mb-3">
+              <label className="text-faint text-xs block mb-1">URL Slug (auto-generated)</label>
+              <input
+                type="text"
+                value={gameRoomSlug}
+                onChange={e => { setGameRoomSlug(e.target.value); setSlugEdited(true); }}
+                placeholder="RTX_Pinball"
+                className={inputClass}
+              />
+              {gameRoomSlug && (
+                <p className="text-faint text-xs">
+                  Portal URL: <span className="text-neon-cyan">/{gameRoomSlug}</span>
+                </p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <NeonButton variant="ghost" onClick={() => setStep(1)}>Back</NeonButton>
+              <NeonButton onClick={() => setStep(3)} className="flex-1" disabled={!gameRoomName.trim()}>
+                Next: Discord
+              </NeonButton>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
           <div>
             <h3 className="font-display text-lg font-bold mb-3">Discord Credentials</h3>
             <p className="text-muted text-sm mb-4">These are already configured in your .env file — only fill in if you want to override.</p>
@@ -91,20 +149,20 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
             <input type="text" name="DISCORD_CLIENT_ID" placeholder="Client ID (optional override)" value={config.DISCORD_CLIENT_ID} onChange={handleChange} className={inputClass} />
             <input type="text" name="DISCORD_GUILD_ID" placeholder="Guild ID (optional override)" value={config.DISCORD_GUILD_ID} onChange={handleChange} className={inputClass} />
             <div className="flex gap-3">
-              <NeonButton variant="ghost" onClick={() => setStep(1)}>Back</NeonButton>
-              <NeonButton onClick={() => setStep(3)} className="flex-1">Next: iScored</NeonButton>
+              <NeonButton variant="ghost" onClick={() => setStep(2)}>Back</NeonButton>
+              <NeonButton onClick={() => setStep(4)} className="flex-1">Next: iScored</NeonButton>
             </div>
           </div>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <div>
             <h3 className="font-display text-lg font-bold mb-3">iScored Account</h3>
             <p className="text-muted text-sm mb-4">Credentials for iScored.info automation (optional — can be added later in Settings).</p>
             <input type="text" name="ISCORED_USERNAME" placeholder="iScored Username" value={config.ISCORED_USERNAME} onChange={handleChange} className={inputClass} />
             <input type="password" name="ISCORED_PASSWORD" placeholder="iScored Password" value={config.ISCORED_PASSWORD} onChange={handleChange} className={inputClass} />
             <div className="flex gap-3">
-              <NeonButton variant="ghost" onClick={() => setStep(2)} disabled={saving}>Back</NeonButton>
+              <NeonButton variant="ghost" onClick={() => setStep(3)} disabled={saving}>Back</NeonButton>
               <NeonButton onClick={handleFinish} disabled={saving} className="flex-1">
                 {saving ? 'Saving...' : 'Finish Setup'}
               </NeonButton>

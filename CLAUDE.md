@@ -46,7 +46,7 @@ Two sub-applications in one process:
 - `src/engine/Scheduler.ts` — Cron-based maintenance scheduling (reads `BOT_TIMEZONE` from settings)
 - `src/engine/TimeoutManager.ts` — Winner/runner-up pick window tracking
 - `src/api/server.ts` — Express REST API routing (delegates to service layer)
-- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LogService`
+- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LogService`, `VpsImportService`, `RatingService`
 - `src/utils/discord.ts` — Shared `sendChannelMessage()` for engine classes
 - `src/utils/terminology.ts` — `getTerminology(mode?)` — per-tournament terminology (pinball=Table/Grind, videogame=Game/Tournament)
 - `src/utils/cooldown.ts` — Per-user Discord command cooldown tracker
@@ -55,8 +55,9 @@ Two sub-applications in one process:
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
 - Admin pages (require login): Dashboard, Tournaments, GameLibrary, Leaderboard, Stats, History, Logs, Backups, Settings, SetupWizard
-- Public pages (no auth, no sidebar): Scoreboard, Players, PlayerDetail, GameDetail
-- Public pages currently at `/scoreboard`, `/players`, `/players/:id`, `/games/:name` — planned to move under game room slug (see TODO.md Sprint 8)
+- Public pages (no auth, no sidebar): Scoreboard, Players, PlayerDetail, GameDetail — served under `/:slug/*` via `PublicLayout`
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder`, etc.
+- Mobile-responsive: admin sidebar collapses to hamburger menu, public pages scale to phone screens
 
 ## Key Patterns
 
@@ -86,7 +87,7 @@ Two sub-applications in one process:
 
 SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run.
 
-Key tables: `tournaments`, `game_library`, `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `scores`, `leaderboard_cache`, `user_mappings`, `settings`
+Key tables: `tournaments`, `game_library`, `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `scores`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`
 
 Indexed on: `games.tournament_id`, `games.status`, `submissions.game_id`, `submissions.discord_user_id`, `submissions.timestamp`
 

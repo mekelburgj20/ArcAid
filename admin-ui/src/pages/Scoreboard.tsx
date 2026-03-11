@@ -61,7 +61,7 @@ export default function Scoreboard() {
   const current = leaderboards[activeIndex];
 
   return (
-    <div className="min-h-screen bg-deep flex flex-col items-center justify-center p-8 relative overflow-hidden">
+    <div className="flex flex-col items-center justify-center p-4 sm:p-8 relative min-h-[calc(100vh-57px)]">
       {/* Ambient glow background */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full bg-neon-cyan/5 blur-3xl" />
@@ -70,7 +70,6 @@ export default function Scoreboard() {
 
       {/* Header */}
       <div className="text-center mb-8 relative z-10">
-        <h1 className="font-pixel text-neon-cyan text-2xl mb-2 tracking-wider">ARCAID</h1>
         <p className="font-display text-muted text-sm uppercase tracking-widest">Live Scoreboard</p>
       </div>
 
@@ -88,7 +87,7 @@ export default function Scoreboard() {
         <div className="w-full max-w-2xl relative z-10">
           {/* Game title */}
           <div className="text-center mb-6">
-            <h2 className="font-display text-3xl font-bold text-primary mb-1">{current.gameName}</h2>
+            <h2 className="font-display text-xl sm:text-3xl font-bold text-primary mb-1">{current.gameName}</h2>
             <p className="text-neon-cyan font-display text-sm uppercase tracking-wider">{current.tournamentName}</p>
           </div>
 
@@ -102,14 +101,14 @@ export default function Scoreboard() {
               current.rankings.slice(0, 10).map((entry) => (
                 <div
                   key={entry.discord_user_id}
-                  className={`flex items-center justify-between px-6 py-4 border-b border-border/30 last:border-0 transition-all ${
+                  className={`flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border/30 last:border-0 transition-all ${
                     entry.rank === 1 ? 'bg-neon-amber/10' :
                     entry.rank === 2 ? 'bg-neon-cyan/5' :
                     entry.rank === 3 ? 'bg-neon-green/5' : ''
                   }`}
                 >
-                  <div className="flex items-center gap-4">
-                    <span className={`font-display font-bold text-xl w-10 text-center ${
+                  <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+                    <span className={`font-display font-bold text-base sm:text-xl w-8 sm:w-10 text-center flex-shrink-0 ${
                       entry.rank === 1 ? 'text-neon-amber' :
                       entry.rank === 2 ? 'text-neon-cyan' :
                       entry.rank === 3 ? 'text-neon-green' :
@@ -117,9 +116,9 @@ export default function Scoreboard() {
                     }`}>
                       {entry.rank === 1 ? '1ST' : entry.rank === 2 ? '2ND' : entry.rank === 3 ? '3RD' : entry.rank}
                     </span>
-                    <span className="font-medium text-lg">{entry.iscored_username}</span>
+                    <span className="font-medium text-sm sm:text-lg truncate">{entry.iscored_username}</span>
                   </div>
-                  <span className="font-display font-bold text-2xl text-neon-amber">
+                  <span className="font-display font-bold text-lg sm:text-2xl text-neon-amber flex-shrink-0 ml-2">
                     {entry.score.toLocaleString()}
                   </span>
                 </div>
@@ -143,9 +142,6 @@ export default function Scoreboard() {
           )}
         </div>
       )}
-
-      {/* Scanline overlay */}
-      <div className="fixed inset-0 pointer-events-none z-50 scanlines" />
     </div>
   );
 }

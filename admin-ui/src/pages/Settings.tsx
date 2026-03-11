@@ -8,6 +8,7 @@ import LoadingState from '../components/LoadingState';
 const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
 
 const CATEGORIES: Record<string, string[]> = {
+  'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_GUILD_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
   'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
@@ -92,7 +93,9 @@ export default function Settings() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.post('/settings', settings);
+      // Filter out ADMIN_PASSWORD_HASH — server rejects it via this endpoint
+      const { ADMIN_PASSWORD_HASH: _, ...toSave } = settings;
+      await api.post('/settings', toSave);
       toast('Settings saved', 'success');
     } catch {
       toast('Failed to save settings', 'error');
@@ -118,10 +121,10 @@ export default function Settings() {
 
   const isSensitive = (key: string) => SENSITIVE_KEYS.some(s => key.includes(s));
 
-  // Group settings by category
+  // Group settings by category — always show all keys (default to empty string if not in DB)
   const categorized = Object.entries(CATEGORIES).map(([category, keys]) => ({
     category,
-    entries: keys.filter(k => k in settings).map(k => [k, settings[k]] as [string, string]),
+    entries: keys.map(k => [k, settings[k] ?? ''] as [string, string]),
   }));
 
   const uncategorizedKeys = Object.keys(settings).filter(k => !Object.values(CATEGORIES).flat().includes(k));

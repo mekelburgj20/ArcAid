@@ -17,6 +17,8 @@ import { GameLibraryService } from '../services/GameLibraryService.js';
 import { LogService } from '../services/LogService.js';
 import { getDashboardData } from '../services/DashboardService.js';
 import { listBackups, restoreBackup } from '../services/BackupService.js';
+import { VpsImportService } from '../services/VpsImportService.js';
+import { RatingService } from '../services/RatingService.js';
 
 export const serverEvents = new EventEmitter();
 
@@ -223,6 +225,57 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    app.post('/api/game_library/import-vps', requireAuth, async (req, res) => {
+        try {
+            const result = await VpsImportService.importFromVps();
+            res.json({ success: true, ...result });
+        } catch (error) {
+            logError('API Error (POST /api/game_library/import-vps):', error);
+            res.status(500).json({ error: error instanceof Error ? error.message : 'VPS import failed' });
+        }
+    });
+
+    // --- Ratings Endpoints ---
+    app.get('/api/ratings', async (req, res) => {
+        try {
+            const ratings = await RatingService.getAllRatings();
+            const userId = (req.headers['x-user-id'] as string) || '';
+            const userRatings = userId ? await RatingService.getUserRatings(userId) : {};
+            res.json({ ratings, userRatings });
+        } catch (error) {
+            logError('API Error (GET /api/ratings):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.get('/api/ratings/:gameName', async (req, res) => {
+        try {
+            const gameName = decodeURIComponent(req.params.gameName as string);
+            const userId = (req.headers['x-user-id'] as string) || '';
+            const info = await RatingService.getGameRating(gameName, userId || undefined);
+            res.json(info);
+        } catch (error) {
+            logError('API Error (GET /api/ratings/:gameName):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/ratings/:gameName', async (req, res) => {
+        try {
+            const gameName = decodeURIComponent(req.params.gameName as string);
+            const userId = (req.headers['x-user-id'] as string) || '';
+            const rating = Number(req.body?.rating);
+            if (!userId) return res.status(400).json({ error: 'x-user-id header required' });
+            if (!rating || rating < 1 || rating > 5) return res.status(400).json({ error: 'Rating must be 1-5' });
+            await RatingService.setRating(gameName, userId, rating);
+            const info = await RatingService.getGameRating(gameName, userId);
+            res.json(info);
+        } catch (error) {
+            logError('API Error (POST /api/ratings/:gameName):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
     // --- Dashboard Endpoint ---
     app.get('/api/dashboard', async (req, res) => {
         try {
@@ -322,6 +375,121 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    // --- Create Backup Endpoint ---
+    app.post('/api/backups', requireAuth, async (req, res) => {
+        try {
+            const { BackupManager } = await import('../engine/BackupManager.js');
+            const { IScoredClient } = await import('../engine/IScoredClient.js');
+            const manager = BackupManager.getInstance();
+            const client = new IScoredClient();
+            const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+            if (hasCredentials) {
+                try { await client.connect(); } catch { /* proceed without iScored */ }
+            }
+            try {
+                const backupPath = await manager.createBackup(client);
+                if (backupPath) {
+                    res.json({ success: true, path: backupPath });
+                } else {
+                    res.status(500).json({ error: 'Backup failed' });
+                }
+            } finally {
+                if (hasCredentials) {
+                    try { await client.disconnect(); } catch { /* ignore */ }
+                }
+            }
+        } catch (error) {
+            logError('API Error (POST /api/backups):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Game Activation / Deactivation Endpoints ---
+    app.post('/api/tournaments/:id/activate-game', requireAuth, async (req, res) => {
+        try {
+            const tournamentId = req.params.id as string;
+            const { gameName } = req.body;
+            if (!gameName || typeof gameName !== 'string') {
+                return res.status(400).json({ error: 'gameName is required' });
+            }
+
+            const db = await getDatabase();
+            const tournament = await db.get('SELECT id, type, mode FROM tournaments WHERE id = ?', tournamentId);
+            if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+
+            const { TournamentEngine } = await import('../engine/TournamentEngine.js');
+            const engine = TournamentEngine.getInstance();
+
+            // Look up style_id from game_library
+            const gameLibEntry = await db.get('SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
+            const styleId = gameLibEntry?.style_id || undefined;
+
+            // Create on iScored if credentials available
+            let iscoredId: string | undefined;
+            const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+            if (hasCredentials) {
+                const { IScoredClient } = await import('../engine/IScoredClient.js');
+                const client = new IScoredClient();
+                try {
+                    await client.connect();
+                    iscoredId = await client.createGame(gameName, styleId);
+                    await client.setGameTags(iscoredId, tournament.type);
+                    await client.setGameStatus(iscoredId, { locked: false, hidden: false });
+                } finally {
+                    await client.disconnect();
+                }
+            }
+
+            // Activate in DB without completing existing active games
+            await db.exec('BEGIN TRANSACTION');
+            try {
+                const game = await engine.activateGame(tournamentId, gameName, styleId, iscoredId, false);
+                await db.exec('COMMIT');
+                logInfo(`Admin activated game: ${gameName} for tournament ${tournamentId}`);
+                res.json({ success: true, gameId: game.id });
+            } catch (dbError) {
+                await db.exec('ROLLBACK');
+                throw dbError;
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Internal Server Error';
+            logError('API Error (POST /api/tournaments/:id/activate-game):', error);
+            res.status(500).json({ error: message });
+        }
+    });
+
+    app.post('/api/games/:id/deactivate', requireAuth, async (req, res) => {
+        try {
+            const gameId = req.params.id as string;
+            const { TournamentEngine } = await import('../engine/TournamentEngine.js');
+            const engine = TournamentEngine.getInstance();
+            const dbOnly = req.body?.dbOnly === true;
+            const result = await engine.deactivateGame(gameId, dbOnly);
+            res.json({ success: true, ...result });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Internal Server Error';
+            logError('API Error (POST /api/games/:id/deactivate):', error);
+            res.status(400).json({ error: message });
+        }
+    });
+
+    // --- Active Games List Endpoint ---
+    app.get('/api/games/active', async (req, res) => {
+        try {
+            const db = await getDatabase();
+            const rows = await db.all(
+                `SELECT g.id, g.name, g.tournament_id, g.iscored_id, g.start_date, t.name as tournament_name
+                 FROM games g JOIN tournaments t ON g.tournament_id = t.id
+                 WHERE g.status = 'ACTIVE'
+                 ORDER BY g.start_date DESC`
+            );
+            res.json(rows);
+        } catch (error) {
+            logError('API Error (GET /api/games/active):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
     // --- Log Stream Endpoint (SSE) ---
     app.get('/api/logs/stream', (req, res) => {
         const logPath = path.join(process.cwd(), 'data', 'arcaid.log');
@@ -385,6 +553,21 @@ export function startApiServer(port: number = 3001) {
             clearInterval(keepalive);
             if (watcher) watcher.close();
         });
+    });
+
+    // --- Portal (Game Room) Endpoint ---
+    app.get('/api/portal', async (req, res) => {
+        try {
+            const name = await SettingsService.get('GAME_ROOM_NAME');
+            const slug = await SettingsService.get('GAME_ROOM_SLUG');
+            if (!slug) {
+                return res.json({ slug: null, name: null });
+            }
+            res.json({ slug, name: name || slug });
+        } catch (error) {
+            logError('API Error (/api/portal):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
     });
 
     // --- Leaderboard Endpoints ---

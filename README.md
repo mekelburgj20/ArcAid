@@ -2,7 +2,7 @@
 
 **ArcAid** is a modern tournament management system for virtual pinball and retro gaming communities. Discord bot + React Admin UI + Playwright-powered iScored automation.
 
-> **Development Status:** Core overhaul complete (Sprints 1–7). All major features implemented and UAT-tested. See [OVERHAUL_PLAN.md](./OVERHAUL_PLAN.md) for the full plan and [TODO.md](./TODO.md) for remaining future work.
+> **Development Status:** Core overhaul complete (Sprints 1–8). All major features implemented and UAT-tested. See [OVERHAUL_PLAN.md](./OVERHAUL_PLAN.md) for the full plan and [TODO.md](./TODO.md) for remaining future work.
 
 ## Features
 
@@ -12,8 +12,11 @@
 - **Pick system** — Winner picks next game with tiered timeouts (winner → runner-up → auto-select)
 - **Internal leaderboard** — Score storage, ranking, and caching (no iScored scraping for results)
 - **Real-time updates** — WebSocket events for scores, rotations, and status changes
-- **Admin UI** — Retro arcade-themed dashboard with tournament management, game library, logs, settings, history, backups
-- **Public pages** — Scoreboard (OBS-embeddable), player profiles, game stats
+- **Admin UI** — Retro arcade-themed dashboard with tournament management, game library, logs, settings, history, backups (mobile-responsive)
+- **Public player portal** — Slug-based routing (`/:slug/*`), shared nav bar with game room branding, mobile-friendly
+- **Game ratings** — 5-star per-user rating system with community averages
+- **VPS auto-import** — Bulk import games from Virtual Pinball Spreadsheet API
+- **Admin game control** — Activate/deactivate games on-demand via admin UI or Discord
 - **Discord commands** — Full slash command suite for players and admins
 - **Per-tournament mode** — Pinball (Tables & Grinds) or Video Game (Games & Tournaments) terminology per tournament
 - **Platform rules** — Required/excluded platform filtering per tournament with master platform list
@@ -73,6 +76,8 @@ npm run dev            # Vite dev server with HMR
 | Command | Description |
 |---------|-------------|
 | `/force-maintenance` | Manually trigger a tournament rotation |
+| `/activate-game` | Immediately activate a game for a tournament |
+| `/deactivate-game` | Deactivate an active game (optionally lock on iScored) |
 | `/sync-state` | Reconcile local DB with live iScored board |
 | `/run-cleanup` | Hide old finished tournament games from iScored |
 | `/create-backup` | Trigger a database backup |
@@ -84,7 +89,7 @@ npm run dev            # Vite dev server with HMR
 
 - **Dashboard** — Live stats: active games, next rotations, recent winners, quick actions
 - **Tournaments** — Create, edit, delete tournaments with friendly schedule builder
-- **Game Library** — Search, filter by mode, add/edit games, CSV import, platform chips
+- **Game Library** — Search, filter by mode/platform, add/edit games, CSV import, VPS import, star ratings
 - **Leaderboard** — Internal rankings with WebSocket live updates
 - **Stats** — Player and game analytics
 - **History** — Past tournament results, filterable
@@ -92,11 +97,11 @@ npm run dev            # Vite dev server with HMR
 - **Logs** — Real-time streaming, level filters, search, color coding
 - **Settings** — Categorized configuration with sensitive field masking, platform master list editor
 
-### Public Pages (no auth)
-- `/scoreboard` — Arcade high score display, auto-rotating, OBS-embeddable
-- `/players` — Searchable player list
-- `/players/:id` — Player profile with stat cards and recent scores
-- `/games/:name` — Game stats, record holder, recent results
+### Public Pages (no auth, under `/:slug/`)
+- `/:slug` — Arcade high score display, auto-rotating, OBS-embeddable
+- `/:slug/players` — Searchable player list
+- `/:slug/players/:id` — Player profile with stat cards and recent scores
+- `/:slug/games/:name` — Game stats, star ratings, record holder, recent results
 
 ## Architecture
 
@@ -112,14 +117,15 @@ Two sub-applications in one process:
 | `TimeoutManager` | Winner/runner-up pick window tracking with tiered fallbacks |
 | `BackupManager` | DB backup/snapshot/restore logic |
 | `IdentityManager` | Discord↔iScored user mapping via name matching |
-| Service layer | `SettingsService`, `TournamentService`, `GameLibraryService`, `StatsService`, `LogService` |
+| Service layer | `SettingsService`, `TournamentService`, `GameLibraryService`, `VpsImportService`, `RatingService`, `StatsService`, `LogService` |
 | API | Express REST + WebSocket (Socket.io) + JWT auth |
 
 **Admin UI (`admin-ui/`)** — React 19 + Vite + Tailwind CSS v4
 
 - Retro arcade "neon command center" theme
 - All API calls via `admin-ui/src/lib/api.ts` (relative paths, never hardcoded)
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `ScheduleBuilder`, `TournamentBadge`, `StatusBadge`, `ConfirmModal`, toast system
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder`, `TournamentBadge`, `StatusBadge`, `ConfirmModal`, toast system
+- Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
 
 ## Tech Stack
 
@@ -159,4 +165,4 @@ Settings can be configured via `.env` file, the Setup Wizard (first run), or the
 
 SQLite at `data/arcaid.db` (auto-created on first run, git-ignored).
 
-Key tables: `tournaments`, `game_library`, `games` (QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `scores`, `leaderboard_cache`, `user_mappings`, `settings`
+Key tables: `tournaments`, `game_library`, `games` (QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `scores`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`

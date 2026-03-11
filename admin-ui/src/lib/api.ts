@@ -19,10 +19,23 @@ export function isAuthenticated(): boolean {
   return !!authToken;
 }
 
+export function getAnonUserId(): string {
+  let id = localStorage.getItem('arcaid_anon_id');
+  if (!id) {
+    id = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('arcaid_anon_id', id);
+  }
+  return id;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string> || {}),
   };
+
+  headers['x-user-id'] = getAnonUserId();
 
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;

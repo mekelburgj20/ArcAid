@@ -26,6 +26,7 @@ export default function Backups() {
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const { toast } = useToast();
 
   const loadBackups = () => {
@@ -40,6 +41,19 @@ export default function Backups() {
   };
 
   useEffect(() => { loadBackups(); }, []);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    try {
+      await api.post<{ success: boolean }>('/backups', {});
+      toast('Backup created', 'success');
+      loadBackups();
+    } catch (err: any) {
+      toast(err.message || 'Backup failed', 'error');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const handleRestore = async (name: string) => {
     setConfirmRestore(null);
@@ -96,11 +110,16 @@ export default function Backups() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <h1 className="font-display text-2xl font-bold">Backups</h1>
-        <NeonButton variant="ghost" onClick={loadBackups} disabled={loading}>
-          Refresh
-        </NeonButton>
+        <div className="flex flex-wrap gap-2">
+          <NeonButton onClick={handleCreate} disabled={creating || loading}>
+            {creating ? 'Creating...' : 'Create Backup'}
+          </NeonButton>
+          <NeonButton variant="ghost" onClick={loadBackups} disabled={loading}>
+            Refresh
+          </NeonButton>
+        </div>
       </div>
 
       <NeonCard glowColor="amber" className="mb-6">

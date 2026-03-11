@@ -179,26 +179,37 @@
 
 ---
 
-## Sprint 8 — Public Player Portal
+## Sprint 8 — Public Player Portal (COMPLETE)
 **Goal:** Give the public pages a dedicated, discoverable URL path based on the game room name.
 
 ### Setup
-- [ ] Add "Game Room Name" to Setup Wizard (Step 2, before Discord) — stores display name (e.g. "RTX Pinball") and auto-generates URL slug (e.g. `RTX_Pinball`) as `GAME_ROOM_NAME` / `GAME_ROOM_SLUG` in settings
-- [ ] Allow editing game room name/slug in Admin UI Settings page
+- [x] Add "Game Room Name" to Setup Wizard (Step 2, before Discord) — stores display name (e.g. "RTX Pinball") and auto-generates URL slug (e.g. `RTX_Pinball`) as `GAME_ROOM_NAME` / `GAME_ROOM_SLUG` in settings
+- [x] Allow editing game room name/slug in Admin UI Settings page
 
 ### Public Portal Routing
-- [ ] Move public pages under `/:slug/` prefix:
+- [x] Move public pages under `/:slug/` prefix:
   - `/:slug` — public landing page (scoreboard + nav)
   - `/:slug/players` — player list
   - `/:slug/players/:id` — player profile
   - `/:slug/games/:name` — game stats
-- [ ] Add shared public nav bar (game room branding, links between public pages)
-- [ ] Root `/` still goes to admin login (unchanged)
-- [ ] Redirect old `/scoreboard`, `/players`, `/games` routes to new slug-based paths (or remove)
+- [x] Add shared public nav bar (game room branding, links between public pages)
+- [x] Root `/` still goes to admin login (unchanged)
+- [x] Redirect old `/scoreboard`, `/players`, `/games` routes to new slug-based paths (or remove)
 
 ### Branding
-- [ ] Public landing page header shows game room display name
+- [x] Public landing page header shows game room display name
 - [ ] Optional: `CUSTOM_DOMAIN` setting for generating shareable links in Discord announcements
+
+### Game Library Enhancements
+- [x] Platform filter toggles in Game Library (toggleable chips, clear button)
+- [x] VPS auto-import — `POST /api/game_library/import-vps` fetches from VPS API, extracts platforms
+- [x] 5-star rating system — `game_ratings` table, per-user + community averages, StarRating component in Game Library and GameDetail
+
+### Branding & UX
+- [x] ArcAid logo on login page, admin sidebar, public nav bar, and favicon
+- [x] Mobile-responsive layout: hamburger sidebar, responsive grids/cards/tables, overflow-safe
+- [x] ScoreDisplay null safety fix (null winner_score crash)
+- [x] crypto.randomUUID fallback for non-HTTPS contexts (mobile LAN access)
 
 ### Notes
 - Custom domain mapping (e.g. `www.arcaid.space`) is infrastructure-level (DNS + reverse proxy to port 3001) — no app changes needed
@@ -211,7 +222,7 @@
 ### UX Polish
 - [ ] Discord OAuth login for player portal (self-service identity linking)
 - [ ] Trend charts / sparklines on player profile pages
-- [ ] Mobile-responsive tweaks for admin UI and public pages
+- [x] Mobile-responsive tweaks for admin UI and public pages
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
 
 ### Ops / Infrastructure

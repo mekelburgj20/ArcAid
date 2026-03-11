@@ -48,9 +48,11 @@ export class TournamentEngine {
     }
 
     /**
-     * Activates a new game for a specific tournament immediately (used by /pick-game).
+     * Activates a new game for a specific tournament immediately.
+     * If completeExisting is true (default for /pick-game), marks existing ACTIVE games as COMPLETED.
+     * If false (admin activate), allows multiple active games.
      */
-    public async activateGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string): Promise<Game> {
+    public async activateGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, completeExisting: boolean = true): Promise<Game> {
         const db = await getDatabase();
         const game: Game = {
             id: uuidv4(),
@@ -64,19 +66,77 @@ export class TournamentEngine {
 
         logInfo(`Activating new game for tournament ${tournamentId}: ${gameName}`);
 
-        // 1. Deactivate current active game for this tournament
-        await db.run(
-            'UPDATE games SET status = ?, end_date = ? WHERE tournament_id = ? AND status = ?',
-            'COMPLETED', new Date().toISOString(), tournamentId, 'ACTIVE'
-        );
+        if (completeExisting) {
+            // Deactivate current active game for this tournament
+            await db.run(
+                'UPDATE games SET status = ?, end_date = ? WHERE tournament_id = ? AND status = ?',
+                'COMPLETED', new Date().toISOString(), tournamentId, 'ACTIVE'
+            );
+        }
 
-        // 2. Insert the new game
+        // Insert the new game
         await db.run(
             'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, start_date) VALUES (?, ?, ?, ?, ?, ?, ?)',
             game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, game.startDate?.toISOString()
         );
 
         return game;
+    }
+
+    /**
+     * Deactivates an active game — marks COMPLETED in DB.
+     * Only locks on iScored if no other ACTIVE game shares the same iscored_id.
+     * Scores/submissions are preserved.
+     */
+    public async deactivateGame(gameId: string, dbOnly: boolean = false): Promise<{ gameName: string; tournamentName: string }> {
+        const db = await getDatabase();
+
+        const row = await db.get(
+            `SELECT g.*, t.name as tournament_name, t.type as tournament_type
+             FROM games g JOIN tournaments t ON g.tournament_id = t.id
+             WHERE g.id = ?`,
+            gameId
+        );
+        if (!row) throw new Error('Game not found');
+        if (row.status !== 'ACTIVE') throw new Error(`Game is not active (status: ${row.status})`);
+
+        // Lock on iScored only if:
+        // - Not dbOnly mode
+        // - Game has an iScored ID
+        // - No other ACTIVE game shares this iScored ID
+        if (!dbOnly && row.iscored_id) {
+            const otherActive = await db.get(
+                `SELECT id FROM games WHERE iscored_id = ? AND status = 'ACTIVE' AND id != ?`,
+                row.iscored_id, gameId
+            );
+
+            if (otherActive) {
+                logInfo(`Skipping iScored lock — another active game shares iscored_id ${row.iscored_id}`);
+            } else {
+                const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+                if (hasCredentials) {
+                    const client = new IScoredClient();
+                    try {
+                        await client.connect();
+                        await client.setGameStatus(row.iscored_id, { locked: true });
+                        logInfo(`Locked on iScored: ${row.name} (${row.iscored_id})`);
+                    } catch (err) {
+                        logError('Failed to lock game on iScored (continuing with DB update):', err);
+                    } finally {
+                        await client.disconnect();
+                    }
+                }
+            }
+        }
+
+        // Mark COMPLETED in DB
+        await db.run(
+            'UPDATE games SET status = ?, end_date = ? WHERE id = ?',
+            'COMPLETED', new Date().toISOString(), gameId
+        );
+        logInfo(`Deactivated game: ${row.name} (tournament: ${row.tournament_name})${dbOnly ? ' [DB only]' : ''}`);
+
+        return { gameName: row.name, tournamentName: row.tournament_name };
     }
 
     /**

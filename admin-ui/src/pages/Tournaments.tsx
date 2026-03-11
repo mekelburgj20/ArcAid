@@ -128,6 +128,15 @@ function PlatformRulesEditor({ platforms, rules, onChange }: {
   );
 }
 
+interface ActiveGame {
+  id: string;
+  name: string;
+  tournament_id: string;
+  tournament_name: string;
+  iscored_id: string | null;
+  start_date: string;
+}
+
 export default function Tournaments() {
   const { toast } = useToast();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
@@ -135,6 +144,9 @@ export default function Tournaments() {
   const [deleteTarget, setDeleteTarget] = useState<Tournament | null>(null);
   const [editTarget, setEditTarget] = useState<Tournament | null>(null);
   const [platforms, setPlatforms] = useState<string[]>([]);
+  const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
+  const [deactivateTarget, setDeactivateTarget] = useState<ActiveGame | null>(null);
+  const [deactivating, setDeactivating] = useState(false);
 
   // Create form state
   const [newName, setNewName] = useState('');
@@ -172,7 +184,28 @@ export default function Tournaments() {
     } catch {}
   };
 
-  useEffect(() => { fetchTournaments(); fetchPlatforms(); }, []);
+  const fetchActiveGames = async () => {
+    try {
+      setActiveGames(await api.get<ActiveGame[]>('/games/active'));
+    } catch {}
+  };
+
+  const handleDeactivate = async (dbOnly: boolean = false) => {
+    if (!deactivateTarget) return;
+    setDeactivating(true);
+    try {
+      await api.post(`/games/${deactivateTarget.id}/deactivate`, { dbOnly });
+      toast(`${deactivateTarget.name} deactivated${dbOnly ? ' (DB only)' : ''}`, 'success');
+      setDeactivateTarget(null);
+      fetchActiveGames();
+    } catch (err: any) {
+      toast(err.message || 'Failed to deactivate game', 'error');
+    } finally {
+      setDeactivating(false);
+    }
+  };
+
+  useEffect(() => { fetchTournaments(); fetchPlatforms(); fetchActiveGames(); }, []);
 
   const handleCreate = async () => {
     if (!newName.trim() || !newTag.trim()) return;
@@ -315,6 +348,63 @@ export default function Tournaments() {
           emptyMessage="No tournaments configured yet."
         />
       </NeonCard>
+
+      {/* Active Games */}
+      <NeonCard title="Active Games" className="mt-6">
+        <DataTable<ActiveGame>
+          columns={[
+            { key: 'name', header: 'Game', render: g => <span className="font-medium">{g.name}</span> },
+            { key: 'tournament_name', header: 'Tournament', render: g => <span className="text-muted">{g.tournament_name}</span> },
+            { key: 'start_date', header: 'Started', render: g => (
+              <span className="text-sm text-muted">{g.start_date ? new Date(g.start_date).toLocaleString() : '—'}</span>
+            )},
+            { key: 'iscored_id', header: 'iScored', render: g => (
+              <span className={`text-xs ${g.iscored_id ? 'text-neon-green' : 'text-faint'}`}>{g.iscored_id ? 'Linked' : 'No'}</span>
+            )},
+            { key: 'actions', header: '', render: g => (
+              <div className="flex justify-end">
+                <NeonButton variant="danger" onClick={() => setDeactivateTarget(g)} className="text-xs px-2 py-1">Deactivate</NeonButton>
+              </div>
+            ), className: 'text-right' },
+          ]}
+          data={activeGames}
+          keyExtractor={g => g.id}
+          emptyMessage="No active games."
+        />
+      </NeonCard>
+
+      {/* Deactivate Confirm */}
+      {deactivateTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md">
+            <h2 className="font-display text-lg font-bold mb-2">Deactivate Game</h2>
+            <p className="text-muted text-sm mb-4">
+              Deactivate <span className="text-primary font-medium">"{deactivateTarget.name}"</span> from {deactivateTarget.tournament_name}? Scores are preserved.
+            </p>
+            <div className="space-y-2 mb-4">
+              <NeonButton
+                variant="danger"
+                className="w-full"
+                onClick={() => handleDeactivate(false)}
+                disabled={deactivating}
+              >
+                {deactivating ? 'Deactivating...' : 'Deactivate + Lock on iScored'}
+              </NeonButton>
+              <NeonButton
+                variant="secondary"
+                className="w-full"
+                onClick={() => handleDeactivate(true)}
+                disabled={deactivating}
+              >
+                DB Only (don't touch iScored)
+              </NeonButton>
+            </div>
+            <NeonButton variant="ghost" onClick={() => setDeactivateTarget(null)} disabled={deactivating}>
+              Cancel
+            </NeonButton>
+          </div>
+        </div>
+      )}
 
       {/* Edit Modal */}
       {editTarget && (

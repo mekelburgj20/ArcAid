@@ -275,12 +275,21 @@ export class IScoredClient {
                 const isHidden = await row.locator(`#hide${id}`).isChecked();
                 const isLocked = await row.locator(`#lock${id}`).isChecked();
 
-                // Extract tags
-                const tagValue = await row.locator(`input[name="tagInput${id}"]`).getAttribute('value');
+                // Extract tags — read from tagify DOM elements (hidden input may be empty)
                 let tags: string[] = [];
                 try {
-                    if (tagValue && tagValue.startsWith('[')) {
-                        tags = JSON.parse(tagValue).map((t: any) => t.value);
+                    const tagElements = row.locator('tag.tagify__tag');
+                    const tagCount = await tagElements.count();
+                    for (let t = 0; t < tagCount; t++) {
+                        const val = await tagElements.nth(t).getAttribute('value');
+                        if (val) tags.push(val);
+                    }
+                    // Fallback: try hidden input if no DOM tags found
+                    if (tags.length === 0) {
+                        const tagValue = await row.locator(`input[name="tagInput${id}"]`).getAttribute('value');
+                        if (tagValue && tagValue.startsWith('[')) {
+                            tags = JSON.parse(tagValue).map((t: any) => t.value);
+                        }
                     }
                 } catch (e) {}
 
@@ -326,18 +335,33 @@ export class IScoredClient {
 
             logInfo(`Adding tag '${tag}' to game ID: ${gameId}`);
             const gameRow = this.page!.locator(`li[id="${gameId}"]`);
-            const tagifyInput = gameRow.locator('.tagify__input').first();
 
-            const isVisible = await tagifyInput.isVisible();
-            if (isVisible) {
-                await tagifyInput.click({ force: true });
-                await this.page!.keyboard.type(tag);
-                await this.page!.keyboard.press('Enter');
-                await this.page!.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-                logInfo(`Tag '${tag}' added.`);
-            } else {
-                logWarn(`Could not find tag input for game ${gameId}.`);
+            // Wait for game row to be visible
+            await gameRow.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+
+            // Wait for tagify to initialize — the .tagify__input is dynamically injected
+            const tagifyInput = gameRow.locator('.tagify__input').first();
+            try {
+                await tagifyInput.waitFor({ state: 'visible', timeout: 5000 });
+            } catch {
+                // Tagify may use a different container — try the tags input wrapper
+                const tagifyWrapper = gameRow.locator('tags.tagify').first();
+                const wrapperExists = await tagifyWrapper.count() > 0;
+                if (wrapperExists) {
+                    await tagifyWrapper.click({ force: true });
+                    await this.page!.waitForTimeout(300);
+                } else {
+                    logWarn(`Could not find tag input for game ${gameId}. Tagify may not be loaded.`);
+                    return;
+                }
             }
+
+            await tagifyInput.click({ force: true });
+            await this.page!.waitForTimeout(200);
+            await this.page!.keyboard.type(tag);
+            await this.page!.keyboard.press('Enter');
+            await this.page!.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+            logInfo(`Tag '${tag}' added.`);
         });
     }
 
@@ -380,9 +404,9 @@ export class IScoredClient {
             // Wait for creation redirect — use page navigation wait instead of hardcoded timeout
             await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 
-            // Find the new game ID from the lineup
+            // Find the new game ID from the lineup (use last match — newest is at the end)
             const games = await this.getAllGames();
-            const newGame = games.find(g => g.name.toUpperCase() === gameName.toUpperCase());
+            const newGame = [...games].reverse().find(g => g.name.toUpperCase() === gameName.toUpperCase());
 
             if (!newGame) throw new Error(`Failed to find newly created ${getTerminology().game} in lineup.`);
 

@@ -6,6 +6,7 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import DataTable from '../components/DataTable';
 import LoadingState from '../components/LoadingState';
+import StarRating from '../components/StarRating';
 
 interface GameRow {
   name: string;
@@ -48,6 +49,11 @@ function PlatformChips({ platforms: raw }: { platforms: string }) {
   );
 }
 
+interface TournamentOption {
+  id: string;
+  name: string;
+}
+
 export default function GameLibrary() {
   const { toast } = useToast();
   const [games, setGames] = useState<GameRow[]>([]);
@@ -59,9 +65,16 @@ export default function GameLibrary() {
   const [search, setSearch] = useState('');
   const [showPinball, setShowPinball] = useState(true);
   const [showVideoGame, setShowVideoGame] = useState(true);
+  const [platformFilter, setPlatformFilter] = useState<Set<string>>(new Set());
   const [editTarget, setEditTarget] = useState<GameRow | null>(null);
   const [editGame, setEditGame] = useState<GameRow>({ ...emptyGame });
   const [editSaving, setEditSaving] = useState(false);
+  const [vpsImporting, setVpsImporting] = useState(false);
+  const [communityRatings, setCommunityRatings] = useState<Record<string, { avg_rating: number; rating_count: number }>>({});
+  const [userRatings, setUserRatings] = useState<Record<string, number>>({});
+  const [activateTarget, setActivateTarget] = useState<string | null>(null);
+  const [tournaments, setTournaments] = useState<TournamentOption[]>([]);
+  const [activatingFor, setActivatingFor] = useState<string | null>(null);
   const fetchGames = async () => {
     try {
       setGames(await api.get<GameRow[]>('/game_library'));
@@ -72,7 +85,46 @@ export default function GameLibrary() {
     }
   };
 
-  useEffect(() => { fetchGames(); }, []);
+  const fetchRatings = async () => {
+    try {
+      const data = await api.get<{ ratings: Record<string, { avg_rating: number; rating_count: number }>; userRatings: Record<string, number> }>('/ratings');
+      setCommunityRatings(data.ratings);
+      setUserRatings(data.userRatings);
+    } catch {}
+  };
+
+  const handleRate = async (gameName: string, rating: number) => {
+    try {
+      const info = await api.post<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`/ratings/${encodeURIComponent(gameName)}`, { rating });
+      setCommunityRatings(prev => ({ ...prev, [gameName]: { avg_rating: info.avg_rating, rating_count: info.rating_count } }));
+      setUserRatings(prev => ({ ...prev, [gameName]: rating }));
+    } catch {
+      toast('Failed to save rating', 'error');
+    }
+  };
+
+  const fetchTournaments = async () => {
+    try {
+      const rows = await api.get<TournamentOption[]>('/tournaments');
+      setTournaments(rows.filter((t: any) => t.is_active));
+    } catch {}
+  };
+
+  useEffect(() => { fetchGames(); fetchTournaments(); fetchRatings(); }, []);
+
+  const handleActivate = async (tournamentId: string) => {
+    if (!activateTarget) return;
+    setActivatingFor(tournamentId);
+    try {
+      await api.post(`/tournaments/${tournamentId}/activate-game`, { gameName: activateTarget });
+      toast(`${activateTarget} activated!`, 'success');
+      setActivateTarget(null);
+    } catch (err: any) {
+      toast(err.message || 'Failed to activate game', 'error');
+    } finally {
+      setActivatingFor(null);
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -145,9 +197,23 @@ export default function GameLibrary() {
     }
   };
 
+  const allPlatforms = [...new Set(games.flatMap(g => parsePlatforms(g.platforms)))].sort();
+
+  const togglePlatform = (p: string) => {
+    setPlatformFilter(prev => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  };
+
   const filteredGames = games.filter(g => {
     if (!showPinball && (g.mode || 'pinball') === 'pinball') return false;
     if (!showVideoGame && g.mode === 'videogame') return false;
+    if (platformFilter.size > 0) {
+      const gPlats = parsePlatforms(g.platforms);
+      if (!gPlats.some(p => platformFilter.has(p))) return false;
+    }
     if (search) {
       const q = search.toLowerCase();
       return g.name.toLowerCase().includes(q) || (g.platforms || '').toLowerCase().includes(q);
@@ -161,11 +227,25 @@ export default function GameLibrary() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <h1 className="font-display text-2xl font-bold">Game Library</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <NeonButton onClick={() => setShowAddForm(!showAddForm)}>
             {showAddForm ? 'Cancel' : 'Add Game'}
+          </NeonButton>
+          <NeonButton variant="secondary" onClick={async () => {
+            setVpsImporting(true);
+            try {
+              const res = await api.post<{ imported: number; total: number }>('/game_library/import-vps', {});
+              toast(`Imported ${res.imported} games from VPS`, 'success');
+              fetchGames();
+            } catch (err: any) {
+              toast(err.message || 'VPS import failed', 'error');
+            } finally {
+              setVpsImporting(false);
+            }
+          }} disabled={vpsImporting}>
+            {vpsImporting ? 'Importing VPS...' : 'Import from VPS'}
           </NeonButton>
           <NeonButton variant="secondary" onClick={downloadTemplate}>CSV Template</NeonButton>
           <div>
@@ -224,7 +304,7 @@ export default function GameLibrary() {
       )}
 
       <NeonCard>
-        <div className="flex items-center gap-4 mb-4">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-4">
           <input
             type="text" placeholder="Search games..." value={search} onChange={e => setSearch(e.target.value)}
             className={`${inputClass} max-w-sm`}
@@ -238,6 +318,29 @@ export default function GameLibrary() {
             Video Games
           </label>
         </div>
+        {allPlatforms.length > 0 && (
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <span className="text-xs font-display uppercase tracking-wider text-muted">Platforms:</span>
+            {allPlatforms.map(p => (
+              <button
+                key={p}
+                onClick={() => togglePlatform(p)}
+                className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                  platformFilter.has(p)
+                    ? 'bg-neon-cyan/20 text-neon-cyan border-neon-cyan/60'
+                    : 'bg-transparent text-muted border-border hover:border-neon-cyan/40 hover:text-primary'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+            {platformFilter.size > 0 && (
+              <button onClick={() => setPlatformFilter(new Set())} className="text-xs text-faint hover:text-primary underline">
+                Clear
+              </button>
+            )}
+          </div>
+        )}
         <DataTable<GameRow>
           columns={[
             { key: 'name', header: 'Game', render: g => <span className="font-medium">{g.name}</span> },
@@ -247,9 +350,22 @@ export default function GameLibrary() {
               </span>
             )},
             { key: 'platforms', header: 'Platforms', render: g => <PlatformChips platforms={g.platforms} /> },
+            { key: 'rating', header: 'Rating', render: g => {
+              const cr = communityRatings[g.name];
+              const ur = userRatings[g.name] || 0;
+              return (
+                <div className="flex items-center gap-1.5">
+                  <StarRating rating={ur} onRate={(r) => handleRate(g.name, r)} />
+                  {cr && cr.rating_count > 0 && (
+                    <span className="text-xs text-muted">{cr.avg_rating} ({cr.rating_count})</span>
+                  )}
+                </div>
+              );
+            }},
             { key: 'style_id', header: 'Style ID', render: g => <span className="text-sm text-muted font-mono">{g.style_id || '-'}</span> },
             { key: 'actions', header: '', render: g => (
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-1">
+                <NeonButton variant="ghost" onClick={() => setActivateTarget(g.name)} className="text-xs px-2 py-1">Activate</NeonButton>
                 <NeonButton variant="ghost" onClick={() => openEdit(g)} className="text-xs px-2 py-1">Edit</NeonButton>
               </div>
             ), className: 'text-right' },
@@ -260,6 +376,34 @@ export default function GameLibrary() {
         />
         <p className="text-faint text-xs mt-3">{filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''}</p>
       </NeonCard>
+
+      {activateTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-sm">
+            <h2 className="font-display text-lg font-bold mb-2">Activate Game</h2>
+            <p className="text-muted text-sm mb-4">
+              Activate <span className="text-primary font-medium">{activateTarget}</span> for which tournament?
+            </p>
+            <div className="space-y-2 mb-4">
+              {tournaments.map(t => (
+                <NeonButton
+                  key={t.id}
+                  variant="secondary"
+                  className="w-full text-left"
+                  onClick={() => handleActivate(t.id)}
+                  disabled={activatingFor !== null}
+                >
+                  {activatingFor === t.id ? 'Activating...' : t.name}
+                </NeonButton>
+              ))}
+              {tournaments.length === 0 && <p className="text-faint text-sm">No active tournaments.</p>}
+            </div>
+            <NeonButton variant="ghost" onClick={() => setActivateTarget(null)} disabled={activatingFor !== null}>
+              Cancel
+            </NeonButton>
+          </div>
+        </div>
+      )}
 
       {editTarget && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">

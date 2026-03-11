@@ -12,7 +12,7 @@ const sizes = {
 export default function ScoreDisplay({ score, size = 'md' }: ScoreDisplayProps) {
   return (
     <span className={`font-display font-bold text-neon-amber ${sizes[size]}`}>
-      {score.toLocaleString()}
+      {score != null ? score.toLocaleString() : '—'}
     </span>
   );
 }

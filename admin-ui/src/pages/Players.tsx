@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 interface PlayerSummary {
   discord_user_id: string;
@@ -10,6 +10,7 @@ interface PlayerSummary {
 }
 
 export default function Players() {
+  const { slug } = useParams<{ slug: string }>();
   const [players, setPlayers] = useState<PlayerSummary[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -27,27 +28,20 @@ export default function Players() {
   );
 
   return (
-    <div className="min-h-screen bg-deep text-primary relative">
-      {/* Header */}
-      <header className="border-b border-border bg-surface/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div>
-            <Link to="/scoreboard" className="text-faint text-xs hover:text-muted no-underline transition-colors">
-              &larr; Scoreboard
-            </Link>
-            <h1 className="font-pixel text-neon-cyan text-lg tracking-wider mt-1">PLAYERS</h1>
-          </div>
-          <input
-            type="text"
-            placeholder="Search players..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-neon-cyan focus:outline-none w-60"
-          />
-        </div>
-      </header>
+    <div>
+      {/* Page Header */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h2 className="font-display text-xl font-bold">Players</h2>
+        <input
+          type="text"
+          placeholder="Search players..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-neon-cyan focus:outline-none w-full sm:w-60"
+        />
+      </div>
 
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
@@ -59,21 +53,21 @@ export default function Players() {
             {filtered.map((player, i) => (
               <Link
                 key={player.discord_user_id}
-                to={`/players/${player.discord_user_id}`}
-                className="flex items-center justify-between bg-surface border border-border rounded-lg px-5 py-4 hover:border-neon-cyan/50 transition-all no-underline group"
+                to={`/${slug}/players/${player.discord_user_id}`}
+                className="flex items-center justify-between bg-surface border border-border rounded-lg px-3 sm:px-5 py-3 sm:py-4 hover:border-neon-cyan/50 transition-all no-underline group"
               >
-                <div className="flex items-center gap-4">
-                  <span className="text-faint font-display font-bold text-lg w-8 text-center">
+                <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+                  <span className="text-faint font-display font-bold text-base sm:text-lg w-6 sm:w-8 text-center flex-shrink-0">
                     {i + 1}
                   </span>
-                  <div>
-                    <p className="font-medium text-primary group-hover:text-neon-cyan transition-colors">
+                  <div className="min-w-0">
+                    <p className="font-medium text-primary group-hover:text-neon-cyan transition-colors text-sm sm:text-base truncate">
                       {player.iscored_username || `User ${player.discord_user_id.slice(-4)}`}
                     </p>
                     <p className="text-faint text-xs">{player.games_played} games played</p>
                   </div>
                 </div>
-                <div className="flex gap-6 text-right">
+                <div className="flex gap-3 sm:gap-6 text-right flex-shrink-0">
                   <div>
                     <p className="text-xs text-faint">Best</p>
                     <p className="font-display font-bold text-neon-amber">{player.best_score.toLocaleString()}</p>
@@ -88,8 +82,6 @@ export default function Players() {
           </div>
         )}
       </main>
-
-      <div className="fixed inset-0 pointer-events-none z-50 scanlines" />
     </div>
   );
 }

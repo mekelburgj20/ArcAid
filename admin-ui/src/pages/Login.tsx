@@ -26,7 +26,7 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-deep">
       <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm">
-        <h1 className="font-pixel text-neon-cyan text-center text-sm mb-2">ARCAID</h1>
+        <img src="/arcaid-logo.png" alt="ArcAid" className="w-24 h-24 mx-auto mb-2" />
         <p className="text-muted text-center text-sm mb-8">Admin Console</p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">

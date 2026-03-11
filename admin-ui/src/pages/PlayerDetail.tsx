@@ -14,7 +14,7 @@ interface PlayerStats {
 }
 
 export default function PlayerDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { slug, id } = useParams<{ slug: string; id: string }>();
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -29,7 +29,7 @@ export default function PlayerDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-deep flex items-center justify-center">
+      <div className="flex items-center justify-center py-24">
         <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
       </div>
     );
@@ -37,7 +37,7 @@ export default function PlayerDetail() {
 
   if (!stats) {
     return (
-      <div className="min-h-screen bg-deep flex items-center justify-center text-muted">
+      <div className="flex items-center justify-center py-24 text-muted">
         Player not found.
       </div>
     );
@@ -46,21 +46,19 @@ export default function PlayerDetail() {
   const displayName = stats.iscoredUsername || `Player ${stats.discordUserId.slice(-4)}`;
 
   return (
-    <div className="min-h-screen bg-deep text-primary relative">
-      {/* Header */}
-      <header className="border-b border-border bg-surface/50 backdrop-blur-sm">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <Link to="/players" className="text-faint text-xs hover:text-muted no-underline transition-colors">
-            &larr; All Players
-          </Link>
-          <h1 className="font-pixel text-neon-cyan text-lg tracking-wider mt-1">{displayName}</h1>
-          {stats.iscoredUsername && (
-            <p className="text-faint text-xs mt-0.5">iScored: {stats.iscoredUsername}</p>
-          )}
-        </div>
-      </header>
+    <div>
+      {/* Page Header */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2">
+        <Link to={`/${slug}/players`} className="text-faint text-xs hover:text-muted no-underline transition-colors">
+          &larr; All Players
+        </Link>
+        <h2 className="font-display text-xl font-bold mt-1">{displayName}</h2>
+        {stats.iscoredUsername && (
+          <p className="text-faint text-xs mt-0.5">iScored: {stats.iscoredUsername}</p>
+        )}
+      </div>
 
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
         {/* Stat Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
           <StatCard label="Games Played" value={stats.totalGamesPlayed.toString()} color="text-neon-cyan" />
@@ -83,7 +81,7 @@ export default function PlayerDetail() {
                 >
                   <div>
                     <Link
-                      to={`/games/${encodeURIComponent(s.game_name)}`}
+                      to={`/${slug}/games/${encodeURIComponent(s.game_name)}`}
                       className="text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
                     >
                       {s.game_name}
@@ -97,8 +95,6 @@ export default function PlayerDetail() {
           </div>
         )}
       </main>
-
-      <div className="fixed inset-0 pointer-events-none z-50 scanlines" />
     </div>
   );
 }

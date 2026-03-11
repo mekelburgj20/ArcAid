@@ -128,6 +128,16 @@ export async function initDatabase(): Promise<Database> {
             rankings TEXT NOT NULL,
             generated_at TEXT NOT NULL,
             FOREIGN KEY (game_id) REFERENCES games (id)
+        );
+
+        CREATE TABLE IF NOT EXISTS game_ratings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_name TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(game_name, user_id)
         )
     `);
 
