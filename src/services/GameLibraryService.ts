@@ -40,6 +40,39 @@ export class GameLibraryService {
     }
 
     /**
+     * Updates only the style fields for a game (preserves other fields).
+     * Used by the style learning loop during maintenance.
+     */
+    static async updateStyles(name: string, styles: {
+        style_id?: string | null;
+        css_title?: string;
+        css_initials?: string;
+        css_scores?: string;
+        css_box?: string;
+        bg_color?: string;
+    }): Promise<boolean> {
+        const db = await getDatabase();
+        const result = await db.run(
+            `UPDATE game_library SET
+                style_id = COALESCE(?, style_id),
+                css_title = COALESCE(?, css_title),
+                css_initials = COALESCE(?, css_initials),
+                css_scores = COALESCE(?, css_scores),
+                css_box = COALESCE(?, css_box),
+                bg_color = COALESCE(?, bg_color)
+            WHERE name = ?`,
+            styles.style_id || null,
+            styles.css_title || null,
+            styles.css_initials || null,
+            styles.css_scores || null,
+            styles.css_box || null,
+            styles.bg_color || null,
+            name
+        );
+        return (result.changes ?? 0) > 0;
+    }
+
+    /**
      * Imports an array of games into the library (upsert).
      * Runs in a transaction for atomicity.
      */

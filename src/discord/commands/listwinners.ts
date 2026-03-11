@@ -25,7 +25,7 @@ export const listwinners: Command = {
             `);
 
             if (completedGames.length === 0) {
-                await interaction.editReply(`No past winners found for any ${term.tournament.toLowerCase()}.`);
+                await interaction.editReply('No past winners found for any tournament.');
                 return;
             }
 

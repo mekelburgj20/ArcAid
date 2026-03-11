@@ -5,6 +5,7 @@ import { DiscordClient } from './discord/DiscordClient.js';
 import { startApiServer } from './api/server.js';
 import { serverEvents } from './api/server.js';
 import { validateEnvironment } from './utils/startup.js';
+import { Scheduler } from './engine/Scheduler.js';
 
 async function bootstrap() {
     logInfo('Starting ArcAid...');
@@ -49,6 +50,9 @@ async function bootstrap() {
 
             // 5. Connect to Discord
             await discord.connect();
+
+            // 6. Start Scheduler (cron maintenance + timeout checker)
+            await Scheduler.getInstance().start();
         }
 
     } catch (error) {

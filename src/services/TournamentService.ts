@@ -24,14 +24,15 @@ export class TournamentService {
         discord_channel_id?: string;
         discord_role_id?: string;
         is_active?: boolean;
+        display_order?: number;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             data.id, data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
-            data.is_active ? 1 : 0
+            data.is_active ? 1 : 0, data.display_order ?? 0
         );
     }
 
@@ -48,14 +49,15 @@ export class TournamentService {
         discord_channel_id?: string;
         discord_role_id?: string;
         is_active?: boolean;
+        display_order?: number;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ? WHERE id = ?',
+            'UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ? WHERE id = ?',
             data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
-            data.is_active ? 1 : 0, id
+            data.is_active ? 1 : 0, data.display_order ?? 0, id
         );
     }
 

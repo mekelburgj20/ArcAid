@@ -31,6 +31,7 @@ export const CreateTournamentSchema = z.object({
     discord_channel_id: discordIdSchema.optional().or(z.literal('')).default(''),
     discord_role_id: discordIdSchema.optional().or(z.literal('')).default(''),
     is_active: z.boolean().default(true),
+    display_order: z.number().int().min(0).default(0),
 });
 
 export const UpdateTournamentSchema = CreateTournamentSchema.omit({ id: true });

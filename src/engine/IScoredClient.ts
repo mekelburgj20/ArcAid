@@ -191,19 +191,40 @@ export class IScoredClient {
         }
 
         const lineupTab = this.page.locator('a[href="#order"]');
-        await lineupTab.click();
-
-        // Wait for the specific list container
         const list = this.page.locator('ul#orderGameUL');
-        await list.waitFor({ state: 'attached', timeout: 10000 });
 
-        // Wait for AJAX to populate the list by watching for child elements
-        // instead of a hardcoded waitForTimeout
-        try {
-            await this.page.locator('ul#orderGameUL > li').first().waitFor({ state: 'attached', timeout: 5000 });
-        } catch {
-            logDebug('No list items appeared in lineup (may be empty).');
+        // Retry tab click if list doesn't appear (iScored transition lag)
+        for (let i = 0; i < 3; i++) {
+            await lineupTab.click();
+            logDebug(`Clicked Lineup tab (attempt ${i + 1}). Waiting for list...`);
+
+            try {
+                await list.waitFor({ state: 'attached', timeout: 10000 });
+
+                // Force visibility via JS to bypass iScored's CSS transition lag
+                await list.evaluate((el) => {
+                    (el as HTMLElement).style.display = 'block';
+                    (el as HTMLElement).style.visibility = 'visible';
+                    (el as HTMLElement).style.opacity = '1';
+                });
+
+                await list.waitFor({ state: 'visible', timeout: 5000 });
+
+                if (await list.isVisible()) {
+                    // Wait for AJAX to populate the list
+                    try {
+                        await this.page.locator('ul#orderGameUL > li').first().waitFor({ state: 'attached', timeout: 5000 });
+                    } catch {
+                        logDebug('No list items appeared in lineup (may be empty).');
+                    }
+                    return;
+                }
+            } catch {
+                logDebug(`List not visible after attempt ${i + 1}.`);
+            }
         }
+
+        throw new Error('Failed to load Lineup list after 3 attempts.');
     }
 
     /**
@@ -434,16 +455,14 @@ export class IScoredClient {
             await scoreEntryActivator.click();
             await mainFrame.locator('#scoreEntryDiv').waitFor({ state: 'visible', timeout: 10000 });
 
-            // Fill via JS for reliability
-            await mainFrame.locator('#newInitials').evaluate((el, val) => {
-                (el as HTMLInputElement).value = val;
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            }, username);
+            // Fill via native input methods for iScored compatibility
+            const initialsInput = mainFrame.locator('#newInitials');
+            await initialsInput.click();
+            await initialsInput.fill(username);
 
-            await mainFrame.locator('#newScore').evaluate((el, val) => {
-                (el as HTMLInputElement).value = val;
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            }, score.toString());
+            const scoreInput = mainFrame.locator('#newScore');
+            await scoreInput.click();
+            await scoreInput.fill(score.toString());
 
             if (photoPath) {
                 const fileChooserPromise = this.page.waitForEvent('filechooser');
@@ -454,6 +473,18 @@ export class IScoredClient {
             }
 
             await mainFrame.getByRole('button', { name: 'Post Your Score!' }).click();
+
+            // Handle "Invalid score" error dialog
+            try {
+                const gotItButton = mainFrame.getByRole('button', { name: 'Got it' });
+                await gotItButton.waitFor({ state: 'visible', timeout: 2000 });
+                const errorText = await mainFrame.locator('.bootbox-body').textContent().catch(() => 'Unknown validation error');
+                await gotItButton.click();
+                throw new Error(`iScored rejected score: ${errorText}`);
+            } catch (e: any) {
+                if (e.message?.includes('iScored rejected')) throw e;
+                // No error dialog — continue
+            }
 
             try {
                 const confirmButton = mainFrame.getByRole('button', { name: 'Yes Please.' });
@@ -471,18 +502,27 @@ export class IScoredClient {
     public async repositionLineup(orderedIds: string[]): Promise<void> {
         await this.withScreenshotOnFailure('repositionLineup', async () => {
             await this.navigateToLineup();
-            const mainFrame = this.page!.frameLocator('#main');
 
             logInfo('Repositioning iScored Lineup (DOM-based)...');
 
-            const result = await mainFrame.locator(':root').evaluate((el, targetIds) => {
+            // Force the lineup list visible (iScored transition lag)
+            const list = this.page!.locator('ul#orderGameUL');
+            await list.evaluate((el) => {
+                (el as HTMLElement).style.display = 'block';
+                (el as HTMLElement).style.visibility = 'visible';
+                (el as HTMLElement).style.opacity = '1';
+            });
+
+            const result = await this.page!.evaluate((targetIds) => {
                 const lineupUl = document.getElementById('orderGameUL');
                 const saveFn = (window as any).saveSetting;
 
-                if (!lineupUl || !saveFn) return { success: false };
+                if (!lineupUl || !saveFn) {
+                    return { success: false, error: `lineupUl: ${!!lineupUl}, saveFn: ${!!saveFn}` };
+                }
 
                 const currentIds = Array.from(lineupUl.children).map(c => c.getAttribute('id'));
-                const validTargetIds = targetIds.filter(id => currentIds.includes(id));
+                const validTargetIds = targetIds.filter((id: string) => currentIds.includes(id));
 
                 // Prepend in reverse to put them at the top in correct order
                 for (let i = validTargetIds.length - 1; i >= 0; i--) {
@@ -501,41 +541,103 @@ export class IScoredClient {
             if (result.success) {
                 logInfo(`Lineup repositioned (${result.count} games moved to top).`);
                 await this.page!.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+            } else {
+                logError(`Failed to reposition lineup: ${(result as any).error}`);
             }
         });
     }
 
     /**
+     * Navigates to the Games tab on the settings page.
+     */
+    private async navigateToGamesTab(): Promise<void> {
+        if (!this.page) throw new Error('Client not connected.');
+        if (!this.page.url().includes('settings.php')) {
+            await this.page.goto(this.SETTINGS_URL);
+            await this.page.locator('ul.nav.nav-tabs.settingsTabs').waitFor({ state: 'visible', timeout: 10000 });
+        }
+        await this.page.locator('a[href="#games"]').click();
+    }
+
+    /**
      * Scrapes style details (CSS) for a specific game from the iScored editor.
+     * Also extracts the community style ID from the preview element if present.
      */
     public async syncStyle(gameId: string): Promise<any> {
         return this.withScreenshotOnFailure('syncStyle', async () => {
             if (!this.page) throw new Error('Client not connected.');
 
-            const mainFrame = this.page.frameLocator('#main');
+            await this.navigateToGamesTab();
 
-            // Navigate to Games tab
-            await mainFrame.locator('a[href="#games"]').click();
-            const selectGame = mainFrame.locator('#selectGame');
+            const selectGame = this.page.locator('#selectGame');
             await selectGame.selectOption(gameId);
             await selectGame.dispatchEvent('change');
 
-            // Wait for game editor to load instead of hardcoded timeout
-            await mainFrame.locator('#CSSTitle').waitFor({ state: 'visible', timeout: 10000 });
+            // Wait for game editor to load
+            await this.page.locator('#CSSTitle').waitFor({ state: 'visible', timeout: 10000 });
 
             const style = {
-                css_title: await mainFrame.locator('#CSSTitle').inputValue(),
-                css_initials: await mainFrame.locator('#CSSInitials').inputValue(),
-                css_scores: await mainFrame.locator('#CSSScores').inputValue(),
-                css_box: await mainFrame.locator('#CSSBox').inputValue(),
-                bg_color: await mainFrame.locator('#gameBackgroundColor').inputValue(),
-                score_type: await mainFrame.locator('#ScoreType').inputValue(),
-                sort_ascending: (await mainFrame.locator('#SortAscending').isChecked()) ? 1 : 0
+                css_title: await this.page.locator('#CSSTitle').inputValue(),
+                css_initials: await this.page.locator('#CSSInitials').inputValue(),
+                css_scores: await this.page.locator('#CSSScores').inputValue(),
+                css_box: await this.page.locator('#CSSBox').inputValue(),
+                bg_color: await this.page.locator('#gameBackgroundColor').inputValue(),
+                score_type: await this.page.locator('#ScoreType').inputValue(),
+                sort_ascending: (await this.page.locator('#SortAscending').isChecked()) ? 1 : 0,
+                style_id: null as string | null,
             };
+
+            // Extract community style ID from preview background-image
+            try {
+                const testGame = this.page.locator('#testGame');
+                const bgImageStyle = await testGame.getAttribute('style') || '';
+                const match = bgImageStyle.match(/\/community\/images\/backgrounds\/gameBg(\d+)/);
+                if (match?.[1]) {
+                    style.style_id = match[1];
+                    logDebug(`   -> Detected Community Style ID: ${style.style_id}`);
+                }
+            } catch {
+                // Preview element may not be visible — non-fatal
+            }
 
             logInfo(`Style captured for game ID: ${gameId}`);
             return style;
         });
+    }
+
+    /**
+     * Applies saved CSS style fields to the currently selected game in the iScored editor.
+     * Call after createGame() while still on the Games tab with the new game selected.
+     */
+    public async applyStyle(gameId: string, style: {
+        css_title?: string; css_initials?: string; css_scores?: string;
+        css_box?: string; bg_color?: string;
+    }): Promise<void> {
+        await this.withScreenshotOnFailure('applyStyle', async () => {
+            if (!this.page) throw new Error('Client not connected.');
+
+            await this.navigateToGamesTab();
+
+            // Select the game
+            const selectGame = this.page.locator('#selectGame');
+            await selectGame.selectOption(gameId);
+            await selectGame.dispatchEvent('change');
+            await this.page.locator('#CSSTitle').waitFor({ state: 'visible', timeout: 10000 });
+
+            logInfo(`Applying saved styles to game ID: ${gameId}`);
+
+            if (style.css_title) await this.page.locator('#CSSTitle').fill(style.css_title);
+            if (style.css_initials) await this.page.locator('#CSSInitials').fill(style.css_initials);
+            if (style.css_scores) await this.page.locator('#CSSScores').fill(style.css_scores);
+            if (style.css_box) await this.page.locator('#CSSBox').fill(style.css_box);
+            if (style.bg_color) await this.page.locator('#gameBackgroundColor').fill(style.bg_color);
+
+            // Trigger change event to persist
+            await this.page.locator('#CSSTitle').dispatchEvent('change');
+            await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+
+            logInfo(`Styles applied to game ID: ${gameId}`);
+        }, 2);
     }
 
     /**

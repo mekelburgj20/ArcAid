@@ -179,9 +179,19 @@ export const pickgame: Command = {
 
             logInfo(`User ${interaction.user.tag} picked ${gameName} for ${tournamentName}`);
             const color = getTournamentColor(tournament.type);
+
+            // Check if the game is now active (no other active game) or queued behind one
+            const activeGame = await db.get(
+                'SELECT id FROM games WHERE tournament_id = ? AND status = ? AND name != ? COLLATE NOCASE',
+                tournament.id, 'ACTIVE', gameName
+            );
+            const statusText = activeGame
+                ? `**${gameName}** has been queued for the **${tournamentName}** tournament.`
+                : `**${gameName}** is now active for the **${tournamentName}** tournament — play immediately!`;
+
             const embed = new EmbedBuilder()
                 .setTitle(`🎉 ${term.game} Picked!`)
-                .setDescription(`**${gameName}** has been queued for the **${tournamentName}** ${term.tournament}.`)
+                .setDescription(statusText)
                 .setColor(color)
                 .setFooter({ text: `Picked by ${interaction.user.displayName}` })
                 .setTimestamp();

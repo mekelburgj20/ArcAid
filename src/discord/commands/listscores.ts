@@ -41,12 +41,11 @@ export const listscores: Command = {
 
         try {
             const activeGames = await db.all(`
-                SELECT g.id, g.name as game_name, t.name as tournament_name, t.type as tournament_type
+                SELECT g.id, g.name as game_name, t.name as tournament_name, t.type as tournament_type, t.display_order
                 FROM games g
                 LEFT JOIN tournaments t ON g.tournament_id = t.id
-                WHERE g.status IN ('ACTIVE', 'COMPLETED')
-                ORDER BY g.start_date DESC
-                LIMIT 5
+                WHERE g.status = 'ACTIVE'
+                ORDER BY COALESCE(t.display_order, 999) ASC, g.start_date DESC
             `);
 
             if (activeGames.length === 0) {

@@ -6,6 +6,7 @@ import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { sendChannelMessage, sendChannelEmbed, getTournamentColor } from '../utils/discord.js';
 import { IScoredClient } from './IScoredClient.js';
+import { GameLibraryService } from '../services/GameLibraryService.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 
 export class TournamentEngine {
@@ -256,7 +257,22 @@ export class TournamentEngine {
                     }
                 }
 
-                // 2b. Scrape final standings to determine the winner
+                // 2b. Learn styles from the active game before it's done
+                if (activeGame?.iscoredId) {
+                    try {
+                        const styles = await client.syncStyle(activeGame.iscoredId);
+                        if (styles) {
+                            const updated = await GameLibraryService.updateStyles(activeGame.name, styles);
+                            if (updated) {
+                                logInfo(`   -> Learned styles for ${activeGame.name}`);
+                            }
+                        }
+                    } catch (err) {
+                        logWarn('   -> Failed to learn styles (continuing):', err);
+                    }
+                }
+
+                // 2c. Scrape final standings to determine the winner
                 if (activeGame?.iscoredId && hasPublicUrl) {
                     try {
                         const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId);
@@ -273,16 +289,32 @@ export class TournamentEngine {
                     }
                 }
 
-                // 2c. Handle the queued game on iScored
+                // 2d. Handle the queued game on iScored
                 if (queuedRow) {
+                    // Look up saved styles from game library
+                    const libraryEntry = await db.get(
+                        'SELECT style_id, css_title, css_initials, css_scores, css_box, bg_color FROM game_library WHERE name = ? COLLATE NOCASE',
+                        queuedRow.name
+                    );
+
                     if (!queuedRow.iscored_id) {
                         // Pre-injected via /pause-pick without an iScored game — create it now
                         try {
-                            const styleId = queuedRow.style_id || undefined;
+                            const styleId = libraryEntry?.style_id || queuedRow.style_id || undefined;
                             newIscoredId = await client.createGame(queuedRow.name, styleId);
                             await client.setGameTags(newIscoredId, tournamentRow.type);
                             await client.setGameStatus(newIscoredId, { locked: false, hidden: false });
                             logInfo(`   -> Created on iScored: ${queuedRow.name} (ID: ${newIscoredId})`);
+
+                            // Apply saved CSS styles from game library
+                            if (newIscoredId && libraryEntry && (libraryEntry.css_title || libraryEntry.css_box || libraryEntry.bg_color)) {
+                                try {
+                                    await client.applyStyle(newIscoredId, libraryEntry);
+                                    logInfo(`   -> Applied learned styles to ${queuedRow.name}`);
+                                } catch (err) {
+                                    logWarn('   -> Failed to apply styles (continuing):', err);
+                                }
+                            }
                         } catch (err) {
                             logError('   -> Failed to create queued game on iScored (continuing):', err);
                         }
@@ -430,5 +462,50 @@ export class TournamentEngine {
         }
 
         logInfo(`✅ Maintenance complete for ${tournamentRow.name}`);
+
+        // Reorder iScored lineup based on tournament display_order
+        try {
+            await this.reorderIScoredLineup();
+        } catch (err) {
+            logWarn('⚠️ Failed to reorder iScored lineup after maintenance:', err);
+        }
+    }
+
+    /**
+     * Reorders the iScored lineup based on tournament display_order.
+     * Within each tournament group: ACTIVE games first, then COMPLETED (locked).
+     * Groups are sorted by tournament display_order, games within by start_date.
+     * Unmanaged games (no tournament) remain at the bottom.
+     */
+    public async reorderIScoredLineup(): Promise<void> {
+        const db = await getDatabase();
+
+        // Get all managed games with iScored IDs, ordered by:
+        // 1. Tournament display_order (lower = higher in lineup)
+        // 2. Status priority (ACTIVE before COMPLETED)
+        // 3. Start date (newest first within same status)
+        const managedGames = await db.all(`
+            SELECT g.iscored_id, g.status, t.display_order
+            FROM games g
+            JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.status IN ('ACTIVE', 'COMPLETED') AND g.iscored_id IS NOT NULL
+            ORDER BY
+                t.display_order ASC,
+                CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END ASC,
+                g.start_date DESC
+        `);
+
+        if (managedGames.length === 0) return;
+
+        const orderedIds = managedGames.map((g: any) => g.iscored_id);
+        logInfo(`Reordering iScored lineup: ${orderedIds.length} managed games by display_order`);
+
+        const client = new IScoredClient();
+        await client.connect();
+        try {
+            await client.repositionLineup(orderedIds);
+        } finally {
+            await client.disconnect();
+        }
     }
 }

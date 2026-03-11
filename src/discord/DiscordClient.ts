@@ -21,6 +21,7 @@ import { nominatepicker } from './commands/nominatepicker.js';
 import { mystats } from './commands/mystats.js';
 import { activategame } from './commands/activategame.js';
 import { deactivategame } from './commands/deactivategame.js';
+import { reorderlineup } from './commands/reorderlineup.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -56,7 +57,7 @@ export class DiscordClient {
             ping, setup, mapuser, pickgame, submitscore,
             listactive, listscores, viewstats, listwinners, viewselection,
             forcemaintenance, syncstate, runcleanup, createbackup, pausepick, nominatepicker, mystats,
-            activategame, deactivategame
+            activategame, deactivategame, reorderlineup
         ];
         for (const command of commandList) {
             this.commands.set(command.data.name, command);

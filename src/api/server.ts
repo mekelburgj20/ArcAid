@@ -186,6 +186,19 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    app.post('/api/tournaments/reorder-lineup', requireAuth, async (req, res) => {
+        try {
+            const { TournamentEngine } = await import('../engine/TournamentEngine.js');
+            const engine = TournamentEngine.getInstance();
+            await engine.reorderIScoredLineup();
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (POST /api/tournaments/reorder-lineup):', error);
+            const message = error instanceof Error ? error.message : 'Internal Server Error';
+            res.status(500).json({ error: message });
+        }
+    });
+
     // --- Game Library Endpoints ---
     app.get('/api/game_library', async (req, res) => {
         try {

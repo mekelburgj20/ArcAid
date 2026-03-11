@@ -224,6 +224,8 @@
 - [ ] Trend charts / sparklines on player profile pages
 - [x] Mobile-responsive tweaks for admin UI and public pages
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
+- [ ] Light mode / dark mode toggle in Settings — bright 80s retro theme as alternative to current dark arcade theme
+- [ ] Full design iteration pass (feature branch) — color palette refinement, component polish
 
 ### Ops / Infrastructure
 - [ ] CI/CD pipeline (build + test on push)

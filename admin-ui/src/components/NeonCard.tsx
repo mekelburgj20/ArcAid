@@ -17,7 +17,7 @@ const glowClasses = {
 
 export default function NeonCard({ children, title, glowColor = 'none', className = '' }: NeonCardProps) {
   return (
-    <div className={`bg-surface border rounded-lg p-4 sm:p-5 min-w-0 overflow-hidden ${glowClasses[glowColor]} ${className}`}>
+    <div className={`bg-surface border rounded-lg p-4 sm:p-5 min-w-0 ${glowClasses[glowColor]} ${className}`}>
       {title && (
         <h3 className="font-display text-sm font-bold uppercase tracking-wider text-muted mb-4">{title}</h3>
       )}

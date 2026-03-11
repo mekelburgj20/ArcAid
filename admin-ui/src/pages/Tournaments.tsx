@@ -9,6 +9,7 @@ import DataTable from '../components/DataTable';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
 import ScheduleBuilder from '../components/ScheduleBuilder';
+import { InfoTip } from '../components/Tooltip';
 
 interface Tournament {
   id: string;
@@ -21,6 +22,7 @@ interface Tournament {
   discord_channel_id?: string;
   discord_role_id?: string;
   is_active: number;
+  display_order: number;
 }
 
 interface PlatformRules {
@@ -128,6 +130,19 @@ function PlatformRulesEditor({ platforms, rules, onChange }: {
   );
 }
 
+function NumberStepper({ value, onChange, min = 0 }: { value: number; onChange: (v: number) => void; min?: number }) {
+  return (
+    <div className="flex items-center gap-0">
+      <button type="button" onClick={() => onChange(Math.max(min, value - 1))}
+        className="px-3 py-2 bg-raised border border-border rounded-l text-muted hover:text-neon-cyan hover:border-neon-cyan transition-colors text-sm font-bold">−</button>
+      <input type="number" min={min} value={value} onChange={e => onChange(Math.max(min, parseInt(e.target.value) || 0))}
+        className="w-14 text-center px-1 py-2 bg-raised border-y border-border text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+      <button type="button" onClick={() => onChange(value + 1)}
+        className="px-3 py-2 bg-raised border border-border rounded-r text-muted hover:text-neon-cyan hover:border-neon-cyan transition-colors text-sm font-bold">+</button>
+    </div>
+  );
+}
+
 interface ActiveGame {
   id: string;
   name: string;
@@ -147,12 +162,14 @@ export default function Tournaments() {
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
   const [deactivateTarget, setDeactivateTarget] = useState<ActiveGame | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+  const [reordering, setReordering] = useState(false);
 
   // Create form state
   const [newName, setNewName] = useState('');
   const [newTag, setNewTag] = useState('');
   const [newMode, setNewMode] = useState('pinball');
   const [newChannel, setNewChannel] = useState('');
+  const [newDisplayOrder, setNewDisplayOrder] = useState(0);
   const [newPlatformRules, setNewPlatformRules] = useState<PlatformRules>({ ...defaultPlatformRules });
   const [schedule, setSchedule] = useState({ cron: '0 0 * * *', timezone: 'America/Chicago' });
 
@@ -161,6 +178,7 @@ export default function Tournaments() {
   const [editTag, setEditTag] = useState('');
   const [editMode, setEditMode] = useState('pinball');
   const [editChannel, setEditChannel] = useState('');
+  const [editDisplayOrder, setEditDisplayOrder] = useState(0);
   const [editPlatformRules, setEditPlatformRules] = useState<PlatformRules>({ ...defaultPlatformRules });
   const [editSchedule, setEditSchedule] = useState({ cron: '0 0 * * *', timezone: 'America/Chicago' });
   const [editSaving, setEditSaving] = useState(false);
@@ -188,6 +206,18 @@ export default function Tournaments() {
     try {
       setActiveGames(await api.get<ActiveGame[]>('/games/active'));
     } catch {}
+  };
+
+  const handleReorderLineup = async () => {
+    setReordering(true);
+    try {
+      await api.post('/tournaments/reorder-lineup', {});
+      toast('iScored lineup reordered', 'success');
+    } catch (err: any) {
+      toast(err.message || 'Failed to reorder lineup', 'error');
+    } finally {
+      setReordering(false);
+    }
   };
 
   const handleDeactivate = async (dbOnly: boolean = false) => {
@@ -221,8 +251,9 @@ export default function Tournaments() {
         discord_channel_id: newChannel,
         discord_role_id: '',
         is_active: true,
+        display_order: newDisplayOrder,
       });
-      setNewName(''); setNewTag(''); setNewChannel(''); setNewMode('pinball');
+      setNewName(''); setNewTag(''); setNewChannel(''); setNewMode('pinball'); setNewDisplayOrder(0);
       setNewPlatformRules({ ...defaultPlatformRules });
       setSchedule({ cron: '0 0 * * *', timezone: 'America/Chicago' });
       toast('Tournament created', 'success');
@@ -250,6 +281,7 @@ export default function Tournaments() {
     setEditTag(t.type);
     setEditMode(t.mode || 'pinball');
     setEditChannel(t.discord_channel_id || '');
+    setEditDisplayOrder(t.display_order || 0);
     setEditSchedule(parseCadence(t.cadence));
     setEditPlatformRules(parsePlatformRules(t.platform_rules));
   };
@@ -268,6 +300,7 @@ export default function Tournaments() {
         discord_channel_id: editChannel,
         discord_role_id: editTarget.discord_role_id || '',
         is_active: true,
+        display_order: editDisplayOrder,
       });
       toast('Tournament updated', 'success');
       setEditTarget(null);
@@ -290,40 +323,64 @@ export default function Tournaments() {
 
       {/* Create Form */}
       <NeonCard glowColor="cyan" className="mb-6" title="Create New Tournament">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
           <div>
-            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Name</label>
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+              Name <InfoTip text="Display name for this tournament, shown in Discord and the admin UI." />
+            </label>
             <input type="text" placeholder="e.g. The Daily Grind" value={newName} onChange={e => setNewName(e.target.value)} className={inputClass} />
           </div>
           <div>
-            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Tag <span className="text-faint">(iScored)</span></label>
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+              Tag <InfoTip text="Short code used as the iScored game tag prefix (e.g. DG, WG-VPXS). Must be unique per tournament." />
+            </label>
             <input type="text" placeholder="e.g. DG, WG-VPXS" value={newTag} onChange={e => setNewTag(e.target.value)} className={`${inputClass} font-mono`} />
           </div>
           <div>
-            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Mode</label>
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+              Mode <InfoTip text="Pinball uses table/grind terminology. Video Game uses game/tournament terminology." />
+            </label>
             <select value={newMode} onChange={e => setNewMode(e.target.value)} className={selectClass}>
               <option value="pinball">Pinball</option>
               <option value="videogame">Video Game</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Channel ID <span className="text-faint">(optional)</span></label>
-            <input type="text" placeholder="Discord channel ID" value={newChannel} onChange={e => setNewChannel(e.target.value)} className={inputClass} />
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+              Channel ID <InfoTip text="Discord channel ID for announcements. Right-click a channel in Discord → Copy Channel ID." />
+            </label>
+            <input type="text" placeholder="Optional" value={newChannel} onChange={e => setNewChannel(e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+              Lineup Position <InfoTip text="Controls ordering on iScored. 0 = top of lineup. All games for a tournament (active + locked) are grouped together. Lower numbers appear higher." />
+            </label>
+            <NumberStepper value={newDisplayOrder} onChange={setNewDisplayOrder} min={0} />
           </div>
         </div>
         <div className="mb-4">
-          <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">Platform Rules</label>
+          <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
+            Platform Rules <InfoTip text="Control which platforms are required or excluded when picking games for this tournament." />
+          </label>
           <PlatformRulesEditor platforms={platforms} rules={newPlatformRules} onChange={setNewPlatformRules} />
         </div>
         <div className="mb-4">
-          <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">Schedule</label>
+          <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
+            Schedule <InfoTip text="When maintenance runs: locks the current game, scrapes scores, picks the next game, and announces results." />
+          </label>
           <ScheduleBuilder value={schedule} onChange={setSchedule} />
         </div>
         <NeonButton onClick={handleCreate} disabled={!newName.trim() || !newTag.trim()}>Create Tournament</NeonButton>
       </NeonCard>
 
       {/* Tournament List */}
-      <NeonCard title="Active Tournaments">
+      <NeonCard>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-display text-sm font-bold uppercase tracking-wider text-muted">Active Tournaments</h3>
+          <NeonButton variant="ghost" onClick={handleReorderLineup} disabled={reordering} className="text-xs px-3 py-1">
+            {reordering ? 'Reordering...' : 'Sync iScored Lineup'}
+          </NeonButton>
+        </div>
         <DataTable<Tournament>
           columns={[
             { key: 'name', header: 'Name', render: t => <span className="font-medium">{t.name}</span> },
@@ -332,6 +389,9 @@ export default function Tournaments() {
               <span className={`text-xs px-2 py-0.5 rounded ${t.mode === 'pinball' ? 'bg-neon-amber/15 text-neon-amber' : 'bg-neon-cyan/15 text-neon-cyan'}`}>
                 {t.mode === 'pinball' ? 'Pinball' : 'Video Game'}
               </span>
+            )},
+            { key: 'display_order', header: 'Pos', render: t => (
+              <span className="text-sm text-muted font-mono">{t.display_order ?? 0}</span>
             )},
             { key: 'cadence', header: 'Schedule', render: t => (
               <span className="text-sm text-neon-amber">{formatCadenceDisplay(t.cadence)}</span>
@@ -411,33 +471,51 @@ export default function Tournaments() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="font-display text-lg font-bold mb-4">Edit Tournament</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
               <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Name</label>
+                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                  Name <InfoTip text="Display name for this tournament, shown in Discord and the admin UI." />
+                </label>
                 <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className={inputClass} />
               </div>
               <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Tag</label>
+                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                  Tag <InfoTip text="Short code used as the iScored game tag prefix (e.g. DG, WG-VPXS). Must be unique per tournament." />
+                </label>
                 <input type="text" value={editTag} onChange={e => setEditTag(e.target.value)} className={`${inputClass} font-mono`} />
               </div>
               <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Mode</label>
+                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                  Mode <InfoTip text="Pinball uses table/grind terminology. Video Game uses game/tournament terminology." />
+                </label>
                 <select value={editMode} onChange={e => setEditMode(e.target.value)} className={selectClass}>
                   <option value="pinball">Pinball</option>
                   <option value="videogame">Video Game</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Channel ID</label>
+                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                  Channel ID <InfoTip text="Discord channel ID for announcements. Right-click a channel in Discord → Copy Channel ID." />
+                </label>
                 <input type="text" placeholder="Optional" value={editChannel} onChange={e => setEditChannel(e.target.value)} className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                  Lineup Position <InfoTip text="Controls ordering on iScored. 0 = top of lineup. All games for a tournament (active + locked) are grouped together. Lower numbers appear higher." />
+                </label>
+                <NumberStepper value={editDisplayOrder} onChange={setEditDisplayOrder} min={0} />
               </div>
             </div>
             <div className="mb-4">
-              <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">Platform Rules</label>
+              <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
+                Platform Rules <InfoTip text="Control which platforms are required or excluded when picking games for this tournament." />
+              </label>
               <PlatformRulesEditor platforms={platforms} rules={editPlatformRules} onChange={setEditPlatformRules} />
             </div>
             <div className="mb-6">
-              <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">Schedule</label>
+              <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
+                Schedule <InfoTip text="When maintenance runs: locks the current game, scrapes scores, picks the next game, and announces results." />
+              </label>
               <ScheduleBuilder value={editSchedule} onChange={setEditSchedule} />
             </div>
             <div className="flex gap-3 justify-end">

@@ -2,11 +2,12 @@ interface TournamentBadgeProps {
   type: string;
 }
 
+// Use colors distinct from status badges (green=ACTIVE, amber=QUEUED, cyan=COMPLETED)
 const typeColors: Record<string, string> = {
-  DG: 'bg-neon-cyan/15 text-neon-cyan border-neon-cyan/30',
-  'WG-VPXS': 'bg-neon-green/15 text-neon-green border-neon-green/30',
+  DG: 'bg-neon-magenta/15 text-neon-magenta border-neon-magenta/30',
+  'WG-VPXS': 'bg-neon-blue/15 text-neon-blue border-neon-blue/30',
   'WG-VR': 'bg-neon-purple/15 text-neon-purple border-neon-purple/30',
-  MG: 'bg-neon-amber/15 text-neon-amber border-neon-amber/30',
+  MG: 'bg-neon-coral/15 text-neon-coral border-neon-coral/30',
 };
 
 export default function TournamentBadge({ type }: TournamentBadgeProps) {
