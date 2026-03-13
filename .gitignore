@@ -7,13 +7,14 @@ dist/
 .env.*
 
 # Database and Logs
-data/*.db
-data/*.log
+data/*.db*
+data/*.log*
 data/*.png
-data/playwright-errors/
+data/playwright-errors*/
+assets/*.png
+*.csv
 
 # Allow logo assets
-!assets/*.png
 !admin-ui/public/*.png
 
 # OS Files
@@ -26,3 +27,6 @@ admin-ui/dist/
 admin-ui/.eslintcache
 admin-ui/dist-ssr
 admin-ui/*.local
+
+# Claude Files
+.claude/
