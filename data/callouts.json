@@ -251,7 +251,7 @@
     ]
   },
   {
-    "triggers": ["fuck you table flipper", "fuck you bot"],
+    "triggers": ["fuck you table flipper", "fuck you bot", "you suck", "i hate you", "bad bot"],
     "responses": [
       "Is that any way to talk to your robot butler?", 
       "Tilt! Someone's getting salty...", 

@@ -52,7 +52,7 @@ export class TimeoutManager {
                 await this.handleTieredTimeout(game);
             }
         } catch (error) {
-            logError('❌ Error checking picker timeouts:', error);
+            logError('Error checking picker timeouts:', error);
         }
     }
 
@@ -83,7 +83,7 @@ export class TimeoutManager {
 
         if (game.pickerType === 'WINNER') {
             if (elapsedMins >= winnerWindowMin) {
-                logInfo(`⏰ Winner for game slot ${game.id} timed out after ${winnerWindowMin}min. Pivoting to runner-up...`);
+                logInfo(`Winner for game slot ${game.id} timed out after ${winnerWindowMin}min. Pivoting to runner-up...`);
                 await this.pivotToRunnerUp(game);
             } else {
                 // Send reminders at 15-minute intervals
@@ -95,7 +95,7 @@ export class TimeoutManager {
             }
         } else if (game.pickerType === 'RUNNER_UP') {
             if (elapsedMins >= runnerUpWindowMin) {
-                logInfo(`⏰ Runner-up for game slot ${game.id} timed out after ${runnerUpWindowMin}min. Auto-selecting...`);
+                logInfo(`Runner-up for game slot ${game.id} timed out after ${runnerUpWindowMin}min. Auto-selecting...`);
                 await this.fallbackToAutoSelection(game);
             } else {
                 // Send reminders at 10-minute intervals
@@ -122,12 +122,12 @@ export class TimeoutManager {
             const info = await this.getTournamentInfo(game.tournamentId);
             const term = getTerminology(info.mode);
             const channelId = await this.getChannelId(game.tournamentId);
-            logInfo(`🔔 Reminder for <@${game.pickerDiscordId}>: ${minsRemaining} minutes left.`);
+            logInfo(`Reminder for <@${game.pickerDiscordId}>: ${minsRemaining} minutes left.`);
 
             if (channelId) {
                 const color = getTournamentColor(info.type);
                 const embed = new EmbedBuilder()
-                    .setTitle(`🔔 Pick Reminder`)
+                    .setTitle('Pick Reminder')
                     .setDescription(`<@${game.pickerDiscordId}>, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`)
                     .setColor(color)
                     .setTimestamp();
@@ -139,7 +139,7 @@ export class TimeoutManager {
                 game.id
             );
         } catch (error) {
-            logError(`❌ Failed to send reminder for game ${game.id}:`, error);
+            logError(`Failed to send reminder for game ${game.id}:`, error);
         }
     }
 
@@ -154,7 +154,7 @@ export class TimeoutManager {
 
         try {
             if (!game.wonGameId) {
-                logWarn(`⚠️ No won_game_id on slot ${game.id}. Cannot determine runner-up. Falling back to auto-select.`);
+                logWarn(`No won_game_id on slot ${game.id}. Cannot determine runner-up. Falling back to auto-select.`);
                 await this.fallbackToAutoSelection(game);
                 return;
             }
@@ -173,16 +173,16 @@ export class TimeoutManager {
             if (!runnerUpRow?.discord_user_id) {
                 // No mapped runner-up found — try scraping if we have public URL
                 if (runnerUpRow?.iscored_username) {
-                    logWarn(`⚠️ Runner-up '${runnerUpRow.iscored_username}' has no Discord mapping. Falling back to auto-select.`);
+                    logWarn(`Runner-up '${runnerUpRow.iscored_username}' has no Discord mapping. Falling back to auto-select.`);
                 } else {
-                    logWarn(`⚠️ No runner-up found in submissions for game ${game.wonGameId}. Falling back to auto-select.`);
+                    logWarn(`No runner-up found in submissions for game ${game.wonGameId}. Falling back to auto-select.`);
                 }
 
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
                     const color = getTournamentColor(info.type);
                     const embed = new EmbedBuilder()
-                        .setTitle(`⏰ Winner Timed Out`)
+                        .setTitle('Winner Timed Out')
                         .setDescription(`No eligible runner-up was found. Auto-selecting a ${term.game}...`)
                         .setColor(color)
                         .setTimestamp();
@@ -219,7 +219,7 @@ export class TimeoutManager {
             }
 
         } catch (error) {
-            logError(`❌ Failed to pivot to runner-up for slot ${game.id}:`, error);
+            logError(`Failed to pivot to runner-up for slot ${game.id}:`, error);
             await this.fallbackToAutoSelection(game);
         }
     }
@@ -233,7 +233,7 @@ export class TimeoutManager {
 
         try {
             if (!game.tournamentId) {
-                logError(`❌ Cannot auto-select: no tournament_id on game slot ${game.id}.`);
+                logError(`Cannot auto-select: no tournament_id on game slot ${game.id}.`);
                 return;
             }
 
@@ -241,7 +241,7 @@ export class TimeoutManager {
 
             const tournament = await db.get('SELECT * FROM tournaments WHERE id = ?', game.tournamentId);
             if (!tournament) {
-                logError(`❌ Cannot auto-select: tournament ${game.tournamentId} not found.`);
+                logError(`Cannot auto-select: tournament ${game.tournamentId} not found.`);
                 return;
             }
 
@@ -292,7 +292,7 @@ export class TimeoutManager {
             }
 
             if (eligible.length === 0) {
-                logWarn(`⚠️ No eligible ${term.games} found for auto-selection in ${tournament.name}.`);
+                logWarn(`No eligible ${term.games} found for auto-selection in ${tournament.name}.`);
                 await db.run(
                     'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL WHERE id = ?',
                     game.id
@@ -301,7 +301,7 @@ export class TimeoutManager {
                 if (channelId) {
                     const color = getTournamentColor(tournament.type);
                     const embed = new EmbedBuilder()
-                        .setTitle(`⚠️ No Eligible ${term.games}`)
+                        .setTitle(`No Eligible ${term.games}`)
                         .setDescription(`All pickers timed out and no eligible ${term.games} were found for **${tournament.name}**. A moderator must use \`/pick-game\` or \`/pause-pick\`.`)
                         .setColor(color)
                         .setFooter({ text: tournament.name })
@@ -313,7 +313,7 @@ export class TimeoutManager {
 
             // Pick one at random
             const pick = eligible[Math.floor(Math.random() * eligible.length)]!;
-            logInfo(`🎲 Auto-selected: ${pick.name} for ${tournament.name}`);
+            logInfo(`Auto-selected: ${pick.name} for ${tournament.name}`);
 
             // Create on iScored if credentials are available
             let iscoredId: string | null = null;
@@ -348,7 +348,7 @@ export class TimeoutManager {
             if (channelId) {
                 const color = getTournamentColor(tournament.type);
                 const embed = new EmbedBuilder()
-                    .setTitle(`🎲 Auto-Selected: ${pick.name}`)
+                    .setTitle(`Auto-Selected: ${pick.name}`)
                     .setDescription(`All pickers timed out! **${pick.name}** has been auto-selected as the next ${term.game} for **${tournament.name}**.`)
                     .setColor(color)
                     .setFooter({ text: tournament.name })
@@ -357,7 +357,7 @@ export class TimeoutManager {
             }
 
         } catch (error) {
-            logError(`❌ Auto-selection failed for slot ${game.id}:`, error);
+            logError(`Auto-selection failed for slot ${game.id}:`, error);
             await db.run(
                 'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL WHERE id = ?',
                 game.id

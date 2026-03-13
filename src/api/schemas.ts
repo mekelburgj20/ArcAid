@@ -32,6 +32,11 @@ export const CreateTournamentSchema = z.object({
     discord_role_id: discordIdSchema.optional().or(z.literal('')).default(''),
     is_active: z.boolean().default(true),
     display_order: z.number().int().min(0).default(0),
+    cleanup_rule: z.discriminatedUnion('mode', [
+        z.object({ mode: z.literal('immediate') }),
+        z.object({ mode: z.literal('retain'), count: z.number().int().min(0).max(50) }),
+        z.object({ mode: z.literal('scheduled'), cron: cronSchema, timezone: z.string().optional() }),
+    ]).default({ mode: 'retain', count: 0 }),
 });
 
 export const UpdateTournamentSchema = CreateTournamentSchema.omit({ id: true });
@@ -74,4 +79,9 @@ export const BackupRestoreParamsSchema = z.object({
         (val) => !val.includes('..') && !val.includes('/') && !val.includes('\\'),
         'Invalid backup name'
     ),
+});
+
+export const MergePlayerSchema = z.object({
+    fromUsername: z.string().min(1, 'Source username required').max(200),
+    toUsername: z.string().min(1, 'Target username required').max(200),
 });

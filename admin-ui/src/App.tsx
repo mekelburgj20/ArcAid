@@ -106,7 +106,7 @@ function App() {
     }
 
     // If slug doesn't match, show 404
-    if (possibleSlug !== portalSlug) {
+    if (possibleSlug.toLowerCase() !== portalSlug?.toLowerCase()) {
       return (
         <div className="min-h-screen bg-deep flex items-center justify-center text-muted">
           <div className="text-center">

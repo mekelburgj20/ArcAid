@@ -29,14 +29,14 @@ export function getTournamentColor(type?: string | null): number {
 export async function sendChannelMessage(channelId: string, content: string): Promise<void> {
     const token = process.env.DISCORD_BOT_TOKEN;
     if (!token) {
-        logError('❌ Cannot send Discord message: DISCORD_BOT_TOKEN is not set.');
+        logError('Cannot send Discord message: DISCORD_BOT_TOKEN is not set.');
         return;
     }
     try {
         const rest = new REST({ version: '10' }).setToken(token);
         await rest.post(Routes.channelMessages(channelId), { body: { content } });
     } catch (err) {
-        logError(`❌ Failed to send message to channel ${channelId}:`, err);
+        logError(`Failed to send message to channel ${channelId}:`, err);
     }
 }
 
@@ -46,7 +46,7 @@ export async function sendChannelMessage(channelId: string, content: string): Pr
 export async function sendChannelEmbed(channelId: string, embed: EmbedBuilder): Promise<void> {
     const token = process.env.DISCORD_BOT_TOKEN;
     if (!token) {
-        logError('❌ Cannot send Discord embed: DISCORD_BOT_TOKEN is not set.');
+        logError('Cannot send Discord embed: DISCORD_BOT_TOKEN is not set.');
         return;
     }
     try {
@@ -55,6 +55,6 @@ export async function sendChannelEmbed(channelId: string, embed: EmbedBuilder): 
             body: { embeds: [embed.toJSON()] },
         });
     } catch (err) {
-        logError(`❌ Failed to send embed to channel ${channelId}:`, err);
+        logError(`Failed to send embed to channel ${channelId}:`, err);
     }
 }

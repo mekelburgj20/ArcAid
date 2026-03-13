@@ -22,7 +22,10 @@ async function bootstrap() {
             process.env[row.key] = row.value;
         }
 
-        // 1.6 Validate environment configuration
+        // 1.6 Clear stale leaderboard cache
+        await db.run('DELETE FROM leaderboard_cache');
+
+        // 1.7 Validate environment configuration
         const { canStartBot } = validateEnvironment();
 
         // 2. Start API Server for Admin UI

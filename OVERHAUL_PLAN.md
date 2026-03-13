@@ -431,7 +431,7 @@ Current bot messages are inconsistent in format and tone. Adopt a consistent emb
 - Clean up temp files in a `finally` block (currently can leak on failure)
 
 **`/pick-game`:**
-- Show eligibility when listing games (e.g., "🔒 Medieval Madness — played 45 days ago")
+- Show eligibility when listing games (e.g., "Medieval Madness — played 45 days ago")
 - Confirm iScored creation succeeded before updating DB
 
 **`/list-scores`:**
@@ -644,7 +644,7 @@ Document all env vars in a proper `.env.example` with comments explaining each o
 Add a startup check that validates required environment variables before attempting to connect to Discord or iScored. Fail fast with a clear error message rather than a cryptic runtime crash:
 
 ```
-❌ ArcAid cannot start: Missing required configuration:
+ArcAid cannot start: Missing required configuration:
    - DISCORD_BOT_TOKEN (set in .env or Admin UI settings)
    - ISCORED_USERNAME  (set in .env or Admin UI settings)
 ```

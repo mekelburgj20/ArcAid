@@ -641,6 +641,92 @@ export class IScoredClient {
     }
 
     /**
+     * Deletes a game from iScored via the Games tab.
+     * Selects the game, clicks Delete, confirms the modal.
+     */
+    public async deleteGame(gameId: string, gameName?: string): Promise<void> {
+        await this.withScreenshotOnFailure('deleteGame', async () => {
+            if (!this.page) throw new Error('Client not connected.');
+
+            await this.navigateToGamesTab();
+
+            const selectGame = this.page.locator('#selectGame');
+
+            // Verify the game exists in the dropdown
+            const optionCount = await selectGame.locator(`option[value="${gameId}"]`).count();
+            if (optionCount === 0) {
+                logWarn(`Game '${gameName || gameId}' not found in dropdown. Skipping delete.`);
+                return;
+            }
+
+            await selectGame.selectOption(gameId);
+            await selectGame.dispatchEvent('change');
+
+            // Call editGame() to load the game editor panel
+            try {
+                await this.page.evaluate(() => {
+                    if (typeof (window as any).editGame === 'function') {
+                        (window as any).editGame();
+                    }
+                });
+            } catch {}
+
+            // Force #gameCustomizations visible (iScored transition lag)
+            const customizations = this.page.locator('#gameCustomizations');
+            await customizations.waitFor({ state: 'attached', timeout: 5000 });
+            await customizations.evaluate((el) => {
+                (el as HTMLElement).style.display = 'block';
+                (el as HTMLElement).style.visibility = 'visible';
+                (el as HTMLElement).style.opacity = '1';
+            });
+
+            // Wait for busy modal to clear
+            await this.waitForBusyModal();
+
+            // Click Delete Game button
+            const deleteButton = this.page.locator('#deleteSelectedGameButton');
+            await deleteButton.waitFor({ state: 'attached', timeout: 5000 });
+            await deleteButton.evaluate(el => (el as HTMLElement).click());
+
+            // Wait for confirmation modal
+            const modal = this.page.locator('#deleteGameModal');
+            await modal.waitFor({ state: 'visible', timeout: 5000 });
+
+            await this.waitForBusyModal();
+
+            // Click the confirm button
+            try {
+                const confirmButton = modal.locator('.modal-footer button.btn-danger').first();
+                await confirmButton.evaluate(el => (el as HTMLElement).click());
+            } catch {
+                const confirmByText = modal.getByRole('button', { name: "Yes I'm definitely sure.", exact: false });
+                await confirmByText.evaluate(el => (el as HTMLElement).click());
+            }
+
+            // Wait for modal to close
+            await modal.waitFor({ state: 'hidden', timeout: 10000 });
+            await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+
+            logInfo(`Game '${gameName || gameId}' deleted from iScored.`);
+        }, 2);
+    }
+
+    /**
+     * Waits for the iScored busy/loading modal to disappear.
+     */
+    private async waitForBusyModal(): Promise<void> {
+        if (!this.page) return;
+        try {
+            const busyModal = this.page.locator('#busyModal');
+            if (await busyModal.isVisible()) {
+                await busyModal.waitFor({ state: 'hidden', timeout: 15000 });
+            }
+        } catch {
+            // Proceed if modal doesn't hide in time
+        }
+    }
+
+    /**
      * Scrapes current scores and photo URLs from the public leaderboard page.
      */
     public async scrapePublicScores(publicUrl: string, gameId: string): Promise<any[]> {

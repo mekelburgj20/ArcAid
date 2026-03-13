@@ -15,6 +15,13 @@ const CATEGORIES: Record<string, string[]> = {
   'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
 };
 
+const TOGGLE_SETTINGS: Record<string, { label: string; description: string }> = {
+  'ENABLE_CALLOUTS': {
+    label: 'Callouts (Easter Egg)',
+    description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',
+  },
+};
+
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
 
 function PlatformsEditor({ platforms, onChange }: { platforms: string[]; onChange: (p: string[]) => void }) {
@@ -76,6 +83,10 @@ export default function Settings() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [reloadingScheduler, setReloadingScheduler] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [mergeFrom, setMergeFrom] = useState('');
+  const [mergeTo, setMergeTo] = useState('');
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
@@ -150,6 +161,31 @@ export default function Settings() {
         />
       </NeonCard>
 
+      <NeonCard title="Features" className="mb-4">
+        <div className="space-y-4">
+          {Object.entries(TOGGLE_SETTINGS).map(([key, { label, description }]) => (
+            <div key={key} className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-primary">{label}</p>
+                <p className="text-xs text-muted">{description}</p>
+              </div>
+              <button
+                onClick={() => handleChange(key, settings[key] === 'true' ? 'false' : 'true')}
+                className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                  settings[key] === 'true' ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${
+                    settings[key] === 'true' ? 'translate-x-6' : ''
+                  }`}
+                />
+              </button>
+            </div>
+          ))}
+        </div>
+      </NeonCard>
+
       {categorized.map(({ category, entries }) => entries.length > 0 && (
         <NeonCard key={category} title={category} className="mb-4">
           <div className="space-y-3">
@@ -193,6 +229,86 @@ export default function Settings() {
           </div>
         </NeonCard>
       )}
+
+      <NeonCard title="System Actions" className="mb-4">
+        <div className="flex items-center gap-4">
+          <div className="flex-1">
+            <p className="text-sm text-muted">
+              Reload tournament schedules after changing cron settings, timezones, or activating/deactivating tournaments.
+              This happens automatically when you save tournament changes, but you can trigger it manually here.
+            </p>
+          </div>
+          <NeonButton
+            variant="secondary"
+            onClick={async () => {
+              setReloadingScheduler(true);
+              try {
+                await api.post('/scheduler/reload', {});
+                toast('Scheduler reloaded', 'success');
+              } catch {
+                toast('Failed to reload scheduler', 'error');
+              } finally {
+                setReloadingScheduler(false);
+              }
+            }}
+            disabled={reloadingScheduler}
+          >
+            {reloadingScheduler ? 'Reloading...' : 'Reload Scheduler'}
+          </NeonButton>
+        </div>
+      </NeonCard>
+
+      <NeonCard title="Merge / Rename Player" className="mb-4">
+        <p className="text-sm text-muted mb-3">
+          Rename a player or merge two usernames into one. Updates all submissions, scores, and user mappings.
+          If the name was also wrong on iScored, fix it there first to prevent re-importing the old name on next sync.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="text-xs text-faint block mb-1">From (old/wrong name)</label>
+            <input
+              type="text"
+              placeholder="mekelburj"
+              value={mergeFrom}
+              onChange={e => setMergeFrom(e.target.value)}
+              className={`${inputClass} w-48`}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-faint block mb-1">To (correct name)</label>
+            <input
+              type="text"
+              placeholder="mekelburgj"
+              value={mergeTo}
+              onChange={e => setMergeTo(e.target.value)}
+              className={`${inputClass} w-48`}
+            />
+          </div>
+          <NeonButton
+            variant="secondary"
+            disabled={merging || !mergeFrom.trim() || !mergeTo.trim()}
+            onClick={async () => {
+              if (!confirm(`Rename all records from "${mergeFrom}" to "${mergeTo}"? This cannot be undone.`)) return;
+              setMerging(true);
+              try {
+                const result = await api.post<{ submissionsUpdated: number; scoresUpdated: number }>('/admin/merge-player', {
+                  fromUsername: mergeFrom.trim(),
+                  toUsername: mergeTo.trim(),
+                });
+                toast(`Merged: ${result.submissionsUpdated} submissions, ${result.scoresUpdated} scores updated`, 'success');
+                setMergeFrom('');
+                setMergeTo('');
+              } catch {
+                toast('Failed to merge player', 'error');
+              } finally {
+                setMerging(false);
+              }
+            }}
+          >
+            {merging ? 'Merging...' : 'Merge'}
+          </NeonButton>
+        </div>
+      </NeonCard>
 
       <NeonCard title="Add Custom Setting" className="mb-4">
         <div className="flex gap-3">

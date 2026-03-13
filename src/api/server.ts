@@ -10,7 +10,7 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { hashPassword, verifyPassword, signToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
 import { requireAuth } from './middleware.js';
-import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema } from './schemas.js';
+import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema, MergePlayerSchema } from './schemas.js';
 import { SettingsService } from '../services/SettingsService.js';
 import { TournamentService } from '../services/TournamentService.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
@@ -157,6 +157,8 @@ export function startApiServer(port: number = 3001) {
             const validationResult = validate(CreateTournamentSchema, req.body);
             if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
             await TournamentService.create(validationResult.data);
+            const { Scheduler } = await import('../engine/Scheduler.js');
+            await Scheduler.getInstance().reload();
             res.json({ success: true });
         } catch (error) {
             logError('API Error (POST /api/tournaments):', error);
@@ -169,6 +171,8 @@ export function startApiServer(port: number = 3001) {
             const validationResult = validate(UpdateTournamentSchema, req.body);
             if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
             await TournamentService.update(req.params.id as string, validationResult.data);
+            const { Scheduler } = await import('../engine/Scheduler.js');
+            await Scheduler.getInstance().reload();
             res.json({ success: true });
         } catch (error) {
             logError('API Error (PUT /api/tournaments):', error);
@@ -179,6 +183,8 @@ export function startApiServer(port: number = 3001) {
     app.delete('/api/tournaments/:id', requireAuth, async (req, res) => {
         try {
             await TournamentService.delete(req.params.id as string);
+            const { Scheduler } = await import('../engine/Scheduler.js');
+            await Scheduler.getInstance().reload();
             res.json({ success: true });
         } catch (error) {
             logError('API Error (DELETE /api/tournaments):', error);
@@ -417,6 +423,84 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    // --- Scheduler Reload Endpoint ---
+    app.post('/api/scheduler/reload', requireAuth, async (req, res) => {
+        try {
+            const { Scheduler } = await import('../engine/Scheduler.js');
+            await Scheduler.getInstance().reload();
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (POST /api/scheduler/reload):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Merge/Rename Player Endpoint ---
+    app.post('/api/admin/merge-player', requireAuth, async (req, res) => {
+        try {
+            const validationResult = validate(MergePlayerSchema, req.body);
+            if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+            const { fromUsername, toUsername } = validationResult.data;
+            if (fromUsername.toLowerCase() === toUsername.toLowerCase()) {
+                return res.status(400).json({ error: 'Source and target usernames are the same' });
+            }
+
+            const db = await getDatabase();
+
+            // Update sync-format submission IDs (gameId-oldname → gameId-newname)
+            // so that future syncs don't treat renamed records as stale
+            const syncRows = await db.all(
+                `SELECT id, game_id FROM submissions WHERE LOWER(iscored_username) = LOWER(?) AND id LIKE '%' || '-' || ?`,
+                fromUsername, fromUsername.toLowerCase()
+            );
+            for (const row of syncRows) {
+                const newId = `${row.game_id}-${toUsername.toLowerCase()}`;
+                // Check for conflict — if target ID already exists, delete the old one
+                const existing = await db.get('SELECT id FROM submissions WHERE id = ?', newId);
+                if (existing) {
+                    await db.run('DELETE FROM submissions WHERE id = ?', row.id);
+                } else {
+                    await db.run('UPDATE submissions SET id = ? WHERE id = ?', newId, row.id);
+                }
+            }
+
+            // Update username in remaining submissions
+            const subResult = await db.run(
+                'UPDATE submissions SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
+                toUsername, fromUsername
+            );
+
+            // Update scores table (legacy data)
+            const scoreResult = await db.run(
+                'UPDATE scores SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
+                toUsername, fromUsername
+            );
+
+            // Update user_mappings if the old name was mapped
+            await db.run(
+                'UPDATE user_mappings SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
+                toUsername, fromUsername
+            );
+
+            // Invalidate all leaderboard caches
+            const { LeaderboardService } = await import('../services/LeaderboardService.js');
+            await LeaderboardService.invalidateAll();
+
+            const totalUpdated = (subResult.changes || 0) + (scoreResult.changes || 0);
+            logInfo(`Merged player '${fromUsername}' -> '${toUsername}': ${totalUpdated} records updated`);
+
+            res.json({
+                success: true,
+                submissionsUpdated: subResult.changes || 0,
+                scoresUpdated: scoreResult.changes || 0,
+            });
+        } catch (error) {
+            logError('API Error (POST /api/admin/merge-player):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
     // --- Game Activation / Deactivation Endpoints ---
     app.post('/api/tournaments/:id/activate-game', requireAuth, async (req, res) => {
         try {
@@ -598,8 +682,26 @@ export function startApiServer(port: number = 3001) {
     app.get('/api/leaderboard/:gameId', async (req, res) => {
         try {
             const { LeaderboardService } = await import('../services/LeaderboardService.js');
-            const rankings = await LeaderboardService.getForGame(req.params.gameId as string);
-            res.json(rankings);
+            const gameId = req.params.gameId as string;
+            const rankings = await LeaderboardService.getForGame(gameId);
+
+            // Include game metadata for full leaderboard view
+            const db = await getDatabase();
+            const game = await db.get(`
+                SELECT g.name as game_name, t.name as tournament_name, gl.image_url
+                FROM games g
+                LEFT JOIN tournaments t ON g.tournament_id = t.id
+                LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
+                WHERE g.id = ?
+            `, gameId);
+
+            res.json({
+                gameId,
+                gameName: game?.game_name || 'Unknown',
+                tournamentName: game?.tournament_name || 'Untracked',
+                imageUrl: game?.image_url || null,
+                rankings,
+            });
         } catch (error) {
             logError('API Error (/api/leaderboard/:gameId):', error);
             res.status(500).json({ error: 'Internal Server Error' });
@@ -618,10 +720,18 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
-    app.get('/api/stats/player/:discordUserId', async (req, res) => {
+    app.get('/api/stats/player/:identifier', async (req, res) => {
         try {
             const { StatsService } = await import('../services/StatsService.js');
-            const stats = await StatsService.getPlayerStats(req.params.discordUserId as string);
+            const identifier = decodeURIComponent(req.params.identifier as string);
+            // If it looks like a Discord ID (17-20 digits), look up by discord_user_id; otherwise by username
+            const isDiscordId = /^\d{17,20}$/.test(identifier);
+            const stats = isDiscordId
+                ? await StatsService.getPlayerStats(identifier)
+                : await StatsService.getPlayerStatsByUsername(identifier);
+            if (!stats) {
+                return res.status(404).json({ error: 'Player not found' });
+            }
             res.json(stats);
         } catch (error) {
             logError('API Error (/api/stats/player):', error);

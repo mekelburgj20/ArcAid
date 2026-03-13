@@ -23,7 +23,7 @@ export class BackupManager {
      * Creates a full system backup, including DB and iScored state.
      */
     public async createBackup(client: IScoredClient): Promise<string | null> {
-        logInfo('📦 Starting System Backup...');
+        logInfo('Starting System Backup...');
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const backupPath = path.join(BACKUP_DIR, timestamp);
 
@@ -73,11 +73,11 @@ export class BackupManager {
                 JSON.stringify(metadata, null, 2)
             );
 
-            logInfo(`✅ Backup completed successfully: ${backupPath}`);
+            logInfo(`Backup completed successfully: ${backupPath}`);
             return backupPath;
 
         } catch (error) {
-            logError('❌ Backup failed:', error);
+            logError('Backup failed:', error);
             return null;
         }
     }

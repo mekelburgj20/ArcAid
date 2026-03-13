@@ -14,6 +14,11 @@ export interface PlatformRules {
     restrictedText?: string;  // Informational text shown in announcements
 }
 
+export type CleanupRule =
+    | { mode: 'immediate' }
+    | { mode: 'retain'; count: number }
+    | { mode: 'scheduled'; cron: string; timezone?: string };
+
 export interface Tournament {
     id: string;
     name: string;

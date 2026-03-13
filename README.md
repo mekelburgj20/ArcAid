@@ -10,16 +10,22 @@
 - **Automated rotation** — Cron-scheduled maintenance: lock game → scrape winner → announce → activate next → assign picker
 - **iScored integration** — Playwright-powered automation with retry logic, persistent sessions, screenshot-on-failure
 - **Pick system** — Winner picks next game with tiered timeouts (winner → runner-up → auto-select)
-- **Internal leaderboard** — Score storage, ranking, and caching (no iScored scraping for results)
+- **Internal leaderboard** — Score storage, ranking, and caching with case-insensitive player identity
 - **Real-time updates** — WebSocket events for scores, rotations, and status changes
 - **Admin UI** — Retro arcade-themed dashboard with tournament management, game library, logs, settings, history, backups (mobile-responsive)
-- **Public player portal** — Slug-based routing (`/:slug/*`), shared nav bar with game room branding, mobile-friendly
+- **Public player portal** — Slug-based routing (`/:slug/*`), card-grid scoreboard, shared nav bar with game room branding, mobile-friendly
 - **Game ratings** — 5-star per-user rating system with community averages
 - **VPS auto-import** — Bulk import games from Virtual Pinball Spreadsheet API
 - **Admin game control** — Activate/deactivate games on-demand via admin UI or Discord
 - **Discord commands** — Full slash command suite for players and admins
 - **Per-tournament mode** — Pinball (Tables & Grinds) or Video Game (Games & Tournaments) terminology per tournament
 - **Platform rules** — Required/excluded platform filtering per tournament with master platform list
+- **Per-tournament cleanup** — Configurable cleanup of completed games from iScored (immediate, retain count, or scheduled cron)
+- **Score sync** — Bidirectional score reconciliation between iScored and local DB with stale-record cleanup
+- **Player merge/rename** — Admin tool to fix typos or merge alternate usernames across all records
+- **Scheduler hot-reload** — Schedule changes take effect without restart
+- **Callouts easter egg** — Configurable trigger-word responses (toggleable in Settings)
+- **Auto user mapping** — First-time submitters auto-mapped by Discord display name
 - **Docker deployment** — Production-ready with health checks, non-root user, Playwright
 
 ## Quick Start
@@ -64,13 +70,13 @@ npm run dev            # Vite dev server with HMR
 |---------|-------------|
 | `/list-active` | Show currently active tournament and manual games |
 | `/list-scores` | Leaderboard for active games (supports `@user` filter and pagination) |
-| `/submit-score` | Post your score and photo to iScored |
+| `/submit-score` | Post your score and photo to iScored (auto-maps username on first use) |
 | `/view-stats` | Historical stats for any game (autocomplete, record holder mention) |
 | `/my-stats` | Your personal stats card (wins, win%, average, best, recent) |
 | `/list-winners` | Hall of fame for recent tournament winners |
 | `/view-selection` | Check which game is queued for the next rotation |
 | `/pick-game` | Nominated pickers select the next game (shows eligibility) |
-| `/map-user` | Link your Discord ID to your iScored username |
+| `/map-user` | Link your Discord ID to your iScored username (overwrites previous mapping) |
 
 ### Admin Commands
 | Command | Description |
@@ -78,30 +84,31 @@ npm run dev            # Vite dev server with HMR
 | `/force-maintenance` | Manually trigger a tournament rotation |
 | `/activate-game` | Immediately activate a game for a tournament |
 | `/deactivate-game` | Deactivate an active game (optionally lock on iScored) |
-| `/sync-state` | Reconcile local DB with live iScored board |
-| `/run-cleanup` | Hide old finished tournament games from iScored |
+| `/sync-state` | Reconcile local DB with live iScored board (syncs scores, removes stale records) |
+| `/run-cleanup` | Delete completed and orphan games from iScored |
 | `/create-backup` | Trigger a database backup |
 | `/pause-pick` | Inject a specific game into the queue |
 | `/nominate-picker` | Manually assign picker rights to a user |
+| `/reorder-lineup` | Reorder queued games in a tournament's lineup |
 | `/setup` | Configure channels, roles, pick windows via Discord |
 
 ## Admin UI Pages
 
 - **Dashboard** — Live stats: active games, next rotations, recent winners, quick actions
-- **Tournaments** — Create, edit, delete tournaments with friendly schedule builder
-- **Game Library** — Search, filter by mode/platform, add/edit games, CSV import, VPS import, star ratings
+- **Tournaments** — Create, edit, delete tournaments with friendly schedule builder and cleanup rule config
+- **Game Library** — Search, filter by mode/platform, add/edit games, CSV import, VPS import, star ratings, per-game background image
 - **Leaderboard** — Internal rankings with WebSocket live updates
 - **Stats** — Player and game analytics
 - **History** — Past tournament results, filterable
 - **Backups** — List, create, and restore database backups
 - **Logs** — Real-time streaming, level filters, search, color coding
-- **Settings** — Categorized configuration with sensitive field masking, platform master list editor
+- **Settings** — Categorized configuration with sensitive field masking, platform master list editor, feature toggles (callouts), scheduler reload, player merge/rename tool
 
 ### Public Pages (no auth, under `/:slug/`)
-- `/:slug` — Arcade high score display, auto-rotating, OBS-embeddable
-- `/:slug/players` — Searchable player list
-- `/:slug/players/:id` — Player profile with stat cards and recent scores
-- `/:slug/games/:name` — Game stats, star ratings, record holder, recent results
+- `/:slug` — Card-grid scoreboard showing all active games with top 5 scores, background images, and "Full Leaderboard" links
+- `/:slug/players` — Searchable player list with games played, best/avg scores
+- `/:slug/players/:username` — Player profile with stat cards and recent scores
+- `/:slug/games/:name` — Full leaderboard, game stats, star ratings, record holder, past results
 
 ## Architecture
 
@@ -111,14 +118,14 @@ Two sub-applications in one process:
 
 | Component | Role |
 |-----------|------|
-| `TournamentEngine` | Core singleton: tournament/game CRUD + full maintenance loop |
-| `IScoredClient` | Playwright browser automation with retry, persistent sessions |
-| `Scheduler` | Cron-based maintenance with per-tournament timezones |
+| `TournamentEngine` | Core singleton: tournament/game CRUD + full maintenance loop + cleanup |
+| `IScoredClient` | Playwright browser automation with retry, persistent sessions, game deletion |
+| `Scheduler` | Cron-based maintenance with per-tournament timezones, hot-reload support |
 | `TimeoutManager` | Winner/runner-up pick window tracking with tiered fallbacks |
 | `BackupManager` | DB backup/snapshot/restore logic |
 | `IdentityManager` | Discord↔iScored user mapping via name matching |
-| Service layer | `SettingsService`, `TournamentService`, `GameLibraryService`, `VpsImportService`, `RatingService`, `StatsService`, `LogService` |
-| API | Express REST + WebSocket (Socket.io) + JWT auth |
+| Service layer | `SettingsService`, `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `VpsImportService`, `RatingService`, `LogService`, `DashboardService`, `BackupService` |
+| API | Express REST + WebSocket (Socket.io) + JWT auth + Zod validation |
 
 **Admin UI (`admin-ui/`)** — React 19 + Vite + Tailwind CSS v4
 
@@ -126,6 +133,34 @@ Two sub-applications in one process:
 - All API calls via `admin-ui/src/lib/api.ts` (relative paths, never hardcoded)
 - Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder`, `TournamentBadge`, `StatusBadge`, `ConfirmModal`, toast system
 - Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
+
+## Score System
+
+The `submissions` table is the single source of truth for all scores. Scores enter the system through two paths:
+
+1. **Discord `/submit-score`** — Player submits score + photo, which goes to iScored and is recorded locally with a sync-compatible ID (`gameId-username`)
+2. **`/sync-state` command** — Scrapes iScored public leaderboard and upserts into submissions with the same ID format
+
+This ensures Discord submissions and iScored syncs converge on the same record (no duplicates). The sync also:
+- Uses **case-insensitive IDs** (normalized to lowercase) to prevent case-variant duplicates
+- **Removes stale records** — local synced submissions not found on iScored are deleted (handles score removals and username changes)
+- **Resolves Discord user IDs** via `user_mappings` when available
+
+**Leaderboards** group by `LOWER(iscored_username)` and prefer real Discord user IDs over placeholders.
+
+**Player merge/rename** (`POST /api/admin/merge-player`) updates `iscored_username` across submissions, scores, and user_mappings, and also renames sync-format submission IDs so they aren't treated as stale on next sync.
+
+## Cleanup System
+
+Each tournament has a configurable `cleanup_rule` that determines when completed games are deleted from iScored:
+
+| Mode | Behavior |
+|------|----------|
+| `immediate` | Delete from iScored as soon as the game completes |
+| `retain` (count) | Keep the N most recent completed games; delete older ones |
+| `scheduled` (cron) | Run cleanup on a cron schedule (e.g., Wednesday 10pm) |
+
+The `/run-cleanup` admin command also handles orphan games (ACTIVE with no tournament association).
 
 ## Tech Stack
 
@@ -145,7 +180,7 @@ Two sub-applications in one process:
 
 ## Configuration
 
-Settings can be configured via `.env` file, the Setup Wizard (first run), or the Admin UI Settings page. DB settings override `.env` values on startup.
+Settings can be configured via `.env` file, the Setup Wizard (first run), or the Admin UI Settings page. DB settings override `.env` values on startup and are synced to `process.env` immediately when saved.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -154,15 +189,22 @@ Settings can be configured via `.env` file, the Setup Wizard (first run), or the
 | `DISCORD_GUILD_ID` | — | Discord server ID (required) |
 | `ISCORED_USERNAME` | — | iScored.info login username |
 | `ISCORED_PASSWORD` | — | iScored.info login password |
+| `ISCORED_PUBLIC_URL` | — | iScored public leaderboard URL (for score sync) |
+| `GAME_ROOM_NAME` | — | Display name for the public game room portal |
+| `GAME_ROOM_SLUG` | — | URL slug for public pages (case-insensitive matching) |
 | `BOT_TIMEZONE` | `America/Chicago` | Default timezone (per-tournament override available) |
 | `PLATFORMS` | `["AtGames","VPXS","VR","IRL"]` | Master platform list (JSON array, editable in Settings) |
 | `GAME_ELIGIBILITY_DAYS` | `120` | Days before a game can be replayed |
 | `WINNER_PICK_WINDOW_MIN` | `60` | Minutes for winner to pick next game |
 | `RUNNERUP_PICK_WINDOW_MIN` | `30` | Minutes for runner-up fallback |
+| `ENABLE_CALLOUTS` | `false` | Enable trigger-word easter egg responses (reads `data/callouts.json`) |
 | `PORT` | `3001` | HTTP server port |
+| `LOG_LEVEL` | `info` | Logging level |
 
 ## Database
 
 SQLite at `data/arcaid.db` (auto-created on first run, git-ignored).
 
-Key tables: `tournaments`, `game_library`, `games` (QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `scores`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`
+Key tables: `tournaments`, `game_library`, `games` (QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`
+
+The `scores` table exists for legacy data but is no longer written to. The `submissions` table is the single source of truth for all score data.

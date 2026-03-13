@@ -15,17 +15,22 @@ export class LeaderboardService {
     static async recalculate(gameId: string): Promise<RankedEntry[]> {
         const db = await getDatabase();
 
-        // Get best score per user for this game (from both submissions and scores tables)
+        // Get best score per player for this game
+        // Group by lowercase iscored_username to handle case variations (Cal vs CAL)
+        // Prefer a real discord_user_id over 'SYSTEM' placeholder
         const entries = await db.all(`
-            SELECT discord_user_id, iscored_username, MAX(score) as score
-            FROM (
-                SELECT discord_user_id, iscored_username, score FROM submissions WHERE game_id = ?
-                UNION ALL
-                SELECT discord_user_id, iscored_username, score FROM scores WHERE game_id = ?
-            )
-            GROUP BY discord_user_id
+            SELECT
+                CASE WHEN MAX(CASE WHEN discord_user_id != 'SYSTEM' THEN discord_user_id END) IS NOT NULL
+                     THEN MAX(CASE WHEN discord_user_id != 'SYSTEM' THEN discord_user_id END)
+                     ELSE discord_user_id
+                END as discord_user_id,
+                iscored_username,
+                MAX(score) as score
+            FROM submissions
+            WHERE game_id = ?
+            GROUP BY LOWER(iscored_username)
             ORDER BY score DESC
-        `, gameId, gameId);
+        `, gameId);
 
         const rankings: RankedEntry[] = entries.map((e: any, i: number) => ({
             rank: i + 1,
@@ -67,14 +72,23 @@ export class LeaderboardService {
     }
 
     /**
+     * Invalidate all cached leaderboards.
+     */
+    static async invalidateAll(): Promise<void> {
+        const db = await getDatabase();
+        await db.run('DELETE FROM leaderboard_cache');
+    }
+
+    /**
      * Get leaderboards for all active games.
      */
-    static async getActiveLeaderboards(): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; rankings: RankedEntry[] }>> {
+    static async getActiveLeaderboards(): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; imageUrl: string | null; rankings: RankedEntry[] }>> {
         const db = await getDatabase();
         const activeGames = await db.all(`
-            SELECT g.id, g.name as game_name, t.name as tournament_name
+            SELECT g.id, g.name as game_name, t.name as tournament_name, gl.image_url
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
+            LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
             WHERE g.status = 'ACTIVE'
         `);
 
@@ -85,6 +99,7 @@ export class LeaderboardService {
                 gameId: game.id,
                 gameName: game.game_name,
                 tournamentName: game.tournament_name || 'Untracked',
+                imageUrl: game.image_url || null,
                 rankings,
             });
         }

@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { getSocket } from '../lib/websocket';
 
 interface RankedEntry {
@@ -12,16 +13,16 @@ interface GameLeaderboard {
   gameId: string;
   gameName: string;
   tournamentName: string;
+  imageUrl: string | null;
   rankings: RankedEntry[];
 }
 
-const ROTATE_INTERVAL = 10000; // 10 seconds per game
+const TOP_N = 5;
 
 export default function Scoreboard() {
+  const { slug } = useParams<{ slug: string }>();
   const [leaderboards, setLeaderboards] = useState<GameLeaderboard[]>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
   const [flash, setFlash] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
   const loadData = async () => {
     try {
@@ -49,99 +50,104 @@ export default function Scoreboard() {
     };
   }, []);
 
-  // Auto-rotate between games
-  useEffect(() => {
-    if (leaderboards.length <= 1) return;
-    timerRef.current = setInterval(() => {
-      setActiveIndex(prev => (prev + 1) % leaderboards.length);
-    }, ROTATE_INTERVAL);
-    return () => clearInterval(timerRef.current);
-  }, [leaderboards.length]);
-
-  const current = leaderboards[activeIndex];
-
   return (
-    <div className="flex flex-col items-center justify-center p-4 sm:p-8 relative min-h-[calc(100vh-57px)]">
-      {/* Ambient glow background */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full bg-neon-cyan/5 blur-3xl" />
-        <div className="absolute bottom-1/4 left-1/3 w-64 h-64 rounded-full bg-neon-purple/5 blur-3xl" />
-      </div>
-
-      {/* Header */}
-      <div className="text-center mb-8 relative z-10">
-        <p className="font-display text-muted text-sm uppercase tracking-widest">Live Scoreboard</p>
-      </div>
-
+    <div className="px-4 sm:px-6 py-6 max-w-7xl mx-auto">
       {/* Score flash overlay */}
       {flash && (
         <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
       )}
 
-      {/* Main scoreboard */}
-      {!current ? (
-        <div className="text-center relative z-10">
+      {/* Header */}
+      <div className="text-center mb-8">
+        <p className="font-display text-muted text-sm uppercase tracking-widest">High Scores</p>
+      </div>
+
+      {leaderboards.length === 0 ? (
+        <div className="text-center py-24">
           <p className="text-muted font-display">Waiting for active games...</p>
         </div>
       ) : (
-        <div className="w-full max-w-2xl relative z-10">
-          {/* Game title */}
-          <div className="text-center mb-6">
-            <h2 className="font-display text-xl sm:text-3xl font-bold text-primary mb-1">{current.gameName}</h2>
-            <p className="text-neon-cyan font-display text-sm uppercase tracking-wider">{current.tournamentName}</p>
-          </div>
-
-          {/* Rankings */}
-          <div className="bg-surface/80 border border-border rounded-lg overflow-hidden backdrop-blur-sm">
-            {current.rankings.length === 0 ? (
-              <div className="py-12 text-center">
-                <p className="text-muted font-display">No scores yet</p>
-              </div>
-            ) : (
-              current.rankings.slice(0, 10).map((entry) => (
-                <div
-                  key={entry.discord_user_id}
-                  className={`flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border/30 last:border-0 transition-all ${
-                    entry.rank === 1 ? 'bg-neon-amber/10' :
-                    entry.rank === 2 ? 'bg-neon-cyan/5' :
-                    entry.rank === 3 ? 'bg-neon-green/5' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-                    <span className={`font-display font-bold text-base sm:text-xl w-8 sm:w-10 text-center flex-shrink-0 ${
-                      entry.rank === 1 ? 'text-neon-amber' :
-                      entry.rank === 2 ? 'text-neon-cyan' :
-                      entry.rank === 3 ? 'text-neon-green' :
-                      'text-faint'
-                    }`}>
-                      {entry.rank === 1 ? '1ST' : entry.rank === 2 ? '2ND' : entry.rank === 3 ? '3RD' : entry.rank}
-                    </span>
-                    <span className="font-medium text-sm sm:text-lg truncate">{entry.iscored_username}</span>
-                  </div>
-                  <span className="font-display font-bold text-lg sm:text-2xl text-neon-amber flex-shrink-0 ml-2">
-                    {entry.score.toLocaleString()}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Game rotation indicators */}
-          {leaderboards.length > 1 && (
-            <div className="flex justify-center gap-2 mt-6">
-              {leaderboards.map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setActiveIndex(i)}
-                  className={`w-2 h-2 rounded-full transition-all border-none cursor-pointer ${
-                    i === activeIndex ? 'bg-neon-cyan w-6' : 'bg-border hover:bg-muted'
-                  }`}
-                />
-              ))}
-            </div>
-          )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {leaderboards.map(lb => (
+            <GameCard key={lb.gameId} lb={lb} slug={slug || ''} />
+          ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function GameCard({ lb, slug }: { lb: GameLeaderboard; slug: string }) {
+  return (
+    <div className="bg-surface border border-border rounded-lg overflow-hidden flex flex-col">
+      {/* Image / Header area */}
+      <div
+        className="relative h-32 bg-raised flex items-end"
+        style={lb.imageUrl ? {
+          backgroundImage: `url(${lb.imageUrl})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        } : undefined}
+      >
+        {/* Dark gradient overlay for text readability */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10" />
+        <div className="relative z-10 px-4 pb-3 w-full">
+          <h3 className="font-display font-bold text-base text-white leading-tight truncate">{lb.gameName}</h3>
+          <p className="text-[11px] text-white/60 uppercase tracking-wider">{lb.tournamentName}</p>
+        </div>
+      </div>
+
+      {/* Scores */}
+      <div className="flex-1">
+        {lb.rankings.length === 0 ? (
+          <div className="py-8 text-center">
+            <p className="text-faint text-sm">No scores yet</p>
+          </div>
+        ) : (
+          <div>
+            {/* Header row */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+              <span>Player</span>
+              <span>Score</span>
+            </div>
+            {lb.rankings.slice(0, TOP_N).map((entry) => (
+              <div
+                key={entry.discord_user_id}
+                className={`flex items-center justify-between px-4 py-2.5 border-b border-border/20 last:border-0 ${
+                  entry.rank === 1 ? 'bg-neon-amber/8' : ''
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
+                    entry.rank === 1 ? 'text-neon-amber' :
+                    entry.rank === 2 ? 'text-neon-cyan' :
+                    entry.rank === 3 ? 'text-neon-green' :
+                    'text-faint'
+                  }`}>
+                    {entry.rank}
+                  </span>
+                  <span className="text-sm truncate">{entry.iscored_username}</span>
+                </div>
+                <span className={`font-display font-bold text-sm flex-shrink-0 ml-2 ${
+                  entry.rank === 1 ? 'text-neon-amber' : 'text-primary'
+                }`}>
+                  {entry.score.toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer link */}
+      <div className="border-t border-border/50 px-4 py-2.5">
+        <Link
+          to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
+          className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
+        >
+          Full Leaderboard &rarr;
+        </Link>
+      </div>
     </div>
   );
 }

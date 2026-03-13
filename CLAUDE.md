@@ -40,13 +40,13 @@ cd admin-ui && npm run lint    # ESLint
 Two sub-applications in one process:
 
 **Backend (`src/`):**
-- `src/index.ts` — Bootstrap (DB → settings → env validation → API → Discord)
-- `src/engine/TournamentEngine.ts` — Core singleton: tournament CRUD + `runMaintenance()` (lock → scrape winner → complete → activate next → assign picker → announce)
-- `src/engine/IScoredClient.ts` — Playwright browser automation for iScored.info (retry with backoff, persistent sessions, screenshot-on-failure, DOM change detection)
-- `src/engine/Scheduler.ts` — Cron-based maintenance scheduling (reads `BOT_TIMEZONE` from settings)
+- `src/index.ts` — Bootstrap (DB → settings → env → clear leaderboard cache → validate → API → Discord)
+- `src/engine/TournamentEngine.ts` — Core singleton: tournament CRUD + `runMaintenance()` (lock → scrape winner → complete → activate next → assign picker → announce) + `runCleanup()` (delete completed games from iScored per cleanup rule)
+- `src/engine/IScoredClient.ts` — Playwright browser automation for iScored.info (retry with backoff, persistent sessions, screenshot-on-failure, DOM change detection, game deletion)
+- `src/engine/Scheduler.ts` — Cron-based maintenance scheduling (reads `BOT_TIMEZONE` from settings), hot-reload via `reload()`, schedules cleanup cron tasks
 - `src/engine/TimeoutManager.ts` — Winner/runner-up pick window tracking
-- `src/api/server.ts` — Express REST API routing (delegates to service layer)
-- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LogService`, `VpsImportService`, `RatingService`
+- `src/api/server.ts` — Express REST API routing (delegates to service layer), admin endpoints (merge player, scheduler reload)
+- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `LogService`, `VpsImportService`, `RatingService`, `DashboardService`, `BackupService`
 - `src/utils/discord.ts` — Shared `sendChannelMessage()` for engine classes
 - `src/utils/terminology.ts` — `getTerminology(mode?)` — per-tournament terminology (pinball=Table/Grind, videogame=Game/Tournament)
 - `src/utils/cooldown.ts` — Per-user Discord command cooldown tracker
@@ -61,15 +61,34 @@ Two sub-applications in one process:
 
 ## Key Patterns
 
-- Engine classes are **singletons** (`getInstance()`)
+- Engine classes are **singletons** (`getInstance()`) except IScoredClient (instantiated per-use)
 - `getTerminology(mode?)` — per-tournament terminology based on mode (pinball/videogame); no-arg defaults to generic
-- Tournaments have a `mode` (pinball/videogame) and `platformRules` (required/excluded/restrictedText)
-- Games in library have a `mode` and `platforms` (JSON array)
+- Tournaments have a `mode` (pinball/videogame), `platformRules` (required/excluded/restrictedText), and `cleanup_rule` (immediate/retain/scheduled)
+- Games in library have a `mode`, `platforms` (JSON array), and optional `image_url`
 - `PLATFORMS` setting = master platform list (JSON array, editable in Settings UI)
-- DB `settings` table = runtime config (overrides `.env` on startup)
+- DB `settings` table = runtime config (overrides `.env` on startup, synced to `process.env` immediately on save)
 - iScored games identified by tags: `DG`, `WG-VPXS`, `WG-VR`, `MG`
 - Configurable values from settings: `GAME_ELIGIBILITY_DAYS` (120), `WINNER_PICK_WINDOW_MIN` (60), `RUNNERUP_PICK_WINDOW_MIN` (30), `BOT_TIMEZONE` (America/Chicago)
 - API write endpoints require JWT Bearer token (first login sets admin password)
+- Public slug matching is case-insensitive
+
+## Score System
+
+- **Single source of truth:** The `submissions` table. The `scores` table is legacy and no longer written to.
+- **Submission IDs:** Sync-compatible format `${gameId}-${username.toLowerCase()}` — both Discord `/submit-score` and `/sync-state` converge on the same record.
+- **Leaderboards** group by `LOWER(iscored_username)` and prefer real Discord user IDs over `SYSTEM`/placeholder IDs.
+- **Sync cleanup:** `/sync-state` removes local synced records not found on iScored (handles deletions and username changes).
+- **Player identity:** `iscored_username` is the primary identity key (not `discord_user_id`). Player pages route by username.
+- **Auto-mapping:** First-time `/submit-score` users without a mapping are auto-mapped using their Discord display name.
+- **Merge/rename:** `POST /api/admin/merge-player` updates username across submissions, scores, user_mappings, and renames sync-format submission IDs.
+
+## Cleanup System
+
+Per-tournament `cleanup_rule` (stored as JSON):
+- `{ mode: 'immediate' }` — delete from iScored on completion
+- `{ mode: 'retain', count: N }` — keep N most recent, delete older
+- `{ mode: 'scheduled', cron: '...', timezone?: '...' }` — cron-based cleanup
+- `/run-cleanup` also handles orphan ACTIVE games with no tournament
 
 ## Development Process
 
@@ -85,9 +104,11 @@ Two sub-applications in one process:
 
 ## Database
 
-SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run.
+SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Leaderboard cache cleared on every startup.
 
-Key tables: `tournaments`, `game_library`, `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `scores`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`
+Key tables: `tournaments`, `game_library` (with `image_url`, `mode`, `platforms`), `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions` (source of truth for scores), `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`
+
+Legacy table: `scores` (exists but no longer written to; kept for backward compatibility)
 
 Indexed on: `games.tournament_id`, `games.status`, `submissions.game_id`, `submissions.discord_user_id`, `submissions.timestamp`
 
@@ -97,3 +118,4 @@ Indexed on: `games.tournament_id`, `games.status`, `submissions.game_id`, `submi
 - **After code changes:** Rebuild container to pick up changes.
 - Admin UI production assets built during Docker image build and served by Express.
 - Custom domain mapping is infrastructure-level (DNS + reverse proxy), not app-level.
+- **ngrok** can be used for quick public exposure during development: `ngrok http 3001`

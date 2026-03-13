@@ -41,16 +41,24 @@ export const submitscore: Command = {
         const db = await getDatabase();
 
         if (focusedOption.name === 'game') {
-            // Only suggest ACTIVE games for score submission
-            const rows = await db.all("SELECT name FROM games WHERE status = 'ACTIVE'");
-            const choices = rows.map(r => r.name);
-            
-            const filtered = choices.filter(choice => 
-                choice.toLowerCase().includes(focusedOption.value.toLowerCase())
-            ).slice(0, 25);
-            
+            // Only suggest ACTIVE games with a tournament for score submission
+            const rows = await db.all(`
+                SELECT g.name, t.name as tournament_name
+                FROM games g
+                JOIN tournaments t ON g.tournament_id = t.id
+                WHERE g.status = 'ACTIVE'
+                ORDER BY t.display_order ASC, g.name ASC
+            `);
+
+            const filtered = rows
+                .filter((r: any) => r.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
+                .slice(0, 25);
+
             await interaction.respond(
-                filtered.map(choice => ({ name: choice, value: choice }))
+                filtered.map((r: any) => ({
+                    name: r.tournament_name ? `${r.name} (${r.tournament_name})` : r.name,
+                    value: r.name,
+                }))
             );
         }
     },
@@ -84,18 +92,26 @@ export const submitscore: Command = {
             const game = await db.get("SELECT id, iscored_id FROM games WHERE name = ? COLLATE NOCASE AND status = 'ACTIVE'", gameName);
 
             if (!game || !game.iscored_id) {
-                await interaction.editReply(`❌ Could not find an active ${term.game} named '${gameName}' linked to iScored.`);
+                await interaction.editReply(`Could not find an active ${term.game} named '${gameName}' linked to iScored.`);
                 return;
             }
 
-            // Resolve username
+            // Resolve username: explicit param > saved mapping > auto-map from Discord display name
             if (!username) {
                 const mapping = await db.get('SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?', interaction.user.id);
                 if (mapping) {
                     username = mapping.iscored_username;
                 } else {
-                    await interaction.editReply('❌ You have not mapped your iScored username. Use `/map-user` or provide the `username` option.');
-                    return;
+                    // Auto-map using Discord display name as iScored username
+                    const member = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
+                    username = member?.displayName || interaction.user.displayName;
+                    await db.run(
+                        `INSERT INTO user_mappings (discord_user_id, iscored_username)
+                         VALUES (?, ?)
+                         ON CONFLICT(discord_user_id) DO UPDATE SET iscored_username = excluded.iscored_username`,
+                        interaction.user.id, username
+                    );
+                    logInfo(`Auto-mapped user: ${username} -> ${interaction.user.tag}`);
                 }
             }
 
@@ -118,23 +134,19 @@ export const submitscore: Command = {
                     await client.disconnect();
                 }
 
-                // Record internally
+                // Record internally (use sync-compatible ID so sync won't create a duplicate)
                 await db.run(
-                    'INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    uuidv4(), game.id, interaction.user.id, username, score, photo.url, new Date().toISOString()
-                );
-
-                // Also write to scores table
-                await db.run(
-                    'INSERT INTO scores (id, game_id, discord_user_id, iscored_username, score, verified, synced_at, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    uuidv4(), game.id, interaction.user.id, username, score, 1, new Date().toISOString(), new Date().toISOString()
+                    `INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET score = MAX(score, excluded.score), discord_user_id = excluded.discord_user_id, photo_url = excluded.photo_url`,
+                    `${game.id}-${username!.toLowerCase()}`, game.id, interaction.user.id, username, score, photo.url, new Date().toISOString()
                 );
 
                 // Invalidate leaderboard cache
                 await LeaderboardService.invalidate(game.id);
 
                 logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
-                await interaction.editReply(`✅ Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!`);
+                await interaction.editReply(`Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!`);
             } finally {
                 // Always cleanup temp photo, even on error
                 await fs.unlink(tempPhotoPath).catch(() => {});
@@ -142,7 +154,7 @@ export const submitscore: Command = {
 
         } catch (error) {
             logError('Error in /submit-score:', error);
-            await interaction.editReply('❌ An error occurred while submitting your score.');
+            await interaction.editReply('An error occurred while submitting your score.');
         }
     },
 };

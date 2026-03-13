@@ -14,7 +14,7 @@ export const syncstate: Command = {
         await interaction.deferReply({ ephemeral: true });
         
         try {
-            logInfo('🔄 Starting Tournament State & Score Sync...');
+            logInfo('Starting Tournament State & Score Sync...');
             const iscored = new IScoredClient();
             await iscored.connect();
             
@@ -77,22 +77,48 @@ export const syncstate: Command = {
                     const publicUrl = process.env.ISCORED_PUBLIC_URL;
                     if (publicUrl) {
                         const scores = await iscored.scrapePublicScores(publicUrl, iscoredGame.id);
+
+                        // Track synced IDs so we can remove stale ones
+                        const syncedIds = new Set<string>();
+
                         for (const score of scores) {
-                            // Simple upsert for submissions
+                            // Normalize ID to lowercase to prevent case-variant duplicates
+                            const syncId = `${localGame.id}-${score.name.toLowerCase()}`;
+                            syncedIds.add(syncId);
+
+                            // Resolve Discord user ID from user_mappings, or use a placeholder keyed to the iScored name
+                            const mapping = await db.get('SELECT discord_user_id FROM user_mappings WHERE iscored_username = ? COLLATE NOCASE', score.name);
+                            const discordUserId = mapping?.discord_user_id || `iscored:${score.name}`;
+
                             await db.run(`
                                 INSERT INTO submissions (id, game_id, iscored_username, score, photo_url, timestamp, discord_user_id)
                                 VALUES (?, ?, ?, ?, ?, ?, ?)
-                                ON CONFLICT(id) DO UPDATE SET score = excluded.score, photo_url = excluded.photo_url
-                            `, 
-                                `${localGame.id}-${score.name}`, 
-                                localGame.id, 
-                                score.name, 
-                                parseInt(score.score.replace(/,/g, '')), 
-                                score.photoUrl, 
+                                ON CONFLICT(id) DO UPDATE SET score = excluded.score, photo_url = excluded.photo_url,
+                                    discord_user_id = excluded.discord_user_id, iscored_username = excluded.iscored_username
+                            `,
+                                syncId,
+                                localGame.id,
+                                score.name,
+                                parseInt(score.score.replace(/,/g, '')),
+                                score.photoUrl,
                                 new Date().toISOString(),
-                                'SYSTEM' // Will associate with real Discord ID later
+                                discordUserId
                             );
                         }
+
+                        // Remove local synced submissions that no longer exist on iScored
+                        // (handles deleted scores, username changes on iScored)
+                        // Only remove sync-format IDs (gameId-username), not UUID Discord submissions
+                        const localSynced = await db.all(
+                            `SELECT id FROM submissions WHERE game_id = ? AND id LIKE ? || '-%'`,
+                            localGame.id, localGame.id
+                        );
+                        for (const row of localSynced) {
+                            if (!syncedIds.has(row.id)) {
+                                await db.run('DELETE FROM submissions WHERE id = ?', row.id);
+                            }
+                        }
+
                         scoresSynced += scores.length;
                     }
                 }

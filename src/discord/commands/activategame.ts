@@ -57,7 +57,7 @@ export const activategame: Command = {
             const tournament = await db.get('SELECT id, type, mode FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
 
             if (!tournament) {
-                await interaction.editReply(`❌ Could not find a tournament named '${tournamentName}'.`);
+                await interaction.editReply(`Could not find a tournament named '${tournamentName}'.`);
                 return;
             }
 
@@ -68,7 +68,7 @@ export const activategame: Command = {
             const gameLibEntry = await db.get('SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
             const styleId = gameLibEntry?.style_id || undefined;
 
-            await interaction.editReply(`⏳ Creating **${gameName}** on iScored... This may take a moment.`);
+            await interaction.editReply(`Creating **${gameName}** on iScored... This may take a moment.`);
 
             // Create game on iScored if credentials available
             let iscoredId: string | undefined;
@@ -107,7 +107,7 @@ export const activategame: Command = {
 
         } catch (error) {
             logError('Error in /activate-game:', error);
-            await interaction.editReply('❌ An error occurred while activating the game. Check the logs for details.');
+            await interaction.editReply('An error occurred while activating the game. Check the logs for details.');
         }
     },
 };

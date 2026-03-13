@@ -1,7 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../database/database.js';
-import { Tournament, Game, TournamentMode, CadenceConfig } from '../types/index.js';
+import { Tournament, Game, TournamentMode, CadenceConfig, CleanupRule } from '../types/index.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { sendChannelMessage, sendChannelEmbed, getTournamentColor } from '../utils/discord.js';
@@ -190,11 +190,11 @@ export class TournamentEngine {
         const count = row?.count ?? 0;
 
         if (count > 0) {
-            logInfo(`🚫 Game '${gameName}' is NOT eligible (played within last ${lookbackDays} days).`);
+            logInfo(`Game '${gameName}' is NOT eligible (played within last ${lookbackDays} days).`);
             return false;
         }
 
-        logInfo(`✅ Game '${gameName}' is eligible.`);
+        logInfo(`Game '${gameName}' is eligible.`);
         return true;
     }
 
@@ -215,7 +215,7 @@ export class TournamentEngine {
         const term = getTerminology(tournamentRow.mode);
         const channelId: string | undefined = tournamentRow.discord_channel_id || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
 
-        logInfo(`⚙️ Starting maintenance for ${term.tournament}: ${tournamentRow.name}`);
+        logInfo(`Starting maintenance for ${term.tournament}: ${tournamentRow.name}`);
 
         // --- Phase 1: Gather what we need from the DB ---
         const activeGame = await this.getActiveGame(tournamentId);
@@ -225,7 +225,7 @@ export class TournamentEngine {
         );
 
         if (!activeGame && !queuedRow) {
-            logWarn(`⚠️ No active or queued ${term.game} for ${term.tournament} "${tournamentRow.name}". Nothing to do.`);
+            logWarn(`No active or queued ${term.game} for ${term.tournament} "${tournamentRow.name}". Nothing to do.`);
             return;
         }
 
@@ -330,7 +330,7 @@ export class TournamentEngine {
                 }
 
             } catch (err) {
-                logError('❌ iScored session error during maintenance:', err);
+                logError('iScored session error during maintenance:', err);
             } finally {
                 await client.disconnect();
             }
@@ -447,7 +447,7 @@ export class TournamentEngine {
                 const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
                 const color = getTournamentColor(tournamentRow.type);
                 const embed = new EmbedBuilder()
-                    .setTitle(`⚠️ No ${term.game} Queued`)
+                    .setTitle(`No ${term.game} Queued`)
                     .setColor(color)
                     .setFooter({ text: tournamentRow.name })
                     .setTimestamp();
@@ -461,14 +461,86 @@ export class TournamentEngine {
             }
         }
 
-        logInfo(`✅ Maintenance complete for ${tournamentRow.name}`);
+        logInfo(`Maintenance complete for ${tournamentRow.name}`);
 
         // Reorder iScored lineup based on tournament display_order
         try {
             await this.reorderIScoredLineup();
         } catch (err) {
-            logWarn('⚠️ Failed to reorder iScored lineup after maintenance:', err);
+            logWarn('Failed to reorder iScored lineup after maintenance:', err);
         }
+
+        // Run cleanup for 'immediate' and 'retain' modes
+        let cleanupRule: CleanupRule = { mode: 'retain', count: 0 };
+        try { cleanupRule = JSON.parse(tournamentRow.cleanup_rule || '{}'); } catch {}
+        if (cleanupRule.mode === 'immediate' || cleanupRule.mode === 'retain') {
+            try {
+                await this.runCleanup(tournamentId, cleanupRule);
+            } catch (err) {
+                logWarn(`Failed to run cleanup for ${tournamentRow.name}:`, err);
+            }
+        }
+    }
+
+    /**
+     * Hides completed games on iScored based on the tournament's cleanup rule.
+     * - immediate / retain(0): hide all completed games
+     * - retain(N): keep the N most recent completed games visible, hide the rest
+     */
+    public async runCleanup(tournamentId: string, rule?: CleanupRule): Promise<void> {
+        const db = await getDatabase();
+
+        if (!rule) {
+            const row = await db.get('SELECT cleanup_rule FROM tournaments WHERE id = ?', tournamentId);
+            try { rule = JSON.parse(row?.cleanup_rule || '{}'); } catch {}
+            if (!rule || !rule.mode) rule = { mode: 'retain', count: 0 };
+        }
+
+        const retainCount = rule.mode === 'retain' ? rule.count : 0;
+
+        // Get completed games with iScored IDs, newest first
+        const completed = await db.all(`
+            SELECT id, name, iscored_id FROM games
+            WHERE tournament_id = ? AND status = 'COMPLETED' AND iscored_id IS NOT NULL
+            ORDER BY end_date DESC
+        `, tournamentId);
+
+        // Keep the first `retainCount` visible, hide the rest
+        const toHide = completed.slice(retainCount);
+        if (toHide.length === 0) return;
+
+        logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
+
+        const client = new IScoredClient();
+        await client.connect();
+        try {
+            for (const game of toHide) {
+                try {
+                    await client.deleteGame(game.iscored_id, game.name);
+                    await db.run('UPDATE games SET status = ? WHERE id = ?', 'HIDDEN', game.id);
+                    logInfo(`   -> Deleted: ${game.name}`);
+                } catch (err) {
+                    logWarn(`   -> Failed to delete ${game.name}:`, err);
+                }
+            }
+        } finally {
+            await client.disconnect();
+        }
+    }
+
+    /**
+     * Runs scheduled cleanup for all tournaments with 'scheduled' cleanup_rule.
+     * Called by the Scheduler on each tournament's cleanup cron.
+     */
+    public async runScheduledCleanup(tournamentId: string): Promise<void> {
+        const db = await getDatabase();
+        const row = await db.get('SELECT name, cleanup_rule FROM tournaments WHERE id = ?', tournamentId);
+        if (!row) return;
+
+        logInfo(`Running scheduled cleanup for ${row.name}`);
+
+        // For scheduled mode, hide ALL completed games (full weekly/periodic wipe)
+        await this.runCleanup(tournamentId, { mode: 'immediate' });
     }
 
     /**

@@ -162,6 +162,8 @@ export async function initDatabase(): Promise<Database> {
         `ALTER TABLE game_library ADD COLUMN mode TEXT DEFAULT 'pinball'`,
         `ALTER TABLE game_library ADD COLUMN platforms TEXT DEFAULT '[]'`,
         `ALTER TABLE tournaments ADD COLUMN display_order INTEGER DEFAULT 0`,
+        `ALTER TABLE tournaments ADD COLUMN cleanup_rule TEXT DEFAULT '{"mode":"retain","count":0}'`,
+        `ALTER TABLE game_library ADD COLUMN image_url TEXT`,
     ];
     for (const migration of migrations) {
         try {

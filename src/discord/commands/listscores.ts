@@ -93,7 +93,7 @@ export const listscores: Command = {
                 } else {
                     let desc = '';
                     paged.forEach((entry) => {
-                        const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `**${entry.rank}.**`;
+                        const medal = `**${entry.rank}.**`;
                         desc += `${medal} **${entry.iscored_username}** — ${entry.score.toLocaleString()}\n`;
                     });
                     if (total > PAGE_SIZE) {

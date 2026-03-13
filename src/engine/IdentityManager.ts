@@ -20,7 +20,7 @@ export class IdentityManager {
      * to Discord members based on name matching.
      */
     public async reconcileMappings(guild: Guild, client: IScoredClient): Promise<void> {
-        logInfo('🔍 Starting proactive identity mapping scrape...');
+        logInfo('Starting proactive identity mapping scrape...');
         const db = await getDatabase();
 
         try {
@@ -36,7 +36,7 @@ export class IdentityManager {
             // 2. We need the public URL to scrape. Assuming it's in env.
             const publicUrl = process.env.ISCORED_PUBLIC_URL;
             if (!publicUrl) {
-                logWarn('⚠️ ISCORED_PUBLIC_URL not set. Cannot scrape public scores for identity mapping.');
+                logWarn('ISCORED_PUBLIC_URL not set. Cannot scrape public scores for identity mapping.');
                 return;
             }
 
@@ -86,12 +86,12 @@ export class IdentityManager {
                         match.id, iscoredName
                     );
                 } else {
-                    logWarn(`   ❌ No match found for iScored user: '${iscoredName}'`);
+                    logWarn(`   No match found for iScored user: '${iscoredName}'`);
                 }
             }
 
         } catch (error) {
-            logError('❌ Error during reconcileMappings:', error);
+            logError('Error during reconcileMappings:', error);
         }
     }
 }

@@ -106,7 +106,7 @@ export const pickgame: Command = {
             const results = await Promise.all(filtered.map(async (r) => {
                 if (!tournamentId) return { name: r.name, label: r.name };
                 const eligible = await engine.isGameEligible(tournamentId, r.name);
-                const label = eligible ? `✅ ${r.name}` : `❌ ${r.name} (recently played)`;
+                const label = eligible ? r.name : `${r.name} (recently played)`;
                 return { name: r.name, label };
             }));
 
@@ -133,7 +133,7 @@ export const pickgame: Command = {
             const tournament = await db.get('SELECT id, type, mode FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
 
             if (!tournament) {
-                await interaction.editReply(`❌ Could not find a tournament named '${tournamentName}'.`);
+                await interaction.editReply(`Could not find a tournament named '${tournamentName}'.`);
                 return;
             }
 
@@ -143,7 +143,7 @@ export const pickgame: Command = {
             // Check eligibility
             const isEligible = await engine.isGameEligible(tournament.id, gameName);
             if (!isEligible) {
-                await interaction.editReply(`🚫 **${gameName}** has been played recently and is not eligible right now.`);
+                await interaction.editReply(`**${gameName}** has been played recently and is not eligible right now.`);
                 return;
             }
 
@@ -151,7 +151,7 @@ export const pickgame: Command = {
             const gameLibEntry = await db.get('SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
             const styleId = gameLibEntry?.style_id || undefined;
 
-            await interaction.editReply(`⏳ Creating **${gameName}** on iScored... This may take a moment.`);
+            await interaction.editReply(`Creating **${gameName}** on iScored... This may take a moment.`);
 
             // Create game on iScored
             const client = new IScoredClient();
@@ -190,7 +190,7 @@ export const pickgame: Command = {
                 : `**${gameName}** is now active for the **${tournamentName}** tournament — play immediately!`;
 
             const embed = new EmbedBuilder()
-                .setTitle(`🎉 ${term.game} Picked!`)
+                .setTitle(`${term.game} Picked!`)
                 .setDescription(statusText)
                 .setColor(color)
                 .setFooter({ text: `Picked by ${interaction.user.displayName}` })
@@ -199,7 +199,7 @@ export const pickgame: Command = {
 
         } catch (error) {
             logError('Error in /pick-game:', error);
-            await interaction.editReply('❌ An error occurred while picking the game. Check the logs for details.');
+            await interaction.editReply('An error occurred while picking the game. Check the logs for details.');
         }
     },
 };

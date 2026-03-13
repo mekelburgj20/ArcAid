@@ -59,7 +59,7 @@ export const setup: Command = {
             await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', channel.id);
             process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID = channel.id;
             logInfo(`User ${interaction.user.tag} set announcement channel to: #${channel.name} (${channel.id})`);
-            await interaction.reply(`✅ Announcement channel set to <#${channel.id}>.`);
+            await interaction.reply(`Announcement channel set to <#${channel.id}>.`);
         }
 
         else if (subcommand === 'admin-role') {
@@ -67,7 +67,7 @@ export const setup: Command = {
             await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'DISCORD_ADMIN_ROLE_ID', role.id);
             process.env.DISCORD_ADMIN_ROLE_ID = role.id;
             logInfo(`User ${interaction.user.tag} set admin role to: @${role.name} (${role.id})`);
-            await interaction.reply(`✅ Admin role set to <@&${role.id}>.`);
+            await interaction.reply(`Admin role set to <@&${role.id}>.`);
         }
 
         else if (subcommand === 'pick-windows') {
@@ -92,7 +92,7 @@ export const setup: Command = {
             }
 
             logInfo(`User ${interaction.user.tag} updated pick windows: ${updates.join(', ')}`);
-            await interaction.reply(`✅ Pick windows updated:\n${updates.join('\n')}`);
+            await interaction.reply(`Pick windows updated:\n${updates.join('\n')}`);
         }
 
         else if (subcommand === 'view') {

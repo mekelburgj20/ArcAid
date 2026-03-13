@@ -6,6 +6,6 @@ export const ping: Command = {
         .setName('ping')
         .setDescription('Replies with Pong! (Test connection)'),
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.reply('🏓 Pong! ArcAid is online and ready.');
+        await interaction.reply('Pong! ArcAid is online and ready.');
     },
 };

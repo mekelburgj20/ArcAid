@@ -52,8 +52,8 @@ export default function Players() {
           <div className="grid gap-3">
             {filtered.map((player, i) => (
               <Link
-                key={player.discord_user_id}
-                to={`/${slug}/players/${player.discord_user_id}`}
+                key={player.iscored_username || player.discord_user_id}
+                to={`/${slug}/players/${encodeURIComponent(player.iscored_username || player.discord_user_id)}`}
                 className="flex items-center justify-between bg-surface border border-border rounded-lg px-3 sm:px-5 py-3 sm:py-4 hover:border-neon-cyan/50 transition-all no-underline group"
               >
                 <div className="flex items-center gap-2 sm:gap-4 min-w-0">

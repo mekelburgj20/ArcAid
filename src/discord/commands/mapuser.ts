@@ -25,7 +25,7 @@ export const mapuser: Command = {
         if (targetUser.id !== interaction.user.id) {
             const member = await interaction.guild?.members.fetch(interaction.user.id);
             if (!member?.permissions.has(PermissionFlagsBits.Administrator)) {
-                await interaction.reply({ content: '❌ You must be an Administrator to map other users.', ephemeral: true });
+                await interaction.reply({ content: 'You must be an Administrator to map other users.', ephemeral: true });
                 return;
             }
         }
@@ -40,9 +40,9 @@ export const mapuser: Command = {
             );
 
             logInfo(`User mapped: ${iscoredName} -> ${targetUser.tag}`);
-            await interaction.reply(`✅ Successfully mapped iScored username **${iscoredName}** to Discord user <@${targetUser.id}>.`);
+            await interaction.reply(`Successfully mapped iScored username **${iscoredName}** to Discord user <@${targetUser.id}>.`);
         } catch (error) {
-            logError('❌ Error mapping user:', error);
+            logError('Error mapping user:', error);
             await interaction.reply({ content: 'An error occurred while mapping the user.', ephemeral: true });
         }
     },

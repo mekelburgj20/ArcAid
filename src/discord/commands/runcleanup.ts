@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import { Command } from './index.js';
 import { logError, logInfo } from '../../utils/logger.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
@@ -7,47 +7,54 @@ import { getDatabase } from '../../database/database.js';
 export const runcleanup: Command = {
     data: new SlashCommandBuilder()
         .setName('run-cleanup')
-        .setDescription('Sweep iScored lineup to hide old games.'),
+        .setDescription('(Admin) Delete completed/hidden games from iScored.')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) as SlashCommandBuilder,
+
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ ephemeral: true });
-        
-        // Basic permission check (can refine later)
-        const modRoleId = process.env.MOD_ROLE_ID;
-        const memberRoles = interaction.member?.roles as any;
-        if (modRoleId && (!memberRoles || !memberRoles.cache.has(modRoleId))) {
-             await interaction.editReply('You do not have permission to use this command.');
-             return;
-        }
 
         try {
-            logInfo('🚀 Manually triggering cleanup for MANAGED games...');
-            const iscored = new IScoredClient();
-            await iscored.connect();
-            
+            logInfo('Manually triggering cleanup for MANAGED games...');
+            const client = new IScoredClient();
+            await client.connect();
+
             const db = await getDatabase();
-            
-            // 1. Get all games from iScored
-            const allIscoredGames = await iscored.getAllGames();
-            
-            // 2. Identify games in our DB that SHOULD be hidden (status = COMPLETED or HIDDEN)
-            const gamesToHide = await db.all('SELECT iscored_id, name FROM games WHERE status IN ("COMPLETED", "HIDDEN") AND iscored_id IS NOT NULL');
-            const idsToHide = new Set(gamesToHide.map(g => g.iscored_id));
-            
-            let hiddenCount = 0;
-            
+
+            // Get all games on iScored
+            const allIscoredGames = await client.getAllGames();
+
+            // Identify games to remove:
+            // 1. COMPLETED or HIDDEN (finished games)
+            // 2. ACTIVE with no tournament (orphans from sync)
+            const gamesToRemove = await db.all(
+                `SELECT iscored_id, id, name, status, tournament_id FROM games
+                 WHERE iscored_id IS NOT NULL AND (
+                     status IN ('COMPLETED', 'HIDDEN')
+                     OR (status = 'ACTIVE' AND tournament_id IS NULL)
+                 )`
+            );
+            const idsToRemove = new Map(gamesToRemove.map(g => [g.iscored_id, g]));
+
+            let deletedCount = 0;
+
             for (const game of allIscoredGames) {
-                // ONLY hide it if it's explicitly in our "Finished" list.
-                // If it's not in our DB at all, we don't own it - leave it alone!
-                if (idsToHide.has(game.id) && !game.isHidden) {
-                    logInfo(`   -> Sweeping managed game: ${game.name} (ID: ${game.id})`);
-                    await iscored.setGameStatus(game.id, { hidden: true });
-                    hiddenCount++;
+                const dbGame = idsToRemove.get(game.id);
+                if (dbGame) {
+                    const reason = dbGame.tournament_id ? dbGame.status.toLowerCase() : 'orphan (no tournament)';
+                    logInfo(`   -> Deleting ${reason}: ${game.name} (ID: ${game.id})`);
+                    try {
+                        await client.deleteGame(game.id, game.name);
+                        await db.run('UPDATE games SET status = ? WHERE id = ?', 'HIDDEN', dbGame.id);
+                        deletedCount++;
+                    } catch (err) {
+                        logError(`   -> Failed to delete ${game.name}:`, err);
+                    }
                 }
             }
-            
-            await iscored.disconnect();
-            
-            await interaction.editReply(`**Cleanup Complete!**\n\nSwept and hid ${hiddenCount} managed games. Untracked manual games were left untouched.`);
+
+            await client.disconnect();
+
+            await interaction.editReply(`**Cleanup Complete!**\n\nDeleted ${deletedCount} game(s) from iScored. Untracked games were left untouched.`);
         } catch (error) {
             logError('Error in run-cleanup command:', error);
             await interaction.editReply('An error occurred while running the cleanup routine. Check the logs.');

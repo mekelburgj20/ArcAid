@@ -58,7 +58,7 @@ export const deactivategame: Command = {
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             logError('Error in /deactivate-game:', error);
-            await interaction.editReply(`❌ ${message}`);
+            await interaction.editReply(message);
         }
     },
 };

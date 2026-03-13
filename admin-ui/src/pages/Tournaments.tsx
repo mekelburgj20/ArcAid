@@ -23,6 +23,7 @@ interface Tournament {
   discord_role_id?: string;
   is_active: number;
   display_order: number;
+  cleanup_rule: string;
 }
 
 interface PlatformRules {
@@ -143,6 +144,56 @@ function NumberStepper({ value, onChange, min = 0 }: { value: number; onChange: 
   );
 }
 
+interface CleanupRule {
+  mode: 'immediate' | 'retain' | 'scheduled';
+  count?: number;
+  cron?: string;
+  timezone?: string;
+}
+
+const defaultCleanupRule: CleanupRule = { mode: 'retain', count: 0 };
+
+function parseCleanupRule(raw: string | undefined): CleanupRule {
+  if (!raw) return { ...defaultCleanupRule };
+  try { return JSON.parse(raw); } catch { return { ...defaultCleanupRule }; }
+}
+
+function CleanupRuleEditor({ value, onChange }: { value: CleanupRule; onChange: (v: CleanupRule) => void }) {
+  const selectClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors cursor-pointer";
+
+  return (
+    <div className="space-y-3">
+      <select
+        value={value.mode}
+        onChange={e => {
+          const mode = e.target.value as CleanupRule['mode'];
+          if (mode === 'immediate') onChange({ mode: 'immediate' });
+          else if (mode === 'retain') onChange({ mode: 'retain', count: value.count ?? 0 });
+          else onChange({ mode: 'scheduled', cron: value.cron ?? '0 22 * * 3', timezone: value.timezone });
+        }}
+        className={selectClass}
+      >
+        <option value="immediate">Hide immediately on rotation</option>
+        <option value="retain">Keep last N visible</option>
+        <option value="scheduled">Hide on a schedule</option>
+      </select>
+      {value.mode === 'retain' && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted whitespace-nowrap">Keep visible:</span>
+          <NumberStepper value={value.count ?? 0} onChange={c => onChange({ ...value, count: c })} min={0} />
+          <span className="text-sm text-faint">completed game(s)</span>
+        </div>
+      )}
+      {value.mode === 'scheduled' && (
+        <ScheduleBuilder
+          value={{ cron: value.cron ?? '0 22 * * 3', timezone: value.timezone ?? 'America/Chicago' }}
+          onChange={s => onChange({ ...value, cron: s.cron, timezone: s.timezone })}
+        />
+      )}
+    </div>
+  );
+}
+
 interface ActiveGame {
   id: string;
   name: string;
@@ -171,6 +222,7 @@ export default function Tournaments() {
   const [newChannel, setNewChannel] = useState('');
   const [newDisplayOrder, setNewDisplayOrder] = useState(0);
   const [newPlatformRules, setNewPlatformRules] = useState<PlatformRules>({ ...defaultPlatformRules });
+  const [newCleanupRule, setNewCleanupRule] = useState<CleanupRule>({ ...defaultCleanupRule });
   const [schedule, setSchedule] = useState({ cron: '0 0 * * *', timezone: 'America/Chicago' });
 
   // Edit form state
@@ -180,6 +232,7 @@ export default function Tournaments() {
   const [editChannel, setEditChannel] = useState('');
   const [editDisplayOrder, setEditDisplayOrder] = useState(0);
   const [editPlatformRules, setEditPlatformRules] = useState<PlatformRules>({ ...defaultPlatformRules });
+  const [editCleanupRule, setEditCleanupRule] = useState<CleanupRule>({ ...defaultCleanupRule });
   const [editSchedule, setEditSchedule] = useState({ cron: '0 0 * * *', timezone: 'America/Chicago' });
   const [editSaving, setEditSaving] = useState(false);
 
@@ -252,9 +305,11 @@ export default function Tournaments() {
         discord_role_id: '',
         is_active: true,
         display_order: newDisplayOrder,
+        cleanup_rule: newCleanupRule,
       });
       setNewName(''); setNewTag(''); setNewChannel(''); setNewMode('pinball'); setNewDisplayOrder(0);
       setNewPlatformRules({ ...defaultPlatformRules });
+      setNewCleanupRule({ ...defaultCleanupRule });
       setSchedule({ cron: '0 0 * * *', timezone: 'America/Chicago' });
       toast('Tournament created', 'success');
       fetchTournaments();
@@ -282,6 +337,7 @@ export default function Tournaments() {
     setEditMode(t.mode || 'pinball');
     setEditChannel(t.discord_channel_id || '');
     setEditDisplayOrder(t.display_order || 0);
+    setEditCleanupRule(parseCleanupRule(t.cleanup_rule));
     setEditSchedule(parseCadence(t.cadence));
     setEditPlatformRules(parsePlatformRules(t.platform_rules));
   };
@@ -301,6 +357,7 @@ export default function Tournaments() {
         discord_role_id: editTarget.discord_role_id || '',
         is_active: true,
         display_order: editDisplayOrder,
+        cleanup_rule: editCleanupRule,
       });
       toast('Tournament updated', 'success');
       setEditTarget(null);
@@ -369,6 +426,12 @@ export default function Tournaments() {
             Schedule <InfoTip text="When maintenance runs: locks the current game, scrapes scores, picks the next game, and announces results." />
           </label>
           <ScheduleBuilder value={schedule} onChange={setSchedule} />
+        </div>
+        <div className="mb-4">
+          <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
+            Completed Game Cleanup <InfoTip text="Controls when finished games are hidden on iScored. 'Immediate' hides on rotation. 'Keep last N' retains recent games. 'Scheduled' hides all completed games on a cron schedule (e.g. weekly)." />
+          </label>
+          <CleanupRuleEditor value={newCleanupRule} onChange={setNewCleanupRule} />
         </div>
         <NeonButton onClick={handleCreate} disabled={!newName.trim() || !newTag.trim()}>Create Tournament</NeonButton>
       </NeonCard>
@@ -517,6 +580,12 @@ export default function Tournaments() {
                 Schedule <InfoTip text="When maintenance runs: locks the current game, scrapes scores, picks the next game, and announces results." />
               </label>
               <ScheduleBuilder value={editSchedule} onChange={setEditSchedule} />
+            </div>
+            <div className="mb-6">
+              <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
+                Completed Game Cleanup <InfoTip text="Controls when finished games are hidden on iScored. 'Immediate' hides on rotation. 'Keep last N' retains recent games. 'Scheduled' hides all completed games on a cron schedule (e.g. weekly)." />
+              </label>
+              <CleanupRuleEditor value={editCleanupRule} onChange={setEditCleanupRule} />
             </div>
             <div className="flex gap-3 justify-end">
               <NeonButton variant="ghost" onClick={() => setEditTarget(null)} disabled={editSaving}>Cancel</NeonButton>

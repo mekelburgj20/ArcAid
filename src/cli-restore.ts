@@ -16,7 +16,7 @@ async function restoreBackup(backupFolderName: string) {
         throw new Error(`Backup folder not found: ${backupPath}`);
     }
 
-    logInfo(`♻️ Starting System Restore from: ${backupFolderName}`);
+    logInfo(`Starting System Restore from: ${backupFolderName}`);
     
     const metadataPath = path.join(backupPath, 'backup_metadata.json');
     if (!fsSync.existsSync(metadataPath)) {
@@ -76,20 +76,20 @@ async function restoreBackup(backupFolderName: string) {
         }
 
     } catch (e) {
-        logError('❌ Restore failed during iScored interaction:', e);
+        logError('Restore failed during iScored interaction:', e);
         throw e;
     } finally {
         await client.disconnect();
     }
 
-    logInfo('✅ System Restore Completed.');
+    logInfo('System Restore Completed.');
 }
 
 async function main() {
     const backupFolder = process.argv[2];
 
     if (!backupFolder) {
-        console.error('❌ Please provide the backup folder name as an argument.');
+        console.error('Please provide the backup folder name as an argument.');
         console.error('Usage: npm run restore -- <backup_folder_name>');
         process.exit(1);
     }
@@ -99,7 +99,7 @@ async function main() {
         output: process.stdout
     });
 
-    logInfo('⚠️  DANGER ZONE ⚠️');
+    logInfo('WARNING: DANGER ZONE');
     logInfo(`You are about to restore the system state from backup: ${backupFolder}`);
     logInfo('THIS WILL overwrite your current database and modify the live iScored lineup.');
     logInfo('');
@@ -111,7 +111,7 @@ async function main() {
                 await restoreBackup(backupFolder);
                 process.exit(0);
             } catch (error) {
-                logError('❌ Restore Failed:', error);
+                logError('Restore Failed:', error);
                 process.exit(1);
             }
         } else {

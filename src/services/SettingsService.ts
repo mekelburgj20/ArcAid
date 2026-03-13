@@ -39,6 +39,8 @@ export class SettingsService {
                 'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
                 key, strValue
             );
+            // Keep process.env in sync so changes take effect immediately
+            process.env[key] = strValue;
             if (key === 'SETUP_COMPLETE' && value === 'true') {
                 needsRestart = true;
             }

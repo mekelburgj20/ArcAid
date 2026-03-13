@@ -99,13 +99,13 @@ export class DiscordClient {
      */
     public async connect(): Promise<void> {
         this.client.once(Events.ClientReady, (readyClient) => {
-            logInfo(`✅ Discord bot ready! Logged in as ${readyClient.user.tag}`);
+            logInfo(`Discord bot ready! Logged in as ${readyClient.user.tag}`);
             emitBotStatus({ online: true });
         });
 
         this.client.on(Events.MessageCreate, async (message: Message) => {
             if (message.author.bot) return;
-            if (process.env.ENABLE_CALLOUTS === 'false') return;
+            if (process.env.ENABLE_CALLOUTS !== 'true') return;
 
             const content = message.content.toLowerCase();
             const calloutsPath = path.join(process.cwd(), 'data', 'callouts.json');

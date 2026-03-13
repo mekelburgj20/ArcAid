@@ -20,7 +20,7 @@ export default function PlayerDetail() {
 
   useEffect(() => {
     if (!id) return;
-    fetch(`/api/stats/player/${id}`)
+    fetch(`/api/stats/player/${encodeURIComponent(id)}`)
       .then(r => r.json())
       .then(setStats)
       .catch(() => {})
