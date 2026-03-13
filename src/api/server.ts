@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { initWebSocket } from './websocket.js';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
-import { hashPassword, verifyPassword, signToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
+import { hashPassword, verifyPassword, signToken, verifyToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
 import { requireAuth } from './middleware.js';
 import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema, MergePlayerSchema } from './schemas.js';
 import { SettingsService } from '../services/SettingsService.js';
@@ -67,6 +67,111 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    // --- Discord OAuth2 Endpoints ---
+
+    app.get('/api/auth/discord', async (req, res) => {
+        try {
+            const clientId = process.env.DISCORD_CLIENT_ID;
+            const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+            if (!clientId || !clientSecret) {
+                return res.status(400).json({ error: 'Discord OAuth not configured. Set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET.' });
+            }
+
+            // Return client ID so the frontend can build the OAuth URL with its own origin
+            res.json({ clientId });
+        } catch (error) {
+            logError('API Error (GET /api/auth/discord):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/auth/discord/callback', async (req, res) => {
+        try {
+            const { code, redirectUri } = req.body;
+            if (!code || !redirectUri) {
+                return res.status(400).json({ error: 'Authorization code and redirectUri required' });
+            }
+
+            const clientId = process.env.DISCORD_CLIENT_ID;
+            const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+            const guildId = process.env.DISCORD_GUILD_ID;
+            const adminRoleId = process.env.DISCORD_ADMIN_ROLE_ID;
+
+            if (!clientId || !clientSecret) {
+                return res.status(400).json({ error: 'Discord OAuth not configured' });
+            }
+            if (!guildId) {
+                return res.status(400).json({ error: 'DISCORD_GUILD_ID not configured' });
+            }
+            if (!adminRoleId) {
+                return res.status(400).json({ error: 'DISCORD_ADMIN_ROLE_ID not configured. Use /setup admin-role in Discord first.' });
+            }
+
+            // Exchange code for access token
+            const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    grant_type: 'authorization_code',
+                    code,
+                    redirect_uri: redirectUri,
+                }),
+            });
+
+            if (!tokenRes.ok) {
+                const err = await tokenRes.text();
+                logError('Discord OAuth token exchange failed:', err);
+                return res.status(401).json({ error: 'Failed to exchange authorization code' });
+            }
+
+            const tokenData = await tokenRes.json() as { access_token: string; token_type: string };
+
+            // Get user info
+            const userRes = await fetch('https://discord.com/api/users/@me', {
+                headers: { Authorization: `Bearer ${tokenData.access_token}` },
+            });
+            if (!userRes.ok) {
+                return res.status(401).json({ error: 'Failed to fetch Discord user info' });
+            }
+            const user = await userRes.json() as { id: string; username: string; global_name?: string; avatar?: string };
+
+            // Get guild member info (check role)
+            const memberRes = await fetch(`https://discord.com/api/users/@me/guilds/${guildId}/member`, {
+                headers: { Authorization: `Bearer ${tokenData.access_token}` },
+            });
+            if (!memberRes.ok) {
+                return res.status(403).json({ error: 'You are not a member of this server' });
+            }
+            const member = await memberRes.json() as { roles: string[] };
+
+            // Check if user has the admin role
+            if (!member.roles.includes(adminRoleId)) {
+                return res.status(403).json({ error: 'You do not have the required admin role' });
+            }
+
+            // Issue JWT
+            const displayName = user.global_name || user.username;
+            const avatarUrl = user.avatar
+                ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+                : null;
+
+            const token = signToken({
+                role: 'admin',
+                discordId: user.id,
+                username: displayName,
+                avatar: avatarUrl || undefined,
+            });
+
+            logInfo(`Discord OAuth login: ${displayName} (${user.id})`);
+            res.json({ token, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
+        } catch (error) {
+            logError('API Error (POST /api/auth/discord/callback):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
     app.post('/api/auth/change-password', requireAuth, async (req, res) => {
         try {
             const { newPassword } = req.body;
@@ -80,6 +185,21 @@ export function startApiServer(port: number = 3001) {
             logError('API Error (POST /api/auth/change-password):', error);
             res.status(500).json({ error: 'Internal Server Error' });
         }
+    });
+
+    // --- Auth Info Endpoint ---
+    app.get('/api/auth/me', requireAuth, (req, res) => {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'No token' });
+        const payload = verifyToken(token);
+        if (!payload) return res.status(401).json({ error: 'Invalid token' });
+        res.json({
+            role: payload.role,
+            discordId: payload.discordId || null,
+            username: payload.username || 'Admin',
+            avatar: payload.avatar || null,
+        });
     });
 
     // --- Status Endpoint ---

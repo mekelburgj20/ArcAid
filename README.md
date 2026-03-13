@@ -26,6 +26,7 @@
 - **Scheduler hot-reload** — Schedule changes take effect without restart
 - **Callouts easter egg** — Configurable trigger-word responses (toggleable in Settings)
 - **Auto user mapping** — First-time submitters auto-mapped by Discord display name
+- **Discord OAuth login** — Mods with the configured admin role can log into the Admin UI via Discord (alongside password auth)
 - **Docker deployment** — Production-ready with health checks, non-root user, Playwright
 
 ## Quick Start
@@ -62,6 +63,7 @@ npm run dev            # Vite dev server with HMR
    - Embed Links, Attach Files, Read Message History, Use External Emojis, Add Reactions, Use Slash Commands
 4. Invite the bot to your server using the generated URL
 5. Copy Bot Token, Client ID, and Guild ID into your `.env` file
+6. **For Discord OAuth admin login:** Copy the **Client Secret** from the OAuth2 page into `DISCORD_CLIENT_SECRET`. Add redirect URIs (e.g., `http://localhost:3001/auth/discord/callback`, your production URL). Set the admin role via `/setup admin-role` in Discord.
 
 ## Discord Commands
 
@@ -186,7 +188,9 @@ Settings can be configured via `.env` file, the Setup Wizard (first run), or the
 |---------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | — | Discord bot token (required) |
 | `DISCORD_CLIENT_ID` | — | Discord application client ID (required) |
+| `DISCORD_CLIENT_SECRET` | — | Discord OAuth2 client secret (for mod login via Discord) |
 | `DISCORD_GUILD_ID` | — | Discord server ID (required) |
+| `DISCORD_ADMIN_ROLE_ID` | — | Discord role ID granting admin UI access (set via `/setup admin-role`) |
 | `ISCORED_USERNAME` | — | iScored.info login username |
 | `ISCORED_PASSWORD` | — | iScored.info login password |
 | `ISCORED_PUBLIC_URL` | — | iScored public leaderboard URL (for score sync) |

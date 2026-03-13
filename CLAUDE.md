@@ -69,7 +69,10 @@ Two sub-applications in one process:
 - DB `settings` table = runtime config (overrides `.env` on startup, synced to `process.env` immediately on save)
 - iScored games identified by tags: `DG`, `WG-VPXS`, `WG-VR`, `MG`
 - Configurable values from settings: `GAME_ELIGIBILITY_DAYS` (120), `WINNER_PICK_WINDOW_MIN` (60), `RUNNERUP_PICK_WINDOW_MIN` (30), `BOT_TIMEZONE` (America/Chicago)
-- API write endpoints require JWT Bearer token (first login sets admin password)
+- API write endpoints require JWT Bearer token
+- Two auth methods: password (first login sets admin password) and Discord OAuth (mods with `DISCORD_ADMIN_ROLE_ID`)
+- Discord OAuth flow: frontend builds OAuth URL with `window.location.origin`, callback uses raw `fetch` (not `api.post`) to avoid 401-redirect
+- JWT payload includes optional `discordId`, `username`, `avatar` for Discord-authenticated users
 - Public slug matching is case-insensitive
 
 ## Score System

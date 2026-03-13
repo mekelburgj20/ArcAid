@@ -18,6 +18,7 @@ import Scoreboard from './pages/Scoreboard';
 import Players from './pages/Players';
 import PlayerDetail from './pages/PlayerDetail';
 import GameDetail from './pages/GameDetail';
+import DiscordCallback from './pages/DiscordCallback';
 import PublicLayout from './components/PublicLayout';
 
 /** Redirect old public routes to slug-based paths */
@@ -43,10 +44,12 @@ function App() {
   const [portalSlug, setPortalSlug] = useState<string | null | undefined>(undefined); // undefined = loading
   const [portalName, setPortalName] = useState<string>('ARCAID');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ username: string; avatar: string | null } | null>(null);
 
   // Known admin paths (never treated as a slug)
   const adminPaths = ['/', '/login', '/settings', '/tournaments', '/library', '/leaderboard', '/stats', '/history', '/logs', '/backups'];
   const isAdminRoute = adminPaths.includes(location.pathname);
+  const isDiscordCallback = location.pathname === '/auth/discord/callback';
   const isLegacyPublicRoute = location.pathname === '/scoreboard'
     || location.pathname === '/players'
     || location.pathname.startsWith('/players/')
@@ -63,6 +66,14 @@ function App() {
       .catch(() => setPortalSlug(null));
   }, []);
 
+  // Fetch current user info when authenticated
+  useEffect(() => {
+    if (!authed) { setCurrentUser(null); return; }
+    api.get<{ username: string; avatar: string | null }>('/auth/me')
+      .then(data => setCurrentUser({ username: data.username, avatar: data.avatar }))
+      .catch(() => setCurrentUser(null));
+  }, [authed]);
+
   // Update document title based on context
   useEffect(() => {
     document.title = isAdminRoute ? 'ArcAid Admin' : portalName || 'ArcAid';
@@ -76,6 +87,17 @@ function App() {
       .then(data => setNeedsSetup(data.needsSetup))
       .catch(() => setNeedsSetup(false));
   }, [isAdminRoute]);
+
+  // Discord OAuth callback
+  if (isDiscordCallback) {
+    return (
+      <ToastProvider>
+        <Routes>
+          <Route path="/auth/discord/callback" element={<DiscordCallback onLogin={() => setAuthed(true)} />} />
+        </Routes>
+      </ToastProvider>
+    );
+  }
 
   // Legacy public route redirects
   if (isLegacyPublicRoute) {
@@ -93,7 +115,7 @@ function App() {
   // Any path that isn't admin and starts with /<something> could be a slug route
   const pathParts = location.pathname.split('/').filter(Boolean);
   const possibleSlug = pathParts[0];
-  const isPublicRoute = !isAdminRoute && !!possibleSlug && possibleSlug !== 'login' && !location.pathname.startsWith('/api');
+  const isPublicRoute = !isAdminRoute && !isDiscordCallback && !!possibleSlug && possibleSlug !== 'login' && !location.pathname.startsWith('/api') && !location.pathname.startsWith('/auth');
 
   // Public portal pages
   if (isPublicRoute) {
@@ -225,13 +247,27 @@ function App() {
               );
             })}
           </nav>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-3 px-5 py-3 text-sm text-muted hover:text-neon-magenta border-t border-border transition-colors cursor-pointer bg-transparent border-l-0 border-r-0 border-b-0"
-          >
-            <LogOut size={18} />
-            <span>Logout</span>
-          </button>
+          <div className="border-t border-border">
+            {currentUser && (
+              <div className="flex items-center gap-3 px-5 py-3">
+                {currentUser.avatar ? (
+                  <img src={currentUser.avatar} alt="" className="w-6 h-6 rounded-full" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-raised flex items-center justify-center text-xs text-faint">
+                    {currentUser.username.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <span className="text-xs text-muted truncate flex-1">{currentUser.username}</span>
+              </div>
+            )}
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-3 px-5 py-3 text-sm text-muted hover:text-neon-magenta transition-colors cursor-pointer bg-transparent border-0 w-full text-left"
+            >
+              <LogOut size={18} />
+              <span>Logout</span>
+            </button>
+          </div>
         </aside>
 
         {/* Main Content */}
