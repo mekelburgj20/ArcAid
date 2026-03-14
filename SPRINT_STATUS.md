@@ -8,11 +8,9 @@
 
 ## Current Work
 
-**Feature: Ranking Groups** — IN PROGRESS
-**Branch:** `feature/ranking-groups`
-**Goal:** Cross-tournament overall player rankings with configurable grouping and 4 iScored-compatible ranking methods.
+**Features: Ranking Groups + UI Themes** — COMPLETE (merged to main)
 
-## Feature Progress
+## Feature Progress — Ranking Groups
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
@@ -22,10 +20,20 @@
 | 4 | Admin UI management page | `done` | Full CRUD + inline ranking preview |
 | 5 | Public scoreboard integration | `done` | Overall Rankings section below game cards |
 
-## Up Next
+## Feature Progress — UI Theme System
 
-**Feature: UI Theme System** — PLANNED
-**Branch:** `feature/ui-themes` (not started)
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 1 | CSS variable theme system | `done` | Original @theme static, overrides via .theme-dark/.theme-light classes |
+| 2 | 3 themes (Arcade, Dark, Light) | `done` | daisyUI oklch values mapped to ArcAid semantic tokens |
+| 3 | user_preferences table + PreferencesService | `done` | Zod-validated, works for password + Discord auth |
+| 4 | API endpoints (GET/POST /me/preferences) | `done` | Per-user theme, UI_THEME global setting, portal endpoint |
+| 5 | ThemeProvider + Settings UI | `done` | localStorage first (no flash), global + personal selectors |
+| 6 | Light theme adjustments | `done` | Scanlines hidden, glow effects softened |
+
+## Bug Fix
+
+- **TournamentEngine: no-queued-game timeout gap** — When maintenance ran with no QUEUED game, no picker slot was created, so TimeoutManager never triggered auto-selection. Fixed by always creating a QUEUED slot for timeout tracking.
 
 ## Sprint 9 — ABANDONED (Gemini implementation had critical issues)
 ## Sprint 8 — COMPLETE
@@ -39,9 +47,9 @@
 
 ## Last Session
 
-**Date:** 2026-03-13
-**What happened:** Analyzed Gemini's theme branches (feature/per-user-themes, feature/ui-themes) — found critical issues (broken Tailwind v4 @theme, no Zod validation, no service layer, changed default colors). Discarded all changes, deleted stale branches. Started fresh with ranking groups feature.
-**Next:** Implement RankingService, API endpoints, Admin UI, and public scoreboard integration.
+**Date:** 2026-03-14
+**What happened:** Merged ranking groups and UI theme features. Fixed critical bug in TournamentEngine where maintenance with no QUEUED game failed to create a picker slot, preventing TimeoutManager auto-selection and leaving tournaments dormant.
+**Next:** Deploy, monitor DG tournaments for correct auto-selection behavior.
 
 ## Blockers
 

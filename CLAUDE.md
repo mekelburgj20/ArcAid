@@ -46,7 +46,7 @@ Two sub-applications in one process:
 - `src/engine/Scheduler.ts` — Cron-based maintenance scheduling (reads `BOT_TIMEZONE` from settings), hot-reload via `reload()`, schedules cleanup cron tasks
 - `src/engine/TimeoutManager.ts` — Winner/runner-up pick window tracking
 - `src/api/server.ts` — Express REST API routing (delegates to service layer), admin endpoints (merge player, scheduler reload)
-- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `LogService`, `VpsImportService`, `RatingService`, `RankingService`, `DashboardService`, `BackupService`
+- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `LogService`, `VpsImportService`, `RatingService`, `RankingService`, `PreferencesService`, `DashboardService`, `BackupService`
 - `src/utils/discord.ts` — Shared `sendChannelMessage()` for engine classes
 - `src/utils/terminology.ts` — `getTerminology(mode?)` — per-tournament terminology (pinball=Table/Grind, videogame=Game/Tournament)
 - `src/utils/cooldown.ts` — Per-user Discord command cooldown tracker
@@ -56,7 +56,7 @@ Two sub-applications in one process:
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
 - Admin pages (require login): Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Logs, Backups, Settings, SetupWizard
 - Public pages (no auth, no sidebar): Scoreboard, Players, PlayerDetail, GameDetail — served under `/:slug/*` via `PublicLayout`
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder`, etc.
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder`, `ThemeProvider`, etc.
 - Mobile-responsive: admin sidebar collapses to hamburger menu, public pages scale to phone screens
 
 ## Key Patterns
@@ -74,6 +74,7 @@ Two sub-applications in one process:
 - Discord OAuth flow: frontend builds OAuth URL with `window.location.origin`, callback uses raw `fetch` (not `api.post`) to avoid 401-redirect
 - JWT payload includes optional `discordId`, `username`, `avatar` for Discord-authenticated users
 - Public slug matching is case-insensitive
+- **Themes:** 3 themes (arcade/dark/light). CSS variables override `@theme` tokens via `.theme-dark`/`.theme-light` classes on `<html>`. Global theme stored in `UI_THEME` setting, per-user override in `user_preferences` table. `ThemeProvider` reads localStorage first (no flash), hydrates from API.
 
 ## Score System
 
@@ -123,7 +124,7 @@ Cross-tournament overall player rankings. Admin creates "ranking groups" that se
 
 SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Leaderboard cache cleared on every startup.
 
-Key tables: `tournaments`, `game_library` (with `image_url`, `mode`, `platforms`), `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions` (source of truth for scores), `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`, `ranking_groups`, `ranking_group_tournaments`, `ranking_groups_cache`
+Key tables: `tournaments`, `game_library` (with `image_url`, `mode`, `platforms`), `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions` (source of truth for scores), `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`, `ranking_groups`, `ranking_group_tournaments`, `ranking_groups_cache`, `user_preferences`
 
 Legacy table: `scores` (exists but no longer written to; kept for backward compatibility)
 

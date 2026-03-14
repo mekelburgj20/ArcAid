@@ -97,3 +97,7 @@ export const CreateRankingGroupSchema = z.object({
 });
 
 export const UpdateRankingGroupSchema = CreateRankingGroupSchema.omit({ id: true });
+
+export const UpdatePreferencesSchema = z.object({
+    ui_theme: z.enum(['arcade', 'dark', 'light']).nullable(),
+});

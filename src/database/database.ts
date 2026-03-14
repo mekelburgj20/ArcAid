@@ -130,6 +130,11 @@ export async function initDatabase(): Promise<Database> {
             FOREIGN KEY (game_id) REFERENCES games (id)
         );
 
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            discord_user_id TEXT PRIMARY KEY,
+            ui_theme TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS game_ratings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             game_name TEXT NOT NULL,

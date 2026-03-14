@@ -217,7 +217,7 @@
 
 ---
 
-## Feature: Ranking Groups (IN PROGRESS)
+## Feature: Ranking Groups (COMPLETE)
 **Branch:** `feature/ranking-groups`
 **Goal:** Cross-tournament overall player rankings with configurable grouping and ranking methods.
 
@@ -243,26 +243,25 @@
 
 ---
 
-## Feature: UI Theme System (PLANNED)
+## Feature: UI Theme System (COMPLETE)
 **Branch:** `feature/ui-themes`
-**Goal:** Customizable themes applied globally or per-user, using daisyUI-generated CSS.
 
 ### Architecture
-- [ ] CSS variable-based theme system (keep original `@theme` static values, override via CSS vars at runtime)
-- [ ] Theme definitions as JSON data (easy to add new themes from daisyUI generator)
-- [ ] `user_preferences` table for per-user theme storage
-- [ ] `PreferencesService` with Zod-validated endpoints
+- [x] CSS variable-based theme system (original `@theme` static, overrides via CSS classes)
+- [x] Theme definitions mapped from daisyUI oklch values to ArcAid semantic tokens
+- [x] `user_preferences` table for per-user theme storage
+- [x] `PreferencesService` with Zod-validated endpoints
 
 ### Backend
-- [ ] `GET/POST /api/me/preferences` — user preference CRUD (works for both auth methods)
-- [ ] `UI_THEME` global setting for default theme
-- [ ] Expose global theme in `/api/portal` for public pages
+- [x] `GET/POST /api/me/preferences` — user preference CRUD (works for both auth methods)
+- [x] `UI_THEME` global setting for default theme
+- [x] Expose global theme in `/api/portal` for public pages
 
 ### Frontend
-- [ ] `ThemeProvider` context — reads localStorage first (no flash), hydrates from API
-- [ ] Theme selector in Settings (global + personal override)
-- [ ] Preserve original arcade neon palette as default theme
-- [ ] Scanlines toggle (on/off per theme)
+- [x] `ThemeProvider` context — reads localStorage first (no flash), hydrates from API
+- [x] Theme selector in Settings (global + personal override)
+- [x] 3 themes: Arcade (original neon), Dark (daisyUI indigo), Light (daisyUI clean)
+- [x] Scanlines auto-hidden on light theme, glow effects softened
 
 ---
 
@@ -273,6 +272,7 @@
 - [ ] Trend charts / sparklines on player profile pages
 - [x] Mobile-responsive tweaks for admin UI and public pages
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
+- [ ] Additional themes (add more daisyUI themes as CSS variable blocks)
 
 ### Ops / Infrastructure
 - [ ] CI/CD pipeline (build + test on push)

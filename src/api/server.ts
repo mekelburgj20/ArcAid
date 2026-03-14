@@ -10,7 +10,7 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
 import { requireAuth } from './middleware.js';
-import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema, MergePlayerSchema, CreateRankingGroupSchema, UpdateRankingGroupSchema } from './schemas.js';
+import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema, MergePlayerSchema, CreateRankingGroupSchema, UpdateRankingGroupSchema, UpdatePreferencesSchema } from './schemas.js';
 import { SettingsService } from '../services/SettingsService.js';
 import { TournamentService } from '../services/TournamentService.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
@@ -200,6 +200,47 @@ export function startApiServer(port: number = 3001) {
             username: payload.username || 'Admin',
             avatar: payload.avatar || null,
         });
+    });
+
+    // --- User Preferences Endpoints ---
+    app.get('/api/me/preferences', requireAuth, async (req, res) => {
+        try {
+            const authHeader = req.headers['authorization'];
+            const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+            if (!token) return res.status(401).json({ error: 'No token' });
+            const payload = verifyToken(token);
+            if (!payload) return res.status(401).json({ error: 'Invalid token' });
+
+            // Password-only admins use a stable key since they have no discordId
+            const userId = payload.discordId || 'admin-password';
+            const { PreferencesService } = await import('../services/PreferencesService.js');
+            const prefs = await PreferencesService.getAll(userId);
+            res.json(prefs);
+        } catch (error) {
+            logError('API Error (GET /api/me/preferences):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/me/preferences', requireAuth, async (req, res) => {
+        try {
+            const authHeader = req.headers['authorization'];
+            const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+            if (!token) return res.status(401).json({ error: 'No token' });
+            const payload = verifyToken(token);
+            if (!payload) return res.status(401).json({ error: 'Invalid token' });
+
+            const validationResult = validate(UpdatePreferencesSchema, req.body);
+            if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+            const userId = payload.discordId || 'admin-password';
+            const { PreferencesService } = await import('../services/PreferencesService.js');
+            await PreferencesService.setTheme(userId, validationResult.data.ui_theme);
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (POST /api/me/preferences):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
     });
 
     // --- Status Endpoint ---
@@ -877,10 +918,11 @@ export function startApiServer(port: number = 3001) {
         try {
             const name = await SettingsService.get('GAME_ROOM_NAME');
             const slug = await SettingsService.get('GAME_ROOM_SLUG');
+            const uiTheme = await SettingsService.get('UI_THEME');
             if (!slug) {
-                return res.json({ slug: null, name: null });
+                return res.json({ slug: null, name: null, ui_theme: uiTheme || 'arcade' });
             }
-            res.json({ slug, name: name || slug });
+            res.json({ slug, name: name || slug, ui_theme: uiTheme || 'arcade' });
         } catch (error) {
             logError('API Error (/api/portal):', error);
             res.status(500).json({ error: 'Internal Server Error' });

@@ -34,6 +34,53 @@
   --font-mono: "JetBrains Mono", monospace;
 }
 
+/*
+ * Theme overrides via CSS custom properties.
+ * The arcade theme is the default (values in @theme above).
+ * Additional themes override colors via class on <html>.
+ * Tailwind utilities (bg-deep, text-primary, etc.) work because
+ * the @theme block defines the token names, and the browser
+ * resolves the CSS variables at runtime.
+ */
+
+/* Dark theme (daisyUI-inspired deep indigo) */
+.theme-dark {
+  --color-deep: oklch(21.15% 0.012 254.09);
+  --color-surface: oklch(23.26% 0.014 253.1);
+  --color-raised: oklch(25.33% 0.016 252.42);
+  --color-border: oklch(35% 0.02 255);
+  --color-border-glow: oklch(58% 0.233 277.117);
+  --color-neon-cyan: oklch(74% 0.16 232.661);
+  --color-neon-magenta: oklch(65% 0.241 354.308);
+  --color-neon-green: oklch(76% 0.177 163.223);
+  --color-neon-amber: oklch(82% 0.189 84.429);
+  --color-neon-purple: oklch(58% 0.233 277.117);
+  --color-neon-coral: oklch(71% 0.194 13.428);
+  --color-neon-blue: oklch(74% 0.16 232.661);
+  --color-primary: oklch(97.807% 0.029 256.847);
+  --color-muted: oklch(70% 0.02 255);
+  --color-faint: oklch(45% 0.015 255);
+}
+
+/* Light theme (daisyUI-inspired clean light) */
+.theme-light {
+  --color-deep: oklch(95% 0 0);
+  --color-surface: oklch(100% 0 0);
+  --color-raised: oklch(98% 0 0);
+  --color-border: oklch(85% 0.005 260);
+  --color-border-glow: oklch(45% 0.24 277.023);
+  --color-neon-cyan: oklch(50% 0.16 232.661);
+  --color-neon-magenta: oklch(55% 0.241 354.308);
+  --color-neon-green: oklch(50% 0.177 163.223);
+  --color-neon-amber: oklch(60% 0.189 84.429);
+  --color-neon-purple: oklch(45% 0.24 277.023);
+  --color-neon-coral: oklch(55% 0.194 13.428);
+  --color-neon-blue: oklch(50% 0.16 232.661);
+  --color-primary: oklch(21% 0.006 285.885);
+  --color-muted: oklch(45% 0.01 260);
+  --color-faint: oklch(72% 0.008 260);
+}
+
 /* Base resets */
 * {
   box-sizing: border-box;
@@ -47,7 +94,7 @@ body {
   min-height: 100vh;
 }
 
-/* CRT Scanline overlay (subtle) */
+/* CRT Scanline overlay (subtle) — hidden on light theme */
 .scanlines::after {
   content: "";
   position: fixed;
@@ -61,6 +108,10 @@ body {
     rgba(0, 0, 0, 0.03) 4px
   );
   z-index: 9999;
+}
+
+.theme-light .scanlines::after {
+  background: none;
 }
 
 /* Neon glow utilities */
@@ -78,6 +129,14 @@ body {
 
 .glow-amber {
   box-shadow: 0 0 8px rgba(255, 170, 0, 0.3), inset 0 0 8px rgba(255, 170, 0, 0.05);
+}
+
+/* Soften glow on light theme */
+.theme-light .glow-cyan,
+.theme-light .glow-green,
+.theme-light .glow-magenta,
+.theme-light .glow-amber {
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.08);
 }
 
 /* Status pulse animation */

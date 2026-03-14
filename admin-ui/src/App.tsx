@@ -3,6 +3,7 @@ import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { Home, Settings as SettingsIcon, Trophy, Activity, Library, LogOut, Clock, HardDrive, BarChart3, Medal, Menu, X, Crown } from 'lucide-react';
 import { api, isAuthenticated, setToken } from './lib/api';
 import { ToastProvider } from './components/Toast';
+import { ThemeProvider } from './components/ThemeProvider';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Settings from './pages/Settings';
@@ -292,4 +293,12 @@ function App() {
   );
 }
 
-export default App;
+function AppWithTheme() {
+  return (
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
+  );
+}
+
+export default AppWithTheme;

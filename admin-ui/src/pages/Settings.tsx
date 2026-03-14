@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { useTheme, THEMES, type ThemeId } from '../components/ThemeProvider';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
@@ -80,6 +81,7 @@ function PlatformsEditor({ platforms, onChange }: { platforms: string[]; onChang
 
 export default function Settings() {
   const { toast } = useToast();
+  const { globalTheme, setGlobalTheme, userTheme, setUserTheme } = useTheme();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -93,7 +95,14 @@ export default function Settings() {
 
   useEffect(() => {
     api.get<Record<string, string>>('/settings')
-      .then(data => { setSettings(data); setLoading(false); })
+      .then(data => {
+        setSettings(data);
+        // Sync global theme from settings
+        if (data.UI_THEME && data.UI_THEME !== globalTheme) {
+          setGlobalTheme(data.UI_THEME as ThemeId);
+        }
+        setLoading(false);
+      })
       .catch(() => { toast('Failed to load settings', 'error'); setLoading(false); });
   }, []);
 
@@ -150,6 +159,57 @@ export default function Settings() {
           {saving ? 'Saving...' : 'Save All Changes'}
         </NeonButton>
       </div>
+
+      <NeonCard title="Theme" className="mb-4">
+        <div className="space-y-4">
+          {/* Global Theme */}
+          <div>
+            <label className="text-xs text-faint block mb-1">Global Theme (Public Portal Default)</label>
+            <select
+              value={settings.UI_THEME || globalTheme}
+              onChange={e => {
+                const newTheme = e.target.value as ThemeId;
+                handleChange('UI_THEME', newTheme);
+                setGlobalTheme(newTheme);
+                // Preview immediately if no personal override
+                if (!userTheme) {
+                  // Theme applies automatically via context
+                }
+              }}
+              className={inputClass}
+            >
+              {Object.entries(THEMES).map(([id, { label, description }]) => (
+                <option key={id} value={id}>{label} — {description}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted mt-1">Applied to the public scoreboard and as the default for all admins.</p>
+          </div>
+
+          {/* Personal Theme Override */}
+          <div>
+            <label className="text-xs text-faint block mb-1">My Theme (Personal Override)</label>
+            <select
+              value={userTheme || ''}
+              onChange={e => {
+                const val = e.target.value as ThemeId | '';
+                const newTheme = val || null;
+                setUserTheme(newTheme);
+                // Persist to server
+                api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
+                  toast('Failed to save theme preference', 'error');
+                });
+              }}
+              className={inputClass}
+            >
+              <option value="">(Use Global Default)</option>
+              {Object.entries(THEMES).map(([id, { label }]) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted mt-1">Overrides the global theme for your admin session only. Does not affect other admins or the public portal.</p>
+          </div>
+        </div>
+      </NeonCard>
 
       <NeonCard title="Platforms" className="mb-4">
         <p className="text-muted text-sm mb-3">
