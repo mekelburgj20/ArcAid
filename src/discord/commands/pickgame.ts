@@ -130,7 +130,7 @@ export const pickgame: Command = {
 
         try {
             const db = await getDatabase();
-            const tournament = await db.get('SELECT id, type, mode FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
+            const tournament = await db.get('SELECT id, type, mode, max_active_games FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
 
             if (!tournament) {
                 await interaction.editReply(`Could not find a tournament named '${tournamentName}'.`);
@@ -151,43 +151,51 @@ export const pickgame: Command = {
             const gameLibEntry = await db.get('SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
             const styleId = gameLibEntry?.style_id || undefined;
 
-            await interaction.editReply(`Creating **${gameName}** on iScored... This may take a moment.`);
+            // Determine if we should activate immediately or queue
+            const maxSlots = tournament.max_active_games ?? 1;
+            const activeGames = await engine.getActiveGames(tournament.id);
+            const hasOpenSlot = activeGames.length < maxSlots;
 
-            // Create game on iScored
-            const client = new IScoredClient();
-            await client.connect();
-            let iscoredId: string;
-            try {
-                iscoredId = await client.createGame(gameName, styleId);
+            if (hasOpenSlot) {
+                // Slot available — create on iScored and activate immediately
+                await interaction.editReply(`Creating **${gameName}** on iScored... This may take a moment.`);
 
-                // Apply the tournament tag and unlock the game
-                await client.setGameTags(iscoredId, tournament.type);
-                await client.setGameStatus(iscoredId, { locked: false, hidden: false });
-            } finally {
-                await client.disconnect();
-            }
+                const client = new IScoredClient();
+                await client.connect();
+                let iscoredId: string;
+                try {
+                    iscoredId = await client.createGame(gameName, styleId);
+                    await client.setGameTags(iscoredId, tournament.type);
+                    await client.setGameStatus(iscoredId, { locked: false, hidden: false });
+                } finally {
+                    await client.disconnect();
+                }
 
-            // Activate locally in a transaction
-            await db.exec('BEGIN TRANSACTION');
-            try {
-                await engine.activateGame(tournament.id, gameName, styleId, iscoredId);
-                await db.exec('COMMIT');
-            } catch (dbError) {
-                await db.exec('ROLLBACK');
-                throw dbError;
+                await db.exec('BEGIN TRANSACTION');
+                try {
+                    await engine.activateGame(tournament.id, gameName, styleId, iscoredId, false);
+                    await db.exec('COMMIT');
+                } catch (dbError) {
+                    await db.exec('ROLLBACK');
+                    throw dbError;
+                }
+            } else {
+                // All slots full — queue the game (no iScored creation yet, happens at maintenance)
+                await engine.queueGame(tournament.id, gameName, styleId);
             }
 
             logInfo(`User ${interaction.user.tag} picked ${gameName} for ${tournamentName}`);
+
+            // Reorder iScored lineup in background
+            if (hasOpenSlot) {
+                engine.reorderIScoredLineup().catch(() => {});
+            }
+
             const color = getTournamentColor(tournament.type);
 
-            // Check if the game is now active (no other active game) or queued behind one
-            const activeGame = await db.get(
-                'SELECT id FROM games WHERE tournament_id = ? AND status = ? AND name != ? COLLATE NOCASE',
-                tournament.id, 'ACTIVE', gameName
-            );
-            const statusText = activeGame
-                ? `**${gameName}** has been queued for the **${tournamentName}** tournament.`
-                : `**${gameName}** is now active for the **${tournamentName}** tournament — play immediately!`;
+            const statusText = hasOpenSlot
+                ? `**${gameName}** is now active for the **${tournamentName}** tournament — play immediately!`
+                : `**${gameName}** has been queued for the **${tournamentName}** tournament.`;
 
             const embed = new EmbedBuilder()
                 .setTitle(`${term.game} Picked!`)

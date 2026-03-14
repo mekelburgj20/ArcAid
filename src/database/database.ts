@@ -195,6 +195,7 @@ export async function initDatabase(): Promise<Database> {
         `ALTER TABLE tournaments ADD COLUMN display_order INTEGER DEFAULT 0`,
         `ALTER TABLE tournaments ADD COLUMN cleanup_rule TEXT DEFAULT '{"mode":"retain","count":0}'`,
         `ALTER TABLE game_library ADD COLUMN image_url TEXT`,
+        `ALTER TABLE tournaments ADD COLUMN max_active_games INTEGER DEFAULT 1`,
     ];
     for (const migration of migrations) {
         try {

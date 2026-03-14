@@ -25,15 +25,16 @@ export class TournamentService {
         discord_role_id?: string;
         is_active?: boolean;
         display_order?: number;
+        max_active_games?: number;
         cleanup_rule?: any;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, cleanup_rule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             data.id, data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
-            data.is_active ? 1 : 0, data.display_order ?? 0,
+            data.is_active ? 1 : 0, data.display_order ?? 0, data.max_active_games ?? 1,
             JSON.stringify(data.cleanup_rule || { mode: 'retain', count: 0 })
         );
     }
@@ -52,15 +53,16 @@ export class TournamentService {
         discord_role_id?: string;
         is_active?: boolean;
         display_order?: number;
+        max_active_games?: number;
         cleanup_rule?: any;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, cleanup_rule = ? WHERE id = ?',
+            'UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ? WHERE id = ?',
             data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
-            data.is_active ? 1 : 0, data.display_order ?? 0,
+            data.is_active ? 1 : 0, data.display_order ?? 0, data.max_active_games ?? 1,
             JSON.stringify(data.cleanup_rule || { mode: 'retain', count: 0 }), id
         );
     }

@@ -7,7 +7,7 @@ import { EventEmitter } from 'events';
 import { z } from 'zod';
 import { initWebSocket } from './websocket.js';
 import { getDatabase } from '../database/database.js';
-import { logInfo, logError } from '../utils/logger.js';
+import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
 import { requireAuth } from './middleware.js';
 import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema, MergePlayerSchema, CreateRankingGroupSchema, UpdateRankingGroupSchema, UpdatePreferencesSchema } from './schemas.js';
@@ -805,6 +805,11 @@ export function startApiServer(port: number = 3001) {
                 await db.exec('COMMIT');
                 logInfo(`Admin activated game: ${gameName} for tournament ${tournamentId}`);
                 res.json({ success: true, gameId: game.id });
+
+                // Reorder iScored lineup in background
+                engine.reorderIScoredLineup().catch(err =>
+                    logWarn('Failed to reorder iScored lineup after activation:', err)
+                );
             } catch (dbError) {
                 await db.exec('ROLLBACK');
                 throw dbError;

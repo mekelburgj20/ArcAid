@@ -85,6 +85,30 @@ export class TournamentEngine {
     }
 
     /**
+     * Queues a game for a tournament (status = QUEUED, no start date).
+     */
+    public async queueGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string): Promise<Game> {
+        const db = await getDatabase();
+        const game: Game = {
+            id: uuidv4(),
+            tournamentId,
+            name: gameName,
+            iscoredId,
+            styleId,
+            status: 'QUEUED',
+        };
+
+        logInfo(`Queuing game for tournament ${tournamentId}: ${gameName}`);
+
+        await db.run(
+            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status) VALUES (?, ?, ?, ?, ?, ?)',
+            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status
+        );
+
+        return game;
+    }
+
+    /**
      * Deactivates an active game — marks COMPLETED in DB.
      * Only locks on iScored if no other ACTIVE game shares the same iscored_id.
      * Scores/submissions are preserved.
@@ -141,15 +165,21 @@ export class TournamentEngine {
     }
 
     /**
-     * Retrieves the currently active game for a tournament.
+     * Retrieves the currently active game for a tournament (first one found).
      */
     public async getActiveGame(tournamentId: string): Promise<Game | null> {
+        const games = await this.getActiveGames(tournamentId);
+        return games[0] ?? null;
+    }
+
+    /**
+     * Retrieves all currently active games for a tournament.
+     */
+    public async getActiveGames(tournamentId: string): Promise<Game[]> {
         const db = await getDatabase();
-        const row = await db.get('SELECT * FROM games WHERE tournament_id = ? AND status = ?', tournamentId, 'ACTIVE');
+        const rows = await db.all('SELECT * FROM games WHERE tournament_id = ? AND status = ? ORDER BY start_date ASC', tournamentId, 'ACTIVE');
 
-        if (!row) return null;
-
-        return {
+        return rows.map((row: any) => ({
             id: row.id,
             tournamentId: row.tournament_id,
             name: row.name,
@@ -157,8 +187,8 @@ export class TournamentEngine {
             styleId: row.style_id,
             status: row.status as any,
             startDate: row.start_date ? new Date(row.start_date) : undefined,
-            endDate: row.end_date ? new Date(row.end_date) : undefined
-        };
+            endDate: row.end_date ? new Date(row.end_date) : undefined,
+        }));
     }
 
     /**
@@ -199,13 +229,9 @@ export class TournamentEngine {
     }
 
     /**
-     * Executes the full maintenance routine for a specific tournament:
-     * 1. Lock the active game on iScored and scrape the final winner.
-     * 2. Mark the active game COMPLETED in the database.
-     * 3. Announce the winner to the tournament's Discord channel.
-     * 4. Activate the next QUEUED game (on iScored + in DB).
-     * 5. Assign picking rights to the winner for the following slot.
-     * 6. Announce the new active game and the winner's pick window.
+     * Executes the full maintenance routine for a specific tournament.
+     * Supports multi-slot tournaments (max_active_games > 1):
+     * each active game is processed independently with its own winner and queued replacement.
      */
     public async runMaintenance(tournamentId: string): Promise<void> {
         const db = await getDatabase();
@@ -217,63 +243,168 @@ export class TournamentEngine {
 
         logInfo(`Starting maintenance for ${term.tournament}: ${tournamentRow.name}`);
 
-        // --- Phase 1: Gather what we need from the DB ---
-        const activeGame = await this.getActiveGame(tournamentId);
-        const queuedRow = await db.get(
-            'SELECT * FROM games WHERE tournament_id = ? AND status = ? ORDER BY rowid ASC LIMIT 1',
+        // --- Gather all active games and queued games ---
+        const activeGames = await this.getActiveGames(tournamentId);
+        const queuedRows = await db.all(
+            'SELECT * FROM games WHERE tournament_id = ? AND status = ? ORDER BY rowid ASC',
             tournamentId, 'QUEUED'
         );
 
-        if (!activeGame && !queuedRow) {
+        if (activeGames.length === 0 && queuedRows.length === 0) {
             logWarn(`No active or queued ${term.game} for ${term.tournament} "${tournamentRow.name}". Nothing to do.`);
             return;
         }
 
-        // --- Phase 2: iScored work (one session for all operations) ---
-        let winnerIscoredName: string | null = null;
-        let winnerScore: number | null = null;
-        let newIscoredId: string | null = null;
-
         const hasIscoredCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
         const hasPublicUrl = !!process.env.ISCORED_PUBLIC_URL;
-        const needsIscoredSession = hasIscoredCredentials && (
-            (activeGame?.iscoredId) ||
-            (queuedRow && !queuedRow.iscored_id) ||
-            (queuedRow?.iscored_id)
-        );
 
-        if (needsIscoredSession) {
-            const client = new IScoredClient();
+        // Process each active game slot independently.
+        // Each active game pairs with the next available queued game (FIFO).
+        const queuedQueue = [...queuedRows]; // mutable copy to consume from
+
+        // Open one iScored session for all operations
+        let client: IScoredClient | null = null;
+        if (hasIscoredCredentials) {
+            client = new IScoredClient();
             try {
                 await client.connect();
+            } catch (err) {
+                logError('Failed to connect iScored session for maintenance:', err);
+                client = null;
+            }
+        }
 
-                // 2a. Lock the completed game on iScored
-                if (activeGame?.iscoredId) {
-                    try {
-                        await client.setGameStatus(activeGame.iscoredId, { locked: true });
-                        logInfo(`   -> Locked on iScored: ${activeGame.name}`);
-                    } catch (err) {
-                        logError('   -> Failed to lock game on iScored (continuing):', err);
-                    }
-                }
+        try {
+            for (const activeGame of activeGames) {
+                await this.processSlotMaintenance(
+                    db, tournamentRow, activeGame, queuedQueue, client,
+                    hasPublicUrl, term, channelId, tournamentId
+                );
+            }
 
-                // 2b. Learn styles from the active game before it's done
-                if (activeGame?.iscoredId) {
+            // If there are more queued games than active games (e.g. tournament was just
+            // expanded to more slots), activate remaining queued games up to max_active_games.
+            const maxSlots = tournamentRow.max_active_games ?? 1;
+            const currentActive = await this.getActiveGames(tournamentId);
+            let slotsAvailable = maxSlots - currentActive.length;
+
+            while (slotsAvailable > 0 && queuedQueue.length > 0) {
+                const queuedRow = queuedQueue.shift()!;
+                // Skip placeholder picker slots
+                if (queuedRow.name === '[Pending Pick]') continue;
+
+                let newIscoredId: string | null = null;
+                if (client && !queuedRow.iscored_id) {
                     try {
-                        const styles = await client.syncStyle(activeGame.iscoredId);
-                        if (styles) {
-                            const updated = await GameLibraryService.updateStyles(activeGame.name, styles);
-                            if (updated) {
-                                logInfo(`   -> Learned styles for ${activeGame.name}`);
-                            }
+                        const libraryEntry = await db.get(
+                            'SELECT style_id, css_title, css_initials, css_scores, css_box, bg_color FROM game_library WHERE name = ? COLLATE NOCASE',
+                            queuedRow.name
+                        );
+                        const styleId = libraryEntry?.style_id || queuedRow.style_id || undefined;
+                        newIscoredId = await client.createGame(queuedRow.name, styleId);
+                        await client.setGameTags(newIscoredId, tournamentRow.type);
+                        await client.setGameStatus(newIscoredId, { locked: false, hidden: false });
+                        if (newIscoredId && libraryEntry && (libraryEntry.css_title || libraryEntry.css_box || libraryEntry.bg_color)) {
+                            try { await client.applyStyle(newIscoredId, libraryEntry); } catch {}
                         }
                     } catch (err) {
-                        logWarn('   -> Failed to learn styles (continuing):', err);
+                        logError(`Failed to create extra queued game on iScored: ${queuedRow.name}`, err);
                     }
+                } else if (client && queuedRow.iscored_id) {
+                    try { await client.setGameStatus(queuedRow.iscored_id, { locked: false, hidden: false }); } catch {}
                 }
 
-                // 2c. Scrape final standings to determine the winner
-                if (activeGame?.iscoredId && hasPublicUrl) {
+                const finalId = newIscoredId ?? queuedRow.iscored_id ?? null;
+                await db.run(
+                    'UPDATE games SET status = ?, start_date = ?, iscored_id = COALESCE(?, iscored_id) WHERE id = ?',
+                    'ACTIVE', new Date().toISOString(), finalId, queuedRow.id
+                );
+                logInfo(`   -> Activated extra slot: ${queuedRow.name}`);
+
+                if (channelId) {
+                    const color = getTournamentColor(tournamentRow.type);
+                    const embed = new EmbedBuilder()
+                        .setTitle(`Now Active: ${queuedRow.name}`)
+                        .setDescription(`New ${term.game} slot opened for **${tournamentRow.name}**!`)
+                        .setColor(color)
+                        .setFooter({ text: tournamentRow.name })
+                        .setTimestamp();
+                    await sendChannelEmbed(channelId, embed);
+                }
+
+                slotsAvailable--;
+            }
+        } finally {
+            if (client) {
+                try { await client.disconnect(); } catch {}
+            }
+        }
+
+        logInfo(`Maintenance complete for ${tournamentRow.name}`);
+
+        // Reorder iScored lineup based on tournament display_order
+        try {
+            await this.reorderIScoredLineup();
+        } catch (err) {
+            logWarn('Failed to reorder iScored lineup after maintenance:', err);
+        }
+
+        // Run cleanup for 'immediate' and 'retain' modes
+        let cleanupRule: CleanupRule = { mode: 'retain', count: 0 };
+        try { cleanupRule = JSON.parse(tournamentRow.cleanup_rule || '{}'); } catch {}
+        if (cleanupRule.mode === 'immediate' || cleanupRule.mode === 'retain') {
+            try {
+                await this.runCleanup(tournamentId, cleanupRule);
+            } catch (err) {
+                logWarn(`Failed to run cleanup for ${tournamentRow.name}:`, err);
+            }
+        }
+    }
+
+    /**
+     * Processes maintenance for a single active game slot:
+     * lock on iScored, scrape winner, complete, activate next queued, assign picker.
+     */
+    private async processSlotMaintenance(
+        db: any,
+        tournamentRow: any,
+        activeGame: Game,
+        queuedQueue: any[],
+        client: IScoredClient | null,
+        hasPublicUrl: boolean,
+        term: ReturnType<typeof getTerminology>,
+        channelId: string | undefined,
+        tournamentId: string,
+    ): Promise<void> {
+        logInfo(`   Processing slot: ${activeGame.name}`);
+
+        let winnerIscoredName: string | null = null;
+        let winnerScore: number | null = null;
+
+        // --- iScored work for this slot ---
+        if (client) {
+            // Lock the completed game
+            if (activeGame.iscoredId) {
+                try {
+                    await client.setGameStatus(activeGame.iscoredId, { locked: true });
+                    logInfo(`   -> Locked on iScored: ${activeGame.name}`);
+                } catch (err) {
+                    logError('   -> Failed to lock game on iScored (continuing):', err);
+                }
+
+                // Learn styles
+                try {
+                    const styles = await client.syncStyle(activeGame.iscoredId);
+                    if (styles) {
+                        const updated = await GameLibraryService.updateStyles(activeGame.name, styles);
+                        if (updated) logInfo(`   -> Learned styles for ${activeGame.name}`);
+                    }
+                } catch (err) {
+                    logWarn('   -> Failed to learn styles (continuing):', err);
+                }
+
+                // Scrape final standings
+                if (hasPublicUrl) {
                     try {
                         const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId);
                         if (scores.length > 0) {
@@ -288,120 +419,113 @@ export class TournamentEngine {
                         logError('   -> Failed to scrape public scores (continuing):', err);
                     }
                 }
+            }
+        }
 
-                // 2d. Handle the queued game on iScored
-                if (queuedRow) {
-                    // Look up saved styles from game library
-                    const libraryEntry = await db.get(
-                        'SELECT style_id, css_title, css_initials, css_scores, css_box, bg_color FROM game_library WHERE name = ? COLLATE NOCASE',
-                        queuedRow.name
-                    );
+        // --- Mark active game COMPLETED ---
+        await db.run(
+            'UPDATE games SET status = ?, end_date = ? WHERE id = ?',
+            'COMPLETED', new Date().toISOString(), activeGame.id
+        );
+        logInfo(`   -> Marked COMPLETED in DB: ${activeGame.name}`);
 
-                    if (!queuedRow.iscored_id) {
-                        // Pre-injected via /pause-pick without an iScored game — create it now
-                        try {
-                            const styleId = libraryEntry?.style_id || queuedRow.style_id || undefined;
-                            newIscoredId = await client.createGame(queuedRow.name, styleId);
-                            await client.setGameTags(newIscoredId, tournamentRow.type);
-                            await client.setGameStatus(newIscoredId, { locked: false, hidden: false });
-                            logInfo(`   -> Created on iScored: ${queuedRow.name} (ID: ${newIscoredId})`);
+        // Resolve winner
+        let winnerId: string | null = null;
+        if (winnerIscoredName) {
+            const mapping = await db.get(
+                'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
+                winnerIscoredName
+            );
+            if (mapping?.discord_user_id) {
+                winnerId = mapping.discord_user_id;
+                logInfo(`   -> Winner Discord ID resolved: <@${winnerId}>`);
+            } else {
+                logWarn(`   -> Winner '${winnerIscoredName}' has no Discord mapping. Use /map-user to link them.`);
+            }
+        }
 
-                            // Apply saved CSS styles from game library
-                            if (newIscoredId && libraryEntry && (libraryEntry.css_title || libraryEntry.css_box || libraryEntry.bg_color)) {
-                                try {
-                                    await client.applyStyle(newIscoredId, libraryEntry);
-                                    logInfo(`   -> Applied learned styles to ${queuedRow.name}`);
-                                } catch (err) {
-                                    logWarn('   -> Failed to apply styles (continuing):', err);
-                                }
-                            }
-                        } catch (err) {
-                            logError('   -> Failed to create queued game on iScored (continuing):', err);
+        // Announce completion
+        if (channelId) {
+            const color = getTournamentColor(tournamentRow.type);
+            const embed = new EmbedBuilder()
+                .setTitle(`${tournamentRow.name} — Rotation`)
+                .setColor(color)
+                .setTimestamp();
+
+            const displayName = winnerId ? `<@${winnerId}>` : (winnerIscoredName ? `\`${winnerIscoredName}\`` : null);
+            let desc = `**Closed:** ${activeGame.name}`;
+            if (displayName) {
+                desc += `\n**Winner:** ${displayName}`;
+                if (winnerScore) desc += ` — **${winnerScore.toLocaleString()}**`;
+            }
+            embed.setDescription(desc);
+            await sendChannelEmbed(channelId, embed);
+        }
+
+        // --- Activate the next queued game for this slot ---
+        // Find the next non-placeholder queued game
+        let queuedRow: any = null;
+        while (queuedQueue.length > 0) {
+            const candidate = queuedQueue.shift();
+            if (candidate.name !== '[Pending Pick]') {
+                queuedRow = candidate;
+                break;
+            }
+            // Clean up orphaned picker slots
+            await db.run('DELETE FROM games WHERE id = ?', candidate.id);
+        }
+
+        if (queuedRow) {
+            let newIscoredId: string | null = null;
+
+            // Handle iScored for the queued game
+            if (client) {
+                const libraryEntry = await db.get(
+                    'SELECT style_id, css_title, css_initials, css_scores, css_box, bg_color FROM game_library WHERE name = ? COLLATE NOCASE',
+                    queuedRow.name
+                );
+
+                if (!queuedRow.iscored_id) {
+                    try {
+                        const styleId = libraryEntry?.style_id || queuedRow.style_id || undefined;
+                        newIscoredId = await client.createGame(queuedRow.name, styleId);
+                        await client.setGameTags(newIscoredId, tournamentRow.type);
+                        await client.setGameStatus(newIscoredId, { locked: false, hidden: false });
+                        logInfo(`   -> Created on iScored: ${queuedRow.name} (ID: ${newIscoredId})`);
+
+                        if (newIscoredId && libraryEntry && (libraryEntry.css_title || libraryEntry.css_box || libraryEntry.bg_color)) {
+                            try { await client.applyStyle(newIscoredId, libraryEntry); } catch {}
                         }
-                    } else {
-                        // Already exists on iScored — just unlock it
-                        try {
-                            await client.setGameStatus(queuedRow.iscored_id, { locked: false, hidden: false });
-                            logInfo(`   -> Unlocked on iScored: ${queuedRow.name}`);
-                        } catch (err) {
-                            logError('   -> Failed to unlock queued game on iScored (continuing):', err);
-                        }
+                    } catch (err) {
+                        logError('   -> Failed to create queued game on iScored (continuing):', err);
+                    }
+                } else {
+                    try {
+                        await client.setGameStatus(queuedRow.iscored_id, { locked: false, hidden: false });
+                        logInfo(`   -> Unlocked on iScored: ${queuedRow.name}`);
+                    } catch (err) {
+                        logError('   -> Failed to unlock queued game on iScored (continuing):', err);
                     }
                 }
-
-            } catch (err) {
-                logError('iScored session error during maintenance:', err);
-            } finally {
-                await client.disconnect();
-            }
-        } else if (!hasIscoredCredentials) {
-            logWarn('   -> Skipping iScored operations: credentials not configured.');
-        }
-
-        // --- Phase 3: Mark active game COMPLETED in DB ---
-        let winnerId: string | null = null;
-
-        if (activeGame) {
-            await db.run(
-                'UPDATE games SET status = ?, end_date = ? WHERE id = ?',
-                'COMPLETED', new Date().toISOString(), activeGame.id
-            );
-            logInfo(`   -> Marked COMPLETED in DB: ${activeGame.name}`);
-
-            // Resolve winner's iScored name to a Discord user ID
-            if (winnerIscoredName) {
-                const mapping = await db.get(
-                    'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
-                    winnerIscoredName
-                );
-                if (mapping?.discord_user_id) {
-                    winnerId = mapping.discord_user_id;
-                    logInfo(`   -> Winner Discord ID resolved: <@${winnerId}>`);
-                } else {
-                    logWarn(`   -> Winner '${winnerIscoredName}' has no Discord mapping. Use /map-user to link them.`);
-                }
             }
 
-            // Send completion announcement
-            if (channelId) {
-                const color = getTournamentColor(tournamentRow.type);
-                const embed = new EmbedBuilder()
-                    .setTitle(`${tournamentRow.name} — Rotation`)
-                    .setColor(color)
-                    .setTimestamp();
-
-                const displayName = winnerId ? `<@${winnerId}>` : (winnerIscoredName ? `\`${winnerIscoredName}\`` : null);
-                let desc = `**Closed:** ${activeGame.name}`;
-                if (displayName) {
-                    desc += `\n**Winner:** ${displayName}`;
-                    if (winnerScore) desc += ` — **${winnerScore.toLocaleString()}**`;
-                }
-                embed.setDescription(desc);
-                await sendChannelEmbed(channelId, embed);
-            }
-        }
-
-        // --- Phase 4: Activate the queued game ---
-        if (queuedRow) {
             const finalIscoredId = newIscoredId ?? queuedRow.iscored_id ?? null;
-
             await db.run(
                 'UPDATE games SET status = ?, start_date = ?, iscored_id = COALESCE(?, iscored_id) WHERE id = ?',
                 'ACTIVE', new Date().toISOString(), finalIscoredId, queuedRow.id
             );
             logInfo(`   -> Activated in DB: ${queuedRow.name}`);
 
-            // Create a new QUEUED placeholder slot so the winner can queue the next game
-            // and TimeoutManager can track the pick window.
+            // Create picker slot for winner
             if (winnerId) {
                 const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
                 const slotId = uuidv4();
                 await db.run(
                     `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id)
                      VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?)`,
-                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame?.id ?? null
+                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame.id
                 );
-                logInfo(`   -> Created picker slot for winner (${winnerPickWindowMin}min window).`);
+                logInfo(`   -> Created picker slot for winner (pick window active).`);
             }
 
             // Announce new active game
@@ -426,23 +550,20 @@ export class TournamentEngine {
 
             emitGameRotated({
                 tournamentName: tournamentRow.name,
-                oldGame: activeGame ? activeGame.name : '[None]',
+                oldGame: activeGame.name,
                 newGame: queuedRow.name,
             });
 
             if (winnerId) {
-                const winnerUsername = winnerIscoredName || 'Unknown';
                 emitPickerAssigned({
                     tournamentName: tournamentRow.name,
-                    pickerName: winnerUsername,
+                    pickerName: winnerIscoredName || 'Unknown',
                     deadline: new Date(Date.now() + parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60') * 60000).toISOString(),
                 });
             }
-
         } else {
-            // No queued game — create a QUEUED picker slot so TimeoutManager
-            // can track the pick window and auto-select if nobody picks.
-            logInfo(`   -> No ${term.game} queued. Creating picker slot for timeout tracking.`);
+            // No queued game — create picker slot for timeout tracking
+            logInfo(`   -> No ${term.game} queued for this slot. Creating picker slot for timeout tracking.`);
 
             if (winnerId) {
                 const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
@@ -450,9 +571,9 @@ export class TournamentEngine {
                 await db.run(
                     `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id)
                      VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?)`,
-                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame?.id ?? null
+                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame.id
                 );
-                logInfo(`   -> Created picker slot for winner (${winnerPickWindowMin}min window).`);
+                logInfo(`   -> Created picker slot for winner (pick window active).`);
 
                 if (channelId) {
                     const color = getTournamentColor(tournamentRow.type);
@@ -481,26 +602,6 @@ export class TournamentEngine {
                         .setTimestamp();
                     await sendChannelEmbed(channelId, embed);
                 }
-            }
-        }
-
-        logInfo(`Maintenance complete for ${tournamentRow.name}`);
-
-        // Reorder iScored lineup based on tournament display_order
-        try {
-            await this.reorderIScoredLineup();
-        } catch (err) {
-            logWarn('Failed to reorder iScored lineup after maintenance:', err);
-        }
-
-        // Run cleanup for 'immediate' and 'retain' modes
-        let cleanupRule: CleanupRule = { mode: 'retain', count: 0 };
-        try { cleanupRule = JSON.parse(tournamentRow.cleanup_rule || '{}'); } catch {}
-        if (cleanupRule.mode === 'immediate' || cleanupRule.mode === 'retain') {
-            try {
-                await this.runCleanup(tournamentId, cleanupRule);
-            } catch (err) {
-                logWarn(`Failed to run cleanup for ${tournamentRow.name}:`, err);
             }
         }
     }

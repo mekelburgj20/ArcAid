@@ -13,8 +13,22 @@ interface GameLeaderboard {
   gameId: string;
   gameName: string;
   tournamentName: string;
+  tournamentType: string;
   imageUrl: string | null;
   rankings: RankedEntry[];
+}
+
+const TOURNAMENT_COLORS: Record<string, string> = {
+  DG:       'border-amber-400/50',
+  'WG-VPXS': 'border-sky-400/50',
+  'WG-VR':  'border-purple-400/50',
+  MG:       'border-emerald-400/50',
+};
+
+function getTournamentBorderColor(type: string): string {
+  if (!type) return 'border-border';
+  const upper = type.toUpperCase();
+  return TOURNAMENT_COLORS[upper] ?? 'border-border';
 }
 
 interface RankingGroupData {
@@ -79,7 +93,7 @@ export default function Scoreboard() {
   }, []);
 
   return (
-    <div className="px-4 sm:px-6 py-6 max-w-7xl mx-auto">
+    <div className="px-4 sm:px-6 py-6">
       {/* Score flash overlay */}
       {flash && (
         <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
@@ -90,38 +104,44 @@ export default function Scoreboard() {
         <p className="font-display text-muted text-sm uppercase tracking-widest">High Scores</p>
       </div>
 
-      {leaderboards.length === 0 ? (
-        <div className="text-center py-24">
-          <p className="text-muted font-display">Waiting for active games...</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {leaderboards.map(lb => (
-            <GameCard key={lb.gameId} lb={lb} slug={slug || ''} />
-          ))}
-        </div>
-      )}
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        {/* Overall Rankings — left column */}
+        {rankingGroups.length > 0 && (
+          <div className="w-full lg:w-80 flex-shrink-0 lg:sticky lg:top-6">
+            <p className="font-display text-muted text-sm uppercase tracking-widest mb-4">Overall Rankings</p>
+            <div className="flex flex-col gap-5">
+              {rankingGroups.map(({ group, rankings }) => (
+                <RankingGroupCard key={group.id} group={group} rankings={rankings} />
+              ))}
+            </div>
+          </div>
+        )}
 
-      {/* Overall Rankings */}
-      {rankingGroups.length > 0 && (
-        <div className="mt-10">
-          <div className="text-center mb-6">
-            <p className="font-display text-muted text-sm uppercase tracking-widest">Overall Rankings</p>
+        {/* Game leaderboards — horizontal scroll */}
+        {leaderboards.length === 0 ? (
+          <div className="flex-1 text-center py-24">
+            <p className="text-muted font-display">Waiting for active games...</p>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            {rankingGroups.map(({ group, rankings }) => (
-              <RankingGroupCard key={group.id} group={group} rankings={rankings} />
-            ))}
+        ) : (
+          <div className="flex-1 min-w-0 overflow-x-auto">
+            <div className="flex gap-5 pb-2">
+              {leaderboards.map(lb => (
+                <div key={lb.gameId} className="w-72 flex-shrink-0">
+                  <GameCard lb={lb} slug={slug || ''} />
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
 function GameCard({ lb, slug }: { lb: GameLeaderboard; slug: string }) {
+  const borderColor = getTournamentBorderColor(lb.tournamentType);
   return (
-    <div className="bg-surface border border-border rounded-lg overflow-hidden flex flex-col">
+    <div className={`bg-surface border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`}>
       {/* Image / Header area */}
       <div
         className="relative h-32 bg-raised flex items-end"
@@ -205,9 +225,9 @@ function RankingGroupCard({ group, rankings }: { group: RankingGroupData['group'
   const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
 
   return (
-    <div className="bg-surface border border-border rounded-lg overflow-hidden">
+    <div className="bg-neon-purple/5 border border-neon-purple/20 rounded-lg overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border/50 bg-raised/30">
+      <div className="px-4 py-3 border-b border-neon-purple/15 bg-neon-purple/10">
         <h3 className="font-display font-bold text-base text-primary">{group.name}</h3>
         <div className="flex items-center gap-3 mt-1">
           <span className="text-[11px] text-muted uppercase tracking-wider">{methodInfo.label}</span>
@@ -224,7 +244,7 @@ function RankingGroupCard({ group, rankings }: { group: RankingGroupData['group'
         </div>
       ) : (
         <div>
-          <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-neon-purple/10 text-[10px] text-faint uppercase tracking-wider">
             <span>Player</span>
             <div className="flex gap-6">
               <span className="w-12 text-right">Games</span>
@@ -234,7 +254,7 @@ function RankingGroupCard({ group, rankings }: { group: RankingGroupData['group'
           {rankings.slice(0, RANKINGS_TOP_N).map((entry) => (
             <div
               key={entry.iscored_username}
-              className={`flex items-center justify-between px-4 py-2.5 border-b border-border/20 last:border-0 ${
+              className={`flex items-center justify-between px-4 py-2.5 border-b border-neon-purple/10 last:border-0 ${
                 entry.rank === 1 ? 'bg-neon-amber/8' : ''
               }`}
             >

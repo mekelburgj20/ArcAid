@@ -32,6 +32,7 @@ export const CreateTournamentSchema = z.object({
     discord_role_id: discordIdSchema.optional().or(z.literal('')).default(''),
     is_active: z.boolean().default(true),
     display_order: z.number().int().min(0).default(0),
+    max_active_games: z.number().int().min(1).max(10).default(1),
     cleanup_rule: z.discriminatedUnion('mode', [
         z.object({ mode: z.literal('immediate') }),
         z.object({ mode: z.literal('retain'), count: z.number().int().min(0).max(50) }),

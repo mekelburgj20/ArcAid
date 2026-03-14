@@ -23,6 +23,7 @@ interface Tournament {
   discord_role_id?: string;
   is_active: number;
   display_order: number;
+  max_active_games: number;
   cleanup_rule: string;
 }
 
@@ -222,6 +223,7 @@ export default function Tournaments() {
   const [newChannel, setNewChannel] = useState('');
   const [newDisplayOrder, setNewDisplayOrder] = useState(0);
   const [newPlatformRules, setNewPlatformRules] = useState<PlatformRules>({ ...defaultPlatformRules });
+  const [newMaxActiveGames, setNewMaxActiveGames] = useState(1);
   const [newCleanupRule, setNewCleanupRule] = useState<CleanupRule>({ ...defaultCleanupRule });
   const [schedule, setSchedule] = useState({ cron: '0 0 * * *', timezone: 'America/Chicago' });
 
@@ -232,6 +234,7 @@ export default function Tournaments() {
   const [editChannel, setEditChannel] = useState('');
   const [editDisplayOrder, setEditDisplayOrder] = useState(0);
   const [editPlatformRules, setEditPlatformRules] = useState<PlatformRules>({ ...defaultPlatformRules });
+  const [editMaxActiveGames, setEditMaxActiveGames] = useState(1);
   const [editCleanupRule, setEditCleanupRule] = useState<CleanupRule>({ ...defaultCleanupRule });
   const [editSchedule, setEditSchedule] = useState({ cron: '0 0 * * *', timezone: 'America/Chicago' });
   const [editSaving, setEditSaving] = useState(false);
@@ -305,9 +308,11 @@ export default function Tournaments() {
         discord_role_id: '',
         is_active: true,
         display_order: newDisplayOrder,
+        max_active_games: newMaxActiveGames,
         cleanup_rule: newCleanupRule,
       });
       setNewName(''); setNewTag(''); setNewChannel(''); setNewMode('pinball'); setNewDisplayOrder(0);
+      setNewMaxActiveGames(1);
       setNewPlatformRules({ ...defaultPlatformRules });
       setNewCleanupRule({ ...defaultCleanupRule });
       setSchedule({ cron: '0 0 * * *', timezone: 'America/Chicago' });
@@ -337,6 +342,7 @@ export default function Tournaments() {
     setEditMode(t.mode || 'pinball');
     setEditChannel(t.discord_channel_id || '');
     setEditDisplayOrder(t.display_order || 0);
+    setEditMaxActiveGames(t.max_active_games || 1);
     setEditCleanupRule(parseCleanupRule(t.cleanup_rule));
     setEditSchedule(parseCadence(t.cadence));
     setEditPlatformRules(parsePlatformRules(t.platform_rules));
@@ -357,6 +363,7 @@ export default function Tournaments() {
         discord_role_id: editTarget.discord_role_id || '',
         is_active: true,
         display_order: editDisplayOrder,
+        max_active_games: editMaxActiveGames,
         cleanup_rule: editCleanupRule,
       });
       toast('Tournament updated', 'success');
@@ -380,7 +387,7 @@ export default function Tournaments() {
 
       {/* Create Form */}
       <NeonCard glowColor="cyan" className="mb-6" title="Create New Tournament">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
           <div>
             <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
               Name <InfoTip text="Display name for this tournament, shown in Discord and the admin UI." />
@@ -408,11 +415,19 @@ export default function Tournaments() {
             </label>
             <input type="text" placeholder="Optional" value={newChannel} onChange={e => setNewChannel(e.target.value)} className={inputClass} />
           </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           <div>
-            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5 whitespace-nowrap">
               Lineup Position <InfoTip text="Controls ordering on iScored. 0 = top of lineup. All games for a tournament (active + locked) are grouped together. Lower numbers appear higher." />
             </label>
             <NumberStepper value={newDisplayOrder} onChange={setNewDisplayOrder} min={0} />
+          </div>
+          <div>
+            <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5 whitespace-nowrap">
+              Active Slots <InfoTip text="How many games can be active simultaneously. Each slot rotates independently with its own winner picking the next game." />
+            </label>
+            <NumberStepper value={newMaxActiveGames} onChange={setNewMaxActiveGames} min={1} />
           </div>
         </div>
         <div className="mb-4">
@@ -455,6 +470,9 @@ export default function Tournaments() {
             )},
             { key: 'display_order', header: 'Pos', render: t => (
               <span className="text-sm text-muted font-mono">{t.display_order ?? 0}</span>
+            )},
+            { key: 'max_active_games', header: 'Slots', render: t => (
+              <span className="text-sm text-muted font-mono">{t.max_active_games ?? 1}</span>
             )},
             { key: 'cadence', header: 'Schedule', render: t => (
               <span className="text-sm text-neon-amber">{formatCadenceDisplay(t.cadence)}</span>
@@ -534,7 +552,7 @@ export default function Tournaments() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="font-display text-lg font-bold mb-4">Edit Tournament</h2>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
               <div>
                 <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
                   Name <InfoTip text="Display name for this tournament, shown in Discord and the admin UI." />
@@ -562,11 +580,19 @@ export default function Tournaments() {
                 </label>
                 <input type="text" placeholder="Optional" value={editChannel} onChange={e => setEditChannel(e.target.value)} className={inputClass} />
               </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5 whitespace-nowrap">
                   Lineup Position <InfoTip text="Controls ordering on iScored. 0 = top of lineup. All games for a tournament (active + locked) are grouped together. Lower numbers appear higher." />
                 </label>
                 <NumberStepper value={editDisplayOrder} onChange={setEditDisplayOrder} min={0} />
+              </div>
+              <div>
+                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5 whitespace-nowrap">
+                  Active Slots <InfoTip text="How many games can be active simultaneously. Each slot rotates independently with its own winner picking the next game." />
+                </label>
+                <NumberStepper value={editMaxActiveGames} onChange={setEditMaxActiveGames} min={1} />
               </div>
             </div>
             <div className="mb-4">
