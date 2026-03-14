@@ -440,24 +440,47 @@ export class TournamentEngine {
             }
 
         } else {
-            // No queued game — winner picks directly into the next slot
-            logInfo(`   -> No ${term.game} queued. Winner must use /pick-game.`);
+            // No queued game — create a QUEUED picker slot so TimeoutManager
+            // can track the pick window and auto-select if nobody picks.
+            logInfo(`   -> No ${term.game} queued. Creating picker slot for timeout tracking.`);
 
-            if (channelId) {
+            if (winnerId) {
                 const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
-                const color = getTournamentColor(tournamentRow.type);
-                const embed = new EmbedBuilder()
-                    .setTitle(`No ${term.game} Queued`)
-                    .setColor(color)
-                    .setFooter({ text: tournamentRow.name })
-                    .setTimestamp();
+                const slotId = uuidv4();
+                await db.run(
+                    `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id)
+                     VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?)`,
+                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame?.id ?? null
+                );
+                logInfo(`   -> Created picker slot for winner (${winnerPickWindowMin}min window).`);
 
-                if (winnerId) {
-                    embed.setDescription(`<@${winnerId}> — you won! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game}.`);
-                } else {
-                    embed.setDescription(`A moderator should use \`/pick-game\` or \`/nominate-picker\`.`);
+                if (channelId) {
+                    const color = getTournamentColor(tournamentRow.type);
+                    const embed = new EmbedBuilder()
+                        .setTitle(`No ${term.game} Queued`)
+                        .setDescription(`<@${winnerId}> — you won! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game}.`)
+                        .setColor(color)
+                        .setFooter({ text: tournamentRow.name })
+                        .setTimestamp();
+                    await sendChannelEmbed(channelId, embed);
                 }
-                await sendChannelEmbed(channelId, embed);
+
+                emitPickerAssigned({
+                    tournamentName: tournamentRow.name,
+                    pickerName: winnerIscoredName || 'Unknown',
+                    deadline: new Date(Date.now() + parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60') * 60000).toISOString(),
+                });
+            } else {
+                if (channelId) {
+                    const color = getTournamentColor(tournamentRow.type);
+                    const embed = new EmbedBuilder()
+                        .setTitle(`No ${term.game} Queued`)
+                        .setDescription(`A moderator should use \`/pick-game\` or \`/nominate-picker\`.`)
+                        .setColor(color)
+                        .setFooter({ text: tournamentRow.name })
+                        .setTimestamp();
+                    await sendChannelEmbed(channelId, embed);
+                }
             }
         }
 
