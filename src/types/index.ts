@@ -104,6 +104,29 @@ export interface GameStats {
     recentResults: Array<{ tournamentName: string; winnerName: string; winnerScore: number; endDate: string }>;
 }
 
+export type RankMethod = 'max_10' | 'average_rank' | 'best_game_papa' | 'best_game_linear';
+
+export interface RankingGroup {
+    id: string;
+    name: string;
+    description: string;
+    rank_method: RankMethod;
+    best_n: number;
+    min_games: number;
+    is_active: boolean;
+    created_at: string;
+    tournament_ids: string[];
+}
+
+export interface OverallRanking {
+    rank: number;
+    iscored_username: string;
+    discord_user_id: string;
+    total_points: number;
+    games_played: number;
+    breakdown: Array<{ game_name: string; game_rank: number; points: number }>;
+}
+
 export interface WebSocketEvents {
     'score:new': { gameId: string; gameName: string; playerName: string; score: number };
     'game:rotated': { tournamentName: string; oldGame: string; newGame: string };

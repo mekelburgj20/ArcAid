@@ -217,6 +217,55 @@
 
 ---
 
+## Feature: Ranking Groups (IN PROGRESS)
+**Branch:** `feature/ranking-groups`
+**Goal:** Cross-tournament overall player rankings with configurable grouping and ranking methods.
+
+### Database
+- [x] `ranking_groups` table — id, name, description, rank_method, best_n, min_games, created_at
+- [x] `ranking_group_tournaments` junction table — ranking_group_id, tournament_id
+
+### Backend
+- [x] `RankingService` — calculate rankings using 4 methods: Max 10, Average Rank, Best Game (PAPA), Best Game (Linear)
+- [x] `ranking_groups_cache` table for computed results
+- [x] API endpoints: CRUD for ranking groups, GET computed rankings
+- [x] Zod schemas for ranking group create/update
+- [x] Cache invalidation on score submit and player merge
+
+### Admin UI
+- [x] Ranking Groups management page (create/edit/delete groups, select tournaments, choose method)
+- [x] Rank method selector with descriptions of each method
+- [x] Preview of computed rankings per group (expandable view with recompute button)
+
+### Public Scoreboard
+- [x] Overall Rankings section on scoreboard — displays ranking group results
+- [x] Multiple ranking groups displayed in grid layout
+
+---
+
+## Feature: UI Theme System (PLANNED)
+**Branch:** `feature/ui-themes`
+**Goal:** Customizable themes applied globally or per-user, using daisyUI-generated CSS.
+
+### Architecture
+- [ ] CSS variable-based theme system (keep original `@theme` static values, override via CSS vars at runtime)
+- [ ] Theme definitions as JSON data (easy to add new themes from daisyUI generator)
+- [ ] `user_preferences` table for per-user theme storage
+- [ ] `PreferencesService` with Zod-validated endpoints
+
+### Backend
+- [ ] `GET/POST /api/me/preferences` — user preference CRUD (works for both auth methods)
+- [ ] `UI_THEME` global setting for default theme
+- [ ] Expose global theme in `/api/portal` for public pages
+
+### Frontend
+- [ ] `ThemeProvider` context — reads localStorage first (no flash), hydrates from API
+- [ ] Theme selector in Settings (global + personal override)
+- [ ] Preserve original arcade neon palette as default theme
+- [ ] Scanlines toggle (on/off per theme)
+
+---
+
 ## Next Steps (Future)
 
 ### UX Polish
@@ -224,11 +273,10 @@
 - [ ] Trend charts / sparklines on player profile pages
 - [x] Mobile-responsive tweaks for admin UI and public pages
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
-- [ ] Light mode / dark mode toggle in Settings — bright 80s retro theme as alternative to current dark arcade theme
-- [ ] Full design iteration pass (feature branch) — color palette refinement, component polish
 
 ### Ops / Infrastructure
 - [ ] CI/CD pipeline (build + test on push)
 - [ ] Automated backup schedule (configurable via admin UI)
 - [ ] Monitoring / alerting (health check dashboard, error rate tracking)
 - [ ] Push to remote repository
+- [ ] Scoreboard designer page (Admin only) to modify public scoreboard CSS styles in real-time.

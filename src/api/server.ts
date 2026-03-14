@@ -10,7 +10,7 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
 import { requireAuth } from './middleware.js';
-import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema, MergePlayerSchema } from './schemas.js';
+import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema, MergePlayerSchema, CreateRankingGroupSchema, UpdateRankingGroupSchema } from './schemas.js';
 import { SettingsService } from '../services/SettingsService.js';
 import { TournamentService } from '../services/TournamentService.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
@@ -606,6 +606,8 @@ export function startApiServer(port: number = 3001) {
             // Invalidate all leaderboard caches
             const { LeaderboardService } = await import('../services/LeaderboardService.js');
             await LeaderboardService.invalidateAll();
+            const { RankingService } = await import('../services/RankingService.js');
+            await RankingService.invalidateAll();
 
             const totalUpdated = (subResult.changes || 0) + (scoreResult.changes || 0);
             logInfo(`Merged player '${fromUsername}' -> '${toUsername}': ${totalUpdated} records updated`);
@@ -617,6 +619,104 @@ export function startApiServer(port: number = 3001) {
             });
         } catch (error) {
             logError('API Error (POST /api/admin/merge-player):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Ranking Groups Endpoints ---
+    app.get('/api/ranking-groups', async (req, res) => {
+        try {
+            const { RankingService } = await import('../services/RankingService.js');
+            const groups = await RankingService.getAll();
+            res.json(groups);
+        } catch (error) {
+            logError('API Error (GET /api/ranking-groups):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.get('/api/ranking-groups/:id', async (req, res) => {
+        try {
+            const { RankingService } = await import('../services/RankingService.js');
+            const group = await RankingService.getById(req.params.id as string);
+            if (!group) return res.status(404).json({ error: 'Ranking group not found' });
+            res.json(group);
+        } catch (error) {
+            logError('API Error (GET /api/ranking-groups/:id):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/ranking-groups', requireAuth, async (req, res) => {
+        try {
+            const validationResult = validate(CreateRankingGroupSchema, req.body);
+            if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+            const { RankingService } = await import('../services/RankingService.js');
+            await RankingService.create(validationResult.data);
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (POST /api/ranking-groups):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.put('/api/ranking-groups/:id', requireAuth, async (req, res) => {
+        try {
+            const validationResult = validate(UpdateRankingGroupSchema, req.body);
+            if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+            const { RankingService } = await import('../services/RankingService.js');
+            await RankingService.update(req.params.id as string, validationResult.data);
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (PUT /api/ranking-groups/:id):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.delete('/api/ranking-groups/:id', requireAuth, async (req, res) => {
+        try {
+            const { RankingService } = await import('../services/RankingService.js');
+            await RankingService.delete(req.params.id as string);
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (DELETE /api/ranking-groups/:id):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.get('/api/ranking-groups/:id/rankings', async (req, res) => {
+        try {
+            const { RankingService } = await import('../services/RankingService.js');
+            const group = await RankingService.getById(req.params.id as string);
+            if (!group) return res.status(404).json({ error: 'Ranking group not found' });
+            const rankings = await RankingService.getRankings(req.params.id as string);
+            res.json({ group, rankings });
+        } catch (error) {
+            logError('API Error (GET /api/ranking-groups/:id/rankings):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/ranking-groups/:id/recompute', requireAuth, async (req, res) => {
+        try {
+            const { RankingService } = await import('../services/RankingService.js');
+            await RankingService.invalidate(req.params.id as string);
+            const rankings = await RankingService.computeRankings(req.params.id as string);
+            res.json({ success: true, count: rankings.length });
+        } catch (error) {
+            logError('API Error (POST /api/ranking-groups/:id/recompute):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // Public endpoint for active ranking groups (for scoreboard)
+    app.get('/api/rankings', async (req, res) => {
+        try {
+            const { RankingService } = await import('../services/RankingService.js');
+            const data = await RankingService.getActiveWithRankings();
+            res.json(data);
+        } catch (error) {
+            logError('API Error (GET /api/rankings):', error);
             res.status(500).json({ error: 'Internal Server Error' });
         }
     });

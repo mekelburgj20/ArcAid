@@ -145,6 +145,10 @@ export const submitscore: Command = {
                 // Invalidate leaderboard cache
                 await LeaderboardService.invalidate(game.id);
 
+                // Invalidate ranking group caches (scores changed)
+                const { RankingService } = await import('../../services/RankingService.js');
+                await RankingService.invalidateAll();
+
                 logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
                 await interaction.editReply(`Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!`);
             } finally {

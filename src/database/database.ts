@@ -138,6 +138,32 @@ export async function initDatabase(): Promise<Database> {
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now')),
             UNIQUE(game_name, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS ranking_groups (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            rank_method TEXT NOT NULL DEFAULT 'best_game_papa',
+            best_n INTEGER NOT NULL DEFAULT 25,
+            min_games INTEGER NOT NULL DEFAULT 1,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS ranking_group_tournaments (
+            ranking_group_id TEXT NOT NULL,
+            tournament_id TEXT NOT NULL,
+            PRIMARY KEY (ranking_group_id, tournament_id),
+            FOREIGN KEY (ranking_group_id) REFERENCES ranking_groups (id) ON DELETE CASCADE,
+            FOREIGN KEY (tournament_id) REFERENCES tournaments (id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS ranking_groups_cache (
+            ranking_group_id TEXT PRIMARY KEY,
+            rankings TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            FOREIGN KEY (ranking_group_id) REFERENCES ranking_groups (id) ON DELETE CASCADE
         )
     `);
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, Trophy, Activity, Library, LogOut, Clock, HardDrive, BarChart3, Medal, Menu, X } from 'lucide-react';
+import { Home, Settings as SettingsIcon, Trophy, Activity, Library, LogOut, Clock, HardDrive, BarChart3, Medal, Menu, X, Crown } from 'lucide-react';
 import { api, isAuthenticated, setToken } from './lib/api';
 import { ToastProvider } from './components/Toast';
 import Login from './pages/Login';
@@ -13,6 +13,7 @@ import GameLibrary from './pages/GameLibrary';
 import History from './pages/History';
 import Backups from './pages/Backups';
 import Leaderboard from './pages/Leaderboard';
+import Rankings from './pages/Rankings';
 import Stats from './pages/Stats';
 import Scoreboard from './pages/Scoreboard';
 import Players from './pages/Players';
@@ -47,7 +48,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState<{ username: string; avatar: string | null } | null>(null);
 
   // Known admin paths (never treated as a slug)
-  const adminPaths = ['/', '/login', '/settings', '/tournaments', '/library', '/leaderboard', '/stats', '/history', '/logs', '/backups'];
+  const adminPaths = ['/', '/login', '/settings', '/tournaments', '/library', '/leaderboard', '/rankings', '/stats', '/history', '/logs', '/backups'];
   const isAdminRoute = adminPaths.includes(location.pathname);
   const isDiscordCallback = location.pathname === '/auth/discord/callback';
   const isLegacyPublicRoute = location.pathname === '/scoreboard'
@@ -187,6 +188,7 @@ function App() {
     { path: '/tournaments', label: 'Tournaments', icon: <Trophy size={18} /> },
     { path: '/library', label: 'Game Library', icon: <Library size={18} /> },
     { path: '/leaderboard', label: 'Leaderboard', icon: <Medal size={18} /> },
+    { path: '/rankings', label: 'Rankings', icon: <Crown size={18} /> },
     { path: '/stats', label: 'Stats', icon: <BarChart3 size={18} /> },
     { path: '/history', label: 'History', icon: <Clock size={18} /> },
     { path: '/logs', label: 'Activity Logs', icon: <Activity size={18} /> },
@@ -278,6 +280,7 @@ function App() {
             <Route path="/tournaments" element={<Tournaments />} />
             <Route path="/library" element={<GameLibrary />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/rankings" element={<Rankings />} />
             <Route path="/stats" element={<Stats />} />
             <Route path="/history" element={<History />} />
             <Route path="/logs" element={<Logs />} />

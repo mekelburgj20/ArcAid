@@ -46,7 +46,7 @@ Two sub-applications in one process:
 - `src/engine/Scheduler.ts` — Cron-based maintenance scheduling (reads `BOT_TIMEZONE` from settings), hot-reload via `reload()`, schedules cleanup cron tasks
 - `src/engine/TimeoutManager.ts` — Winner/runner-up pick window tracking
 - `src/api/server.ts` — Express REST API routing (delegates to service layer), admin endpoints (merge player, scheduler reload)
-- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `LogService`, `VpsImportService`, `RatingService`, `DashboardService`, `BackupService`
+- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `LogService`, `VpsImportService`, `RatingService`, `RankingService`, `DashboardService`, `BackupService`
 - `src/utils/discord.ts` — Shared `sendChannelMessage()` for engine classes
 - `src/utils/terminology.ts` — `getTerminology(mode?)` — per-tournament terminology (pinball=Table/Grind, videogame=Game/Tournament)
 - `src/utils/cooldown.ts` — Per-user Discord command cooldown tracker
@@ -54,7 +54,7 @@ Two sub-applications in one process:
 
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
-- Admin pages (require login): Dashboard, Tournaments, GameLibrary, Leaderboard, Stats, History, Logs, Backups, Settings, SetupWizard
+- Admin pages (require login): Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Logs, Backups, Settings, SetupWizard
 - Public pages (no auth, no sidebar): Scoreboard, Players, PlayerDetail, GameDetail — served under `/:slug/*` via `PublicLayout`
 - Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder`, etc.
 - Mobile-responsive: admin sidebar collapses to hamburger menu, public pages scale to phone screens
@@ -93,6 +93,20 @@ Per-tournament `cleanup_rule` (stored as JSON):
 - `{ mode: 'scheduled', cron: '...', timezone?: '...' }` — cron-based cleanup
 - `/run-cleanup` also handles orphan ACTIVE games with no tournament
 
+## Ranking System
+
+Cross-tournament overall player rankings. Admin creates "ranking groups" that select specific tournaments and a ranking method.
+
+**Tables:** `ranking_groups`, `ranking_group_tournaments` (junction), `ranking_groups_cache`
+
+**Rank methods** (matching iScored):
+- `max_10` — Top 10 per game get points (100/80/65/50/40/30/20/15/10/5), best N games summed
+- `average_rank` — Average leaderboard position across games, lower is better, requires min_games
+- `best_game_papa` — Points by rank (100/90/85/84/83...), best N games summed
+- `best_game_linear` — Points by rank (100/99/98/97...), best N games summed
+
+**Cache:** `ranking_groups_cache` stores computed JSON, invalidated on score submit and player merge.
+
 ## Development Process
 
 **Branch convention:** `sprint-N/description` (e.g., `sprint-1/stabilize`)
@@ -109,7 +123,7 @@ Per-tournament `cleanup_rule` (stored as JSON):
 
 SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Leaderboard cache cleared on every startup.
 
-Key tables: `tournaments`, `game_library` (with `image_url`, `mode`, `platforms`), `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions` (source of truth for scores), `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`
+Key tables: `tournaments`, `game_library` (with `image_url`, `mode`, `platforms`), `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions` (source of truth for scores), `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`, `ranking_groups`, `ranking_group_tournaments`, `ranking_groups_cache`
 
 Legacy table: `scores` (exists but no longer written to; kept for backward compatibility)
 

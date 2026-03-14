@@ -85,3 +85,15 @@ export const MergePlayerSchema = z.object({
     fromUsername: z.string().min(1, 'Source username required').max(200),
     toUsername: z.string().min(1, 'Target username required').max(200),
 });
+
+export const CreateRankingGroupSchema = z.object({
+    id: z.string().uuid(),
+    name: z.string().min(1, 'Name required').max(100),
+    description: z.string().max(500).default(''),
+    rank_method: z.enum(['max_10', 'average_rank', 'best_game_papa', 'best_game_linear']),
+    best_n: z.number().int().min(1).max(100).default(25),
+    min_games: z.number().int().min(1).max(100).default(1),
+    tournament_ids: z.array(z.string()).min(1, 'At least one tournament required'),
+});
+
+export const UpdateRankingGroupSchema = CreateRankingGroupSchema.omit({ id: true });
