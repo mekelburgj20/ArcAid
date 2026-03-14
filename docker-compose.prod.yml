@@ -1,0 +1,37 @@
+services:
+  arcaid:
+    image: ghcr.io/mekelburgj20/arcaid:latest  # must be lowercase for ghcr.io
+    container_name: arcaid
+    restart: unless-stopped
+    volumes:
+      - arcaid-data:/app/data
+      - arcaid-backups:/app/backups
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - web
+
+volumes:
+  arcaid-data:
+  arcaid-backups:
+  caddy-data:
+  caddy-config:
+
+networks:
+  web:

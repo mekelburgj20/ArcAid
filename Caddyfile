@@ -1,0 +1,3 @@
+arcaid.app {
+	reverse_proxy arcaid:3001
+}
