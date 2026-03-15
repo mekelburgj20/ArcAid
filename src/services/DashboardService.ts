@@ -49,6 +49,7 @@ export async function getDashboardData(): Promise<DashboardData> {
             t.name AS tournament_name,
             t.type AS tournament_type,
             t.cadence,
+            t.cleanup_rule,
             g.id AS game_id,
             g.name AS game_name,
             g.start_date AS game_start_date
@@ -58,7 +59,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     `);
 
     // For each active game, find the leader (top submission)
-    // Also count unique participants across all visible games (ACTIVE + retained COMPLETED)
+    // Also count unique participants across visible games per cleanup_rule
     const activeTournaments: ActiveTournamentInfo[] = [];
     for (const row of activeGames) {
         let leaderName: string | null = null;
@@ -79,16 +80,48 @@ export async function getDashboardData(): Promise<DashboardData> {
             }
         }
 
-        // Count unique participants: distinct username per game across visible games
-        // Visible = ACTIVE or COMPLETED (not yet cleaned up / hidden)
-        const participantRow = await db.get(`
-            SELECT COUNT(*) as count FROM (
-                SELECT DISTINCT LOWER(s.iscored_username), s.game_id
-                FROM submissions s
-                JOIN games g ON s.game_id = g.id
-                WHERE g.tournament_id = ? AND g.status IN ('ACTIVE', 'COMPLETED')
-            )
-        `, row.tournament_id);
+        // Determine which games are visible based on cleanup_rule
+        let rule: { mode: string; count?: number } = { mode: 'retain', count: 0 };
+        try { rule = JSON.parse(row.cleanup_rule || '{}'); } catch {}
+
+        // Build list of visible game IDs: ACTIVE + retained COMPLETED
+        const visibleGameIds: string[] = [];
+
+        // All ACTIVE games
+        const activeIds = await db.all(
+            `SELECT id FROM games WHERE tournament_id = ? AND status = 'ACTIVE'`,
+            row.tournament_id
+        );
+        visibleGameIds.push(...activeIds.map((r: any) => r.id));
+
+        // COMPLETED games per cleanup_rule
+        if (rule.mode === 'retain' && (rule.count || 0) > 0) {
+            const retained = await db.all(
+                `SELECT id FROM games WHERE tournament_id = ? AND status = 'COMPLETED' ORDER BY end_date DESC LIMIT ?`,
+                row.tournament_id, rule.count
+            );
+            visibleGameIds.push(...retained.map((r: any) => r.id));
+        } else if (rule.mode === 'scheduled') {
+            const completed = await db.all(
+                `SELECT id FROM games WHERE tournament_id = ? AND status = 'COMPLETED'`,
+                row.tournament_id
+            );
+            visibleGameIds.push(...completed.map((r: any) => r.id));
+        }
+        // immediate or retain(0): no completed games
+
+        let participants = 0;
+        if (visibleGameIds.length > 0) {
+            const placeholders = visibleGameIds.map(() => '?').join(',');
+            const participantRow = await db.get(`
+                SELECT COUNT(*) as count FROM (
+                    SELECT DISTINCT LOWER(s.iscored_username), s.game_id
+                    FROM submissions s
+                    WHERE s.game_id IN (${placeholders})
+                )
+            `, ...visibleGameIds);
+            participants = participantRow?.count || 0;
+        }
 
         activeTournaments.push({
             tournament_id: row.tournament_id,
@@ -100,7 +133,7 @@ export async function getDashboardData(): Promise<DashboardData> {
             game_start_date: row.game_start_date || null,
             leader_name: leaderName,
             leader_score: leaderScore,
-            participants: participantRow?.count || 0,
+            participants,
         });
     }
 
