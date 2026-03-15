@@ -17,6 +17,7 @@ interface GameLeaderboard {
   gameId: string;
   gameName: string;
   tournamentName: string;
+  tournamentType: string;
   rankings: RankedEntry[];
 }
 
@@ -63,7 +64,7 @@ export default function Leaderboard() {
                   <h3 className="font-bold text-lg">{lb.gameName}</h3>
                   <p className="text-muted text-sm">{lb.tournamentName}</p>
                 </div>
-                <TournamentBadge type={lb.tournamentName} />
+                <TournamentBadge type={lb.tournamentType || lb.tournamentName} />
               </div>
 
               {lb.rankings.length === 0 ? (

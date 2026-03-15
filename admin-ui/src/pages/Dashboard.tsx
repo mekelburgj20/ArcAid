@@ -15,6 +15,7 @@ interface DashboardData {
     leader_name?: string;
     leader_score?: number;
     next_rotation?: string;
+    participants?: number;
   }>;
   recentWinners: Array<{
     game_name: string;
@@ -73,6 +74,10 @@ export default function Dashboard() {
             <span className="text-muted text-sm">Active Tournaments:</span>
             <span className="font-display font-bold text-neon-cyan">{data?.activeTournaments.length ?? 0}</span>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted text-sm">Participants:</span>
+            <span className="font-display font-bold text-neon-green">{data?.activeTournaments.reduce((sum, t) => sum + (t.participants ?? 0), 0) ?? 0}</span>
+          </div>
         </div>
       </NeonCard>
 
@@ -88,7 +93,12 @@ export default function Dashboard() {
                   <StatusBadge status="ACTIVE" />
                 </div>
                 <h3 className="font-bold text-lg mb-1">{t.game_name}</h3>
-                <p className="text-muted text-sm mb-3">{t.tournament_name}</p>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-muted text-sm">{t.tournament_name}</p>
+                  {t.participants != null && t.participants > 0 && (
+                    <span className="text-xs text-muted"><span className="font-display font-bold text-neon-green">{t.participants}</span> participants</span>
+                  )}
+                </div>
                 {t.leader_name && (
                   <div className="flex items-center justify-between pt-3 border-t border-border">
                     <span className="text-muted text-sm">Leader: <span className="text-primary">{t.leader_name}</span></span>

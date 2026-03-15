@@ -12,6 +12,7 @@ interface ActiveTournamentInfo {
     game_start_date: string | null;
     leader_name: string | null;
     leader_score: number | null;
+    participants: number;
 }
 
 interface RecentWinner {
@@ -57,6 +58,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     `);
 
     // For each active game, find the leader (top submission)
+    // Also count unique participants across all visible games (ACTIVE + retained COMPLETED)
     const activeTournaments: ActiveTournamentInfo[] = [];
     for (const row of activeGames) {
         let leaderName: string | null = null;
@@ -77,6 +79,17 @@ export async function getDashboardData(): Promise<DashboardData> {
             }
         }
 
+        // Count unique participants: distinct username per game across visible games
+        // Visible = ACTIVE or COMPLETED (not yet cleaned up / hidden)
+        const participantRow = await db.get(`
+            SELECT COUNT(*) as count FROM (
+                SELECT DISTINCT LOWER(s.iscored_username), s.game_id
+                FROM submissions s
+                JOIN games g ON s.game_id = g.id
+                WHERE g.tournament_id = ? AND g.status IN ('ACTIVE', 'COMPLETED')
+            )
+        `, row.tournament_id);
+
         activeTournaments.push({
             tournament_id: row.tournament_id,
             tournament_name: row.tournament_name,
@@ -87,6 +100,7 @@ export async function getDashboardData(): Promise<DashboardData> {
             game_start_date: row.game_start_date || null,
             leader_name: leaderName,
             leader_score: leaderScore,
+            participants: participantRow?.count || 0,
         });
     }
 

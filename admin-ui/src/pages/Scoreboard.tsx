@@ -19,10 +19,10 @@ interface GameLeaderboard {
 }
 
 const TOURNAMENT_COLORS: Record<string, string> = {
-  DG:       'border-amber-400/50',
-  'WG-VPXS': 'border-sky-400/50',
-  'WG-VR':  'border-purple-400/50',
-  MG:       'border-emerald-400/50',
+  DG:       'border-neon-magenta/50',
+  'WG-VPXS': 'border-neon-blue/50',
+  'WG-VR':  'border-neon-purple/50',
+  MG:       'border-neon-coral/50',
 };
 
 function getTournamentBorderColor(type: string): string {
