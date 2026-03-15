@@ -165,7 +165,17 @@ export default function GameLibrary() {
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          await api.post('/game_library/import', { games: results.data as GameRow[] });
+          // Normalize: map legacy 'tournament_types' column to 'platforms',
+          // and convert comma-separated strings to JSON arrays
+          const games = (results.data as Record<string, string>[]).map(row => {
+            const raw = row.platforms || (row as any).tournament_types || '';
+            if (raw) {
+              const list = parsePlatforms(raw);
+              row.platforms = JSON.stringify(list);
+            }
+            return row;
+          });
+          await api.post('/game_library/import', { games });
           toast(`Imported ${results.data.length} games`, 'success');
           fetchGames();
         } catch {
