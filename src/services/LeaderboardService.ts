@@ -80,10 +80,13 @@ export class LeaderboardService {
     }
 
     /**
-     * Get leaderboards for all active games.
+     * Get leaderboards for all active games, optionally filtered by game room.
      */
-    static async getActiveLeaderboards(): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; tournamentType: string; imageUrl: string | null; rankings: RankedEntry[] }>> {
+    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; tournamentType: string; imageUrl: string | null; rankings: RankedEntry[] }>> {
         const db = await getDatabase();
+
+        const roomFilter = gameRoomId ? ' AND t.game_room_id = ?' : '';
+        const roomParams = gameRoomId ? [gameRoomId] : [];
 
         // 1. All ACTIVE games always show
         const activeGames = await db.all(`
@@ -92,19 +95,21 @@ export class LeaderboardService {
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
             LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
-            WHERE g.status = 'ACTIVE'
+            WHERE g.status = 'ACTIVE'${roomFilter}
             GROUP BY COALESCE(g.tournament_id, g.id), g.name
             ORDER BY display_order ASC, g.start_date ASC
-        `);
+        `, ...roomParams);
 
         // 2. COMPLETED games only if the tournament's cleanup_rule retains them
-        // - retain with count > 0: keep N most recent completed
-        // - scheduled: games remain visible until the scheduled cleanup runs
-        // - immediate or retain(0): no completed games shown
-        const tournaments = await db.all(`
-            SELECT id, name, type, cleanup_rule, COALESCE(display_order, 9999) as display_order
-            FROM tournaments WHERE is_active = 1
-        `);
+        const tournamentQuery = gameRoomId
+            ? `SELECT id, name, type, cleanup_rule, COALESCE(display_order, 9999) as display_order
+               FROM tournaments WHERE is_active = 1 AND game_room_id = ?`
+            : `SELECT id, name, type, cleanup_rule, COALESCE(display_order, 9999) as display_order
+               FROM tournaments WHERE is_active = 1`;
+
+        const tournaments = gameRoomId
+            ? await db.all(tournamentQuery, gameRoomId)
+            : await db.all(tournamentQuery);
 
         const retainedGames: any[] = [];
         for (const t of tournaments) {
@@ -116,7 +121,6 @@ export class LeaderboardService {
             }
 
             if (rule.mode === 'retain' && (rule.count || 0) > 0) {
-                // Keep N most recent completed games
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, ? as tournament_name, ? as tournament_type,
                            ? as display_order, gl.image_url
@@ -128,7 +132,6 @@ export class LeaderboardService {
                 `, t.name, t.type, t.display_order, t.id, rule.count);
                 retainedGames.push(...completed);
             } else if (rule.mode === 'scheduled') {
-                // All completed games visible until scheduled cleanup runs
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, ? as tournament_name, ? as tournament_type,
                            ? as display_order, gl.image_url

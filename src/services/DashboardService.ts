@@ -39,10 +39,13 @@ interface DashboardData {
     nextRotations: NextRotation[];
 }
 
-export async function getDashboardData(): Promise<DashboardData> {
+export async function getDashboardData(gameRoomId?: string): Promise<DashboardData> {
     const db = await getDatabase();
 
     // Active tournaments with their current active game and leader
+    const roomFilter = gameRoomId ? ' AND t.game_room_id = ?' : '';
+    const roomParams = gameRoomId ? [gameRoomId] : [];
+
     const activeGames = await db.all(`
         SELECT
             t.id AS tournament_id,
@@ -55,8 +58,8 @@ export async function getDashboardData(): Promise<DashboardData> {
             g.start_date AS game_start_date
         FROM tournaments t
         LEFT JOIN games g ON g.tournament_id = t.id AND g.status = 'ACTIVE'
-        WHERE t.is_active = 1
-    `);
+        WHERE t.is_active = 1${roomFilter}
+    `, ...roomParams);
 
     // For each active game, find the leader (top submission)
     // Also count unique participants across visible games per cleanup_rule
@@ -138,24 +141,43 @@ export async function getDashboardData(): Promise<DashboardData> {
     }
 
     // Recent winners — last 10 completed games
-    const recentWinners: RecentWinner[] = await db.all(`
-        SELECT
-            g.name AS game_name,
-            g.end_date,
-            t.name AS tournament_name,
-            s.iscored_username AS winner_name,
-            s.score AS winner_score
-        FROM games g
-        JOIN tournaments t ON g.tournament_id = t.id
-        LEFT JOIN (
-            SELECT game_id, iscored_username, score,
-                   ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY score DESC) AS rn
-            FROM submissions
-        ) s ON s.game_id = g.id AND s.rn = 1
-        WHERE g.status = 'COMPLETED'
-        ORDER BY g.end_date DESC
-        LIMIT 10
-    `);
+    const recentWinnersQuery = gameRoomId
+        ? `SELECT
+                g.name AS game_name,
+                g.end_date,
+                t.name AS tournament_name,
+                s.iscored_username AS winner_name,
+                s.score AS winner_score
+            FROM games g
+            JOIN tournaments t ON g.tournament_id = t.id
+            LEFT JOIN (
+                SELECT game_id, iscored_username, score,
+                       ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY score DESC) AS rn
+                FROM submissions
+            ) s ON s.game_id = g.id AND s.rn = 1
+            WHERE g.status = 'COMPLETED' AND t.game_room_id = ?
+            ORDER BY g.end_date DESC
+            LIMIT 10`
+        : `SELECT
+                g.name AS game_name,
+                g.end_date,
+                t.name AS tournament_name,
+                s.iscored_username AS winner_name,
+                s.score AS winner_score
+            FROM games g
+            JOIN tournaments t ON g.tournament_id = t.id
+            LEFT JOIN (
+                SELECT game_id, iscored_username, score,
+                       ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY score DESC) AS rn
+                FROM submissions
+            ) s ON s.game_id = g.id AND s.rn = 1
+            WHERE g.status = 'COMPLETED'
+            ORDER BY g.end_date DESC
+            LIMIT 10`;
+
+    const recentWinners: RecentWinner[] = gameRoomId
+        ? await db.all(recentWinnersQuery, gameRoomId)
+        : await db.all(recentWinnersQuery);
 
     // System health
     const setupRow = await db.get("SELECT value FROM settings WHERE key = 'SETUP_COMPLETE'");
