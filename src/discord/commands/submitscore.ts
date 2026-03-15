@@ -71,7 +71,7 @@ export const submitscore: Command = {
             return;
         }
 
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
         const term = getTerminology();
         const gameName = interaction.options.getString('game', true);
