@@ -28,24 +28,6 @@ export const setup: Command = {
                 )
         )
         .addSubcommand(sub =>
-            sub.setName('pick-windows')
-                .setDescription('Set the pick timeout windows (in minutes).')
-                .addIntegerOption(opt =>
-                    opt.setName('winner')
-                        .setDescription('Winner pick window in minutes (default: 60)')
-                        .setRequired(false)
-                        .setMinValue(5)
-                        .setMaxValue(1440)
-                )
-                .addIntegerOption(opt =>
-                    opt.setName('runner-up')
-                        .setDescription('Runner-up pick window in minutes (default: 30)')
-                        .setRequired(false)
-                        .setMinValue(5)
-                        .setMaxValue(1440)
-                )
-        )
-        .addSubcommand(sub =>
             sub.setName('view')
                 .setDescription('View current ArcAid configuration.')
         ) as SlashCommandBuilder,
@@ -70,48 +52,19 @@ export const setup: Command = {
             await interaction.reply(`Admin role set to <@&${role.id}>.`);
         }
 
-        else if (subcommand === 'pick-windows') {
-            const winner = interaction.options.getInteger('winner');
-            const runnerUp = interaction.options.getInteger('runner-up');
-
-            if (!winner && !runnerUp) {
-                await interaction.reply({ content: 'Please provide at least one window value to update.', ephemeral: true });
-                return;
-            }
-
-            const updates: string[] = [];
-            if (winner) {
-                await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'WINNER_PICK_WINDOW_MIN', winner.toString());
-                process.env.WINNER_PICK_WINDOW_MIN = winner.toString();
-                updates.push(`Winner: **${winner} minutes**`);
-            }
-            if (runnerUp) {
-                await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'RUNNERUP_PICK_WINDOW_MIN', runnerUp.toString());
-                process.env.RUNNERUP_PICK_WINDOW_MIN = runnerUp.toString();
-                updates.push(`Runner-up: **${runnerUp} minutes**`);
-            }
-
-            logInfo(`User ${interaction.user.tag} updated pick windows: ${updates.join(', ')}`);
-            await interaction.reply(`Pick windows updated:\n${updates.join('\n')}`);
-        }
-
         else if (subcommand === 'view') {
-            const settings = await db.all('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?)',
-                'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_ADMIN_ROLE_ID',
-                'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN'
+            const settings = await db.all('SELECT key, value FROM settings WHERE key IN (?, ?)',
+                'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_ADMIN_ROLE_ID'
             );
 
             const map = new Map(settings.map((s: any) => [s.key, s.value]));
             const channelId = map.get('DISCORD_ANNOUNCEMENT_CHANNEL_ID') || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
             const roleId = map.get('DISCORD_ADMIN_ROLE_ID') || process.env.DISCORD_ADMIN_ROLE_ID;
-            const winnerMin = map.get('WINNER_PICK_WINDOW_MIN') || process.env.WINNER_PICK_WINDOW_MIN || '60';
-            const runnerUpMin = map.get('RUNNERUP_PICK_WINDOW_MIN') || process.env.RUNNERUP_PICK_WINDOW_MIN || '30';
 
             let msg = '**ArcAid Configuration**\n\n';
             msg += `**Announcement Channel:** ${channelId ? `<#${channelId}>` : '*Not set*'}\n`;
             msg += `**Admin Role:** ${roleId ? `<@&${roleId}>` : '*Not set*'}\n`;
-            msg += `**Winner Pick Window:** ${winnerMin} minutes\n`;
-            msg += `**Runner-up Pick Window:** ${runnerUpMin} minutes\n`;
+            msg += `\n*Pick windows and other settings are managed in the Admin UI → Settings.*\n`;
 
             await interaction.reply(msg);
         }

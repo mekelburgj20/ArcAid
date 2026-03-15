@@ -23,6 +23,13 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string }> = 
   },
 };
 
+const SETTING_LABELS: Record<string, { label: string; description: string }> = {
+  WINNER_PICK_WINDOW_MIN: { label: 'Winner Pick Window (minutes)', description: 'How long the winner has to pick the next game before it falls to the runner-up.' },
+  RUNNERUP_PICK_WINDOW_MIN: { label: 'Runner-up Pick Window (minutes)', description: 'How long the runner-up has to pick if the winner doesn\'t.' },
+  GAME_ELIGIBILITY_DAYS: { label: 'Game Eligibility Cooldown (days)', description: 'How many days before a previously played game can be picked again.' },
+  BOT_TIMEZONE: { label: 'Bot Timezone', description: 'Default timezone for schedules (e.g. America/Chicago).' },
+};
+
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
 
 function PlatformsEditor({ platforms, onChange }: { platforms: string[]; onChange: (p: string[]) => void }) {
@@ -249,25 +256,31 @@ export default function Settings() {
       {categorized.map(({ category, entries }) => entries.length > 0 && (
         <NeonCard key={category} title={category} className="mb-4">
           <div className="space-y-3">
-            {entries.map(([key, value]) => (
-              <div key={key} className="flex items-center gap-3">
-                <label className="w-64 shrink-0 text-sm font-mono text-muted">{key}</label>
-                <input
-                  type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
-                  value={value}
-                  onChange={e => handleChange(key, e.target.value)}
-                  className={`${inputClass} flex-1`}
-                />
-                {isSensitive(key) && (
-                  <button
-                    onClick={() => toggleReveal(key)}
-                    className="text-xs text-faint hover:text-muted cursor-pointer bg-transparent border-none"
-                  >
-                    {revealed.has(key) ? 'Hide' : 'Show'}
-                  </button>
-                )}
-              </div>
-            ))}
+            {entries.map(([key, value]) => {
+              const meta = SETTING_LABELS[key];
+              return (
+                <div key={key}>
+                  <div className="flex items-center gap-3">
+                    <label className="w-64 shrink-0 text-sm font-mono text-muted" title={meta?.description}>{meta?.label || key}</label>
+                    <input
+                      type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
+                      value={value}
+                      onChange={e => handleChange(key, e.target.value)}
+                      className={`${inputClass} flex-1`}
+                    />
+                    {isSensitive(key) && (
+                      <button
+                        onClick={() => toggleReveal(key)}
+                        className="text-xs text-faint hover:text-muted cursor-pointer bg-transparent border-none"
+                      >
+                        {revealed.has(key) ? 'Hide' : 'Show'}
+                      </button>
+                    )}
+                  </div>
+                  {meta?.description && <p className="text-xs text-faint mt-1 ml-[16.5rem] pl-3">{meta.description}</p>}
+                </div>
+              );
+            })}
           </div>
         </NeonCard>
       ))}
