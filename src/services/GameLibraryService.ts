@@ -97,16 +97,66 @@ export class GameLibraryService {
         await db.exec('BEGIN TRANSACTION');
         try {
             for (const game of games) {
-                await db.run(
-                    `INSERT OR REPLACE INTO game_library
-                    (name, aliases, style_id, mode, css_title, css_initials, css_scores, css_box, bg_color, platforms)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    game.name, game.aliases || '', game.style_id || '',
-                    game.mode || 'pinball',
-                    game.css_title || '', game.css_initials || '',
-                    game.css_scores || '', game.css_box || '',
-                    game.bg_color || '', game.platforms || '[]'
+                // Check if game exists so we can merge platforms
+                const existing = await db.get(
+                    'SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE',
+                    game.name
                 );
+
+                // Merge platforms: union of existing + new
+                let mergedPlatforms = game.platforms || '[]';
+                if (existing) {
+                    const existingList = this.parsePlatformsList(existing.platforms || '');
+                    const newList = this.parsePlatformsList(mergedPlatforms);
+                    const seen = new Set(existingList.map(p => p.toUpperCase()));
+                    const result = [...existingList];
+                    for (const p of newList) {
+                        if (!seen.has(p.toUpperCase())) {
+                            seen.add(p.toUpperCase());
+                            result.push(p);
+                        }
+                    }
+                    mergedPlatforms = JSON.stringify(result);
+                }
+
+                if (existing) {
+                    // Update: preserve existing non-empty fields, merge platforms
+                    await db.run(
+                        `UPDATE game_library SET
+                            aliases = CASE WHEN ? != '' THEN ? ELSE aliases END,
+                            style_id = CASE WHEN ? != '' THEN ? ELSE style_id END,
+                            mode = ?,
+                            css_title = CASE WHEN ? != '' THEN ? ELSE css_title END,
+                            css_initials = CASE WHEN ? != '' THEN ? ELSE css_initials END,
+                            css_scores = CASE WHEN ? != '' THEN ? ELSE css_scores END,
+                            css_box = CASE WHEN ? != '' THEN ? ELSE css_box END,
+                            bg_color = CASE WHEN ? != '' THEN ? ELSE bg_color END,
+                            platforms = ?
+                        WHERE name = ? COLLATE NOCASE`,
+                        game.aliases || '', game.aliases || '',
+                        game.style_id || '', game.style_id || '',
+                        game.mode || 'pinball',
+                        game.css_title || '', game.css_title || '',
+                        game.css_initials || '', game.css_initials || '',
+                        game.css_scores || '', game.css_scores || '',
+                        game.css_box || '', game.css_box || '',
+                        game.bg_color || '', game.bg_color || '',
+                        mergedPlatforms,
+                        game.name
+                    );
+                } else {
+                    // Insert new game
+                    await db.run(
+                        `INSERT INTO game_library
+                        (name, aliases, style_id, mode, css_title, css_initials, css_scores, css_box, bg_color, platforms)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        game.name, game.aliases || '', game.style_id || '',
+                        game.mode || 'pinball',
+                        game.css_title || '', game.css_initials || '',
+                        game.css_scores || '', game.css_box || '',
+                        game.bg_color || '', mergedPlatforms
+                    );
+                }
             }
             await db.exec('COMMIT');
 
@@ -133,12 +183,7 @@ export class GameLibraryService {
             const newPlatforms = [...masterPlatforms];
 
             for (const game of games) {
-                let gamePlats: string[] = [];
-                if (game.platforms) {
-                    try { gamePlats = JSON.parse(game.platforms); } catch {
-                        gamePlats = game.platforms.split(',').map(p => p.trim()).filter(Boolean);
-                    }
-                }
+                const gamePlats = this.parsePlatformsList(game.platforms || '');
                 for (const p of gamePlats) {
                     if (p && !masterSet.has(p.toUpperCase())) {
                         masterSet.add(p.toUpperCase());
@@ -156,5 +201,17 @@ export class GameLibraryService {
         } catch {
             // Non-critical — don't fail the import
         }
+    }
+
+    /**
+     * Parses a platforms value (JSON array or comma-separated string) into a string array.
+     */
+    private static parsePlatformsList(raw: string): string[] {
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed.filter(Boolean);
+        } catch {}
+        return raw.split(',').map(p => p.trim()).filter(Boolean);
     }
 }
