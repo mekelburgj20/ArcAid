@@ -990,6 +990,24 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    // All submissions for a game, grouped by player (for expandable score history)
+    app.get('/api/leaderboard/:gameId/submissions', async (req, res) => {
+        try {
+            const gameId = req.params.gameId as string;
+            const db = await getDatabase();
+            const submissions = await db.all(`
+                SELECT iscored_username, score, timestamp, photo_url
+                FROM submissions
+                WHERE game_id = ?
+                ORDER BY LOWER(iscored_username), score DESC
+            `, gameId);
+            res.json(submissions);
+        } catch (error) {
+            logError('API Error (/api/leaderboard/:gameId/submissions):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
     // --- Stats Endpoints ---
     app.get('/api/stats/players', async (req, res) => {
         try {
