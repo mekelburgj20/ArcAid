@@ -73,6 +73,21 @@ export class GameLibraryService {
     }
 
     /**
+     * Deletes games from the library by name.
+     * Does NOT affect active tournament games — only removes from the library catalog.
+     */
+    static async deleteGames(names: string[]): Promise<number> {
+        const db = await getDatabase();
+        if (names.length === 0) return 0;
+        const placeholders = names.map(() => '?').join(',');
+        const result = await db.run(
+            `DELETE FROM game_library WHERE name IN (${placeholders})`,
+            ...names
+        );
+        return result.changes ?? 0;
+    }
+
+    /**
      * Imports an array of games into the library (upsert).
      * Runs in a transaction for atomicity.
      */
@@ -94,10 +109,52 @@ export class GameLibraryService {
                 );
             }
             await db.exec('COMMIT');
+
+            // Auto-sync: merge any new platforms into the master PLATFORMS setting
+            await this.syncPlatformsSetting(db, games);
+
             return games.length;
         } catch (error) {
             await db.exec('ROLLBACK').catch(() => {});
             throw error;
+        }
+    }
+
+    /**
+     * Merges platforms from imported games into the master PLATFORMS setting.
+     */
+    private static async syncPlatformsSetting(db: any, games: GameData[]): Promise<void> {
+        try {
+            const row = await db.get("SELECT value FROM settings WHERE key = 'PLATFORMS'");
+            let masterPlatforms: string[] = [];
+            try { masterPlatforms = JSON.parse(row?.value || '[]'); } catch {}
+
+            const masterSet = new Set(masterPlatforms.map(p => p.toUpperCase()));
+            const newPlatforms = [...masterPlatforms];
+
+            for (const game of games) {
+                let gamePlats: string[] = [];
+                if (game.platforms) {
+                    try { gamePlats = JSON.parse(game.platforms); } catch {
+                        gamePlats = game.platforms.split(',').map(p => p.trim()).filter(Boolean);
+                    }
+                }
+                for (const p of gamePlats) {
+                    if (p && !masterSet.has(p.toUpperCase())) {
+                        masterSet.add(p.toUpperCase());
+                        newPlatforms.push(p);
+                    }
+                }
+            }
+
+            if (newPlatforms.length > masterPlatforms.length) {
+                await db.run(
+                    "UPDATE settings SET value = ? WHERE key = 'PLATFORMS'",
+                    JSON.stringify(newPlatforms)
+                );
+            }
+        } catch {
+            // Non-critical — don't fail the import
         }
     }
 }

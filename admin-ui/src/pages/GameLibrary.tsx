@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Papa from 'papaparse';
 import { api } from '../lib/api';
 import { useToast } from '../components/Toast';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
-import DataTable from '../components/DataTable';
 import LoadingState from '../components/LoadingState';
 import StarRating from '../components/StarRating';
+import ConfirmModal from '../components/ConfirmModal';
 
 interface GameRow {
   name: string;
@@ -54,6 +54,26 @@ interface TournamentOption {
   name: string;
 }
 
+type SortKey = 'name' | 'mode' | 'platforms' | 'rating' | 'style_id';
+type SortDir = 'asc' | 'desc';
+
+function SortHeader({ label, sortKey, currentKey, currentDir, onSort }: {
+  label: string; sortKey: SortKey; currentKey: SortKey; currentDir: SortDir; onSort: (k: SortKey) => void;
+}) {
+  const active = currentKey === sortKey;
+  return (
+    <button
+      onClick={() => onSort(sortKey)}
+      className="flex items-center gap-1 text-xs font-display font-bold uppercase tracking-wider text-muted hover:text-primary transition-colors cursor-pointer"
+    >
+      {label}
+      <span className={`text-[10px] ${active ? 'text-neon-cyan' : 'text-faint'}`}>
+        {active ? (currentDir === 'asc' ? '▲' : '▼') : '▲▼'}
+      </span>
+    </button>
+  );
+}
+
 export default function GameLibrary() {
   const { toast } = useToast();
   const [games, setGames] = useState<GameRow[]>([]);
@@ -75,6 +95,16 @@ export default function GameLibrary() {
   const [activateTarget, setActivateTarget] = useState<string | null>(null);
   const [tournaments, setTournaments] = useState<TournamentOption[]>([]);
   const [activatingFor, setActivatingFor] = useState<string | null>(null);
+
+  // Selection + delete
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Sorting
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
   const fetchGames = async () => {
     try {
       setGames(await api.get<GameRow[]>('/game_library'));
@@ -197,6 +227,22 @@ export default function GameLibrary() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selected.size === 0) return;
+    setDeleting(true);
+    try {
+      const res = await api.post<{ deleted: number }>('/game_library/delete', { names: [...selected] });
+      toast(`Deleted ${res.deleted} game${res.deleted !== 1 ? 's' : ''} from library`, 'success');
+      setSelected(new Set());
+      setShowDeleteConfirm(false);
+      fetchGames();
+    } catch (err: any) {
+      toast(err.message || 'Failed to delete games', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const allPlatforms = [...new Set(games.flatMap(g => parsePlatforms(g.platforms)))].sort();
 
   const togglePlatform = (p: string) => {
@@ -220,6 +266,61 @@ export default function GameLibrary() {
     }
     return true;
   });
+
+  // Sorted games
+  const sortedGames = useMemo(() => {
+    const sorted = [...filteredGames];
+    sorted.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'name':
+          cmp = a.name.localeCompare(b.name);
+          break;
+        case 'mode':
+          cmp = (a.mode || 'pinball').localeCompare(b.mode || 'pinball');
+          break;
+        case 'platforms':
+          cmp = (a.platforms || '').localeCompare(b.platforms || '');
+          break;
+        case 'rating': {
+          const ra = communityRatings[a.name]?.avg_rating ?? 0;
+          const rb = communityRatings[b.name]?.avg_rating ?? 0;
+          cmp = ra - rb;
+          break;
+        }
+        case 'style_id':
+          cmp = (a.style_id || '').localeCompare(b.style_id || '');
+          break;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return sorted;
+  }, [filteredGames, sortKey, sortDir, communityRatings]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const toggleSelect = (name: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === sortedGames.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(sortedGames.map(g => g.name)));
+    }
+  };
 
   if (loading) return <LoadingState message="Loading game library..." />;
 
@@ -248,14 +349,17 @@ export default function GameLibrary() {
             {vpsImporting ? 'Importing VPS...' : 'Import from VPS'}
           </NeonButton>
           <NeonButton variant="secondary" onClick={downloadTemplate}>CSV Template</NeonButton>
-          <div>
+          <label htmlFor="csv-upload" className="cursor-pointer">
             <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" id="csv-upload" disabled={importing} />
-            <label htmlFor="csv-upload">
-              <NeonButton variant="secondary" className="pointer-events-none" tabIndex={-1} as-child>
-                {importing ? 'Importing...' : 'Import CSV'}
-              </NeonButton>
-            </label>
-          </div>
+            <span className={`
+              inline-flex items-center justify-center gap-2 px-4 py-2 rounded border text-sm font-medium
+              transition-all duration-200 cursor-pointer
+              bg-raised text-muted border-border hover:text-primary hover:border-border-glow
+              ${importing ? 'opacity-40 cursor-not-allowed' : ''}
+            `}>
+              {importing ? 'Importing...' : 'Import CSV'}
+            </span>
+          </label>
         </div>
       </div>
 
@@ -317,6 +421,11 @@ export default function GameLibrary() {
             <input type="checkbox" checked={showVideoGame} onChange={e => setShowVideoGame(e.target.checked)} className="accent-neon-cyan" />
             Video Games
           </label>
+          {selected.size > 0 && (
+            <NeonButton variant="danger" onClick={() => setShowDeleteConfirm(true)} className="text-xs px-3 py-1">
+              Delete Selected ({selected.size})
+            </NeonButton>
+          )}
         </div>
         {allPlatforms.length > 0 && (
           <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -341,39 +450,98 @@ export default function GameLibrary() {
             )}
           </div>
         )}
-        <DataTable<GameRow>
-          columns={[
-            { key: 'name', header: 'Game', render: g => <span className="font-medium">{g.name}</span> },
-            { key: 'mode', header: 'Mode', render: g => (
-              <span className={`text-xs px-2 py-0.5 rounded ${(g.mode || 'pinball') === 'pinball' ? 'bg-neon-amber/15 text-neon-amber' : 'bg-neon-cyan/15 text-neon-cyan'}`}>
-                {(g.mode || 'pinball') === 'pinball' ? 'Pinball' : 'Video Game'}
-              </span>
-            )},
-            { key: 'platforms', header: 'Platforms', render: g => <PlatformChips platforms={g.platforms} /> },
-            { key: 'rating', header: 'Rating', render: g => {
-              const cr = communityRatings[g.name];
-              const ur = userRatings[g.name] || 0;
-              return (
-                <div className="flex items-center gap-1.5">
-                  <StarRating rating={ur} onRate={(r) => handleRate(g.name, r)} />
-                  {cr && cr.rating_count > 0 && (
-                    <span className="text-xs text-muted">{cr.avg_rating} ({cr.rating_count})</span>
-                  )}
-                </div>
-              );
-            }},
-            { key: 'style_id', header: 'Style ID', render: g => <span className="text-sm text-muted font-mono">{g.style_id || '-'}</span> },
-            { key: 'actions', header: '', render: g => (
-              <div className="flex justify-end gap-1">
-                <NeonButton variant="ghost" onClick={() => setActivateTarget(g.name)} className="text-xs px-2 py-1">Activate</NeonButton>
-                <NeonButton variant="ghost" onClick={() => openEdit(g)} className="text-xs px-2 py-1">Edit</NeonButton>
-              </div>
-            ), className: 'text-right' },
-          ]}
-          data={filteredGames}
-          keyExtractor={(g, i) => g.name || String(i)}
-          emptyMessage="No games in the library."
-        />
+
+        {/* Custom table with sorting + checkboxes */}
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="px-4 py-3 text-left w-10">
+                  <input
+                    type="checkbox"
+                    checked={sortedGames.length > 0 && selected.size === sortedGames.length}
+                    onChange={toggleSelectAll}
+                    className="accent-neon-cyan cursor-pointer"
+                  />
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <SortHeader label="Game" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <SortHeader label="Mode" sortKey="mode" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <SortHeader label="Platforms" sortKey="platforms" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <SortHeader label="Rating" sortKey="rating" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <SortHeader label="Style ID" sortKey="style_id" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-display font-bold uppercase tracking-wider text-muted"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedGames.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-muted">
+                    No games in the library.
+                  </td>
+                </tr>
+              ) : (
+                sortedGames.map((g) => (
+                  <tr key={g.name} className={`border-b border-border/50 transition-colors ${
+                    selected.has(g.name) ? 'bg-neon-cyan/5' : 'hover:bg-raised/50'
+                  }`}>
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(g.name)}
+                        onChange={() => toggleSelect(g.name)}
+                        className="accent-neon-cyan cursor-pointer"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-medium">{g.name}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded ${(g.mode || 'pinball') === 'pinball' ? 'bg-neon-amber/15 text-neon-amber' : 'bg-neon-cyan/15 text-neon-cyan'}`}>
+                        {(g.mode || 'pinball') === 'pinball' ? 'Pinball' : 'Video Game'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <PlatformChips platforms={g.platforms} />
+                    </td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const cr = communityRatings[g.name];
+                        const ur = userRatings[g.name] || 0;
+                        return (
+                          <div className="flex items-center gap-1.5">
+                            <StarRating rating={ur} onRate={(r) => handleRate(g.name, r)} />
+                            {cr && cr.rating_count > 0 && (
+                              <span className="text-xs text-muted">{cr.avg_rating} ({cr.rating_count})</span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm text-muted font-mono">{g.style_id || '-'}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-1">
+                        <NeonButton variant="ghost" onClick={() => setActivateTarget(g.name)} className="text-xs px-2 py-1">Activate</NeonButton>
+                        <NeonButton variant="ghost" onClick={() => openEdit(g)} className="text-xs px-2 py-1">Edit</NeonButton>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
         <p className="text-faint text-xs mt-3">{filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''}</p>
       </NeonCard>
 
@@ -403,6 +571,16 @@ export default function GameLibrary() {
             </NeonButton>
           </div>
         </div>
+      )}
+
+      {showDeleteConfirm && (
+        <ConfirmModal
+          title="Delete Games"
+          message={`Are you sure you want to delete ${selected.size} game${selected.size !== 1 ? 's' : ''} from the library? Active tournament games will not be affected.`}
+          confirmLabel={deleting ? 'Deleting...' : 'Delete'}
+          onConfirm={handleBulkDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
       )}
 
       {editTarget && (

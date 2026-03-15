@@ -405,6 +405,21 @@ export function startApiServer(port: number = 3001) {
         }
     });
 
+    app.post('/api/game_library/delete', requireAuth, async (req, res) => {
+        try {
+            const { names } = req.body;
+            if (!Array.isArray(names) || names.length === 0) {
+                return res.status(400).json({ error: 'names array is required' });
+            }
+            const deleted = await GameLibraryService.deleteGames(names);
+            logInfo(`Deleted ${deleted} games from library: ${names.join(', ')}`);
+            res.json({ success: true, deleted });
+        } catch (error) {
+            logError('API Error (POST /api/game_library/delete):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
     app.post('/api/game_library/import-vps', requireAuth, async (req, res) => {
         try {
             const result = await VpsImportService.importFromVps();

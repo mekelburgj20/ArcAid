@@ -75,15 +75,25 @@ function ordinal(n: number): string {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
-function PlatformRulesEditor({ platforms, rules, onChange }: {
+function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
   platforms: string[];
   rules: PlatformRules;
   onChange: (r: PlatformRules) => void;
+  onAddPlatform?: (name: string) => void;
 }) {
+  const [newPlatform, setNewPlatform] = useState('');
+
   const toggle = (list: 'required' | 'excluded', p: string) => {
     const current = rules[list];
     const next = current.includes(p) ? current.filter(x => x !== p) : [...current, p];
     onChange({ ...rules, [list]: next });
+  };
+
+  const handleAdd = () => {
+    const name = newPlatform.trim();
+    if (!name || platforms.some(p => p.toUpperCase() === name.toUpperCase())) return;
+    onAddPlatform?.(name);
+    setNewPlatform('');
   };
 
   return (
@@ -92,7 +102,7 @@ function PlatformRulesEditor({ platforms, rules, onChange }: {
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
           Must be available on <span className="text-faint">(game must list at least one)</span>
         </label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           {platforms.map(p => (
             <button key={`req-${p}`} type="button" onClick={() => toggle('required', p)}
               className={`px-3 py-1 rounded text-xs border cursor-pointer transition-colors ${
@@ -101,7 +111,7 @@ function PlatformRulesEditor({ platforms, rules, onChange }: {
                   : 'bg-raised border-border text-muted hover:border-neon-cyan/50'
               }`}>{p}</button>
           ))}
-          {platforms.length === 0 && <span className="text-faint text-xs">No platforms configured. Add them in Settings.</span>}
+          {platforms.length === 0 && <span className="text-faint text-xs">No platforms configured.</span>}
         </div>
       </div>
       <div>
@@ -119,6 +129,24 @@ function PlatformRulesEditor({ platforms, rules, onChange }: {
           ))}
         </div>
       </div>
+      {onAddPlatform && (
+        <div>
+          <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+            Add platform
+          </label>
+          <div className="flex gap-2">
+            <input type="text" placeholder="e.g. Steam" value={newPlatform}
+              onChange={e => setNewPlatform(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAdd(); } }}
+              className="px-3 py-1.5 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors w-40" />
+            <button type="button" onClick={handleAdd}
+              disabled={!newPlatform.trim()}
+              className="px-3 py-1.5 rounded text-xs border border-border text-muted hover:border-neon-cyan hover:text-neon-cyan transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
+              + Add
+            </button>
+          </div>
+        </div>
+      )}
       <div>
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
           Restriction note <span className="text-faint">(shown in announcements)</span>
@@ -262,6 +290,16 @@ export default function Tournaments() {
     try {
       setActiveGames(await api.get<ActiveGame[]>('/games/active'));
     } catch {}
+  };
+
+  const handleAddPlatform = async (name: string) => {
+    const updated = [...platforms, name];
+    setPlatforms(updated);
+    try {
+      await api.put('/settings', { PLATFORMS: JSON.stringify(updated) });
+    } catch {
+      toast('Failed to save platform', 'error');
+    }
   };
 
   const handleReorderLineup = async () => {
@@ -434,7 +472,7 @@ export default function Tournaments() {
           <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
             Platform Rules <InfoTip text="Control which platforms are required or excluded when picking games for this tournament." />
           </label>
-          <PlatformRulesEditor platforms={platforms} rules={newPlatformRules} onChange={setNewPlatformRules} />
+          <PlatformRulesEditor platforms={platforms} rules={newPlatformRules} onChange={setNewPlatformRules} onAddPlatform={handleAddPlatform} />
         </div>
         <div className="mb-4">
           <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
@@ -599,7 +637,7 @@ export default function Tournaments() {
               <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
                 Platform Rules <InfoTip text="Control which platforms are required or excluded when picking games for this tournament." />
               </label>
-              <PlatformRulesEditor platforms={platforms} rules={editPlatformRules} onChange={setEditPlatformRules} />
+              <PlatformRulesEditor platforms={platforms} rules={editPlatformRules} onChange={setEditPlatformRules} onAddPlatform={handleAddPlatform} />
             </div>
             <div className="mb-6">
               <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
