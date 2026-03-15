@@ -6,8 +6,12 @@ const JWT_SECRET = process.env.JWT_SECRET || 'arcaid-dev-secret-change-in-produc
 const JWT_EXPIRY = '24h';
 
 export interface TokenPayload {
-    role: string;
+    role: 'room_admin' | 'super_admin';
+    gameRoomIds: string[];
+    // Identity — exactly one of these is set:
     discordId?: string;
+    localAdminId?: string;
+    // Display
     username?: string;
     avatar?: string;
 }

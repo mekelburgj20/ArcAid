@@ -2,6 +2,7 @@ import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 
 let db: Database | null = null;
 
@@ -172,6 +173,61 @@ export async function initDatabase(): Promise<Database> {
         )
     `);
 
+    // 8. Multi-room tables
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS game_rooms (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL UNIQUE,
+            description TEXT DEFAULT '',
+            is_public INTEGER DEFAULT 1,
+            logo_url TEXT,
+            discord_guild_id TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS game_room_settings (
+            game_room_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (game_room_id, key),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS local_admins (
+            id TEXT PRIMARY KEY,
+            game_room_id TEXT NOT NULL,
+            username TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            display_name TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(game_room_id, username),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS game_room_admins (
+            game_room_id TEXT NOT NULL,
+            discord_user_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'admin',
+            PRIMARY KEY (game_room_id, discord_user_id),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS super_admins (
+            discord_user_id TEXT PRIMARY KEY,
+            username TEXT,
+            granted_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS game_room_game_library (
+            game_room_id TEXT NOT NULL,
+            game_name TEXT NOT NULL,
+            PRIMARY KEY (game_room_id, game_name),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE,
+            FOREIGN KEY (game_name) REFERENCES game_library (name)
+        )
+    `);
+
     // --- Indexes for performance ---
     await db.exec(`
         CREATE INDEX IF NOT EXISTS idx_games_tournament_id ON games(tournament_id);
@@ -196,6 +252,8 @@ export async function initDatabase(): Promise<Database> {
         `ALTER TABLE tournaments ADD COLUMN cleanup_rule TEXT DEFAULT '{"mode":"retain","count":0}'`,
         `ALTER TABLE game_library ADD COLUMN image_url TEXT`,
         `ALTER TABLE tournaments ADD COLUMN max_active_games INTEGER DEFAULT 1`,
+        `ALTER TABLE tournaments ADD COLUMN game_room_id TEXT`,
+        `ALTER TABLE ranking_groups ADD COLUMN game_room_id TEXT`,
     ];
     for (const migration of migrations) {
         try {
@@ -204,6 +262,9 @@ export async function initDatabase(): Promise<Database> {
             // Column already exists — safe to ignore
         }
     }
+
+    // --- Multi-room data migration (idempotent) ---
+    await migrateToMultiRoom(db);
 
     // --- Migrate tournament_types → platforms (rename + normalize) ---
     try {
@@ -248,6 +309,77 @@ export async function initDatabase(): Promise<Database> {
     }
 
     return db;
+}
+
+/** Per-room setting keys that should be migrated from global settings */
+const PER_ROOM_SETTING_KEYS = [
+    'ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL',
+    'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_GUILD_ID',
+    'BOT_TIMEZONE', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN',
+    'GAME_ELIGIBILITY_DAYS', 'PLATFORMS', 'UI_THEME', 'GAME_ROOM_NAME',
+];
+
+/**
+ * Idempotent migration: creates default game room from existing settings,
+ * copies per-room keys to game_room_settings, backfills game_room_id on
+ * tournaments and ranking_groups, populates game_room_game_library.
+ */
+async function migrateToMultiRoom(db: Database): Promise<void> {
+    // Check if migration already ran (default room exists)
+    const existingRoom = await db.get('SELECT id FROM game_rooms LIMIT 1');
+    if (existingRoom) return;
+
+    // Read existing slug/name from settings
+    const slugRow = await db.get("SELECT value FROM settings WHERE key = 'GAME_ROOM_SLUG'");
+    const nameRow = await db.get("SELECT value FROM settings WHERE key = 'GAME_ROOM_NAME'");
+
+    // Only migrate if there's existing data to migrate
+    const hasTournaments = await db.get('SELECT id FROM tournaments LIMIT 1');
+    if (!slugRow && !hasTournaments) return; // Fresh install, no migration needed
+
+    const roomId = crypto.randomUUID();
+    const slug = slugRow?.value || 'default';
+    const name = nameRow?.value || slug;
+
+    await db.exec('BEGIN TRANSACTION');
+    try {
+        // 1. Create default game room
+        const guildIdRow = await db.get("SELECT value FROM settings WHERE key = 'DISCORD_GUILD_ID'");
+        await db.run(
+            `INSERT INTO game_rooms (id, name, slug, description, is_public, discord_guild_id)
+             VALUES (?, ?, ?, '', 1, ?)`,
+            roomId, name, slug.toLowerCase(), guildIdRow?.value || null
+        );
+
+        // 2. Copy per-room setting keys to game_room_settings
+        for (const key of PER_ROOM_SETTING_KEYS) {
+            const row = await db.get('SELECT value FROM settings WHERE key = ?', key);
+            if (row) {
+                await db.run(
+                    'INSERT OR IGNORE INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)',
+                    roomId, key, row.value
+                );
+            }
+        }
+
+        // 3. Backfill game_room_id on tournaments
+        await db.run('UPDATE tournaments SET game_room_id = ? WHERE game_room_id IS NULL', roomId);
+
+        // 4. Backfill game_room_id on ranking_groups
+        await db.run('UPDATE ranking_groups SET game_room_id = ? WHERE game_room_id IS NULL', roomId);
+
+        // 5. Populate game_room_game_library with all existing game_library entries
+        await db.run(
+            `INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name)
+             SELECT ?, name FROM game_library`,
+            roomId
+        );
+
+        await db.exec('COMMIT');
+    } catch (err) {
+        await db.exec('ROLLBACK');
+        throw err;
+    }
 }
 
 /**

@@ -8,8 +8,11 @@ import { z } from 'zod';
 import { initWebSocket } from './websocket.js';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
-import { hashPassword, verifyPassword, signToken, verifyToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
-import { requireAuth } from './middleware.js';
+import { hashPassword, verifyPassword, signToken, getAdminPasswordHash, setAdminPasswordHash } from './auth.js';
+import { requireAuth, requireRoomAccess, requireSuperAdmin } from './middleware.js';
+import { GameRoomService } from '../services/GameRoomService.js';
+import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
+import { AdminService } from '../services/AdminService.js';
 import { CreateTournamentSchema, UpdateTournamentSchema, ImportGamesSchema, UpdateGameSchema, SettingsSchema, HistoryQuerySchema, BackupRestoreParamsSchema, MergePlayerSchema, CreateRankingGroupSchema, UpdateRankingGroupSchema, UpdatePreferencesSchema } from './schemas.js';
 import { SettingsService } from '../services/SettingsService.js';
 import { TournamentService } from '../services/TournamentService.js';
@@ -38,6 +41,7 @@ export function startApiServer(port: number = 3001) {
 
     // --- Auth Endpoints ---
 
+    // Super-admin password login
     app.post('/api/auth/login', async (req, res) => {
         try {
             const { password } = req.body;
@@ -50,7 +54,7 @@ export function startApiServer(port: number = 3001) {
             if (!hash) {
                 const newHash = await hashPassword(password);
                 await setAdminPasswordHash(newHash);
-                const token = signToken({ role: 'admin' });
+                const token = signToken({ role: 'super_admin', gameRoomIds: [] });
                 return res.json({ token });
             }
 
@@ -59,10 +63,47 @@ export function startApiServer(port: number = 3001) {
                 return res.status(401).json({ error: 'Invalid password' });
             }
 
-            const token = signToken({ role: 'admin' });
+            const token = signToken({ role: 'super_admin', gameRoomIds: [] });
             res.json({ token });
         } catch (error) {
             logError('API Error (POST /api/auth/login):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // Room local admin login
+    app.post('/api/auth/login/:roomSlug', async (req, res) => {
+        try {
+            const { username, password } = req.body;
+            if (!username || !password) {
+                return res.status(400).json({ error: 'Username and password required' });
+            }
+
+            const room = await GameRoomService.getBySlug(req.params.roomSlug as string);
+            if (!room) {
+                return res.status(404).json({ error: 'Game room not found' });
+            }
+
+            const admin = await AdminService.getLocalAdminByUsername(room.id, username);
+            if (!admin) {
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
+
+            const valid = await AdminService.verifyLocalAdminPassword(admin, password);
+            if (!valid) {
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
+
+            const token = signToken({
+                role: 'room_admin',
+                gameRoomIds: [room.id],
+                localAdminId: admin.id,
+                username: admin.display_name || admin.username,
+            });
+
+            res.json({ token, roomId: room.id, roomSlug: room.slug });
+        } catch (error) {
+            logError('API Error (POST /api/auth/login/:roomSlug):', error);
             res.status(500).json({ error: 'Internal Server Error' });
         }
     });
@@ -94,17 +135,9 @@ export function startApiServer(port: number = 3001) {
 
             const clientId = process.env.DISCORD_CLIENT_ID;
             const clientSecret = process.env.DISCORD_CLIENT_SECRET;
-            const guildId = process.env.DISCORD_GUILD_ID;
-            const adminRoleId = process.env.DISCORD_ADMIN_ROLE_ID;
 
             if (!clientId || !clientSecret) {
                 return res.status(400).json({ error: 'Discord OAuth not configured' });
-            }
-            if (!guildId) {
-                return res.status(400).json({ error: 'DISCORD_GUILD_ID not configured' });
-            }
-            if (!adminRoleId) {
-                return res.status(400).json({ error: 'DISCORD_ADMIN_ROLE_ID not configured. Use /setup admin-role in Discord first.' });
             }
 
             // Exchange code for access token
@@ -137,35 +170,41 @@ export function startApiServer(port: number = 3001) {
             }
             const user = await userRes.json() as { id: string; username: string; global_name?: string; avatar?: string };
 
-            // Get guild member info (check role)
-            const memberRes = await fetch(`https://discord.com/api/users/@me/guilds/${guildId}/member`, {
-                headers: { Authorization: `Bearer ${tokenData.access_token}` },
-            });
-            if (!memberRes.ok) {
-                return res.status(403).json({ error: 'You are not a member of this server' });
-            }
-            const member = await memberRes.json() as { roles: string[] };
-
-            // Check if user has the admin role
-            if (!member.roles.includes(adminRoleId)) {
-                return res.status(403).json({ error: 'You do not have the required admin role' });
-            }
-
-            // Issue JWT
             const displayName = user.global_name || user.username;
             const avatarUrl = user.avatar
                 ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
                 : null;
 
-            const token = signToken({
-                role: 'admin',
-                discordId: user.id,
-                username: displayName,
-                avatar: avatarUrl || undefined,
-            });
+            // 1. Check super_admins table
+            const isSuperAdmin = await AdminService.isSuperAdmin(user.id);
+            if (isSuperAdmin) {
+                const token = signToken({
+                    role: 'super_admin',
+                    gameRoomIds: [],
+                    discordId: user.id,
+                    username: displayName,
+                    avatar: avatarUrl || undefined,
+                });
+                logInfo(`Discord OAuth login (super_admin): ${displayName} (${user.id})`);
+                return res.json({ token, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
+            }
 
-            logInfo(`Discord OAuth login: ${displayName} (${user.id})`);
-            res.json({ token, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
+            // 2. Check game_room_admins table
+            const roomIds = await AdminService.getRoomsForDiscordUser(user.id);
+            if (roomIds.length > 0) {
+                const token = signToken({
+                    role: 'room_admin',
+                    gameRoomIds: roomIds,
+                    discordId: user.id,
+                    username: displayName,
+                    avatar: avatarUrl || undefined,
+                });
+                logInfo(`Discord OAuth login (room_admin): ${displayName} (${user.id}) for rooms: ${roomIds.join(', ')}`);
+                return res.json({ token, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
+            }
+
+            // 3. Not an admin of any room
+            return res.status(403).json({ error: 'You are not an admin of any game room' });
         } catch (error) {
             logError('API Error (POST /api/auth/discord/callback):', error);
             res.status(500).json({ error: 'Internal Server Error' });
@@ -178,8 +217,15 @@ export function startApiServer(port: number = 3001) {
             if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
                 return res.status(400).json({ error: 'New password must be at least 8 characters' });
             }
-            const hash = await hashPassword(newPassword);
-            await setAdminPasswordHash(hash);
+
+            if (req.user!.localAdminId) {
+                // Local admin changing their own password
+                await AdminService.resetLocalAdminPassword(req.user!.localAdminId, newPassword);
+            } else {
+                // Super-admin changing the bootstrap password
+                const hash = await hashPassword(newPassword);
+                await setAdminPasswordHash(hash);
+            }
             res.json({ success: true });
         } catch (error) {
             logError('API Error (POST /api/auth/change-password):', error);
@@ -189,30 +235,21 @@ export function startApiServer(port: number = 3001) {
 
     // --- Auth Info Endpoint ---
     app.get('/api/auth/me', requireAuth, (req, res) => {
-        const authHeader = req.headers['authorization'];
-        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-        if (!token) return res.status(401).json({ error: 'No token' });
-        const payload = verifyToken(token);
-        if (!payload) return res.status(401).json({ error: 'Invalid token' });
+        const user = req.user!;
         res.json({
-            role: payload.role,
-            discordId: payload.discordId || null,
-            username: payload.username || 'Admin',
-            avatar: payload.avatar || null,
+            role: user.role,
+            gameRoomIds: user.gameRoomIds,
+            discordId: user.discordId || null,
+            localAdminId: user.localAdminId || null,
+            username: user.username || 'Admin',
+            avatar: user.avatar || null,
         });
     });
 
     // --- User Preferences Endpoints ---
     app.get('/api/me/preferences', requireAuth, async (req, res) => {
         try {
-            const authHeader = req.headers['authorization'];
-            const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-            if (!token) return res.status(401).json({ error: 'No token' });
-            const payload = verifyToken(token);
-            if (!payload) return res.status(401).json({ error: 'Invalid token' });
-
-            // Password-only admins use a stable key since they have no discordId
-            const userId = payload.discordId || 'admin-password';
+            const userId = req.user!.discordId || req.user!.localAdminId || 'admin-password';
             const { PreferencesService } = await import('../services/PreferencesService.js');
             const prefs = await PreferencesService.getAll(userId);
             res.json(prefs);
@@ -224,16 +261,10 @@ export function startApiServer(port: number = 3001) {
 
     app.post('/api/me/preferences', requireAuth, async (req, res) => {
         try {
-            const authHeader = req.headers['authorization'];
-            const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-            if (!token) return res.status(401).json({ error: 'No token' });
-            const payload = verifyToken(token);
-            if (!payload) return res.status(401).json({ error: 'Invalid token' });
-
             const validationResult = validate(UpdatePreferencesSchema, req.body);
             if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
-            const userId = payload.discordId || 'admin-password';
+            const userId = req.user!.discordId || req.user!.localAdminId || 'admin-password';
             const { PreferencesService } = await import('../services/PreferencesService.js');
             await PreferencesService.setTheme(userId, validationResult.data.ui_theme);
             res.json({ success: true });
@@ -1050,6 +1081,224 @@ export function startApiServer(port: number = 3001) {
             res.json(stats);
         } catch (error) {
             logError('API Error (/api/stats/game):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Game Room Endpoints ---
+    app.get('/api/rooms', async (req, res) => {
+        try {
+            const rooms = await GameRoomService.getPublic();
+            res.json(rooms);
+        } catch (error) {
+            logError('API Error (GET /api/rooms):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.get('/api/rooms/:roomId/portal', async (req, res) => {
+        try {
+            const room = await GameRoomService.getById(req.params.roomId as string);
+            if (!room) return res.status(404).json({ error: 'Room not found' });
+            const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
+            res.json({ slug: room.slug, name: room.name, ui_theme: uiTheme || 'arcade' });
+        } catch (error) {
+            logError('API Error (GET /api/rooms/:roomId/portal):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // Room settings (room admin)
+    app.get('/api/rooms/:roomId/settings', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+        try {
+            const settings = await GameRoomSettingsService.getAll(req.params.roomId as string);
+            res.json(settings);
+        } catch (error) {
+            logError('API Error (GET /api/rooms/:roomId/settings):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/rooms/:roomId/settings', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+        try {
+            const validationResult = validate(SettingsSchema, req.body);
+            if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+            await GameRoomSettingsService.saveMany(req.params.roomId as string, validationResult.data);
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (POST /api/rooms/:roomId/settings):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Super Admin: Game Room CRUD ---
+    app.get('/api/admin/rooms', requireAuth, requireSuperAdmin, async (req, res) => {
+        try {
+            const rooms = await GameRoomService.getAll();
+            res.json(rooms);
+        } catch (error) {
+            logError('API Error (GET /api/admin/rooms):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/admin/rooms', requireAuth, requireSuperAdmin, async (req, res) => {
+        try {
+            const { name, slug, description, is_public, logo_url, discord_guild_id } = req.body;
+            if (!name || !slug) return res.status(400).json({ error: 'Name and slug required' });
+
+            // Check slug uniqueness
+            const existing = await GameRoomService.getBySlug(slug);
+            if (existing) return res.status(409).json({ error: 'Slug already in use' });
+
+            const room = await GameRoomService.create({ name, slug, description, is_public, logo_url, discord_guild_id });
+            res.json({ success: true, room });
+        } catch (error) {
+            logError('API Error (POST /api/admin/rooms):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.put('/api/admin/rooms/:roomId', requireAuth, requireSuperAdmin, async (req, res) => {
+        try {
+            const updated = await GameRoomService.update(req.params.roomId as string, req.body);
+            if (!updated) return res.status(404).json({ error: 'Room not found' });
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (PUT /api/admin/rooms/:roomId):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.delete('/api/admin/rooms/:roomId', requireAuth, requireSuperAdmin, async (req, res) => {
+        try {
+            const deleted = await GameRoomService.delete(req.params.roomId as string);
+            if (!deleted) return res.status(404).json({ error: 'Room not found' });
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (DELETE /api/admin/rooms/:roomId):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Super Admin: Manage super admins ---
+    app.get('/api/admin/super-admins', requireAuth, requireSuperAdmin, async (req, res) => {
+        try {
+            const admins = await AdminService.getSuperAdmins();
+            res.json(admins);
+        } catch (error) {
+            logError('API Error (GET /api/admin/super-admins):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/admin/super-admins', requireAuth, requireSuperAdmin, async (req, res) => {
+        try {
+            const { discord_user_id, username } = req.body;
+            if (!discord_user_id) return res.status(400).json({ error: 'discord_user_id required' });
+            await AdminService.addSuperAdmin(discord_user_id, username);
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (POST /api/admin/super-admins):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.delete('/api/admin/super-admins/:discordId', requireAuth, requireSuperAdmin, async (req, res) => {
+        try {
+            const deleted = await AdminService.removeSuperAdmin(req.params.discordId as string);
+            if (!deleted) return res.status(404).json({ error: 'Super admin not found' });
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (DELETE /api/admin/super-admins/:discordId):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    // --- Room Admin Management ---
+    app.get('/api/rooms/:roomId/admins', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+        try {
+            const roomId = req.params.roomId as string;
+            const localAdmins = await AdminService.getLocalAdmins(roomId);
+            const discordAdmins = await AdminService.getRoomDiscordAdmins(roomId);
+            res.json({ localAdmins, discordAdmins });
+        } catch (error) {
+            logError('API Error (GET /api/rooms/:roomId/admins):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/rooms/:roomId/admins/local', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+        try {
+            const { username, password, display_name } = req.body;
+            if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+            if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+            const existing = await AdminService.getLocalAdminByUsername(req.params.roomId as string, username);
+            if (existing) return res.status(409).json({ error: 'Username already exists in this room' });
+
+            const admin = await AdminService.createLocalAdmin(req.params.roomId as string, username, password, display_name);
+            res.json({ success: true, admin });
+        } catch (error) {
+            logError('API Error (POST /api/rooms/:roomId/admins/local):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.delete('/api/rooms/:roomId/admins/local/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+        try {
+            // Verify the local admin belongs to this room
+            const admin = await AdminService.getLocalAdminById(req.params.id as string);
+            if (!admin || admin.game_room_id !== (req.params.roomId as string)) {
+                return res.status(404).json({ error: 'Local admin not found in this room' });
+            }
+            await AdminService.deleteLocalAdmin(req.params.id as string);
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (DELETE /api/rooms/:roomId/admins/local/:id):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/rooms/:roomId/admins/local/:id/reset-password', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+        try {
+            const { newPassword } = req.body;
+            if (!newPassword || newPassword.length < 8) {
+                return res.status(400).json({ error: 'Password must be at least 8 characters' });
+            }
+            const admin = await AdminService.getLocalAdminById(req.params.id as string);
+            if (!admin || admin.game_room_id !== (req.params.roomId as string)) {
+                return res.status(404).json({ error: 'Local admin not found in this room' });
+            }
+            await AdminService.resetLocalAdminPassword(req.params.id as string, newPassword);
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (POST /api/rooms/:roomId/admins/local/:id/reset-password):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.post('/api/rooms/:roomId/admins/discord', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+        try {
+            const { discord_user_id, role } = req.body;
+            if (!discord_user_id) return res.status(400).json({ error: 'discord_user_id required' });
+            await AdminService.addRoomDiscordAdmin(req.params.roomId as string, discord_user_id, role || 'admin');
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (POST /api/rooms/:roomId/admins/discord):', error);
+            res.status(500).json({ error: 'Internal Server Error' });
+        }
+    });
+
+    app.delete('/api/rooms/:roomId/admins/discord/:discordId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+        try {
+            const deleted = await AdminService.removeRoomDiscordAdmin(
+                req.params.roomId as string, req.params.discordId as string
+            );
+            if (!deleted) return res.status(404).json({ error: 'Discord admin not found in this room' });
+            res.json({ success: true });
+        } catch (error) {
+            logError('API Error (DELETE /api/rooms/:roomId/admins/discord/:discordId):', error);
             res.status(500).json({ error: 'Internal Server Error' });
         }
     });
