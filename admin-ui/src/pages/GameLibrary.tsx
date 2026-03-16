@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import Papa from 'papaparse';
 import { api } from '../lib/api';
+import { useOptionalRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
@@ -75,6 +76,8 @@ function SortHeader({ label, sortKey, currentKey, currentDir, onSort }: {
 }
 
 export default function GameLibrary() {
+  const room = useOptionalRoom();
+  const prefix = room ? `/rooms/${room.roomId}` : '';
   const { toast } = useToast();
   const [games, setGames] = useState<GameRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,7 +110,7 @@ export default function GameLibrary() {
 
   const fetchGames = async () => {
     try {
-      setGames(await api.get<GameRow[]>('/game_library'));
+      setGames(await api.get<GameRow[]>(`${prefix}/game_library`));
     } catch {
       toast('Failed to load game library', 'error');
     } finally {
@@ -117,7 +120,7 @@ export default function GameLibrary() {
 
   const fetchRatings = async () => {
     try {
-      const data = await api.get<{ ratings: Record<string, { avg_rating: number; rating_count: number }>; userRatings: Record<string, number> }>('/ratings');
+      const data = await api.get<{ ratings: Record<string, { avg_rating: number; rating_count: number }>; userRatings: Record<string, number> }>(`${prefix}/ratings`);
       setCommunityRatings(data.ratings);
       setUserRatings(data.userRatings);
     } catch {}
@@ -125,7 +128,7 @@ export default function GameLibrary() {
 
   const handleRate = async (gameName: string, rating: number) => {
     try {
-      const info = await api.post<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`/ratings/${encodeURIComponent(gameName)}`, { rating });
+      const info = await api.post<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`${prefix}/ratings/${encodeURIComponent(gameName)}`, { rating });
       setCommunityRatings(prev => ({ ...prev, [gameName]: { avg_rating: info.avg_rating, rating_count: info.rating_count } }));
       setUserRatings(prev => ({ ...prev, [gameName]: rating }));
     } catch {
@@ -135,7 +138,7 @@ export default function GameLibrary() {
 
   const fetchTournaments = async () => {
     try {
-      const rows = await api.get<TournamentOption[]>('/tournaments');
+      const rows = await api.get<TournamentOption[]>(`${prefix}/tournaments`);
       setTournaments(rows.filter((t: any) => t.is_active));
     } catch {}
   };
@@ -146,7 +149,7 @@ export default function GameLibrary() {
     if (!activateTarget) return;
     setActivatingFor(tournamentId);
     try {
-      await api.post(`/tournaments/${tournamentId}/activate-game`, { gameName: activateTarget });
+      await api.post(`${prefix}/tournaments/${tournamentId}/activate-game`, { gameName: activateTarget });
       toast(`${activateTarget} activated!`, 'success');
       setActivateTarget(null);
     } catch (err: any) {
@@ -175,7 +178,7 @@ export default function GameLibrary() {
             }
             return row;
           });
-          await api.post('/game_library/import', { games });
+          await api.post(`${prefix}/game_library/import`, { games });
           toast(`Imported ${results.data.length} games`, 'success');
           fetchGames();
         } catch {
@@ -204,7 +207,7 @@ export default function GameLibrary() {
     if (!newGame.name.trim()) { toast('Game name required', 'error'); return; }
     setSaving(true);
     try {
-      await api.post('/game_library/import', { games: [newGame] });
+      await api.post(`${prefix}/game_library/import`, { games: [newGame] });
       setNewGame({ ...emptyGame });
       setShowAddForm(false);
       toast('Game added', 'success');
@@ -226,7 +229,7 @@ export default function GameLibrary() {
     if (!editTarget || !editGame.name.trim()) return;
     setEditSaving(true);
     try {
-      await api.put(`/game_library/${encodeURIComponent(editTarget.name)}`, editGame);
+      await api.put(`${prefix}/game_library/${encodeURIComponent(editTarget.name)}`, editGame);
       toast('Game updated', 'success');
       setEditTarget(null);
       fetchGames();
@@ -241,7 +244,7 @@ export default function GameLibrary() {
     if (selected.size === 0) return;
     setDeleting(true);
     try {
-      const res = await api.post<{ deleted: number }>('/game_library/delete', { names: [...selected] });
+      const res = await api.post<{ deleted: number }>(`${prefix}/game_library/delete`, { names: [...selected] });
       toast(`Deleted ${res.deleted} game${res.deleted !== 1 ? 's' : ''} from library`, 'success');
       setSelected(new Set());
       setShowDeleteConfirm(false);
@@ -347,7 +350,7 @@ export default function GameLibrary() {
           <NeonButton variant="secondary" onClick={async () => {
             setVpsImporting(true);
             try {
-              const res = await api.post<{ imported: number; total: number }>('/game_library/import-vps', {});
+              const res = await api.post<{ imported: number; total: number }>(`${prefix}/game_library/import-vps`, {});
               toast(`Imported ${res.imported} games from VPS`, 'success');
               fetchGames();
             } catch (err: any) {

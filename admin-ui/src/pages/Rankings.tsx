@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
@@ -56,6 +57,7 @@ const RANK_METHODS: Record<RankMethod, { label: string; description: string }> =
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
 
 export default function Rankings() {
+  const room = useRoom();
   const { toast } = useToast();
   const [groups, setGroups] = useState<RankingGroup[]>([]);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
@@ -83,8 +85,8 @@ export default function Rankings() {
   const loadData = async () => {
     try {
       const [groupsData, tournamentsData] = await Promise.all([
-        api.get<RankingGroup[]>('/ranking-groups'),
-        api.get<Tournament[]>('/tournaments'),
+        api.get<RankingGroup[]>(`/rooms/${room.roomId}/ranking-groups`),
+        api.get<Tournament[]>(`/rooms/${room.roomId}/tournaments`),
       ]);
       setGroups(groupsData);
       setTournaments(tournamentsData);
@@ -125,7 +127,7 @@ export default function Rankings() {
     setSaving(true);
     try {
       if (editingId) {
-        await api.put(`/ranking-groups/${editingId}`, {
+        await api.put(`/rooms/${room.roomId}/ranking-groups/${editingId}`, {
           name: formName.trim(),
           description: formDescription.trim(),
           rank_method: formMethod,
@@ -135,7 +137,7 @@ export default function Rankings() {
         });
         toast('Ranking group updated', 'success');
       } else {
-        await api.post('/ranking-groups', {
+        await api.post(`/rooms/${room.roomId}/ranking-groups`, {
           id: crypto.randomUUID(),
           name: formName.trim(),
           description: formDescription.trim(),
@@ -158,7 +160,7 @@ export default function Rankings() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await api.delete(`/ranking-groups/${deleteTarget.id}`);
+      await api.delete(`/rooms/${room.roomId}/ranking-groups/${deleteTarget.id}`);
       toast('Ranking group deleted', 'success');
       setDeleteTarget(null);
       loadData();
@@ -173,7 +175,7 @@ export default function Rankings() {
       return;
     }
     try {
-      const data = await api.get<{ group: RankingGroup; rankings: OverallRanking[] }>(`/ranking-groups/${groupId}/rankings`);
+      const data = await api.get<{ group: RankingGroup; rankings: OverallRanking[] }>(`/rooms/${room.roomId}/ranking-groups/${groupId}/rankings`);
       setRankings(prev => ({ ...prev, [groupId]: data.rankings }));
       setExpandedGroup(groupId);
     } catch {
@@ -184,8 +186,8 @@ export default function Rankings() {
   const handleRecompute = async (groupId: string) => {
     setRecomputing(groupId);
     try {
-      await api.post(`/ranking-groups/${groupId}/recompute`, {});
-      const data = await api.get<{ group: RankingGroup; rankings: OverallRanking[] }>(`/ranking-groups/${groupId}/rankings`);
+      await api.post(`/rooms/${room.roomId}/ranking-groups/${groupId}/recompute`, {});
+      const data = await api.get<{ group: RankingGroup; rankings: OverallRanking[] }>(`/rooms/${room.roomId}/ranking-groups/${groupId}/rankings`);
       setRankings(prev => ({ ...prev, [groupId]: data.rankings }));
       toast('Rankings recomputed', 'success');
     } catch {

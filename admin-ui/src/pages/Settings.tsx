@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
 import { useTheme, THEMES, type ThemeId } from '../components/ThemeProvider';
 import NeonCard from '../components/NeonCard';
@@ -87,6 +88,7 @@ function PlatformsEditor({ platforms, onChange }: { platforms: string[]; onChang
 }
 
 export default function Settings() {
+  const room = useRoom();
   const { toast } = useToast();
   const { globalTheme, setGlobalTheme, userTheme, setUserTheme } = useTheme();
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -101,7 +103,7 @@ export default function Settings() {
   const [newValue, setNewValue] = useState('');
 
   useEffect(() => {
-    api.get<Record<string, string>>('/settings')
+    api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`)
       .then(data => {
         setSettings(data);
         // Sync global theme from settings
@@ -122,7 +124,7 @@ export default function Settings() {
     try {
       // Filter out ADMIN_PASSWORD_HASH — server rejects it via this endpoint
       const { ADMIN_PASSWORD_HASH: _, ...toSave } = settings;
-      await api.post('/settings', toSave);
+      await api.post(`/rooms/${room.roomId}/settings`, toSave);
       toast('Settings saved', 'success');
     } catch {
       toast('Failed to save settings', 'error');
@@ -202,7 +204,7 @@ export default function Settings() {
                 const newTheme = val || null;
                 setUserTheme(newTheme);
                 // Persist to server
-                api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
+                api.post(`/rooms/${room.roomId}/me/preferences`, { ui_theme: newTheme }).catch(() => {
                   toast('Failed to save theme preference', 'error');
                 });
               }}
@@ -316,7 +318,7 @@ export default function Settings() {
             onClick={async () => {
               setReloadingScheduler(true);
               try {
-                await api.post('/scheduler/reload', {});
+                await api.post(`/rooms/${room.roomId}/scheduler/reload`, {});
                 toast('Scheduler reloaded', 'success');
               } catch {
                 toast('Failed to reload scheduler', 'error');
@@ -364,7 +366,7 @@ export default function Settings() {
               if (!confirm(`Rename all records from "${mergeFrom}" to "${mergeTo}"? This cannot be undone.`)) return;
               setMerging(true);
               try {
-                const result = await api.post<{ submissionsUpdated: number; scoresUpdated: number }>('/admin/merge-player', {
+                const result = await api.post<{ submissionsUpdated: number; scoresUpdated: number }>(`/rooms/${room.roomId}/admin/merge-player`, {
                   fromUsername: mergeFrom.trim(),
                   toUsername: mergeTo.trim(),
                 });

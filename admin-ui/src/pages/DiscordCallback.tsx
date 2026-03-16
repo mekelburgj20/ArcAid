@@ -2,6 +2,17 @@ import { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { setToken } from '../lib/api';
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
 export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
   const [searchParams] = useSearchParams();
   const [error, setError] = useState('');
@@ -14,6 +25,7 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
 
     const code = searchParams.get('code');
     const errorParam = searchParams.get('error');
+    const state = searchParams.get('state'); // room slug, if coming from room login
 
     if (errorParam) {
       setError(`Discord authorization denied: ${searchParams.get('error_description') || errorParam}`);
@@ -41,7 +53,40 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
       .then(data => {
         setToken(data.token);
         onLogin();
-        window.location.href = '/';
+
+        // Decode JWT to determine where to redirect
+        const payload = decodeJwtPayload(data.token);
+        if (payload) {
+          const role = payload.role as string | undefined;
+
+          if (role === 'super_admin') {
+            window.location.href = '/admin/dashboard';
+            return;
+          }
+
+          if (role === 'room_admin') {
+            const gameRoomIds = payload.gameRoomIds as string[] | undefined;
+            // If we have state (slug from room login), redirect there
+            if (state) {
+              window.location.href = `/${state}/admin/dashboard`;
+              return;
+            }
+            // If token includes room slugs, redirect to the first one
+            const roomSlugs = payload.roomSlugs as string[] | undefined;
+            if (roomSlugs && roomSlugs.length > 0) {
+              window.location.href = `/${roomSlugs[0]}/admin/dashboard`;
+              return;
+            }
+            // If we have room IDs but no slugs, go to super admin to pick
+            if (gameRoomIds && gameRoomIds.length > 0) {
+              window.location.href = '/admin/dashboard';
+              return;
+            }
+          }
+        }
+
+        // Default: go to super admin dashboard
+        window.location.href = '/admin/dashboard';
       })
       .catch(err => {
         setError(err.message || 'Discord login failed');

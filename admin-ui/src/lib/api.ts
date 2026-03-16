@@ -30,6 +30,14 @@ export function getAnonUserId(): string {
   return id;
 }
 
+/** Extract the room slug from the current URL path, if any. */
+export function getSlugFromPath(): string | null {
+  const path = window.location.pathname;
+  // Match /:slug/admin/* pattern
+  const match = path.match(/^\/([^/]+)\/admin(\/|$)/);
+  return match ? match[1] : null;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string> || {}),
@@ -48,9 +56,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    // Token expired or invalid — clear and redirect
+    // Token expired or invalid — clear and redirect based on context
     setToken(null);
-    window.location.href = '/login';
+    const slug = getSlugFromPath();
+    if (slug) {
+      window.location.href = `/${slug}/login`;
+    } else if (window.location.pathname.startsWith('/admin')) {
+      window.location.href = '/login';
+    } else {
+      window.location.href = '/login';
+    }
     throw new Error('Session expired');
   }
 
