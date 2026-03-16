@@ -23,7 +23,7 @@ const RING_PEG_R = 2; // smaller ring pegs
 const GRAVITY = 0.045;
 const FRICTION = 0.9985; // rolling resistance per frame
 const PEG_DAMPING = 0.6;
-const WALL_DAMPING = 0.35;
+const WALL_DAMPING = 0.55;
 const TRAIL_LEN = 10;
 
 // Playfield frame
@@ -305,9 +305,9 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       setPhase('idle');
       return;
     }
-    // Launch velocity scales with power. Full power just barely reaches the top.
-    const launchVel = 3.5 + power * 5;
-    s.vel = { x: -0.3 - Math.random() * 0.5, y: -launchVel };
+    // Half power clears the lane top; full power reaches the far top-left
+    const launchVel = 5 + power * 6;
+    s.vel = { x: -0.2 - Math.random() * 0.4, y: -launchVel };
     s.phase = 'running';
     s.startTime = performance.now();
     setPhase('running');
@@ -410,9 +410,9 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       ctx.moveTo(LANE_DIVIDER_X, PF_BOT + 15);
       ctx.lineTo(LANE_DIVIDER_X, laneTop);
       ctx.stroke();
-      // Small curved guide at top of lane connecting to arch
+      // Curved guide at top of lane — curves leftward from divider top into the arch
       ctx.beginPath();
-      ctx.arc(LANE_DIVIDER_X + 15, laneTop, 15, Math.PI, Math.PI * 1.5);
+      ctx.arc(LANE_DIVIDER_X - 12, laneTop, 12, 0, -Math.PI / 2, true);
       ctx.strokeStyle = GOLD_TRIM;
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -780,9 +780,9 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           }
         }
 
-        // Drain guide collisions
-        collideLine(s.pos, s.vel, drainGuideL1, drainGuideL2, WALL_DAMPING);
-        collideLine(s.pos, s.vel, drainGuideR1, drainGuideR2, WALL_DAMPING);
+        // Drain guide collisions — minimal damping so ball maintains speed rolling downhill
+        collideLine(s.pos, s.vel, drainGuideL1, drainGuideL2, 0.9);
+        collideLine(s.pos, s.vel, drainGuideR1, drainGuideR2, 0.9);
 
         // Drain detection
         if (s.pos.y + BALL_R > DRAIN_Y && s.pos.x > ARCH_CX - 35 && s.pos.x < ARCH_CX + 35) {
@@ -795,6 +795,21 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           setScore(null);
           setIsDrain(true);
           setResult(s.resultText);
+        }
+
+        // Ball fell back into the plunger lane — allow re-plunge
+        if (s.pos.x > LANE_DIVIDER_X && s.pos.y > PF_BOT - 60) {
+          const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
+          if (speed < 0.5) {
+            // Reset to idle in the lane so user can plunge again
+            s.pos = { x: LANE_CX, y: PF_BOT - 15 };
+            s.vel = { x: 0, y: 0 };
+            s.trail = [];
+            s.plungerPull = 0;
+            s.startTime = 0;
+            s.phase = 'idle';
+            setPhase('idle');
+          }
         }
 
         // Stuck ball timeout
