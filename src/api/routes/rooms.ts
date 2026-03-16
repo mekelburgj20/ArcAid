@@ -147,6 +147,136 @@ router.get('/:roomId/ranking-groups/:id/rankings', async (req, res) => {
     }
 });
 
+// Game availability — public, shows cooldown status per tournament
+router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+
+        // Verify tournament belongs to this room
+        const tournament = await db.get(
+            'SELECT id, name, type, mode, platform_rules FROM tournaments WHERE id = ? AND game_room_id = ?',
+            tournamentId, roomId
+        );
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+
+        // Get eligibility window
+        const roomSetting = await db.get(
+            "SELECT value FROM game_room_settings WHERE game_room_id = ? AND key = 'GAME_ELIGIBILITY_DAYS'",
+            roomId
+        );
+        const globalSetting = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
+        const eligibilityDays = parseInt(roomSetting?.value ?? globalSetting?.value ?? '120', 10);
+
+        const lookbackDate = new Date();
+        lookbackDate.setDate(lookbackDate.getDate() - eligibilityDays);
+        const lookbackString = lookbackDate.toISOString();
+
+        // Get all games in this room's curated library
+        let platformFilter = '';
+        const platformParams: string[] = [];
+        try {
+            const rules = JSON.parse(tournament.platform_rules || '{}');
+            const platforms: string[] = rules.platforms || [];
+            if (platforms.length > 0) {
+                // Filter library games whose platforms overlap with tournament's allowed platforms
+                // game_library.platforms is a JSON array like '["VPXS","VR"]'
+                platformFilter = ` AND (${platforms.map(() => `gl.platforms LIKE ?`).join(' OR ')})`;
+                for (const p of platforms) {
+                    platformParams.push(`%${p}%`);
+                }
+            }
+        } catch { /* no platform filtering */ }
+
+        const libraryGames = await db.all(`
+            SELECT gl.name
+            FROM game_library gl
+            JOIN game_room_game_library grgl ON grgl.game_name = gl.name AND grgl.game_room_id = ?
+            WHERE 1=1${platformFilter}
+            ORDER BY gl.name
+        `, roomId, ...platformParams);
+
+        // Get recently played games in this tournament within the lookback window
+        const recentGames = await db.all(`
+            SELECT g.name, g.start_date, g.end_date, g.status,
+                   (SELECT s.iscored_username FROM submissions s WHERE s.game_id = g.id ORDER BY s.score DESC LIMIT 1) as winner_name,
+                   (SELECT s.score FROM submissions s WHERE s.game_id = g.id ORDER BY s.score DESC LIMIT 1) as winner_score
+            FROM games g
+            WHERE g.tournament_id = ?
+              AND g.start_date >= ?
+              AND g.status != 'QUEUED'
+            ORDER BY g.start_date DESC
+        `, tournamentId, lookbackString);
+
+        // Build a map of game name → most recent play info (case-insensitive, also match variants)
+        const recentMap = new Map<string, { playedDate: string; endDate: string | null; status: string; winnerName: string | null; winnerScore: number | null }>();
+        for (const g of recentGames) {
+            // Use base name (strip variant suffix for matching)
+            const baseName = g.name.split(' ').length > 1
+                ? g.name // keep full name for map
+                : g.name;
+            const key = baseName.toLowerCase();
+            if (!recentMap.has(key)) {
+                recentMap.set(key, {
+                    playedDate: g.start_date,
+                    endDate: g.end_date,
+                    status: g.status,
+                    winnerName: g.winner_name,
+                    winnerScore: g.winner_score,
+                });
+            }
+        }
+
+        // Build availability list
+        const now = new Date();
+        const availability = libraryGames.map((lg: any) => {
+            const key = lg.name.toLowerCase();
+            // Check exact match and variant match (name + ' ...')
+            const recent = recentMap.get(key) ||
+                [...recentMap.entries()].find(([k]) => k.startsWith(key + ' ') || key.startsWith(k + ' '))?.[1];
+
+            if (recent) {
+                const playedDate = new Date(recent.playedDate);
+                const availableDate = new Date(playedDate);
+                availableDate.setDate(availableDate.getDate() + eligibilityDays);
+                const daysUntilAvailable = Math.max(0, Math.ceil((availableDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+
+                return {
+                    name: lg.name,
+                    available: daysUntilAvailable <= 0,
+                    daysUntilAvailable,
+                    lastPlayedDate: recent.playedDate,
+                    lastEndDate: recent.endDate,
+                    lastStatus: recent.status,
+                    winnerName: recent.winnerName,
+                    winnerScore: recent.winnerScore,
+                };
+            }
+
+            return {
+                name: lg.name,
+                available: true,
+                daysUntilAvailable: 0,
+                lastPlayedDate: null,
+                lastEndDate: null,
+                lastStatus: null,
+                winnerName: null,
+                winnerScore: null,
+            };
+        });
+
+        res.json({
+            tournament: { id: tournament.id, name: tournament.name, type: tournament.type, mode: tournament.mode },
+            eligibilityDays,
+            games: availability,
+        });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/game-availability/:tournamentId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Stats
 router.get('/:roomId/stats/players', async (req, res) => {
     try {

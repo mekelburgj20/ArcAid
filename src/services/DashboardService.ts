@@ -117,11 +117,9 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
         if (visibleGameIds.length > 0) {
             const placeholders = visibleGameIds.map(() => '?').join(',');
             const participantRow = await db.get(`
-                SELECT COUNT(*) as count FROM (
-                    SELECT DISTINCT LOWER(s.iscored_username), s.game_id
-                    FROM submissions s
-                    WHERE s.game_id IN (${placeholders})
-                )
+                SELECT COUNT(DISTINCT LOWER(s.iscored_username)) as count
+                FROM submissions s
+                WHERE s.game_id IN (${placeholders})
             `, ...visibleGameIds);
             participants = participantRow?.count || 0;
         }

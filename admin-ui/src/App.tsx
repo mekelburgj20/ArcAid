@@ -32,6 +32,7 @@ import Scoreboard from './pages/Scoreboard';
 import Players from './pages/Players';
 import PlayerDetail from './pages/PlayerDetail';
 import GameDetail from './pages/GameDetail';
+import GameAvailability from './pages/GameAvailability';
 
 // Pages — Auth
 import RoomLogin from './pages/RoomLogin';
@@ -84,6 +85,7 @@ function App() {
           <Route index element={<Scoreboard />} />
           <Route path="players" element={<Players />} />
           <Route path="players/:id" element={<PlayerDetail />} />
+          <Route path="games" element={<GameAvailability />} />
           <Route path="games/:name" element={<GameDetail />} />
         </Route>
       </Routes>
