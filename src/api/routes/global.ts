@@ -5,16 +5,45 @@ import { validate } from '../validate.js';
 import { UpdatePreferencesSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
+import { getDatabase } from '../../database/database.js';
 
 const router = Router();
 
-// System status
+// System status — comprehensive health check
 router.get('/status', async (req, res) => {
     try {
         const isSetup = await SettingsService.isSetupComplete();
+        const checks: Record<string, { status: string; detail?: string }> = {};
+
+        // Database check
+        try {
+            const db = await getDatabase();
+            const row = await db.get('SELECT COUNT(*) as count FROM game_rooms');
+            checks.database = { status: 'ok', detail: `${row?.count ?? 0} room(s)` };
+        } catch (err) {
+            checks.database = { status: 'error', detail: err instanceof Error ? err.message : 'unknown' };
+        }
+
+        // Discord bot check
+        const hasDiscord = !!(process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_CLIENT_ID);
+        checks.discord = hasDiscord
+            ? { status: 'ok', detail: 'configured' }
+            : { status: 'unconfigured', detail: 'credentials not set' };
+
+        // iScored check
+        const hasIScored = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+        checks.iscored = hasIScored
+            ? { status: 'ok', detail: 'configured' }
+            : { status: 'unconfigured', detail: 'credentials not set' };
+
+        // Overall status
+        const hasError = Object.values(checks).some(c => c.status === 'error');
+
         res.json({
-            status: 'online',
-            needsSetup: !isSetup
+            status: hasError ? 'degraded' : 'online',
+            needsSetup: !isSetup,
+            uptime: Math.floor(process.uptime()),
+            checks,
         });
     } catch (error) {
         logError('API Error (/api/status):', error);

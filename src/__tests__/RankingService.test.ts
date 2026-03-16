@@ -1,0 +1,243 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { RankingService } from '../services/RankingService.js';
+import { setupTestDb, createTestRoom, createTestTournament, createTestGame, createTestSubmission } from './helpers.js';
+import crypto from 'crypto';
+
+describe('RankingService', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+    });
+
+    describe('CRUD', () => {
+        it('creates, retrieves, and deletes a ranking group', async () => {
+            const roomId = await createTestRoom();
+            const tournamentId = await createTestTournament(roomId);
+            const groupId = crypto.randomUUID();
+
+            await RankingService.create({
+                id: groupId,
+                name: 'Season 1',
+                rank_method: 'max_10',
+                best_n: 25,
+                min_games: 1,
+                tournament_ids: [tournamentId],
+                game_room_id: roomId,
+            });
+
+            const group = await RankingService.getById(groupId);
+            expect(group).toBeTruthy();
+            expect(group!.name).toBe('Season 1');
+            expect(group!.rank_method).toBe('max_10');
+            expect(group!.tournament_ids).toEqual([tournamentId]);
+
+            await RankingService.delete(groupId);
+            const deleted = await RankingService.getById(groupId);
+            expect(deleted).toBeNull();
+        });
+
+        it('updates a ranking group and replaces tournament associations', async () => {
+            const roomId = await createTestRoom();
+            const t1 = await createTestTournament(roomId, { name: 'T1' });
+            const t2 = await createTestTournament(roomId, { name: 'T2' });
+            const groupId = crypto.randomUUID();
+
+            await RankingService.create({
+                id: groupId,
+                name: 'Original',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [t1],
+                game_room_id: roomId,
+            });
+
+            await RankingService.update(groupId, {
+                name: 'Updated',
+                rank_method: 'best_game_papa',
+                best_n: 5,
+                min_games: 2,
+                tournament_ids: [t1, t2],
+            });
+
+            const group = await RankingService.getById(groupId);
+            expect(group!.name).toBe('Updated');
+            expect(group!.rank_method).toBe('best_game_papa');
+            expect(group!.tournament_ids).toHaveLength(2);
+        });
+
+        it('getAll filters by room', async () => {
+            const room1 = await createTestRoom('r1', 'Room 1');
+            const room2 = await createTestRoom('r2', 'Room 2');
+
+            await RankingService.create({
+                id: crypto.randomUUID(),
+                name: 'Group A',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [],
+                game_room_id: room1,
+            });
+            await RankingService.create({
+                id: crypto.randomUUID(),
+                name: 'Group B',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [],
+                game_room_id: room2,
+            });
+
+            const room1Groups = await RankingService.getAll(room1);
+            expect(room1Groups).toHaveLength(1);
+            expect(room1Groups[0]!.name).toBe('Group A');
+        });
+    });
+
+    describe('computeRankings', () => {
+        it('returns empty for group with no tournaments', async () => {
+            const roomId = await createTestRoom();
+            const groupId = crypto.randomUUID();
+
+            await RankingService.create({
+                id: groupId,
+                name: 'Empty',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [],
+                game_room_id: roomId,
+            });
+
+            const rankings = await RankingService.computeRankings(groupId);
+            expect(rankings).toEqual([]);
+        });
+
+        it('computes max_10 rankings correctly', async () => {
+            const roomId = await createTestRoom();
+            const tId = await createTestTournament(roomId);
+            const game1 = await createTestGame(tId, { name: 'Game 1', status: 'COMPLETED' });
+            const game2 = await createTestGame(tId, { name: 'Game 2', status: 'COMPLETED' });
+
+            // Game 1: Alice 1st, Bob 2nd
+            await createTestSubmission(game1, { username: 'Alice', score: 9000 });
+            await createTestSubmission(game1, { username: 'Bob', score: 5000 });
+
+            // Game 2: Bob 1st, Alice 2nd
+            await createTestSubmission(game2, { username: 'Bob', score: 8000 });
+            await createTestSubmission(game2, { username: 'Alice', score: 4000 });
+
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Max 10 Test',
+                rank_method: 'max_10',
+                best_n: 25,
+                min_games: 1,
+                tournament_ids: [tId],
+                game_room_id: roomId,
+            });
+
+            const rankings = await RankingService.computeRankings(groupId);
+
+            expect(rankings).toHaveLength(2);
+            // Both have 1st (100) + 2nd (80) = 180 points
+            // Order may vary since totals are equal — both should be 180
+            const alice = rankings.find(r => r.iscored_username === 'Alice');
+            const bob = rankings.find(r => r.iscored_username === 'Bob');
+            expect(alice!.total_points).toBe(180);
+            expect(bob!.total_points).toBe(180);
+            expect(alice!.games_played).toBe(2);
+        });
+
+        it('computes best_game_linear rankings correctly', async () => {
+            const roomId = await createTestRoom();
+            const tId = await createTestTournament(roomId);
+            const game1 = await createTestGame(tId, { name: 'Game 1', status: 'COMPLETED' });
+
+            await createTestSubmission(game1, { username: 'First', score: 9000 });
+            await createTestSubmission(game1, { username: 'Second', score: 7000 });
+            await createTestSubmission(game1, { username: 'Third', score: 5000 });
+
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Linear Test',
+                rank_method: 'best_game_linear',
+                best_n: 25,
+                min_games: 1,
+                tournament_ids: [tId],
+                game_room_id: roomId,
+            });
+
+            const rankings = await RankingService.computeRankings(groupId);
+
+            expect(rankings).toHaveLength(3);
+            expect(rankings[0]!.iscored_username).toBe('First');
+            expect(rankings[0]!.total_points).toBe(100); // 101 - 1
+            expect(rankings[1]!.total_points).toBe(99);  // 101 - 2
+            expect(rankings[2]!.total_points).toBe(98);  // 101 - 3
+        });
+
+        it('average_rank excludes players below min_games', async () => {
+            const roomId = await createTestRoom();
+            const tId = await createTestTournament(roomId);
+            const game1 = await createTestGame(tId, { name: 'Game 1', status: 'COMPLETED' });
+            const game2 = await createTestGame(tId, { name: 'Game 2', status: 'COMPLETED' });
+
+            // Alice plays both games
+            await createTestSubmission(game1, { username: 'Alice', score: 9000 });
+            await createTestSubmission(game2, { username: 'Alice', score: 8000 });
+
+            // Bob plays only one
+            await createTestSubmission(game1, { username: 'Bob', score: 5000 });
+
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Avg Rank Test',
+                rank_method: 'average_rank',
+                best_n: 25,
+                min_games: 2, // Bob won't qualify
+                tournament_ids: [tId],
+                game_room_id: roomId,
+            });
+
+            const rankings = await RankingService.computeRankings(groupId);
+
+            expect(rankings).toHaveLength(1);
+            expect(rankings[0]!.iscored_username).toBe('Alice');
+        });
+
+        it('caches computed rankings', async () => {
+            const roomId = await createTestRoom();
+            const tId = await createTestTournament(roomId);
+            const gameId = await createTestGame(tId, { status: 'COMPLETED' });
+            await createTestSubmission(gameId, { username: 'Player1', score: 1000 });
+
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Cache Test',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [tId],
+                game_room_id: roomId,
+            });
+
+            await RankingService.computeRankings(groupId);
+
+            // getRankings should use cache
+            const cached = await RankingService.getRankings(groupId);
+            expect(cached).toHaveLength(1);
+
+            // Invalidate and verify cache is gone
+            await RankingService.invalidate(groupId);
+            const { getDatabase } = await import('../database/database.js');
+            const db = await getDatabase();
+            const row = await db.get('SELECT * FROM ranking_groups_cache WHERE ranking_group_id = ?', groupId);
+            expect(row).toBeUndefined();
+        });
+    });
+});

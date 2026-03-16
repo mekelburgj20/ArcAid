@@ -37,7 +37,13 @@ export async function initDatabase(): Promise<Database> {
             discord_channel_id TEXT,
             discord_role_id TEXT,
             is_active INTEGER DEFAULT 1,
-            created_at TEXT DEFAULT (datetime('now'))
+            created_at TEXT DEFAULT (datetime('now')),
+            mode TEXT DEFAULT 'pinball',
+            platform_rules TEXT DEFAULT '{}',
+            display_order INTEGER DEFAULT 0,
+            cleanup_rule TEXT DEFAULT '{"mode":"retain","count":0}',
+            max_active_games INTEGER DEFAULT 1,
+            game_room_id TEXT
         )
     `);
 
@@ -52,7 +58,10 @@ export async function initDatabase(): Promise<Database> {
             css_scores TEXT,
             css_box TEXT,
             bg_color TEXT,
-            tournament_types TEXT -- JSON array or comma separated list of tournament types this game is eligible for
+            tournament_types TEXT, -- JSON array or comma separated list of tournament types this game is eligible for
+            mode TEXT DEFAULT 'pinball',
+            platforms TEXT DEFAULT '[]',
+            image_url TEXT
         )
     `);
 
@@ -154,7 +163,8 @@ export async function initDatabase(): Promise<Database> {
             best_n INTEGER NOT NULL DEFAULT 25,
             min_games INTEGER NOT NULL DEFAULT 1,
             is_active INTEGER DEFAULT 1,
-            created_at TEXT DEFAULT (datetime('now'))
+            created_at TEXT DEFAULT (datetime('now')),
+            game_room_id TEXT
         );
 
         CREATE TABLE IF NOT EXISTS ranking_group_tournaments (
@@ -173,7 +183,35 @@ export async function initDatabase(): Promise<Database> {
         )
     `);
 
-    // 8. Multi-room tables
+    // 8. Audit log (admin action tracking)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL DEFAULT '',
+            details TEXT DEFAULT '{}',
+            ip_address TEXT DEFAULT '',
+            correlation_id TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_target ON audit_log(target_type, target_id)
+    `);
+
+    // 9. Schema migrations tracking
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            applied_at TEXT DEFAULT (datetime('now'))
+        )
+    `);
+
+    // 10. Multi-room tables
     await db.exec(`
         CREATE TABLE IF NOT EXISTS game_rooms (
             id TEXT PRIMARY KEY,
@@ -232,35 +270,45 @@ export async function initDatabase(): Promise<Database> {
     await db.exec(`
         CREATE INDEX IF NOT EXISTS idx_games_tournament_id ON games(tournament_id);
         CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
+        CREATE INDEX IF NOT EXISTS idx_games_iscored_id ON games(iscored_id);
         CREATE INDEX IF NOT EXISTS idx_submissions_game_id ON submissions(game_id);
         CREATE INDEX IF NOT EXISTS idx_submissions_discord_user_id ON submissions(discord_user_id);
         CREATE INDEX IF NOT EXISTS idx_submissions_timestamp ON submissions(timestamp);
         CREATE INDEX IF NOT EXISTS idx_scores_game_id ON scores(game_id);
         CREATE INDEX IF NOT EXISTS idx_scores_discord_user_id ON scores(discord_user_id);
         CREATE INDEX IF NOT EXISTS idx_scores_timestamp ON scores(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_tournaments_game_room_id ON tournaments(game_room_id);
+        CREATE INDEX IF NOT EXISTS idx_user_mappings_iscored_username ON user_mappings(iscored_username);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_user_mappings_iscored_unique ON user_mappings(iscored_username);
+        CREATE INDEX IF NOT EXISTS idx_ranking_groups_game_room_id ON ranking_groups(game_room_id);
     `);
 
-    // --- Migrations for existing databases ---
-    const migrations = [
-        `ALTER TABLE tournaments ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`,
-        `ALTER TABLE games ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`,
-        `ALTER TABLE tournaments ADD COLUMN mode TEXT DEFAULT 'pinball'`,
-        `ALTER TABLE tournaments ADD COLUMN platform_rules TEXT DEFAULT '{}'`,
-        `ALTER TABLE game_library ADD COLUMN mode TEXT DEFAULT 'pinball'`,
-        `ALTER TABLE game_library ADD COLUMN platforms TEXT DEFAULT '[]'`,
-        `ALTER TABLE tournaments ADD COLUMN display_order INTEGER DEFAULT 0`,
-        `ALTER TABLE tournaments ADD COLUMN cleanup_rule TEXT DEFAULT '{"mode":"retain","count":0}'`,
-        `ALTER TABLE game_library ADD COLUMN image_url TEXT`,
-        `ALTER TABLE tournaments ADD COLUMN max_active_games INTEGER DEFAULT 1`,
-        `ALTER TABLE tournaments ADD COLUMN game_room_id TEXT`,
-        `ALTER TABLE ranking_groups ADD COLUMN game_room_id TEXT`,
+    // --- Versioned Migrations ---
+    // Each migration runs at most once, tracked in schema_migrations table.
+    const migrations: Array<{ name: string; sql: string }> = [
+        { name: '001_tournaments_created_at', sql: `ALTER TABLE tournaments ADD COLUMN created_at TEXT DEFAULT (datetime('now'))` },
+        { name: '002_games_created_at', sql: `ALTER TABLE games ADD COLUMN created_at TEXT DEFAULT (datetime('now'))` },
+        { name: '003_tournaments_mode', sql: `ALTER TABLE tournaments ADD COLUMN mode TEXT DEFAULT 'pinball'` },
+        { name: '004_tournaments_platform_rules', sql: `ALTER TABLE tournaments ADD COLUMN platform_rules TEXT DEFAULT '{}'` },
+        { name: '005_game_library_mode', sql: `ALTER TABLE game_library ADD COLUMN mode TEXT DEFAULT 'pinball'` },
+        { name: '006_game_library_platforms', sql: `ALTER TABLE game_library ADD COLUMN platforms TEXT DEFAULT '[]'` },
+        { name: '007_tournaments_display_order', sql: `ALTER TABLE tournaments ADD COLUMN display_order INTEGER DEFAULT 0` },
+        { name: '008_tournaments_cleanup_rule', sql: `ALTER TABLE tournaments ADD COLUMN cleanup_rule TEXT DEFAULT '{"mode":"retain","count":0}'` },
+        { name: '009_game_library_image_url', sql: `ALTER TABLE game_library ADD COLUMN image_url TEXT` },
+        { name: '010_tournaments_max_active_games', sql: `ALTER TABLE tournaments ADD COLUMN max_active_games INTEGER DEFAULT 1` },
+        { name: '011_tournaments_game_room_id', sql: `ALTER TABLE tournaments ADD COLUMN game_room_id TEXT` },
+        { name: '012_ranking_groups_game_room_id', sql: `ALTER TABLE ranking_groups ADD COLUMN game_room_id TEXT` },
     ];
+
     for (const migration of migrations) {
+        const applied = await db.get('SELECT id FROM schema_migrations WHERE name = ?', migration.name);
+        if (applied) continue;
         try {
-            await db.exec(migration);
+            await db.exec(migration.sql);
         } catch {
-            // Column already exists — safe to ignore
+            // Column/table may already exist from before versioned migrations — safe to skip
         }
+        await db.run('INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)', migration.name);
     }
 
     // --- Multi-room data migration (idempotent) ---
@@ -390,4 +438,14 @@ export async function getDatabase(): Promise<Database> {
         return await initDatabase();
     }
     return db;
+}
+
+/**
+ * Reset the database singleton. Used by tests to get a fresh in-memory database.
+ */
+export async function _resetForTesting(): Promise<void> {
+    if (db) {
+        await db.close();
+        db = null;
+    }
 }

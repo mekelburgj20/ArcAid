@@ -12,6 +12,9 @@ import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 export class TournamentEngine {
     private static instance: TournamentEngine;
 
+    /** Per-tournament mutex to prevent concurrent maintenance on the same tournament */
+    private maintenanceLocks: Map<string, Promise<void>> = new Map();
+
     private constructor() {}
 
     public static getInstance(): TournamentEngine {
@@ -232,8 +235,26 @@ export class TournamentEngine {
      * Executes the full maintenance routine for a specific tournament.
      * Supports multi-slot tournaments (max_active_games > 1):
      * each active game is processed independently with its own winner and queued replacement.
+     * Uses per-tournament mutex to prevent concurrent maintenance collisions.
      */
     public async runMaintenance(tournamentId: string): Promise<void> {
+        // Per-tournament mutex: wait for any in-flight maintenance to complete
+        const existing = this.maintenanceLocks.get(tournamentId);
+        if (existing) {
+            logWarn(`Maintenance already running for tournament ${tournamentId}, waiting...`);
+            await existing;
+        }
+
+        const maintenancePromise = this.runMaintenanceInternal(tournamentId);
+        this.maintenanceLocks.set(tournamentId, maintenancePromise);
+        try {
+            await maintenancePromise;
+        } finally {
+            this.maintenanceLocks.delete(tournamentId);
+        }
+    }
+
+    private async runMaintenanceInternal(tournamentId: string): Promise<void> {
         const db = await getDatabase();
         const tournamentRow = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
         if (!tournamentRow) throw new Error(`Tournament ${tournamentId} not found.`);

@@ -1,32 +1,39 @@
 # ArcAid
 
-**ArcAid** is a modern tournament management system for virtual pinball and retro gaming communities. Discord bot + React Admin UI + Playwright-powered iScored automation.
-
-> **Development Status:** Core overhaul complete (Sprints 1–8). All major features implemented and UAT-tested. See [OVERHAUL_PLAN.md](./OVERHAUL_PLAN.md) for the full plan and [TODO.md](./TODO.md) for remaining future work.
+**ArcAid** is a multi-tenant tournament management platform for virtual pinball and retro gaming communities. Host multiple game rooms on a single instance, each with independent tournaments, admins, settings, and iScored accounts. Discord bot + React Admin UI + Playwright-powered iScored automation.
 
 ## Features
 
+### Multi-Room Architecture
+- **Multi-tenant** — Host multiple game rooms on one server, each with its own tournaments, leaderboards, settings, and iScored credentials
+- **Three-tier auth** — Super-admin (server-wide), room admins (local username/password or Discord OAuth), scoped to specific rooms
+- **Public landing page** — Game room directory at `/` with links to each room's public scoreboard
+- **Per-room settings** — Timezone, pick windows, platforms, iScored credentials, theme — all independently configurable per room
+- **Global game library** — Master catalog with per-room curation (rooms select a subset)
+
+### Tournament Engine
 - **Multi-tournament engine** — Daily, Weekly, Monthly, or custom schedules with per-tournament timezones
 - **Automated rotation** — Cron-scheduled maintenance: lock game → scrape winner → announce → activate next → assign picker
 - **iScored integration** — Playwright-powered automation with retry logic, persistent sessions, screenshot-on-failure
 - **Pick system** — Winner picks next game with tiered timeouts (winner → runner-up → auto-select)
-- **Internal leaderboard** — Score storage, ranking, and caching with case-insensitive player identity
-- **Real-time updates** — WebSocket events for scores, rotations, and status changes
-- **Admin UI** — Retro arcade-themed dashboard with tournament management, game library, logs, settings, history, backups (mobile-responsive)
-- **Public player portal** — Slug-based routing (`/:slug/*`), card-grid scoreboard, shared nav bar with game room branding, mobile-friendly
-- **Game ratings** — 5-star per-user rating system with community averages
-- **VPS auto-import** — Bulk import games from Virtual Pinball Spreadsheet API
-- **Admin game control** — Activate/deactivate games on-demand via admin UI or Discord
-- **Discord commands** — Full slash command suite for players and admins
-- **Per-tournament mode** — Pinball (Tables & Grinds) or Video Game (Games & Tournaments) terminology per tournament
+- **Per-tournament mode** — Pinball (Tables & Grinds) or Video Game (Games & Tournaments) terminology
 - **Platform rules** — Required/excluded platform filtering per tournament with master platform list
 - **Per-tournament cleanup** — Configurable cleanup of completed games from iScored (immediate, retain count, or scheduled cron)
+
+### Scoring & Rankings
+- **Internal leaderboard** — Score storage, ranking, and caching with case-insensitive player identity
+- **Real-time updates** — WebSocket events for scores, rotations, and status changes
+- **Cross-tournament rankings** — Ranking groups with 4 methods (Max 10, Average Rank, Best Game PAPA/Linear)
 - **Score sync** — Bidirectional score reconciliation between iScored and local DB with stale-record cleanup
+- **Game ratings** — 5-star per-user rating system with community averages
+
+### Admin & Operations
+- **Super-admin panel** — Server-wide dashboard, game room CRUD, master library, backups, logs, global settings
+- **Room admin panel** — Per-room dashboard, tournaments, library, leaderboard, rankings, stats, history, settings
+- **Admin UI** — Retro arcade-themed with 3 theme options (Arcade/Dark/Light), mobile-responsive
+- **Discord commands** — Full slash command suite for players and admins
+- **VPS auto-import** — Bulk import games from Virtual Pinball Spreadsheet API
 - **Player merge/rename** — Admin tool to fix typos or merge alternate usernames across all records
-- **Scheduler hot-reload** — Schedule changes take effect without restart
-- **Callouts easter egg** — Configurable trigger-word responses (toggleable in Settings)
-- **Auto user mapping** — First-time submitters auto-mapped by Discord display name
-- **Discord OAuth login** — Mods with the configured admin role can log into the Admin UI via Discord (alongside password auth)
 - **Docker deployment** — Production-ready with health checks, non-root user, Playwright
 
 ## Quick Start
@@ -54,6 +61,35 @@ npm install
 npm run dev            # Vite dev server with HMR
 ```
 
+## URL Structure
+
+```
+/                              → Public landing (game room directory)
+/login                         → Super-admin login
+/admin/*                       → Super-admin panel
+  /admin/dashboard             → All-rooms overview
+  /admin/rooms                 → Game room CRUD
+  /admin/library               → Master game library
+  /admin/backups               → DB backup/restore
+  /admin/logs                  → Server logs
+  /admin/settings              → Global settings + super-admin management
+
+/:slug/                        → Public scoreboard
+/:slug/players                 → Public player list
+/:slug/players/:id             → Public player detail
+/:slug/games/:name             → Public game detail
+/:slug/login                   → Room admin login
+/:slug/admin/*                 → Room admin panel
+  /:slug/admin/dashboard       → Room dashboard
+  /:slug/admin/tournaments     → Tournament CRUD
+  /:slug/admin/library         → Room game library
+  /:slug/admin/leaderboard     → Leaderboard with expandable scores
+  /:slug/admin/rankings        → Ranking groups
+  /:slug/admin/stats           → Player/game analytics
+  /:slug/admin/history         → Game history
+  /:slug/admin/settings        → Room settings
+```
+
 ## Discord Bot Setup
 
 1. Create an application at the [Discord Developer Portal](https://discord.com/developers/applications)
@@ -63,7 +99,7 @@ npm run dev            # Vite dev server with HMR
    - Embed Links, Attach Files, Read Message History, Use External Emojis, Add Reactions, Use Slash Commands
 4. Invite the bot to your server using the generated URL
 5. Copy Bot Token, Client ID, and Guild ID into your `.env` file
-6. **For Discord OAuth admin login:** Copy the **Client Secret** from the OAuth2 page into `DISCORD_CLIENT_SECRET`. Add redirect URIs (e.g., `http://localhost:3001/auth/discord/callback`, your production URL). Set the admin role via `/setup admin-role` in Discord.
+6. **For Discord OAuth admin login:** Copy the **Client Secret** from the OAuth2 page into `DISCORD_CLIENT_SECRET`. Add redirect URIs (e.g., `http://localhost:3001/auth/discord/callback`, your production URL).
 
 ## Discord Commands
 
@@ -78,7 +114,7 @@ npm run dev            # Vite dev server with HMR
 | `/list-winners` | Hall of fame for recent tournament winners |
 | `/view-selection` | Check which game is queued for the next rotation |
 | `/pick-game` | Nominated pickers select the next game (shows eligibility) |
-| `/map-user` | Link your Discord ID to your iScored username (overwrites previous mapping) |
+| `/map-user` | Link your Discord ID to your iScored username |
 
 ### Admin Commands
 | Command | Description |
@@ -86,31 +122,13 @@ npm run dev            # Vite dev server with HMR
 | `/force-maintenance` | Manually trigger a tournament rotation |
 | `/activate-game` | Immediately activate a game for a tournament |
 | `/deactivate-game` | Deactivate an active game (optionally lock on iScored) |
-| `/sync-state` | Reconcile local DB with live iScored board (syncs scores, removes stale records) |
+| `/sync-state` | Reconcile local DB with live iScored board |
 | `/run-cleanup` | Delete completed and orphan games from iScored |
 | `/create-backup` | Trigger a database backup |
 | `/pause-pick` | Inject a specific game into the queue |
 | `/nominate-picker` | Manually assign picker rights to a user |
 | `/reorder-lineup` | Reorder queued games in a tournament's lineup |
 | `/setup` | Configure channels, roles, pick windows via Discord |
-
-## Admin UI Pages
-
-- **Dashboard** — Live stats: active games, next rotations, recent winners, quick actions
-- **Tournaments** — Create, edit, delete tournaments with friendly schedule builder and cleanup rule config
-- **Game Library** — Search, filter by mode/platform, add/edit games, CSV import, VPS import, star ratings, per-game background image
-- **Leaderboard** — Internal rankings with WebSocket live updates
-- **Stats** — Player and game analytics
-- **History** — Past tournament results, filterable
-- **Backups** — List, create, and restore database backups
-- **Logs** — Real-time streaming, level filters, search, color coding
-- **Settings** — Categorized configuration with sensitive field masking, platform master list editor, feature toggles (callouts), scheduler reload, player merge/rename tool
-
-### Public Pages (no auth, under `/:slug/`)
-- `/:slug` — Card-grid scoreboard showing all active games with top 5 scores, background images, and "Full Leaderboard" links
-- `/:slug/players` — Searchable player list with games played, best/avg scores
-- `/:slug/players/:username` — Player profile with stat cards and recent scores
-- `/:slug/games/:name` — Full leaderboard, game stats, star ratings, record holder, past results
 
 ## Architecture
 
@@ -126,15 +144,30 @@ Two sub-applications in one process:
 | `TimeoutManager` | Winner/runner-up pick window tracking with tiered fallbacks |
 | `BackupManager` | DB backup/snapshot/restore logic |
 | `IdentityManager` | Discord↔iScored user mapping via name matching |
-| Service layer | `SettingsService`, `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `VpsImportService`, `RatingService`, `LogService`, `DashboardService`, `BackupService` |
+| API routes | `src/api/routes/` — auth, rooms (room-scoped), admin (super-admin), global |
+| Services | `SettingsService`, `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `GameRoomService`, `GameRoomSettingsService`, `AdminService`, `RankingService`, `DashboardService`, `BackupService`, `VpsImportService`, `RatingService`, `PreferencesService`, `LogService` |
 | API | Express REST + WebSocket (Socket.io) + JWT auth + Zod validation |
 
 **Admin UI (`admin-ui/`)** — React 19 + Vite + Tailwind CSS v4
 
-- Retro arcade "neon command center" theme
+- Multi-layout: `SuperAdminLayout` (`/admin/*`), `RoomAdminLayout` (`/:slug/admin/*`), `PublicLayout` (`/:slug/*`)
+- `RoomContext` provides `roomId`, `roomSlug`, `roomName` to all room-scoped pages
+- Retro arcade "neon command center" theme with 3 options (Arcade/Dark/Light)
 - All API calls via `admin-ui/src/lib/api.ts` (relative paths, never hardcoded)
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder`, `TournamentBadge`, `StatusBadge`, `ConfirmModal`, toast system
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `ScheduleBuilder`, `TournamentBadge`, `StatusBadge`, `ConfirmModal`, toast system
 - Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
+
+## Auth System
+
+Three authentication methods:
+
+| Method | Scope | How |
+|--------|-------|-----|
+| Super-admin password | Server-wide | First login sets password; JWT with `role: 'super_admin'` |
+| Room local admin | Per-room | Username/password accounts created by super-admin; JWT with `role: 'room_admin'` and scoped `gameRoomIds` |
+| Discord OAuth | Either | Checks `super_admins` table first, then `game_room_admins`; role determined by table membership |
+
+JWT payload: `{ role, gameRoomIds, discordId?, localAdminId?, username?, avatar? }`
 
 ## Score System
 
@@ -143,26 +176,15 @@ The `submissions` table is the single source of truth for all scores. Scores ent
 1. **Discord `/submit-score`** — Player submits score + photo, which goes to iScored and is recorded locally with a sync-compatible ID (`gameId-username`)
 2. **`/sync-state` command** — Scrapes iScored public leaderboard and upserts into submissions with the same ID format
 
-This ensures Discord submissions and iScored syncs converge on the same record (no duplicates). The sync also:
-- Uses **case-insensitive IDs** (normalized to lowercase) to prevent case-variant duplicates
-- **Removes stale records** — local synced submissions not found on iScored are deleted (handles score removals and username changes)
-- **Resolves Discord user IDs** via `user_mappings` when available
+This ensures Discord submissions and iScored syncs converge on the same record (no duplicates). Leaderboards group by `LOWER(iscored_username)` and prefer real Discord user IDs over placeholders.
 
-**Leaderboards** group by `LOWER(iscored_username)` and prefer real Discord user IDs over placeholders.
+## Database
 
-**Player merge/rename** (`POST /api/admin/merge-player`) updates `iscored_username` across submissions, scores, and user_mappings, and also renames sync-format submission IDs so they aren't treated as stale on next sync.
+SQLite at `data/arcaid.db` (auto-created on first run, git-ignored). Idempotent migrations run on startup.
 
-## Cleanup System
+**Multi-room tables:** `game_rooms`, `game_room_settings`, `local_admins`, `game_room_admins`, `super_admins`, `game_room_game_library`
 
-Each tournament has a configurable `cleanup_rule` that determines when completed games are deleted from iScored:
-
-| Mode | Behavior |
-|------|----------|
-| `immediate` | Delete from iScored as soon as the game completes |
-| `retain` (count) | Keep the N most recent completed games; delete older ones |
-| `scheduled` (cron) | Run cleanup on a cron schedule (e.g., Wednesday 10pm) |
-
-The `/run-cleanup` admin command also handles orphan games (ACTIVE with no tournament association).
+**Core tables:** `tournaments` (with `game_room_id`), `game_library`, `games`, `submissions`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`, `ranking_groups` (with `game_room_id`), `ranking_group_tournaments`, `ranking_groups_cache`, `user_preferences`
 
 ## Tech Stack
 
@@ -182,33 +204,29 @@ The `/run-cleanup` admin command also handles orphan games (ACTIVE with no tourn
 
 ## Configuration
 
-Settings can be configured via `.env` file, the Setup Wizard (first run), or the Admin UI Settings page. DB settings override `.env` values on startup and are synced to `process.env` immediately when saved.
+Settings can be configured via `.env` file, the Setup Wizard (first run), or the Admin UI Settings page. DB settings override `.env` values on startup.
 
+### Global Settings (super-admin)
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | — | Discord bot token (required) |
 | `DISCORD_CLIENT_ID` | — | Discord application client ID (required) |
-| `DISCORD_CLIENT_SECRET` | — | Discord OAuth2 client secret (for mod login via Discord) |
-| `DISCORD_GUILD_ID` | — | Discord server ID (required) |
-| `DISCORD_ADMIN_ROLE_ID` | — | Discord role ID granting admin UI access (set via `/setup admin-role`) |
+| `DISCORD_CLIENT_SECRET` | — | Discord OAuth2 client secret |
+| `PORT` | `3001` | HTTP server port |
+| `BACKUP_RETENTION_DAYS` | `30` | Days to keep backups |
+
+### Per-Room Settings (room admin)
+| Setting | Default | Description |
+|---------|---------|-------------|
 | `ISCORED_USERNAME` | — | iScored.info login username |
 | `ISCORED_PASSWORD` | — | iScored.info login password |
-| `ISCORED_PUBLIC_URL` | — | iScored public leaderboard URL (for score sync) |
-| `GAME_ROOM_NAME` | — | Display name for the public game room portal |
-| `GAME_ROOM_SLUG` | — | URL slug for public pages (case-insensitive matching) |
-| `BOT_TIMEZONE` | `America/Chicago` | Default timezone (per-tournament override available) |
-| `PLATFORMS` | `["AtGames","VPXS","VR","IRL"]` | Master platform list (JSON array, editable in Settings) |
+| `ISCORED_PUBLIC_URL` | — | iScored public leaderboard URL |
+| `DISCORD_GUILD_ID` | — | Discord server ID for this room |
+| `DISCORD_ANNOUNCEMENT_CHANNEL_ID` | — | Channel for rotation announcements |
+| `DISCORD_ADMIN_ROLE_ID` | — | Discord role granting room admin access |
+| `BOT_TIMEZONE` | `America/Chicago` | Room timezone |
+| `PLATFORMS` | `["AtGames","VPXS","VR","IRL"]` | Platform list for this room |
 | `GAME_ELIGIBILITY_DAYS` | `120` | Days before a game can be replayed |
 | `WINNER_PICK_WINDOW_MIN` | `60` | Minutes for winner to pick next game |
 | `RUNNERUP_PICK_WINDOW_MIN` | `30` | Minutes for runner-up fallback |
-| `ENABLE_CALLOUTS` | `false` | Enable trigger-word easter egg responses (reads `data/callouts.json`) |
-| `PORT` | `3001` | HTTP server port |
-| `LOG_LEVEL` | `info` | Logging level |
-
-## Database
-
-SQLite at `data/arcaid.db` (auto-created on first run, git-ignored).
-
-Key tables: `tournaments`, `game_library`, `games` (QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`
-
-The `scores` table exists for legacy data but is no longer written to. The `submissions` table is the single source of truth for all score data.
+| `UI_THEME` | `arcade` | Theme for this room's public pages |

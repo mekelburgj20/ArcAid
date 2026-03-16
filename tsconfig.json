@@ -46,5 +46,5 @@
     "forceConsistentCasingInFileNames": true,
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "admin-ui"]
+  "exclude": ["node_modules", "dist", "admin-ui", "src/__tests__"]
 }

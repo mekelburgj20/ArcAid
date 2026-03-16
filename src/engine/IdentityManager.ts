@@ -48,13 +48,13 @@ export class IdentityManager {
             }
 
             const uniqueUsernames = Array.from(allUsernames);
-            
-            // 3. Find which ones are unmapped
-            const unmappedNames: string[] = [];
-            for (const name of uniqueUsernames) {
-                const row = await db.get('SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)', name);
-                if (!row) unmappedNames.push(name);
-            }
+
+            // 3. Find which ones are unmapped (batch query)
+            const mappedRows = await db.all(
+                `SELECT LOWER(iscored_username) as lower_name FROM user_mappings`
+            );
+            const mappedSet = new Set(mappedRows.map((r: any) => r.lower_name));
+            const unmappedNames = uniqueUsernames.filter(name => !mappedSet.has(name.toLowerCase()));
 
             if (unmappedNames.length === 0) {
                 logInfo('   -> All active users are already mapped.');

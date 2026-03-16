@@ -55,6 +55,20 @@ export function validateEnvironment(): { canStartBot: boolean; canConnectIScored
         logInfo(`Optional configuration not set:\n${warnings.join('\n')}`);
     }
 
+    // Warn about JWT_SECRET in production
+    if (!process.env.JWT_SECRET) {
+        if (process.env.NODE_ENV === 'production') {
+            logError('JWT_SECRET is not set. This is required in production for secure token signing.');
+        } else {
+            logWarn('JWT_SECRET not set — using insecure default. Set JWT_SECRET for production use.');
+        }
+    }
+
+    // Warn about CORS
+    if (!process.env.CORS_ORIGIN && process.env.NODE_ENV === 'production') {
+        logWarn('CORS_ORIGIN not set — API accepts requests from any origin. Set CORS_ORIGIN for production.');
+    }
+
     if (canStartBot && canConnectIScored) {
         logInfo('All configuration validated successfully.');
     }

@@ -17,6 +17,7 @@ import { getDashboardData } from '../../services/DashboardService.js';
 import { listBackups, restoreBackup } from '../../services/BackupService.js';
 import { VpsImportService } from '../../services/VpsImportService.js';
 import { serverEvents } from '../server.js';
+import { AuditService } from '../../services/AuditService.js';
 
 const router = Router();
 
@@ -353,6 +354,20 @@ router.post('/game_library/import-vps', async (req, res) => {
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-vps):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'VPS import failed' });
+    }
+});
+
+// --- Audit Log ---
+
+router.get('/audit-log', async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+        const offset = parseInt(req.query.offset as string) || 0;
+        const entries = await AuditService.getRecent(limit, offset);
+        res.json(entries);
+    } catch (error) {
+        logError('API Error (GET /api/admin/audit-log):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 

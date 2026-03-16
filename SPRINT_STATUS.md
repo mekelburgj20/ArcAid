@@ -1,55 +1,75 @@
 # ArcAid — Sprint Status
 
 > This file is the live work-in-progress tracker. Updated every session.
-> For the full plan, see OVERHAUL_PLAN.md.
 > For the task checklist, see TODO.md.
 
 ---
 
 ## Current Work
 
-**Features: Ranking Groups + UI Themes** — COMPLETE (merged to main)
+**Sprint 10: Production Hardening** — IN PROGRESS
 
-## Feature Progress — Ranking Groups
+### Tier 1: Critical — COMPLETE
+- [x] 1.2 API Rate Limiting (`express-rate-limit`: 5/min auth, 100/min general)
+- [x] 1.3 Missing Database Indexes (`games(iscored_id)`, `tournaments(game_room_id)`, `user_mappings(iscored_username)` unique, `ranking_groups(game_room_id)`)
+- [x] 1.4 CORS Restriction (configurable via `CORS_ORIGIN` env var, wide-open only in dev)
+- [x] 1.5 JWT Secret Validation (throws on startup if missing in production)
 
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| 1 | DB schema (ranking_groups, junction, cache) | `done` | 3 new tables with ON DELETE CASCADE |
-| 2 | RankingService (4 ranking methods) | `done` | Max 10, Average Rank, Best Game PAPA, Best Game Linear |
-| 3 | API endpoints (CRUD + rankings) | `done` | 8 endpoints, Zod validated |
-| 4 | Admin UI management page | `done` | Full CRUD + inline ranking preview |
-| 5 | Public scoreboard integration | `done` | Overall Rankings section below game cards |
+### Tier 2: Code Quality — COMPLETE
+- [x] 2.1 N+1 query optimization (4 fixes: LeaderboardService, TimeoutManager, IdentityManager, eligibility)
+- [x] 2.2 Per-tournament maintenance mutex (prevents concurrent maintenance collisions)
+- [x] 2.3 Error responses — already consistent
+- [x] 2.4 WebSocket double-emit fix + CORS alignment
+- [x] 2.5 TournamentForm component extraction (shared fields + useReducer)
+- [x] 2.6 Scheduler reload on tournament update — already implemented
 
-## Feature Progress — UI Theme System
+### Tier 4: Polish — COMPLETE
+- [x] 4.1 Helmet middleware (security headers)
+- [x] 4.2 Request correlation IDs (X-Correlation-ID)
+- [x] 4.3 Health check improvements (DB/Discord/iScored status + uptime)
+- [x] 4.4 Audit logging (audit_log table + auto-logging middleware + admin API)
+- [x] 4.5 Database migration versioning (schema_migrations table)
 
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| 1 | CSS variable theme system | `done` | Original @theme static, overrides via .theme-dark/.theme-light classes |
-| 2 | 3 themes (Arcade, Dark, Light) | `done` | daisyUI oklch values mapped to ArcAid semantic tokens |
-| 3 | user_preferences table + PreferencesService | `done` | Zod-validated, works for password + Discord auth |
-| 4 | API endpoints (GET/POST /me/preferences) | `done` | Per-user theme, UI_THEME global setting, portal endpoint |
-| 5 | ThemeProvider + Settings UI | `done` | localStorage first (no flash), global + personal selectors |
-| 6 | Light theme adjustments | `done` | Scanlines hidden, glow effects softened |
+### Testing Foundation — COMPLETE
+- [x] Vitest setup (`vitest.config.ts`, `src/__tests__/setup.ts`, `src/__tests__/helpers.ts`)
+- [x] Service tests: LeaderboardService (9), TournamentService (5), RankingService (8)
+- [x] API route tests: auth + status (8), rooms (10)
+- [x] 40 tests, all passing
+- [x] DB schema fix: migration columns added to CREATE TABLE for fresh in-memory DBs
+- [x] Test files excluded from `tsc` build (vitest handles its own transform)
 
-## Bug Fix
+### Previous
+**Multi-Game-Room Architecture** — COMPLETE (merged to main, deployed)
 
-- **TournamentEngine: no-queued-game timeout gap** — When maintenance ran with no QUEUED game, no picker slot was created, so TimeoutManager never triggered auto-selection. Fixed by always creating a QUEUED slot for timeout tracking.
+## Multi-Room Architecture Progress
 
-## Sprint 9 — ABANDONED (Gemini implementation had critical issues)
-## Sprint 8 — COMPLETE
-## Sprint 7 — COMPLETE
-## Sprint 6 — COMPLETE
-## Sprint 5 — COMPLETE
-## Sprint 4 — COMPLETE
-## Sprint 3 — COMPLETE
-## Sprint 2 — COMPLETE
-## Sprint 1 — COMPLETE
+| # | Phase | Status | Notes |
+|---|-------|--------|-------|
+| 1 | Database Foundation | `done` | 6 new tables, idempotent migration, data backfill |
+| 2 | Auth Overhaul | `done` | 3 auth methods, scoped JWT, requireRoomAccess middleware |
+| 3 | API Route Restructuring | `done` | Split server.ts into 4 route files, room-scoped services |
+| 4 | Frontend Restructuring | `done` | SuperAdminLayout, RoomAdminLayout, RoomContext, new pages |
+| 5 | Legacy Alias Fix | `done` | Backward-compat URL rewriting for Discord commands |
+
+## Previous Sprints
+
+- Sprint 1 (Stabilize) — COMPLETE
+- Sprint 2 (Harden) — COMPLETE
+- Sprint 3 (Redesign) — COMPLETE
+- Sprint 4 (Phase 8) — COMPLETE
+- Sprint 5 (Discord UX + Player Portal) — COMPLETE
+- Sprint 6 (Schedule UX & UAT) — COMPLETE
+- Sprint 7 (Platform & Mode) — COMPLETE
+- Sprint 8 (Public Player Portal) — COMPLETE
+- Sprint 9 (UI Themes) — ABANDONED (Gemini), reimplemented as feature
+- Feature: Ranking Groups — COMPLETE
+- Feature: UI Theme System — COMPLETE
 
 ## Last Session
 
-**Date:** 2026-03-14
-**What happened:** Merged ranking groups and UI theme features. Fixed critical bug in TournamentEngine where maintenance with no QUEUED game failed to create a picker slot, preventing TimeoutManager auto-selection and leaving tournaments dormant.
-**Next:** Deploy, monitor DG tournaments for correct auto-selection behavior.
+**Date:** 2026-03-15
+**What happened:** Sprint 10 (Production Hardening) — completed Tiers 1, 2, 4, and Testing Foundation. Testing: Vitest with 40 tests (3 service + 2 API route test files), in-memory SQLite, test helpers for room/tournament/game/submission creation. Fixed DB schema issue where migration-added columns weren't in CREATE TABLE statements, causing fresh in-memory DBs to fail on index creation.
+**Next:** Discord Bot Multi-Room (Phase 5).
 
 ## Blockers
 

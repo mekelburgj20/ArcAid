@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Session Start Checklist
 
-1. Read `SPRINT_STATUS.md` for current sprint, task statuses, and last session notes
+1. Read `SPRINT_STATUS.md` for current work and last session notes
 2. Read `TODO.md` for remaining tasks with checkboxes
-3. Verify git branch matches the current sprint (`git branch --show-current`)
+3. Verify git branch matches current work (`git branch --show-current`)
 4. Run `npm run build` to confirm the codebase compiles cleanly
 5. If admin-ui changes are expected, also run `cd admin-ui && npm run build`
 
@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Summary
 
-ArcAid is a tournament management system for virtual pinball and retro gaming communities. Discord bot + React Admin UI + Playwright-powered iScored automation.
+ArcAid is a multi-tenant tournament management platform for virtual pinball and retro gaming communities. Multiple game rooms on one server, each with independent tournaments, admins, settings, and iScored accounts. Discord bot + React Admin UI + Playwright-powered iScored automation.
 
 **Stack:** TypeScript (CommonJS, NodeNext), Node.js 20, Discord.js v14, Playwright, SQLite, Express v5, React 19 + Vite
 
@@ -41,99 +41,107 @@ Two sub-applications in one process:
 
 **Backend (`src/`):**
 - `src/index.ts` — Bootstrap (DB → settings → env → clear leaderboard cache → validate → API → Discord)
-- `src/engine/TournamentEngine.ts` — Core singleton: tournament CRUD + `runMaintenance()` (lock → scrape winner → complete → activate next → assign picker → announce) + `runCleanup()` (delete completed games from iScored per cleanup rule)
-- `src/engine/IScoredClient.ts` — Playwright browser automation for iScored.info (retry with backoff, persistent sessions, screenshot-on-failure, DOM change detection, game deletion)
-- `src/engine/Scheduler.ts` — Cron-based maintenance scheduling (reads `BOT_TIMEZONE` from settings), hot-reload via `reload()`, schedules cleanup cron tasks
+- `src/engine/TournamentEngine.ts` — Core singleton: tournament CRUD + `runMaintenance()` + `runCleanup()`
+- `src/engine/IScoredClient.ts` — Playwright browser automation (retry with backoff, persistent sessions, screenshot-on-failure)
+- `src/engine/Scheduler.ts` — Cron-based maintenance scheduling with hot-reload
 - `src/engine/TimeoutManager.ts` — Winner/runner-up pick window tracking
-- `src/api/server.ts` — Express REST API routing (delegates to service layer), admin endpoints (merge player, scheduler reload)
-- `src/services/` — Business logic: `SettingsService`, `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `LogService`, `VpsImportService`, `RatingService`, `RankingService`, `PreferencesService`, `DashboardService`, `BackupService`
-- `src/utils/discord.ts` — Shared `sendChannelMessage()` for engine classes
-- `src/utils/terminology.ts` — `getTerminology(mode?)` — per-tournament terminology (pinball=Table/Grind, videogame=Game/Tournament)
-- `src/utils/cooldown.ts` — Per-user Discord command cooldown tracker
-- `src/utils/startup.ts` — Startup environment validation
+- `src/api/server.ts` — Express app setup, mounts 4 routers, backward-compat legacy aliases
+- `src/api/routes/auth.ts` — Login (super-admin password, room local admin, Discord OAuth), change password, /me
+- `src/api/routes/rooms.ts` — All room-scoped endpoints (public + admin): leaderboard, tournaments, settings, stats, etc.
+- `src/api/routes/admin.ts` — Super-admin endpoints: room CRUD, super-admin management, backups, logs, global settings, master library
+- `src/api/routes/global.ts` — Non-scoped: /status, /me/preferences, /rooms (public listing)
+- `src/api/middleware.ts` — `requireAuth`, `requireRoomAccess(paramName)`, `requireSuperAdmin`
+- `src/api/rateLimit.ts` — Rate limiters: `authLimiter` (5/min), `writeLimiter` (30/min), `generalLimiter` (100/min)
+- `src/api/correlationId.ts` — Assigns UUID per request, sets `X-Correlation-ID` header
+- `src/api/auditMiddleware.ts` — Auto-logs admin write operations to `audit_log` table
+- `src/services/` — Business logic layer:
+  - **Global:** `SettingsService`, `AdminService`, `GameRoomService`, `GameRoomSettingsService`, `PreferencesService`, `LogService`, `BackupService`, `DashboardService`, `AuditService`
+  - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `VpsImportService`
+- `src/utils/` — `discord.ts`, `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`
 
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
-- Admin pages (require login): Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Logs, Backups, Settings, SetupWizard
-- Public pages (no auth, no sidebar): Scoreboard, Players, PlayerDetail, GameDetail — served under `/:slug/*` via `PublicLayout`
+- **Layouts:** `SuperAdminLayout` (`/admin/*`), `RoomAdminLayout` (`/:slug/admin/*`), `PublicLayout` (`/:slug/*`)
+- **Room context:** `admin-ui/src/contexts/RoomContext.tsx` provides `roomId`, `roomSlug`, `roomName` to room pages
+- **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings (+ shared: Logs, Backups, MasterGameLibrary)
+- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Settings
+- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail
 - Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder`, `ThemeProvider`, etc.
-- Mobile-responsive: admin sidebar collapses to hamburger menu, public pages scale to phone screens
+- Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
+
+## Multi-Room Architecture
+
+### Data Model
+- `game_rooms` — each room has a unique slug, optional Discord guild ID, and its own settings
+- `game_room_settings` — per-room key/value config (iScored creds, timezone, pick windows, platforms, theme)
+- `local_admins` — per-room username/password admin accounts
+- `game_room_admins` — Discord users scoped as admins of specific rooms
+- `super_admins` — Discord users with server-wide super-admin rights
+- `game_room_game_library` — junction table: rooms curate a subset from the global `game_library`
+- `tournaments` and `ranking_groups` have a `game_room_id` foreign key
+
+### Auth
+- **Super-admin password** — Bootstrap/fallback admin, issues `{ role: 'super_admin', gameRoomIds: [] }`
+- **Room local admin** — Username/password per room, issues `{ role: 'room_admin', gameRoomIds: [roomId] }`
+- **Discord OAuth** — Checks `super_admins` → `game_room_admins` → 403
+- Middleware: `requireAuth` (JWT), `requireRoomAccess('roomId')` (checks scope), `requireSuperAdmin` (role check)
+
+### API Structure
+- `POST /api/auth/login` — super-admin password login
+- `POST /api/auth/login/:roomSlug` — room local admin login
+- `GET /api/rooms/:roomId/*` — room-scoped endpoints (public + admin)
+- `GET /api/admin/*` — super-admin endpoints (requireSuperAdmin)
+- `GET /api/*` — global endpoints (status, preferences, public room listing)
+- **Legacy aliases:** `/api/leaderboard`, `/api/tournaments`, etc. redirect to default room for backward compat with Discord commands
+
+### Migration
+- `migrateToMultiRoom()` in `database.ts` — idempotent, runs on startup
+- Creates default room from existing `GAME_ROOM_SLUG` / `GAME_ROOM_NAME` settings
+- Copies per-room settings, backfills `game_room_id` on tournaments/ranking_groups
+- Skips if a room already exists
 
 ## Key Patterns
 
 - Engine classes are **singletons** (`getInstance()`) except IScoredClient (instantiated per-use)
-- `getTerminology(mode?)` — per-tournament terminology based on mode (pinball/videogame); no-arg defaults to generic
-- Tournaments have a `mode` (pinball/videogame), `platformRules` (required/excluded/restrictedText), and `cleanup_rule` (immediate/retain/scheduled)
-- Games in library have a `mode`, `platforms` (JSON array), and optional `image_url`
-- `PLATFORMS` setting = master platform list (JSON array, editable in Settings UI)
-- DB `settings` table = runtime config (overrides `.env` on startup, synced to `process.env` immediately on save)
-- iScored games identified by tags: `DG`, `WG-VPXS`, `WG-VR`, `MG`
-- Configurable values from settings: `GAME_ELIGIBILITY_DAYS` (120), `WINNER_PICK_WINDOW_MIN` (60), `RUNNERUP_PICK_WINDOW_MIN` (30), `BOT_TIMEZONE` (America/Chicago)
+- `getTerminology(mode?)` — per-tournament terminology based on mode (pinball/videogame)
+- Tournaments have a `mode`, `platformRules`, `cleanup_rule`, and `game_room_id`
+- DB `settings` table = global runtime config; `game_room_settings` = per-room config
+- Room-scoped services accept an optional `gameRoomId` parameter for filtering
 - API write endpoints require JWT Bearer token
-- Two auth methods: password (first login sets admin password) and Discord OAuth (mods with `DISCORD_ADMIN_ROLE_ID`)
-- Discord OAuth flow: frontend builds OAuth URL with `window.location.origin`, callback uses raw `fetch` (not `api.post`) to avoid 401-redirect
-- JWT payload includes optional `discordId`, `username`, `avatar` for Discord-authenticated users
+- Discord OAuth flow: frontend builds OAuth URL with `window.location.origin`, callback uses raw `fetch`
 - Public slug matching is case-insensitive
-- **Themes:** 3 themes (arcade/dark/light). CSS variables override `@theme` tokens via `.theme-dark`/`.theme-light` classes on `<html>`. Global theme stored in `UI_THEME` setting, per-user override in `user_preferences` table. `ThemeProvider` reads localStorage first (no flash), hydrates from API.
+- **Themes:** 3 themes (arcade/dark/light). CSS variables, per-user override in `user_preferences`. `ThemeProvider` reads localStorage first (no flash).
 
 ## Score System
 
-- **Single source of truth:** The `submissions` table. The `scores` table is legacy and no longer written to.
-- **Submission IDs:** Sync-compatible format `${gameId}-${username.toLowerCase()}` — both Discord `/submit-score` and `/sync-state` converge on the same record.
-- **Leaderboards** group by `LOWER(iscored_username)` and prefer real Discord user IDs over `SYSTEM`/placeholder IDs.
-- **Sync cleanup:** `/sync-state` removes local synced records not found on iScored (handles deletions and username changes).
-- **Player identity:** `iscored_username` is the primary identity key (not `discord_user_id`). Player pages route by username.
-- **Auto-mapping:** First-time `/submit-score` users without a mapping are auto-mapped using their Discord display name.
-- **Merge/rename:** `POST /api/admin/merge-player` updates username across submissions, scores, user_mappings, and renames sync-format submission IDs.
-
-## Cleanup System
-
-Per-tournament `cleanup_rule` (stored as JSON):
-- `{ mode: 'immediate' }` — delete from iScored on completion
-- `{ mode: 'retain', count: N }` — keep N most recent, delete older
-- `{ mode: 'scheduled', cron: '...', timezone?: '...' }` — cron-based cleanup
-- `/run-cleanup` also handles orphan ACTIVE games with no tournament
+- **Single source of truth:** The `submissions` table
+- **Submission IDs:** Sync-compatible format `${gameId}-${username.toLowerCase()}`
+- **Leaderboards** group by `LOWER(iscored_username)` and prefer real Discord user IDs
+- **Sync cleanup:** `/sync-state` removes local synced records not found on iScored
+- **Player identity:** `iscored_username` is the primary key (not `discord_user_id`)
+- **Merge/rename:** `POST /api/rooms/:roomId/admin/merge-player` updates across all tables
 
 ## Ranking System
 
-Cross-tournament overall player rankings. Admin creates "ranking groups" that select specific tournaments and a ranking method.
+Cross-tournament overall player rankings scoped to a game room.
 
-**Tables:** `ranking_groups`, `ranking_group_tournaments` (junction), `ranking_groups_cache`
+**Rank methods:** `max_10`, `average_rank`, `best_game_papa`, `best_game_linear`
 
-**Rank methods** (matching iScored):
-- `max_10` — Top 10 per game get points (100/80/65/50/40/30/20/15/10/5), best N games summed
-- `average_rank` — Average leaderboard position across games, lower is better, requires min_games
-- `best_game_papa` — Points by rank (100/90/85/84/83...), best N games summed
-- `best_game_linear` — Points by rank (100/99/98/97...), best N games summed
-
-**Cache:** `ranking_groups_cache` stores computed JSON, invalidated on score submit and player merge.
-
-## Development Process
-
-**Branch convention:** `sprint-N/description` (e.g., `sprint-1/stabilize`)
-
-**State files to update:**
-- `SPRINT_STATUS.md` — every session start/end
-- `TODO.md` — as tasks complete
-- `README.md` — end of each sprint
-- `OVERHAUL_PLAN.md` — end of each sprint (progress section)
-
-**Full overhaul plan:** See `OVERHAUL_PLAN.md` (4 sprints: Stabilize → Harden → Redesign → Phase 8)
+**Cache:** `ranking_groups_cache` invalidated on score submit and player merge.
 
 ## Database
 
-SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Leaderboard cache cleared on every startup.
+SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Idempotent migrations on startup.
 
-Key tables: `tournaments`, `game_library` (with `image_url`, `mode`, `platforms`), `games` (status: QUEUED/ACTIVE/COMPLETED/HIDDEN), `submissions` (source of truth for scores), `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`, `ranking_groups`, `ranking_group_tournaments`, `ranking_groups_cache`, `user_preferences`
+**Multi-room tables:** `game_rooms`, `game_room_settings`, `local_admins`, `game_room_admins`, `super_admins`, `game_room_game_library`
 
-Legacy table: `scores` (exists but no longer written to; kept for backward compatibility)
+**Core tables:** `tournaments` (with `game_room_id`), `game_library`, `games`, `submissions`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`, `ranking_groups` (with `game_room_id`), `ranking_group_tournaments`, `ranking_groups_cache`, `user_preferences`
 
-Indexed on: `games.tournament_id`, `games.status`, `submissions.game_id`, `submissions.discord_user_id`, `submissions.timestamp`
+**Infrastructure tables:** `audit_log` (admin action tracking), `schema_migrations` (versioned migration tracking)
 
 ## Deployment
 
-- **Production:** Always Docker (`docker-compose up -d --build`). No `npm run dev` needed.
-- **After code changes:** Rebuild container to pick up changes.
-- Admin UI production assets built during Docker image build and served by Express.
-- Custom domain mapping is infrastructure-level (DNS + reverse proxy), not app-level.
+- **Production:** Always Docker (`docker-compose up -d --build`)
+- Admin UI production assets built during Docker image build and served by Express
+- Custom domain mapping is infrastructure-level (DNS + reverse proxy), not app-level
 - **ngrok** can be used for quick public exposure during development: `ngrok http 3001`

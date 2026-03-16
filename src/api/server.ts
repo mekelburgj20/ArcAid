@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import fs from 'fs';
 import path from 'path';
 import { createServer } from 'http';
@@ -7,6 +8,9 @@ import { EventEmitter } from 'events';
 import { initWebSocket } from './websocket.js';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
+import { authLimiter, generalLimiter } from './rateLimit.js';
+import { correlationId } from './correlationId.js';
+import { auditLog } from './auditMiddleware.js';
 
 // Route modules
 import authRouter from './routes/auth.js';
@@ -48,8 +52,33 @@ function injectDefaultRoom(req: express.Request, res: express.Response, next: ex
 export function startApiServer(port: number = 3001) {
     const app = express();
 
-    app.use(cors());
+    // --- Security Headers ---
+    app.use(helmet({
+        contentSecurityPolicy: false,  // CSP handled by frontend build
+        crossOriginEmbedderPolicy: false,  // Allow embedded resources
+    }));
+
+    // --- Correlation ID ---
+    app.use(correlationId);
+
+    // --- CORS ---
+    const allowedOrigins = process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+        : undefined; // undefined = allow all (dev mode)
+
+    app.use(cors(allowedOrigins ? {
+        origin: allowedOrigins,
+        credentials: true,
+    } : undefined));
+
     app.use(express.json());
+
+    // --- Rate Limiting ---
+    app.use('/api/', generalLimiter);
+    app.use('/api/auth', authLimiter);
+
+    // --- Audit Logging (write operations by authenticated users) ---
+    app.use('/api/', auditLog);
 
     // --- Mount Routers ---
     app.use('/api/auth', authRouter);

@@ -157,9 +157,21 @@ export class LeaderboardService {
             return true;
         });
 
+        // Batch-load cached leaderboards (avoid N+1 per-game queries)
+        const gameIds = deduped.map(g => g.id);
+        const placeholders = gameIds.map(() => '?').join(',');
+        const cachedRows = gameIds.length > 0
+            ? await db.all(
+                `SELECT game_id, rankings FROM leaderboard_cache WHERE game_id IN (${placeholders})`,
+                ...gameIds
+            )
+            : [];
+        const cacheMap = new Map(cachedRows.map((r: any) => [r.game_id, JSON.parse(r.rankings)]));
+
         const results = [];
         for (const game of deduped) {
-            const rankings = await this.getForGame(game.id);
+            // Use cached rankings if available, otherwise recalculate
+            const rankings = cacheMap.get(game.id) ?? await this.recalculate(game.id);
             results.push({
                 gameId: game.id,
                 gameName: game.game_name,

@@ -36,6 +36,16 @@ export class TimeoutManager {
                 AND picker_designated_at IS NOT NULL
             `);
 
+            if (pendingGames.length === 0) return;
+
+            // Pre-load timeout settings once (avoid N+1)
+            const winnerWindowRow = await db.get("SELECT value FROM settings WHERE key = 'WINNER_PICK_WINDOW_MIN'");
+            const runnerUpWindowRow = await db.get("SELECT value FROM settings WHERE key = 'RUNNERUP_PICK_WINDOW_MIN'");
+            const timeoutSettings = {
+                winnerWindowMin: parseInt(winnerWindowRow?.value ?? '60', 10),
+                runnerUpWindowMin: parseInt(runnerUpWindowRow?.value ?? '30', 10),
+            };
+
             for (const row of pendingGames) {
                 const game: Game = {
                     id: row.id,
@@ -49,7 +59,7 @@ export class TimeoutManager {
                     wonGameId: row.won_game_id
                 };
 
-                await this.handleTieredTimeout(game);
+                await this.handleTieredTimeout(game, timeoutSettings);
             }
         } catch (error) {
             logError('Error checking picker timeouts:', error);
@@ -68,18 +78,13 @@ export class TimeoutManager {
         return row?.discord_channel_id || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
     }
 
-    private async handleTieredTimeout(game: Game): Promise<void> {
+    private async handleTieredTimeout(game: Game, settings: { winnerWindowMin: number; runnerUpWindowMin: number }): Promise<void> {
         if (!game.pickerDesignatedAt) return;
 
-        const db = await getDatabase();
         const now = new Date();
         const elapsedMins = (now.getTime() - game.pickerDesignatedAt.getTime()) / (1000 * 60);
 
-        // Read configurable timeout windows from settings
-        const winnerWindowRow = await db.get("SELECT value FROM settings WHERE key = 'WINNER_PICK_WINDOW_MIN'");
-        const runnerUpWindowRow = await db.get("SELECT value FROM settings WHERE key = 'RUNNERUP_PICK_WINDOW_MIN'");
-        const winnerWindowMin = parseInt(winnerWindowRow?.value ?? '60', 10);
-        const runnerUpWindowMin = parseInt(runnerUpWindowRow?.value ?? '30', 10);
+        const { winnerWindowMin, runnerUpWindowMin } = settings;
 
         if (game.pickerType === 'WINNER') {
             if (elapsedMins >= winnerWindowMin) {
@@ -284,12 +289,18 @@ export class TimeoutManager {
                 return true;
             });
 
-            // Filter by eligibility (not played within lookback period)
-            const eligible: typeof modeAndPlatformMatches = [];
-            for (const g of modeAndPlatformMatches) {
-                const isEligible = await engine.isGameEligible(game.tournamentId, g.name, eligibilityDays);
-                if (isEligible) eligible.push(g);
-            }
+            // Filter by eligibility — batch query instead of per-game check
+            const lookbackDate = new Date();
+            lookbackDate.setDate(lookbackDate.getDate() - eligibilityDays);
+            const recentlyPlayed = await db.all(
+                `SELECT DISTINCT name FROM games
+                 WHERE tournament_id = ? AND start_date >= ? AND status != 'QUEUED'`,
+                game.tournamentId, lookbackDate.toISOString()
+            );
+            const recentlyPlayedSet = new Set(recentlyPlayed.map((r: any) => r.name.toLowerCase()));
+            const eligible = modeAndPlatformMatches.filter(
+                g => !recentlyPlayedSet.has(g.name.toLowerCase())
+            );
 
             if (eligible.length === 0) {
                 logWarn(`No eligible ${term.games} found for auto-selection in ${tournament.name}.`);

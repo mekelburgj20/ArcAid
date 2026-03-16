@@ -8,9 +8,13 @@ let io: SocketServer | null = null;
  * Initialize Socket.io server on the existing HTTP server.
  */
 export function initWebSocket(httpServer: HttpServer): SocketServer {
+    const allowedOrigins = process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+        : '*';
+
     io = new SocketServer(httpServer, {
         cors: {
-            origin: '*',
+            origin: allowedOrigins,
             methods: ['GET', 'POST'],
         },
         path: '/socket.io',
@@ -45,11 +49,11 @@ export function getIO(): SocketServer | null {
 }
 
 /**
- * Emit a score:new event to all connected clients and the specific game room.
+ * Emit a score:new event to the specific game room only.
+ * Clients must join the game room via 'join:game' to receive these events.
  */
 export function emitScoreNew(data: { gameId: string; gameName: string; playerName: string; score: number }) {
     if (!io) return;
-    io.emit('score:new', data);
     io.to(`game:${data.gameId}`).emit('score:new', data);
 }
 
@@ -70,11 +74,10 @@ export function emitPickerAssigned(data: { tournamentName: string; pickerName: s
 }
 
 /**
- * Emit a leaderboard:updated event.
+ * Emit a leaderboard:updated event to the specific game room only.
  */
 export function emitLeaderboardUpdated(data: { gameId: string }) {
     if (!io) return;
-    io.emit('leaderboard:updated', data);
     io.to(`game:${data.gameId}`).emit('leaderboard:updated', data);
 }
 
