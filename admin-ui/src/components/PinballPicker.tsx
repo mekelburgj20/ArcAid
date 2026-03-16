@@ -269,9 +269,14 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     }
 
     function drawHoleRing(hole: Hole) {
+      // Draw nail ring with a gap at the top so ball can enter
       const nailCount = Math.floor(hole.pegRingR * 1.2);
+      const gapAngle = Math.PI * 0.35; // ~63 degree gap at top
       for (let i = 0; i < nailCount; i++) {
         const angle = (Math.PI * 2 / nailCount) * i;
+        // Skip nails in the top gap (around -PI/2 i.e. straight up)
+        const normAngle = ((angle + Math.PI * 2.5) % (Math.PI * 2)); // shift so 0 = top
+        if (normAngle < gapAngle || normAngle > Math.PI * 2 - gapAngle) continue;
         const nx = hole.x + Math.cos(angle) * hole.pegRingR;
         const ny = hole.y + Math.sin(angle) * hole.pegRingR;
         ctx.beginPath();
@@ -612,39 +617,17 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           }
         }
 
-        // Hole ring peg collisions
-        for (const hole of HOLES) {
-          const nailCount = Math.floor(hole.pegRingR * 1.2);
-          for (let i = 0; i < nailCount; i++) {
-            const angle = (Math.PI * 2 / nailCount) * i;
-            const nx2 = hole.x + Math.cos(angle) * hole.pegRingR;
-            const ny2 = hole.y + Math.sin(angle) * hole.pegRingR;
-            const dx = s.pos.x - nx2;
-            const dy = s.pos.y - ny2;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const minDist = BALL_R + 1.5;
-            if (dist < minDist && dist > 0) {
-              const nnx = dx / dist;
-              const nny = dy / dist;
-              s.pos.x = nx2 + nnx * minDist;
-              s.pos.y = ny2 + nny * minDist;
-              const dot = s.vel.x * nnx + s.vel.y * nny;
-              s.vel.x = (s.vel.x - 2 * dot * nnx) * PEG_DAMPING;
-              s.vel.y = (s.vel.y - 2 * dot * nny) * PEG_DAMPING;
-            }
-          }
-        }
-
-        // Hole capture
+        // Hole capture — ring pegs are decorative only, ball rolls in freely
         for (const hole of HOLES) {
           const dx = s.pos.x - hole.x;
           const dy = s.pos.y - hole.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
-          if (dist < hole.r - 1 && speed < 3.5) {
-            s.vel.x = (hole.x - s.pos.x) * 0.3;
-            s.vel.y = (hole.y - s.pos.y) * 0.3;
-            if (dist < 3) {
+          if (dist < hole.r && speed < 5) {
+            // Gravity-suck the ball toward center
+            s.vel.x = (hole.x - s.pos.x) * 0.4;
+            s.vel.y = (hole.y - s.pos.y) * 0.4;
+            if (dist < 4) {
               s.pos.x = hole.x;
               s.pos.y = hole.y;
               s.ballVisible = false;
