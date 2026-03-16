@@ -318,6 +318,8 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       setPhase('idle');
       return;
     }
+    // Snap ball back to rest position before launching (plunger pulled it down)
+    s.pos = { x: LANE_CX, y: PF_BOT - 15 };
     // Half power clears the lane top; full power reaches the far top-left
     const launchVel = 5 + power * 6;
     s.vel = { x: -0.2 - Math.random() * 0.4, y: -launchVel };
@@ -816,10 +818,10 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
         }
 
         // Ball fell back into the plunger lane — allow re-plunge
-        if (s.pos.x > LANE_DIVIDER_X && s.pos.y > PF_BOT - 80) {
+        // Only trigger when ball is moving downward (vel.y > 0) to avoid catching a fresh launch
+        if (s.pos.x > LANE_DIVIDER_X && s.pos.y > PF_BOT - 80 && s.vel.y >= 0) {
           const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
-          // Reset once ball is slow or sitting near the bottom of the lane
-          if (speed < 1.0 || (s.pos.y > PF_BOT && speed < 2.0)) {
+          if (speed < 1.5) {
             s.pos = { x: LANE_CX, y: PF_BOT - 15 };
             s.vel = { x: 0, y: 0 };
             s.trail = [];
