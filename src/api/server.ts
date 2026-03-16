@@ -58,35 +58,30 @@ export function startApiServer(port: number = 3001) {
     app.use('/api', globalRouter);
 
     // --- Backward Compatibility Aliases ---
-    // Mount the rooms router again under /api with default room injection.
-    // This allows legacy unscoped URLs like /api/tournaments to work by
-    // injecting the default room's ID and forwarding to the room-scoped handlers.
+    // Legacy unscoped URLs like /api/leaderboard → /api/rooms router with default room injected.
+    // Each legacy path mounts a handler that resolves the default room and rewrites the URL
+    // to include both the roomId and the original path segment (which Express strips on mount).
 
-    // Create a legacy router that injects the default room and delegates to rooms router
-    const legacyRouter = express.Router({ mergeParams: true });
-    legacyRouter.use(injectDefaultRoom);
-    legacyRouter.use('/', (req, res, next) => {
-        // Rewrite: prefix roomId into the URL path so rooms router can match /:roomId/...
-        const roomId = (req.params as any).roomId;
-        if (roomId) {
-            req.url = `/${roomId}${req.url === '/' ? '' : req.url}`;
-        }
-        roomsRouter(req, res, next);
-    });
+    const legacyPaths = [
+        'tournaments', 'leaderboard', 'dashboard', 'history',
+        'rankings', 'ranking-groups', 'game_library', 'ratings',
+        'stats', 'games', 'scheduler',
+    ];
 
-    // Map legacy paths through the legacy router
-    // Public read endpoints
-    app.use('/api/tournaments', legacyRouter);
-    app.use('/api/leaderboard', legacyRouter);
-    app.use('/api/dashboard', legacyRouter);
-    app.use('/api/history', legacyRouter);
-    app.use('/api/rankings', legacyRouter);
-    app.use('/api/ranking-groups', legacyRouter);
-    app.use('/api/game_library', legacyRouter);
-    app.use('/api/ratings', legacyRouter);
-    app.use('/api/stats', legacyRouter);
-    app.use('/api/games', legacyRouter);
-    app.use('/api/scheduler', legacyRouter);
+    for (const segment of legacyPaths) {
+        app.use(`/api/${segment}`, (req, res, next) => {
+            getDefaultRoomId().then(roomId => {
+                if (!roomId) return next('route');
+                // Rebuild full path: /:roomId/:segment + any sub-path
+                const subPath = req.url === '/' ? '' : req.url;
+                req.url = `/${roomId}/${segment}${subPath}`;
+                roomsRouter(req, res, next);
+            }).catch(err => {
+                logError('Legacy alias error:', err);
+                res.status(500).json({ error: 'Internal Server Error' });
+            });
+        });
+    }
     // Admin merge-player (under /api/admin/merge-player → rooms/:roomId/admin/merge-player)
     app.use('/api/admin/merge-player', (req, res, next) => {
         getDefaultRoomId().then(roomId => {
