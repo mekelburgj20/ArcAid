@@ -19,8 +19,9 @@ const BALL_R = 6;
 const PEG_R = 3;
 const RING_PEG_R = 2;
 
-// Delta-time physics — constants tuned for 60fps, scaled each frame
-const BASE_FPS = 60;
+// Physics constants — tuned for fixed 60-tick/sec simulation
+const TICK_MS = 1000 / 60; // 16.67ms per physics tick
+const MAX_TICKS_PER_FRAME = 6; // cap catch-up to avoid spiral of death
 const GRAVITY = 0.045;
 const FRICTION = 0.9985;
 const PEG_DAMPING = 0.6;
@@ -72,18 +73,18 @@ const DIAMOND_COLORS = [
 ];
 
 const HOLES: Hole[] = [
-  { x: 190, y: 170, r: 12, label: '100', ringR: 20, gapAngle: 0.75 },
-  { x: 70,  y: 240, r: 11, label: '50',  ringR: 19, gapAngle: 0.75 },
-  { x: 190, y: 250, r: 11, label: '150', ringR: 19, gapAngle: 0.75 },
-  { x: 285, y: 240, r: 11, label: '50',  ringR: 19, gapAngle: 0.75 },
-  { x: 120, y: 330, r: 12, label: '100', ringR: 20, gapAngle: 0.7 },
-  { x: 240, y: 330, r: 12, label: '100', ringR: 20, gapAngle: 0.7 },
-  { x: 190, y: 390, r: 13, label: '250', ringR: 22, gapAngle: 0.65 },
-  { x: 55,  y: 440, r: 12, label: '200', ringR: 20, gapAngle: 0.7 },
-  { x: 290, y: 440, r: 12, label: '200', ringR: 20, gapAngle: 0.7 },
-  { x: 140, y: 490, r: 11, label: '150', ringR: 19, gapAngle: 0.75 },
-  { x: 240, y: 490, r: 11, label: '150', ringR: 19, gapAngle: 0.75 },
-  { x: 190, y: 545, r: 13, label: '400', ringR: 22, gapAngle: 0.65 },
+  { x: 190, y: 170, r: 12, label: '100', ringR: 20, gapAngle: 0.9 },
+  { x: 70,  y: 240, r: 11, label: '50',  ringR: 19, gapAngle: 0.9 },
+  { x: 190, y: 250, r: 11, label: '150', ringR: 19, gapAngle: 0.9 },
+  { x: 285, y: 240, r: 11, label: '50',  ringR: 19, gapAngle: 0.9 },
+  { x: 120, y: 330, r: 12, label: '100', ringR: 20, gapAngle: 0.85 },
+  { x: 240, y: 330, r: 12, label: '100', ringR: 20, gapAngle: 0.85 },
+  { x: 190, y: 390, r: 13, label: '250', ringR: 22, gapAngle: 0.8 },
+  { x: 55,  y: 440, r: 12, label: '200', ringR: 20, gapAngle: 0.85 },
+  { x: 290, y: 440, r: 12, label: '200', ringR: 20, gapAngle: 0.85 },
+  { x: 140, y: 490, r: 11, label: '150', ringR: 19, gapAngle: 0.9 },
+  { x: 240, y: 490, r: 11, label: '150', ringR: 19, gapAngle: 0.9 },
+  { x: 190, y: 545, r: 13, label: '400', ringR: 22, gapAngle: 0.85 },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -587,7 +588,8 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     isDrain: false,
     pulling: false,
     pullStartTime: 0,
-    lastFrameTime: 0,
+    lastRealTime: 0,    // last real timestamp for accumulator
+    physicsAccum: 0,    // accumulated ms to simulate
   });
 
   const pickGame = useCallback(() => {
@@ -609,7 +611,8 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     s.isDrain = false;
     s.pulling = false;
     s.pullStartTime = 0;
-    s.lastFrameTime = 0;
+    s.lastRealTime = 0;
+    s.physicsAccum = 0;
   }, []);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
@@ -648,7 +651,8 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     s.vel = { x: -0.2 - Math.random() * 0.4, y: -launchVel };
     s.phase = 'running';
     s.startTime = performance.now();
-    s.lastFrameTime = performance.now();
+    s.lastRealTime = performance.now();
+    s.physicsAccum = 0;
     setPhase('running');
     const canvas = canvasRef.current;
     if (canvas) canvas.releasePointerCapture(e.pointerId);
@@ -870,28 +874,30 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       }
 
       if (s.phase === 'running') {
-        // Delta-time: normalize to 60fps
+        // Fixed-timestep: accumulate real time, run exactly N ticks at 60/sec
         const now = performance.now();
-        const rawDt = s.lastFrameTime > 0 ? (now - s.lastFrameTime) / (1000 / BASE_FPS) : 1;
-        const dt = Math.min(rawDt, 4); // cap to prevent tunneling
-        s.lastFrameTime = now;
+        if (s.lastRealTime > 0) {
+          s.physicsAccum += now - s.lastRealTime;
+        }
+        s.lastRealTime = now;
 
-        // Sub-step physics for large dt to prevent tunneling through pegs
-        const steps = Math.max(1, Math.round(dt));
-        const subDt = dt / steps;
+        // Cap to prevent spiral of death (e.g. tab was backgrounded)
+        if (s.physicsAccum > TICK_MS * MAX_TICKS_PER_FRAME) {
+          s.physicsAccum = TICK_MS * MAX_TICKS_PER_FRAME;
+        }
 
-        for (let step = 0; step < steps; step++) {
-          // Gravity
-          s.vel.y += GRAVITY * subDt;
-          // Friction
-          const frictionDt = Math.pow(FRICTION, subDt);
-          s.vel.x *= frictionDt;
-          s.vel.y *= frictionDt;
+        let trailThisFrame = false;
+        while (s.physicsAccum >= TICK_MS && s.phase === 'running') {
+          s.physicsAccum -= TICK_MS;
 
-          s.pos.x += s.vel.x * subDt;
-          s.pos.y += s.vel.y * subDt;
+          // --- One physics tick (identical to original per-frame at 60fps) ---
+          s.vel.y += GRAVITY;
+          s.vel.x *= FRICTION;
+          s.vel.y *= FRICTION;
 
-          // --- COLLISIONS ---
+          s.pos.x += s.vel.x;
+          s.pos.y += s.vel.y;
+          trailThisFrame = true;
 
           // Field peg collisions
           for (const peg of s.pegs) {
@@ -1027,10 +1033,10 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
               break;
             }
           }
-        } // end sub-step loop
+        } // end fixed-timestep loop
 
-        // Trail (once per frame, not per sub-step)
-        if (s.phase === 'running') {
+        // Trail (once per frame)
+        if (trailThisFrame && s.phase === 'running') {
           s.trail.push({ x: s.pos.x, y: s.pos.y });
           if (s.trail.length > TRAIL_LEN) s.trail.shift();
         }
