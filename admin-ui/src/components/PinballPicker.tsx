@@ -19,13 +19,11 @@ const BALL_R = 6;
 const PEG_R = 3;
 const RING_PEG_R = 2;
 
-// Physics constants — tuned for fixed 60-tick/sec simulation
-const TICK_MS = 1000 / 60; // 16.67ms per physics tick
-const MAX_TICKS_PER_FRAME = 6; // cap catch-up to avoid spiral of death
-const GRAVITY = 0.045;
-const FRICTION = 0.9985;
-const PEG_DAMPING = 0.6;
-const WALL_DAMPING = 0.55;
+// Physics — simple per-frame, tuned to feel fast on all devices
+const GRAVITY = 0.14;
+const FRICTION = 0.998;
+const PEG_DAMPING = 0.55;
+const WALL_DAMPING = 0.5;
 const TRAIL_LEN = 10;
 
 // Playfield frame
@@ -588,8 +586,6 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     isDrain: false,
     pulling: false,
     pullStartTime: 0,
-    lastRealTime: 0,    // last real timestamp for accumulator
-    physicsAccum: 0,    // accumulated ms to simulate
   });
 
   const pickGame = useCallback(() => {
@@ -611,8 +607,6 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     s.isDrain = false;
     s.pulling = false;
     s.pullStartTime = 0;
-    s.lastRealTime = 0;
-    s.physicsAccum = 0;
   }, []);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
@@ -647,12 +641,10 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       return;
     }
     s.pos = { x: LANE_CX, y: PF_BOT - 15 };
-    const launchVel = 5 + power * 6;
-    s.vel = { x: -0.2 - Math.random() * 0.4, y: -launchVel };
+    const launchVel = 8 + power * 10;
+    s.vel = { x: -0.3 - Math.random() * 0.5, y: -launchVel };
     s.phase = 'running';
     s.startTime = performance.now();
-    s.lastRealTime = performance.now();
-    s.physicsAccum = 0;
     setPhase('running');
     const canvas = canvasRef.current;
     if (canvas) canvas.releasePointerCapture(e.pointerId);
@@ -874,98 +866,88 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       }
 
       if (s.phase === 'running') {
-        // Fixed-timestep: accumulate real time, run exactly N ticks at 60/sec
-        const now = performance.now();
-        if (s.lastRealTime > 0) {
-          s.physicsAccum += now - s.lastRealTime;
+        // Simple per-frame physics — no timing tricks
+        s.vel.y += GRAVITY;
+        s.vel.x *= FRICTION;
+        s.vel.y *= FRICTION;
+
+        s.pos.x += s.vel.x;
+        s.pos.y += s.vel.y;
+
+        // Trail
+        s.trail.push({ x: s.pos.x, y: s.pos.y });
+        if (s.trail.length > TRAIL_LEN) s.trail.shift();
+
+        // --- COLLISIONS ---
+
+        // Field peg collisions
+        for (const peg of s.pegs) {
+          const dx = s.pos.x - peg.x;
+          const dy = s.pos.y - peg.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const minDist = BALL_R + PEG_R;
+          if (dist < minDist && dist > 0) {
+            const nx = dx / dist;
+            const ny = dy / dist;
+            s.pos.x = peg.x + nx * minDist;
+            s.pos.y = peg.y + ny * minDist;
+            const dot = s.vel.x * nx + s.vel.y * ny;
+            s.vel.x = (s.vel.x - 2 * dot * nx) * PEG_DAMPING;
+            s.vel.y = (s.vel.y - 2 * dot * ny) * PEG_DAMPING;
+            s.vel.x += (Math.random() - 0.5) * 0.6;
+            peg.hitTimer = 8;
+          }
         }
-        s.lastRealTime = now;
 
-        // Cap to prevent spiral of death (e.g. tab was backgrounded)
-        if (s.physicsAccum > TICK_MS * MAX_TICKS_PER_FRAME) {
-          s.physicsAccum = TICK_MS * MAX_TICKS_PER_FRAME;
+        // Ring peg collisions
+        for (let i = 0; i < ALL_RING_PEGS.length; i++) {
+          const rp = ALL_RING_PEGS[i]!;
+          const dx = s.pos.x - rp.x;
+          const dy = s.pos.y - rp.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const minDist = BALL_R + RING_PEG_R;
+          if (dist < minDist && dist > 0) {
+            const nx = dx / dist;
+            const ny = dy / dist;
+            s.pos.x = rp.x + nx * minDist;
+            s.pos.y = rp.y + ny * minDist;
+            const dot = s.vel.x * nx + s.vel.y * ny;
+            s.vel.x = (s.vel.x - 2 * dot * nx) * PEG_DAMPING;
+            s.vel.y = (s.vel.y - 2 * dot * ny) * PEG_DAMPING;
+            s.vel.x += (Math.random() - 0.5) * 0.4;
+            s.ringPegHitTimers.set(i, 6);
+          }
         }
 
-        let trailThisFrame = false;
-        while (s.physicsAccum >= TICK_MS && s.phase === 'running') {
-          s.physicsAccum -= TICK_MS;
-
-          // --- One physics tick (identical to original per-frame at 60fps) ---
-          s.vel.y += GRAVITY;
-          s.vel.x *= FRICTION;
-          s.vel.y *= FRICTION;
-
-          s.pos.x += s.vel.x;
-          s.pos.y += s.vel.y;
-          trailThisFrame = true;
-
-          // Field peg collisions
-          for (const peg of s.pegs) {
-            const dx = s.pos.x - peg.x;
-            const dy = s.pos.y - peg.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const minDist = BALL_R + PEG_R;
-            if (dist < minDist && dist > 0) {
-              const nx = dx / dist;
-              const ny = dy / dist;
-              s.pos.x = peg.x + nx * minDist;
-              s.pos.y = peg.y + ny * minDist;
-              const dot = s.vel.x * nx + s.vel.y * ny;
-              s.vel.x = (s.vel.x - 2 * dot * nx) * PEG_DAMPING;
-              s.vel.y = (s.vel.y - 2 * dot * ny) * PEG_DAMPING;
-              s.vel.x += (Math.random() - 0.5) * 0.6;
-              peg.hitTimer = 8;
+        // Hole capture — pull ball in when nearby and slow enough
+        for (const hole of HOLES) {
+          const dx = s.pos.x - hole.x;
+          const dy = s.pos.y - hole.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
+          if (dist < hole.r + 3 && speed < 5) {
+            s.vel.x += (hole.x - s.pos.x) * 0.12;
+            s.vel.y += (hole.y - s.pos.y) * 0.12;
+            if (dist < 6) {
+              s.pos.x = hole.x;
+              s.pos.y = hole.y;
+              s.ballVisible = false;
+              s.landedHole = hole;
+              s.isDrain = false;
+              s.resultText = pickGame();
+              s.phase = 'landed';
+              setPhase('landed');
+              setScore(hole.label);
+              setIsDrain(false);
+              setResult(s.resultText);
+              break;
             }
           }
+        }
 
-          // Ring peg collisions
-          for (let i = 0; i < ALL_RING_PEGS.length; i++) {
-            const rp = ALL_RING_PEGS[i]!;
-            const dx = s.pos.x - rp.x;
-            const dy = s.pos.y - rp.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const minDist = BALL_R + RING_PEG_R;
-            if (dist < minDist && dist > 0) {
-              const nx = dx / dist;
-              const ny = dy / dist;
-              s.pos.x = rp.x + nx * minDist;
-              s.pos.y = rp.y + ny * minDist;
-              const dot = s.vel.x * nx + s.vel.y * ny;
-              s.vel.x = (s.vel.x - 2 * dot * nx) * PEG_DAMPING;
-              s.vel.y = (s.vel.y - 2 * dot * ny) * PEG_DAMPING;
-              s.vel.x += (Math.random() - 0.5) * 0.4;
-              s.ringPegHitTimers.set(i, 6);
-            }
-          }
-
-          // Hole capture
-          for (const hole of HOLES) {
-            const dx = s.pos.x - hole.x;
-            const dy = s.pos.y - hole.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
-            if (dist < hole.r + 2 && speed < 4) {
-              s.vel.x += (hole.x - s.pos.x) * 0.08;
-              s.vel.y += (hole.y - s.pos.y) * 0.08;
-              if (dist < 5) {
-                s.pos.x = hole.x;
-                s.pos.y = hole.y;
-                s.ballVisible = false;
-                s.landedHole = hole;
-                s.isDrain = false;
-                s.resultText = pickGame();
-                s.phase = 'landed';
-                setPhase('landed');
-                setScore(hole.label);
-                setIsDrain(false);
-                setResult(s.resultText);
-                break;
-              }
-            }
-          }
-
-          if (s.phase !== 'running') break;
-
+        if (s.phase !== 'running') {
+          // landed in hole — skip rest
+        } else {
           // Arch boundary
           collideArch(s.pos, s.vel);
 
@@ -1016,13 +998,12 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
             setScore(null);
             setIsDrain(true);
             setResult(s.resultText);
-            break;
           }
 
           // Re-plunge on failed launch
           if (s.pos.x > LANE_DIVIDER_X && s.pos.y > PF_BOT - 80 && s.vel.y >= 0) {
             const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
-            if (speed < 1.5) {
+            if (speed < 2) {
               s.pos = { x: LANE_CX, y: PF_BOT - 15 };
               s.vel = { x: 0, y: 0 };
               s.trail = [];
@@ -1030,33 +1011,26 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
               s.startTime = 0;
               s.phase = 'idle';
               setPhase('idle');
-              break;
             }
           }
-        } // end fixed-timestep loop
 
-        // Trail (once per frame)
-        if (trailThisFrame && s.phase === 'running') {
-          s.trail.push({ x: s.pos.x, y: s.pos.y });
-          if (s.trail.length > TRAIL_LEN) s.trail.shift();
-        }
-
-        // Stuck ball timeout
-        if (s.startTime > 0 && s.phase === 'running') {
-          const elapsed = (performance.now() - s.startTime) / 1000;
-          if (elapsed > 30) {
-            s.ballVisible = false;
-            s.isDrain = true;
-            s.landedHole = null;
-            s.resultText = pickGame();
-            s.phase = 'landed';
-            setPhase('landed');
-            setScore(null);
-            setIsDrain(true);
-            setResult(s.resultText);
-          } else if (elapsed > 22) {
-            s.vel.x += (Math.random() - 0.5) * 1.5;
-            s.vel.y += 0.3;
+          // Stuck ball timeout
+          if (s.startTime > 0) {
+            const elapsed = (performance.now() - s.startTime) / 1000;
+            if (elapsed > 20) {
+              s.ballVisible = false;
+              s.isDrain = true;
+              s.landedHole = null;
+              s.resultText = pickGame();
+              s.phase = 'landed';
+              setPhase('landed');
+              setScore(null);
+              setIsDrain(true);
+              setResult(s.resultText);
+            } else if (elapsed > 14) {
+              s.vel.x += (Math.random() - 0.5) * 1.5;
+              s.vel.y += 0.5;
+            }
           }
         }
       }
