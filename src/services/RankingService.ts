@@ -51,9 +51,11 @@ export class RankingService {
     /**
      * Get all ranking groups with their tournament IDs.
      */
-    static async getAll(): Promise<RankingGroup[]> {
+    static async getAll(gameRoomId?: string): Promise<RankingGroup[]> {
         const db = await getDatabase();
-        const groups = await db.all(`SELECT * FROM ranking_groups ORDER BY name`);
+        const groups = gameRoomId
+            ? await db.all(`SELECT * FROM ranking_groups WHERE game_room_id = ? ORDER BY name`, gameRoomId)
+            : await db.all(`SELECT * FROM ranking_groups ORDER BY name`);
         const result: RankingGroup[] = [];
         for (const g of groups) {
             const tournamentRows = await db.all(
@@ -110,11 +112,12 @@ export class RankingService {
         best_n: number;
         min_games: number;
         tournament_ids: string[];
+        game_room_id?: string;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            `INSERT INTO ranking_groups (id, name, description, rank_method, best_n, min_games) VALUES (?, ?, ?, ?, ?, ?)`,
-            data.id, data.name, data.description || '', data.rank_method, data.best_n, data.min_games
+            `INSERT INTO ranking_groups (id, name, description, rank_method, best_n, min_games, game_room_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            data.id, data.name, data.description || '', data.rank_method, data.best_n, data.min_games, data.game_room_id || null
         );
         for (const tid of data.tournament_ids) {
             await db.run(
@@ -340,11 +343,11 @@ export class RankingService {
     /**
      * Get all active ranking groups with their computed rankings (for public display).
      */
-    static async getActiveWithRankings(): Promise<Array<{
+    static async getActiveWithRankings(gameRoomId?: string): Promise<Array<{
         group: RankingGroup;
         rankings: OverallRanking[];
     }>> {
-        const groups = await this.getAll();
+        const groups = await this.getAll(gameRoomId);
         const active = groups.filter(g => g.is_active);
         const results = [];
         for (const group of active) {

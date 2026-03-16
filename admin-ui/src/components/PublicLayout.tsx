@@ -1,12 +1,26 @@
+import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams } from 'react-router-dom';
 import { Users, Monitor } from 'lucide-react';
 
 interface PublicLayoutProps {
-  gameRoomName: string;
+  gameRoomName?: string;
 }
 
 export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const { slug } = useParams<{ slug: string }>();
+  const [roomName, setRoomName] = useState(gameRoomName || 'ARCAID');
+
+  useEffect(() => {
+    if (gameRoomName) { setRoomName(gameRoomName); return; }
+    if (!slug) return;
+    fetch('/api/rooms')
+      .then(r => r.json())
+      .then((rooms: Array<{ slug: string; name: string }>) => {
+        const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
+        if (found) setRoomName(found.name);
+      })
+      .catch(() => {});
+  }, [slug, gameRoomName]);
 
   const navItems = [
     { path: `/${slug}`, label: 'Scoreboard', icon: <Monitor size={16} />, end: true },
@@ -20,7 +34,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <Link to={`/${slug}`} className="no-underline flex items-center gap-2 sm:gap-3 min-w-0">
             <img src="/arcaid-logo.png" alt="ArcAid" className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0" />
-            <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate">{gameRoomName}</span>
+            <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate">{roomName}</span>
           </Link>
           <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
             {navItems.map(item => (

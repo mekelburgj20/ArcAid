@@ -128,6 +128,37 @@ export interface OverallRanking {
     breakdown: Array<{ game_name: string; game_rank: number; points: number }>;
 }
 
+export interface GameRoom {
+    id: string;
+    name: string;
+    slug: string;
+    description: string;
+    is_public: boolean;
+    logo_url: string | null;
+    discord_guild_id: string | null;
+    created_at: string;
+}
+
+export interface LocalAdmin {
+    id: string;
+    game_room_id: string;
+    username: string;
+    display_name: string | null;
+    created_at: string;
+}
+
+export interface GameRoomAdmin {
+    game_room_id: string;
+    discord_user_id: string;
+    role: 'admin' | 'owner';
+}
+
+export interface SuperAdmin {
+    discord_user_id: string;
+    username: string | null;
+    granted_at: string;
+}
+
 export interface WebSocketEvents {
     'score:new': { gameId: string; gameName: string; playerName: string; score: number };
     'game:rotated': { tournamentName: string; oldGame: string; newGame: string };

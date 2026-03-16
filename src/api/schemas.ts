@@ -102,3 +102,18 @@ export const UpdateRankingGroupSchema = CreateRankingGroupSchema.omit({ id: true
 export const UpdatePreferencesSchema = z.object({
     ui_theme: z.enum(['arcade', 'dark', 'light']).nullable(),
 });
+
+export const CreateGameRoomSchema = z.object({
+    name: z.string().min(1).max(100),
+    slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
+    description: z.string().max(500).default(''),
+    is_public: z.boolean().default(true),
+    logo_url: z.string().url().optional().or(z.literal('')),
+    discord_guild_id: z.string().optional().default(''),
+});
+
+export const CreateLocalAdminSchema = z.object({
+    username: z.string().min(1).max(50),
+    password: z.string().min(8).max(100),
+    display_name: z.string().max(100).optional(),
+});

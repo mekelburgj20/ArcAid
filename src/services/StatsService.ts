@@ -4,15 +4,21 @@ export class StatsService {
     /**
      * Get comprehensive stats for a player by Discord user ID.
      */
-    static async getPlayerStats(discordUserId: string) {
+    static async getPlayerStats(discordUserId: string, gameRoomId?: string) {
         const db = await getDatabase();
+
+        // Build room-scoped subquery for game IDs
+        const gameIdFilter = gameRoomId
+            ? `AND s.game_id IN (SELECT g.id FROM games g JOIN tournaments t ON g.tournament_id = t.id WHERE t.game_room_id = ?)`
+            : '';
+        const roomParams = gameRoomId ? [gameRoomId] : [];
 
         // Total games played (unique games they submitted scores for)
         const gamesPlayed = await db.get(`
             SELECT COUNT(DISTINCT game_id) as total
-            FROM submissions
-            WHERE discord_user_id = ?
-        `, discordUserId);
+            FROM submissions s
+            WHERE discord_user_id = ? ${gameIdFilter}
+        `, discordUserId, ...roomParams);
 
         // Total wins (games where they had the highest score)
         const wins = await db.get(`
@@ -20,38 +26,44 @@ export class StatsService {
                 SELECT s.game_id
                 FROM submissions s
                 JOIN games g ON s.game_id = g.id
+                ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
                 WHERE g.status = 'COMPLETED'
                 AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id)
                 AND s.discord_user_id = ?
+                ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             )
-        `, discordUserId);
+        `, discordUserId, ...roomParams);
 
         // Average and best score
         const scoreStats = await db.get(`
             SELECT AVG(score) as avg_score, MAX(score) as best_score
-            FROM submissions
-            WHERE discord_user_id = ?
-        `, discordUserId);
+            FROM submissions s
+            WHERE discord_user_id = ? ${gameIdFilter}
+        `, discordUserId, ...roomParams);
 
         // Best game (game where they got their highest score)
         const bestGame = await db.get(`
             SELECT g.name as game_name, s.score
             FROM submissions s
             JOIN games g ON s.game_id = g.id
+            ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE s.discord_user_id = ?
+            ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY s.score DESC
             LIMIT 1
-        `, discordUserId);
+        `, discordUserId, ...roomParams);
 
         // Recent scores (last 10)
         const recentScores = await db.all(`
             SELECT g.name as game_name, s.score, s.timestamp as date
             FROM submissions s
             JOIN games g ON s.game_id = g.id
+            ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE s.discord_user_id = ?
+            ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY s.timestamp DESC
             LIMIT 10
-        `, discordUserId);
+        `, discordUserId, ...roomParams);
 
         // Username from mappings
         const mapping = await db.get('SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?', discordUserId);
@@ -75,49 +87,60 @@ export class StatsService {
     /**
      * Get comprehensive stats for a player by iScored username.
      */
-    static async getPlayerStatsByUsername(username: string) {
+    static async getPlayerStatsByUsername(username: string, gameRoomId?: string) {
         const db = await getDatabase();
+
+        const gameIdFilter = gameRoomId
+            ? `AND s.game_id IN (SELECT g.id FROM games g JOIN tournaments t ON g.tournament_id = t.id WHERE t.game_room_id = ?)`
+            : '';
+        const roomParams = gameRoomId ? [gameRoomId] : [];
 
         const gamesPlayed = await db.get(`
             SELECT COUNT(DISTINCT game_id) as total
-            FROM submissions
-            WHERE LOWER(iscored_username) = LOWER(?)
-        `, username);
+            FROM submissions s
+            WHERE LOWER(iscored_username) = LOWER(?) ${gameIdFilter}
+        `, username, ...roomParams);
 
         const wins = await db.get(`
             SELECT COUNT(*) as total FROM (
                 SELECT s.game_id
                 FROM submissions s
                 JOIN games g ON s.game_id = g.id
+                ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
                 WHERE g.status = 'COMPLETED'
                 AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id)
                 AND LOWER(s.iscored_username) = LOWER(?)
+                ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             )
-        `, username);
+        `, username, ...roomParams);
 
         const scoreStats = await db.get(`
             SELECT AVG(score) as avg_score, MAX(score) as best_score
-            FROM submissions
-            WHERE LOWER(iscored_username) = LOWER(?)
-        `, username);
+            FROM submissions s
+            WHERE LOWER(iscored_username) = LOWER(?) ${gameIdFilter}
+        `, username, ...roomParams);
 
         const bestGame = await db.get(`
             SELECT g.name as game_name, s.score
             FROM submissions s
             JOIN games g ON s.game_id = g.id
+            ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE LOWER(s.iscored_username) = LOWER(?)
+            ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY s.score DESC
             LIMIT 1
-        `, username);
+        `, username, ...roomParams);
 
         const recentScores = await db.all(`
             SELECT g.name as game_name, s.score, s.timestamp as date
             FROM submissions s
             JOIN games g ON s.game_id = g.id
+            ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE LOWER(s.iscored_username) = LOWER(?)
+            ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY s.timestamp DESC
             LIMIT 10
-        `, username);
+        `, username, ...roomParams);
 
         // Try to find a discord_user_id for this username
         const mapping = await db.get('SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)', username);
@@ -141,11 +164,21 @@ export class StatsService {
     /**
      * Get comprehensive stats for a game by name.
      */
-    static async getGameStats(gameName: string) {
+    static async getGameStats(gameName: string, gameRoomId?: string) {
         const db = await getDatabase();
 
-        // Find all games with this name
-        const games = await db.all('SELECT id FROM games WHERE name = ? COLLATE NOCASE', gameName);
+        // Find all games with this name, optionally filtered by room
+        let games;
+        if (gameRoomId) {
+            games = await db.all(
+                `SELECT g.id FROM games g
+                 JOIN tournaments t ON g.tournament_id = t.id
+                 WHERE g.name = ? COLLATE NOCASE AND t.game_room_id = ?`,
+                gameName, gameRoomId
+            );
+        } else {
+            games = await db.all('SELECT id FROM games WHERE name = ? COLLATE NOCASE', gameName);
+        }
         if (games.length === 0) return null;
 
         const gameIds = games.map((g: any) => g.id);
@@ -186,9 +219,10 @@ export class StatsService {
                 FROM submissions
             ) s ON s.game_id = g.id AND s.rn = 1
             WHERE g.name = ? COLLATE NOCASE AND g.status = 'COMPLETED'
+            ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY g.end_date DESC
             LIMIT 10
-        `, gameName);
+        `, gameName, ...(gameRoomId ? [gameRoomId] : []));
 
         return {
             gameName,
@@ -204,8 +238,30 @@ export class StatsService {
     /**
      * Get all players with their basic stats (for leaderboard overview).
      */
-    static async getAllPlayerStats() {
+    static async getAllPlayerStats(gameRoomId?: string) {
         const db = await getDatabase();
+
+        if (gameRoomId) {
+            return db.all(`
+                SELECT
+                    CASE WHEN MAX(CASE WHEN s.discord_user_id != 'SYSTEM' THEN s.discord_user_id END) IS NOT NULL
+                         THEN MAX(CASE WHEN s.discord_user_id != 'SYSTEM' THEN s.discord_user_id END)
+                         ELSE s.discord_user_id
+                    END as discord_user_id,
+                    COALESCE(um.iscored_username, s.iscored_username) as iscored_username,
+                    COUNT(DISTINCT s.game_id) as games_played,
+                    MAX(s.score) as best_score,
+                    ROUND(AVG(s.score)) as avg_score
+                FROM submissions s
+                JOIN games g ON s.game_id = g.id
+                JOIN tournaments t ON g.tournament_id = t.id
+                LEFT JOIN user_mappings um ON LOWER(s.iscored_username) = LOWER(um.iscored_username)
+                WHERE t.game_room_id = ?
+                GROUP BY LOWER(s.iscored_username)
+                ORDER BY best_score DESC
+            `, gameRoomId);
+        }
+
         return db.all(`
             SELECT
                 CASE WHEN MAX(CASE WHEN s.discord_user_id != 'SYSTEM' THEN s.discord_user_id END) IS NOT NULL

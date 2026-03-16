@@ -204,6 +204,45 @@ export class GameLibraryService {
     }
 
     /**
+     * Gets games from the library that are associated with a specific game room.
+     */
+    static async getForRoom(gameRoomId: string): Promise<any[]> {
+        const db = await getDatabase();
+        return db.all(
+            `SELECT gl.* FROM game_library gl
+             JOIN game_room_game_library grgl ON gl.name = grgl.game_name
+             WHERE grgl.game_room_id = ?`,
+            gameRoomId
+        );
+    }
+
+    /**
+     * Associates games with a game room.
+     */
+    static async addToRoom(gameRoomId: string, gameNames: string[]): Promise<void> {
+        const db = await getDatabase();
+        for (const name of gameNames) {
+            await db.run(
+                'INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name) VALUES (?, ?)',
+                gameRoomId, name
+            );
+        }
+    }
+
+    /**
+     * Removes game associations from a game room.
+     */
+    static async removeFromRoom(gameRoomId: string, gameNames: string[]): Promise<void> {
+        if (gameNames.length === 0) return;
+        const db = await getDatabase();
+        const placeholders = gameNames.map(() => '?').join(',');
+        await db.run(
+            `DELETE FROM game_room_game_library WHERE game_room_id = ? AND game_name IN (${placeholders})`,
+            gameRoomId, ...gameNames
+        );
+    }
+
+    /**
      * Parses a platforms value (JSON array or comma-separated string) into a string array.
      */
     private static parsePlatformsList(raw: string): string[] {

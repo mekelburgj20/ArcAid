@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { useRoom } from '../contexts/RoomContext';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import DataTable from '../components/DataTable';
@@ -39,6 +40,7 @@ interface GameDetail {
 type View = 'players' | 'player-detail' | 'game-detail';
 
 export default function Stats() {
+  const room = useRoom();
   const [view, setView] = useState<View>('players');
   const [players, setPlayers] = useState<PlayerSummary[]>([]);
   const [playerDetail, setPlayerDetail] = useState<PlayerDetail | null>(null);
@@ -47,7 +49,7 @@ export default function Stats() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get<PlayerSummary[]>('/stats/players')
+    api.get<PlayerSummary[]>(`/rooms/${room.roomId}/stats/players`)
       .then(setPlayers)
       .catch(() => setPlayers([]))
       .finally(() => setLoading(false));
@@ -56,7 +58,7 @@ export default function Stats() {
   const viewPlayer = async (discordUserId: string) => {
     setLoading(true);
     try {
-      const detail = await api.get<PlayerDetail>(`/stats/player/${discordUserId}`);
+      const detail = await api.get<PlayerDetail>(`/rooms/${room.roomId}/stats/player/${discordUserId}`);
       setPlayerDetail(detail);
       setView('player-detail');
     } catch { /* ignore */ }
@@ -67,7 +69,7 @@ export default function Stats() {
     if (!gameSearch.trim()) return;
     setLoading(true);
     try {
-      const detail = await api.get<GameDetail>(`/stats/game/${encodeURIComponent(gameSearch.trim())}`);
+      const detail = await api.get<GameDetail>(`/rooms/${room.roomId}/stats/game/${encodeURIComponent(gameSearch.trim())}`);
       setGameDetail(detail);
       setView('game-detail');
     } catch { setGameDetail(null); }

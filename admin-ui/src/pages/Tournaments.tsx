@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { api } from '../lib/api';
+import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
@@ -233,6 +234,7 @@ interface ActiveGame {
 }
 
 export default function Tournaments() {
+  const room = useRoom();
   const { toast } = useToast();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
@@ -269,7 +271,7 @@ export default function Tournaments() {
 
   const fetchTournaments = async () => {
     try {
-      setTournaments(await api.get<Tournament[]>('/tournaments'));
+      setTournaments(await api.get<Tournament[]>(`/rooms/${room.roomId}/tournaments`));
     } catch {
       toast('Failed to load tournaments', 'error');
     } finally {
@@ -279,7 +281,7 @@ export default function Tournaments() {
 
   const fetchPlatforms = async () => {
     try {
-      const settings = await api.get<Record<string, string>>('/settings');
+      const settings = await api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`);
       if (settings.PLATFORMS) {
         try { setPlatforms(JSON.parse(settings.PLATFORMS)); } catch {}
       }
@@ -288,7 +290,7 @@ export default function Tournaments() {
 
   const fetchActiveGames = async () => {
     try {
-      setActiveGames(await api.get<ActiveGame[]>('/games/active'));
+      setActiveGames(await api.get<ActiveGame[]>(`/rooms/${room.roomId}/games/active`));
     } catch {}
   };
 
@@ -296,7 +298,7 @@ export default function Tournaments() {
     const updated = [...platforms, name];
     setPlatforms(updated);
     try {
-      await api.put('/settings', { PLATFORMS: JSON.stringify(updated) });
+      await api.put(`/rooms/${room.roomId}/settings`, { PLATFORMS: JSON.stringify(updated) });
     } catch {
       toast('Failed to save platform', 'error');
     }
@@ -305,7 +307,7 @@ export default function Tournaments() {
   const handleReorderLineup = async () => {
     setReordering(true);
     try {
-      await api.post('/tournaments/reorder-lineup', {});
+      await api.post(`/rooms/${room.roomId}/tournaments/reorder-lineup`, {});
       toast('iScored lineup reordered', 'success');
     } catch (err: any) {
       toast(err.message || 'Failed to reorder lineup', 'error');
@@ -318,7 +320,7 @@ export default function Tournaments() {
     if (!deactivateTarget) return;
     setDeactivating(true);
     try {
-      await api.post(`/games/${deactivateTarget.id}/deactivate`, { dbOnly });
+      await api.post(`/rooms/${room.roomId}/games/${deactivateTarget.id}/deactivate`, { dbOnly });
       toast(`${deactivateTarget.name} deactivated${dbOnly ? ' (DB only)' : ''}`, 'success');
       setDeactivateTarget(null);
       fetchActiveGames();
@@ -334,7 +336,7 @@ export default function Tournaments() {
   const handleCreate = async () => {
     if (!newName.trim() || !newTag.trim()) return;
     try {
-      await api.post('/tournaments', {
+      await api.post(`/rooms/${room.roomId}/tournaments`, {
         id: uuidv4(),
         name: newName,
         type: newTag.trim().toUpperCase(),
@@ -364,7 +366,7 @@ export default function Tournaments() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await api.delete(`/tournaments/${deleteTarget.id}`);
+      await api.delete(`/rooms/${room.roomId}/tournaments/${deleteTarget.id}`);
       toast('Tournament deleted', 'success');
       setDeleteTarget(null);
       fetchTournaments();
@@ -390,7 +392,7 @@ export default function Tournaments() {
     if (!editTarget || !editName.trim() || !editTag.trim()) return;
     setEditSaving(true);
     try {
-      await api.put(`/tournaments/${editTarget.id}`, {
+      await api.put(`/rooms/${room.roomId}/tournaments/${editTarget.id}`, {
         name: editName,
         type: editTag.trim().toUpperCase(),
         mode: editMode,

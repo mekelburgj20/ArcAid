@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { useRoom } from '../contexts/RoomContext';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import DataTable from '../components/DataTable';
@@ -31,6 +32,7 @@ interface Tournament {
 }
 
 export default function History() {
+  const room = useRoom();
   const [data, setData] = useState<HistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -40,7 +42,7 @@ export default function History() {
   const limit = 20;
 
   useEffect(() => {
-    api.get<Tournament[]>('/tournaments').then(setTournaments).catch(() => {});
+    api.get<Tournament[]>(`/rooms/${room.roomId}/tournaments`).then(setTournaments).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -49,7 +51,7 @@ export default function History() {
     if (tournamentFilter) params.set('tournament_id', tournamentFilter);
     if (typeFilter) params.set('type', typeFilter);
 
-    api.get<HistoryResponse>(`/history?${params}`)
+    api.get<HistoryResponse>(`/rooms/${room.roomId}/history?${params}`)
       .then(setData)
       .catch(() => setData({ results: [], total: 0, page: 1, limit }))
       .finally(() => setLoading(false));
