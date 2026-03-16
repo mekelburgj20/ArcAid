@@ -173,17 +173,24 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
         lookbackDate.setDate(lookbackDate.getDate() - eligibilityDays);
         const lookbackString = lookbackDate.toISOString();
 
-        // Get all games in this room's curated library
+        // Get all games in this room's curated library, filtered by tournament platform rules
         let platformFilter = '';
         const platformParams: string[] = [];
         try {
             const rules = JSON.parse(tournament.platform_rules || '{}');
-            const platforms: string[] = rules.platforms || [];
-            if (platforms.length > 0) {
-                // Filter library games whose platforms overlap with tournament's allowed platforms
-                // game_library.platforms is a JSON array like '["VPXS","VR"]'
-                platformFilter = ` AND (${platforms.map(() => `gl.platforms LIKE ?`).join(' OR ')})`;
-                for (const p of platforms) {
+            const required: string[] = rules.required || [];
+            const excluded: string[] = rules.excluded || [];
+            if (required.length > 0) {
+                // Game must be available on at least one required platform
+                platformFilter += ` AND (${required.map(() => `gl.platforms LIKE ?`).join(' OR ')})`;
+                for (const p of required) {
+                    platformParams.push(`%${p}%`);
+                }
+            }
+            if (excluded.length > 0) {
+                // Game must NOT be available on any excluded platform
+                for (const p of excluded) {
+                    platformFilter += ` AND gl.platforms NOT LIKE ?`;
                     platformParams.push(`%${p}%`);
                 }
             }

@@ -6,7 +6,7 @@ interface PinballPickerProps {
   onClose: () => void;
 }
 
-type Phase = 'idle' | 'launching' | 'running' | 'landed';
+type Phase = 'idle' | 'pulling' | 'running' | 'landed' | 'draining';
 
 interface Vec2 { x: number; y: number }
 interface Peg { x: number; y: number; hitTimer: number }
@@ -26,12 +26,16 @@ const TRAIL_LEN = 12;
 const FRAME = 16;
 const PF_LEFT = FRAME;
 const PF_RIGHT = W - FRAME;
-const PF_TOP = 70; // below the arch
-const PF_BOT = H - 80; // above result area
+const PF_TOP = 70;
+const PF_BOT = H - 80;
 
 // Plunger lane
 const PLUNGE_LANE_X = PF_RIGHT - 28;
 const PLUNGE_LANE_W = 22;
+const PLUNGE_CX = PLUNGE_LANE_X + PLUNGE_LANE_W / 2;
+
+// Drain zone — bottom of playfield
+const DRAIN_Y = PF_BOT + 10;
 
 // Colors — Ballyhoo-inspired palette
 const WOOD_DARK = '#3a2518';
@@ -57,13 +61,13 @@ const DIAMOND_COLORS = [
 
 // Hole definitions (positions on the playfield)
 const HOLES: Hole[] = [
-  { x: W / 2, y: 175, r: 14, label: '100', pegRingR: 24 },        // top center (Bally Hole)
-  { x: PF_LEFT + 55, y: 260, r: 13, label: '100', pegRingR: 22 }, // upper left
-  { x: PF_RIGHT - 80, y: 260, r: 13, label: '100', pegRingR: 22 },// upper right
-  { x: W / 2, y: 370, r: 15, label: '250', pegRingR: 26 },        // center (Free Play)
-  { x: PF_LEFT + 50, y: 420, r: 14, label: '200', pegRingR: 24 }, // lower left
-  { x: PF_RIGHT - 75, y: 420, r: 14, label: '200', pegRingR: 24 },// lower right
-  { x: W / 2, y: 510, r: 15, label: '400', pegRingR: 26 },        // bottom center
+  { x: W / 2, y: 175, r: 14, label: '100', pegRingR: 24 },
+  { x: PF_LEFT + 55, y: 260, r: 13, label: '100', pegRingR: 22 },
+  { x: PF_RIGHT - 80, y: 260, r: 13, label: '100', pegRingR: 22 },
+  { x: W / 2, y: 370, r: 15, label: '250', pegRingR: 26 },
+  { x: PF_LEFT + 50, y: 420, r: 14, label: '200', pegRingR: 24 },
+  { x: PF_RIGHT - 75, y: 420, r: 14, label: '200', pegRingR: 24 },
+  { x: W / 2, y: 510, r: 15, label: '400', pegRingR: 26 },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -77,36 +81,23 @@ function shuffle<T>(arr: T[]): T[] {
 
 function buildPegs(): Peg[] {
   const pegs: Peg[] = [];
-
-  // Scattered nail pegs across the playfield — like the Ballyhoo photo
-  // Cluster pegs around holes to deflect the ball, with gaps near holes
   const pegPositions: [number, number][] = [
-    // Row near top
     [95, 145], [140, 140], [190, 130], [240, 140], [280, 145],
-    // Around top hole
     [150, 175], [225, 175], [170, 155], [210, 155],
-    // Between top and upper-side holes
     [80, 210], [130, 210], [180, 215], [230, 210], [280, 210],
     [105, 235], [160, 240], [220, 240], [260, 235],
-    // Around upper side holes
     [80, 285], [130, 285], [230, 285], [280, 285],
-    // Mid field
     [110, 310], [160, 310], [220, 310], [260, 310],
     [85, 340], [140, 340], [190, 335], [240, 340], [290, 340],
-    // Around center hole
     [140, 365], [230, 365], [155, 395], [220, 395],
-    // Around lower side holes
     [80, 395], [100, 445], [280, 395], [270, 445],
-    // Lower field
     [140, 450], [190, 450], [230, 450],
     [110, 480], [160, 475], [220, 475], [270, 480],
-    // Around bottom hole
     [140, 510], [230, 510], [155, 535], [215, 535],
     [120, 540], [250, 540],
   ];
 
   for (const [x, y] of pegPositions) {
-    // Skip pegs that overlap with holes
     let tooClose = false;
     for (const hole of HOLES) {
       const dx = x - hole.x;
@@ -120,7 +111,6 @@ function buildPegs(): Peg[] {
       pegs.push({ x, y, hitTimer: 0 });
     }
   }
-
   return pegs;
 }
 
@@ -142,9 +132,10 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<string | null>(null);
   const [score, setScore] = useState<string | null>(null);
+  const [isDrain, setIsDrain] = useState(false);
 
   const stateRef = useRef({
-    pos: { x: PLUNGE_LANE_X + PLUNGE_LANE_W / 2, y: PF_BOT - 20 } as Vec2,
+    pos: { x: PLUNGE_CX, y: PF_BOT - 20 } as Vec2,
     vel: { x: 0, y: 0 } as Vec2,
     trail: [] as Vec2[],
     pegs: buildPegs(),
@@ -155,6 +146,11 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     landedHole: null as Hole | null,
     ballVisible: true,
     resultText: '',
+    isDrain: false,
+    // Plunger hold state
+    pulling: false,
+    pullStartTime: 0,
+    drainTimer: 0,
   });
 
   const pickGame = useCallback(() => {
@@ -163,7 +159,7 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
 
   const resetBall = useCallback(() => {
     const s = stateRef.current;
-    s.pos = { x: PLUNGE_LANE_X + PLUNGE_LANE_W / 2, y: PF_BOT - 20 };
+    s.pos = { x: PLUNGE_CX, y: PF_BOT - 20 };
     s.vel = { x: 0, y: 0 };
     s.trail = [];
     s.plungerPull = 0;
@@ -171,29 +167,75 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     s.startTime = 0;
     s.landedHole = null;
     s.ballVisible = true;
+    s.resultText = '';
+    s.isDrain = false;
+    s.pulling = false;
+    s.pullStartTime = 0;
+    s.drainTimer = 0;
   }, []);
 
-  const launch = useCallback(() => {
+  // Handle plunger hold — mousedown/touchstart starts pulling
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     const s = stateRef.current;
+    if (s.phase !== 'idle') return;
+
+    // Check if click is in plunger area (bottom-right of canvas)
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    const cx = (e.clientX - rect.left) * scaleX;
+    const cy = (e.clientY - rect.top) * scaleY;
+
+    // Plunger hit area — generous zone around the plunger knob
+    if (cx > PLUNGE_LANE_X - 15 && cx < PLUNGE_LANE_X + PLUNGE_LANE_W + 15 &&
+        cy > PF_BOT - 40 && cy < H) {
+      s.pulling = true;
+      s.pullStartTime = performance.now();
+      s.phase = 'pulling';
+      setPhase('pulling');
+      setResult(null);
+      setScore(null);
+      setIsDrain(false);
+      canvas.setPointerCapture(e.pointerId);
+    }
+  }, []);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    const s = stateRef.current;
+    if (s.phase !== 'pulling' || !s.pulling) return;
+
+    s.pulling = false;
+    const power = s.plungerPull; // 0..1
+
+    if (power < 0.05) {
+      // Too weak — snap back to idle
+      s.plungerPull = 0;
+      s.phase = 'idle';
+      setPhase('idle');
+      return;
+    }
+
+    // Launch! Power determines velocity
+    const launchVel = 7 + power * 8; // 7..15
+    s.vel = { x: -1 + Math.random() * -1.5, y: -launchVel };
+    s.phase = 'running';
+    s.startTime = performance.now();
+    setPhase('running');
+
+    const canvas = canvasRef.current;
+    if (canvas) canvas.releasePointerCapture(e.pointerId);
+  }, []);
+
+  const handlePlayAgain = useCallback(() => {
     resetBall();
-    s.phase = 'launching';
-    s.plungerPull = 0;
-    setPhase('launching');
+    stateRef.current.pegs = buildPegs();
+    stateRef.current.phase = 'idle';
+    setPhase('idle');
     setResult(null);
     setScore(null);
-
-    let pull = 0;
-    const pullInterval = setInterval(() => {
-      pull += 0.04;
-      s.plungerPull = Math.min(pull, 1);
-      if (pull >= 1) {
-        clearInterval(pullInterval);
-        s.vel = { x: -1.5 + Math.random() * -2, y: -(11 + Math.random() * 3) };
-        s.phase = 'running';
-        s.startTime = performance.now();
-        setPhase('running');
-      }
-    }, 25);
+    setIsDrain(false);
   }, [resetBall]);
 
   // Main animation loop
@@ -202,17 +244,13 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
 
-    // Precompute diamond pattern
     function drawDiamondPattern() {
       const size = 45;
       const rows = Math.ceil(H / size) + 1;
       const cols = Math.ceil(W / size) + 1;
-
       ctx.save();
-      // Clip to playfield arch
       drawArch(ctx, PF_LEFT, PF_TOP - 50, PF_RIGHT - PF_LEFT, PF_BOT - PF_TOP + 50, 60);
       ctx.clip();
-
       for (let r = -1; r < rows; r++) {
         for (let c = -1; c < cols; c++) {
           const cx = c * size + (r % 2 === 0 ? 0 : size / 2);
@@ -231,7 +269,6 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     }
 
     function drawHoleRing(hole: Hole) {
-      // Ring of tiny nails around the hole (like in the photo)
       const nailCount = Math.floor(hole.pegRingR * 1.2);
       for (let i = 0; i < nailCount; i++) {
         const angle = (Math.PI * 2 / nailCount) * i;
@@ -249,11 +286,8 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       ctx.clearRect(0, 0, W, H);
 
       // === WOOD FRAME ===
-      // Outer frame
       ctx.fillStyle = WOOD_DARK;
       ctx.fillRect(0, 0, W, H);
-
-      // Inner frame bevel
       const grad = ctx.createLinearGradient(0, 0, W, H);
       grad.addColorStop(0, WOOD_LIGHT);
       grad.addColorStop(0.5, WOOD_MID);
@@ -266,8 +300,6 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       drawArch(ctx, PF_LEFT, PF_TOP - 50, PF_RIGHT - PF_LEFT, PF_BOT - PF_TOP + 80, 60);
       ctx.fillStyle = PLAYFIELD_BG;
       ctx.fill();
-
-      // Gold arch border
       drawArch(ctx, PF_LEFT, PF_TOP - 50, PF_RIGHT - PF_LEFT, PF_BOT - PF_TOP + 80, 60);
       ctx.strokeStyle = '#b8962e';
       ctx.lineWidth = 3;
@@ -277,7 +309,7 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       // Diamond pattern overlay
       drawDiamondPattern();
 
-      // Cream center highlight (like Ballyhoo's light center area)
+      // Cream center diamond highlight
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(W / 2, PF_TOP + 20);
@@ -289,7 +321,28 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       ctx.fill();
       ctx.restore();
 
-      // === TITLE (Ballyhoo-style) ===
+      // === DRAIN ZONE — opening at the bottom center ===
+      // Draw two angled guides that funnel toward the drain
+      ctx.strokeStyle = '#b8962e';
+      ctx.lineWidth = 3;
+      // Left guide
+      ctx.beginPath();
+      ctx.moveTo(PF_LEFT, PF_BOT - 10);
+      ctx.lineTo(W / 2 - 35, PF_BOT + 18);
+      ctx.stroke();
+      // Right guide
+      ctx.beginPath();
+      ctx.moveTo(PLUNGE_LANE_X - 8, PF_BOT - 10);
+      ctx.lineTo(W / 2 + 35, PF_BOT + 18);
+      ctx.stroke();
+      // Drain label
+      ctx.fillStyle = '#88000080';
+      ctx.font = 'bold 9px serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('DRAIN', W / 2, PF_BOT + 4);
+
+      // === TITLE ===
       ctx.save();
       ctx.fillStyle = TITLE_COLOR;
       ctx.font = 'bold 28px serif';
@@ -300,7 +353,7 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       ctx.fillText('PICKER', W / 2, PF_TOP + 8);
       ctx.restore();
 
-      // Side text (like "BALLYHOO" vertically)
+      // Side text
       ctx.save();
       ctx.fillStyle = TITLE_COLOR + '60';
       ctx.font = 'bold 14px serif';
@@ -309,7 +362,6 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       ctx.rotate(-Math.PI / 2);
       ctx.fillText('ARCAID', 0, 0);
       ctx.restore();
-
       ctx.save();
       ctx.fillStyle = TITLE_COLOR + '60';
       ctx.font = 'bold 14px serif';
@@ -321,29 +373,20 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
 
       // === HOLES ===
       for (const hole of HOLES) {
-        // Nail ring
         drawHoleRing(hole);
-
-        // Hole shadow
         ctx.beginPath();
         ctx.arc(hole.x, hole.y + 1, hole.r + 2, 0, Math.PI * 2);
         ctx.fillStyle = '#00000040';
         ctx.fill();
-
-        // Hole body
         ctx.beginPath();
         ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
         ctx.fillStyle = HOLE_DARK;
         ctx.fill();
-
-        // Hole rim
         ctx.beginPath();
         ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
         ctx.strokeStyle = HOLE_RIM;
         ctx.lineWidth = 2;
         ctx.stroke();
-
-        // Hole inner bevel
         const holeGrad = ctx.createRadialGradient(hole.x, hole.y - 2, 0, hole.x, hole.y, hole.r);
         holeGrad.addColorStop(0, '#33333380');
         holeGrad.addColorStop(1, '#00000000');
@@ -351,15 +394,11 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
         ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
         ctx.fillStyle = holeGrad;
         ctx.fill();
-
-        // Point label above hole
         ctx.fillStyle = LABEL_COLOR;
         ctx.font = 'bold 13px serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         ctx.fillText(hole.label, hole.x, hole.y - hole.r - 6);
-
-        // Special label for center hole
         if (hole.label === '250') {
           ctx.font = '9px serif';
           ctx.textBaseline = 'top';
@@ -367,15 +406,13 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
         }
       }
 
-      // === PEGS (nails) ===
+      // === PEGS ===
       for (const peg of s.pegs) {
         const bright = peg.hitTimer > 0;
-        // Nail base
         ctx.beginPath();
         ctx.arc(peg.x, peg.y, PEG_R, 0, Math.PI * 2);
         ctx.fillStyle = bright ? NAIL_HIT : NAIL_COLOR;
         ctx.fill();
-        // Nail head highlight
         ctx.beginPath();
         ctx.arc(peg.x - 0.5, peg.y - 0.5, PEG_R * 0.5, 0, Math.PI * 2);
         ctx.fillStyle = bright ? '#ffffff' : '#bbbbbb';
@@ -386,7 +423,6 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       // === PLUNGER LANE ===
       ctx.fillStyle = PLAYFIELD_BG;
       ctx.fillRect(PLUNGE_LANE_X - 3, PF_TOP + 40, PLUNGE_LANE_W + 6, PF_BOT - PF_TOP - 20);
-      // Lane walls
       ctx.strokeStyle = '#b8962e';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -398,27 +434,59 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       ctx.lineTo(PLUNGE_LANE_X + PLUNGE_LANE_W + 3, PF_BOT + 20);
       ctx.stroke();
 
-      // Plunger
-      const plungerBaseY = PF_BOT + 10;
-      const plungerH = 35;
-      const pullOffset = s.plungerPull * 25;
-      // Plunger rod
+      // Plunger — pull amount controls position
+      const maxPull = 50;
+      const pullOffset = s.plungerPull * maxPull;
+      const plungerTipY = PF_BOT - 25 + pullOffset;
+
+      // Rod
       ctx.fillStyle = '#888888';
-      ctx.fillRect(PLUNGE_LANE_X + 6, plungerBaseY - plungerH + pullOffset - 30, PLUNGE_LANE_W - 12, 50);
-      // Plunger knob
-      const kGrad = ctx.createRadialGradient(
-        PLUNGE_LANE_X + PLUNGE_LANE_W / 2, plungerBaseY - plungerH + pullOffset + 5, 2,
-        PLUNGE_LANE_X + PLUNGE_LANE_W / 2, plungerBaseY - plungerH + pullOffset + 5, 10
-      );
+      ctx.fillRect(PLUNGE_LANE_X + 6, plungerTipY, PLUNGE_LANE_W - 12, H - plungerTipY - 20);
+      // Spring coils (visual when pulled)
+      if (s.plungerPull > 0.05) {
+        ctx.strokeStyle = '#666666';
+        ctx.lineWidth = 1.5;
+        const coils = 5;
+        const springTop = PF_BOT - 25;
+        const springBot = plungerTipY;
+        const springH = springBot - springTop;
+        for (let i = 0; i < coils; i++) {
+          const y = springTop + (i + 0.5) * (springH / coils);
+          ctx.beginPath();
+          ctx.moveTo(PLUNGE_LANE_X + 4, y - 2);
+          ctx.lineTo(PLUNGE_LANE_X + PLUNGE_LANE_W - 4, y + 2);
+          ctx.stroke();
+        }
+      }
+      // Knob
+      const kGrad = ctx.createRadialGradient(PLUNGE_CX, plungerTipY + 5, 2, PLUNGE_CX, plungerTipY + 5, 10);
       kGrad.addColorStop(0, '#cc0000');
       kGrad.addColorStop(1, '#880000');
       ctx.beginPath();
-      ctx.arc(PLUNGE_LANE_X + PLUNGE_LANE_W / 2, plungerBaseY - plungerH + pullOffset + 5, 9, 0, Math.PI * 2);
+      ctx.arc(PLUNGE_CX, plungerTipY + 5, 9, 0, Math.PI * 2);
       ctx.fillStyle = kGrad;
       ctx.fill();
       ctx.strokeStyle = '#660000';
       ctx.lineWidth = 1.5;
       ctx.stroke();
+
+      // Power indicator when pulling
+      if (s.phase === 'pulling' && s.plungerPull > 0) {
+        const barH = 80;
+        const barX = PLUNGE_LANE_X + PLUNGE_LANE_W + 12;
+        const barY = PF_BOT - barH;
+        // Background
+        ctx.fillStyle = '#00000040';
+        ctx.fillRect(barX, barY, 8, barH);
+        // Fill
+        const fillH = barH * s.plungerPull;
+        const powerColor = s.plungerPull < 0.5 ? '#44aa44' : s.plungerPull < 0.8 ? '#ddaa22' : '#cc3333';
+        ctx.fillStyle = powerColor;
+        ctx.fillRect(barX, barY + barH - fillH, 8, fillH);
+        ctx.strokeStyle = '#b8962e';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(barX, barY, 8, barH);
+      }
 
       // === BALL ===
       if (s.ballVisible) {
@@ -432,18 +500,13 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           ctx.fillStyle = `rgba(180,180,188,${alpha})`;
           ctx.fill();
         }
-
-        // Ball shadow
+        // Shadow
         ctx.beginPath();
         ctx.arc(s.pos.x + 1.5, s.pos.y + 1.5, BALL_R, 0, Math.PI * 2);
         ctx.fillStyle = '#00000030';
         ctx.fill();
-
-        // Ball body — metallic silver
-        const ballGrad = ctx.createRadialGradient(
-          s.pos.x - 2, s.pos.y - 2, 1,
-          s.pos.x, s.pos.y, BALL_R
-        );
+        // Metallic ball
+        const ballGrad = ctx.createRadialGradient(s.pos.x - 2, s.pos.y - 2, 1, s.pos.x, s.pos.y, BALL_R);
         ballGrad.addColorStop(0, BALL_HIGHLIGHT);
         ballGrad.addColorStop(0.4, BALL_COLOR);
         ballGrad.addColorStop(1, BALL_SHADOW);
@@ -457,7 +520,6 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       }
 
       // === RESULT AREA at bottom of table ===
-      // Dark scoreboard area
       ctx.fillStyle = WOOD_DARK;
       ctx.fillRect(PF_LEFT, PF_BOT + 25, PF_RIGHT - PF_LEFT, 40);
       ctx.strokeStyle = '#b8962e';
@@ -465,23 +527,36 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       ctx.strokeRect(PF_LEFT, PF_BOT + 25, PF_RIGHT - PF_LEFT, 40);
 
       if (s.phase === 'landed' && s.landedHole) {
-        // Show score + game name in the scoreboard area
         ctx.fillStyle = '#ffcc00';
         ctx.font = 'bold 11px serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(`${s.landedHole.label} PTS`, W / 2, PF_BOT + 37);
-
-        // Game name displayed below in a nice banner
         ctx.fillStyle = '#ffeeaa';
         ctx.font = 'bold 13px serif';
-        ctx.fillText(stateRef.current.resultText || '', W / 2, PF_BOT + 53);
+        ctx.fillText(s.resultText, W / 2, PF_BOT + 53);
+      } else if (s.phase === 'landed' && s.isDrain) {
+        ctx.fillStyle = '#ff6666';
+        ctx.font = 'bold 11px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('DRAIN!', W / 2, PF_BOT + 37);
+        ctx.fillStyle = '#ffeeaa';
+        ctx.font = 'bold 13px serif';
+        ctx.fillText(s.resultText, W / 2, PF_BOT + 53);
       } else if (s.phase === 'idle') {
         ctx.fillStyle = '#ffcc0090';
         ctx.font = 'bold 13px serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('CLICK TO LAUNCH', W / 2, PF_BOT + 45);
+        ctx.fillText('HOLD & RELEASE PLUNGER', W / 2, PF_BOT + 45);
+      } else if (s.phase === 'pulling') {
+        const dots = Math.floor((performance.now() / 300) % 4);
+        ctx.fillStyle = '#ffcc00';
+        ctx.font = 'bold 13px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('PULL' + '.'.repeat(dots), W / 2, PF_BOT + 45);
       } else {
         ctx.fillStyle = '#ffcc0060';
         ctx.font = '11px serif';
@@ -493,6 +568,21 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
 
     function step() {
       const s = stateRef.current;
+
+      // Plunger pull animation — increases over time while holding
+      if (s.phase === 'pulling' && s.pulling) {
+        const elapsed = (performance.now() - s.pullStartTime) / 1000;
+        // Ease-out: fast at start, slows near max. Full pull in ~1.5s
+        s.plungerPull = Math.min(1, 1 - Math.exp(-elapsed * 2));
+        // Ball follows plunger
+        s.pos.y = PF_BOT - 20 + s.plungerPull * 50;
+      }
+
+      // Spring-back animation after release (plunger returns to resting position)
+      if (s.phase === 'running' && s.plungerPull > 0) {
+        s.plungerPull *= 0.85;
+        if (s.plungerPull < 0.01) s.plungerPull = 0;
+      }
 
       if (s.phase === 'running') {
         s.vel.y += GRAVITY;
@@ -522,7 +612,7 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           }
         }
 
-        // Hole ring peg collisions (invisible physics pegs around holes)
+        // Hole ring peg collisions
         for (const hole of HOLES) {
           const nailCount = Math.floor(hole.pegRingR * 1.2);
           for (let i = 0; i < nailCount; i++) {
@@ -545,15 +635,13 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           }
         }
 
-        // Hole capture — ball falls in if close enough and slow enough
+        // Hole capture
         for (const hole of HOLES) {
           const dx = s.pos.x - hole.x;
           const dy = s.pos.y - hole.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
-          // Ball must be inside the hole radius and moving slowly enough
           if (dist < hole.r - 1 && speed < 3.5) {
-            // Suck ball into center
             s.vel.x = (hole.x - s.pos.x) * 0.3;
             s.vel.y = (hole.y - s.pos.y) * 0.3;
             if (dist < 3) {
@@ -561,73 +649,108 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
               s.pos.y = hole.y;
               s.ballVisible = false;
               s.landedHole = hole;
+              s.isDrain = false;
+              s.resultText = pickGame();
               s.phase = 'landed';
-              stateRef.current.resultText = pickGame();
               setPhase('landed');
               setScore(hole.label);
-              setResult(stateRef.current.resultText);
+              setIsDrain(false);
+              setResult(s.resultText);
               break;
             }
           }
         }
 
-        // Wall collisions (playfield arch shape approximated as rect + curved top)
+        // Wall collisions
         if (s.pos.x - BALL_R < PF_LEFT) {
           s.pos.x = PF_LEFT + BALL_R;
           s.vel.x = Math.abs(s.vel.x) * WALL_DAMPING;
         }
-        // Right wall — but not in plunger lane
         if (s.pos.x + BALL_R > PF_RIGHT && s.pos.x < PLUNGE_LANE_X - 3) {
           s.pos.x = PF_RIGHT - BALL_R;
           s.vel.x = -Math.abs(s.vel.x) * WALL_DAMPING;
         }
-        // Plunger lane right wall
         if (s.pos.x + BALL_R > PLUNGE_LANE_X + PLUNGE_LANE_W + 3) {
           s.pos.x = PLUNGE_LANE_X + PLUNGE_LANE_W + 3 - BALL_R;
           s.vel.x = -Math.abs(s.vel.x) * WALL_DAMPING;
         }
-        // Plunger lane left wall (only below the exit point)
+        // Plunger lane left wall
         if (s.pos.y > PF_TOP + 40 && s.pos.x > PLUNGE_LANE_X - 3 - BALL_R && s.pos.x < PLUNGE_LANE_X + PLUNGE_LANE_W + 3) {
           if (s.pos.x < PLUNGE_LANE_X - 3 + BALL_R && s.vel.x > 0) {
             s.pos.x = PLUNGE_LANE_X - 3 - BALL_R;
             s.vel.x = -Math.abs(s.vel.x) * WALL_DAMPING;
           }
         }
-
-        // Top boundary (arch)
+        // Top boundary
         if (s.pos.y - BALL_R < PF_TOP - 40) {
           s.pos.y = PF_TOP - 40 + BALL_R;
           s.vel.y = Math.abs(s.vel.y) * WALL_DAMPING;
         }
-        // Bottom boundary
-        if (s.pos.y + BALL_R > PF_BOT + 15) {
-          s.pos.y = PF_BOT + 15 - BALL_R;
-          s.vel.y = -Math.abs(s.vel.y) * 0.3;
+
+        // Drain guide collisions — angled walls at bottom
+        // Left guide: from (PF_LEFT, PF_BOT-10) to (W/2-35, PF_BOT+18)
+        // Right guide: from (PLUNGE_LANE_X-8, PF_BOT-10) to (W/2+35, PF_BOT+18)
+        const guideLines: [Vec2, Vec2][] = [
+          [{ x: PF_LEFT, y: PF_BOT - 10 }, { x: W / 2 - 35, y: PF_BOT + 18 }],
+          [{ x: PLUNGE_LANE_X - 8, y: PF_BOT - 10 }, { x: W / 2 + 35, y: PF_BOT + 18 }],
+        ];
+        for (const [p1, p2] of guideLines) {
+          const lx = p2.x - p1.x;
+          const ly = p2.y - p1.y;
+          const len = Math.sqrt(lx * lx + ly * ly);
+          const nx = -ly / len; // normal
+          const ny = lx / len;
+          // Distance from ball center to line
+          const dx = s.pos.x - p1.x;
+          const dy = s.pos.y - p1.y;
+          const d = dx * nx + dy * ny;
+          // Project ball center onto line segment
+          const t = (dx * lx + dy * ly) / (len * len);
+          if (t >= -0.1 && t <= 1.1 && Math.abs(d) < BALL_R + 1.5) {
+            // Push ball out
+            const sign = d > 0 ? 1 : -1;
+            s.pos.x = s.pos.x + nx * sign * (BALL_R + 1.5 - Math.abs(d));
+            s.pos.y = s.pos.y + ny * sign * (BALL_R + 1.5 - Math.abs(d));
+            // Reflect velocity
+            const vDot = s.vel.x * nx * sign + s.vel.y * ny * sign;
+            if (vDot < 0) {
+              s.vel.x -= 2 * vDot * nx * sign;
+              s.vel.y -= 2 * vDot * ny * sign;
+              s.vel.x *= WALL_DAMPING;
+              s.vel.y *= WALL_DAMPING;
+            }
+          }
+        }
+
+        // === DRAIN DETECTION — ball reaches the drain opening at bottom ===
+        if (s.pos.y + BALL_R > DRAIN_Y && s.pos.x > W / 2 - 40 && s.pos.x < W / 2 + 40) {
+          // Ball drained — animate it falling out
+          s.ballVisible = false;
+          s.isDrain = true;
+          s.landedHole = null;
+          s.resultText = pickGame();
+          s.phase = 'landed';
+          setPhase('landed');
+          setScore(null);
+          setIsDrain(true);
+          setResult(s.resultText);
         }
 
         // Stuck ball timeout
         if (s.startTime > 0) {
           const elapsed = (performance.now() - s.startTime) / 1000;
-          if (elapsed > 20) {
-            // Force into nearest hole
-            let nearest = HOLES[3]!; // center as default
-            let nearDist = Infinity;
-            for (const hole of HOLES) {
-              const dx = s.pos.x - hole.x;
-              const dy = s.pos.y - hole.y;
-              const d = Math.sqrt(dx * dx + dy * dy);
-              if (d < nearDist) { nearDist = d; nearest = hole; }
-            }
-            s.pos.x = nearest.x;
-            s.pos.y = nearest.y;
+          if (elapsed > 25) {
+            // Force drain
             s.ballVisible = false;
-            s.landedHole = nearest;
+            s.isDrain = true;
+            s.landedHole = null;
+            s.resultText = pickGame();
             s.phase = 'landed';
-            stateRef.current.resultText = pickGame();
             setPhase('landed');
-            setScore(nearest.label);
-            setResult(stateRef.current.resultText);
-          } else if (elapsed > 15) {
+            setScore(null);
+            setIsDrain(true);
+            setResult(s.resultText);
+          } else if (elapsed > 18) {
             s.vel.x += (Math.random() - 0.5) * 2;
             s.vel.y += 0.5;
           }
@@ -642,18 +765,6 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     return () => cancelAnimationFrame(stateRef.current.animId);
   }, [pickGame]);
 
-  const handleCanvasClick = useCallback(() => {
-    if (stateRef.current.phase === 'idle') {
-      launch();
-    }
-  }, [launch]);
-
-  const handlePlayAgain = useCallback(() => {
-    resetBall();
-    stateRef.current.pegs = buildPegs();
-    launch();
-  }, [launch, resetBall]);
-
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-deep/90 backdrop-blur-sm"
@@ -664,14 +775,19 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           ref={canvasRef}
           width={W}
           height={H}
-          onClick={handleCanvasClick}
-          className="rounded-lg cursor-pointer max-w-[92vw] max-h-[72vh]"
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          className="rounded-lg cursor-pointer max-w-[92vw] max-h-[72vh] touch-none"
           style={{ imageRendering: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}
         />
 
         {phase === 'landed' && result && (
           <div className="text-center">
-            <p className="text-xs text-muted uppercase tracking-wider mb-1">{score} Points</p>
+            {isDrain ? (
+              <p className="text-xs text-neon-coral uppercase tracking-wider mb-1">Drain!</p>
+            ) : (
+              <p className="text-xs text-muted uppercase tracking-wider mb-1">{score} Points</p>
+            )}
             <p className="text-lg font-display font-bold text-neon-green glow-green animate-pulse">{result}</p>
           </div>
         )}
