@@ -71,13 +71,25 @@ const DIAMOND_COLORS = [
 
 // Holes — ringR is the radius of the nail ring, gapAngle is half-gap in radians at the top
 const HOLES: Hole[] = [
-  { x: 190, y: 185, r: 13, label: '100', ringR: 22, gapAngle: 0.7 },
-  { x: 65,  y: 265, r: 12, label: '100', ringR: 20, gapAngle: 0.7 },
-  { x: 290, y: 265, r: 12, label: '100', ringR: 20, gapAngle: 0.7 },
-  { x: 190, y: 370, r: 14, label: '250', ringR: 24, gapAngle: 0.65 },
-  { x: 60,  y: 430, r: 13, label: '200', ringR: 22, gapAngle: 0.7 },
-  { x: 285, y: 430, r: 13, label: '200', ringR: 22, gapAngle: 0.7 },
-  { x: 190, y: 520, r: 14, label: '400', ringR: 24, gapAngle: 0.65 },
+  // Row 1 — top
+  { x: 190, y: 170, r: 12, label: '100', ringR: 20, gapAngle: 0.75 },
+  // Row 2 — upper sides
+  { x: 70,  y: 240, r: 11, label: '50',  ringR: 19, gapAngle: 0.75 },
+  { x: 190, y: 250, r: 11, label: '150', ringR: 19, gapAngle: 0.75 },
+  { x: 285, y: 240, r: 11, label: '50',  ringR: 19, gapAngle: 0.75 },
+  // Row 3 — mid
+  { x: 120, y: 330, r: 12, label: '100', ringR: 20, gapAngle: 0.7 },
+  { x: 240, y: 330, r: 12, label: '100', ringR: 20, gapAngle: 0.7 },
+  // Row 4 — center
+  { x: 190, y: 390, r: 13, label: '250', ringR: 22, gapAngle: 0.65 },
+  // Row 5 — lower sides
+  { x: 55,  y: 440, r: 12, label: '200', ringR: 20, gapAngle: 0.7 },
+  { x: 290, y: 440, r: 12, label: '200', ringR: 20, gapAngle: 0.7 },
+  // Row 6 — lower center
+  { x: 140, y: 490, r: 11, label: '150', ringR: 19, gapAngle: 0.75 },
+  { x: 240, y: 490, r: 11, label: '150', ringR: 19, gapAngle: 0.75 },
+  // Row 7 — bottom
+  { x: 190, y: 545, r: 13, label: '400', ringR: 22, gapAngle: 0.65 },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -113,28 +125,29 @@ const ALL_RING_PEGS: Vec2[] = HOLES.flatMap(h => buildRingPegs(h));
 
 function buildFieldPegs(): Peg[] {
   const pegs: Peg[] = [];
-  // Hand-placed nail pegs across the playfield
+  // Hand-placed nail pegs across the playfield — positioned between holes
   const positions: [number, number][] = [
-    // Upper field — spread across, avoiding holes
-    [90, 135], [145, 130], [235, 130], [290, 135],
-    [60, 165], [130, 160], [250, 160], [315, 165],
-    // Between top hole and side holes
-    [100, 210], [155, 215], [225, 215], [280, 210],
-    [60, 230], [130, 240], [250, 240], [310, 230],
-    // Mid field
-    [100, 290], [160, 295], [220, 295], [275, 290],
-    [75, 320], [140, 325], [240, 325], [300, 320],
-    [110, 350], [160, 345], [220, 345], [265, 350],
-    // Between center and side holes
-    [75, 390], [310, 390],
-    [130, 405], [250, 405],
-    // Lower field
-    [100, 460], [155, 460], [225, 460], [275, 460],
-    [75, 490], [135, 485], [245, 485], [300, 490],
-    [110, 515], [270, 515],
-    // Below bottom hole
-    [140, 550], [240, 550],
-    [100, 565], [175, 560], [205, 560], [280, 565],
+    // Top area
+    [80, 130], [140, 125], [240, 125], [300, 130],
+    [55, 155], [130, 150], [250, 150], [320, 155],
+    // Between row 1 and row 2
+    [110, 200], [160, 205], [220, 205], [270, 200],
+    // Between row 2 and row 3
+    [90, 280], [170, 285], [210, 285], [300, 280],
+    [55, 300], [140, 300], [240, 300], [320, 300],
+    // Around row 3 (mid)
+    [75, 340], [180, 350], [290, 340],
+    // Between row 4 and row 5
+    [100, 370], [280, 370],
+    [65, 410], [150, 415], [230, 415], [310, 410],
+    // Between row 5 and row 6
+    [100, 465], [190, 460], [280, 465],
+    [70, 480], [310, 480],
+    // Between row 6 and row 7
+    [110, 520], [190, 515], [270, 520],
+    // Below row 7
+    [130, 570], [250, 570],
+    [95, 580], [190, 575], [290, 580],
   ];
 
   for (const [x, y] of positions) {
@@ -544,17 +557,16 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           ctx.stroke();
         }
       }
-      // Knob
-      const kg = ctx.createRadialGradient(LANE_CX, tipY + 4, 2, LANE_CX, tipY + 4, 9);
-      kg.addColorStop(0, '#dd2222');
-      kg.addColorStop(1, '#881111');
-      ctx.beginPath();
-      ctx.arc(LANE_CX, tipY + 4, 8, 0, Math.PI * 2);
-      ctx.fillStyle = kg;
-      ctx.fill();
-      ctx.strokeStyle = '#661111';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+      // Plunger tip — flat metal plate
+      const tipW = LANE_RIGHT - LANE_DIVIDER_X - 6;
+      ctx.fillStyle = '#999999';
+      ctx.fillRect(LANE_CX - tipW / 2, tipY - 2, tipW, 6);
+      // Highlight on top edge
+      ctx.fillStyle = '#bbbbbb';
+      ctx.fillRect(LANE_CX - tipW / 2, tipY - 2, tipW, 2);
+      // Dark bottom edge
+      ctx.fillStyle = '#666666';
+      ctx.fillRect(LANE_CX - tipW / 2, tipY + 2, tipW, 2);
 
       // Power bar
       if (s.phase === 'pulling' && s.plungerPull > 0) {
@@ -766,17 +778,23 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           }
         }
 
-        // Plunger lane divider wall (only below LANE_TOP)
+        // Plunger lane walls (only below LANE_TOP)
         if (s.pos.y > LANE_TOP) {
+          const inLaneX = s.pos.x > LANE_DIVIDER_X - BALL_R;
           // Ball coming from left, hitting the divider
-          if (s.pos.x + BALL_R > LANE_DIVIDER_X && s.pos.x < LANE_DIVIDER_X + 5 && s.pos.y < PF_BOT) {
+          if (s.pos.x + BALL_R > LANE_DIVIDER_X && s.pos.x < LANE_DIVIDER_X + 5 && s.pos.y < PF_BOT && !inLaneX) {
             s.pos.x = LANE_DIVIDER_X - BALL_R;
             s.vel.x = -Math.abs(s.vel.x) * WALL_DAMPING;
           }
           // Ball in the lane, hitting divider from right
-          if (s.pos.x - BALL_R < LANE_DIVIDER_X && s.pos.x > LANE_DIVIDER_X - 5 && s.pos.x > LANE_CX - 15) {
+          if (inLaneX && s.pos.x - BALL_R < LANE_DIVIDER_X) {
             s.pos.x = LANE_DIVIDER_X + BALL_R;
             s.vel.x = Math.abs(s.vel.x) * WALL_DAMPING;
+          }
+          // Lane floor — ball cannot fall below PF_BOT in the lane
+          if (inLaneX && s.pos.y + BALL_R > PF_BOT + 15) {
+            s.pos.y = PF_BOT + 15 - BALL_R;
+            s.vel.y = -Math.abs(s.vel.y) * 0.2;
           }
         }
 
@@ -784,8 +802,8 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
         collideLine(s.pos, s.vel, drainGuideL1, drainGuideL2, 0.9);
         collideLine(s.pos, s.vel, drainGuideR1, drainGuideR2, 0.9);
 
-        // Drain detection
-        if (s.pos.y + BALL_R > DRAIN_Y && s.pos.x > ARCH_CX - 35 && s.pos.x < ARCH_CX + 35) {
+        // Drain detection (only in the main playfield, not in the plunger lane)
+        if (s.pos.y + BALL_R > DRAIN_Y && s.pos.x > ARCH_CX - 35 && s.pos.x < ARCH_CX + 35 && s.pos.x < LANE_DIVIDER_X) {
           s.ballVisible = false;
           s.isDrain = true;
           s.landedHole = null;
@@ -798,10 +816,10 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
         }
 
         // Ball fell back into the plunger lane — allow re-plunge
-        if (s.pos.x > LANE_DIVIDER_X && s.pos.y > PF_BOT - 60) {
+        if (s.pos.x > LANE_DIVIDER_X && s.pos.y > PF_BOT - 80) {
           const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
-          if (speed < 0.5) {
-            // Reset to idle in the lane so user can plunge again
+          // Reset once ball is slow or sitting near the bottom of the lane
+          if (speed < 1.0 || (s.pos.y > PF_BOT && speed < 2.0)) {
             s.pos = { x: LANE_CX, y: PF_BOT - 15 };
             s.vel = { x: 0, y: 0 };
             s.trail = [];
