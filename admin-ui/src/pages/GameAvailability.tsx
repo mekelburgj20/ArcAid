@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, Trophy, Calendar, ChevronDown } from 'lucide-react';
+import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, Shuffle } from 'lucide-react';
+import PinballPicker from '../components/PinballPicker';
 
 interface GameAvailabilityEntry {
   name: string;
@@ -42,6 +43,7 @@ export default function GameAvailability() {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'available' | 'cooldown'>('all');
   const [search, setSearch] = useState('');
+  const [showPicker, setShowPicker] = useState(false);
 
   // Resolve room
   useEffect(() => {
@@ -101,7 +103,18 @@ export default function GameAvailability() {
       </Link>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-3 mb-6">
-        <h1 className="font-display text-xl font-bold text-primary">Game Availability</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="font-display text-xl font-bold text-primary">Game Availability</h1>
+          {availableCount >= 2 && (
+            <button
+              onClick={() => setShowPicker(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neon-green/40 bg-neon-green/10 text-neon-green text-xs font-medium hover:bg-neon-green/20 hover:border-neon-green/60 transition-colors cursor-pointer"
+            >
+              <Shuffle size={14} />
+              Pick Random
+            </button>
+          )}
+        </div>
 
         {tournaments.length > 1 && (
           <div className="relative">
@@ -238,6 +251,12 @@ export default function GameAvailability() {
             </div>
           ))}
         </div>
+      )}
+      {showPicker && data && (
+        <PinballPicker
+          availableGames={data.games.filter(g => g.available).map(g => g.name)}
+          onClose={() => setShowPicker(false)}
+        />
       )}
     </main>
   );
