@@ -2,6 +2,10 @@
 node_modules/
 dist/
 
+# Gemeni Instructions
+User_Prompt.xml
+system_instruction.xml
+
 # Environment Variables
 .env
 .env.*
