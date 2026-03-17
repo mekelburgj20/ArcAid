@@ -905,4 +905,66 @@ router.delete('/:roomId/admins/discord/:discordId', requireAuth, requireRoomAcce
     }
 });
 
+// --- Admin Invites ---
+
+// List pending invites
+router.get('/:roomId/admins/invites', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const invites = await AdminService.getPendingInvites(req.params.roomId as string);
+        res.json(invites);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admins/invites):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Create invite
+router.post('/:roomId/admins/invites', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { display_name, discord_user_id } = req.body;
+        if (!display_name || typeof display_name !== 'string' || display_name.trim().length === 0) {
+            return res.status(400).json({ error: 'display_name is required' });
+        }
+
+        const roomId = req.params.roomId as string;
+        const createdBy = req.user?.discordId || req.user?.localAdminId || 'unknown';
+        const invite = await AdminService.createInvite(
+            roomId, display_name.trim(), createdBy, discord_user_id || undefined
+        );
+
+        // If Discord user ID provided, try to DM them
+        let dmSent = false;
+        if (discord_user_id) {
+            const room = await GameRoomService.getById(roomId);
+            const roomName = room?.name || 'a game room';
+            const baseUrl = req.headers.origin || `${req.protocol}://${req.get('host')}`;
+            const inviteUrl = `${baseUrl}/invite/${invite.token}`;
+            const { sendDirectMessage } = await import('../../utils/discord.js');
+            dmSent = await sendDirectMessage(
+                discord_user_id,
+                `You've been invited to join **${roomName}** on ArcAid as an admin!\n\nClick the link below to set up your account:\n${inviteUrl}\n\nThis invite expires in 48 hours.`
+            );
+        }
+
+        res.json({ ...invite, dmSent });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admins/invites):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Cancel invite
+router.delete('/:roomId/admins/invites/:inviteId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const deleted = await AdminService.cancelInvite(
+            req.params.inviteId as string, req.params.roomId as string
+        );
+        if (!deleted) return res.status(404).json({ error: 'Invite not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admins/invites/:inviteId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 export default router;

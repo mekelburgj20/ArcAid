@@ -123,4 +123,71 @@ export class AdminService {
     static async verifyLocalAdminPassword(admin: { password_hash: string }, password: string): Promise<boolean> {
         return bcrypt.compare(password, admin.password_hash);
     }
+
+    // --- Admin Invites ---
+
+    static async createInvite(
+        gameRoomId: string, displayName: string, createdBy?: string, discordUserId?: string, expiresInHours = 48
+    ): Promise<{ id: string; token: string; expires_at: string }> {
+        const db = await getDatabase();
+        const id = crypto.randomUUID();
+        const token = crypto.randomBytes(32).toString('base64url');
+        const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString();
+        await db.run(
+            `INSERT INTO admin_invites (id, token, game_room_id, display_name, discord_user_id, created_by, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            id, token, gameRoomId, displayName, discordUserId || null, createdBy || null, expiresAt
+        );
+        return { id, token, expires_at: expiresAt };
+    }
+
+    static async getPendingInvites(gameRoomId: string): Promise<Array<{
+        id: string; token: string; display_name: string; discord_user_id: string | null;
+        created_by: string | null; expires_at: string; created_at: string;
+    }>> {
+        const db = await getDatabase();
+        return db.all(
+            `SELECT id, token, display_name, discord_user_id, created_by, expires_at, created_at
+             FROM admin_invites
+             WHERE game_room_id = ? AND accepted_at IS NULL AND expires_at > datetime('now')
+             ORDER BY created_at DESC`,
+            gameRoomId
+        );
+    }
+
+    static async getInviteByToken(token: string): Promise<{
+        id: string; token: string; game_room_id: string; display_name: string;
+        discord_user_id: string | null; expires_at: string; accepted_at: string | null;
+    } | undefined> {
+        const db = await getDatabase();
+        return db.get('SELECT * FROM admin_invites WHERE token = ?', token);
+    }
+
+    static async acceptInvite(token: string, username: string, password: string): Promise<LocalAdmin> {
+        const db = await getDatabase();
+        const invite = await this.getInviteByToken(token);
+        if (!invite) throw new Error('Invite not found');
+        if (invite.accepted_at) throw new Error('Invite already used');
+        if (new Date(invite.expires_at) < new Date()) throw new Error('Invite expired');
+
+        // Check username doesn't already exist
+        const existing = await this.getLocalAdminByUsername(invite.game_room_id, username);
+        if (existing) throw new Error('Username already exists for this room');
+
+        // Create the local admin
+        const admin = await this.createLocalAdmin(invite.game_room_id, username, password, invite.display_name);
+
+        // Mark invite as accepted
+        await db.run('UPDATE admin_invites SET accepted_at = datetime(\'now\') WHERE token = ?', token);
+        return admin;
+    }
+
+    static async cancelInvite(id: string, gameRoomId: string): Promise<boolean> {
+        const db = await getDatabase();
+        const result = await db.run(
+            'DELETE FROM admin_invites WHERE id = ? AND game_room_id = ?',
+            id, gameRoomId
+        );
+        return (result.changes || 0) > 0;
+    }
 }

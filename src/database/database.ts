@@ -257,6 +257,19 @@ export async function initDatabase(): Promise<Database> {
             granted_at TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS admin_invites (
+            id TEXT PRIMARY KEY,
+            token TEXT NOT NULL UNIQUE,
+            game_room_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            discord_user_id TEXT,
+            created_by TEXT,
+            expires_at TEXT NOT NULL,
+            accepted_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS game_room_game_library (
             game_room_id TEXT NOT NULL,
             game_name TEXT NOT NULL,
@@ -298,6 +311,18 @@ export async function initDatabase(): Promise<Database> {
         { name: '010_tournaments_max_active_games', sql: `ALTER TABLE tournaments ADD COLUMN max_active_games INTEGER DEFAULT 1` },
         { name: '011_tournaments_game_room_id', sql: `ALTER TABLE tournaments ADD COLUMN game_room_id TEXT` },
         { name: '012_ranking_groups_game_room_id', sql: `ALTER TABLE ranking_groups ADD COLUMN game_room_id TEXT` },
+        { name: '013_admin_invites', sql: `CREATE TABLE IF NOT EXISTS admin_invites (
+            id TEXT PRIMARY KEY,
+            token TEXT NOT NULL UNIQUE,
+            game_room_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            discord_user_id TEXT,
+            created_by TEXT,
+            expires_at TEXT NOT NULL,
+            accepted_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+        )` },
     ];
 
     for (const migration of migrations) {

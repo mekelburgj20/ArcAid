@@ -79,6 +79,61 @@ router.post('/me/preferences', requireAuth, async (req, res) => {
     }
 });
 
+// --- Public Invite Endpoints ---
+
+// Get invite info (no auth)
+router.get('/invite/:token', async (req, res) => {
+    try {
+        const { AdminService } = await import('../../services/AdminService.js');
+        const invite = await AdminService.getInviteByToken(req.params.token as string);
+        if (!invite) return res.status(404).json({ error: 'Invite not found' });
+        if (invite.accepted_at) return res.status(410).json({ error: 'This invite has already been used' });
+        if (new Date(invite.expires_at) < new Date()) return res.status(410).json({ error: 'This invite has expired' });
+
+        const { GameRoomService } = await import('../../services/GameRoomService.js');
+        const room = await GameRoomService.getById(invite.game_room_id);
+
+        res.json({
+            display_name: invite.display_name,
+            room_name: room?.name || 'Unknown Room',
+            room_slug: room?.slug || '',
+            expires_at: invite.expires_at,
+        });
+    } catch (error) {
+        logError('API Error (GET /api/invite/:token):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Accept invite (no auth)
+router.post('/invite/:token/accept', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        if (!username || typeof username !== 'string' || username.trim().length === 0) {
+            return res.status(400).json({ error: 'Username is required' });
+        }
+        if (!password || typeof password !== 'string' || password.length < 8) {
+            return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        }
+
+        const { AdminService } = await import('../../services/AdminService.js');
+        const admin = await AdminService.acceptInvite(req.params.token as string, username.trim(), password);
+
+        // Get room slug for redirect
+        const { GameRoomService } = await import('../../services/GameRoomService.js');
+        const room = await GameRoomService.getById(admin.game_room_id);
+
+        res.json({ success: true, room_slug: room?.slug || '' });
+    } catch (error: any) {
+        if (error.message === 'Invite not found') return res.status(404).json({ error: error.message });
+        if (error.message === 'Invite already used') return res.status(410).json({ error: error.message });
+        if (error.message === 'Invite expired') return res.status(410).json({ error: error.message });
+        if (error.message === 'Username already exists for this room') return res.status(409).json({ error: error.message });
+        logError('API Error (POST /api/invite/:token/accept):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Public room listing
 router.get('/rooms', async (req, res) => {
     try {

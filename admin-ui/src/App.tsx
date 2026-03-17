@@ -37,6 +37,7 @@ import GameAvailability from './pages/GameAvailability';
 // Pages — Auth
 import RoomLogin from './pages/RoomLogin';
 import DiscordCallback from './pages/DiscordCallback';
+import InviteAccept from './pages/InviteAccept';
 
 function App() {
   const [, setAuthed] = useState(false);
@@ -52,6 +53,9 @@ function App() {
 
         {/* Discord OAuth callback */}
         <Route path="/auth/discord/callback" element={<DiscordCallback onLogin={() => setAuthed(true)} />} />
+
+        {/* Invite acceptance (public) */}
+        <Route path="/invite/:token" element={<InviteAccept />} />
 
         {/* Super admin routes */}
         <Route path="/admin" element={<SuperAdminLayout />}>

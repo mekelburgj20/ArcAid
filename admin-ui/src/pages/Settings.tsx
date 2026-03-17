@@ -5,7 +5,25 @@ import { useToast } from '../components/Toast';
 import { useTheme, THEMES, type ThemeId } from '../components/ThemeProvider';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
+import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
+
+interface LocalAdmin {
+  id: string;
+  username: string;
+  display_name: string;
+  created_at: string;
+}
+
+interface PendingInvite {
+  id: string;
+  token: string;
+  display_name: string;
+  discord_user_id: string | null;
+  created_by: string | null;
+  expires_at: string;
+  created_at: string;
+}
 
 const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
 
@@ -102,6 +120,92 @@ export default function Settings() {
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
 
+  // Users state
+  const [localAdmins, setLocalAdmins] = useState<LocalAdmin[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
+  const [showInviteForm, setShowInviteForm] = useState(false);
+  const [inviteDisplayName, setInviteDisplayName] = useState('');
+  const [inviteDiscordId, setInviteDiscordId] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [deleteAdminTarget, setDeleteAdminTarget] = useState<LocalAdmin | null>(null);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  const fetchAdmins = async () => {
+    try {
+      const data = await api.get<{ localAdmins: LocalAdmin[] }>(`/rooms/${room.roomId}/admins`);
+      setLocalAdmins(data.localAdmins);
+    } catch {}
+  };
+
+  const fetchInvites = async () => {
+    try {
+      const data = await api.get<PendingInvite[]>(`/rooms/${room.roomId}/admins/invites`);
+      setPendingInvites(data);
+    } catch {}
+  };
+
+  const handleInvite = async () => {
+    if (!inviteDisplayName.trim()) { toast('Display name required', 'error'); return; }
+    setInviting(true);
+    try {
+      const result = await api.post<{ id: string; token: string; dmSent: boolean }>(`/rooms/${room.roomId}/admins/invites`, {
+        display_name: inviteDisplayName.trim(),
+        discord_user_id: inviteDiscordId.trim() || undefined,
+      });
+      const inviteUrl = `${window.location.origin}/invite/${result.token}`;
+      if (result.dmSent) {
+        toast('Invite sent via Discord DM', 'success');
+      } else if (inviteDiscordId.trim()) {
+        toast('Invite created but Discord DM could not be sent. Copy the link to share manually.', 'error');
+      } else {
+        toast('Invite created. Copy the link to share.', 'success');
+      }
+      // Auto-copy to clipboard
+      try { await navigator.clipboard.writeText(inviteUrl); } catch {}
+      setInviteDisplayName('');
+      setInviteDiscordId('');
+      setShowInviteForm(false);
+      fetchInvites();
+    } catch (err: any) {
+      toast(err.message || 'Failed to create invite', 'error');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleDeleteAdmin = async () => {
+    if (!deleteAdminTarget) return;
+    try {
+      await api.delete(`/rooms/${room.roomId}/admins/local/${deleteAdminTarget.id}`);
+      toast(`Removed ${deleteAdminTarget.display_name || deleteAdminTarget.username}`, 'success');
+      setDeleteAdminTarget(null);
+      fetchAdmins();
+    } catch {
+      toast('Failed to remove admin', 'error');
+    }
+  };
+
+  const handleCancelInvite = async (id: string) => {
+    try {
+      await api.delete(`/rooms/${room.roomId}/admins/invites/${id}`);
+      toast('Invite cancelled', 'success');
+      fetchInvites();
+    } catch {
+      toast('Failed to cancel invite', 'error');
+    }
+  };
+
+  const copyInviteLink = async (token: string) => {
+    const url = `${window.location.origin}/invite/${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(null), 2000);
+    } catch {
+      toast('Failed to copy link', 'error');
+    }
+  };
+
   useEffect(() => {
     api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`)
       .then(data => {
@@ -113,6 +217,8 @@ export default function Settings() {
         setLoading(false);
       })
       .catch(() => { toast('Failed to load settings', 'error'); setLoading(false); });
+    fetchAdmins();
+    fetchInvites();
   }, []);
 
   const handleChange = (key: string, value: string) => {
@@ -218,6 +324,108 @@ export default function Settings() {
             <p className="text-xs text-muted mt-1">Overrides the global theme for your admin session only. Does not affect other admins or the public portal.</p>
           </div>
         </div>
+      </NeonCard>
+
+      <NeonCard title="Users" className="mb-4">
+        <p className="text-muted text-sm mb-4">
+          Manage local admin accounts for this game room.
+        </p>
+
+        {/* Existing admins */}
+        {localAdmins.length > 0 ? (
+          <div className="space-y-2 mb-4">
+            {localAdmins.map(admin => (
+              <div key={admin.id} className="flex items-center justify-between bg-raised border border-border rounded px-4 py-2">
+                <div>
+                  <span className="text-sm font-medium text-primary">{admin.display_name || admin.username}</span>
+                  <span className="text-xs text-faint ml-2">@{admin.username}</span>
+                </div>
+                <NeonButton
+                  variant="ghost"
+                  className="text-xs px-2 py-1 text-neon-magenta hover:text-neon-magenta"
+                  onClick={() => setDeleteAdminTarget(admin)}
+                >
+                  Remove
+                </NeonButton>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-faint text-sm mb-4">No local admin accounts.</p>
+        )}
+
+        {/* Pending invites */}
+        {pendingInvites.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs font-display uppercase tracking-wider text-muted mb-2">Pending Invites</p>
+            <div className="space-y-2">
+              {pendingInvites.map(inv => (
+                <div key={inv.id} className="flex items-center justify-between bg-raised border border-neon-amber/20 rounded px-4 py-2">
+                  <div>
+                    <span className="text-sm text-primary">{inv.display_name}</span>
+                    <span className="text-xs text-faint ml-2">
+                      expires {new Date(inv.expires_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    <NeonButton
+                      variant="ghost"
+                      className="text-xs px-2 py-1"
+                      onClick={() => copyInviteLink(inv.token)}
+                    >
+                      {copiedToken === inv.token ? 'Copied!' : 'Copy Link'}
+                    </NeonButton>
+                    <NeonButton
+                      variant="ghost"
+                      className="text-xs px-2 py-1 text-neon-magenta hover:text-neon-magenta"
+                      onClick={() => handleCancelInvite(inv.id)}
+                    >
+                      Cancel
+                    </NeonButton>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Invite form */}
+        {showInviteForm ? (
+          <div className="border border-border rounded p-4 space-y-3">
+            <div>
+              <label className="text-xs text-faint block mb-1">Display Name *</label>
+              <input
+                type="text"
+                placeholder="e.g. John Smith"
+                value={inviteDisplayName}
+                onChange={e => setInviteDisplayName(e.target.value)}
+                className={inputClass}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-xs text-faint block mb-1">Discord User ID (optional)</label>
+              <input
+                type="text"
+                placeholder="e.g. 123456789012345678"
+                value={inviteDiscordId}
+                onChange={e => setInviteDiscordId(e.target.value)}
+                className={inputClass}
+              />
+              <p className="text-xs text-faint mt-1">If provided, the invite link will be sent via Discord DM.</p>
+            </div>
+            <div className="flex gap-2">
+              <NeonButton onClick={handleInvite} disabled={inviting || !inviteDisplayName.trim()}>
+                {inviting ? 'Sending...' : 'Send Invite'}
+              </NeonButton>
+              <NeonButton variant="ghost" onClick={() => setShowInviteForm(false)} disabled={inviting}>
+                Cancel
+              </NeonButton>
+            </div>
+          </div>
+        ) : (
+          <NeonButton onClick={() => setShowInviteForm(true)}>Invite User</NeonButton>
+        )}
       </NeonCard>
 
       <NeonCard title="Platforms" className="mb-4">
@@ -392,6 +600,16 @@ export default function Settings() {
           <NeonButton variant="secondary" onClick={handleAdd}>Add</NeonButton>
         </div>
       </NeonCard>
+
+      {deleteAdminTarget && (
+        <ConfirmModal
+          title="Remove Admin"
+          message={`Are you sure you want to remove ${deleteAdminTarget.display_name || deleteAdminTarget.username}? They will no longer be able to log in.`}
+          confirmLabel="Remove"
+          onConfirm={handleDeleteAdmin}
+          onCancel={() => setDeleteAdminTarget(null)}
+        />
+      )}
     </div>
   );
 }

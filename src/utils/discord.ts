@@ -41,6 +41,30 @@ export async function sendChannelMessage(channelId: string, content: string): Pr
 }
 
 /**
+ * Sends a direct message to a Discord user via the REST API.
+ * Creates a DM channel first, then sends the message.
+ * Returns true if sent, false on failure (silent — does not throw).
+ */
+export async function sendDirectMessage(userId: string, content: string): Promise<boolean> {
+    const token = process.env.DISCORD_BOT_TOKEN;
+    if (!token) {
+        logError('Cannot send Discord DM: DISCORD_BOT_TOKEN is not set.');
+        return false;
+    }
+    try {
+        const rest = new REST({ version: '10' }).setToken(token);
+        const channel = await rest.post(Routes.userChannels(), {
+            body: { recipient_id: userId },
+        }) as { id: string };
+        await rest.post(Routes.channelMessages(channel.id), { body: { content } });
+        return true;
+    } catch (err) {
+        logError(`Failed to send DM to user ${userId}:`, err);
+        return false;
+    }
+}
+
+/**
  * Sends a rich embed to a Discord channel via the REST API.
  */
 export async function sendChannelEmbed(channelId: string, embed: EmbedBuilder): Promise<void> {

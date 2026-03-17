@@ -54,12 +54,12 @@ export default function LandingPage() {
             <p className="text-muted">No game rooms available yet.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="flex flex-wrap justify-center gap-6">
             {rooms.map(room => (
               <Link
                 key={room.id}
                 to={`/${room.slug}/`}
-                className="no-underline group"
+                className="no-underline group w-full sm:w-[calc(50%-0.75rem)] lg:w-[calc(33.333%-1rem)]"
               >
                 <div className="bg-surface border border-border rounded-lg p-6 hover:border-neon-cyan/40 hover:shadow-[0_0_15px_rgba(0,255,255,0.1)] transition-all">
                   <h3 className="font-display text-lg font-bold text-primary group-hover:text-neon-cyan transition-colors mb-2">
@@ -77,16 +77,6 @@ export default function LandingPage() {
           </div>
         )}
 
-        {rooms.length === 1 && (
-          <div className="text-center mt-8">
-            <Link
-              to={`/${rooms[0].slug}/`}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/40 rounded font-medium hover:bg-neon-cyan/30 hover:border-neon-cyan/60 transition-all no-underline"
-            >
-              Go to {rooms[0].name} Scoreboard
-            </Link>
-          </div>
-        )}
       </div>
 
       {/* Scanline overlay */}
