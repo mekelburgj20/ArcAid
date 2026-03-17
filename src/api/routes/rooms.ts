@@ -921,27 +921,40 @@ router.get('/:roomId/admins/invites', requireAuth, requireRoomAccess('roomId'), 
 // Create invite
 router.post('/:roomId/admins/invites', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
-        const { display_name, discord_user_id } = req.body;
+        const { display_name, discord_user } = req.body;
         if (!display_name || typeof display_name !== 'string' || display_name.trim().length === 0) {
             return res.status(400).json({ error: 'display_name is required' });
         }
 
         const roomId = req.params.roomId as string;
         const createdBy = req.user?.discordId || req.user?.localAdminId || 'unknown';
+
+        // Resolve Discord user input (could be numeric ID or username/handle)
+        let resolvedDiscordId: string | undefined;
+        if (discord_user && typeof discord_user === 'string' && discord_user.trim()) {
+            const { resolveDiscordUserId } = await import('../../utils/discord.js');
+            const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+            const resolved = await resolveDiscordUserId(discord_user.trim(), guildId || undefined);
+            if (!resolved) {
+                return res.status(400).json({ error: `Could not find Discord user "${discord_user}". Try their numeric user ID instead.` });
+            }
+            resolvedDiscordId = resolved;
+        }
+
         const invite = await AdminService.createInvite(
-            roomId, display_name.trim(), createdBy, discord_user_id || undefined
+            roomId, display_name.trim(), createdBy, resolvedDiscordId
         );
 
-        // If Discord user ID provided, try to DM them
+        // If Discord user resolved, try to DM them
         let dmSent = false;
-        if (discord_user_id) {
+        if (resolvedDiscordId) {
             const room = await GameRoomService.getById(roomId);
             const roomName = room?.name || 'a game room';
             const baseUrl = req.headers.origin || `${req.protocol}://${req.get('host')}`;
             const inviteUrl = `${baseUrl}/invite/${invite.token}`;
             const { sendDirectMessage } = await import('../../utils/discord.js');
             dmSent = await sendDirectMessage(
-                discord_user_id,
+                resolvedDiscordId,
                 `You've been invited to join **${roomName}** on ArcAid as an admin!\n\nClick the link below to set up your account:\n${inviteUrl}\n\nThis invite expires in 48 hours.`
             );
         }

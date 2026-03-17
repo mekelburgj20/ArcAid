@@ -150,7 +150,7 @@ export default function Settings() {
     try {
       const result = await api.post<{ id: string; token: string; dmSent: boolean }>(`/rooms/${room.roomId}/admins/invites`, {
         display_name: inviteDisplayName.trim(),
-        discord_user_id: inviteDiscordId.trim() || undefined,
+        discord_user: inviteDiscordId.trim() || undefined,
       });
       const inviteUrl = `${window.location.origin}/invite/${result.token}`;
       if (result.dmSent) {
@@ -404,15 +404,15 @@ export default function Settings() {
               />
             </div>
             <div>
-              <label className="text-xs text-faint block mb-1">Discord User ID (optional)</label>
+              <label className="text-xs text-faint block mb-1">Discord Username (optional)</label>
               <input
                 type="text"
-                placeholder="e.g. 123456789012345678"
+                placeholder="e.g. ChuckRibbits"
                 value={inviteDiscordId}
                 onChange={e => setInviteDiscordId(e.target.value)}
                 className={inputClass}
               />
-              <p className="text-xs text-faint mt-1">If provided, the invite link will be sent via Discord DM.</p>
+              <p className="text-xs text-faint mt-1">Username or numeric ID. If provided, the invite link will be sent via Discord DM.</p>
             </div>
             <div className="flex gap-2">
               <NeonButton onClick={handleInvite} disabled={inviting || !inviteDisplayName.trim()}>

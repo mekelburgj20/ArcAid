@@ -65,6 +65,40 @@ export async function sendDirectMessage(userId: string, content: string): Promis
 }
 
 /**
+ * Resolves a Discord username to a user ID by searching guild members.
+ * Accepts a numeric ID (returned as-is) or a username/handle (searched in the guild).
+ * Returns the numeric user ID or null if not found.
+ */
+export async function resolveDiscordUserId(input: string, guildId?: string): Promise<string | null> {
+    // If it's already a numeric ID, return as-is
+    if (/^\d{17,20}$/.test(input)) return input;
+
+    // Strip leading @ if present
+    const username = input.replace(/^@/, '');
+
+    const token = process.env.DISCORD_BOT_TOKEN;
+    if (!token || !guildId) return null;
+
+    try {
+        const rest = new REST({ version: '10' }).setToken(token);
+        const results = await rest.get(Routes.guildMembersSearch(guildId), {
+            query: new URLSearchParams({ query: username, limit: '5' }),
+        }) as Array<{ user: { id: string; username: string; global_name?: string } }>;
+
+        // Exact match on username or global_name (case-insensitive)
+        const lower = username.toLowerCase();
+        const match = results.find(m =>
+            m.user.username.toLowerCase() === lower ||
+            (m.user.global_name && m.user.global_name.toLowerCase() === lower)
+        );
+        return match?.user.id ?? null;
+    } catch (err) {
+        logError(`Failed to resolve Discord username "${input}" in guild ${guildId}:`, err);
+        return null;
+    }
+}
+
+/**
  * Sends a rich embed to a Discord channel via the REST API.
  */
 export async function sendChannelEmbed(channelId: string, embed: EmbedBuilder): Promise<void> {
