@@ -37,8 +37,8 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
         client_id: data.clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
-        scope: 'identify guilds.members.read',
-        state: '',
+        scope: 'identify',
+        state: '__super__',
       });
       window.location.href = `https://discord.com/api/oauth2/authorize?${params}`;
     } catch (err: any) {

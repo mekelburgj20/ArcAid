@@ -67,7 +67,7 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
           if (role === 'room_admin') {
             const gameRoomIds = payload.gameRoomIds as string[] | undefined;
             // If we have state (slug from room login), redirect there
-            if (state) {
+            if (state && state !== '__super__') {
               window.location.href = `/${state}/admin/dashboard`;
               return;
             }
