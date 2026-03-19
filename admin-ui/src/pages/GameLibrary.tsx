@@ -351,7 +351,7 @@ export default function GameLibrary() {
           <NeonButton variant="secondary" onClick={async () => {
             setVpsImporting(true);
             try {
-              const res = await api.post<{ imported: number; total: number }>(`${prefix}/game_library/import-vps`, {});
+              const res = await api.post<{ imported: number; total: number }>('/admin/game_library/import-vps', {});
               toast(`Imported ${res.imported} games from VPS`, 'success');
               fetchGames();
             } catch (err: any) {
@@ -365,7 +365,7 @@ export default function GameLibrary() {
           <NeonButton variant="secondary" onClick={async () => {
             setWizardImporting(true);
             try {
-              const res = await api.post<{ imported: number; total: number }>(`${prefix}/game_library/import-wizard`, {});
+              const res = await api.post<{ imported: number; total: number }>('/admin/game_library/import-wizard', {});
               toast(`Imported ${res.imported} VPXS Wizard tables`, 'success');
               fetchGames();
             } catch (err: any) {
