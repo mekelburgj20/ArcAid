@@ -34,13 +34,16 @@ interface ScheduleBuilderProps {
 }
 
 /** Attempts to parse a cron expression back into UI-friendly state. */
-function parseCron(cron: string): { frequency: Frequency; hour: number; minute: number; dayOfWeek: number; dayOfMonth: number } {
+function parseCron(cron: string): { frequency: Frequency; hour: number; minute: number; dayOfWeek: number; dayOfMonth: number | 'L' } {
   const parts = cron.split(' ');
   const minute = parseInt(parts[0]) || 0;
   const hour = parseInt(parts[1]) || 0;
   const dom = parts[2];
   const dow = parts[4];
 
+  if (dom === 'L') {
+    return { frequency: 'monthly', hour, minute, dayOfWeek: 0, dayOfMonth: 'L' };
+  }
   if (dom !== '*' && parseInt(dom) >= 1) {
     return { frequency: 'monthly', hour, minute, dayOfWeek: 0, dayOfMonth: parseInt(dom) };
   }
@@ -50,7 +53,7 @@ function parseCron(cron: string): { frequency: Frequency; hour: number; minute: 
   return { frequency: 'daily', hour, minute, dayOfWeek: 0, dayOfMonth: 1 };
 }
 
-function buildCron(frequency: Frequency, hour: number, minute: number, dayOfWeek: number, dayOfMonth: number): string {
+function buildCron(frequency: Frequency, hour: number, minute: number, dayOfWeek: number, dayOfMonth: number | 'L'): string {
   switch (frequency) {
     case 'daily':
       return `${minute} ${hour} * * *`;
@@ -61,7 +64,7 @@ function buildCron(frequency: Frequency, hour: number, minute: number, dayOfWeek
   }
 }
 
-function formatSchedulePreview(frequency: Frequency, hour: number, minute: number, dayOfWeek: number, dayOfMonth: number, timezone: string): string {
+function formatSchedulePreview(frequency: Frequency, hour: number, minute: number, dayOfWeek: number, dayOfMonth: number | 'L', timezone: string): string {
   const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
   const tz = timezone.split('/').pop()?.replace(/_/g, ' ') || timezone;
 
@@ -73,7 +76,9 @@ function formatSchedulePreview(frequency: Frequency, hour: number, minute: numbe
       return `Every ${dayName} at ${time} ${tz}`;
     }
     case 'monthly':
-      return `${ordinal(dayOfMonth)} of every month at ${time} ${tz}`;
+      return dayOfMonth === 'L'
+        ? `Last day of every month at ${time} ${tz}`
+        : `${ordinal(dayOfMonth)} of every month at ${time} ${tz}`;
   }
 }
 
@@ -89,7 +94,7 @@ export default function ScheduleBuilder({ value, onChange }: ScheduleBuilderProp
   const [hour, setHour] = useState(parsed.hour);
   const [minute, setMinute] = useState(parsed.minute);
   const [dayOfWeek, setDayOfWeek] = useState(parsed.dayOfWeek);
-  const [dayOfMonth, setDayOfMonth] = useState(parsed.dayOfMonth);
+  const [dayOfMonth, setDayOfMonth] = useState<number | 'L'>(parsed.dayOfMonth);
   const [timezone, setTimezone] = useState(value.timezone || 'America/Chicago');
 
   useEffect(() => {
@@ -140,10 +145,11 @@ export default function ScheduleBuilder({ value, onChange }: ScheduleBuilderProp
         {frequency === 'monthly' && (
           <div>
             <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Day of Month</label>
-            <select value={dayOfMonth} onChange={e => setDayOfMonth(parseInt(e.target.value))} className={selectClass}>
-              {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+            <select value={dayOfMonth} onChange={e => { const v = e.target.value; setDayOfMonth(v === 'L' ? 'L' : parseInt(v)); }} className={selectClass}>
+              {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
                 <option key={d} value={d}>{ordinal(d)}</option>
               ))}
+              <option value="L">Last day</option>
             </select>
           </div>
         )}

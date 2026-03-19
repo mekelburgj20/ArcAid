@@ -86,10 +86,12 @@ export class Scheduler {
             this.tasks.get(id)?.stop();
         }
 
-        logInfo(`Scheduling maintenance for ${name} using cron: '${cadence.cron}'`);
-
         const timezone = cadence.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
-        const task = cron.schedule(cadence.cron, async () => {
+        const { cronExpr, isLastDay } = this.resolveCron(cadence.cron);
+        logInfo(`Scheduling maintenance for ${name} using cron: '${cadence.cron}'${isLastDay ? ' (last day of month)' : ''}`);
+
+        const task = cron.schedule(cronExpr, async () => {
+            if (isLastDay && !this.isLastDayOfMonth(timezone)) return;
             logInfo(`Running scheduled maintenance for tournament: ${name}`);
             try {
                 await TournamentEngine.getInstance().runMaintenance(id);
@@ -112,9 +114,11 @@ export class Scheduler {
         }
 
         const timezone = rule.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
-        logInfo(`Scheduling cleanup for ${name} using cron: '${rule.cron}' (${timezone})`);
+        const { cronExpr, isLastDay } = this.resolveCron(rule.cron);
+        logInfo(`Scheduling cleanup for ${name} using cron: '${cronExpr}' (${timezone})${isLastDay ? ' (last day of month)' : ''}`);
 
-        const task = cron.schedule(rule.cron, async () => {
+        const task = cron.schedule(cronExpr, async () => {
+            if (isLastDay && !this.isLastDayOfMonth(timezone)) return;
             logInfo(`Running scheduled cleanup for tournament: ${name}`);
             try {
                 await TournamentEngine.getInstance().runScheduledCleanup(tournamentId);
@@ -124,6 +128,30 @@ export class Scheduler {
         }, { timezone });
 
         this.tasks.set(taskKey, task);
+    }
+
+    /**
+     * Resolves a cron expression, handling the custom 'L' (last day of month) marker.
+     * node-cron doesn't support 'L', so we replace it with '28-31' and flag it
+     * for a runtime check.
+     */
+    private resolveCron(cronStr: string): { cronExpr: string; isLastDay: boolean } {
+        const parts = cronStr.split(' ');
+        if (parts[2] === 'L') {
+            parts[2] = '28-31';
+            return { cronExpr: parts.join(' '), isLastDay: true };
+        }
+        return { cronExpr: cronStr, isLastDay: false };
+    }
+
+    /**
+     * Returns true if today is the last day of the month in the given timezone.
+     */
+    private isLastDayOfMonth(timezone: string): boolean {
+        const now = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }));
+        const tomorrow = new Date(now);
+        tomorrow.setDate(now.getDate() + 1);
+        return tomorrow.getDate() === 1;
     }
 
     /**
