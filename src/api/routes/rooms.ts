@@ -881,9 +881,27 @@ router.post('/:roomId/admins/local/:id/reset-password', requireAuth, requireRoom
 // Add Discord admin to room
 router.post('/:roomId/admins/discord', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
-        const { discord_user_id, role } = req.body;
-        if (!discord_user_id) return res.status(400).json({ error: 'discord_user_id required' });
-        await AdminService.addRoomDiscordAdmin(req.params.roomId as string, discord_user_id, role || 'admin');
+        const { discord_user_id, discord_user, role } = req.body;
+        const input = discord_user || discord_user_id;
+        if (!input) return res.status(400).json({ error: 'discord_user or discord_user_id required' });
+
+        const roomId = req.params.roomId as string;
+
+        // Resolve username to ID if needed
+        let resolvedId: string;
+        if (/^\d{17,20}$/.test(input.trim())) {
+            resolvedId = input.trim();
+        } else {
+            const { resolveDiscordUserId } = await import('../../utils/discord.js');
+            const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+            const resolved = await resolveDiscordUserId(input.trim(), guildId || undefined);
+            if (!resolved) {
+                return res.status(400).json({ error: `Could not find Discord user "${input}". Try their numeric user ID instead.` });
+            }
+            resolvedId = resolved;
+        }
+
+        await AdminService.addRoomDiscordAdmin(roomId, resolvedId, role || 'admin');
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admins/discord):', error);

@@ -92,7 +92,7 @@ export default function GlobalSettings() {
     if (!newAdminId.trim()) return;
     setAddingAdmin(true);
     try {
-      await api.post('/admin/super-admins', { discord_user_id: newAdminId.trim() });
+      await api.post('/admin/super-admins', { discord_user: newAdminId.trim() });
       setSuperAdmins(await api.get<SuperAdmin[]>('/admin/super-admins'));
       setNewAdminId('');
       toast('Super admin added', 'success');
@@ -160,7 +160,7 @@ export default function GlobalSettings() {
       <NeonCard title="Super Admins" className="mb-4">
         <p className="text-muted text-sm mb-4">
           Super admins can manage all game rooms, global settings, and other super admins.
-          Add users by their Discord user ID.
+          Add users by their Discord username or user ID.
         </p>
 
         {superAdmins.length > 0 ? (
@@ -187,7 +187,7 @@ export default function GlobalSettings() {
         <div className="flex gap-2">
           <input
             type="text"
-            placeholder="Discord User ID"
+            placeholder="Discord username or ID"
             value={newAdminId}
             onChange={e => setNewAdminId(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAddSuperAdmin()}

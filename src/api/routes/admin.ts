@@ -90,9 +90,33 @@ router.get('/super-admins', async (req, res) => {
 
 router.post('/super-admins', async (req, res) => {
     try {
-        const { discord_user_id, username } = req.body;
-        if (!discord_user_id) return res.status(400).json({ error: 'discord_user_id required' });
-        await AdminService.addSuperAdmin(discord_user_id, username);
+        const { discord_user_id, discord_user, username } = req.body;
+        const input = discord_user || discord_user_id;
+        if (!input) return res.status(400).json({ error: 'discord_user or discord_user_id required' });
+
+        // Resolve username to ID if needed
+        const { resolveDiscordUserId } = await import('../../utils/discord.js');
+        // Try resolving against all rooms' guild IDs
+        let resolvedId: string | null = null;
+        if (/^\d{17,20}$/.test(input.trim())) {
+            resolvedId = input.trim();
+        } else {
+            const rooms = await GameRoomService.getAll();
+            const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+            for (const room of rooms) {
+                const guildId = await GameRoomSettingsService.get(room.id, 'DISCORD_GUILD_ID');
+                if (guildId) {
+                    resolvedId = await resolveDiscordUserId(input.trim(), guildId);
+                    if (resolvedId) break;
+                }
+            }
+        }
+
+        if (!resolvedId) {
+            return res.status(400).json({ error: `Could not find Discord user "${input}". Try their numeric user ID instead.` });
+        }
+
+        await AdminService.addSuperAdmin(resolvedId, username || input.trim());
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/super-admins):', error);
