@@ -16,6 +16,7 @@ import { LogService } from '../../services/LogService.js';
 import { getDashboardData } from '../../services/DashboardService.js';
 import { listBackups, restoreBackup } from '../../services/BackupService.js';
 import { VpsImportService } from '../../services/VpsImportService.js';
+import { WizardImportService } from '../../services/WizardImportService.js';
 import { serverEvents } from '../server.js';
 import { AuditService } from '../../services/AuditService.js';
 
@@ -378,6 +379,16 @@ router.post('/game_library/import-vps', async (req, res) => {
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-vps):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'VPS import failed' });
+    }
+});
+
+router.post('/game_library/import-wizard', async (req, res) => {
+    try {
+        const result = await WizardImportService.importFromWizard();
+        res.json({ success: true, ...result });
+    } catch (error) {
+        logError('API Error (POST /api/admin/game_library/import-wizard):', error);
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Wizard import failed' });
     }
 });
 

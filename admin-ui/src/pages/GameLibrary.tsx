@@ -93,6 +93,7 @@ export default function GameLibrary() {
   const [editGame, setEditGame] = useState<GameRow>({ ...emptyGame });
   const [editSaving, setEditSaving] = useState(false);
   const [vpsImporting, setVpsImporting] = useState(false);
+  const [wizardImporting, setWizardImporting] = useState(false);
   const [communityRatings, setCommunityRatings] = useState<Record<string, { avg_rating: number; rating_count: number }>>({});
   const [userRatings, setUserRatings] = useState<Record<string, number>>({});
   const [activateTarget, setActivateTarget] = useState<string | null>(null);
@@ -360,6 +361,20 @@ export default function GameLibrary() {
             }
           }} disabled={vpsImporting}>
             {vpsImporting ? 'Importing VPS...' : 'Import from VPS'}
+          </NeonButton>
+          <NeonButton variant="secondary" onClick={async () => {
+            setWizardImporting(true);
+            try {
+              const res = await api.post<{ imported: number; total: number }>(`${prefix}/game_library/import-wizard`, {});
+              toast(`Imported ${res.imported} VPXS Wizard tables`, 'success');
+              fetchGames();
+            } catch (err: any) {
+              toast(err.message || 'Wizard import failed', 'error');
+            } finally {
+              setWizardImporting(false);
+            }
+          }} disabled={wizardImporting}>
+            {wizardImporting ? 'Importing Wizard...' : 'Import VPXS Wizard'}
           </NeonButton>
           <NeonButton variant="secondary" onClick={downloadTemplate}>CSV Template</NeonButton>
           <label htmlFor="csv-upload" className="cursor-pointer">
