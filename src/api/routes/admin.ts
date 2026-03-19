@@ -375,7 +375,10 @@ router.post('/game_library/delete', async (req, res) => {
 router.post('/game_library/import-vps', async (req, res) => {
     try {
         const result = await VpsImportService.importFromVps();
-        res.json({ success: true, ...result });
+        if (req.body?.roomId) {
+            await GameLibraryService.addToRoom(req.body.roomId, result.names);
+        }
+        res.json({ success: true, imported: result.imported, total: result.total });
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-vps):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'VPS import failed' });
@@ -385,7 +388,10 @@ router.post('/game_library/import-vps', async (req, res) => {
 router.post('/game_library/import-wizard', async (req, res) => {
     try {
         const result = await WizardImportService.importFromWizard();
-        res.json({ success: true, ...result });
+        if (req.body?.roomId) {
+            await GameLibraryService.addToRoom(req.body.roomId, result.names);
+        }
+        res.json({ success: true, imported: result.imported, total: result.total });
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-wizard):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'Wizard import failed' });
