@@ -73,6 +73,10 @@ export function startApiServer(port: number = 3001) {
 
     app.use(express.json());
 
+    // --- Serve Style Images (static, no rate limit, cached 7 days) ---
+    const stylesPath = path.join(process.cwd(), 'data', 'styles');
+    app.use('/api/styles/images', express.static(stylesPath, { maxAge: '7d' }));
+
     // --- Rate Limiting ---
     app.use('/api/', generalLimiter);
     app.use('/api/auth', authLimiter);
@@ -184,10 +188,6 @@ export function startApiServer(port: number = 3001) {
         req.url = `/backups/${req.params.name}/restore`;
         adminRouter(req, res, next);
     });
-
-    // --- Serve Style Images (static, cached 7 days) ---
-    const stylesPath = path.join(process.cwd(), 'data', 'styles');
-    app.use('/api/styles/images', express.static(stylesPath, { maxAge: '7d' }));
 
     // --- Serve React Frontend (Production) ---
     const frontendPath = path.join(process.cwd(), 'admin-ui', 'dist');
