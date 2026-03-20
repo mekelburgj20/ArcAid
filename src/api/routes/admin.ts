@@ -19,6 +19,9 @@ import { VpsImportService } from '../../services/VpsImportService.js';
 import { WizardImportService } from '../../services/WizardImportService.js';
 import { serverEvents } from '../server.js';
 import { AuditService } from '../../services/AuditService.js';
+import { StyleCatalogueService } from '../../services/StyleCatalogueService.js';
+import { StyleUploadSchema } from '../schemas.js';
+import multer from 'multer';
 
 const router = Router();
 
@@ -395,6 +398,76 @@ router.post('/game_library/import-wizard', async (req, res) => {
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-wizard):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'Wizard import failed' });
+    }
+});
+
+// --- Style Catalogue Management ---
+
+// Multer config: memory storage, 2MB max per file
+const styleUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB
+    fileFilter: (_req, file, cb) => {
+        if (['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only PNG, JPEG, and WebP images are allowed'));
+        }
+    },
+});
+
+// Import scraped iScored styles into DB + copy images
+router.post('/styles/import', async (req, res) => {
+    try {
+        const result = await StyleCatalogueService.importFromScraped();
+        res.json({ success: true, ...result });
+    } catch (error) {
+        logError('API Error (POST /api/admin/styles/import):', error);
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Style import failed' });
+    }
+});
+
+// Upload a custom style (background required, header optional)
+router.post('/styles/upload', styleUpload.fields([
+    { name: 'background', maxCount: 1 },
+    { name: 'header', maxCount: 1 },
+]), async (req, res) => {
+    try {
+        const validationResult = validate(StyleUploadSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+        const bgFile = files?.background?.[0];
+        if (!bgFile) {
+            return res.status(400).json({ error: 'Background image is required' });
+        }
+
+        const headerFile = files?.header?.[0];
+        const id = await StyleCatalogueService.createCustom({
+            name: validationResult.data.name,
+            author: validationResult.data.author,
+            notes: validationResult.data.notes,
+            backgroundBuffer: bgFile.buffer,
+            headerBuffer: headerFile?.buffer,
+        });
+
+        const style = await StyleCatalogueService.getById(id);
+        res.status(201).json({ success: true, style });
+    } catch (error) {
+        logError('API Error (POST /api/admin/styles/upload):', error);
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Style upload failed' });
+    }
+});
+
+// Delete a style
+router.delete('/styles/:id', async (req, res) => {
+    try {
+        const deleted = await StyleCatalogueService.delete(req.params.id as string);
+        if (!deleted) return res.status(404).json({ error: 'Style not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/admin/styles/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 

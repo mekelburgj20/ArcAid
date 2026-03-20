@@ -25,7 +25,20 @@ async function bootstrap() {
         // 1.6 Clear stale leaderboard cache
         await db.run('DELETE FROM leaderboard_cache');
 
-        // 1.7 Validate environment configuration
+        // 1.7 Auto-import style catalogue if table is empty and scraped data exists
+        try {
+            const styleCount = await db.get('SELECT COUNT(*) as count FROM style_catalogue');
+            if (styleCount?.count === 0) {
+                const { StyleCatalogueService } = await import('./services/StyleCatalogueService.js');
+                const result = await StyleCatalogueService.importFromScraped();
+                logInfo(`Auto-imported ${result.imported} styles into catalogue.`);
+            }
+        } catch (err) {
+            // Non-fatal — styles can be imported later via admin UI
+            logInfo('Style catalogue auto-import skipped (scraped data not found or already populated).');
+        }
+
+        // 1.8 Validate environment configuration
         const { canStartBot } = validateEnvironment();
 
         // 2. Start API Server for Admin UI

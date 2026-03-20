@@ -9,6 +9,7 @@ import {
     HistoryQuerySchema, MergePlayerSchema,
     CreateRankingGroupSchema, UpdateRankingGroupSchema,
     CreateLocalAdminSchema,
+    AssignStyleSchema,
 } from '../schemas.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
@@ -609,7 +610,9 @@ router.get('/:roomId/games/active', async (req, res) => {
     try {
         const db = await getDatabase();
         const rows = await db.all(
-            `SELECT g.id, g.name, g.tournament_id, g.iscored_id, g.start_date, t.name as tournament_name
+            `SELECT g.id, g.name, g.tournament_id, g.iscored_id, g.start_date,
+                    g.catalogue_style_id, g.style_header_disabled,
+                    t.name as tournament_name
              FROM games g JOIN tournaments t ON g.tournament_id = t.id
              WHERE g.status = 'ACTIVE' AND t.game_room_id = ?
              ORDER BY g.start_date DESC`,
@@ -994,6 +997,75 @@ router.delete('/:roomId/admins/invites/:inviteId', requireAuth, requireRoomAcces
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admins/invites/:inviteId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Game Style Assignment ---
+
+// Assign a catalogue style to a game
+router.put('/:roomId/admin/games/:gameId/style', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(AssignStyleSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+        const { catalogueStyleId, headerDisabled } = validationResult.data;
+
+        // Verify game belongs to this room
+        const db = await getDatabase();
+        const game = await db.get(
+            `SELECT g.id FROM games g
+             JOIN tournaments t ON g.tournament_id = t.id
+             WHERE g.id = ? AND t.game_room_id = ?`,
+            req.params.gameId as string, req.params.roomId as string
+        );
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        const assigned = await StyleCatalogueService.assignToGame(
+            req.params.gameId as string, catalogueStyleId, headerDisabled
+        );
+        if (!assigned) return res.status(404).json({ error: 'Style not found' });
+
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/admin/games/:gameId/style):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Remove style from a game
+router.delete('/:roomId/admin/games/:gameId/style', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+
+        // Verify game belongs to this room
+        const db = await getDatabase();
+        const game = await db.get(
+            `SELECT g.id FROM games g
+             JOIN tournaments t ON g.tournament_id = t.id
+             WHERE g.id = ? AND t.game_room_id = ?`,
+            req.params.gameId as string, req.params.roomId as string
+        );
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        await StyleCatalogueService.removeFromGame(req.params.gameId as string);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admin/games/:gameId/style):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Get style for a game
+router.get('/:roomId/games/:gameId/style', async (req, res) => {
+    try {
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+        const result = await StyleCatalogueService.getGameStyle(req.params.gameId as string);
+        if (!result) return res.json({ style: null });
+        res.json(result);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/games/:gameId/style):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

@@ -134,6 +134,33 @@ router.post('/invite/:token/accept', async (req, res) => {
     }
 });
 
+// --- Style Catalogue (read-only, requires auth) ---
+router.get('/styles', requireAuth, async (req, res) => {
+    try {
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+        const q = typeof req.query.q === 'string' ? req.query.q : '';
+        const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+        const offset = parseInt(req.query.offset as string) || 0;
+        const result = await StyleCatalogueService.search(q, limit, offset);
+        res.json(result);
+    } catch (error) {
+        logError('API Error (GET /api/styles):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/styles/:id', requireAuth, async (req, res) => {
+    try {
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+        const style = await StyleCatalogueService.getById(req.params.id as string);
+        if (!style) return res.status(404).json({ error: 'Style not found' });
+        res.json(style);
+    } catch (error) {
+        logError('API Error (GET /api/styles/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Public room listing
 router.get('/rooms', async (req, res) => {
     try {

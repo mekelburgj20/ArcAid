@@ -16,6 +16,7 @@ import GameRoomManager from './pages/GameRoomManager';
 import GlobalSettings from './pages/GlobalSettings';
 import Backups from './pages/Backups';
 import Logs from './pages/Logs';
+import StyleCatalogue from './pages/StyleCatalogue';
 
 // Pages — Room Admin (reused existing)
 import Dashboard from './pages/Dashboard';
@@ -64,6 +65,7 @@ function App() {
           <Route path="dashboard" element={<SuperAdminDashboard />} />
           <Route path="rooms" element={<GameRoomManager />} />
           <Route path="library" element={<GameLibrary />} />
+          <Route path="styles" element={<StyleCatalogue />} />
           <Route path="backups" element={<Backups />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<GlobalSettings />} />

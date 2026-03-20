@@ -15,6 +15,8 @@ interface GameLeaderboard {
   tournamentName: string;
   tournamentType: string;
   imageUrl: string | null;
+  catalogueStyleId: string | null;
+  styleHeaderDisabled: boolean;
   rankings: RankedEntry[];
 }
 
@@ -140,20 +142,30 @@ export default function Scoreboard() {
 
 function GameCard({ lb, slug }: { lb: GameLeaderboard; slug: string }) {
   const borderColor = getTournamentBorderColor(lb.tournamentType);
+
+  // Catalogue style takes priority over imageUrl
+  const styleBgUrl = lb.catalogueStyleId ? `/api/styles/images/backgrounds/${lb.catalogueStyleId}.png` : null;
+  const styleHeaderUrl = lb.catalogueStyleId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${lb.catalogueStyleId}.png` : null;
+  const bgImage = styleBgUrl || lb.imageUrl || null;
+
   return (
     <div className={`bg-surface border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`}>
       {/* Image / Header area */}
       <div
         className="relative h-32 bg-raised flex items-end"
-        style={lb.imageUrl ? {
-          backgroundImage: `url(${lb.imageUrl})`,
+        style={bgImage ? {
+          backgroundImage: `url(${bgImage})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
         } : undefined}
       >
+        {/* Style header image overlay */}
+        {styleHeaderUrl && (
+          <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+        )}
         {/* Dark gradient overlay for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10" />
-        <div className="relative z-10 px-4 pb-3 w-full">
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10 z-[2]" />
+        <div className="relative z-10 px-4 pb-3 w-full" style={{ zIndex: 3 }}>
           <h3 className="font-display font-bold text-base text-white leading-tight truncate">{lb.gameName}</h3>
           <p className="text-[11px] text-white/60 uppercase tracking-wider">{lb.tournamentName}</p>
         </div>

@@ -91,7 +91,8 @@ export class LeaderboardService {
         // 1. All ACTIVE games always show
         const activeGames = await db.all(`
             SELECT g.id, g.name as game_name, t.name as tournament_name, t.type as tournament_type,
-                   COALESCE(t.display_order, 9999) as display_order, gl.image_url
+                   COALESCE(t.display_order, 9999) as display_order, gl.image_url,
+                   g.catalogue_style_id, g.style_header_disabled
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
             LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
@@ -178,6 +179,8 @@ export class LeaderboardService {
                 tournamentName: game.tournament_name || 'Untracked',
                 tournamentType: game.tournament_type || '',
                 imageUrl: game.image_url || null,
+                catalogueStyleId: game.catalogue_style_id || null,
+                styleHeaderDisabled: game.style_header_disabled === 1,
                 rankings,
             });
         }

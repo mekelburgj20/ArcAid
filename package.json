@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "restore": "tsx src/cli-restore.ts",
+    "scrape-styles": "tsx src/cli-scrape-styles.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -35,6 +36,7 @@
     "express-rate-limit": "^8.3.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
+    "multer": "^2.1.1",
     "node-cron": "^4.2.1",
     "playwright": "^1.58.2",
     "rotating-file-stream": "^3.2.9",
@@ -49,6 +51,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.1.0",
     "@types/node": "^25.3.3",
     "@types/node-cron": "^3.0.11",
     "@types/sqlite3": "^3.1.11",

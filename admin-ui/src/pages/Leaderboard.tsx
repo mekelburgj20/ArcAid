@@ -24,6 +24,8 @@ interface GameLeaderboard {
   gameName: string;
   tournamentName: string;
   tournamentType: string;
+  catalogueStyleId: string | null;
+  styleHeaderDisabled: boolean;
   rankings: RankedEntry[];
 }
 
@@ -175,8 +177,23 @@ function GameCard({ lb, roomId }: { lb: GameLeaderboard; roomId: string }) {
       .filter(s => s.iscored_username.toLowerCase() === username.toLowerCase())
       .sort((a, b) => b.score - a.score);
 
+  const bgUrl = lb.catalogueStyleId ? `/api/styles/images/backgrounds/${lb.catalogueStyleId}.png` : null;
+  const headerUrl = lb.catalogueStyleId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${lb.catalogueStyleId}.png` : null;
+
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden flex flex-col h-full">
+      {/* Style header (background + optional header image) */}
+      {bgUrl && (
+        <div
+          className="h-24 bg-cover bg-center relative"
+          style={{ backgroundImage: `url(${bgUrl})` }}
+        >
+          {headerUrl && (
+            <img src={headerUrl} alt="" className="absolute inset-0 w-full h-full object-contain" />
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <div className="px-3 py-2.5 border-b border-border/50">
         <div className="flex items-center justify-between gap-2">

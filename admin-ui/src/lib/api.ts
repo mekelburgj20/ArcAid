@@ -87,4 +87,24 @@ export const api = {
     body: JSON.stringify(body),
   }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  /** Upload multipart form data (for file uploads). */
+  upload: <T>(path: string, formData: FormData) => {
+    const headers: Record<string, string> = {};
+    headers['x-user-id'] = getAnonUserId();
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    // Do NOT set Content-Type — browser sets it with boundary for multipart
+    return fetch(`${BASE}${path}`, { method: 'POST', body: formData, headers })
+      .then(async res => {
+        if (res.status === 401) {
+          setToken(null);
+          window.location.href = '/login';
+          throw new Error('Session expired');
+        }
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({ error: 'Upload failed' }));
+          throw new Error(error.error || `HTTP ${res.status}`);
+        }
+        return res.json() as Promise<T>;
+      });
+  },
 };

@@ -117,3 +117,14 @@ export const CreateLocalAdminSchema = z.object({
     password: z.string().min(8).max(100),
     display_name: z.string().max(100).optional(),
 });
+
+export const AssignStyleSchema = z.object({
+    catalogueStyleId: z.string().min(1),
+    headerDisabled: z.boolean().default(false),
+});
+
+export const StyleUploadSchema = z.object({
+    name: z.string().min(1).max(200),
+    author: z.string().min(1).max(100),
+    notes: z.string().max(500).default(''),
+});

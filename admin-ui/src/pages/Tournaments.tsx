@@ -9,6 +9,7 @@ import TournamentBadge from '../components/TournamentBadge';
 import DataTable from '../components/DataTable';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
+import StylePicker from '../components/StylePicker';
 import TournamentFormFields, {
   useTournamentForm,
   parseCadence,
@@ -63,6 +64,8 @@ interface ActiveGame {
   tournament_name: string;
   iscored_id: string | null;
   start_date: string;
+  catalogue_style_id: string | null;
+  style_header_disabled: number;
 }
 
 /** Convert form state to API payload */
@@ -112,6 +115,7 @@ export default function Tournaments() {
   const [deactivating, setDeactivating] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const [styleTarget, setStyleTarget] = useState<ActiveGame | null>(null);
 
   const createForm = useTournamentForm();
   const editForm = useTournamentForm();
@@ -300,8 +304,14 @@ export default function Tournaments() {
             { key: 'iscored_id', header: 'iScored', render: g => (
               <span className={`text-xs ${g.iscored_id ? 'text-neon-green' : 'text-faint'}`}>{g.iscored_id ? 'Linked' : 'No'}</span>
             )},
+            { key: 'style', header: 'Style', render: g => (
+              <span className={`text-xs ${g.catalogue_style_id ? 'text-neon-green' : 'text-faint'}`}>
+                {g.catalogue_style_id ? 'Set' : 'None'}
+              </span>
+            )},
             { key: 'actions', header: '', render: g => (
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-1">
+                <NeonButton variant="secondary" onClick={() => setStyleTarget(g)} className="text-xs px-2 py-1">Style</NeonButton>
                 <NeonButton variant="danger" onClick={() => setDeactivateTarget(g)} className="text-xs px-2 py-1">Deactivate</NeonButton>
               </div>
             ), className: 'text-right' },
@@ -343,6 +353,33 @@ export default function Tournaments() {
             </NeonButton>
           </div>
         </div>
+      )}
+
+      {/* Style Picker */}
+      {styleTarget && (
+        <StylePicker
+          currentStyleId={styleTarget.catalogue_style_id}
+          headerDisabled={styleTarget.style_header_disabled === 1}
+          onClose={() => setStyleTarget(null)}
+          onSelect={async (styleId, headerDisabled) => {
+            try {
+              if (styleId) {
+                await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`, {
+                  catalogueStyleId: styleId,
+                  headerDisabled,
+                });
+                toast('Style applied', 'success');
+              } else {
+                await api.delete(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`);
+                toast('Style removed', 'success');
+              }
+              fetchActiveGames();
+            } catch (err: any) {
+              toast(err.message, 'error');
+            }
+            setStyleTarget(null);
+          }}
+        />
       )}
 
       {/* Edit Modal */}

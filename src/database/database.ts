@@ -323,6 +323,23 @@ export async function initDatabase(): Promise<Database> {
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
         )` },
+        { name: '014_style_catalogue', sql: `CREATE TABLE IF NOT EXISTS style_catalogue (
+            id TEXT PRIMARY KEY,
+            iscored_style_id INTEGER,
+            name TEXT NOT NULL,
+            author TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            has_background INTEGER DEFAULT 0,
+            has_header INTEGER DEFAULT 0,
+            source TEXT DEFAULT 'iscored',
+            created_at TEXT DEFAULT (datetime('now'))
+        )` },
+        { name: '015_style_catalogue_indexes', sql: `
+            CREATE INDEX IF NOT EXISTS idx_style_catalogue_name ON style_catalogue(name);
+            CREATE INDEX IF NOT EXISTS idx_style_catalogue_iscored_id ON style_catalogue(iscored_style_id)
+        ` },
+        { name: '016_games_catalogue_style_id', sql: `ALTER TABLE games ADD COLUMN catalogue_style_id TEXT` },
+        { name: '017_games_style_header_disabled', sql: `ALTER TABLE games ADD COLUMN style_header_disabled INTEGER DEFAULT 0` },
     ];
 
     for (const migration of migrations) {
