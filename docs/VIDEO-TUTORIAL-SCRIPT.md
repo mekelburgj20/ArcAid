@@ -50,7 +50,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Scroll to Discord section]**
 
-> "Discord — paste your Guild ID, announcement channel ID, and admin role ID. Quick tip: enable Developer Mode in Discord settings to copy these."
+> "Discord — paste your Guild ID, default announcement channel ID, and admin role ID. The announcement channel is where the bot posts by default — you can override it per tournament later. Quick tip: enable Developer Mode in Discord settings to copy these IDs."
 
 **[Scroll to iScored section]**
 

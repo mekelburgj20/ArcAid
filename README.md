@@ -115,7 +115,7 @@ npm run dev            # Vite dev server with HMR
 | Game Room Name | Display name for the room |
 | Game Room Slug | URL identifier (e.g., `my_room` → `/my_room/`) |
 | Discord Guild ID | Discord server ID this room is linked to |
-| Discord Announcement Channel | Channel where the bot posts rotation announcements |
+| Default Announcement Channel | Default channel for tournament announcements (fallback when tournament has no channel set) |
 | Discord Admin Role | Discord role that grants admin command access |
 | iScored Username | Login for the room's iScored.info account |
 | iScored Password | Password for the iScored account |

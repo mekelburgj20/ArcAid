@@ -79,7 +79,7 @@ Navigate to **Settings** in the sidebar to configure your game room. Settings ar
 | Setting | What It Does |
 |---------|-------------|
 | **Discord Guild ID** | Your Discord server's ID. Right-click your server name → Copy Server ID |
-| **Announcement Channel** | Channel ID where the bot posts tournament rotations and winner announcements |
+| **Default Announcement Channel** | Default channel for tournament announcements. Used as a fallback when a tournament doesn't have its own channel configured |
 | **Admin Role** | Discord role ID that grants access to admin-only bot commands |
 
 To get a Channel ID or Role ID: Enable Developer Mode in Discord (User Settings → Advanced → Developer Mode), then right-click the channel/role → Copy ID.

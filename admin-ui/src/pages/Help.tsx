@@ -269,7 +269,7 @@ export default function Help() {
               <thead><tr><Th className="w-1/3">Setting</Th><Th>What It Does</Th></tr></thead>
               <tbody>
                 <tr><Td><strong>Discord Guild ID</strong></Td><Td>Your Discord server's ID. Right-click your server name &rarr; Copy Server ID</Td></tr>
-                <tr><Td><strong>Announcement Channel</strong></Td><Td>Channel ID where the bot posts tournament rotations and winner announcements</Td></tr>
+                <tr><Td><strong>Default Announcement Channel</strong></Td><Td>Default channel for tournament announcements. Used as a fallback when a tournament doesn't have its own channel configured</Td></tr>
                 <tr><Td><strong>Admin Role</strong></Td><Td>Discord role ID that grants access to admin-only bot commands</Td></tr>
               </tbody>
             </table>

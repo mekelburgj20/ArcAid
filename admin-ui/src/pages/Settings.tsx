@@ -58,7 +58,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   DISCORD_CLIENT_SECRET: { label: 'Client Secret', description: 'OAuth2 client secret used for admin Discord login. Keep this secret.' },
   DISCORD_GUILD_ID: { label: 'Guild ID', description: 'Your Discord server ID. Right-click server name → Copy Server ID (requires Developer Mode).' },
   DISCORD_ADMIN_ROLE_ID: { label: 'Admin Role ID', description: 'Discord role that grants access to admin bot commands. Right-click role → Copy Role ID.' },
-  DISCORD_ANNOUNCEMENT_CHANNEL_ID: { label: 'Announcement Channel ID', description: 'Channel where the bot posts tournament rotations and winner announcements. Right-click channel → Copy Channel ID.' },
+  DISCORD_ANNOUNCEMENT_CHANNEL_ID: { label: 'Default Announcement Channel ID', description: 'Default channel for tournament announcements. Used when a tournament doesn\'t have its own channel configured. Right-click channel → Copy Channel ID.' },
   // iScored
   ISCORED_USERNAME: { label: 'iScored Username', description: 'Login email or username for your room\'s iScored.info account.' },
   ISCORED_PASSWORD: { label: 'iScored Password', description: 'Password for the iScored account. Used for automated game creation and score scraping.' },

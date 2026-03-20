@@ -129,7 +129,7 @@ export default function GameRoomManager() {
       ``,
       `QUICK SETUP`,
       `1. Log in and go to Settings`,
-      `2. Enter your Discord Guild ID, Announcement Channel ID, and Admin Role ID`,
+      `2. Enter your Discord Guild ID, default Announcement Channel ID, and Admin Role ID`,
       `3. Enter your iScored credentials and Public URL`,
       `4. Set your timezone in Tournament Defaults`,
       `5. Go to Game Library and import games (VPS or VPXS Wizard)`,
