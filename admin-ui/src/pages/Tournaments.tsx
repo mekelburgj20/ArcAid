@@ -116,6 +116,7 @@ export default function Tournaments() {
   const [reordering, setReordering] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [styleTarget, setStyleTarget] = useState<ActiveGame | null>(null);
+  const [libraryHasDefault, setLibraryHasDefault] = useState(false);
 
   const createForm = useTournamentForm();
   const editForm = useTournamentForm();
@@ -311,7 +312,13 @@ export default function Tournaments() {
             )},
             { key: 'actions', header: '', render: g => (
               <div className="flex justify-end gap-1">
-                <NeonButton variant="secondary" onClick={() => setStyleTarget(g)} className="text-xs px-2 py-1">Style</NeonButton>
+                <NeonButton variant="secondary" onClick={async () => {
+                  try {
+                    const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(g.name)}/style`);
+                    setLibraryHasDefault(!!libStyle.catalogueStyleId);
+                  } catch { setLibraryHasDefault(false); }
+                  setStyleTarget(g);
+                }} className="text-xs px-2 py-1">Style</NeonButton>
                 <NeonButton variant="danger" onClick={() => setDeactivateTarget(g)} className="text-xs px-2 py-1">Deactivate</NeonButton>
               </div>
             ), className: 'text-right' },
@@ -360,8 +367,10 @@ export default function Tournaments() {
         <StylePicker
           currentStyleId={styleTarget.catalogue_style_id}
           headerDisabled={styleTarget.style_header_disabled === 1}
+          showDefaultOption
+          libraryHasDefault={libraryHasDefault}
           onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled) => {
+          onSelect={async (styleId, headerDisabled, setAsDefault) => {
             try {
               if (styleId) {
                 await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`, {
@@ -372,6 +381,22 @@ export default function Tournaments() {
               } else {
                 await api.delete(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`);
                 toast('Style removed', 'success');
+              }
+              // Also update library default if requested
+              if (setAsDefault) {
+                try {
+                  if (styleId) {
+                    await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
+                      catalogueStyleId: styleId,
+                      headerDisabled,
+                    });
+                    toast('Default style updated in library', 'success');
+                  } else {
+                    await api.delete(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`);
+                  }
+                } catch {
+                  toast('Failed to update library default', 'error');
+                }
               }
               fetchActiveGames();
             } catch (err: any) {

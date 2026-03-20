@@ -554,7 +554,10 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         const styleId = gameLibEntry?.style_id || undefined;
 
         let iscoredId: string | undefined;
-        const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+        const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+        const iscoredSetting = await GameRoomSettingsService.get(req.params.roomId as string, 'ISCORED_ENABLED');
+        const iscoredEnabled = iscoredSetting !== 'false';
+        const hasCredentials = iscoredEnabled && !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
         if (hasCredentials) {
             const { IScoredClient } = await import('../../engine/IScoredClient.js');
             const client = new IScoredClient();
@@ -575,9 +578,11 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
             logInfo(`Admin activated game: ${gameName} for tournament ${tournamentId}`);
             res.json({ success: true, gameId: game.id });
 
-            engine.reorderIScoredLineup().catch(err =>
-                logWarn('Failed to reorder iScored lineup after activation:', err)
-            );
+            if (hasCredentials) {
+                engine.reorderIScoredLineup().catch(err =>
+                    logWarn('Failed to reorder iScored lineup after activation:', err)
+                );
+            }
         } catch (dbError) {
             await db.exec('ROLLBACK');
             throw dbError;
@@ -653,6 +658,18 @@ router.put('/:roomId/game_library/:name', requireAuth, requireRoomAccess('roomId
         res.json({ success: true });
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/game_library/:name):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Get default catalogue style for a game in room's library
+router.get('/:roomId/game_library/:name/style', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const gameName = decodeURIComponent(req.params.name as string);
+        const style = await GameLibraryService.getRoomGameStyle(req.params.roomId as string, gameName);
+        res.json({ catalogueStyleId: style?.catalogue_style_id || null, headerDisabled: style?.style_header_disabled === 1 });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/game_library/:name/style):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

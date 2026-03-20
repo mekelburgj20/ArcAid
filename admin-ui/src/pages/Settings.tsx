@@ -41,7 +41,12 @@ const CATEGORIES: Record<string, string[]> = {
   'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
 };
 
-const TOGGLE_SETTINGS: Record<string, { label: string; description: string }> = {
+const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
+  'ISCORED_ENABLED': {
+    label: 'iScored Integration',
+    description: 'When enabled, games are created and managed on iScored. Disable to use ArcAid leaderboards only.',
+    defaultOn: true,
+  },
   'ENABLE_CALLOUTS': {
     label: 'Callouts (Easter Egg)',
     description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',
@@ -557,26 +562,29 @@ export default function Settings() {
 
       <NeonCard title="Features" className="mb-4">
         <div className="space-y-4">
-          {Object.entries(TOGGLE_SETTINGS).map(([key, { label, description }]) => (
-            <div key={key} className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-primary">{label}</p>
-                <p className="text-xs text-muted">{description}</p>
-              </div>
-              <button
-                onClick={() => handleChange(key, settings[key] === 'true' ? 'false' : 'true')}
-                className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
-                  settings[key] === 'true' ? 'bg-neon-cyan' : 'bg-raised border border-border'
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${
-                    settings[key] === 'true' ? 'translate-x-6' : ''
+          {Object.entries(TOGGLE_SETTINGS).map(([key, { label, description, defaultOn }]) => {
+            const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
+            return (
+              <div key={key} className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-primary">{label}</p>
+                  <p className="text-xs text-muted">{description}</p>
+                </div>
+                <button
+                  onClick={() => handleChange(key, isOn ? 'false' : 'true')}
+                  className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                    isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
                   }`}
-                />
-              </button>
-            </div>
-          ))}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${
+                      isOn ? 'translate-x-6' : ''
+                    }`}
+                  />
+                </button>
+              </div>
+            );
+          })}
         </div>
       </NeonCard>
 

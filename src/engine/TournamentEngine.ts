@@ -7,6 +7,7 @@ import { getTerminology } from '../utils/terminology.js';
 import { sendChannelMessage, sendChannelEmbed, getTournamentColor } from '../utils/discord.js';
 import { IScoredClient } from './IScoredClient.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
+import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 
 export class TournamentEngine {
@@ -16,6 +17,13 @@ export class TournamentEngine {
     private maintenanceLocks: Map<string, Promise<void>> = new Map();
 
     private constructor() {}
+
+    /** Check if iScored integration is enabled for a room. Defaults to true. */
+    private async isIScoredEnabled(gameRoomId: string | null): Promise<boolean> {
+        if (!gameRoomId) return true;
+        const setting = await GameRoomSettingsService.get(gameRoomId, 'ISCORED_ENABLED');
+        return setting !== 'false';
+    }
 
     public static getInstance(): TournamentEngine {
         if (!TournamentEngine.instance) {
@@ -136,7 +144,7 @@ export class TournamentEngine {
         const db = await getDatabase();
 
         const row = await db.get(
-            `SELECT g.*, t.name as tournament_name, t.type as tournament_type
+            `SELECT g.*, t.name as tournament_name, t.type as tournament_type, t.game_room_id
              FROM games g JOIN tournaments t ON g.tournament_id = t.id
              WHERE g.id = ?`,
             gameId
@@ -148,7 +156,9 @@ export class TournamentEngine {
         // - Not dbOnly mode
         // - Game has an iScored ID
         // - No other ACTIVE game shares this iScored ID
-        if (!dbOnly && row.iscored_id) {
+        // - iScored is enabled for this room
+        const iscoredEnabled = await this.isIScoredEnabled(row.game_room_id);
+        if (!dbOnly && row.iscored_id && iscoredEnabled) {
             const otherActive = await db.get(
                 `SELECT id FROM games WHERE iscored_id = ? AND status = 'ACTIVE' AND id != ?`,
                 row.iscored_id, gameId
@@ -292,7 +302,8 @@ export class TournamentEngine {
             return;
         }
 
-        const hasIscoredCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+        const iscoredEnabled = await this.isIScoredEnabled(tournamentRow.game_room_id);
+        const hasIscoredCredentials = iscoredEnabled && !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
         const hasPublicUrl = !!process.env.ISCORED_PUBLIC_URL;
 
         // Process each active game slot independently.
@@ -670,22 +681,33 @@ export class TournamentEngine {
         const toHide = completed.slice(retainCount);
         if (toHide.length === 0) return;
 
-        logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
+        // Check if iScored is enabled for this tournament's room
+        const tournamentRow = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+        const iscoredEnabled = await this.isIScoredEnabled(tournamentRow?.game_room_id);
 
-        const client = new IScoredClient();
-        await client.connect();
-        try {
-            for (const game of toHide) {
-                try {
-                    await client.deleteGame(game.iscored_id, game.name);
-                    await db.run('UPDATE games SET status = ? WHERE id = ?', 'HIDDEN', game.id);
-                    logInfo(`   -> Deleted: ${game.name}`);
-                } catch (err) {
-                    logWarn(`   -> Failed to delete ${game.name}:`, err);
+        if (iscoredEnabled) {
+            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
+            const client = new IScoredClient();
+            await client.connect();
+            try {
+                for (const game of toHide) {
+                    try {
+                        await client.deleteGame(game.iscored_id, game.name);
+                        logInfo(`   -> Deleted from iScored: ${game.name}`);
+                    } catch (err) {
+                        logWarn(`   -> Failed to delete ${game.name} from iScored:`, err);
+                    }
                 }
+            } finally {
+                await client.disconnect();
             }
-        } finally {
-            await client.disconnect();
+        } else {
+            logInfo(`Cleanup for tournament ${tournamentId}: marking ${toHide.length} completed game(s) as HIDDEN (iScored disabled)`);
+        }
+
+        // Always mark as HIDDEN in DB regardless of iScored
+        for (const game of toHide) {
+            await db.run('UPDATE games SET status = ? WHERE id = ?', 'HIDDEN', game.id);
         }
     }
 

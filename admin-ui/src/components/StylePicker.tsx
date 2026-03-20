@@ -18,13 +18,17 @@ interface StylePickerProps {
   /** Whether header is currently disabled */
   headerDisabled?: boolean;
   /** Called when a style is selected (or cleared) */
-  onSelect: (styleId: string | null, headerDisabled: boolean) => void;
+  onSelect: (styleId: string | null, headerDisabled: boolean, setAsDefault?: boolean) => void;
   onClose: () => void;
+  /** Show "Set as default style for this game" checkbox */
+  showDefaultOption?: boolean;
+  /** Whether the library already has a default style for this game */
+  libraryHasDefault?: boolean;
 }
 
 const PAGE_SIZE = 30;
 
-export default function StylePicker({ currentStyleId, headerDisabled = false, onSelect, onClose }: StylePickerProps) {
+export default function StylePicker({ currentStyleId, headerDisabled = false, onSelect, onClose, showDefaultOption = false, libraryHasDefault = false }: StylePickerProps) {
   const [styles, setStyles] = useState<Style[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
@@ -33,6 +37,7 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(currentStyleId || null);
   const [disableHeader, setDisableHeader] = useState(headerDisabled);
+  const [setAsDefault, setSetAsDefault] = useState(!libraryHasDefault);
 
   const fetchStyles = useCallback(async (q: string, off: number) => {
     setLoading(true);
@@ -176,15 +181,32 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
             </label>
           ) : null}
 
+          {/* Set as default toggle */}
+          {showDefaultOption && selectedId ? (
+            <label className="flex items-center gap-2 mb-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={setAsDefault}
+                onChange={e => setSetAsDefault(e.target.checked)}
+                className="accent-neon-cyan"
+              />
+              <span className="text-sm text-muted">
+                {libraryHasDefault
+                  ? 'Update default style for this game in the library'
+                  : 'Set as default style for this game in the library'}
+              </span>
+            </label>
+          ) : null}
+
           <div className="flex justify-between gap-2">
-            <NeonButton variant="ghost" onClick={() => onSelect(null, false)}>
+            <NeonButton variant="ghost" onClick={() => onSelect(null, false, showDefaultOption ? setAsDefault : undefined)}>
               Clear Style
             </NeonButton>
             <div className="flex gap-2">
               <NeonButton variant="ghost" onClick={onClose}>Cancel</NeonButton>
               <NeonButton
                 disabled={!selectedId}
-                onClick={() => onSelect(selectedId, disableHeader)}
+                onClick={() => onSelect(selectedId, disableHeader, showDefaultOption ? setAsDefault : undefined)}
               >
                 Apply Style
               </NeonButton>

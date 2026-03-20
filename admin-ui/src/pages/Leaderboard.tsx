@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
+import { Lock } from 'lucide-react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
+import { useToast } from '../components/Toast';
 import { getSocket } from '../lib/websocket';
 import TournamentBadge from '../components/TournamentBadge';
 import LoadingState from '../components/LoadingState';
+import StylePicker from '../components/StylePicker';
+import NeonButton from '../components/NeonButton';
 
 interface RankedEntry {
   rank: number;
@@ -24,6 +28,7 @@ interface GameLeaderboard {
   gameName: string;
   tournamentName: string;
   tournamentType: string;
+  gameStatus: string;
   catalogueStyleId: string | null;
   styleHeaderDisabled: boolean;
   rankings: RankedEntry[];
@@ -59,9 +64,12 @@ const CARDS_PER_ROW = 8;
 
 export default function Leaderboard() {
   const room = useRoom();
+  const { toast } = useToast();
   const [leaderboards, setLeaderboards] = useState<GameLeaderboard[]>([]);
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [styleTarget, setStyleTarget] = useState<GameLeaderboard | null>(null);
+  const [libraryHasDefault, setLibraryHasDefault] = useState(false);
 
   const loadData = () => {
     api.get<GameLeaderboard[]>(`/rooms/${room.roomId}/leaderboard`)
@@ -137,18 +145,73 @@ export default function Leaderboard() {
               {/* Game cards */}
               {row.map(lb => (
                 <div key={lb.gameId} className="w-[calc((100%-1.75rem*7)/8)] flex-shrink-0">
-                  <GameCard lb={lb} roomId={room.roomId} />
+                  <GameCard lb={lb} roomId={room.roomId} onStyleClick={async (target) => {
+                    // Check if library has a default style for this game
+                    try {
+                      const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
+                      setLibraryHasDefault(!!libStyle.catalogueStyleId);
+                    } catch {
+                      setLibraryHasDefault(false);
+                    }
+                    setStyleTarget(target);
+                  }} />
                 </div>
               ))}
             </div>
           ))}
         </div>
       )}
+
+      {/* Style Picker for leaderboard games */}
+      {styleTarget && (
+        <StylePicker
+          currentStyleId={styleTarget.catalogueStyleId}
+          headerDisabled={styleTarget.styleHeaderDisabled}
+          showDefaultOption
+          libraryHasDefault={libraryHasDefault}
+          onClose={() => setStyleTarget(null)}
+          onSelect={async (styleId, headerDisabled, setAsDefault) => {
+            try {
+              if (styleId) {
+                await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/style`, {
+                  catalogueStyleId: styleId,
+                  headerDisabled,
+                });
+                toast('Style applied', 'success');
+              } else {
+                await api.delete(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/style`);
+                toast('Style removed', 'success');
+              }
+              // Also update library default if requested
+              if (setAsDefault) {
+                try {
+                  if (styleId) {
+                    await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/style`, {
+                      catalogueStyleId: styleId,
+                      headerDisabled,
+                    });
+                    toast('Default style updated in library', 'success');
+                  } else {
+                    await api.delete(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/style`);
+                    toast('Default style cleared in library', 'success');
+                  }
+                } catch {
+                  toast('Failed to update library default', 'error');
+                }
+              }
+              loadData();
+            } catch (err: any) {
+              toast(err.message, 'error');
+            }
+            setStyleTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function GameCard({ lb, roomId }: { lb: GameLeaderboard; roomId: string }) {
+function GameCard({ lb, roomId, onStyleClick }: { lb: GameLeaderboard; roomId: string; onStyleClick: (lb: GameLeaderboard) => void }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loadingSubs, setLoadingSubs] = useState(false);
@@ -198,9 +261,23 @@ function GameCard({ lb, roomId }: { lb: GameLeaderboard; roomId: string }) {
       <div className="px-3 py-2.5 border-b border-border/50">
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-display font-bold text-sm text-primary truncate">{lb.gameName}</h3>
-          <TournamentBadge type={lb.tournamentType || lb.tournamentName} />
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <TournamentBadge type={lb.tournamentType || lb.tournamentName} />
+            {lb.gameStatus === 'COMPLETED' && (
+              <span title="Completed"><Lock size={12} className="text-faint" /></span>
+            )}
+          </div>
         </div>
-        <p className="text-[11px] text-muted truncate">{lb.tournamentName}</p>
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] text-muted truncate">{lb.tournamentName}</p>
+          <NeonButton
+            variant={lb.catalogueStyleId ? 'secondary' : 'ghost'}
+            onClick={() => onStyleClick(lb)}
+            className="text-[10px] px-1.5 py-0.5 flex-shrink-0"
+          >
+            Style
+          </NeonButton>
+        </div>
       </div>
 
       {/* Scores */}
