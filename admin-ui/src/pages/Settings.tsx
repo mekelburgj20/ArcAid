@@ -7,6 +7,7 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
+import { InfoTip } from '../components/Tooltip';
 
 interface LocalAdmin {
   id: string;
@@ -48,10 +49,31 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string }> = 
 };
 
 const SETTING_LABELS: Record<string, { label: string; description: string }> = {
+  // Game Room
+  GAME_ROOM_NAME: { label: 'Game Room Name', description: 'Display name shown on the public landing page and all public pages.' },
+  GAME_ROOM_SLUG: { label: 'Game Room Slug', description: 'URL identifier for your room (e.g. "my_room" → /my_room/). Lowercase, no spaces.' },
+  // Discord
+  DISCORD_BOT_TOKEN: { label: 'Bot Token', description: 'Bot authentication token from the Discord Developer Portal. Keep this secret.' },
+  DISCORD_CLIENT_ID: { label: 'Client ID', description: 'OAuth2 application client ID from the Discord Developer Portal.' },
+  DISCORD_CLIENT_SECRET: { label: 'Client Secret', description: 'OAuth2 client secret used for admin Discord login. Keep this secret.' },
+  DISCORD_GUILD_ID: { label: 'Guild ID', description: 'Your Discord server ID. Right-click server name → Copy Server ID (requires Developer Mode).' },
+  DISCORD_ADMIN_ROLE_ID: { label: 'Admin Role ID', description: 'Discord role that grants access to admin bot commands. Right-click role → Copy Role ID.' },
+  DISCORD_ANNOUNCEMENT_CHANNEL_ID: { label: 'Announcement Channel ID', description: 'Channel where the bot posts tournament rotations and winner announcements. Right-click channel → Copy Channel ID.' },
+  // iScored
+  ISCORED_USERNAME: { label: 'iScored Username', description: 'Login email or username for your room\'s iScored.info account.' },
+  ISCORED_PASSWORD: { label: 'iScored Password', description: 'Password for the iScored account. Used for automated game creation and score scraping.' },
+  ISCORED_PUBLIC_URL: { label: 'iScored Public URL', description: 'Public leaderboard URL for score scraping (e.g. https://iscored.info/your_account).' },
+  // Tournament Defaults
   WINNER_PICK_WINDOW_MIN: { label: 'Winner Pick Window (minutes)', description: 'How long the winner has to pick the next game before it falls to the runner-up.' },
-  RUNNERUP_PICK_WINDOW_MIN: { label: 'Runner-up Pick Window (minutes)', description: 'How long the runner-up has to pick if the winner doesn\'t.' },
-  GAME_ELIGIBILITY_DAYS: { label: 'Game Eligibility Cooldown (days)', description: 'How many days before a previously played game can be picked again.' },
-  BOT_TIMEZONE: { label: 'Bot Timezone', description: 'Default timezone for schedules (e.g. America/Chicago).' },
+  RUNNERUP_PICK_WINDOW_MIN: { label: 'Runner-up Pick Window (minutes)', description: 'How long the runner-up has to pick if the winner doesn\'t. After this, auto-select kicks in.' },
+  GAME_ELIGIBILITY_DAYS: { label: 'Game Eligibility Cooldown (days)', description: 'How many days before a previously played game can be picked again. Prevents repeat picks.' },
+  BOT_TIMEZONE: { label: 'Bot Timezone', description: 'Default timezone for all schedules (e.g. America/Chicago). Can be overridden per tournament.' },
+  // System
+  PORT: { label: 'Port', description: 'HTTP server port (default: 3001).' },
+  LOG_LEVEL: { label: 'Log Level', description: 'Logging verbosity: debug, info, warn, or error.' },
+  MAX_LOG_LINES: { label: 'Max Log Lines', description: 'Maximum number of log lines returned by the API.' },
+  BACKUP_RETENTION_DAYS: { label: 'Backup Retention (days)', description: 'How many days to keep automatic database backups before cleanup.' },
+  SETUP_COMPLETE: { label: 'Setup Complete', description: 'Marks whether initial setup has been finished. Set automatically.' },
 };
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
@@ -566,7 +588,10 @@ export default function Settings() {
               return (
                 <div key={key}>
                   <div className="flex items-center gap-3">
-                    <label className="w-64 shrink-0 text-sm font-mono text-muted" title={meta?.description}>{meta?.label || key}</label>
+                    <label className="w-64 shrink-0 text-sm font-mono text-muted flex items-center">
+                      {meta?.label || key}
+                      {meta?.description && <InfoTip text={meta.description} />}
+                    </label>
                     <input
                       type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
                       value={value}
@@ -582,7 +607,6 @@ export default function Settings() {
                       </button>
                     )}
                   </div>
-                  {meta?.description && <p className="text-xs text-faint mt-1 ml-[16.5rem] pl-3">{meta.description}</p>}
                 </div>
               );
             })}

@@ -1,271 +1,278 @@
-# ArcAid — Onboarding Video Tutorial Script
+# ArcAid — Video Tutorial Scripts
 
-**Duration:** ~12–15 minutes
-**Audience:** New ArcAid TMaaS customers (room admins)
-**Tone:** Friendly, practical, no jargon overload
-**Format:** Screen recording with voiceover
+Two videos: a 3-minute **Quick Start** to get new room admins running immediately, and an 8-minute **Deep Dive** covering advanced features. Record separately and link the Deep Dive from the Quick Start's end card.
 
 ---
+
+# Part 1: Quick Start (3 minutes)
+
+**Audience:** Brand new room admins
+**Goal:** Login → Settings → Import games → Create first tournament
+**Tone:** Fast, focused, "follow along"
 
 ## Pre-Recording Setup
 
-- Have a demo room already created with slug `demo_room`
-- Pre-import a game library (50+ games minimum so the library looks populated)
-- Have one tournament already running with a few scores submitted (so leaderboard and dashboard aren't empty)
-- Have Discord open with the bot in a test server
-- Browser zoomed to 110% for readability on recording
+- Demo room created with slug `demo_room`, credentials ready
+- Browser zoomed to 110%
+- Empty room (no games, no tournaments) — we set up from scratch on camera
 
 ---
 
-## INTRO (30 seconds)
+## INTRO (15 seconds)
 
-**[Show: ArcAid landing page at arcaid.app]**
+**[Show: ArcAid landing page]**
 
-> "Welcome to ArcAid — your tournament management platform for virtual pinball and retro gaming. In the next few minutes, I'll walk you through everything you need to set up your game room, configure tournaments, and get your community playing. Let's get started."
+> "Welcome to ArcAid. In under three minutes, you'll have your game room configured and your first tournament running. Let's go."
 
 ---
 
-## SECTION 1: Logging In (1 minute)
+## Step 1: Log In (20 seconds)
 
 **[Show: Room login page]**
 
-> "Your ArcAid administrator has set up a game room for you and provided login credentials. Navigate to your room's login page — the URL will look like `arcaid.app/your_room/login`."
+> "Navigate to your room's login page — your ArcAid admin will provide the URL and credentials."
 
-**[Type in credentials, click Log In]**
+**[Type credentials, click Log In]**
 
-> "Enter your username and password and click Log In. If you have a Discord account linked as a room admin, you can also click 'Login with Discord' instead."
-
-**[Show: Dashboard loads]**
-
-> "After logging in, you'll land on the Dashboard. Let's start by configuring your room settings."
-
----
-
-## SECTION 2: Room Settings (3 minutes)
-
-**[Click Settings in sidebar]**
-
-> "Click Settings in the sidebar. This is your command center for room configuration. Let's go through each section."
-
-### Game Room
-
-**[Show: Game Room section]**
-
-> "First, your room identity. The Room Name is what players see on the public landing page. The Slug is your URL — so if your slug is 'my_room', your scoreboard lives at arcaid.app/my_room."
-
-### Discord
-
-**[Show: Discord section]**
-
-> "Next, Discord integration. You need three IDs from your Discord server."
-
-> "Guild ID — right-click your server name in Discord, copy the Server ID. Announcement Channel — right-click the channel where you want tournament announcements posted, copy the Channel ID. Admin Role — right-click the role that your admins have, copy the Role ID."
-
-> "Quick tip: you need Developer Mode enabled in Discord to see these copy options. Go to User Settings, Advanced, and toggle Developer Mode on."
-
-### iScored
-
-**[Show: iScored section]**
-
-> "iScored is the scoring platform ArcAid automates. Enter your iScored account email and password. The Public URL is your iScored leaderboard page — this is where ArcAid scrapes scores from. Click the eye icon to reveal masked passwords."
-
-### Tournament Defaults
-
-**[Show: Tournament Defaults section]**
-
-> "These defaults apply to all tournaments. Game Eligibility Cooldown — how many days a game must wait before it can be picked again. This prevents the same games from being picked over and over."
-
-> "Winner Pick Window — when someone wins a round, they get this many minutes to pick the next game. If they don't pick in time, it falls to the runner-up for the Runner-up Pick Window. After that, the system auto-selects."
-
-> "Bot Timezone — set this to your community's timezone. All schedules use this."
-
-### Theme & Platforms
-
-**[Show: Theme selector, click through all 3]**
-
-> "Choose a visual theme. Arcade gives you the neon glow look, Dark is a clean dark mode, and Light is a standard light theme. This applies to your public pages."
-
-**[Show: Platforms section, add one]**
-
-> "Platforms define what gaming systems your room supports. Add platforms like AtGames, VPXS, VR, or IRL. These get used later when you set up tournament platform rules."
-
-### User Management
-
-**[Show: User Management section]**
-
-> "Finally, you can manage who has admin access. Add Discord admins by username, or use the invite system to create local admin accounts. Click Send Invite, copy the link, and share it — the new admin creates their own password."
-
-**[Click Save for any changed setting]**
-
-> "Settings auto-save when you change them. Now let's build our game library."
-
----
-
-## SECTION 3: Game Library (2 minutes)
-
-**[Click Game Library in sidebar]**
-
-> "The Game Library is your catalog of every game available for tournaments. You have four ways to add games."
-
-**[Click Import from VPS]**
-
-> "The fastest way — Import from VPS pulls hundreds of pinball tables from the Virtual Pinball Spreadsheet. One click and they're all imported."
-
-**[Show: success toast]**
-
-> "Import VPXS Wizard does the same for VPXS Wizard tables. You can also upload a CSV, or add games one at a time with the form at the top."
-
-**[Show: game table with filters]**
-
-> "Once imported, you can search, filter by platform, sort by any column, and rate games. The star ratings help your community surface favorites."
-
-**[Click Edit on a game, show modal]**
-
-> "Click Edit to change a game's name, mode, platforms, or styling. You can tag games as Pinball or Video Game — this changes the terminology used in Discord announcements and the admin UI."
-
-> "Now that we have games, let's create a tournament."
-
----
-
-## SECTION 4: Tournaments (3 minutes)
-
-**[Click Tournaments in sidebar]**
-
-> "Tournaments are the heart of ArcAid. Each tournament runs on its own schedule and pulls games from your library."
-
-### Creating a Tournament
-
-**[Fill in the Create form step by step]**
-
-> "Let's create a Daily tournament. Name it 'Daily Grind'. The Tag is a short code — type 'DG'. This gets used as a prefix on iScored."
-
-> "Mode — choose Pinball. This controls the language used everywhere. Pinball mode says 'table', Video Game mode says 'game'."
-
-**[Show: Schedule Builder]**
-
-> "For the schedule, select Daily, set the time, and choose your timezone. Weekly and Monthly options let you pick a specific day. Monthly even supports 'Last day' for end-of-month rotations."
-
-> "Max Active Games controls how many games run at once. For a daily tournament, one is typical. For a weekly, you might run two or three simultaneously."
-
-**[Show: Cleanup Rule dropdown]**
-
-> "Cleanup Rule determines what happens to finished games on iScored. Immediate Hide clears them right away. Retain Last keeps a history. Scheduled lets you clean up on a separate schedule."
-
-**[Show: Platform Rules]**
-
-> "If you have multiple platforms, you can require or exclude specific ones. For example, a 'VPXS Weekly' tournament might require the VPXS platform so only VPXS games are eligible."
-
-**[Click Create Tournament]**
-
-> "Click Create Tournament. It appears in the list below with its schedule summary."
-
-### Active Games & Management
-
-**[Show: tournament list and Active Games section]**
-
-> "Below the tournament list, Active Games shows what's currently running. You can deactivate a game early — either locking it on iScored or just updating the database."
-
-> "Edit any tournament by clicking Edit. Delete removes it entirely. Sync iScored Lineup reorders games on iScored to match your display order settings."
-
----
-
-## SECTION 5: Leaderboard & Rankings (1.5 minutes)
-
-**[Click Leaderboard in sidebar]**
-
-> "The Leaderboard shows live scores for all active games. Each card displays the top 10 players. Click any row to expand and see all of that player's score submissions."
-
-**[Show: ranking cards if available]**
-
-> "If you've set up ranking groups, they appear here too with a purple accent — showing overall standings across tournaments."
-
-**[Click Rankings in sidebar]**
-
-> "Rankings let you aggregate scores across multiple tournaments into one overall leaderboard. Click Create Ranking Group, give it a name, and choose a method."
-
-> "Max 10 awards points to the top 10 finishers on each game. Average Rank uses average finishing position. PAPA and Linear scoring use different point scales. Pick what fits your community's style."
-
-> "Select which tournaments to include, set how many games count, and save."
-
----
-
-## SECTION 6: Stats & History (1 minute)
-
-**[Click Stats in sidebar]**
-
-> "Stats shows all your players with their games played, best score, and average. Click any player to see their full profile — wins, win rate, recent scores, and best game."
-
-**[Use game search box]**
-
-> "Use the game search to look up all-time records for any game."
-
-**[Click History in sidebar]**
-
-> "History is your complete record of completed games. Filter by tournament or type. You can see every winner and winning score going back to the beginning."
-
----
-
-## SECTION 7: Discord Commands (2 minutes)
-
-**[Switch to Discord, show the test server]**
-
-> "Now let's look at the Discord side. Your players interact with ArcAid through slash commands."
-
-**[Type /list-active, show result]**
-
-> "Slash list-active shows what games are currently running across all tournaments."
-
-**[Type /list-scores, show result]**
-
-> "Slash list-scores shows the leaderboard. Players can filter by user and paginate through results."
-
-**[Type /submit-score, show the form]**
-
-> "Slash submit-score is how players submit their scores. They enter the score and attach a photo. The first time they use it, ArcAid automatically links their Discord account to their iScored username."
-
-**[Type /my-stats, show result]**
-
-> "Slash my-stats gives players a personal stats card — wins, win rate, average, best score, and recent games."
-
-**[Brief mention of admin commands]**
-
-> "As an admin, you also have commands like slash force-maintenance to trigger a rotation manually, slash activate-game to start a specific game, and slash setup to configure the bot. The full command reference is in your How-To guide."
-
----
-
-## SECTION 8: Public Pages (1 minute)
-
-**[Open the public scoreboard in a new tab]**
-
-> "Every game room has public pages that anyone can visit. Share your scoreboard URL with your community — no login required."
-
-**[Show: scoreboard]**
-
-> "The scoreboard shows live scores for all active games, just like the admin leaderboard."
-
-**[Navigate to /players]**
-
-> "The Players page lists everyone with their stats. Click any player for their full profile."
-
-**[Navigate to /games]**
-
-> "Game Availability shows which games are eligible to be picked — green for available, with a cooldown timer for recently played games. There's even a random game picker for when you can't decide."
-
-**[Click Pick Random Game, show the pinball animation]**
-
-> "Click Pick Random Game for a fun pinball-themed random selection."
-
----
-
-## OUTRO (30 seconds)
+> "Enter your username and password and click Log In. You can also use Discord OAuth if your account is linked."
 
 **[Show: Dashboard]**
 
-> "That's everything you need to get your game room up and running. To recap: configure your settings, import your game library, create your tournaments, and share the public scoreboard with your community. ArcAid handles the rest — automated rotations, score tracking, winner announcements, and picker assignments."
+> "You're in. The setup checklist at the top shows exactly what needs to be configured. Let's knock these out."
 
-> "If you have questions, reach out to your ArcAid administrator. Happy gaming!"
+---
 
-**[Show: ArcAid logo / landing page]**
+## Step 2: Configure Settings (60 seconds)
+
+**[Click Settings in sidebar]**
+
+> "Click Settings. Three things matter right now: Discord, iScored, and Tournament Defaults."
+
+**[Scroll to Discord section]**
+
+> "Discord — paste your Guild ID, announcement channel ID, and admin role ID. Quick tip: enable Developer Mode in Discord settings to copy these."
+
+**[Scroll to iScored section]**
+
+> "iScored — enter the username, password, and public URL for your room's iScored account. ArcAid uses these to automate game creation and score tracking."
+
+**[Scroll to Tournament Defaults]**
+
+> "Tournament Defaults — set your timezone and pick windows. The cooldown prevents the same game from being picked back-to-back."
+
+**[Click Save All Changes]**
+
+> "Save. Done. Now let's add some games."
+
+---
+
+## Step 3: Import Games (30 seconds)
+
+**[Click Game Library in sidebar]**
+
+> "Click Game Library, then Import from VPS to pull in the full Virtual Pinball Spreadsheet catalog."
+
+**[Click Import from VPS, show success toast]**
+
+> "That's hundreds of games, imported in seconds. You can also use Import VPXS Wizard for Wizard tables, or upload a CSV."
+
+---
+
+## Step 4: Create a Tournament (45 seconds)
+
+**[Click Tournaments in sidebar]**
+
+> "Click Tournaments. Give it a name — 'Daily Grind'. Tag: 'DG'. Mode: Pinball."
+
+**[Fill in Schedule Builder]**
+
+> "Set the schedule to Daily, pick your time and timezone. Leave Max Active Games at 1 for daily tournaments."
+
+**[Click Create Tournament]**
+
+> "Click Create Tournament. It's live. ArcAid will automatically rotate games on your schedule, scrape scores, pick winners, and announce in Discord."
+
+---
+
+## OUTRO (15 seconds)
+
+**[Show: Dashboard with setup checklist now mostly complete]**
+
+> "That's it — your room is running. Share your public scoreboard URL with your community and check out the Deep Dive video for rankings, stats, Discord commands, and more."
+
+**[Show: End card with Deep Dive link]**
+
+---
+
+# Part 2: Deep Dive (8 minutes)
+
+**Audience:** Room admins who completed Quick Start
+**Goal:** Advanced features, Discord commands, public pages
+**Tone:** Thorough but efficient
+
+## Pre-Recording Setup
+
+- Demo room with games imported, 1-2 tournaments running, scores submitted
+- Discord test server with bot active
+- Browser zoomed to 110%
+
+---
+
+## INTRO (15 seconds)
+
+**[Show: Dashboard with active tournaments]**
+
+> "Your room is set up — now let's explore what ArcAid can do. We'll cover the leaderboard, rankings, stats, Discord commands, and public pages."
+
+---
+
+## Leaderboard (1.5 minutes)
+
+**[Click Leaderboard in sidebar]**
+
+> "The Leaderboard shows live scores for every active game. Each card shows the top 10 players for that game."
+
+**[Click a score row to expand]**
+
+> "Click any row to expand all of that player's score submissions — useful for verifying entries."
+
+**[Point out ranking cards if visible]**
+
+> "Ranking group cards appear alongside games with a purple accent — these show overall standings across multiple tournaments."
+
+> "Scores update in real-time. When a player submits via Discord, it appears here within seconds."
+
+---
+
+## Rankings (1.5 minutes)
+
+**[Click Rankings in sidebar]**
+
+> "Rankings aggregate scores across tournaments into a single overall leaderboard. Click Create Ranking Group."
+
+**[Fill in name, select method]**
+
+> "Give it a name. Then choose a ranking method. Max 10 awards points to the top 10 finishers — 100 for first, down to 5 for tenth. Average Rank ranks by average finishing position. PAPA and Linear use different point curves."
+
+**[Set Best N Games, select tournaments]**
+
+> "Best N Games means only a player's top scores count — so 'Best 25' out of 50 games played. Set the minimum games threshold to prevent someone with one lucky win from topping the board."
+
+**[Check tournament boxes, click Save]**
+
+> "Select which tournaments feed into this ranking and save. Rankings recalculate automatically when new scores come in."
+
+---
+
+## Stats & History (1 minute)
+
+**[Click Stats in sidebar]**
+
+> "Stats shows every player with games played, best score, and average. Click any player name for the full breakdown — wins, win rate, and recent scores."
+
+**[Click a player, show detail]**
+
+> "Here's their stats card. You can see exactly which games they've dominated."
+
+**[Use game search]**
+
+> "Search for any game to see its all-time records, who holds the high score, and how many times it's been played."
+
+**[Click History in sidebar]**
+
+> "History shows every completed game with its winner, score, and date. Filter by tournament to narrow it down."
+
+---
+
+## Discord Commands (2 minutes)
+
+**[Switch to Discord]**
+
+> "Your players interact with ArcAid through Discord slash commands. Let's run through the key ones."
+
+**[Type /list-active]**
+
+> "Slash list-active shows what's currently running across all tournaments."
+
+**[Type /list-scores]**
+
+> "Slash list-scores shows the leaderboard for active games. Players can filter by user."
+
+**[Type /submit-score, show form]**
+
+> "Slash submit-score is how players submit scores. They enter a number and attach a photo. On first use, ArcAid automatically links their Discord to their iScored username."
+
+**[Type /my-stats]**
+
+> "Slash my-stats shows a personal stats card — wins, win rate, best score, and recent games."
+
+**[Type /pick-game]**
+
+> "When someone wins a round, they get nominated to pick the next game. Slash pick-game shows only eligible games — those past the cooldown period."
+
+**[Brief admin commands]**
+
+> "Admin commands need the admin role. Slash force-maintenance triggers a rotation manually. Slash activate-game starts a specific game. Slash deactivate-game ends one early. The full list is in your Help page inside the admin panel."
+
+---
+
+## Public Pages (1 minute)
+
+**[Open public scoreboard in new tab]**
+
+> "Every room has public pages — no login required. Share your scoreboard URL with your community."
+
+**[Show: scoreboard]**
+
+> "The scoreboard shows live game scores, same as the admin leaderboard."
+
+**[Navigate to /players]**
+
+> "Players page lists everyone with stats. Click through for individual profiles."
+
+**[Navigate to /games]**
+
+> "Game Availability shows which games can be picked — green for available, amber for on cooldown."
+
+**[Click Pick Random Game]**
+
+> "The random picker is a fun way to choose when it's your turn. It's cosmetic only — doesn't assign anything, just suggests."
+
+**[Show mobile view]**
+
+> "Everything works on mobile too — scoreboard, player profiles, game availability."
+
+---
+
+## Advanced Settings (1 minute)
+
+**[Switch back to admin, click Settings]**
+
+> "A few more settings worth knowing."
+
+**[Show: Theme selector]**
+
+> "Three themes — Arcade with neon glow, Dark for a clean look, and Light. This applies to your public pages. You can also set a personal override for your admin panel."
+
+**[Show: Platforms editor]**
+
+> "Platforms let you categorize games by system — AtGames, VPXS, VR, IRL. Tournaments can then require or exclude specific platforms."
+
+**[Show: User Management]**
+
+> "The invite system creates one-time links for new admins. They click the link, set a password, and they're in. You can also add Discord admins who log in via OAuth."
+
+**[Show: Merge Player]**
+
+> "Merge Player fixes username typos — enter the old name and the correct name, and all scores, submissions, and mappings get updated."
+
+---
+
+## OUTRO (15 seconds)
+
+**[Show: Dashboard]**
+
+> "That's ArcAid. Automated tournaments, live leaderboards, Discord integration, and public pages for your community. If you need help, check the Help page in your admin sidebar or reach out to your ArcAid administrator."
 
 ---
 
@@ -273,9 +280,10 @@
 
 Capture these clips separately to cut in during editing:
 
-- Discord bot posting a tournament rotation announcement
-- A player using `/submit-score` with a photo
-- The pick system in action (winner nomination message in Discord)
-- Mobile view of the scoreboard
-- Theme switching (quick cuts between all 3)
-- The pinball random picker animation (full run)
+- Discord bot posting a tournament rotation announcement with embed
+- A player using `/submit-score` with a score photo attached
+- The pick system in action (winner nomination → pick-game → new game announced)
+- Mobile view of the scoreboard (phone or responsive browser)
+- Theme switching (quick cuts between Arcade → Dark → Light)
+- The pinball random picker animation (full run, ball bouncing through pegs)
+- iScored website showing a game that ArcAid created automatically

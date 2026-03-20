@@ -26,6 +26,7 @@ import Rankings from './pages/Rankings';
 import Stats from './pages/Stats';
 import History from './pages/History';
 import Settings from './pages/Settings';
+import Help from './pages/Help';
 
 // Pages — Public
 import Scoreboard from './pages/Scoreboard';
@@ -82,6 +83,7 @@ function App() {
           <Route path="stats" element={<Stats />} />
           <Route path="history" element={<History />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="help" element={<Help />} />
         </Route>
 
         {/* Public room routes */}

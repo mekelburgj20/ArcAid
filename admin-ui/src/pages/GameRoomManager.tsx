@@ -6,6 +6,7 @@ import NeonButton from '../components/NeonButton';
 import DataTable from '../components/DataTable';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
+import { Copy, Check } from 'lucide-react';
 
 interface Room {
   id: string;
@@ -112,6 +113,43 @@ export default function GameRoomManager() {
     setShowCreate(false);
   };
 
+  const [copiedRoomId, setCopiedRoomId] = useState<string | null>(null);
+
+  const copyOnboardingMessage = async (room: Room) => {
+    const origin = window.location.origin;
+    const message = [
+      `Welcome to ArcAid! Here's everything you need to get started with your game room "${room.name}".`,
+      ``,
+      `LOGIN`,
+      `URL: ${origin}/${room.slug}/login`,
+      `(Your username and password have been provided separately.)`,
+      ``,
+      `PUBLIC SCOREBOARD`,
+      `Share this with your community: ${origin}/${room.slug}/`,
+      ``,
+      `QUICK SETUP`,
+      `1. Log in and go to Settings`,
+      `2. Enter your Discord Guild ID, Announcement Channel ID, and Admin Role ID`,
+      `3. Enter your iScored credentials and Public URL`,
+      `4. Set your timezone in Tournament Defaults`,
+      `5. Go to Game Library and import games (VPS or VPXS Wizard)`,
+      `6. Go to Tournaments and create your first tournament`,
+      ``,
+      `HELP`,
+      `Your admin panel has a Help page in the sidebar with a complete setup guide and Discord command reference.`,
+      ``,
+      `Game Availability: ${origin}/${room.slug}/games`,
+      `Player Stats: ${origin}/${room.slug}/players`,
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopiedRoomId(room.id);
+      setTimeout(() => setCopiedRoomId(null), 2000);
+    } catch {
+      toast('Failed to copy', 'error');
+    }
+  };
+
   const autoSlug = (name: string) => {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   };
@@ -142,6 +180,14 @@ export default function GameRoomManager() {
       className: 'text-right',
       render: (item: Room) => (
         <div className="flex gap-2 justify-end">
+          <NeonButton
+            variant="ghost"
+            onClick={() => copyOnboardingMessage(item)}
+            className="text-xs px-2 py-1"
+            title="Copy onboarding message to clipboard"
+          >
+            {copiedRoomId === item.id ? <><Check size={14} className="text-neon-green" /> Copied</> : <><Copy size={14} /> Onboard</>}
+          </NeonButton>
           <NeonButton variant="ghost" onClick={() => startEdit(item)}>Edit</NeonButton>
           <NeonButton variant="danger" onClick={() => setDeleteTarget(item)}>Delete</NeonButton>
         </div>

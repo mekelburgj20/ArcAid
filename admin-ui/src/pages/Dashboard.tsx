@@ -6,6 +6,7 @@ import StatusBadge from '../components/StatusBadge';
 import TournamentBadge from '../components/TournamentBadge';
 import ScoreDisplay from '../components/ScoreDisplay';
 import LoadingState from '../components/LoadingState';
+import SetupChecklist from '../components/SetupChecklist';
 
 interface DashboardData {
   activeTournaments: Array<{
@@ -57,6 +58,9 @@ export default function Dashboard() {
   return (
     <div>
       <h1 className="font-display text-2xl font-bold mb-6">Dashboard</h1>
+
+      {/* Setup Progress Checklist */}
+      <SetupChecklist roomId={room.roomId} roomSlug={room.roomSlug} />
 
       {error && (
         <NeonCard glowColor="magenta" className="mb-6">
