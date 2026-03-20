@@ -368,15 +368,15 @@ export default function Settings() {
                 const newTheme = val || null;
                 setUserTheme(newTheme);
                 // Persist to server
-                api.post(`/rooms/${room.roomId}/me/preferences`, { ui_theme: newTheme }).catch(() => {
+                api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
                   toast('Failed to save theme preference', 'error');
                 });
               }}
               className={inputClass}
             >
               <option value="">(Use Global Default)</option>
-              {Object.entries(THEMES).map(([id, { label }]) => (
-                <option key={id} value={id}>{label}</option>
+              {Object.entries(THEMES).map(([id, { label, description }]) => (
+                <option key={id} value={id}>{label} — {description}</option>
               ))}
             </select>
             <p className="text-xs text-muted mt-1">Overrides the global theme for your admin session only. Does not affect other admins or the public portal.</p>
