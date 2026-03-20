@@ -52,6 +52,9 @@ function injectDefaultRoom(req: express.Request, res: express.Response, next: ex
 export function startApiServer(port: number = 3001) {
     const app = express();
 
+    // Trust proxy (Caddy/nginx in front of Docker)
+    app.set('trust proxy', 1);
+
     // --- Security Headers ---
     app.use(helmet({
         contentSecurityPolicy: false,  // CSP handled by frontend build
