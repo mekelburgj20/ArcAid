@@ -8,6 +8,7 @@ import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import StarRating from '../components/StarRating';
 import ConfirmModal from '../components/ConfirmModal';
+import StylePicker from '../components/StylePicker';
 
 interface GameRow {
   name: string;
@@ -20,6 +21,8 @@ interface GameRow {
   css_box: string;
   bg_color: string;
   platforms: string;
+  catalogue_style_id?: string | null;
+  style_header_disabled?: number;
 }
 
 const emptyGame: GameRow = {
@@ -99,6 +102,9 @@ export default function GameLibrary() {
   const [activateTarget, setActivateTarget] = useState<string | null>(null);
   const [tournaments, setTournaments] = useState<TournamentOption[]>([]);
   const [activatingFor, setActivatingFor] = useState<string | null>(null);
+
+  // Style picker
+  const [styleTarget, setStyleTarget] = useState<GameRow | null>(null);
 
   // Selection + delete
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -561,6 +567,15 @@ export default function GameLibrary() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         {room && <NeonButton variant="ghost" onClick={() => setActivateTarget(g.name)} className="text-xs px-2 py-1">Activate</NeonButton>}
+                        {room && (
+                          <NeonButton
+                            variant={g.catalogue_style_id ? 'secondary' : 'ghost'}
+                            onClick={() => setStyleTarget(g)}
+                            className="text-xs px-2 py-1"
+                          >
+                            Style
+                          </NeonButton>
+                        )}
                         <NeonButton variant="ghost" onClick={() => openEdit(g)} className="text-xs px-2 py-1">Edit</NeonButton>
                       </div>
                     </td>
@@ -659,6 +674,33 @@ export default function GameLibrary() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Style Picker for room library games */}
+      {styleTarget && room && (
+        <StylePicker
+          currentStyleId={styleTarget.catalogue_style_id}
+          headerDisabled={styleTarget.style_header_disabled === 1}
+          onClose={() => setStyleTarget(null)}
+          onSelect={async (styleId, headerDisabled) => {
+            try {
+              if (styleId) {
+                await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
+                  catalogueStyleId: styleId,
+                  headerDisabled,
+                });
+                toast('Default style set', 'success');
+              } else {
+                await api.delete(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`);
+                toast('Default style cleared', 'success');
+              }
+              fetchGames();
+            } catch (err: any) {
+              toast(err.message, 'error');
+            }
+            setStyleTarget(null);
+          }}
+        />
       )}
     </div>
   );

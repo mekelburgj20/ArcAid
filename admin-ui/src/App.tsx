@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider } from './components/ThemeProvider';
 
@@ -41,6 +41,11 @@ import RoomLogin from './pages/RoomLogin';
 import DiscordCallback from './pages/DiscordCallback';
 import InviteAccept from './pages/InviteAccept';
 
+function NavigateToRoomLogin() {
+  const { slug } = useParams();
+  return <Navigate to={`/${slug}/login`} replace />;
+}
+
 function App() {
   const [, setAuthed] = useState(false);
 
@@ -73,6 +78,9 @@ function App() {
 
         {/* Room login */}
         <Route path="/:slug/login" element={<RoomLogin onLogin={() => setAuthed(true)} />} />
+
+        {/* Redirect /:slug/admin/login → /:slug/login */}
+        <Route path="/:slug/admin/login" element={<NavigateToRoomLogin />} />
 
         {/* Room admin routes */}
         <Route path="/:slug/admin" element={<RoomAdminLayout />}>

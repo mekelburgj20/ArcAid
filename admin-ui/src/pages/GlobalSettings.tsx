@@ -187,7 +187,7 @@ export default function GlobalSettings() {
         <div className="flex gap-2">
           <input
             type="text"
-            placeholder="Discord username or ID"
+            placeholder="e.g. @DiscordUser or 123456789012345678"
             value={newAdminId}
             onChange={e => setNewAdminId(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAddSuperAdmin()}

@@ -657,6 +657,37 @@ router.put('/:roomId/game_library/:name', requireAuth, requireRoomAccess('roomId
     }
 });
 
+// Set default catalogue style for a game in room's library
+router.put('/:roomId/game_library/:name/style', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const gameName = decodeURIComponent(req.params.name as string);
+        const validationResult = validate(AssignStyleSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const { catalogueStyleId, headerDisabled } = validationResult.data;
+        const updated = await GameLibraryService.setRoomGameStyle(
+            req.params.roomId as string, gameName, catalogueStyleId, headerDisabled
+        );
+        if (!updated) return res.status(404).json({ error: 'Game not found in room library' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/game_library/:name/style):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Clear default catalogue style for a game in room's library
+router.delete('/:roomId/game_library/:name/style', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const gameName = decodeURIComponent(req.params.name as string);
+        await GameLibraryService.setRoomGameStyle(req.params.roomId as string, gameName, null, false);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/game_library/:name/style):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.post('/:roomId/game_library/delete', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const { names } = req.body;

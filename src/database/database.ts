@@ -340,6 +340,8 @@ export async function initDatabase(): Promise<Database> {
         ` },
         { name: '016_games_catalogue_style_id', sql: `ALTER TABLE games ADD COLUMN catalogue_style_id TEXT` },
         { name: '017_games_style_header_disabled', sql: `ALTER TABLE games ADD COLUMN style_header_disabled INTEGER DEFAULT 0` },
+        { name: '018_room_library_catalogue_style', sql: `ALTER TABLE game_room_game_library ADD COLUMN catalogue_style_id TEXT` },
+        { name: '019_room_library_style_header_disabled', sql: `ALTER TABLE game_room_game_library ADD COLUMN style_header_disabled INTEGER DEFAULT 0` },
     ];
 
     for (const migration of migrations) {

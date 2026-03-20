@@ -60,7 +60,12 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
           const role = payload.role as string | undefined;
 
           if (role === 'super_admin') {
-            window.location.href = '/admin/dashboard';
+            // If login was initiated from a room page, go to that room's admin
+            if (state && state !== '__super__') {
+              window.location.href = `/${state}/admin/dashboard`;
+            } else {
+              window.location.href = '/admin/dashboard';
+            }
             return;
           }
 

@@ -209,10 +209,36 @@ export class GameLibraryService {
     static async getForRoom(gameRoomId: string): Promise<any[]> {
         const db = await getDatabase();
         return db.all(
-            `SELECT gl.* FROM game_library gl
+            `SELECT gl.*, grgl.catalogue_style_id, grgl.style_header_disabled
+             FROM game_library gl
              JOIN game_room_game_library grgl ON gl.name = grgl.game_name
              WHERE grgl.game_room_id = ?`,
             gameRoomId
+        );
+    }
+
+    /**
+     * Set or clear the default catalogue style for a game in a room's library.
+     */
+    static async setRoomGameStyle(gameRoomId: string, gameName: string, catalogueStyleId: string | null, headerDisabled: boolean = false): Promise<boolean> {
+        const db = await getDatabase();
+        const result = await db.run(
+            `UPDATE game_room_game_library SET catalogue_style_id = ?, style_header_disabled = ?
+             WHERE game_room_id = ? AND game_name = ?`,
+            catalogueStyleId, headerDisabled ? 1 : 0, gameRoomId, gameName
+        );
+        return (result.changes || 0) > 0;
+    }
+
+    /**
+     * Get the default catalogue style for a game in a room's library.
+     */
+    static async getRoomGameStyle(gameRoomId: string, gameName: string): Promise<{ catalogue_style_id: string | null; style_header_disabled: number } | undefined> {
+        const db = await getDatabase();
+        return db.get(
+            `SELECT catalogue_style_id, style_header_disabled FROM game_room_game_library
+             WHERE game_room_id = ? AND game_name = ?`,
+            gameRoomId, gameName
         );
     }
 

@@ -84,6 +84,22 @@ export class TournamentEngine {
             game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, game.startDate?.toISOString()
         );
 
+        // Auto-apply default catalogue style from room's game library (if set)
+        const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+        if (tournament?.game_room_id) {
+            const libraryStyle = await db.get(
+                `SELECT catalogue_style_id, style_header_disabled FROM game_room_game_library
+                 WHERE game_room_id = ? AND game_name = ? AND catalogue_style_id IS NOT NULL`,
+                tournament.game_room_id, gameName
+            );
+            if (libraryStyle) {
+                await db.run(
+                    'UPDATE games SET catalogue_style_id = ?, style_header_disabled = ? WHERE id = ?',
+                    libraryStyle.catalogue_style_id, libraryStyle.style_header_disabled, game.id
+                );
+            }
+        }
+
         return game;
     }
 

@@ -53,7 +53,7 @@ export default function RoomLogin({ onLogin }: { onLogin: () => void }) {
         client_id: data.clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
-        scope: 'identify guilds.members.read',
+        scope: 'identify',
         state: slug || '',
       });
       window.location.href = `https://discord.com/api/oauth2/authorize?${params}`;
