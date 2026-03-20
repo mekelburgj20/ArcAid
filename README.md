@@ -14,7 +14,7 @@
 - **Cross-tournament rankings** — Ranking groups with 4 scoring methods
 - **Game library imports** — Bulk import from Virtual Pinball Spreadsheet (VPS) and VPXS Wizard Tables
 - **Admin invite system** — One-time invite links with optional Discord DM delivery for onboarding room admins
-- **3 UI themes** — Arcade (neon), Dark, and Light — per-user preference
+- **2 UI themes** — Dark and Light — per-user preference
 - **Public pages** — Scoreboard, player profiles, game details, and game availability — no login required
 - **Mobile-responsive** — Full functionality on phones and tablets
 
@@ -125,7 +125,7 @@ npm run dev            # Vite dev server with HMR
 | Game Eligibility Cooldown | Days before a previously played game can be picked again |
 | Winner Pick Window | Minutes the winner has to pick the next game |
 | Runner-up Pick Window | Minutes for runner-up fallback if winner doesn't pick |
-| UI Theme | Theme for public pages (Arcade, Dark, or Light) |
+| UI Theme | Theme for public pages (Dark or Light) |
 | Callouts | Easter egg — bot responds to trigger words from `data/callouts.json` |
 
 ### Tournament Settings

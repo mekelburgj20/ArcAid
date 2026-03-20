@@ -34,7 +34,7 @@ router.get('/:roomId/portal', async (req, res) => {
             name: room.name,
             description: room.description || '',
             logo_url: room.logo_url || null,
-            ui_theme: uiTheme || 'arcade',
+            ui_theme: uiTheme || 'dark',
         });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/portal):', error);

@@ -1,8 +1,8 @@
 import { getDatabase } from '../database/database.js';
 
-export type ThemeId = 'arcade' | 'dark' | 'light';
+export type ThemeId = 'dark' | 'light';
 
-export const VALID_THEMES: ThemeId[] = ['arcade', 'dark', 'light'];
+export const VALID_THEMES: ThemeId[] = ['dark', 'light'];
 
 export class PreferencesService {
     /**
@@ -15,7 +15,9 @@ export class PreferencesService {
             'SELECT ui_theme FROM user_preferences WHERE discord_user_id = ?',
             discordUserId
         );
-        return (row?.ui_theme as ThemeId) || null;
+        const theme = row?.ui_theme;
+        if (!theme) return null;
+        return (theme === 'arcade' ? 'dark' : theme) as ThemeId;
     }
 
     /**

@@ -1,11 +1,10 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, isAuthenticated } from '../lib/api';
 
-export type ThemeId = 'arcade' | 'dark' | 'light';
+export type ThemeId = 'dark' | 'light';
 
 export const THEMES: Record<ThemeId, { label: string; description: string }> = {
-  arcade: { label: 'Arcade (Original)', description: 'Neon-on-dark arcade cabinet theme with CRT scanlines' },
-  dark: { label: 'Dark', description: 'Deep indigo dark theme with softer accent colors' },
+  dark: { label: 'Dark', description: 'Deep indigo dark theme with accent colors' },
   light: { label: 'Light', description: 'Clean light theme for daytime use' },
 };
 
@@ -25,9 +24,9 @@ const STORAGE_GLOBAL_KEY = 'arcaid-theme-global';
 
 function applyThemeClass(theme: ThemeId) {
   const root = document.documentElement;
-  root.classList.remove('theme-dark', 'theme-light');
-  if (theme !== 'arcade') {
-    root.classList.add(`theme-${theme}`);
+  root.classList.remove('theme-light');
+  if (theme === 'light') {
+    root.classList.add('theme-light');
   }
 }
 
@@ -35,7 +34,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // Initialize from localStorage for instant rendering (no flash)
   const [globalTheme, setGlobalThemeState] = useState<ThemeId>(() => {
     const stored = localStorage.getItem(STORAGE_GLOBAL_KEY);
-    return (stored as ThemeId) || 'arcade';
+    return (stored as ThemeId) || 'dark';
   });
   const [userTheme, setUserThemeState] = useState<ThemeId | null>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);

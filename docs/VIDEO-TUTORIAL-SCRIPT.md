@@ -252,7 +252,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Show: Theme selector]**
 
-> "Three themes — Arcade with neon glow, Dark for a clean look, and Light. This applies to your public pages. You can also set a personal override for your admin panel."
+> "Two themes — Dark for a sleek look, and Light for daytime use. This applies to your public pages. You can also set a personal override for your admin panel."
 
 **[Show: Platforms editor]**
 
@@ -284,6 +284,6 @@ Capture these clips separately to cut in during editing:
 - A player using `/submit-score` with a score photo attached
 - The pick system in action (winner nomination → pick-game → new game announced)
 - Mobile view of the scoreboard (phone or responsive browser)
-- Theme switching (quick cuts between Arcade → Dark → Light)
+- Theme switching (quick cut between Dark → Light)
 - The pinball random picker animation (full run, ball bouncing through pegs)
 - iScored website showing a game that ArcAid created automatically

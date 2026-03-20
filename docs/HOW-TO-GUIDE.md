@@ -112,9 +112,8 @@ These credentials allow ArcAid to automate game creation, locking, and score ret
 ### Theme
 
 Choose the visual theme for your public-facing pages:
-- **Arcade** — Neon glow aesthetic with dark background (default)
-- **Dark** — Clean dark theme without neon effects
-- **Light** — Standard light theme
+- **Dark** — Deep indigo dark theme with accent colors (default)
+- **Light** — Clean light theme for daytime use
 
 You can set a global theme for all visitors, and optionally set a personal override for your own admin experience.
 

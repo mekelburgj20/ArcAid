@@ -316,9 +316,8 @@ export default function Help() {
         <NeonCard title="Theme" className="mb-4">
           <p className="text-primary text-sm mb-3">Choose the visual theme for your public-facing pages:</p>
           <ul className="space-y-2 text-sm mb-4">
-            <li><span className="text-neon-cyan font-medium">Arcade</span> <span className="text-muted">&mdash; Neon glow aesthetic with dark background (default)</span></li>
-            <li><span className="text-neon-green font-medium">Dark</span> <span className="text-muted">&mdash; Clean dark theme without neon effects</span></li>
-            <li><span className="text-neon-amber font-medium">Light</span> <span className="text-muted">&mdash; Standard light theme</span></li>
+            <li><span className="text-neon-cyan font-medium">Dark</span> <span className="text-muted">&mdash; Deep indigo dark theme with accent colors (default)</span></li>
+            <li><span className="text-neon-amber font-medium">Light</span> <span className="text-muted">&mdash; Clean light theme for daytime use</span></li>
           </ul>
           <p className="text-muted text-sm">
             You can set a <strong className="text-primary">Global Theme</strong> for all visitors, and optionally set a

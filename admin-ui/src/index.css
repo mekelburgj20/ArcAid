@@ -1,31 +1,31 @@
 @import "tailwindcss";
 @source "./**/*.{ts,tsx}";
 
-/* === Arcade Command Center Theme === */
+/* === Dark Theme (Default) === */
 
 @theme {
   /* Backgrounds */
-  --color-deep: #0a0a14;
-  --color-surface: #12121f;
-  --color-raised: #1a1a2e;
+  --color-deep: oklch(21.15% 0.012 254.09);
+  --color-surface: oklch(23.26% 0.014 253.1);
+  --color-raised: oklch(25.33% 0.016 252.42);
 
   /* Borders */
-  --color-border: #2a2a4a;
-  --color-border-glow: #4a4a8a;
+  --color-border: oklch(35% 0.02 255);
+  --color-border-glow: oklch(58% 0.233 277.117);
 
-  /* Neon Accents */
-  --color-neon-cyan: #00d4ff;
-  --color-neon-magenta: #ff00aa;
-  --color-neon-green: #39ff14;
-  --color-neon-amber: #ffaa00;
-  --color-neon-purple: #aa00ff;
-  --color-neon-coral: #ff6b6b;
-  --color-neon-blue: #4d88ff;
+  /* Accents */
+  --color-neon-cyan: oklch(74% 0.16 232.661);
+  --color-neon-magenta: oklch(65% 0.241 354.308);
+  --color-neon-green: oklch(76% 0.177 163.223);
+  --color-neon-amber: oklch(82% 0.189 84.429);
+  --color-neon-purple: oklch(58% 0.233 277.117);
+  --color-neon-coral: oklch(71% 0.194 13.428);
+  --color-neon-blue: oklch(74% 0.16 232.661);
 
   /* Text */
-  --color-primary: #e8e8f0;
-  --color-muted: #8888aa;
-  --color-faint: #44445a;
+  --color-primary: oklch(97.807% 0.029 256.847);
+  --color-muted: oklch(70% 0.02 255);
+  --color-faint: oklch(45% 0.015 255);
 
   /* Fonts */
   --font-display: "Orbitron", sans-serif;
@@ -36,31 +36,12 @@
 
 /*
  * Theme overrides via CSS custom properties.
- * The arcade theme is the default (values in @theme above).
- * Additional themes override colors via class on <html>.
+ * Dark is the default (values in @theme above).
+ * Light theme overrides colors via .theme-light on <html>.
  * Tailwind utilities (bg-deep, text-primary, etc.) work because
  * the @theme block defines the token names, and the browser
  * resolves the CSS variables at runtime.
  */
-
-/* Dark theme (daisyUI-inspired deep indigo) */
-.theme-dark {
-  --color-deep: oklch(21.15% 0.012 254.09);
-  --color-surface: oklch(23.26% 0.014 253.1);
-  --color-raised: oklch(25.33% 0.016 252.42);
-  --color-border: oklch(35% 0.02 255);
-  --color-border-glow: oklch(58% 0.233 277.117);
-  --color-neon-cyan: oklch(74% 0.16 232.661);
-  --color-neon-magenta: oklch(65% 0.241 354.308);
-  --color-neon-green: oklch(76% 0.177 163.223);
-  --color-neon-amber: oklch(82% 0.189 84.429);
-  --color-neon-purple: oklch(58% 0.233 277.117);
-  --color-neon-coral: oklch(71% 0.194 13.428);
-  --color-neon-blue: oklch(74% 0.16 232.661);
-  --color-primary: oklch(97.807% 0.029 256.847);
-  --color-muted: oklch(70% 0.02 255);
-  --color-faint: oklch(45% 0.015 255);
-}
 
 /* Light theme (daisyUI-inspired clean light) */
 .theme-light {

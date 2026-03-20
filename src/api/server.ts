@@ -154,9 +154,9 @@ export function startApiServer(port: number = 3001) {
             const slug = await SettingsService.get('GAME_ROOM_SLUG');
             const uiTheme = await SettingsService.get('UI_THEME');
             if (!slug) {
-                return res.json({ slug: null, name: null, ui_theme: uiTheme || 'arcade' });
+                return res.json({ slug: null, name: null, ui_theme: uiTheme || 'dark' });
             }
-            res.json({ slug, name: name || slug, ui_theme: uiTheme || 'arcade' });
+            res.json({ slug, name: name || slug, ui_theme: uiTheme || 'dark' });
         } catch (error) {
             logError('API Error (/api/portal):', error);
             res.status(500).json({ error: 'Internal Server Error' });
