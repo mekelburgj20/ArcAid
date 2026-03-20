@@ -1,7 +1,7 @@
 # ArcAid — Sprint Status
 
 > This file is the live work-in-progress tracker. Updated every session.
-> For the task checklist, see TODO.md.
+> For the roadmap and future plans, see ROADMAP.md.
 
 ---
 

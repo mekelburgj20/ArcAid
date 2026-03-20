@@ -1,4 +1,4 @@
-# ArcAid — Task Checklist
+# ArcAid — Roadmap
 
 > See SPRINT_STATUS.md for live progress.
 
@@ -164,3 +164,10 @@
 - [ ] CI/CD pipeline (build + test on push)
 - [ ] Automated backup schedule (configurable via admin UI)
 - [ ] Monitoring / alerting (health check dashboard, error rate tracking)
+
+### Platform Integrations
+- [ ] IFPA (International Flipper Pinball Association) — submit tournament results to official world rankings via API
+- [ ] Matchplay.events — interoperability with the most-used competitive pinball tournament platform
+- [ ] Scorbit — automated score capture from connected physical pinball machines (eliminates manual submission for IRL)
+- [ ] Stern Insider Connected — pull scores from Stern connected machines
+- [ ] Guilded / Revolt — alternative community platform support beyond Discord

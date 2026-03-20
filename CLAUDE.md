@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Session Start Checklist
 
 1. Read `SPRINT_STATUS.md` for current work and last session notes
-2. Read `TODO.md` for remaining tasks with checkboxes
+2. Read `ROADMAP.md` for remaining tasks and future plans
 3. Verify git branch matches current work (`git branch --show-current`)
 4. Run `npm run build` to confirm the codebase compiles cleanly
 5. If admin-ui changes are expected, also run `cd admin-ui && npm run build`
