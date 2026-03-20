@@ -43,6 +43,7 @@ function formatCadenceDisplay(cadenceJson: string): string {
     const time = `${hr.padStart(2, '0')}:${min.padStart(2, '0')}`;
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const tz = c.timezone ? ` ${c.timezone.split('/').pop()?.replace(/_/g, ' ')}` : '';
+    if (dom === 'L') return `Last day of month at ${time}${tz}`;
     if (dom !== '*') return `${ordinal(parseInt(dom))} of month at ${time}${tz}`;
     if (dow !== '*') return `${days[parseInt(dow)] || dow} at ${time}${tz}`;
     return `Daily at ${time}${tz}`;
