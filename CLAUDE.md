@@ -43,30 +43,31 @@ Two sub-applications in one process:
 - `src/index.ts` — Bootstrap (DB → settings → env → clear leaderboard cache → validate → API → Discord)
 - `src/engine/TournamentEngine.ts` — Core singleton: tournament CRUD + `runMaintenance()` + `runCleanup()`
 - `src/engine/IScoredClient.ts` — Playwright browser automation (retry with backoff, persistent sessions, screenshot-on-failure)
-- `src/engine/Scheduler.ts` — Cron-based maintenance scheduling with hot-reload
+- `src/engine/Scheduler.ts` — Cron-based maintenance scheduling with hot-reload, supports `L` (last day of month)
 - `src/engine/TimeoutManager.ts` — Winner/runner-up pick window tracking
 - `src/api/server.ts` — Express app setup, mounts 4 routers, backward-compat legacy aliases
 - `src/api/routes/auth.ts` — Login (super-admin password, room local admin, Discord OAuth), change password, /me
 - `src/api/routes/rooms.ts` — All room-scoped endpoints (public + admin): leaderboard, tournaments, settings, stats, etc.
-- `src/api/routes/admin.ts` — Super-admin endpoints: room CRUD, super-admin management, backups, logs, global settings, master library
-- `src/api/routes/global.ts` — Non-scoped: /status, /me/preferences, /rooms (public listing)
+- `src/api/routes/admin.ts` — Super-admin endpoints: room CRUD, super-admin management, backups, logs, global settings, master library, VPS/Wizard imports
+- `src/api/routes/global.ts` — Non-scoped: /status, /me/preferences, /rooms (public listing), invite accept
 - `src/api/middleware.ts` — `requireAuth`, `requireRoomAccess(paramName)`, `requireSuperAdmin`
 - `src/api/rateLimit.ts` — Rate limiters: `authLimiter` (5/min), `writeLimiter` (30/min), `generalLimiter` (100/min)
 - `src/api/correlationId.ts` — Assigns UUID per request, sets `X-Correlation-ID` header
 - `src/api/auditMiddleware.ts` — Auto-logs admin write operations to `audit_log` table
 - `src/services/` — Business logic layer:
   - **Global:** `SettingsService`, `AdminService`, `GameRoomService`, `GameRoomSettingsService`, `PreferencesService`, `LogService`, `BackupService`, `DashboardService`, `AuditService`
-  - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `VpsImportService`
-- `src/utils/` — `discord.ts`, `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`
+  - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`
+  - **Import:** `VpsImportService` (VPS database JSON), `WizardImportService` (VPXS Wizard Tables from GitHub)
+- `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`
 
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
 - **Layouts:** `SuperAdminLayout` (`/admin/*`), `RoomAdminLayout` (`/:slug/admin/*`), `PublicLayout` (`/:slug/*`)
 - **Room context:** `admin-ui/src/contexts/RoomContext.tsx` provides `roomId`, `roomSlug`, `roomName` to room pages
 - **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings (+ shared: Logs, Backups, MasterGameLibrary)
-- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Settings
-- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder`, `ThemeProvider`, etc.
+- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Settings (includes Users section)
+- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, etc.
 - Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
 
 ## Multi-Room Architecture
@@ -83,7 +84,8 @@ Two sub-applications in one process:
 ### Auth
 - **Super-admin password** — Bootstrap/fallback admin, issues `{ role: 'super_admin', gameRoomIds: [] }`
 - **Room local admin** — Username/password per room, issues `{ role: 'room_admin', gameRoomIds: [roomId] }`
-- **Discord OAuth** — Checks `super_admins` → `game_room_admins` → 403
+- **Discord OAuth** — Available on both super-admin and room login pages. Checks `super_admins` → `game_room_admins` → 403
+- **Admin invites** — One-time invite links (48h expiry) for onboarding room admins without sharing passwords. Optional Discord DM delivery.
 - Middleware: `requireAuth` (JWT), `requireRoomAccess('roomId')` (checks scope), `requireSuperAdmin` (role check)
 
 ### API Structure
@@ -137,7 +139,7 @@ SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Idem
 
 **Core tables:** `tournaments` (with `game_room_id`), `game_library`, `games`, `submissions`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`, `ranking_groups` (with `game_room_id`), `ranking_group_tournaments`, `ranking_groups_cache`, `user_preferences`
 
-**Infrastructure tables:** `audit_log` (admin action tracking), `schema_migrations` (versioned migration tracking)
+**Admin tables:** `admin_invites` (one-time invite tokens with expiry), `audit_log` (admin action tracking), `schema_migrations` (versioned migration tracking)
 
 ## Deployment
 

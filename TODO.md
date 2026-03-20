@@ -124,11 +124,35 @@
 
 ---
 
+## Post-Sprint Features (COMPLETE)
+
+### Admin & Auth Enhancements
+- [x] Discord OAuth on super-admin login page (`/login`)
+- [x] Admin invite system (one-time links, 48h expiry, `admin_invites` table, migration 013)
+- [x] Discord DM delivery of invite links (optional, via `sendDirectMessage`)
+- [x] Discord admin management UI (add/remove Discord users as room admins in Settings)
+- [x] Discord username resolution (accept usernames or IDs across all admin UIs)
+- [x] Invite acceptance page (`/invite/:token` — public, sets username/password)
+
+### Schedule Improvements
+- [x] Last day of month support (`L` marker in cron, Scheduler runs on days 28-31 with runtime guard)
+- [x] Monthly day dropdown extended to 1-31 plus "Last day" option
+
+### Game Library
+- [x] VPXS Wizard Tables import (`WizardImportService`, fetches from LegendsUnchained GitHub)
+- [x] Room-scoped imports (VPS/Wizard pass roomId, backend calls `addToRoom`)
+- [x] UI fixes: hide Activate button on super-admin library, always use admin prefix for imports
+
+### UI Polish
+- [x] Center single game room card on landing page (flexbox layout)
+- [x] Remove redundant "Go to Scoreboard" button on landing page
+
+---
+
 ## Future
 
 ### Multi-Room
 - [ ] Discord Bot Multi-Room (Phase 5) — single bot, multi-guild, per-room command scoping
-- [ ] Room admin management UI polish (create/delete local admins, manage Discord room admins)
 
 ### UX Polish
 - [ ] Trend charts / sparklines on player profile pages

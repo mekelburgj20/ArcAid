@@ -7,49 +7,27 @@
 
 ## Current Work
 
-**Sprint 10: Production Hardening** — IN PROGRESS
+**Sprint 10: Production Hardening** — COMPLETE
+**Post-Sprint Features** — COMPLETE (deployed to production)
 
-### Tier 1: Critical — COMPLETE
-- [x] 1.2 API Rate Limiting (`express-rate-limit`: 5/min auth, 100/min general)
-- [x] 1.3 Missing Database Indexes (`games(iscored_id)`, `tournaments(game_room_id)`, `user_mappings(iscored_username)` unique, `ranking_groups(game_room_id)`)
-- [x] 1.4 CORS Restriction (configurable via `CORS_ORIGIN` env var, wide-open only in dev)
-- [x] 1.5 JWT Secret Validation (throws on startup if missing in production)
+### Sprint 10 Summary
+- Tier 1 Critical: Rate limiting, DB indexes, CORS, JWT validation
+- Tier 2 Code Quality: N+1 fixes, maintenance mutex, WebSocket fix, TournamentForm extraction
+- Tier 4 Polish: Helmet, correlation IDs, health checks, audit logging, migration versioning
+- Testing Foundation: 40 tests (Vitest, in-memory SQLite)
 
-### Tier 2: Code Quality — COMPLETE
-- [x] 2.1 N+1 query optimization (4 fixes: LeaderboardService, TimeoutManager, IdentityManager, eligibility)
-- [x] 2.2 Per-tournament maintenance mutex (prevents concurrent maintenance collisions)
-- [x] 2.3 Error responses — already consistent
-- [x] 2.4 WebSocket double-emit fix + CORS alignment
-- [x] 2.5 TournamentForm component extraction (shared fields + useReducer)
-- [x] 2.6 Scheduler reload on tournament update — already implemented
-
-### Tier 4: Polish — COMPLETE
-- [x] 4.1 Helmet middleware (security headers)
-- [x] 4.2 Request correlation IDs (X-Correlation-ID)
-- [x] 4.3 Health check improvements (DB/Discord/iScored status + uptime)
-- [x] 4.4 Audit logging (audit_log table + auto-logging middleware + admin API)
-- [x] 4.5 Database migration versioning (schema_migrations table)
-
-### Testing Foundation — COMPLETE
-- [x] Vitest setup (`vitest.config.ts`, `src/__tests__/setup.ts`, `src/__tests__/helpers.ts`)
-- [x] Service tests: LeaderboardService (9), TournamentService (5), RankingService (8)
-- [x] API route tests: auth + status (8), rooms (10)
-- [x] 40 tests, all passing
-- [x] DB schema fix: migration columns added to CREATE TABLE for fresh in-memory DBs
-- [x] Test files excluded from `tsc` build (vitest handles its own transform)
+### Post-Sprint Features (2026-03-16 → 2026-03-19)
+- [x] Discord OAuth on super-admin login page
+- [x] Admin invite system (one-time invite links, 48h expiry, optional Discord DM delivery)
+- [x] Discord admin management (add Discord users as room admins, log in via OAuth)
+- [x] Discord username resolution everywhere (accept usernames instead of numeric IDs)
+- [x] UI fixes: hide Activate on super-admin library, center single room on landing, remove redundant button
+- [x] Last day of month schedule support (custom `L` marker, Scheduler runtime guard for days 28-31)
+- [x] VPXS Wizard Tables import (fetches from LegendsUnchained GitHub, imports with VPXS platform)
+- [x] Room-scoped game imports (VPS/Wizard imports now associate games with current room)
 
 ### Previous
-**Multi-Game-Room Architecture** — COMPLETE (merged to main, deployed)
-
-## Multi-Room Architecture Progress
-
-| # | Phase | Status | Notes |
-|---|-------|--------|-------|
-| 1 | Database Foundation | `done` | 6 new tables, idempotent migration, data backfill |
-| 2 | Auth Overhaul | `done` | 3 auth methods, scoped JWT, requireRoomAccess middleware |
-| 3 | API Route Restructuring | `done` | Split server.ts into 4 route files, room-scoped services |
-| 4 | Frontend Restructuring | `done` | SuperAdminLayout, RoomAdminLayout, RoomContext, new pages |
-| 5 | Legacy Alias Fix | `done` | Backward-compat URL rewriting for Discord commands |
+**Multi-Game-Room Architecture** — COMPLETE (merged to main, deployed 2026-03-16)
 
 ## Previous Sprints
 
@@ -64,12 +42,13 @@
 - Sprint 9 (UI Themes) — ABANDONED (Gemini), reimplemented as feature
 - Feature: Ranking Groups — COMPLETE
 - Feature: UI Theme System — COMPLETE
+- Sprint 10 (Production Hardening) — COMPLETE
 
 ## Last Session
 
-**Date:** 2026-03-15
-**What happened:** Sprint 10 (Production Hardening) — completed Tiers 1, 2, 4, and Testing Foundation. Testing: Vitest with 40 tests (3 service + 2 API route test files), in-memory SQLite, test helpers for room/tournament/game/submission creation. Fixed DB schema issue where migration-added columns weren't in CREATE TABLE statements, causing fresh in-memory DBs to fail on index creation.
-**Next:** Discord Bot Multi-Room (Phase 5).
+**Date:** 2026-03-19
+**What happened:** Added VPXS Wizard Tables import feature (fetches table list from LegendsUnchained GitHub README, imports with VPXS platform). Fixed room-scoped imports (VPS and Wizard) to associate imported games with the current room via junction table. Fixed "Last day of month" schedule display showing NaNth. Updated all docs.
+**Next:** Discord Bot Multi-Room (Phase 5) — deferred. User-driven features as needed.
 
 ## Blockers
 
