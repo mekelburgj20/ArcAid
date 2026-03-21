@@ -69,7 +69,6 @@ export default function KioskScoreboard() {
   const logoPosition = config.LOGO_POSITION || 'left';
   const logoMaxHeight = parseInt(config.LOGO_MAX_HEIGHT || '64', 10) || 64;
   const layout = config.SCOREBOARD_LAYOUT || 'scroll';
-  const cardsPerRow = parseInt(config.SCOREBOARD_CARDS_PER_ROW || '4', 10) || 4;
   const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
   const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
 
@@ -135,7 +134,10 @@ export default function KioskScoreboard() {
             </div>
           ) : layout === 'grid' ? (
             <div className="flex-1 min-w-0">
-              <div className="grid gap-5" style={{ gridTemplateColumns: `repeat(${cardsPerRow}, minmax(0, 1fr))` }}>
+              <div
+                className="grid gap-3 sm:gap-5"
+                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardWidth}px, 100%), 1fr))` }}
+              >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId}>
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} />
@@ -145,9 +147,9 @@ export default function KioskScoreboard() {
             </div>
           ) : (
             <div className="flex-1 min-w-0 overflow-x-auto">
-              <div className="flex gap-5 pb-2">
+              <div className="flex gap-3 sm:gap-5 pb-2">
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} style={{ width: `${cardWidth}px` }} className="flex-shrink-0">
+                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} />
                   </div>
                 ))}
