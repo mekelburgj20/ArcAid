@@ -38,6 +38,8 @@ const CATEGORIES: Record<string, string[]> = {
   'Discord': ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
   'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
+  'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_CARDS_PER_ROW', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_RANKINGS_POSITION'],
+  'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
 };
 
@@ -55,6 +57,14 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
   'ENABLE_CALLOUTS': {
     label: 'Callouts (Easter Egg)',
     description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',
+  },
+  'SCOREBOARD_HIDE_EMPTY': {
+    label: 'Hide Empty Games',
+    description: 'When enabled, games with no scores are hidden from the public scoreboard.',
+  },
+  'SCOREBOARD_TITLE_HIDDEN': {
+    label: 'Hide Scoreboard Title',
+    description: 'When enabled, the title bar at the top of the scoreboard is hidden.',
   },
 };
 
@@ -84,6 +94,17 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   MAX_LOG_LINES: { label: 'Max Log Lines', description: 'Maximum number of log lines returned by the API.' },
   BACKUP_RETENTION_DAYS: { label: 'Backup Retention (days)', description: 'How many days to keep automatic database backups before cleanup.' },
   SETUP_COMPLETE: { label: 'Setup Complete', description: 'Marks whether initial setup has been finished. Set automatically.' },
+  // Scoreboard
+  SCOREBOARD_MAX_SCORES: { label: 'Max Scores Per Game', description: 'Maximum number of scores displayed per game card on the scoreboard. Default: 5.' },
+  SCOREBOARD_ZOOM: { label: 'Zoom Level (%)', description: 'Zoom level for the scoreboard display. Default: 100.' },
+  SCOREBOARD_TITLE: { label: 'Title Text', description: 'Custom title shown at the top of the scoreboard. Defaults to the room name.' },
+  SCOREBOARD_TITLE_STYLE: { label: 'Title Style', description: 'Visual style for the scoreboard title: default, glow, retro, or pixel.' },
+  SCOREBOARD_LAYOUT: { label: 'Layout Mode', description: 'Score card layout: scroll (horizontal scrolling, default) or grid (CSS grid with rows and columns).' },
+  SCOREBOARD_CARDS_PER_ROW: { label: 'Cards Per Row (Grid)', description: 'Number of score cards per row in grid mode. Range: 2-8. Default: 4. Only applies in grid layout.' },
+  SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
+  SCOREBOARD_RANKINGS_POSITION: { label: 'Rankings Position', description: 'Where overall rankings are displayed: left (default), right, top, bottom, or hidden.' },
+  // Kiosk
+  KIOSK_REFRESH_SECONDS: { label: 'Kiosk Auto-Refresh (seconds)', description: 'How often the kiosk view refreshes data. Default: 60. Set to 0 to disable auto-refresh.' },
 };
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";

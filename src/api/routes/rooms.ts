@@ -43,6 +43,24 @@ router.get('/:roomId/portal', async (req, res) => {
     }
 });
 
+// Scoreboard config (public, no auth)
+router.get('/:roomId/scoreboard-config', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const allSettings = await GameRoomSettingsService.getAll(roomId);
+        const config: Record<string, string> = {};
+        for (const [key, value] of Object.entries(allSettings)) {
+            if (key.startsWith('SCOREBOARD_') || key.startsWith('LOGO_') || key.startsWith('KIOSK_')) {
+                config[key] = value;
+            }
+        }
+        res.json(config);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/scoreboard-config):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Leaderboard
 router.get('/:roomId/leaderboard', async (req, res) => {
     try {

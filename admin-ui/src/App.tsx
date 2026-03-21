@@ -36,6 +36,9 @@ import PlayerDetail from './pages/PlayerDetail';
 import GameDetail from './pages/GameDetail';
 import GameAvailability from './pages/GameAvailability';
 
+// Pages — Kiosk
+import KioskScoreboard from './pages/KioskScoreboard';
+
 // Pages — Auth
 import RoomLogin from './pages/RoomLogin';
 import DiscordCallback from './pages/DiscordCallback';
@@ -95,6 +98,9 @@ function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
         </Route>
+
+        {/* Kiosk mode (standalone, no layout wrapper) */}
+        <Route path="/:slug/kiosk" element={<KioskScoreboard />} />
 
         {/* Public room routes */}
         <Route path="/:slug" element={<PublicLayout />}>
