@@ -106,59 +106,95 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function smoothstep(t: number): number {
-  t = Math.max(0, Math.min(1, t));
-  return t * t * (3 - 2 * t);
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
 interface Waypoint { x: number; y: number; t: number }
+
+// Catmull-Rom spline interpolation — produces smooth curves through control points
+function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
+  return 0.5 * (
+    (2 * p1) +
+    (-p0 + p2) * t +
+    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
+    (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t
+  );
+}
 
 function interpolatePath(path: Waypoint[], t: number): { x: number; y: number } {
   t = Math.max(0, Math.min(1, t));
+  const n = path.length;
+  if (n === 0) return { x: 0, y: 0 };
+  if (n === 1) return { x: path[0]!.x, y: path[0]!.y };
+
+  // Find the segment
   let i = 0;
-  while (i < path.length - 1 && path[i + 1]!.t <= t) i++;
-  if (i >= path.length - 1) return { x: path[path.length - 1]!.x, y: path[path.length - 1]!.y };
-  const p0 = path[i]!;
-  const p1 = path[i + 1]!;
-  const segT = p1.t === p0.t ? 1 : (t - p0.t) / (p1.t - p0.t);
-  const s = smoothstep(segT);
-  return { x: lerp(p0.x, p1.x, s), y: lerp(p0.y, p1.y, s) };
+  while (i < n - 1 && path[i + 1]!.t <= t) i++;
+  if (i >= n - 1) return { x: path[n - 1]!.x, y: path[n - 1]!.y };
+
+  const segT = path[i + 1]!.t === path[i]!.t ? 1 : (t - path[i]!.t) / (path[i + 1]!.t - path[i]!.t);
+
+  // Four control points for Catmull-Rom (clamp at boundaries)
+  const p0 = path[Math.max(0, i - 1)]!;
+  const p1 = path[i]!;
+  const p2 = path[Math.min(n - 1, i + 1)]!;
+  const p3 = path[Math.min(n - 1, i + 2)]!;
+
+  return {
+    x: catmullRom(p0.x, p1.x, p2.x, p3.x, segT),
+    y: catmullRom(p0.y, p1.y, p2.y, p3.y, segT),
+  };
 }
 
-// Ball path from plunger to scoop (randomized slightly each run)
+// Ball path from plunger to scoop — gentle arcs with many waypoints for smooth motion
 function generatePlungePath(): Waypoint[] {
-  const jx = () => (Math.random() - 0.5) * 15;
-  const jy = () => (Math.random() - 0.5) * 8;
+  const jx = () => (Math.random() - 0.5) * 10;
+  const jy = () => (Math.random() - 0.5) * 5;
   return [
+    // Launch up the plunger lane
     { x: LANE_CX, y: DRAIN_Y - 20, t: 0 },
-    { x: LANE_CX, y: 300, t: 0.10 },
-    { x: LANE_CX, y: 120, t: 0.20 },
-    { x: LANE_CX - 20, y: 70, t: 0.25 },
-    { x: PF_CX + 60 + jx(), y: 100 + jy(), t: 0.32 },
-    { x: PF_CX + jx(), y: 160 + jy(), t: 0.40 },
-    { x: PF_CX - 50 + jx(), y: 230 + jy(), t: 0.48 },
-    { x: PF_CX + 40 + jx(), y: 280 + jy(), t: 0.56 },
-    { x: PF_CX - 30 + jx(), y: 315 + jy(), t: 0.66 },
-    { x: PF_CX + 10, y: SCOOP_Y - 25, t: 0.80 },
-    { x: PF_CX + 3, y: SCOOP_Y - 8, t: 0.92 },
+    { x: LANE_CX, y: DRAIN_Y - 80, t: 0.04 },
+    { x: LANE_CX, y: 380, t: 0.08 },
+    { x: LANE_CX, y: 250, t: 0.13 },
+    { x: LANE_CX, y: 150, t: 0.18 },
+    { x: LANE_CX, y: 90, t: 0.22 },
+    // Curve around the top (smooth arc)
+    { x: LANE_CX - 15, y: 65, t: 0.25 },
+    { x: LANE_CX - 50, y: 55, t: 0.28 },
+    { x: PF_CX + 70, y: 60 + jy(), t: 0.31 },
+    { x: PF_CX + 40, y: 75 + jy(), t: 0.34 },
+    { x: PF_CX + 10, y: 95 + jy(), t: 0.37 },
+    // Drift down through upper field
+    { x: PF_CX - 15 + jx(), y: 130 + jy(), t: 0.41 },
+    { x: PF_CX - 35 + jx(), y: 165 + jy(), t: 0.45 },
+    { x: PF_CX - 25 + jx(), y: 200 + jy(), t: 0.49 },
+    // Gentle S-curve through mid field
+    { x: PF_CX + 5 + jx(), y: 230 + jy(), t: 0.53 },
+    { x: PF_CX + 30 + jx(), y: 255 + jy(), t: 0.57 },
+    { x: PF_CX + 20 + jx(), y: 278 + jy(), t: 0.61 },
+    { x: PF_CX - 5 + jx(), y: 298 + jy(), t: 0.66 },
+    // Approach scoop — gentle funnel
+    { x: PF_CX - 15 + jx(), y: 315 + jy(), t: 0.71 },
+    { x: PF_CX - 8, y: 328, t: 0.76 },
+    { x: PF_CX + 2, y: SCOOP_Y - 18, t: 0.83 },
+    { x: PF_CX + 1, y: SCOOP_Y - 8, t: 0.90 },
+    { x: PF_CX, y: SCOOP_Y - 2, t: 0.96 },
     { x: PF_CX, y: SCOOP_Y, t: 1.0 },
   ];
 }
 
-// Ball eject path (after reveal)
+// Ball eject path — smooth arc out and down
 function generateEjectPath(): Waypoint[] {
   return [
     { x: PF_CX, y: SCOOP_Y, t: 0 },
-    { x: PF_CX + 5, y: SCOOP_Y - 35, t: 0.12 },
-    { x: PF_CX - 15, y: SCOOP_Y + 30, t: 0.30 },
-    { x: PF_CX + 20, y: SCOOP_Y + 100, t: 0.45 },
-    { x: PF_CX - 10, y: 490, t: 0.60 },
-    { x: PF_CX + 5, y: DRAIN_Y, t: 0.78 },
-    { x: PF_CX, y: DRAIN_Y + 40, t: 0.90 },
+    { x: PF_CX, y: SCOOP_Y - 10, t: 0.05 },
+    { x: PF_CX + 3, y: SCOOP_Y - 30, t: 0.10 },
+    { x: PF_CX + 5, y: SCOOP_Y - 15, t: 0.18 },
+    { x: PF_CX - 5, y: SCOOP_Y + 15, t: 0.26 },
+    { x: PF_CX - 10, y: SCOOP_Y + 60, t: 0.35 },
+    { x: PF_CX + 5, y: SCOOP_Y + 110, t: 0.44 },
+    { x: PF_CX - 5, y: 480, t: 0.54 },
+    { x: PF_CX + 3, y: FLIPPER_Y, t: 0.64 },
+    { x: PF_CX, y: DRAIN_Y, t: 0.75 },
+    { x: PF_CX, y: DRAIN_Y + 25, t: 0.85 },
+    { x: PF_CX, y: DRAIN_Y + 60, t: 0.93 },
     { x: PF_CX, y: H + 20, t: 1.0 },
   ];
 }
