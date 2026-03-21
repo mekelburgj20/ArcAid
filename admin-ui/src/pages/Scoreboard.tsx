@@ -8,6 +8,7 @@ import {
   RankingsColumn,
   RankingsRow,
   getTitleStyleClass,
+  getTitleSizeClass,
   cardWidthMap,
 } from '../components/ScoreboardComponents';
 
@@ -76,6 +77,7 @@ export default function Scoreboard() {
   const titleHidden = config.SCOREBOARD_TITLE_HIDDEN === 'true';
   const titleText = config.SCOREBOARD_TITLE || roomName || 'High Scores';
   const titleStyle = config.SCOREBOARD_TITLE_STYLE || 'default';
+  const titleSize = config.SCOREBOARD_TITLE_SIZE || 'sm';
   const zoom = parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100;
   const bgUrl = config.SCOREBOARD_BG_URL || '';
   const bgMode = config.SCOREBOARD_BG_MODE || 'cover';
@@ -118,7 +120,7 @@ export default function Scoreboard() {
             {logoUrl && (logoPosition === 'left' || logoPosition === 'above') && (
               <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain" />
             )}
-            <p className={`font-display text-muted text-sm uppercase tracking-widest ${getTitleStyleClass(titleStyle)}`}>
+            <p className={`font-display text-muted ${getTitleSizeClass(titleSize)} uppercase tracking-widest ${getTitleStyleClass(titleStyle)}`}>
               {titleText}
             </p>
             {logoUrl && (logoPosition === 'right' || logoPosition === 'below') && (

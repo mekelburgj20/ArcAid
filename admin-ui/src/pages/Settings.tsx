@@ -38,7 +38,7 @@ const CATEGORIES: Record<string, string[]> = {
   'Discord': ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
   'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
-  'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_CARDS_PER_ROW', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_RANKINGS_POSITION'],
+  'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_CARDS_PER_ROW', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_RANKINGS_POSITION'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
 };
@@ -99,6 +99,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_ZOOM: { label: 'Zoom Level (%)', description: 'Scale the scoreboard for high-res monitors or TV displays. Range: 50-200. Default: 100.' },
   SCOREBOARD_TITLE: { label: 'Scoreboard Title', description: 'Custom title displayed on the public scoreboard. Leave empty to use the room name.' },
   SCOREBOARD_TITLE_STYLE: { label: 'Title Style', description: 'Visual style for the scoreboard title: default, glow, retro, or pixel.' },
+  SCOREBOARD_TITLE_SIZE: { label: 'Title Size', description: 'Font size for the scoreboard title. Default: small.' },
   SCOREBOARD_LAYOUT: { label: 'Layout Mode', description: 'Score card layout: scroll (horizontal scrolling, default) or grid (CSS grid with rows and columns).' },
   SCOREBOARD_CARDS_PER_ROW: { label: 'Cards Per Row (Grid)', description: 'Number of score cards per row in grid mode. Range: 2-8. Default: 4. Only applies in grid layout.' },
   SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
@@ -117,6 +118,16 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: 'glow', label: 'Glow (Neon)' },
     { value: 'retro', label: 'Retro (Pixel Font)' },
     { value: 'pixel', label: 'Pixel (Amber)' },
+  ],
+  SCOREBOARD_TITLE_SIZE: [
+    { value: 'xs', label: 'Extra Small' },
+    { value: 'sm', label: 'Small (Default)' },
+    { value: 'base', label: 'Medium' },
+    { value: 'lg', label: 'Large' },
+    { value: 'xl', label: 'Extra Large' },
+    { value: '2xl', label: '2X Large' },
+    { value: '3xl', label: '3X Large' },
+    { value: '4xl', label: '4X Large' },
   ],
   SCOREBOARD_LAYOUT: [
     { value: 'scroll', label: 'Horizontal Scroll' },
