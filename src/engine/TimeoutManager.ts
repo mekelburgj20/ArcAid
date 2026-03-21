@@ -3,7 +3,7 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { Game } from '../types/index.js';
-import { sendChannelMessage, sendChannelEmbed, getTournamentColor } from '../utils/discord.js';
+import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMention } from '../utils/discord.js';
 import { TournamentEngine } from './TournamentEngine.js';
 import { IScoredClient } from './IScoredClient.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -114,11 +114,11 @@ export class TimeoutManager {
     }
 
     /** Resolves tournament info for embed coloring and terminology. */
-    private async getTournamentInfo(tournamentId: string | undefined): Promise<{ type: string | null; mode: string | null }> {
-        if (!tournamentId) return { type: null, mode: null };
+    private async getTournamentInfo(tournamentId: string | undefined): Promise<{ type: string | null; mode: string | null; gameRoomId: string | null }> {
+        if (!tournamentId) return { type: null, mode: null, gameRoomId: null };
         const db = await getDatabase();
-        const row = await db.get('SELECT type, mode FROM tournaments WHERE id = ?', tournamentId);
-        return { type: row?.type ?? null, mode: row?.mode ?? null };
+        const row = await db.get('SELECT type, mode, game_room_id FROM tournaments WHERE id = ?', tournamentId);
+        return { type: row?.type ?? null, mode: row?.mode ?? null, gameRoomId: row?.game_room_id ?? null };
     }
 
     private async sendReminder(game: Game, minsRemaining: number): Promise<void> {
@@ -131,9 +131,10 @@ export class TimeoutManager {
 
             if (channelId) {
                 const color = getTournamentColor(info.type);
+                const pickerMention = await formatUserMention(game.pickerDiscordId!, game.pickerDiscordId!, info.gameRoomId);
                 const embed = new EmbedBuilder()
                     .setTitle('Pick Reminder')
-                    .setDescription(`<@${game.pickerDiscordId}>, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`)
+                    .setDescription(`${pickerMention}, you have **${minsRemaining} minutes** left to pick the next ${term.game}. Use \`/pick-game\` now!`)
                     .setColor(color)
                     .setTimestamp();
                 await sendChannelEmbed(channelId, embed);
@@ -215,9 +216,10 @@ export class TimeoutManager {
             const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {
                 const color = getTournamentColor(info.type);
+                const runnerUpMention = await formatUserMention(runnerUpId, runnerUpRow.iscored_username || 'Runner-up', info.gameRoomId);
                 const embed = new EmbedBuilder()
                     .setTitle(`⏰ Winner Timed Out`)
-                    .setDescription(`<@${runnerUpId}> — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`)
+                    .setDescription(`${runnerUpMention} — as the runner-up, you now have **${runnerUpWindowMin} minutes** to pick the next ${term.game}. Use \`/pick-game\`!`)
                     .setColor(color)
                     .setTimestamp();
                 await sendChannelEmbed(channelId, embed);

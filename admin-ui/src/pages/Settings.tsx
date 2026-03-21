@@ -47,6 +47,11 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     description: 'When enabled, games are created and managed on iScored. Disable to use ArcAid leaderboards only.',
     defaultOn: true,
   },
+  'DISCORD_MENTIONS_ENABLED': {
+    label: 'Discord @Mentions',
+    description: 'When enabled, the bot @mentions users in announcements (winner picks, reminders, etc.). Disable to use display names instead.',
+    defaultOn: true,
+  },
   'ENABLE_CALLOUTS': {
     label: 'Callouts (Easter Egg)',
     description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',

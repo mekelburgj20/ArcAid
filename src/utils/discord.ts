@@ -1,5 +1,6 @@
 import { REST, Routes, EmbedBuilder } from 'discord.js';
 import { logError } from './logger.js';
+import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 
 /** Embed accent colors keyed by tournament tag or type. */
 const TAG_COLORS: Record<string, number> = {
@@ -115,4 +116,18 @@ export async function sendChannelEmbed(channelId: string, embed: EmbedBuilder): 
     } catch (err) {
         logError(`Failed to send embed to channel ${channelId}:`, err);
     }
+}
+
+/**
+ * Returns a Discord mention `<@userId>` if mentions are enabled for the room,
+ * otherwise returns the fallback display name (plain text, no ping).
+ */
+export async function formatUserMention(userId: string, fallbackName: string, gameRoomId?: string | null): Promise<string> {
+    if (gameRoomId) {
+        const setting = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_MENTIONS_ENABLED');
+        if (setting === 'false') {
+            return `**${fallbackName}**`;
+        }
+    }
+    return `<@${userId}>`;
 }

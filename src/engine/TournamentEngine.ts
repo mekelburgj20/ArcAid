@@ -4,7 +4,7 @@ import { getDatabase } from '../database/database.js';
 import { Tournament, Game, TournamentMode, CadenceConfig, CleanupRule } from '../types/index.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
-import { sendChannelMessage, sendChannelEmbed, getTournamentColor } from '../utils/discord.js';
+import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMention } from '../utils/discord.js';
 import { IScoredClient } from './IScoredClient.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
@@ -500,7 +500,7 @@ export class TournamentEngine {
                 .setColor(color)
                 .setTimestamp();
 
-            const displayName = winnerId ? `<@${winnerId}>` : (winnerIscoredName ? `\`${winnerIscoredName}\`` : null);
+            const displayName = winnerId ? await formatUserMention(winnerId, winnerIscoredName || 'Unknown', tournamentRow.game_room_id) : (winnerIscoredName ? `\`${winnerIscoredName}\`` : null);
             let desc = `**Closed:** ${activeGame.name}`;
             if (displayName) {
                 desc += `\n**Winner:** ${displayName}`;
@@ -586,7 +586,8 @@ export class TournamentEngine {
                     .setTimestamp();
 
                 if (winnerId) {
-                    embed.setDescription(`<@${winnerId}> — you won! You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` to queue the next ${term.game}.`);
+                    const winnerMention = await formatUserMention(winnerId, winnerIscoredName || 'Unknown', tournamentRow.game_room_id);
+                    embed.setDescription(`${winnerMention} — you won! You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` to queue the next ${term.game}.`);
                 } else if (winnerIscoredName) {
                     embed.setDescription(`**${winnerIscoredName}** — you won! Ask a moderator to link your iScored account with \`/map-user\`, then use \`/pick-game\`.`);
                 } else {
@@ -625,9 +626,10 @@ export class TournamentEngine {
 
                 if (channelId) {
                     const color = getTournamentColor(tournamentRow.type);
+                    const winnerMention = await formatUserMention(winnerId, winnerIscoredName || 'Unknown', tournamentRow.game_room_id);
                     const embed = new EmbedBuilder()
                         .setTitle(`No ${term.game} Queued`)
-                        .setDescription(`<@${winnerId}> — you won! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game}.`)
+                        .setDescription(`${winnerMention} — you won! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game}.`)
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
                         .setTimestamp();
