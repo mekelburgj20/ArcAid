@@ -38,9 +38,10 @@ const CATEGORIES: Record<string, string[]> = {
   'Discord': ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
   'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
-  'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
-  'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE'],
+  'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_CARDS_PER_ROW', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_RANKINGS_POSITION'],
+  'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'Scoreboard Branding': ['SCOREBOARD_BG_MODE', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT'],
+  'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
 };
 
 const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
@@ -99,10 +100,16 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_ZOOM: { label: 'Zoom Level (%)', description: 'Scale the scoreboard for high-res monitors or TV displays. Range: 50-200. Default: 100.' },
   SCOREBOARD_TITLE: { label: 'Scoreboard Title', description: 'Custom title displayed on the public scoreboard. Leave empty to use the room name.' },
   SCOREBOARD_TITLE_STYLE: { label: 'Title Style', description: 'Visual style for the scoreboard title: default, glow, retro, or pixel.' },
+  SCOREBOARD_LAYOUT: { label: 'Layout Mode', description: 'Score card layout: scroll (horizontal scrolling, default) or grid (CSS grid with rows and columns).' },
+  SCOREBOARD_CARDS_PER_ROW: { label: 'Cards Per Row (Grid)', description: 'Number of score cards per row in grid mode. Range: 2-8. Default: 4. Only applies in grid layout.' },
+  SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
+  SCOREBOARD_RANKINGS_POSITION: { label: 'Rankings Position', description: 'Where overall rankings are displayed: left (default), right, top, bottom, or hidden.' },
   // Scoreboard Branding
   SCOREBOARD_BG_MODE: { label: 'Background Mode', description: 'How the background image is displayed: cover (fill screen), contain (fit), repeat (tile), or center.' },
   LOGO_POSITION: { label: 'Logo Position', description: 'Where the logo appears relative to the scoreboard title: left, right, above, or below.' },
   LOGO_MAX_HEIGHT: { label: 'Logo Max Height (px)', description: 'Maximum height of the logo in pixels. Default: 64.' },
+  // Kiosk
+  KIOSK_REFRESH_SECONDS: { label: 'Kiosk Auto-Refresh (seconds)', description: 'How often the kiosk view refreshes data. Default: 60. Set to 0 to disable auto-refresh.' },
 };
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";

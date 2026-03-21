@@ -58,14 +58,14 @@ router.get('/:roomId/portal', async (req, res) => {
     }
 });
 
-// Scoreboard config (public — returns SCOREBOARD_* and LOGO_* settings)
+// Scoreboard config (public — returns SCOREBOARD_*, LOGO_*, and KIOSK_* settings)
 router.get('/:roomId/scoreboard-config', async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const allSettings = await GameRoomSettingsService.getAll(roomId);
         const config: Record<string, string> = {};
         for (const [key, value] of Object.entries(allSettings)) {
-            if (key.startsWith('SCOREBOARD_') || key.startsWith('LOGO_')) {
+            if (key.startsWith('SCOREBOARD_') || key.startsWith('LOGO_') || key.startsWith('KIOSK_')) {
                 config[key] = value;
             }
         }
