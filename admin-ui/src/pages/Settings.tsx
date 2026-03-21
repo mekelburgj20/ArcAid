@@ -40,7 +40,6 @@ const CATEGORIES: Record<string, string[]> = {
   'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
   'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_CARDS_PER_ROW', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_RANKINGS_POSITION'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS'],
-  'Scoreboard Branding': ['SCOREBOARD_BG_MODE', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT'],
   'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
 };
 
@@ -110,6 +109,43 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   LOGO_MAX_HEIGHT: { label: 'Logo Max Height (px)', description: 'Maximum height of the logo in pixels. Default: 64.' },
   // Kiosk
   KIOSK_REFRESH_SECONDS: { label: 'Kiosk Auto-Refresh (seconds)', description: 'How often the kiosk view refreshes data. Default: 60. Set to 0 to disable auto-refresh.' },
+};
+
+const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  SCOREBOARD_TITLE_STYLE: [
+    { value: 'default', label: 'Default' },
+    { value: 'glow', label: 'Glow (Neon)' },
+    { value: 'retro', label: 'Retro (Pixel Font)' },
+    { value: 'pixel', label: 'Pixel (Amber)' },
+  ],
+  SCOREBOARD_LAYOUT: [
+    { value: 'scroll', label: 'Horizontal Scroll' },
+    { value: 'grid', label: 'Grid' },
+  ],
+  SCOREBOARD_CARD_SIZE: [
+    { value: 'small', label: 'Small (240px)' },
+    { value: 'medium', label: 'Medium (288px)' },
+    { value: 'large', label: 'Large (360px)' },
+  ],
+  SCOREBOARD_RANKINGS_POSITION: [
+    { value: 'left', label: 'Left' },
+    { value: 'right', label: 'Right' },
+    { value: 'top', label: 'Top' },
+    { value: 'bottom', label: 'Bottom' },
+    { value: 'hidden', label: 'Hidden' },
+  ],
+  SCOREBOARD_BG_MODE: [
+    { value: 'cover', label: 'Cover (Fill Screen)' },
+    { value: 'contain', label: 'Contain (Fit)' },
+    { value: 'repeat', label: 'Repeat (Tile)' },
+    { value: 'center', label: 'Center' },
+  ],
+  LOGO_POSITION: [
+    { value: 'left', label: 'Left of Title' },
+    { value: 'right', label: 'Right of Title' },
+    { value: 'above', label: 'Above Title' },
+    { value: 'below', label: 'Below Title' },
+  ],
 };
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
@@ -812,12 +848,24 @@ export default function Settings() {
                       {meta?.label || key}
                       {meta?.description && <InfoTip text={meta.description} />}
                     </label>
-                    <input
-                      type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
-                      value={value}
-                      onChange={e => handleChange(key, e.target.value)}
-                      className={`${inputClass} flex-1`}
-                    />
+                    {SELECT_OPTIONS[key] ? (
+                      <select
+                        value={value || SELECT_OPTIONS[key][0].value}
+                        onChange={e => handleChange(key, e.target.value)}
+                        className={`${inputClass} flex-1`}
+                      >
+                        {SELECT_OPTIONS[key].map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
+                        value={value}
+                        onChange={e => handleChange(key, e.target.value)}
+                        className={`${inputClass} flex-1`}
+                      />
+                    )}
                     {isSensitive(key) && (
                       <button
                         onClick={() => toggleReveal(key)}
