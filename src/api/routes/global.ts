@@ -161,6 +161,30 @@ router.get('/styles/:id', requireAuth, async (req, res) => {
     }
 });
 
+// Portal info by slug (public — used by Scoreboard, GameAvailability, etc.)
+router.get('/portal', async (req, res) => {
+    try {
+        const slug = req.query.slug as string;
+        if (!slug) return res.status(400).json({ error: 'slug query parameter is required' });
+        const room = await GameRoomService.getBySlug(slug);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+        const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+        const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
+        res.json({
+            id: room.id,
+            slug: room.slug,
+            name: room.name,
+            description: room.description || '',
+            logo_url: room.logo_url || null,
+            ui_theme: uiTheme || 'dark',
+            is_public: !!room.is_public,
+        });
+    } catch (error) {
+        logError('API Error (GET /api/portal):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Public room listing
 router.get('/rooms', async (req, res) => {
     try {
