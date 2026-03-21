@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
 import { requireAuth, requireRoomAccess } from '../middleware.js';
@@ -21,6 +24,18 @@ import { RatingService } from '../../services/RatingService.js';
 
 const router = Router({ mergeParams: true });
 
+const roomAssetUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+    fileFilter: (_req, file, cb) => {
+        if (['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only PNG, JPEG, and WebP images are allowed'));
+        }
+    },
+});
+
 // --- Public endpoints (no auth) ---
 
 // Portal info
@@ -39,6 +54,24 @@ router.get('/:roomId/portal', async (req, res) => {
         });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/portal):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Scoreboard config (public, no auth — returns SCOREBOARD_* and LOGO_* settings)
+router.get('/:roomId/scoreboard-config', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const all = await GameRoomSettingsService.getAll(roomId);
+        const config: Record<string, string> = {};
+        for (const [key, value] of Object.entries(all)) {
+            if (key.startsWith('SCOREBOARD_') || key.startsWith('LOGO_')) {
+                config[key] = value;
+            }
+        }
+        res.json(config);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/scoreboard-config):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -1132,6 +1165,103 @@ router.get('/:roomId/games/:gameId/style', async (req, res) => {
     } catch (error) {
         logError('API Error (GET rooms/:roomId/games/:gameId/style):', error);
         res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Asset Upload Endpoints ---
+
+// Upload background image
+router.post('/:roomId/admin/upload/background', requireAuth, requireRoomAccess('roomId'), roomAssetUpload.single('file'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const file = req.file;
+        if (!file) return res.status(400).json({ error: 'No file uploaded' });
+
+        const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+        const dir = path.join(process.cwd(), 'data', 'room-assets', roomId);
+        fs.mkdirSync(dir, { recursive: true });
+
+        // Remove any existing background files
+        for (const f of fs.readdirSync(dir).filter(f => f.startsWith('background.'))) {
+            fs.unlinkSync(path.join(dir, f));
+        }
+
+        const filename = `background.${ext}`;
+        fs.writeFileSync(path.join(dir, filename), file.buffer);
+
+        const url = `/api/room-assets/${roomId}/${filename}`;
+        await GameRoomSettingsService.set(roomId, 'SCOREBOARD_BG_URL', url);
+        res.json({ success: true, url });
+    } catch (error) {
+        logError('API Error (POST upload/background):', error);
+        res.status(500).json({ error: 'Upload failed' });
+    }
+});
+
+// Delete background image
+router.delete('/:roomId/admin/upload/background', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const dir = path.join(process.cwd(), 'data', 'room-assets', roomId);
+        if (fs.existsSync(dir)) {
+            for (const f of fs.readdirSync(dir).filter(f => f.startsWith('background.'))) {
+                fs.unlinkSync(path.join(dir, f));
+            }
+        }
+        await GameRoomSettingsService.delete(roomId, 'SCOREBOARD_BG_URL');
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE upload/background):', error);
+        res.status(500).json({ error: 'Delete failed' });
+    }
+});
+
+// Upload logo image
+router.post('/:roomId/admin/upload/logo', requireAuth, requireRoomAccess('roomId'), roomAssetUpload.single('file'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const file = req.file;
+        if (!file) return res.status(400).json({ error: 'No file uploaded' });
+
+        const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+        const dir = path.join(process.cwd(), 'data', 'room-assets', roomId);
+        fs.mkdirSync(dir, { recursive: true });
+
+        // Remove any existing logo files
+        for (const f of fs.readdirSync(dir).filter(f => f.startsWith('logo.'))) {
+            fs.unlinkSync(path.join(dir, f));
+        }
+
+        const filename = `logo.${ext}`;
+        fs.writeFileSync(path.join(dir, filename), file.buffer);
+
+        const url = `/api/room-assets/${roomId}/${filename}`;
+        // Update both game_rooms.logo_url and settings
+        await GameRoomService.update(roomId, { logo_url: url });
+        await GameRoomSettingsService.set(roomId, 'LOGO_URL', url);
+        res.json({ success: true, url });
+    } catch (error) {
+        logError('API Error (POST upload/logo):', error);
+        res.status(500).json({ error: 'Upload failed' });
+    }
+});
+
+// Delete logo image
+router.delete('/:roomId/admin/upload/logo', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const dir = path.join(process.cwd(), 'data', 'room-assets', roomId);
+        if (fs.existsSync(dir)) {
+            for (const f of fs.readdirSync(dir).filter(f => f.startsWith('logo.'))) {
+                fs.unlinkSync(path.join(dir, f));
+            }
+        }
+        await GameRoomService.update(roomId, { logo_url: null });
+        await GameRoomSettingsService.delete(roomId, 'LOGO_URL');
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE upload/logo):', error);
+        res.status(500).json({ error: 'Delete failed' });
     }
 });
 

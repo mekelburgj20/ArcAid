@@ -53,11 +53,23 @@ interface RankingGroupData {
 const TOP_N = 5;
 const RANKINGS_TOP_N = 10;
 
+function getTitleStyleClass(style: string): string {
+  switch (style) {
+    case 'neon-glow': return 'text-neon-cyan drop-shadow-[0_0_10px_rgba(0,255,255,0.5)]';
+    case 'retro': return 'text-neon-amber';
+    case 'gradient': return 'bg-gradient-to-r from-neon-cyan to-neon-magenta bg-clip-text text-transparent';
+    default: return '';
+  }
+}
+
 export default function Scoreboard() {
   const { slug } = useParams<{ slug: string }>();
   const [leaderboards, setLeaderboards] = useState<GameLeaderboard[]>([]);
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [flash, setFlash] = useState(false);
+  const [roomId, setRoomId] = useState('');
+  const [roomName, setRoomName] = useState('');
+  const [config, setConfig] = useState<Record<string, string>>({});
 
   const loadData = async () => {
     try {
@@ -72,6 +84,30 @@ export default function Scoreboard() {
       if (res.ok) setRankingGroups(await res.json());
     } catch { /* ignore */ }
   };
+
+  // Resolve room from slug
+  useEffect(() => {
+    if (!slug) return;
+    fetch('/api/rooms')
+      .then(r => r.json())
+      .then((rooms: Array<{ id: string; slug: string; name: string }>) => {
+        const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
+        if (found) {
+          setRoomId(found.id);
+          setRoomName(found.name);
+        }
+      })
+      .catch(() => {});
+  }, [slug]);
+
+  // Load scoreboard config once room is resolved
+  useEffect(() => {
+    if (!roomId) return;
+    fetch(`/api/rooms/${roomId}/scoreboard-config`)
+      .then(r => r.json())
+      .then((data: Record<string, string>) => setConfig(data))
+      .catch(() => {});
+  }, [roomId]);
 
   useEffect(() => {
     loadData();
@@ -94,17 +130,57 @@ export default function Scoreboard() {
     };
   }, []);
 
+  // Branding config
+  const bgUrl = config.SCOREBOARD_BG_URL || '';
+  const bgMode = config.SCOREBOARD_BG_MODE || 'cover';
+  const logoUrl = config.LOGO_URL || '';
+  const logoPosition = config.LOGO_POSITION || 'left';
+  const logoMaxHeight = parseInt(config.LOGO_MAX_HEIGHT || '64', 10) || 64;
+  const titleText = config.SCOREBOARD_TITLE || roomName || 'High Scores';
+  const titleStyle = config.SCOREBOARD_TITLE_STYLE || '';
+  const titleHidden = config.SCOREBOARD_TITLE_HIDDEN === 'true';
+
   return (
-    <div className="px-4 sm:px-6 py-6">
+    <div
+      className="px-4 sm:px-6 py-6"
+      style={{
+        ...(bgUrl ? {
+          backgroundImage: `url(${bgUrl})`,
+          backgroundSize: bgMode === 'repeat' ? 'auto' : bgMode,
+          backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
+          backgroundPosition: 'center',
+          minHeight: '100vh',
+        } : {}),
+      }}
+    >
       {/* Score flash overlay */}
       {flash && (
         <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
       )}
 
-      {/* Header */}
-      <div className="text-center mb-8">
-        <p className="font-display text-muted text-sm uppercase tracking-widest">High Scores</p>
-      </div>
+      {/* Header with logo */}
+      {!titleHidden && (
+        <div className="text-center mb-8">
+          <div className={`inline-flex items-center gap-4 ${
+            logoPosition === 'above' || logoPosition === 'below' ? 'flex-col' : 'flex-row'
+          }`}>
+            {logoUrl && (logoPosition === 'left' || logoPosition === 'above') && (
+              <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain" />
+            )}
+            <p className={`font-display text-muted text-sm uppercase tracking-widest ${getTitleStyleClass(titleStyle)}`}>
+              {titleText}
+            </p>
+            {logoUrl && (logoPosition === 'right' || logoPosition === 'below') && (
+              <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain" />
+            )}
+          </div>
+        </div>
+      )}
+      {titleHidden && logoUrl && (
+        <div className="text-center mb-8">
+          <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto" />
+        </div>
+      )}
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         {/* Overall Rankings — left column */}

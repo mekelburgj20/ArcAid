@@ -39,6 +39,7 @@ const CATEGORIES: Record<string, string[]> = {
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
   'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
   'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
+  'Scoreboard Branding': ['SCOREBOARD_BG_MODE', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT'],
 };
 
 const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
@@ -84,6 +85,10 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   MAX_LOG_LINES: { label: 'Max Log Lines', description: 'Maximum number of log lines returned by the API.' },
   BACKUP_RETENTION_DAYS: { label: 'Backup Retention (days)', description: 'How many days to keep automatic database backups before cleanup.' },
   SETUP_COMPLETE: { label: 'Setup Complete', description: 'Marks whether initial setup has been finished. Set automatically.' },
+  // Scoreboard Branding
+  SCOREBOARD_BG_MODE: { label: 'Background Mode', description: 'How the background image is displayed: cover (fill screen), contain (fit), repeat (tile), or center.' },
+  LOGO_POSITION: { label: 'Logo Position', description: 'Where the logo appears relative to the scoreboard title: left, right, above, or below.' },
+  LOGO_MAX_HEIGHT: { label: 'Logo Max Height (px)', description: 'Maximum height of the logo in pixels. Default: 64.' },
 };
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
@@ -170,6 +175,12 @@ export default function Settings() {
   const [addingDiscord, setAddingDiscord] = useState(false);
   const [deleteAdminTarget, setDeleteAdminTarget] = useState<LocalAdmin | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  // Branding upload state
+  const [bgUrl, setBgUrl] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [uploadingBg, setUploadingBg] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const fetchAdmins = async () => {
     try {
@@ -282,6 +293,8 @@ export default function Settings() {
         if (data.UI_THEME && data.UI_THEME !== globalTheme) {
           setGlobalTheme(data.UI_THEME as ThemeId);
         }
+        setBgUrl(data.SCOREBOARD_BG_URL || '');
+        setLogoUrl(data.LOGO_URL || '');
         setLoading(false);
       })
       .catch(() => { toast('Failed to load settings', 'error'); setLoading(false); });
@@ -390,6 +403,179 @@ export default function Settings() {
               ))}
             </select>
             <p className="text-xs text-muted mt-1">Overrides the global theme for your admin session only. Does not affect other admins or the public portal.</p>
+          </div>
+        </div>
+      </NeonCard>
+
+      <NeonCard title="Scoreboard Branding" className="mb-4">
+        <div className="space-y-6">
+          {/* Background Image */}
+          <div>
+            <p className="text-xs font-display uppercase tracking-wider text-muted mb-2">Background Image</p>
+            {bgUrl && (
+              <div className="mb-3">
+                <img src={bgUrl} alt="Background preview" className="max-h-32 rounded border border-border object-cover" />
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                disabled={uploadingBg}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadingBg(true);
+                  try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/background`, formData);
+                    setBgUrl(result.url);
+                    setSettings(prev => ({ ...prev, SCOREBOARD_BG_URL: result.url }));
+                    toast('Background uploaded', 'success');
+                  } catch (err: any) {
+                    toast(err.message || 'Upload failed', 'error');
+                  } finally {
+                    setUploadingBg(false);
+                    e.target.value = '';
+                  }
+                }}
+                className="text-sm text-muted"
+              />
+              {bgUrl && (
+                <NeonButton
+                  variant="ghost"
+                  className="text-xs text-neon-magenta"
+                  disabled={uploadingBg}
+                  onClick={async () => {
+                    setUploadingBg(true);
+                    try {
+                      await api.delete(`/rooms/${room.roomId}/admin/upload/background`);
+                      setBgUrl('');
+                      setSettings(prev => {
+                        const next = { ...prev };
+                        delete next.SCOREBOARD_BG_URL;
+                        return next;
+                      });
+                      toast('Background removed', 'success');
+                    } catch {
+                      toast('Failed to remove background', 'error');
+                    } finally {
+                      setUploadingBg(false);
+                    }
+                  }}
+                >
+                  Remove
+                </NeonButton>
+              )}
+            </div>
+            {uploadingBg && <p className="text-xs text-muted mt-1">Uploading...</p>}
+            <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Displayed behind the scoreboard.</p>
+
+            <div className="mt-3">
+              <label className="text-xs text-faint block mb-1">Background Mode</label>
+              <select
+                value={settings.SCOREBOARD_BG_MODE || 'cover'}
+                onChange={e => handleChange('SCOREBOARD_BG_MODE', e.target.value)}
+                className={inputClass}
+              >
+                <option value="cover">Cover (fill screen)</option>
+                <option value="contain">Contain (fit)</option>
+                <option value="repeat">Repeat (tile)</option>
+                <option value="center">Center</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Logo Image */}
+          <div>
+            <p className="text-xs font-display uppercase tracking-wider text-muted mb-2">Logo</p>
+            {logoUrl && (
+              <div className="mb-3">
+                <img src={logoUrl} alt="Logo preview" className="max-h-16 rounded border border-border object-contain" />
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                disabled={uploadingLogo}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadingLogo(true);
+                  try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/logo`, formData);
+                    setLogoUrl(result.url);
+                    setSettings(prev => ({ ...prev, LOGO_URL: result.url }));
+                    toast('Logo uploaded', 'success');
+                  } catch (err: any) {
+                    toast(err.message || 'Upload failed', 'error');
+                  } finally {
+                    setUploadingLogo(false);
+                    e.target.value = '';
+                  }
+                }}
+                className="text-sm text-muted"
+              />
+              {logoUrl && (
+                <NeonButton
+                  variant="ghost"
+                  className="text-xs text-neon-magenta"
+                  disabled={uploadingLogo}
+                  onClick={async () => {
+                    setUploadingLogo(true);
+                    try {
+                      await api.delete(`/rooms/${room.roomId}/admin/upload/logo`);
+                      setLogoUrl('');
+                      setSettings(prev => {
+                        const next = { ...prev };
+                        delete next.LOGO_URL;
+                        return next;
+                      });
+                      toast('Logo removed', 'success');
+                    } catch {
+                      toast('Failed to remove logo', 'error');
+                    } finally {
+                      setUploadingLogo(false);
+                    }
+                  }}
+                >
+                  Remove
+                </NeonButton>
+              )}
+            </div>
+            {uploadingLogo && <p className="text-xs text-muted mt-1">Uploading...</p>}
+            <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Shown alongside the scoreboard title.</p>
+
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div>
+                <label className="text-xs text-faint block mb-1">Logo Position</label>
+                <select
+                  value={settings.LOGO_POSITION || 'left'}
+                  onChange={e => handleChange('LOGO_POSITION', e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="left">Left of title</option>
+                  <option value="right">Right of title</option>
+                  <option value="above">Above title</option>
+                  <option value="below">Below title</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-faint block mb-1">Logo Max Height (px)</label>
+                <input
+                  type="number"
+                  value={settings.LOGO_MAX_HEIGHT || '64'}
+                  onChange={e => handleChange('LOGO_MAX_HEIGHT', e.target.value)}
+                  className={inputClass}
+                  min="16"
+                  max="256"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </NeonCard>
