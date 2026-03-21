@@ -127,11 +127,28 @@ export default function Scoreboard() {
   const titleText = config.SCOREBOARD_TITLE || roomName || 'High Scores';
   const titleStyle = config.SCOREBOARD_TITLE_STYLE || 'default';
   const zoom = parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100;
+  const bgUrl = config.SCOREBOARD_BG_URL || '';
+  const bgMode = config.SCOREBOARD_BG_MODE || 'cover';
+  const logoUrl = config.LOGO_URL || '';
+  const logoPosition = config.LOGO_POSITION || 'left';
+  const logoMaxHeight = parseInt(config.LOGO_MAX_HEIGHT || '64', 10) || 64;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
 
   return (
-    <div className="px-4 sm:px-6 py-6" style={zoom !== 100 ? { zoom: `${zoom}%` } : undefined}>
+    <div
+      className="px-4 sm:px-6 py-6"
+      style={{
+        ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
+        ...(bgUrl ? {
+          backgroundImage: `url(${bgUrl})`,
+          backgroundSize: bgMode === 'repeat' ? 'auto' : bgMode,
+          backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
+          backgroundPosition: 'center',
+          minHeight: '100vh',
+        } : {}),
+      }}
+    >
       {/* Score flash overlay */}
       {flash && (
         <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
@@ -140,9 +157,24 @@ export default function Scoreboard() {
       {/* Header */}
       {!titleHidden && (
         <div className="text-center mb-8">
-          <p className={`font-display text-muted text-sm uppercase tracking-widest ${getTitleStyleClass(titleStyle)}`}>
-            {titleText}
-          </p>
+          <div className={`inline-flex items-center gap-4 ${
+            logoPosition === 'above' || logoPosition === 'below' ? 'flex-col' : 'flex-row'
+          }`}>
+            {logoUrl && (logoPosition === 'left' || logoPosition === 'above') && (
+              <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain" />
+            )}
+            <p className={`font-display text-muted text-sm uppercase tracking-widest ${getTitleStyleClass(titleStyle)}`}>
+              {titleText}
+            </p>
+            {logoUrl && (logoPosition === 'right' || logoPosition === 'below') && (
+              <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain" />
+            )}
+          </div>
+        </div>
+      )}
+      {titleHidden && logoUrl && (
+        <div className="text-center mb-8">
+          <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto" />
         </div>
       )}
 

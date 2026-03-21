@@ -80,6 +80,10 @@ export function startApiServer(port: number = 3001) {
     const stylesPath = path.join(process.cwd(), 'data', 'styles');
     app.use('/api/styles/images', express.static(stylesPath, { maxAge: '7d' }));
 
+    // --- Serve Room Assets (backgrounds, logos — static, cached 7 days) ---
+    const roomAssetsPath = path.join(process.cwd(), 'data', 'room-assets');
+    app.use('/api/room-assets', express.static(roomAssetsPath, { maxAge: '7d' }));
+
     // --- Rate Limiting ---
     app.use('/api/', generalLimiter);
     app.use('/api/auth', authLimiter);
