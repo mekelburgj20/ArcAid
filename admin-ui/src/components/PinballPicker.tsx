@@ -6,85 +6,97 @@ interface PinballPickerProps {
   onClose: () => void;
 }
 
-type Phase = 'idle' | 'pulling' | 'running' | 'landed';
+type Phase = 'idle' | 'pulling' | 'plunging' | 'cycling' | 'revealed';
 
-interface Vec2 { x: number; y: number }
-interface Peg { x: number; y: number; hitTimer: number }
-interface Hole { x: number; y: number; r: number; label: string; ringR: number; gapAngle: number }
+// --- Canvas Dimensions ---
+const W = 400;
+const H = 720;
+const BALL_R = 7;
 
-// Canvas logical size
-const W = 380;
-const H = 700;
-const BALL_R = 6;
-const PEG_R = 3;
-const RING_PEG_R = 2;
+// --- Layout ---
+const FRAME = 12;
+const PF_LEFT = FRAME + 2;
+const PF_RIGHT = W - FRAME - 2;
+const LANE_W = 28;
+const LANE_X = PF_RIGHT - LANE_W;
+const LANE_CX = LANE_X + LANE_W / 2;
+const PF_CX = (PF_LEFT + LANE_X) / 2;
 
-// Physics — simple per-frame, tuned to feel fast on all devices
-const GRAVITY = 0.14;
-const FRICTION = 0.998;
-const PEG_DAMPING = 0.55;
-const WALL_DAMPING = 0.5;
-const TRAIL_LEN = 10;
+// Vertical zones
+const TITLE_Y = 40;
+const LOGO_Y = 65;
+const SCOOP_Y = 355;
+const SCOOP_R = 18;
+const FLIPPER_Y = 510;
+const DRAIN_Y = 540;
+const DMD_TOP = 565;
+const DMD_BOT = 670;
+const DMD_CX = (PF_LEFT + 15 + LANE_X - 15) / 2;
+const DMD_CY = (DMD_TOP + DMD_BOT) / 2;
 
-// Playfield frame
-const FRAME = 14;
-const PF_LEFT = FRAME;
-const PF_RIGHT = W - FRAME;
-const PF_BOT = H - 75;
-
-// Arch (elliptical top boundary)
-const ARCH_CX = (PF_LEFT + PF_RIGHT) / 2;
-const ARCH_RX = (PF_RIGHT - PF_LEFT) / 2;
-const ARCH_RY = 75;
-const ARCH_CY = 85;
-
-// Plunger lane
-const LANE_DIVIDER_X = PF_RIGHT - 30;
-const LANE_RIGHT = PF_RIGHT;
-const LANE_CX = (LANE_DIVIDER_X + LANE_RIGHT) / 2;
-const LANE_TOP = ARCH_CY + 5;
-
-// Drain
-const DRAIN_Y = PF_BOT + 12;
-
-// Colors
-const WOOD_DARK = '#3a2518';
-const WOOD_MID = '#5c3a24';
-const WOOD_LIGHT = '#7a5438';
-const WOOD_HIGHLIGHT = '#9a7858';
-const GOLD_TRIM = '#b8962e';
-const PLAYFIELD_BG = '#e8d8a8';
-const PLAYFIELD_CREAM = '#f0e6c0';
-const NAIL_COLOR = '#666666';
-const NAIL_HIT = '#cccccc';
-const NAIL_HIGHLIGHT = '#999999';
-const BALL_COLOR = '#c0c0c8';
-const BALL_HIGHLIGHT = '#ffffff';
-const BALL_SHADOW = '#888890';
-const TITLE_COLOR = '#2a2068';
-const HOLE_DARK = '#0a0a0a';
-const HOLE_RIM = '#444444';
-const LABEL_COLOR = '#2a2068';
-const DIAMOND_COLORS = [
-  '#cc3333', '#3366cc', '#44aa44', '#8844aa',
-  '#dd7722', '#cc3366', '#4488aa', '#66aa44',
+// --- Peg positions ---
+const PEG_R = 3.5;
+const PEG_POSITIONS: [number, number][] = [
+  [65, 225], [125, 220], [PF_CX, 225], [245, 220], [305, 225],
+  [45, 258], [95, 255], [155, 258], [215, 255], [275, 258], [325, 255],
+  [75, 290], [135, 292], [235, 292], [295, 290],
+  [45, 325], [105, 320], [255, 320], [315, 325],
+  [55, 365], [115, 368], [245, 368], [305, 365],
+  [75, 400], [135, 398], [225, 398], [285, 400],
+  [45, 430], [105, 432], [165, 428], [245, 432], [305, 430],
+  [75, 460], [195, 455], [285, 460],
+  [115, 488], [255, 488],
 ];
 
-const HOLES: Hole[] = [
-  { x: 190, y: 170, r: 12, label: '100', ringR: 20, gapAngle: 0.9 },
-  { x: 70,  y: 240, r: 11, label: '50',  ringR: 19, gapAngle: 0.9 },
-  { x: 190, y: 250, r: 11, label: '150', ringR: 19, gapAngle: 0.9 },
-  { x: 285, y: 240, r: 11, label: '50',  ringR: 19, gapAngle: 0.9 },
-  { x: 120, y: 330, r: 12, label: '100', ringR: 20, gapAngle: 0.85 },
-  { x: 240, y: 330, r: 12, label: '100', ringR: 20, gapAngle: 0.85 },
-  { x: 190, y: 390, r: 13, label: '250', ringR: 22, gapAngle: 0.8 },
-  { x: 55,  y: 440, r: 12, label: '200', ringR: 20, gapAngle: 0.85 },
-  { x: 290, y: 440, r: 12, label: '200', ringR: 20, gapAngle: 0.85 },
-  { x: 140, y: 490, r: 11, label: '150', ringR: 19, gapAngle: 0.9 },
-  { x: 240, y: 490, r: 11, label: '150', ringR: 19, gapAngle: 0.9 },
-  { x: 190, y: 545, r: 13, label: '400', ringR: 22, gapAngle: 0.85 },
-];
+// Ring pegs around the scoop
+function buildScoopRing(): [number, number][] {
+  const pegs: [number, number][] = [];
+  const ringR = SCOOP_R + 10;
+  const count = 12;
+  for (let i = 0; i < count; i++) {
+    const angle = (2 * Math.PI / count) * i - Math.PI / 2;
+    const fromTop = Math.abs(((angle + Math.PI / 2 + Math.PI) % (2 * Math.PI)) - Math.PI);
+    if (fromTop < 0.7) continue;
+    pegs.push([
+      PF_CX + Math.cos(angle) * ringR,
+      SCOOP_Y + Math.sin(angle) * ringR,
+    ]);
+  }
+  return pegs;
+}
+const SCOOP_RING_PEGS = buildScoopRing();
 
+// --- Colors (RTX themed) ---
+const C = {
+  frameDark: '#080810',
+  frameMid: '#12121e',
+  frameEdge: '#1a1a2a',
+  pfBase: '#0a1428',
+  pfLight: '#0e1e38',
+  cyan: '#00c8ff',
+  cyanDim: '#005580',
+  cyanBright: '#00e8ff',
+  silver: '#aab0b8',
+  silverBright: '#d0d4d8',
+  amber: '#ff8800',
+  amberDim: '#664400',
+  amberBright: '#ffbb44',
+  amberBg: '#0c0400',
+  pegNormal: '#556688',
+  pegHit: '#88bbdd',
+  scoopDark: '#020206',
+  chrome: '#c0c0c8',
+  chromeBright: '#ffffff',
+  chromeShadow: '#606068',
+};
+
+// --- Sound Hooks (stubs — drop in audio clips here) ---
+function playPlungeSound() { /* TODO: plunge whoosh */ }
+function playScoopCapture() { /* TODO: scoop thud */ }
+function playDmdTick() { /* TODO: DMD tick */ }
+function playWinnerFlash() { /* TODO: winner fanfare */ }
+
+// --- Utilities ---
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -94,571 +106,483 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function buildRingPegs(hole: Hole): Vec2[] {
-  const pegs: Vec2[] = [];
-  const circumference = 2 * Math.PI * hole.ringR;
-  const spacing = (RING_PEG_R * 2 + 2);
-  const count = Math.floor(circumference / spacing);
-  for (let i = 0; i < count; i++) {
-    const angle = (2 * Math.PI / count) * i - Math.PI / 2;
-    const fromTop = Math.abs(((angle + Math.PI / 2 + Math.PI) % (2 * Math.PI)) - Math.PI);
-    if (fromTop < hole.gapAngle) continue;
-    pegs.push({
-      x: hole.x + Math.cos(angle) * hole.ringR,
-      y: hole.y + Math.sin(angle) * hole.ringR,
-    });
-  }
-  return pegs;
+function smoothstep(t: number): number {
+  t = Math.max(0, Math.min(1, t));
+  return t * t * (3 - 2 * t);
 }
 
-const ALL_RING_PEGS: Vec2[] = HOLES.flatMap(h => buildRingPegs(h));
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
 
-function buildFieldPegs(): Peg[] {
-  const pegs: Peg[] = [];
-  const positions: [number, number][] = [
-    [80, 130], [140, 125], [240, 125], [300, 130],
-    [55, 155], [130, 150], [250, 150], [320, 155],
-    [110, 200], [160, 205], [220, 205], [270, 200],
-    [90, 280], [170, 285], [210, 285], [300, 280],
-    [55, 300], [140, 300], [240, 300], [320, 300],
-    [75, 340], [180, 350], [290, 340],
-    [100, 370], [280, 370],
-    [65, 410], [150, 415], [230, 415], [310, 410],
-    [100, 465], [280, 465],
-    [70, 480], [310, 480],
-    [110, 520], [270, 520],
-    [130, 570], [250, 570],
-    [95, 580], [290, 580],
+interface Waypoint { x: number; y: number; t: number }
+
+function interpolatePath(path: Waypoint[], t: number): { x: number; y: number } {
+  t = Math.max(0, Math.min(1, t));
+  let i = 0;
+  while (i < path.length - 1 && path[i + 1]!.t <= t) i++;
+  if (i >= path.length - 1) return { x: path[path.length - 1]!.x, y: path[path.length - 1]!.y };
+  const p0 = path[i]!;
+  const p1 = path[i + 1]!;
+  const segT = p1.t === p0.t ? 1 : (t - p0.t) / (p1.t - p0.t);
+  const s = smoothstep(segT);
+  return { x: lerp(p0.x, p1.x, s), y: lerp(p0.y, p1.y, s) };
+}
+
+// Ball path from plunger to scoop (randomized slightly each run)
+function generatePlungePath(): Waypoint[] {
+  const jx = () => (Math.random() - 0.5) * 15;
+  const jy = () => (Math.random() - 0.5) * 8;
+  return [
+    { x: LANE_CX, y: DRAIN_Y - 20, t: 0 },
+    { x: LANE_CX, y: 300, t: 0.10 },
+    { x: LANE_CX, y: 120, t: 0.20 },
+    { x: LANE_CX - 20, y: 70, t: 0.25 },
+    { x: PF_CX + 60 + jx(), y: 100 + jy(), t: 0.32 },
+    { x: PF_CX + jx(), y: 160 + jy(), t: 0.40 },
+    { x: PF_CX - 50 + jx(), y: 230 + jy(), t: 0.48 },
+    { x: PF_CX + 40 + jx(), y: 280 + jy(), t: 0.56 },
+    { x: PF_CX - 30 + jx(), y: 315 + jy(), t: 0.66 },
+    { x: PF_CX + 10, y: SCOOP_Y - 25, t: 0.80 },
+    { x: PF_CX + 3, y: SCOOP_Y - 8, t: 0.92 },
+    { x: PF_CX, y: SCOOP_Y, t: 1.0 },
   ];
+}
 
-  for (const [x, y] of positions) {
-    let tooClose = false;
-    for (const hole of HOLES) {
-      const dx = x - hole.x;
-      const dy = y - hole.y;
-      if (Math.sqrt(dx * dx + dy * dy) < hole.ringR + PEG_R + 3) {
-        tooClose = true;
-        break;
-      }
+// Ball eject path (after reveal)
+function generateEjectPath(): Waypoint[] {
+  return [
+    { x: PF_CX, y: SCOOP_Y, t: 0 },
+    { x: PF_CX + 5, y: SCOOP_Y - 35, t: 0.12 },
+    { x: PF_CX - 15, y: SCOOP_Y + 30, t: 0.30 },
+    { x: PF_CX + 20, y: SCOOP_Y + 100, t: 0.45 },
+    { x: PF_CX - 10, y: 490, t: 0.60 },
+    { x: PF_CX + 5, y: DRAIN_Y, t: 0.78 },
+    { x: PF_CX, y: DRAIN_Y + 40, t: 0.90 },
+    { x: PF_CX, y: H + 20, t: 1.0 },
+  ];
+}
+
+// Roulette-style slowdown: exponential easing on tick intervals
+function buildCycleSequence(items: string[], winner: string): { name: string; delay: number }[] {
+  const TOTAL_TICKS = 32;
+  const others = items.filter(i => i !== winner);
+
+  if (others.length === 0) {
+    // Only one game — brief cycle of the same name
+    return Array.from({ length: 8 }, (_, i) => ({
+      name: winner,
+      delay: 60 + 90 * Math.pow(i / 7, 3),
+    }));
+  }
+
+  const pool = shuffle(others);
+  const sequence: { name: string; delay: number }[] = [];
+
+  for (let i = 0; i < TOTAL_TICKS; i++) {
+    const progress = i / (TOTAL_TICKS - 1);
+    const easedProgress = progress < 0.01 ? 0 : Math.pow(2, 10 * (progress - 1));
+    const delay = 40 + 700 * easedProgress;
+
+    if (i === TOTAL_TICKS - 1) {
+      sequence.push({ name: winner, delay });
+    } else {
+      sequence.push({ name: pool[i % pool.length]!, delay });
     }
-    if (!tooClose) {
-      pegs.push({ x, y, hitTimer: 0 });
+  }
+
+  // Near-miss: ensure last 2-3 items before winner are distinct names
+  const nearMissNames = shuffle(others).slice(0, Math.min(3, others.length));
+  for (let i = 0; i < nearMissNames.length; i++) {
+    const idx = TOTAL_TICKS - 2 - i;
+    if (idx > 0 && sequence[idx]) {
+      sequence[idx] = { ...sequence[idx]!, name: nearMissNames[i]! };
     }
   }
-  return pegs;
+
+  return sequence;
 }
 
-function collideArch(pos: Vec2, vel: Vec2): boolean {
-  if (pos.y >= ARCH_CY) return false;
-  const nx = (pos.x - ARCH_CX) / ARCH_RX;
-  const ny = (pos.y - ARCH_CY) / ARCH_RY;
-  const d2 = nx * nx + ny * ny;
-  if (d2 <= 1) return false;
-  const d = Math.sqrt(d2);
-  const nnx = nx / d;
-  const nny = ny / d;
-  const wnx = nnx / ARCH_RX;
-  const wny = nny / ARCH_RY;
-  const wlen = Math.sqrt(wnx * wnx + wny * wny);
-  const fnx = wnx / wlen;
-  const fny = wny / wlen;
-  const penetration = (d - 1) * Math.min(ARCH_RX, ARCH_RY) * 0.5 + BALL_R;
-  pos.x -= fnx * penetration;
-  pos.y -= fny * penetration;
-  const vDot = vel.x * fnx + vel.y * fny;
-  if (vDot > 0) {
-    vel.x -= 2 * vDot * fnx;
-    vel.y -= 2 * vDot * fny;
-    vel.x *= WALL_DAMPING;
-    vel.y *= WALL_DAMPING;
-  }
-  return true;
-}
-
-function drawPlayfieldPath(ctx: CanvasRenderingContext2D) {
-  ctx.beginPath();
-  ctx.moveTo(PF_LEFT, PF_BOT + 20);
-  ctx.lineTo(PF_LEFT, ARCH_CY);
-  ctx.ellipse(ARCH_CX, ARCH_CY, ARCH_RX, ARCH_RY, 0, Math.PI, 0, false);
-  ctx.lineTo(PF_RIGHT, PF_BOT + 20);
-  ctx.closePath();
-}
-
-function collideLine(pos: Vec2, vel: Vec2, p1: Vec2, p2: Vec2, damping: number): boolean {
-  const lx = p2.x - p1.x;
-  const ly = p2.y - p1.y;
-  const len = Math.sqrt(lx * lx + ly * ly);
-  if (len < 0.1) return false;
-  const nx = -ly / len;
-  const ny = lx / len;
-  const dx = pos.x - p1.x;
-  const dy = pos.y - p1.y;
-  const dist = dx * nx + dy * ny;
-  const t = (dx * lx + dy * ly) / (len * len);
-  if (t < -0.05 || t > 1.05) return false;
-  const absDist = Math.abs(dist);
-  if (absDist >= BALL_R + 2) return false;
-  const sign = dist >= 0 ? 1 : -1;
-  pos.x += nx * sign * (BALL_R + 2 - absDist);
-  pos.y += ny * sign * (BALL_R + 2 - absDist);
-  const vDot = vel.x * nx * sign + vel.y * ny * sign;
-  if (vDot < 0) {
-    vel.x -= 2 * vDot * nx * sign;
-    vel.y -= 2 * vDot * ny * sign;
-    vel.x *= damping;
-    vel.y *= damping;
-  }
-  return true;
-}
-
-/** Pre-render the static background (frame, playfield, diamonds, holes, text) */
-function renderBackground(): HTMLCanvasElement {
+// --- Background Renderer ---
+function renderBackground(logoImg: HTMLImageElement | null): HTMLCanvasElement {
   const bg = document.createElement('canvas');
   bg.width = W;
   bg.height = H;
   const ctx = bg.getContext('2d')!;
 
-  // === 3D WOOD FRAME ===
-  // Base dark wood
-  ctx.fillStyle = WOOD_DARK;
+  // Frame
+  ctx.fillStyle = C.frameDark;
   ctx.fillRect(0, 0, W, H);
-
-  // Mid-tone frame body with gradient
   const frameGrad = ctx.createLinearGradient(0, 0, W, H);
-  frameGrad.addColorStop(0, WOOD_LIGHT);
-  frameGrad.addColorStop(0.25, WOOD_MID);
-  frameGrad.addColorStop(0.75, WOOD_MID);
-  frameGrad.addColorStop(1, WOOD_DARK);
+  frameGrad.addColorStop(0, C.frameEdge);
+  frameGrad.addColorStop(0.5, C.frameMid);
+  frameGrad.addColorStop(1, C.frameDark);
   ctx.fillStyle = frameGrad;
-  ctx.fillRect(4, 4, W - 8, H - 8);
+  ctx.fillRect(3, 3, W - 6, H - 6);
 
-  // Beveled edges — light top/left, dark bottom/right
-  // Top highlight
-  const topBevel = ctx.createLinearGradient(0, 0, 0, 12);
-  topBevel.addColorStop(0, WOOD_HIGHLIGHT + 'cc');
+  // Top/left highlight
+  const topBevel = ctx.createLinearGradient(0, 0, 0, 10);
+  topBevel.addColorStop(0, '#2a2a4020');
   topBevel.addColorStop(1, 'transparent');
   ctx.fillStyle = topBevel;
-  ctx.fillRect(0, 0, W, 12);
-  // Left highlight
-  const leftBevel = ctx.createLinearGradient(0, 0, 12, 0);
-  leftBevel.addColorStop(0, WOOD_HIGHLIGHT + '99');
-  leftBevel.addColorStop(1, 'transparent');
-  ctx.fillStyle = leftBevel;
-  ctx.fillRect(0, 0, 12, H);
-  // Bottom shadow
-  const botBevel = ctx.createLinearGradient(0, H - 14, 0, H);
-  botBevel.addColorStop(0, 'transparent');
-  botBevel.addColorStop(1, '#1a0e08cc');
-  ctx.fillStyle = botBevel;
-  ctx.fillRect(0, H - 14, W, 14);
-  // Right shadow
-  const rightBevel = ctx.createLinearGradient(W - 14, 0, W, 0);
-  rightBevel.addColorStop(0, 'transparent');
-  rightBevel.addColorStop(1, '#1a0e0899');
-  ctx.fillStyle = rightBevel;
-  ctx.fillRect(W - 14, 0, 14, H);
+  ctx.fillRect(0, 0, W, 10);
 
-  // Inner frame groove (dark line around playfield)
-  ctx.strokeStyle = '#2a1808';
+  // Cyan trim on frame
+  ctx.strokeStyle = C.cyanDim;
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(FRAME - 2, FRAME - 2, W - (FRAME - 2) * 2, H - (FRAME - 2) * 2);
+  ctx.strokeRect(FRAME - 1, FRAME - 1, W - (FRAME - 1) * 2, H - (FRAME - 1) * 2);
 
-  // === PLAYFIELD ===
-  ctx.save();
-  drawPlayfieldPath(ctx);
-  ctx.fillStyle = PLAYFIELD_BG;
-  ctx.fill();
-  ctx.restore();
+  // Playfield
+  const pfGrad = ctx.createRadialGradient(PF_CX, SCOOP_Y, 30, PF_CX, SCOOP_Y, 420);
+  pfGrad.addColorStop(0, C.pfLight);
+  pfGrad.addColorStop(0.5, C.pfBase);
+  pfGrad.addColorStop(1, '#060e1e');
+  ctx.fillStyle = pfGrad;
+  ctx.fillRect(PF_LEFT, FRAME, LANE_X + LANE_W - PF_LEFT, H - FRAME * 2);
 
-  // Diamond pattern (clipped to playfield)
+  // Subtle chevron pattern
   ctx.save();
-  drawPlayfieldPath(ctx);
-  ctx.clip();
-  const dSize = 42;
-  for (let r = -1; r < Math.ceil(H / dSize) + 1; r++) {
-    for (let c = -1; c < Math.ceil(W / dSize) + 1; c++) {
-      const dx = c * dSize + (r % 2 === 0 ? 0 : dSize / 2);
-      const dy = r * dSize * 0.7 + 30;
+  ctx.globalAlpha = 0.035;
+  const chevSize = 40;
+  for (let r = -1; r < Math.ceil(H / chevSize) + 1; r++) {
+    for (let c = -1; c < Math.ceil(W / chevSize) + 1; c++) {
+      const cx = c * chevSize + (r % 2 === 0 ? 0 : chevSize / 2);
+      const cy = r * chevSize * 0.8 + FRAME;
       ctx.beginPath();
-      ctx.moveTo(dx, dy - dSize / 2);
-      ctx.lineTo(dx + dSize / 2, dy);
-      ctx.lineTo(dx, dy + dSize / 2);
-      ctx.lineTo(dx - dSize / 2, dy);
+      ctx.moveTo(cx, cy - chevSize / 2);
+      ctx.lineTo(cx + chevSize / 2, cy);
+      ctx.lineTo(cx, cy + chevSize / 2);
+      ctx.lineTo(cx - chevSize / 2, cy);
       ctx.closePath();
-      ctx.fillStyle = DIAMOND_COLORS[(r * 3 + c * 2 + (r + c)) % DIAMOND_COLORS.length]! + '28';
+      ctx.fillStyle = C.cyan;
       ctx.fill();
     }
   }
-  // Cream center diamond
+  ctx.restore();
+
+  // Plunger lane
+  ctx.fillStyle = '#0c1830';
+  ctx.fillRect(LANE_X, FRAME, LANE_W, H - FRAME * 2);
+  // Lane divider
+  ctx.strokeStyle = C.cyanDim;
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(ARCH_CX, 130);
-  ctx.lineTo(LANE_DIVIDER_X - 30, 340);
-  ctx.lineTo(ARCH_CX, PF_BOT - 40);
-  ctx.lineTo(PF_LEFT + 30, 340);
-  ctx.closePath();
-  ctx.fillStyle = PLAYFIELD_CREAM + '35';
-  ctx.fill();
-
-  // 3D playfield lighting — subtle top-to-bottom gradient for depth
-  const pfLight = ctx.createLinearGradient(0, ARCH_CY - ARCH_RY, 0, PF_BOT + 20);
-  pfLight.addColorStop(0, 'rgba(255,255,240,0.15)');
-  pfLight.addColorStop(0.3, 'rgba(255,255,240,0.05)');
-  pfLight.addColorStop(0.7, 'rgba(0,0,0,0.03)');
-  pfLight.addColorStop(1, 'rgba(0,0,0,0.12)');
-  ctx.fillStyle = pfLight;
-  ctx.fillRect(0, 0, W, H);
-
-  ctx.restore();
-
-  // Playfield border — gold trim with 3D bevel
-  ctx.save();
-  drawPlayfieldPath(ctx);
-  ctx.strokeStyle = '#d4af37';
-  ctx.lineWidth = 4;
+  ctx.moveTo(LANE_X, FRAME + 55);
+  ctx.lineTo(LANE_X, DRAIN_Y + 20);
   ctx.stroke();
-  ctx.restore();
+  // Lane curve at top
+  ctx.beginPath();
+  ctx.arc(LANE_X - 12, FRAME + 55, 12, 0, -Math.PI / 2, true);
+  ctx.strokeStyle = C.cyanDim;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Title "MYSTERY SCOOP"
   ctx.save();
-  drawPlayfieldPath(ctx);
-  ctx.strokeStyle = GOLD_TRIM;
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = C.cyan;
+  ctx.font = 'bold 18px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('MYSTERY SCOOP', PF_CX, TITLE_Y);
+  ctx.restore();
+  // Subtitle
+  ctx.fillStyle = C.cyanDim;
+  ctx.font = '9px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('— RANDOM TABLE SELECTOR —', PF_CX, TITLE_Y + 16);
+
+  // RTX Logo
+  if (logoImg) {
+    const logoW = 130;
+    const logoH = 130;
+    const logoX = PF_CX - logoW / 2;
+    const logoY = LOGO_Y;
+    // Glow behind logo
+    ctx.save();
+    ctx.shadowColor = C.cyan;
+    ctx.shadowBlur = 25;
+    ctx.globalAlpha = 0.25;
+    ctx.drawImage(logoImg, logoX, logoY, logoW, logoH);
+    ctx.restore();
+    // Logo
+    ctx.drawImage(logoImg, logoX, logoY, logoW, logoH);
+  }
+
+  // Scoop hole
+  ctx.save();
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 15;
+  ctx.beginPath();
+  ctx.arc(PF_CX, SCOOP_Y, SCOOP_R + 5, 0, Math.PI * 2);
+  ctx.strokeStyle = C.cyanDim;
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.restore();
-  // Inner shadow along playfield edge
-  ctx.save();
-  drawPlayfieldPath(ctx);
-  ctx.clip();
-  drawPlayfieldPath(ctx);
-  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-  ctx.lineWidth = 8;
-  ctx.stroke();
-  ctx.restore();
 
-  // === PLUNGER LANE ===
-  const laneTop = LANE_TOP;
-  ctx.fillStyle = PLAYFIELD_BG;
-  ctx.fillRect(LANE_DIVIDER_X, laneTop, LANE_RIGHT - LANE_DIVIDER_X, PF_BOT + 20 - laneTop);
-  // Lane inner shadow
-  const laneShadow = ctx.createLinearGradient(LANE_DIVIDER_X, 0, LANE_DIVIDER_X + 10, 0);
-  laneShadow.addColorStop(0, 'rgba(0,0,0,0.12)');
-  laneShadow.addColorStop(1, 'transparent');
-  ctx.fillStyle = laneShadow;
-  ctx.fillRect(LANE_DIVIDER_X, laneTop, 10, PF_BOT + 20 - laneTop);
-
-  // Lane divider wall — 3D raised rail
-  ctx.strokeStyle = '#d4af37';
-  ctx.lineWidth = 3.5;
+  // Hole bevel rim
+  const rimGrad = ctx.createLinearGradient(PF_CX, SCOOP_Y - SCOOP_R - 3, PF_CX, SCOOP_Y + SCOOP_R + 3);
+  rimGrad.addColorStop(0, '#555566');
+  rimGrad.addColorStop(0.5, '#333344');
+  rimGrad.addColorStop(1, '#222233');
   ctx.beginPath();
-  ctx.moveTo(LANE_DIVIDER_X, PF_BOT + 15);
-  ctx.lineTo(LANE_DIVIDER_X, laneTop);
-  ctx.stroke();
-  ctx.strokeStyle = GOLD_TRIM + '88';
+  ctx.arc(PF_CX, SCOOP_Y, SCOOP_R + 3, 0, Math.PI * 2);
+  ctx.fillStyle = rimGrad;
+  ctx.fill();
+
+  // Hole pit
+  const holeGrad = ctx.createRadialGradient(PF_CX - 2, SCOOP_Y - 2, 0, PF_CX, SCOOP_Y, SCOOP_R);
+  holeGrad.addColorStop(0, '#111118');
+  holeGrad.addColorStop(0.6, C.scoopDark);
+  holeGrad.addColorStop(1, '#010104');
+  ctx.beginPath();
+  ctx.arc(PF_CX, SCOOP_Y, SCOOP_R, 0, Math.PI * 2);
+  ctx.fillStyle = holeGrad;
+  ctx.fill();
+  // Inner rim highlight
+  ctx.beginPath();
+  ctx.arc(PF_CX, SCOOP_Y, SCOOP_R - 1, -Math.PI * 0.8, -Math.PI * 0.2);
+  ctx.strokeStyle = '#ffffff15';
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(LANE_DIVIDER_X - 2, PF_BOT + 15);
-  ctx.lineTo(LANE_DIVIDER_X - 2, laneTop);
   ctx.stroke();
 
-  // Lane curve
-  ctx.beginPath();
-  ctx.arc(LANE_DIVIDER_X - 12, laneTop, 12, 0, -Math.PI / 2, true);
-  ctx.strokeStyle = '#d4af37';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-
-  // === DRAIN GUIDES ===
-  const drainGuideL1 = { x: PF_LEFT, y: PF_BOT - 15 };
-  const drainGuideL2 = { x: ARCH_CX - 30, y: PF_BOT + 15 };
-  const drainGuideR1 = { x: LANE_DIVIDER_X - 5, y: PF_BOT - 15 };
-  const drainGuideR2 = { x: ARCH_CX + 30, y: PF_BOT + 15 };
-  ctx.strokeStyle = '#d4af37';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(drainGuideL1.x, drainGuideL1.y);
-  ctx.lineTo(drainGuideL2.x, drainGuideL2.y);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(drainGuideR1.x, drainGuideR1.y);
-  ctx.lineTo(drainGuideR2.x, drainGuideR2.y);
-  ctx.stroke();
-  // Shadow on drain guides
-  ctx.strokeStyle = GOLD_TRIM + '55';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(drainGuideL1.x, drainGuideL1.y + 2);
-  ctx.lineTo(drainGuideL2.x, drainGuideL2.y + 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(drainGuideR1.x, drainGuideR1.y + 2);
-  ctx.lineTo(drainGuideR2.x, drainGuideR2.y + 2);
-  ctx.stroke();
-
-  ctx.fillStyle = '#66000060';
-  ctx.font = 'bold 8px serif';
+  // Scoop label
+  ctx.fillStyle = C.cyanDim;
+  ctx.font = 'bold 8px "Courier New", monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('DRAIN', ARCH_CX, PF_BOT + 5);
+  ctx.fillText('MYSTERY', PF_CX, SCOOP_Y - SCOOP_R - 9);
+  ctx.fillText('SCOOP', PF_CX, SCOOP_Y + SCOOP_R + 14);
 
-  // === TITLE ===
-  // Shadow
-  ctx.fillStyle = '#00000030';
-  ctx.font = 'bold 26px serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('GAME', ARCH_CX + 1, ARCH_CY - ARCH_RY + 26);
-  ctx.font = 'bold 20px serif';
-  ctx.fillText('PICKER', ARCH_CX + 1, ARCH_CY - ARCH_RY + 49);
-  // Text
-  ctx.fillStyle = TITLE_COLOR;
-  ctx.font = 'bold 26px serif';
-  ctx.fillText('GAME', ARCH_CX, ARCH_CY - ARCH_RY + 25);
-  ctx.font = 'bold 20px serif';
-  ctx.fillText('PICKER', ARCH_CX, ARCH_CY - ARCH_RY + 48);
-
-  // Side text
-  ctx.save();
-  ctx.fillStyle = TITLE_COLOR + '50';
-  ctx.font = 'bold 13px serif';
-  ctx.textAlign = 'center';
-  ctx.translate(PF_LEFT + 12, 330);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText('ARCAID', 0, 0);
-  ctx.restore();
-  ctx.save();
-  ctx.fillStyle = TITLE_COLOR + '50';
-  ctx.font = 'bold 13px serif';
-  ctx.textAlign = 'center';
-  ctx.translate(LANE_DIVIDER_X - 10, 330);
-  ctx.rotate(Math.PI / 2);
-  ctx.fillText('ARCAID', 0, 0);
-  ctx.restore();
-
-  // === HOLES (3D) ===
-  for (const hole of HOLES) {
-    // Outer shadow (larger, offset)
+  // Field pegs
+  for (const [px, py] of PEG_POSITIONS) {
     ctx.beginPath();
-    ctx.arc(hole.x + 1, hole.y + 2, hole.r + 4, 0, Math.PI * 2);
-    ctx.fillStyle = '#00000025';
-    ctx.fill();
-    // Hole bevel ring (raised rim)
-    ctx.beginPath();
-    ctx.arc(hole.x, hole.y, hole.r + 2, 0, Math.PI * 2);
-    const rimGrad = ctx.createLinearGradient(hole.x, hole.y - hole.r - 2, hole.x, hole.y + hole.r + 2);
-    rimGrad.addColorStop(0, '#888888');
-    rimGrad.addColorStop(0.4, '#555555');
-    rimGrad.addColorStop(1, '#333333');
-    ctx.fillStyle = rimGrad;
-    ctx.fill();
-    // Hole body (dark pit)
-    ctx.beginPath();
-    ctx.arc(hole.x, hole.y, hole.r, 0, Math.PI * 2);
-    const holeGrad = ctx.createRadialGradient(hole.x - 2, hole.y - 2, 0, hole.x, hole.y, hole.r);
-    holeGrad.addColorStop(0, '#222222');
-    holeGrad.addColorStop(0.6, HOLE_DARK);
-    holeGrad.addColorStop(1, '#050505');
-    ctx.fillStyle = holeGrad;
-    ctx.fill();
-    // Inner rim highlight (top-left light catch)
-    ctx.beginPath();
-    ctx.arc(hole.x, hole.y, hole.r - 1, -Math.PI * 0.8, -Math.PI * 0.2);
-    ctx.strokeStyle = '#ffffff20';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    // Outer rim
-    ctx.beginPath();
-    ctx.arc(hole.x, hole.y, hole.r + 2, 0, Math.PI * 2);
-    ctx.strokeStyle = HOLE_RIM;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // Label with shadow
-    ctx.fillStyle = '#00000030';
-    ctx.font = 'bold 12px serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(hole.label, hole.x + 0.5, hole.y - hole.r - 4.5);
-    ctx.fillStyle = LABEL_COLOR;
-    ctx.fillText(hole.label, hole.x, hole.y - hole.r - 5);
-    if (hole.label === '250') {
-      ctx.font = '8px serif';
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = LABEL_COLOR;
-      ctx.fillText('FREE PLAY', hole.x, hole.y + hole.r + 4);
-    }
-  }
-
-  // === STATIC RING PEGS ===
-  for (const rp of ALL_RING_PEGS) {
-    // Shadow
-    ctx.beginPath();
-    ctx.arc(rp.x + 0.5, rp.y + 0.5, RING_PEG_R + 0.5, 0, Math.PI * 2);
+    ctx.arc(px + 0.5, py + 0.5, PEG_R + 0.5, 0, Math.PI * 2);
     ctx.fillStyle = '#00000030';
     ctx.fill();
-    // Body
+    const pegGrad = ctx.createRadialGradient(px - 1, py - 1, 0, px, py, PEG_R);
+    pegGrad.addColorStop(0, C.silverBright);
+    pegGrad.addColorStop(0.5, C.pegNormal);
+    pegGrad.addColorStop(1, '#334455');
     ctx.beginPath();
-    ctx.arc(rp.x, rp.y, RING_PEG_R, 0, Math.PI * 2);
-    ctx.fillStyle = NAIL_COLOR;
-    ctx.fill();
-    // Highlight
-    ctx.beginPath();
-    ctx.arc(rp.x - 0.3, rp.y - 0.3, RING_PEG_R * 0.5, 0, Math.PI * 2);
-    ctx.fillStyle = NAIL_HIGHLIGHT;
-    ctx.fill();
-  }
-
-  // === STATIC FIELD PEGS (base appearance — will be overlaid when hit) ===
-  const fieldPegs = buildFieldPegs();
-  for (const peg of fieldPegs) {
-    // Shadow
-    ctx.beginPath();
-    ctx.arc(peg.x + 0.7, peg.y + 0.7, PEG_R + 0.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#00000030';
-    ctx.fill();
-    // Body with 3D gradient
-    const pegGrad = ctx.createRadialGradient(peg.x - 0.8, peg.y - 0.8, 0, peg.x, peg.y, PEG_R);
-    pegGrad.addColorStop(0, NAIL_HIGHLIGHT);
-    pegGrad.addColorStop(0.6, NAIL_COLOR);
-    pegGrad.addColorStop(1, '#444444');
-    ctx.beginPath();
-    ctx.arc(peg.x, peg.y, PEG_R, 0, Math.PI * 2);
+    ctx.arc(px, py, PEG_R, 0, Math.PI * 2);
     ctx.fillStyle = pegGrad;
     ctx.fill();
-    // Specular highlight
     ctx.beginPath();
-    ctx.arc(peg.x - 0.5, peg.y - 0.5, PEG_R * 0.35, 0, Math.PI * 2);
-    ctx.fillStyle = '#bbbbbb';
+    ctx.arc(px - 0.5, py - 0.5, PEG_R * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = '#ccddee';
     ctx.fill();
   }
 
-  // === SCOREBOARD BACKGROUND ===
-  // Shadow behind scoreboard
-  ctx.fillStyle = '#00000040';
-  ctx.fillRect(PF_LEFT + 2, PF_BOT + 27, PF_RIGHT - PF_LEFT, 38);
-  // Board
-  const sbGrad = ctx.createLinearGradient(0, PF_BOT + 25, 0, PF_BOT + 63);
-  sbGrad.addColorStop(0, '#4a3020');
-  sbGrad.addColorStop(0.3, WOOD_DARK);
-  sbGrad.addColorStop(1, '#2a1508');
-  ctx.fillStyle = sbGrad;
-  ctx.fillRect(PF_LEFT, PF_BOT + 25, PF_RIGHT - PF_LEFT, 38);
-  // Gold border
-  ctx.strokeStyle = '#d4af37';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(PF_LEFT, PF_BOT + 25, PF_RIGHT - PF_LEFT, 38);
-  ctx.strokeStyle = GOLD_TRIM + '55';
-  ctx.lineWidth = 0.5;
-  ctx.strokeRect(PF_LEFT + 1.5, PF_BOT + 26.5, PF_RIGHT - PF_LEFT - 3, 35);
+  // Scoop ring pegs
+  for (const [px, py] of SCOOP_RING_PEGS) {
+    ctx.beginPath();
+    ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = C.pegNormal;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(px - 0.3, py - 0.3, 1, 0, Math.PI * 2);
+    ctx.fillStyle = '#99aabb';
+    ctx.fill();
+  }
 
-  // === GLASS REFLECTION (subtle highlight across top) ===
+  // Flipper outlines
+  const flipW = 50;
+  const flipH = 8;
+  const fGrad = ctx.createLinearGradient(0, -flipH / 2, 0, flipH / 2);
+  fGrad.addColorStop(0, '#666680');
+  fGrad.addColorStop(0.5, '#444458');
+  fGrad.addColorStop(1, '#333346');
+  // Left
   ctx.save();
-  drawPlayfieldPath(ctx);
-  ctx.clip();
-  const glassGrad = ctx.createLinearGradient(PF_LEFT, ARCH_CY - ARCH_RY, PF_RIGHT * 0.6, ARCH_CY + 40);
-  glassGrad.addColorStop(0, 'rgba(255,255,255,0.08)');
-  glassGrad.addColorStop(0.3, 'rgba(255,255,255,0.03)');
-  glassGrad.addColorStop(0.5, 'transparent');
-  ctx.fillStyle = glassGrad;
-  ctx.fillRect(PF_LEFT, ARCH_CY - ARCH_RY, PF_RIGHT - PF_LEFT, 150);
+  ctx.translate(PF_CX - 50, FLIPPER_Y);
+  ctx.rotate(0.2);
+  ctx.fillStyle = fGrad;
+  ctx.beginPath();
+  ctx.roundRect(-5, -flipH / 2, flipW, flipH, 4);
+  ctx.fill();
   ctx.restore();
+  // Right
+  ctx.save();
+  ctx.translate(PF_CX + 50, FLIPPER_Y);
+  ctx.rotate(-0.2);
+  ctx.fillStyle = fGrad;
+  ctx.beginPath();
+  ctx.roundRect(-flipW + 5, -flipH / 2, flipW, flipH, 4);
+  ctx.fill();
+  ctx.restore();
+
+  // Drain label
+  ctx.fillStyle = '#ffffff08';
+  ctx.font = 'bold 8px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('DRAIN', PF_CX, DRAIN_Y + 12);
+
+  // Drain guides
+  ctx.strokeStyle = C.cyanDim;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(PF_LEFT, FLIPPER_Y - 20);
+  ctx.lineTo(PF_CX - 40, DRAIN_Y + 5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(LANE_X, FLIPPER_Y - 20);
+  ctx.lineTo(PF_CX + 40, DRAIN_Y + 5);
+  ctx.stroke();
+
+  // DMD panel frame
+  const dmdLeft = PF_LEFT + 10;
+  const dmdRight = LANE_X - 10;
+  ctx.fillStyle = '#2a2a3a';
+  ctx.beginPath();
+  ctx.roundRect(dmdLeft - 4, DMD_TOP - 4, dmdRight - dmdLeft + 8, DMD_BOT - DMD_TOP + 8, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#444460';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(dmdLeft - 4, DMD_TOP - 4, dmdRight - dmdLeft + 8, DMD_BOT - DMD_TOP + 8, 4);
+  ctx.stroke();
+
+  // DMD screen
+  ctx.fillStyle = C.amberBg;
+  ctx.beginPath();
+  ctx.roundRect(dmdLeft, DMD_TOP, dmdRight - dmdLeft, DMD_BOT - DMD_TOP, 2);
+  ctx.fill();
+
+  // DMD scan lines
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(dmdLeft, DMD_TOP, dmdRight - dmdLeft, DMD_BOT - DMD_TOP, 2);
+  ctx.clip();
+  for (let y = DMD_TOP; y < DMD_BOT; y += 3) {
+    ctx.fillStyle = '#00000018';
+    ctx.fillRect(dmdLeft, y, dmdRight - dmdLeft, 1);
+  }
+  ctx.restore();
+
+  // Status bar
+  ctx.fillStyle = '#0a0a14';
+  ctx.fillRect(PF_LEFT, DMD_BOT + 6, PF_RIGHT - PF_LEFT, 20);
 
   return bg;
 }
 
+// --- Main Component ---
 export default function PinballPicker({ availableGames, onClose }: PinballPickerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bgRef = useRef<HTMLCanvasElement | null>(null);
+  const logoRef = useRef<HTMLImageElement | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<string | null>(null);
-  const [score, setScore] = useState<string | null>(null);
-  const [isDrain, setIsDrain] = useState(false);
+  const [logoLoaded, setLogoLoaded] = useState(false);
 
-  const stateRef = useRef({
-    pos: { x: LANE_CX, y: PF_BOT - 15 } as Vec2,
-    vel: { x: 0, y: 0 } as Vec2,
-    trail: [] as Vec2[],
-    pegs: buildFieldPegs(),
-    ringPegHitTimers: new Map<number, number>(),
+  const state = useRef({
     phase: 'idle' as Phase,
-    startTime: 0,
-    plungerPull: 0,
-    animId: 0,
-    landedHole: null as Hole | null,
+    ballPos: { x: LANE_CX, y: DRAIN_Y - 20 },
     ballVisible: true,
-    resultText: '',
-    isDrain: false,
+    ballTrail: [] as { x: number; y: number }[],
     pulling: false,
-    pullStartTime: 0,
+    pullStart: 0,
+    pullAmount: 0,
+    plungePath: [] as Waypoint[],
+    plungeStart: 0,
+    plungeDuration: 2500,
+    cycleSequence: [] as { name: string; delay: number }[],
+    cycleIndex: 0,
+    cycleNextAt: 0,
+    currentName: '',
+    winner: '',
+    revealStart: 0,
+    ejectPath: [] as Waypoint[],
+    ejectStarted: false,
+    flashOn: true,
+    pegHits: new Map<number, number>(),
+    animId: 0,
   });
 
-  const pickGame = useCallback(() => {
+  // Load logo
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      logoRef.current = img;
+      bgRef.current = null;
+      setLogoLoaded(true);
+    };
+    img.src = '/rtx-logo.webp';
+  }, []);
+
+  const pickWinner = useCallback(() => {
     return shuffle(availableGames)[0] || 'No games available';
   }, [availableGames]);
 
-  const resetBall = useCallback(() => {
-    const s = stateRef.current;
-    s.pos = { x: LANE_CX, y: PF_BOT - 15 };
-    s.vel = { x: 0, y: 0 };
-    s.trail = [];
-    s.plungerPull = 0;
-    s.pegs.forEach(p => (p.hitTimer = 0));
-    s.ringPegHitTimers.clear();
-    s.startTime = 0;
-    s.landedHole = null;
+  const startPlunge = useCallback(() => {
+    const s = state.current;
+    if (s.phase !== 'idle' && s.phase !== 'pulling') return;
+
+    playPlungeSound();
+    const winner = pickWinner();
+    s.winner = winner;
+    s.plungePath = generatePlungePath();
+    s.plungeStart = performance.now();
     s.ballVisible = true;
-    s.resultText = '';
-    s.isDrain = false;
+    s.ballTrail = [];
+    s.ballPos = { x: LANE_CX, y: DRAIN_Y - 20 };
+    s.cycleSequence = buildCycleSequence(availableGames, winner);
+    s.cycleIndex = 0;
+    s.currentName = '';
+    s.pullAmount = s.pulling ? s.pullAmount : 0.8; // visual spring-back
     s.pulling = false;
-    s.pullStartTime = 0;
-  }, []);
+    s.phase = 'plunging';
+    setPhase('plunging');
+    setResult(null);
+  }, [availableGames, pickWinner]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    const s = stateRef.current;
+    const s = state.current;
     if (s.phase !== 'idle') return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const cx = (e.clientX - rect.left) * (W / rect.width);
     const cy = (e.clientY - rect.top) * (H / rect.height);
-    if (cx > LANE_DIVIDER_X - 20 && cx < PF_RIGHT + 20 && cy > PF_BOT - 60 && cy < H) {
+    if (cx > LANE_X - 15 && cy > DRAIN_Y - 50) {
       s.pulling = true;
-      s.pullStartTime = performance.now();
+      s.pullStart = performance.now();
       s.phase = 'pulling';
       setPhase('pulling');
-      setResult(null);
-      setScore(null);
-      setIsDrain(false);
       canvas.setPointerCapture(e.pointerId);
     }
   }, []);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    const s = stateRef.current;
+    const s = state.current;
     if (s.phase !== 'pulling' || !s.pulling) return;
-    s.pulling = false;
-    const power = s.plungerPull;
-    if (power < 0.05) {
-      s.plungerPull = 0;
+    if (s.pullAmount > 0.05) {
+      startPlunge();
+    } else {
+      s.pulling = false;
+      s.pullAmount = 0;
       s.phase = 'idle';
       setPhase('idle');
-      return;
     }
-    s.pos = { x: LANE_CX, y: PF_BOT - 15 };
-    const launchVel = 8 + power * 10;
-    s.vel = { x: -0.3 - Math.random() * 0.5, y: -launchVel };
-    s.phase = 'running';
-    s.startTime = performance.now();
-    setPhase('running');
     const canvas = canvasRef.current;
     if (canvas) canvas.releasePointerCapture(e.pointerId);
-  }, []);
+  }, [startPlunge]);
 
   const handlePlayAgain = useCallback(() => {
-    resetBall();
-    stateRef.current.pegs = buildFieldPegs();
-    stateRef.current.phase = 'idle';
+    const s = state.current;
+    s.phase = 'idle';
+    s.ballPos = { x: LANE_CX, y: DRAIN_Y - 20 };
+    s.ballVisible = true;
+    s.ballTrail = [];
+    s.pullAmount = 0;
+    s.pulling = false;
+    s.pegHits.clear();
+    s.currentName = '';
+    s.ejectStarted = false;
     setPhase('idle');
     setResult(null);
-    setScore(null);
-    setIsDrain(false);
-  }, [resetBall]);
+  }, []);
 
   // Animation loop
   useEffect(() => {
@@ -666,382 +590,349 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
 
-    // Pre-render static background once
-    if (!bgCanvasRef.current) {
-      bgCanvasRef.current = renderBackground();
-    }
-    const bgCanvas = bgCanvasRef.current;
+    function render() {
+      const s = state.current;
+      const now = performance.now();
 
-    const drainGuideL1: Vec2 = { x: PF_LEFT, y: PF_BOT - 15 };
-    const drainGuideL2: Vec2 = { x: ARCH_CX - 30, y: PF_BOT + 15 };
-    const drainGuideR1: Vec2 = { x: LANE_DIVIDER_X - 5, y: PF_BOT - 15 };
-    const drainGuideR2: Vec2 = { x: ARCH_CX + 30, y: PF_BOT + 15 };
-
-    function draw() {
-      const s = stateRef.current;
-
-      // Blit pre-rendered background (fast — single drawImage)
-      ctx.drawImage(bgCanvas, 0, 0);
-
-      // === DYNAMIC: Hit-flash pegs (only draw pegs that are currently flashing) ===
-      for (const peg of s.pegs) {
-        if (peg.hitTimer > 0) {
-          ctx.beginPath();
-          ctx.arc(peg.x, peg.y, PEG_R + 1, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(255,255,255,${0.15 + peg.hitTimer * 0.04})`;
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(peg.x, peg.y, PEG_R, 0, Math.PI * 2);
-          ctx.fillStyle = NAIL_HIT;
-          ctx.fill();
-          peg.hitTimer--;
-        }
+      // Cached background
+      if (!bgRef.current) {
+        bgRef.current = renderBackground(logoRef.current);
       }
+      ctx.drawImage(bgRef.current, 0, 0);
 
-      // Hit-flash ring pegs
-      for (const [i, timer] of s.ringPegHitTimers.entries()) {
+      // --- Peg hit flashes ---
+      for (const [idx, timer] of s.pegHits.entries()) {
         if (timer > 0) {
-          const rp = ALL_RING_PEGS[i]!;
-          ctx.beginPath();
-          ctx.arc(rp.x, rp.y, RING_PEG_R + 0.5, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(255,255,255,${0.1 + timer * 0.04})`;
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(rp.x, rp.y, RING_PEG_R, 0, Math.PI * 2);
-          ctx.fillStyle = NAIL_HIT;
-          ctx.fill();
-          s.ringPegHitTimers.set(i, timer - 1);
-          if (timer - 1 <= 0) s.ringPegHitTimers.delete(i);
+          const pos = PEG_POSITIONS[idx];
+          if (pos) {
+            ctx.beginPath();
+            ctx.arc(pos[0], pos[1], PEG_R + 2, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(0, 200, 255, ${timer * 0.06})`;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(pos[0], pos[1], PEG_R, 0, Math.PI * 2);
+            ctx.fillStyle = C.pegHit;
+            ctx.fill();
+          }
+          s.pegHits.set(idx, timer - 1);
+          if (timer <= 1) s.pegHits.delete(idx);
         }
       }
 
-      // === DYNAMIC: PLUNGER ===
-      const maxPull = 55;
-      const pullOff = s.plungerPull * maxPull;
-      const tipY = PF_BOT - 20 + pullOff;
+      // --- Plunger pull ---
+      if (s.phase === 'pulling' && s.pulling) {
+        const elapsed = (now - s.pullStart) / 1000;
+        s.pullAmount = Math.min(1, 1 - Math.exp(-elapsed * 1.8));
+        s.ballPos.y = DRAIN_Y - 20 + s.pullAmount * 45;
+      }
+      // Spring-back
+      if (s.phase === 'plunging' && s.pullAmount > 0) {
+        s.pullAmount *= 0.82;
+        if (s.pullAmount < 0.01) s.pullAmount = 0;
+      }
+
+      // Plunger visual
+      const maxPull = 45;
+      const pullOff = s.pullAmount * maxPull;
+      const tipY = DRAIN_Y - 10 + pullOff;
       // Rod
       const rodGrad = ctx.createLinearGradient(LANE_CX - 4, 0, LANE_CX + 4, 0);
-      rodGrad.addColorStop(0, '#888888');
-      rodGrad.addColorStop(0.5, '#aaaaaa');
-      rodGrad.addColorStop(1, '#666666');
+      rodGrad.addColorStop(0, '#666670');
+      rodGrad.addColorStop(0.5, '#888890');
+      rodGrad.addColorStop(1, '#555560');
       ctx.fillStyle = rodGrad;
-      ctx.fillRect(LANE_CX - 4, tipY, 8, H - tipY - 15);
+      ctx.fillRect(LANE_CX - 4, tipY, 8, H - tipY - 20);
       // Spring coils
-      if (s.plungerPull > 0.03) {
-        ctx.strokeStyle = '#555555';
+      if (s.pullAmount > 0.03) {
+        ctx.strokeStyle = '#444450';
         ctx.lineWidth = 1.5;
-        const sTop = PF_BOT - 20;
-        const sH = pullOff;
         for (let i = 0; i < 5; i++) {
-          const y = sTop + (i + 0.5) * (sH / 5);
+          const sy = DRAIN_Y - 10 + (i + 0.5) * (pullOff / 5);
           ctx.beginPath();
-          ctx.moveTo(LANE_CX - 7, y - 1.5);
-          ctx.lineTo(LANE_CX + 7, y + 1.5);
+          ctx.moveTo(LANE_CX - 7, sy - 1);
+          ctx.lineTo(LANE_CX + 7, sy + 1);
           ctx.stroke();
         }
       }
-      // Plunger tip — 3D metal plate
-      const tipW = LANE_RIGHT - LANE_DIVIDER_X - 6;
+      // Tip
+      const tipW = LANE_W - 6;
       const tipGrad = ctx.createLinearGradient(0, tipY - 3, 0, tipY + 5);
-      tipGrad.addColorStop(0, '#cccccc');
-      tipGrad.addColorStop(0.3, '#aaaaaa');
-      tipGrad.addColorStop(0.7, '#888888');
-      tipGrad.addColorStop(1, '#666666');
+      tipGrad.addColorStop(0, '#bbbbcc');
+      tipGrad.addColorStop(0.5, '#888898');
+      tipGrad.addColorStop(1, '#555568');
       ctx.fillStyle = tipGrad;
-      ctx.fillRect(LANE_CX - tipW / 2, tipY - 3, tipW, 8);
-      ctx.strokeStyle = '#55555580';
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(LANE_CX - tipW / 2, tipY - 3, tipW, 8);
+      ctx.fillRect(LANE_CX - tipW / 2, tipY - 3, tipW, 7);
 
       // Power bar
-      if (s.phase === 'pulling' && s.plungerPull > 0) {
-        const bH = 70;
-        const bX = LANE_RIGHT + 4;
-        const bY = PF_BOT - bH;
-        ctx.fillStyle = '#00000030';
-        ctx.fillRect(bX, bY, 7, bH);
-        const fH = bH * s.plungerPull;
-        ctx.fillStyle = s.plungerPull < 0.5 ? '#44aa44' : s.plungerPull < 0.8 ? '#ddaa22' : '#cc3333';
-        ctx.fillRect(bX, bY + bH - fH, 7, fH);
-        ctx.strokeStyle = GOLD_TRIM;
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(bX, bY, 7, bH);
+      if (s.phase === 'pulling' && s.pullAmount > 0) {
+        const bH = 60;
+        const bX = PF_RIGHT + 3;
+        const bY = DRAIN_Y - bH;
+        ctx.fillStyle = '#ffffff08';
+        ctx.fillRect(bX, bY, 6, bH);
+        const fH = bH * s.pullAmount;
+        const barColor = s.pullAmount < 0.5 ? C.cyan : s.pullAmount < 0.8 ? C.amber : '#ff4444';
+        ctx.fillStyle = barColor;
+        ctx.fillRect(bX, bY + bH - fH, 6, fH);
       }
 
-      // === DYNAMIC: BALL ===
+      // --- Plunge animation ---
+      if (s.phase === 'plunging') {
+        const elapsed = now - s.plungeStart;
+        const t = Math.min(1, elapsed / s.plungeDuration);
+        const pos = interpolatePath(s.plungePath, t);
+        s.ballPos = pos;
+
+        // Flash nearby pegs
+        for (let i = 0; i < PEG_POSITIONS.length; i++) {
+          const pp = PEG_POSITIONS[i]!;
+          const dx = pos.x - pp[0];
+          const dy = pos.y - pp[1];
+          if (Math.sqrt(dx * dx + dy * dy) < 22) {
+            s.pegHits.set(i, 8);
+          }
+        }
+
+        s.ballTrail.push({ ...pos });
+        if (s.ballTrail.length > 12) s.ballTrail.shift();
+
+        if (t >= 1) {
+          playScoopCapture();
+          s.ballVisible = false;
+          s.phase = 'cycling';
+          setPhase('cycling');
+          s.cycleIndex = 0;
+          s.cycleNextAt = now + s.cycleSequence[0]!.delay;
+          s.currentName = s.cycleSequence[0]!.name;
+        }
+      }
+
+      // --- Cycling ---
+      if (s.phase === 'cycling') {
+        if (now >= s.cycleNextAt && s.cycleIndex < s.cycleSequence.length - 1) {
+          s.cycleIndex++;
+          playDmdTick();
+          s.currentName = s.cycleSequence[s.cycleIndex]!.name;
+          s.cycleNextAt = now + s.cycleSequence[s.cycleIndex]!.delay;
+        }
+        if (s.cycleIndex >= s.cycleSequence.length - 1 && now >= s.cycleNextAt) {
+          playWinnerFlash();
+          s.phase = 'revealed';
+          setPhase('revealed');
+          s.revealStart = now;
+          s.ejectPath = generateEjectPath();
+          s.ejectStarted = false;
+          s.flashOn = true;
+          s.currentName = s.winner;
+          setResult(s.winner);
+        }
+      }
+
+      // --- Revealed ---
+      if (s.phase === 'revealed') {
+        const revealElapsed = now - s.revealStart;
+        s.flashOn = Math.floor(revealElapsed / 250) % 2 === 0;
+
+        if (revealElapsed > 1000 && !s.ejectStarted) {
+          s.ejectStarted = true;
+          s.ballVisible = true;
+          s.ballTrail = [];
+        }
+        if (s.ejectStarted) {
+          const ejectT = Math.min(1, (revealElapsed - 1000) / 1500);
+          const pos = interpolatePath(s.ejectPath, ejectT);
+          s.ballPos = pos;
+          s.ballTrail.push({ ...pos });
+          if (s.ballTrail.length > 8) s.ballTrail.shift();
+          if (ejectT >= 1) s.ballVisible = false;
+        }
+      }
+
+      // --- Draw ball ---
       if (s.ballVisible) {
         // Trail
-        for (let i = 0; i < s.trail.length; i++) {
-          const t = s.trail[i]!;
-          const a = (i + 1) / s.trail.length * 0.2;
-          const sz = BALL_R * (0.3 + 0.7 * (i + 1) / s.trail.length);
+        for (let i = 0; i < s.ballTrail.length; i++) {
+          const tp = s.ballTrail[i]!;
+          const a = (i + 1) / s.ballTrail.length * 0.2;
+          const sz = BALL_R * (0.3 + 0.7 * (i + 1) / s.ballTrail.length);
           ctx.beginPath();
-          ctx.arc(t.x, t.y, sz, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(170,170,178,${a})`;
+          ctx.arc(tp.x, tp.y, sz, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(160,180,200,${a})`;
           ctx.fill();
         }
         // Shadow
         ctx.beginPath();
-        ctx.arc(s.pos.x + 2, s.pos.y + 2, BALL_R + 1, 0, Math.PI * 2);
-        ctx.fillStyle = '#00000020';
+        ctx.arc(s.ballPos.x + 2, s.ballPos.y + 2, BALL_R + 1, 0, Math.PI * 2);
+        ctx.fillStyle = '#00000025';
         ctx.fill();
-        // Body — 3D chrome ball
-        const bg = ctx.createRadialGradient(s.pos.x - 2.5, s.pos.y - 2.5, 0.5, s.pos.x, s.pos.y, BALL_R);
-        bg.addColorStop(0, BALL_HIGHLIGHT);
-        bg.addColorStop(0.25, '#e0e0e4');
-        bg.addColorStop(0.5, BALL_COLOR);
-        bg.addColorStop(0.85, BALL_SHADOW);
-        bg.addColorStop(1, '#606068');
+        // Chrome ball
+        const ballGrad = ctx.createRadialGradient(
+          s.ballPos.x - 2.5, s.ballPos.y - 2.5, 0.5,
+          s.ballPos.x, s.ballPos.y, BALL_R
+        );
+        ballGrad.addColorStop(0, C.chromeBright);
+        ballGrad.addColorStop(0.25, '#e0e0e8');
+        ballGrad.addColorStop(0.5, C.chrome);
+        ballGrad.addColorStop(0.85, C.chromeShadow);
+        ballGrad.addColorStop(1, '#50505a');
         ctx.beginPath();
-        ctx.arc(s.pos.x, s.pos.y, BALL_R, 0, Math.PI * 2);
-        ctx.fillStyle = bg;
+        ctx.arc(s.ballPos.x, s.ballPos.y, BALL_R, 0, Math.PI * 2);
+        ctx.fillStyle = ballGrad;
         ctx.fill();
-        ctx.strokeStyle = '#77777760';
+        ctx.strokeStyle = '#44444460';
         ctx.lineWidth = 0.5;
         ctx.stroke();
-        // Specular highlight
+        // Specular
         ctx.beginPath();
-        ctx.arc(s.pos.x - 2, s.pos.y - 2, BALL_R * 0.3, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.arc(s.ballPos.x - 2, s.ballPos.y - 2, BALL_R * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
         ctx.fill();
       }
 
-      // === DYNAMIC: SCOREBOARD TEXT ===
-      if (s.phase === 'landed' && s.landedHole) {
-        ctx.fillStyle = '#ffcc00';
-        ctx.font = 'bold 10px serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`${s.landedHole.label} PTS`, W / 2, PF_BOT + 36);
-        ctx.fillStyle = '#ffeeaa';
-        ctx.font = 'bold 12px serif';
-        ctx.fillText(s.resultText, W / 2, PF_BOT + 51);
-      } else if (s.phase === 'landed' && s.isDrain) {
-        ctx.fillStyle = '#ff6666';
-        ctx.font = 'bold 10px serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('DRAIN!', W / 2, PF_BOT + 36);
-        ctx.fillStyle = '#ffeeaa';
-        ctx.font = 'bold 12px serif';
-        ctx.fillText(s.resultText, W / 2, PF_BOT + 51);
-      } else if (s.phase === 'idle') {
-        ctx.fillStyle = '#ffcc0080';
-        ctx.font = 'bold 12px serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('HOLD & RELEASE PLUNGER', W / 2, PF_BOT + 44);
-      } else if (s.phase === 'pulling') {
-        const dots = Math.floor((performance.now() / 250) % 4);
-        ctx.fillStyle = '#ffcc00';
-        ctx.font = 'bold 12px serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('PULL' + '.'.repeat(dots), W / 2, PF_BOT + 44);
-      } else {
-        ctx.fillStyle = '#ffcc0050';
-        ctx.font = '10px serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('\u2022 \u2022 \u2022', W / 2, PF_BOT + 44);
-      }
-    }
-
-    function step() {
-      const s = stateRef.current;
-
-      const maxPull = 55;
-
-      // Plunger pull
-      if (s.phase === 'pulling' && s.pulling) {
-        const elapsed = (performance.now() - s.pullStartTime) / 1000;
-        s.plungerPull = Math.min(1, 1 - Math.exp(-elapsed * 1.8));
-        s.pos.y = PF_BOT - 15 + s.plungerPull * maxPull;
+      // --- Scoop glow (active during cycling/revealed) ---
+      if (s.phase === 'cycling' || s.phase === 'revealed') {
+        const pulse = 0.3 + 0.3 * Math.sin(now * 0.006);
+        ctx.save();
+        ctx.shadowColor = C.cyanBright;
+        ctx.shadowBlur = 15 + pulse * 10;
+        ctx.beginPath();
+        ctx.arc(PF_CX, SCOOP_Y, SCOOP_R + 6, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(0, 200, 255, ${0.3 + pulse * 0.3})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
       }
 
-      // Spring-back
-      if (s.phase === 'running' && s.plungerPull > 0) {
-        s.plungerPull *= 0.82;
-        if (s.plungerPull < 0.01) s.plungerPull = 0;
+      // --- DMD Text (dynamic overlay) ---
+      const dmdLeft = PF_LEFT + 10;
+      const dmdRight = LANE_X - 10;
+      const dmdW = dmdRight - dmdLeft;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(dmdLeft, DMD_TOP, dmdW, DMD_BOT - DMD_TOP, 2);
+      ctx.clip();
+
+      // Redraw DMD bg
+      ctx.fillStyle = C.amberBg;
+      ctx.fillRect(dmdLeft, DMD_TOP, dmdW, DMD_BOT - DMD_TOP);
+      for (let y = DMD_TOP; y < DMD_BOT; y += 3) {
+        ctx.fillStyle = '#00000018';
+        ctx.fillRect(dmdLeft, y, dmdW, 1);
       }
 
-      if (s.phase === 'running') {
-        // Simple per-frame physics — no timing tricks
-        s.vel.y += GRAVITY;
-        s.vel.x *= FRICTION;
-        s.vel.y *= FRICTION;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
 
-        s.pos.x += s.vel.x;
-        s.pos.y += s.vel.y;
-
-        // Trail
-        s.trail.push({ x: s.pos.x, y: s.pos.y });
-        if (s.trail.length > TRAIL_LEN) s.trail.shift();
-
-        // --- COLLISIONS ---
-
-        // Field peg collisions
-        for (const peg of s.pegs) {
-          const dx = s.pos.x - peg.x;
-          const dy = s.pos.y - peg.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const minDist = BALL_R + PEG_R;
-          if (dist < minDist && dist > 0) {
-            const nx = dx / dist;
-            const ny = dy / dist;
-            s.pos.x = peg.x + nx * minDist;
-            s.pos.y = peg.y + ny * minDist;
-            const dot = s.vel.x * nx + s.vel.y * ny;
-            s.vel.x = (s.vel.x - 2 * dot * nx) * PEG_DAMPING;
-            s.vel.y = (s.vel.y - 2 * dot * ny) * PEG_DAMPING;
-            s.vel.x += (Math.random() - 0.5) * 0.6;
-            peg.hitTimer = 8;
-          }
+      if (s.phase === 'idle' || s.phase === 'pulling') {
+        ctx.save();
+        ctx.shadowColor = C.amberDim;
+        ctx.shadowBlur = 4;
+        ctx.fillStyle = C.amberDim;
+        ctx.font = 'bold 11px "Courier New", monospace';
+        ctx.fillText('PULL PLUNGER', DMD_CX, DMD_CY - 18);
+        ctx.fillText('OR TAP AUTO-PLUNGE', DMD_CX, DMD_CY);
+        if (s.phase === 'pulling') {
+          const dots = Math.floor(now / 250) % 4;
+          ctx.fillStyle = C.amber;
+          ctx.shadowColor = C.amber;
+          ctx.shadowBlur = 6;
+          ctx.fillText('PULL' + '.'.repeat(dots), DMD_CX, DMD_CY + 22);
         }
+        ctx.restore();
+      } else if (s.phase === 'plunging') {
+        ctx.save();
+        ctx.shadowColor = C.amber;
+        ctx.shadowBlur = 6;
+        ctx.fillStyle = C.amber;
+        ctx.font = 'bold 12px "Courier New", monospace';
+        const dots = Math.floor(now / 150) % 4;
+        ctx.fillText('BALL IN PLAY' + '.'.repeat(dots), DMD_CX, DMD_CY - 5);
+        ctx.restore();
+      } else if (s.phase === 'cycling') {
+        ctx.save();
+        ctx.shadowColor = C.amber;
+        ctx.shadowBlur = 8;
 
-        // Ring peg collisions
-        for (let i = 0; i < ALL_RING_PEGS.length; i++) {
-          const rp = ALL_RING_PEGS[i]!;
-          const dx = s.pos.x - rp.x;
-          const dy = s.pos.y - rp.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const minDist = BALL_R + RING_PEG_R;
-          if (dist < minDist && dist > 0) {
-            const nx = dx / dist;
-            const ny = dy / dist;
-            s.pos.x = rp.x + nx * minDist;
-            s.pos.y = rp.y + ny * minDist;
-            const dot = s.vel.x * nx + s.vel.y * ny;
-            s.vel.x = (s.vel.x - 2 * dot * nx) * PEG_DAMPING;
-            s.vel.y = (s.vel.y - 2 * dot * ny) * PEG_DAMPING;
-            s.vel.x += (Math.random() - 0.5) * 0.4;
-            s.ringPegHitTimers.set(i, 6);
-          }
+        // Title
+        ctx.fillStyle = C.amberDim;
+        ctx.font = 'bold 9px "Courier New", monospace';
+        ctx.fillText('MYSTERY AWARD', DMD_CX, DMD_TOP + 16);
+
+        // Cycling name
+        const name = s.currentName;
+        let fontSize = 16;
+        ctx.font = `bold ${fontSize}px "Courier New", monospace`;
+        while (ctx.measureText(name).width > dmdW - 16 && fontSize > 8) {
+          fontSize--;
+          ctx.font = `bold ${fontSize}px "Courier New", monospace`;
         }
+        ctx.fillStyle = C.amber;
+        ctx.fillText(name, DMD_CX, DMD_CY + 2, dmdW - 12);
 
-        // Hole capture — pull ball in when nearby and slow enough
-        for (const hole of HOLES) {
-          const dx = s.pos.x - hole.x;
-          const dy = s.pos.y - hole.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
-          if (dist < hole.r + 3 && speed < 5) {
-            s.vel.x += (hole.x - s.pos.x) * 0.12;
-            s.vel.y += (hole.y - s.pos.y) * 0.12;
-            if (dist < 6) {
-              s.pos.x = hole.x;
-              s.pos.y = hole.y;
-              s.ballVisible = false;
-              s.landedHole = hole;
-              s.isDrain = false;
-              s.resultText = pickGame();
-              s.phase = 'landed';
-              setPhase('landed');
-              setScore(hole.label);
-              setIsDrain(false);
-              setResult(s.resultText);
-              break;
-            }
-          }
+        // Progress dots
+        const progress = s.cycleIndex / Math.max(1, s.cycleSequence.length - 1);
+        const dotCount = 20;
+        const dotY = DMD_BOT - 14;
+        for (let i = 0; i < dotCount; i++) {
+          const dotX = dmdLeft + 15 + (dmdW - 30) * (i / (dotCount - 1));
+          ctx.fillStyle = i / dotCount <= progress ? C.amber : C.amberDim + '40';
+          ctx.fillRect(dotX - 1, dotY - 1, 3, 3);
         }
+        ctx.restore();
+      } else if (s.phase === 'revealed') {
+        ctx.save();
+        ctx.fillStyle = C.amberBright;
+        ctx.shadowColor = C.amber;
+        ctx.shadowBlur = 12;
+        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.fillText('\u2605 WINNER \u2605', DMD_CX, DMD_TOP + 16);
 
-        if (s.phase !== 'running') {
-          // landed in hole — skip rest
+        // Winner name (flashing)
+        if (s.flashOn) {
+          ctx.fillStyle = C.amberBright;
+          ctx.shadowBlur = 18;
         } else {
-          // Arch boundary
-          collideArch(s.pos, s.vel);
-
-          // Straight walls below the arch
-          if (s.pos.y >= ARCH_CY) {
-            if (s.pos.x - BALL_R < PF_LEFT) {
-              s.pos.x = PF_LEFT + BALL_R;
-              s.vel.x = Math.abs(s.vel.x) * WALL_DAMPING;
-            }
-            if (s.pos.x + BALL_R > PF_RIGHT) {
-              s.pos.x = PF_RIGHT - BALL_R;
-              s.vel.x = -Math.abs(s.vel.x) * WALL_DAMPING;
-            }
-          }
-
-          // Plunger lane divider wall — solid barrier below LANE_TOP
-          if (s.pos.y > LANE_TOP) {
-            const ballCenterInLane = s.pos.x > LANE_DIVIDER_X;
-            if (!ballCenterInLane) {
-              if (s.pos.x + BALL_R > LANE_DIVIDER_X) {
-                s.pos.x = LANE_DIVIDER_X - BALL_R;
-                s.vel.x = -Math.abs(s.vel.x) * WALL_DAMPING;
-              }
-            } else {
-              if (s.pos.x - BALL_R < LANE_DIVIDER_X) {
-                s.pos.x = LANE_DIVIDER_X + BALL_R;
-                s.vel.x = Math.abs(s.vel.x) * WALL_DAMPING;
-              }
-              if (s.pos.y + BALL_R > PF_BOT + 15) {
-                s.pos.y = PF_BOT + 15 - BALL_R;
-                s.vel.y = -Math.abs(s.vel.y) * 0.2;
-              }
-            }
-          }
-
-          // Drain guide collisions
-          collideLine(s.pos, s.vel, drainGuideL1, drainGuideL2, 0.9);
-          collideLine(s.pos, s.vel, drainGuideR1, drainGuideR2, 0.9);
-
-          // Drain detection
-          if (s.pos.y + BALL_R > DRAIN_Y && s.pos.x > ARCH_CX - 35 && s.pos.x < ARCH_CX + 35 && s.pos.x < LANE_DIVIDER_X) {
-            s.ballVisible = false;
-            s.isDrain = true;
-            s.landedHole = null;
-            s.resultText = pickGame();
-            s.phase = 'landed';
-            setPhase('landed');
-            setScore(null);
-            setIsDrain(true);
-            setResult(s.resultText);
-          }
-
-          // Re-plunge on failed launch
-          if (s.pos.x > LANE_DIVIDER_X && s.pos.y > PF_BOT - 80 && s.vel.y >= 0) {
-            const speed = Math.sqrt(s.vel.x * s.vel.x + s.vel.y * s.vel.y);
-            if (speed < 2) {
-              s.pos = { x: LANE_CX, y: PF_BOT - 15 };
-              s.vel = { x: 0, y: 0 };
-              s.trail = [];
-              s.plungerPull = 0;
-              s.startTime = 0;
-              s.phase = 'idle';
-              setPhase('idle');
-            }
-          }
-
-          // Stuck ball timeout
-          if (s.startTime > 0) {
-            const elapsed = (performance.now() - s.startTime) / 1000;
-            if (elapsed > 20) {
-              s.ballVisible = false;
-              s.isDrain = true;
-              s.landedHole = null;
-              s.resultText = pickGame();
-              s.phase = 'landed';
-              setPhase('landed');
-              setScore(null);
-              setIsDrain(true);
-              setResult(s.resultText);
-            } else if (elapsed > 14) {
-              s.vel.x += (Math.random() - 0.5) * 1.5;
-              s.vel.y += 0.5;
-            }
-          }
+          ctx.fillStyle = C.amber;
+          ctx.shadowBlur = 6;
         }
+        const name = s.winner;
+        let fontSize = 16;
+        ctx.font = `bold ${fontSize}px "Courier New", monospace`;
+        while (ctx.measureText(name).width > dmdW - 16 && fontSize > 8) {
+          fontSize--;
+          ctx.font = `bold ${fontSize}px "Courier New", monospace`;
+        }
+        ctx.fillText(name, DMD_CX, DMD_CY + 2, dmdW - 12);
+
+        // Full progress bar
+        const dotCount = 20;
+        const dotY = DMD_BOT - 14;
+        for (let i = 0; i < dotCount; i++) {
+          const dotX = dmdLeft + 15 + (dmdW - 30) * (i / (dotCount - 1));
+          ctx.fillStyle = C.amberBright;
+          ctx.fillRect(dotX - 1, dotY - 1, 3, 3);
+        }
+        ctx.restore();
       }
 
-      draw();
-      s.animId = requestAnimationFrame(step);
+      ctx.restore(); // DMD clip
+
+      // --- Status bar ---
+      if (s.phase === 'idle') {
+        ctx.fillStyle = C.cyanDim;
+        ctx.font = '8px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('HOLD & RELEASE PLUNGER \u2014 OR TAP AUTO-PLUNGE', PF_CX, DMD_BOT + 16);
+      }
+
+      s.animId = requestAnimationFrame(render);
     }
 
-    stateRef.current.animId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(stateRef.current.animId);
-  }, [pickGame]);
+    state.current.animId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(state.current.animId);
+  }, [logoLoaded]);
 
   return (
     <div
@@ -1055,21 +946,22 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           height={H}
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
-          className="rounded-lg cursor-pointer max-w-[92vw] max-h-[74vh] touch-none"
-          style={{ imageRendering: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}
+          className="rounded-lg cursor-pointer max-w-[92vw] max-h-[72vh] touch-none"
+          style={{ imageRendering: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.7), 0 0 60px rgba(0,200,255,0.08)' }}
         />
-        {phase === 'landed' && result && (
+        {phase === 'revealed' && result && (
           <div className="text-center">
-            {isDrain ? (
-              <p className="text-xs text-neon-coral uppercase tracking-wider mb-1">Drain!</p>
-            ) : (
-              <p className="text-xs text-muted uppercase tracking-wider mb-1">{score} Points</p>
-            )}
+            <p className="text-xs text-neon-cyan uppercase tracking-wider mb-1">Mystery Award</p>
             <p className="text-lg font-display font-bold text-neon-green glow-green animate-pulse">{result}</p>
           </div>
         )}
         <div className="flex gap-3">
-          {phase === 'landed' && (
+          {phase === 'idle' && (
+            <NeonButton variant="primary" onClick={startPlunge}>
+              Auto-Plunge
+            </NeonButton>
+          )}
+          {phase === 'revealed' && (
             <NeonButton variant="primary" onClick={handlePlayAgain}>
               Play Again
             </NeonButton>
