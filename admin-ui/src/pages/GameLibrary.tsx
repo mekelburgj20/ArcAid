@@ -106,6 +106,10 @@ export default function GameLibrary() {
   // Style picker
   const [styleTarget, setStyleTarget] = useState<GameRow | null>(null);
 
+  // Near-match warnings from imports
+  const [nearMatches, setNearMatches] = useState<Array<{ imported: string; existing: string }>>([]);
+  const [merging, setMerging] = useState(false);
+
   // Selection + delete
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -357,8 +361,9 @@ export default function GameLibrary() {
           <NeonButton variant="secondary" onClick={async () => {
             setVpsImporting(true);
             try {
-              const res = await api.post<{ imported: number; total: number }>('/admin/game_library/import-vps', { roomId: room?.roomId });
+              const res = await api.post<{ imported: number; total: number; nearMatches?: Array<{ imported: string; existing: string }> }>('/admin/game_library/import-vps', { roomId: room?.roomId });
               toast(`Imported ${res.imported} games from VPS`, 'success');
+              if (res.nearMatches && res.nearMatches.length > 0) setNearMatches(res.nearMatches);
               fetchGames();
             } catch (err: any) {
               toast(err.message || 'VPS import failed', 'error');
@@ -371,8 +376,9 @@ export default function GameLibrary() {
           <NeonButton variant="secondary" onClick={async () => {
             setWizardImporting(true);
             try {
-              const res = await api.post<{ imported: number; total: number }>('/admin/game_library/import-wizard', { roomId: room?.roomId });
+              const res = await api.post<{ imported: number; total: number; nearMatches?: Array<{ imported: string; existing: string }> }>('/admin/game_library/import-wizard', { roomId: room?.roomId });
               toast(`Imported ${res.imported} VPXS Wizard tables`, 'success');
+              if (res.nearMatches && res.nearMatches.length > 0) setNearMatches(res.nearMatches);
               fetchGames();
             } catch (err: any) {
               toast(err.message || 'Wizard import failed', 'error');
@@ -438,6 +444,52 @@ export default function GameLibrary() {
           <NeonButton onClick={handleAddGame} disabled={saving}>
             {saving ? 'Saving...' : 'Save Game'}
           </NeonButton>
+        </NeonCard>
+      )}
+
+      {/* Near-match warnings from imports */}
+      {nearMatches.length > 0 && (
+        <NeonCard glowColor="amber" className="mb-4 border-l-2 border-l-neon-amber" title="Possible Duplicates Detected">
+          <p className="text-sm text-muted mb-3">
+            The following imported games have similar names to existing entries. They may be duplicates with minor formatting differences (e.g. commas). You can merge them to combine platforms.
+          </p>
+          <div className="space-y-2">
+            {nearMatches.map((m, i) => (
+              <div key={i} className="flex items-center gap-3 text-sm bg-raised/50 px-3 py-2 rounded">
+                <div className="flex-1 min-w-0">
+                  <span className="text-neon-amber font-display">{m.imported}</span>
+                  <span className="text-faint mx-2">&rarr;</span>
+                  <span className="text-primary">{m.existing}</span>
+                </div>
+                <NeonButton
+                  variant="secondary"
+                  className="text-xs px-2 py-1 flex-shrink-0"
+                  disabled={merging}
+                  onClick={async () => {
+                    if (!confirm(`Merge "${m.imported}" into "${m.existing}"? This will combine platforms and remove the duplicate.`)) return;
+                    setMerging(true);
+                    try {
+                      await api.post('/admin/game_library/merge', { fromName: m.imported, toName: m.existing });
+                      toast(`Merged "${m.imported}" into "${m.existing}"`, 'success');
+                      setNearMatches(prev => prev.filter((_, idx) => idx !== i));
+                      fetchGames();
+                    } catch (err: any) {
+                      toast(err.message || 'Merge failed', 'error');
+                    } finally {
+                      setMerging(false);
+                    }
+                  }}
+                >
+                  Merge
+                </NeonButton>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3">
+            <NeonButton variant="ghost" className="text-xs" onClick={() => setNearMatches([])}>
+              Dismiss All
+            </NeonButton>
+          </div>
         </NeonCard>
       )}
 

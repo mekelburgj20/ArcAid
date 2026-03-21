@@ -544,7 +544,7 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         }
 
         const db = await getDatabase();
-        const tournament = await db.get('SELECT id, type, mode FROM tournaments WHERE id = ?', tournamentId);
+        const tournament = await db.get('SELECT id, name, type, mode, discord_channel_id, game_room_id FROM tournaments WHERE id = ?', tournamentId);
         if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
         const { TournamentEngine } = await import('../../engine/TournamentEngine.js');
@@ -577,6 +577,23 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
             await db.exec('COMMIT');
             logInfo(`Admin activated game: ${gameName} for tournament ${tournamentId}`);
             res.json({ success: true, gameId: game.id });
+
+            // Announce activation in Discord
+            const channelId = tournament.discord_channel_id || (await GameRoomSettingsService.get(req.params.roomId as string, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'));
+            if (channelId) {
+                const { EmbedBuilder } = await import('discord.js');
+                const { sendChannelEmbed, getTournamentColor } = await import('../../utils/discord.js');
+                const color = getTournamentColor(tournament.type);
+                const embed = new EmbedBuilder()
+                    .setTitle(`Now Active: ${gameName}`)
+                    .setDescription(`A new game has been activated for **${tournament.name}**. Get your scores in!`)
+                    .setColor(color)
+                    .setFooter({ text: tournament.name })
+                    .setTimestamp();
+                sendChannelEmbed(channelId, embed).catch(err =>
+                    logWarn('Failed to send activation announcement:', err)
+                );
+            }
 
             if (hasCredentials) {
                 engine.reorderIScoredLineup().catch(err =>

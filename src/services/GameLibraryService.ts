@@ -1,4 +1,5 @@
 import { getDatabase } from '../database/database.js';
+import { logInfo } from '../utils/logger.js';
 
 interface GameData {
     name: string;
@@ -266,6 +267,99 @@ export class GameLibraryService {
             `DELETE FROM game_room_game_library WHERE game_room_id = ? AND game_name IN (${placeholders})`,
             gameRoomId, ...gameNames
         );
+    }
+
+    /**
+     * Merges one game into another in the library.
+     * Transfers the source game's platforms to the target, updates any room associations,
+     * and deletes the source game.
+     */
+    static async mergeGames(fromName: string, toName: string): Promise<{ platformsMerged: string[]; roomsUpdated: number }> {
+        const db = await getDatabase();
+
+        const fromGame = await db.get('SELECT * FROM game_library WHERE name = ?', fromName);
+        const toGame = await db.get('SELECT * FROM game_library WHERE name = ?', toName);
+        if (!fromGame) throw new Error(`Source game "${fromName}" not found`);
+        if (!toGame) throw new Error(`Target game "${toName}" not found`);
+
+        // Merge platforms
+        const fromPlats = this.parsePlatformsList(fromGame.platforms || '');
+        const toPlats = this.parsePlatformsList(toGame.platforms || '');
+        const seen = new Set(toPlats.map(p => p.toUpperCase()));
+        const merged = [...toPlats];
+        const added: string[] = [];
+        for (const p of fromPlats) {
+            if (!seen.has(p.toUpperCase())) {
+                seen.add(p.toUpperCase());
+                merged.push(p);
+                added.push(p);
+            }
+        }
+
+        await db.run(
+            'UPDATE game_library SET platforms = ? WHERE name = ?',
+            JSON.stringify(merged), toName
+        );
+
+        // Transfer room associations from source to target
+        const roomAssocs = await db.all(
+            'SELECT game_room_id FROM game_room_game_library WHERE game_name = ?',
+            fromName
+        );
+        let roomsUpdated = 0;
+        for (const assoc of roomAssocs) {
+            await db.run(
+                'INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name) VALUES (?, ?)',
+                assoc.game_room_id, toName
+            );
+            roomsUpdated++;
+        }
+
+        // Delete source game's room associations and library entry
+        await db.run('DELETE FROM game_room_game_library WHERE game_name = ?', fromName);
+        await db.run('DELETE FROM game_library WHERE name = ?', fromName);
+
+        logInfo(`Merged game "${fromName}" into "${toName}": ${added.length} platforms added, ${roomsUpdated} room associations transferred`);
+        return { platformsMerged: added, roomsUpdated };
+    }
+
+    /**
+     * Finds existing games that are near-matches to the given names.
+     * Normalizes by stripping commas and extra whitespace from the
+     * parenthetical portion (manufacturer/year) before comparing.
+     */
+    static async findNearMatches(names: string[]): Promise<Array<{ imported: string; existing: string }>> {
+        const db = await getDatabase();
+        const allGames = await db.all('SELECT name FROM game_library');
+
+        // Build a map of normalized existing names → original names
+        const existingMap = new Map<string, string>();
+        for (const row of allGames) {
+            existingMap.set(this.normalizeName(row.name), row.name);
+        }
+
+        const matches: Array<{ imported: string; existing: string }> = [];
+        for (const name of names) {
+            const norm = this.normalizeName(name);
+            const exactNorm = existingMap.get(norm);
+            // Only flag if normalized forms match but raw names differ (case-insensitive)
+            if (exactNorm && exactNorm.toLowerCase() !== name.toLowerCase()) {
+                matches.push({ imported: name, existing: exactNorm });
+            }
+        }
+        return matches;
+    }
+
+    /**
+     * Normalizes a game name for near-match detection.
+     * Strips commas from inside parentheses and collapses whitespace.
+     * e.g. "Cactus Canyon (Bally, 1998)" → "cactus canyon (bally 1998)"
+     */
+    private static normalizeName(name: string): string {
+        return name
+            .toLowerCase()
+            .replace(/\(([^)]*)\)/g, (_, inner) => `(${inner.replace(/,/g, '').replace(/\s+/g, ' ').trim()})`)
+            .trim();
     }
 
     /**

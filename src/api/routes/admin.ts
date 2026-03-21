@@ -381,7 +381,8 @@ router.post('/game_library/import-vps', async (req, res) => {
         if (req.body?.roomId) {
             await GameLibraryService.addToRoom(req.body.roomId, result.names);
         }
-        res.json({ success: true, imported: result.imported, total: result.total });
+        const nearMatches = await GameLibraryService.findNearMatches(result.names);
+        res.json({ success: true, imported: result.imported, total: result.total, nearMatches });
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-vps):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'VPS import failed' });
@@ -394,10 +395,27 @@ router.post('/game_library/import-wizard', async (req, res) => {
         if (req.body?.roomId) {
             await GameLibraryService.addToRoom(req.body.roomId, result.names);
         }
-        res.json({ success: true, imported: result.imported, total: result.total });
+        const nearMatches = await GameLibraryService.findNearMatches(result.names);
+        res.json({ success: true, imported: result.imported, total: result.total, nearMatches });
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-wizard):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'Wizard import failed' });
+    }
+});
+
+// Merge two games in the library (source → target)
+router.post('/game_library/merge', async (req, res) => {
+    try {
+        const { fromName, toName } = req.body;
+        if (!fromName || !toName) return res.status(400).json({ error: 'fromName and toName are required' });
+        if (fromName === toName) return res.status(400).json({ error: 'Source and target are the same' });
+        const result = await GameLibraryService.mergeGames(fromName, toName);
+        logInfo(`Merged game "${fromName}" into "${toName}"`);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Merge failed';
+        logError('API Error (POST /api/admin/game_library/merge):', error);
+        res.status(500).json({ error: message });
     }
 });
 
