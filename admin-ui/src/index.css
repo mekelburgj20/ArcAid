@@ -62,6 +62,101 @@
   --color-faint: oklch(72% 0.008 260);
 }
 
+/* Retro theme (green-on-black CRT terminal) */
+.theme-retro {
+  --color-deep: oklch(10% 0.005 150);
+  --color-surface: oklch(13% 0.008 150);
+  --color-raised: oklch(16% 0.01 150);
+  --color-border: oklch(25% 0.03 150);
+  --color-border-glow: oklch(65% 0.2 145);
+  --color-neon-cyan: oklch(72% 0.19 145);
+  --color-neon-magenta: oklch(65% 0.19 145);
+  --color-neon-green: oklch(78% 0.2 145);
+  --color-neon-amber: oklch(78% 0.2 145);
+  --color-neon-purple: oklch(65% 0.2 145);
+  --color-neon-coral: oklch(72% 0.19 145);
+  --color-neon-blue: oklch(72% 0.19 145);
+  --color-primary: oklch(85% 0.06 145);
+  --color-muted: oklch(60% 0.04 145);
+  --color-faint: oklch(35% 0.02 150);
+}
+
+/* Cyberpunk theme (hot pink/yellow on deep purple) */
+.theme-cyberpunk {
+  --color-deep: oklch(15% 0.04 310);
+  --color-surface: oklch(18% 0.05 310);
+  --color-raised: oklch(22% 0.06 310);
+  --color-border: oklch(32% 0.08 310);
+  --color-border-glow: oklch(70% 0.25 350);
+  --color-neon-cyan: oklch(85% 0.2 95);
+  --color-neon-magenta: oklch(70% 0.28 350);
+  --color-neon-green: oklch(80% 0.22 140);
+  --color-neon-amber: oklch(85% 0.2 95);
+  --color-neon-purple: oklch(60% 0.28 310);
+  --color-neon-coral: oklch(70% 0.25 15);
+  --color-neon-blue: oklch(65% 0.2 270);
+  --color-primary: oklch(95% 0.02 310);
+  --color-muted: oklch(70% 0.04 310);
+  --color-faint: oklch(45% 0.03 310);
+}
+
+/* Ocean theme (cool teal on deep navy) */
+.theme-ocean {
+  --color-deep: oklch(16% 0.02 230);
+  --color-surface: oklch(19% 0.025 230);
+  --color-raised: oklch(23% 0.03 230);
+  --color-border: oklch(32% 0.04 230);
+  --color-border-glow: oklch(65% 0.15 195);
+  --color-neon-cyan: oklch(75% 0.15 195);
+  --color-neon-magenta: oklch(65% 0.2 340);
+  --color-neon-green: oklch(75% 0.15 170);
+  --color-neon-amber: oklch(80% 0.15 85);
+  --color-neon-purple: oklch(60% 0.18 275);
+  --color-neon-coral: oklch(70% 0.16 25);
+  --color-neon-blue: oklch(70% 0.14 235);
+  --color-primary: oklch(95% 0.015 220);
+  --color-muted: oklch(68% 0.025 225);
+  --color-faint: oklch(42% 0.02 230);
+}
+
+/* Sunset theme (warm orange/amber on dark brown) */
+.theme-sunset {
+  --color-deep: oklch(16% 0.02 50);
+  --color-surface: oklch(20% 0.025 50);
+  --color-raised: oklch(24% 0.03 50);
+  --color-border: oklch(34% 0.04 50);
+  --color-border-glow: oklch(72% 0.18 55);
+  --color-neon-cyan: oklch(75% 0.16 55);
+  --color-neon-magenta: oklch(65% 0.22 15);
+  --color-neon-green: oklch(75% 0.17 120);
+  --color-neon-amber: oklch(82% 0.19 70);
+  --color-neon-purple: oklch(58% 0.18 310);
+  --color-neon-coral: oklch(72% 0.2 30);
+  --color-neon-blue: oklch(65% 0.12 230);
+  --color-primary: oklch(93% 0.02 60);
+  --color-muted: oklch(68% 0.03 55);
+  --color-faint: oklch(42% 0.02 50);
+}
+
+/* Minimal theme (monochrome + single cyan accent) */
+.theme-minimal {
+  --color-deep: oklch(14% 0 0);
+  --color-surface: oklch(18% 0 0);
+  --color-raised: oklch(22% 0 0);
+  --color-border: oklch(32% 0 0);
+  --color-border-glow: oklch(60% 0.1 232);
+  --color-neon-cyan: oklch(70% 0.1 232);
+  --color-neon-magenta: oklch(60% 0.05 0);
+  --color-neon-green: oklch(70% 0.1 232);
+  --color-neon-amber: oklch(75% 0.08 85);
+  --color-neon-purple: oklch(55% 0.05 270);
+  --color-neon-coral: oklch(65% 0.05 15);
+  --color-neon-blue: oklch(70% 0.1 232);
+  --color-primary: oklch(90% 0 0);
+  --color-muted: oklch(60% 0 0);
+  --color-faint: oklch(38% 0 0);
+}
+
 /* Base resets */
 * {
   box-sizing: border-box;
@@ -93,6 +188,29 @@ body {
 
 .theme-light .scanlines::after {
   background: none;
+}
+
+/* Retro theme: green-tinted scanlines, stronger effect */
+.theme-retro .scanlines::after {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 40, 0, 0.08) 2px,
+    rgba(0, 40, 0, 0.08) 4px
+  );
+}
+
+/* Minimal theme: no scanlines, no glow */
+.theme-minimal .scanlines::after {
+  background: none;
+}
+
+.theme-minimal .glow-cyan,
+.theme-minimal .glow-green,
+.theme-minimal .glow-magenta,
+.theme-minimal .glow-amber {
+  box-shadow: 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 /* Neon glow utilities */

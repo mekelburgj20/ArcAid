@@ -1,11 +1,16 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, isAuthenticated } from '../lib/api';
 
-export type ThemeId = 'dark' | 'light';
+export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal';
 
 export const THEMES: Record<ThemeId, { label: string; description: string }> = {
   dark: { label: 'Dark', description: 'Deep indigo dark theme with accent colors' },
   light: { label: 'Light', description: 'Clean light theme for daytime use' },
+  retro: { label: 'Retro', description: 'Green-on-black CRT terminal aesthetic' },
+  cyberpunk: { label: 'Cyberpunk', description: 'Hot pink and yellow on deep purple' },
+  ocean: { label: 'Ocean', description: 'Cool teal tones on deep navy' },
+  sunset: { label: 'Sunset', description: 'Warm orange and amber on dark brown' },
+  minimal: { label: 'Minimal', description: 'Monochrome with a single accent color' },
 };
 
 interface ThemeContextType {
@@ -22,11 +27,13 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_KEY = 'arcaid-theme';
 const STORAGE_GLOBAL_KEY = 'arcaid-theme-global';
 
+const ALL_THEME_CLASSES = ['theme-light', 'theme-retro', 'theme-cyberpunk', 'theme-ocean', 'theme-sunset', 'theme-minimal'];
+
 function applyThemeClass(theme: ThemeId) {
   const root = document.documentElement;
-  root.classList.remove('theme-light');
-  if (theme === 'light') {
-    root.classList.add('theme-light');
+  ALL_THEME_CLASSES.forEach(cls => root.classList.remove(cls));
+  if (theme !== 'dark') {
+    root.classList.add(`theme-${theme}`);
   }
 }
 
