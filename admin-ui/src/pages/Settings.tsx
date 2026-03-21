@@ -39,6 +39,7 @@ const CATEGORIES: Record<string, string[]> = {
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
   'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
   'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
+  'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE'],
 };
 
 const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
@@ -55,6 +56,14 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
   'ENABLE_CALLOUTS': {
     label: 'Callouts (Easter Egg)',
     description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',
+  },
+  'SCOREBOARD_HIDE_EMPTY': {
+    label: 'Hide Empty Games',
+    description: 'When enabled, game cards with no scores are hidden from the public scoreboard.',
+  },
+  'SCOREBOARD_TITLE_HIDDEN': {
+    label: 'Hide Scoreboard Title',
+    description: 'When enabled, the scoreboard title/heading is hidden on the public scoreboard.',
   },
 };
 
@@ -84,6 +93,11 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   MAX_LOG_LINES: { label: 'Max Log Lines', description: 'Maximum number of log lines returned by the API.' },
   BACKUP_RETENTION_DAYS: { label: 'Backup Retention (days)', description: 'How many days to keep automatic database backups before cleanup.' },
   SETUP_COMPLETE: { label: 'Setup Complete', description: 'Marks whether initial setup has been finished. Set automatically.' },
+  // Scoreboard
+  SCOREBOARD_MAX_SCORES: { label: 'Scores Per Card', description: 'Maximum number of scores displayed per game card on the public scoreboard. Default: 5.' },
+  SCOREBOARD_ZOOM: { label: 'Zoom Level (%)', description: 'Scale the scoreboard for high-res monitors or TV displays. Range: 50-200. Default: 100.' },
+  SCOREBOARD_TITLE: { label: 'Scoreboard Title', description: 'Custom title displayed on the public scoreboard. Leave empty to use the room name.' },
+  SCOREBOARD_TITLE_STYLE: { label: 'Title Style', description: 'Visual style for the scoreboard title: default, glow, retro, or pixel.' },
 };
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";

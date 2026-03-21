@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getSocket } from '../lib/websocket';
+import { useViewerHeaders } from '../contexts/ViewerAuthContext';
 
 interface RankedEntry {
   rank: number;
@@ -33,6 +34,15 @@ function getTournamentBorderColor(type: string): string {
   return TOURNAMENT_COLORS[upper] ?? 'border-border';
 }
 
+function getTitleStyleClass(style: string): string {
+  switch (style) {
+    case 'glow': return 'title-glow';
+    case 'retro': return 'title-retro';
+    case 'pixel': return 'title-pixel';
+    default: return '';
+  }
+}
+
 interface RankingGroupData {
   group: {
     id: string;
@@ -50,7 +60,6 @@ interface RankingGroupData {
   }>;
 }
 
-const TOP_N = 5;
 const RANKINGS_TOP_N = 10;
 
 export default function Scoreboard() {
@@ -58,17 +67,34 @@ export default function Scoreboard() {
   const [leaderboards, setLeaderboards] = useState<GameLeaderboard[]>([]);
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [flash, setFlash] = useState(false);
+  const [config, setConfig] = useState<Record<string, string>>({});
+  const [roomName, setRoomName] = useState('');
+  const viewerHeaders = useViewerHeaders();
+
+  // Resolve room and fetch scoreboard config
+  useEffect(() => {
+    if (!slug) return;
+    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((portal: { id: string; name: string }) => {
+        setRoomName(portal.name);
+        return fetch(`/api/rooms/${portal.id}/scoreboard-config`, { headers: viewerHeaders });
+      })
+      .then(r => r.ok ? r.json() : {})
+      .then(cfg => setConfig(cfg || {}))
+      .catch(() => {});
+  }, [slug]);
 
   const loadData = async () => {
     try {
-      const res = await fetch('/api/leaderboard');
+      const res = await fetch('/api/leaderboard', { headers: viewerHeaders });
       if (res.ok) setLeaderboards(await res.json());
     } catch { /* ignore */ }
   };
 
   const loadRankings = async () => {
     try {
-      const res = await fetch('/api/rankings');
+      const res = await fetch('/api/rankings', { headers: viewerHeaders });
       if (res.ok) setRankingGroups(await res.json());
     } catch { /* ignore */ }
   };
@@ -94,17 +120,31 @@ export default function Scoreboard() {
     };
   }, []);
 
+  // Config-driven values
+  const maxScores = parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5;
+  const hideEmpty = config.SCOREBOARD_HIDE_EMPTY === 'true';
+  const titleHidden = config.SCOREBOARD_TITLE_HIDDEN === 'true';
+  const titleText = config.SCOREBOARD_TITLE || roomName || 'High Scores';
+  const titleStyle = config.SCOREBOARD_TITLE_STYLE || 'default';
+  const zoom = parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100;
+
+  const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
+
   return (
-    <div className="px-4 sm:px-6 py-6">
+    <div className="px-4 sm:px-6 py-6" style={zoom !== 100 ? { zoom: `${zoom}%` } : undefined}>
       {/* Score flash overlay */}
       {flash && (
         <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
       )}
 
       {/* Header */}
-      <div className="text-center mb-8">
-        <p className="font-display text-muted text-sm uppercase tracking-widest">High Scores</p>
-      </div>
+      {!titleHidden && (
+        <div className="text-center mb-8">
+          <p className={`font-display text-muted text-sm uppercase tracking-widest ${getTitleStyleClass(titleStyle)}`}>
+            {titleText}
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         {/* Overall Rankings — left column */}
@@ -120,16 +160,16 @@ export default function Scoreboard() {
         )}
 
         {/* Game leaderboards — horizontal scroll */}
-        {leaderboards.length === 0 ? (
+        {visibleLeaderboards.length === 0 ? (
           <div className="flex-1 text-center py-24">
             <p className="text-muted font-display">Waiting for active games...</p>
           </div>
         ) : (
           <div className="flex-1 min-w-0 overflow-x-auto">
             <div className="flex gap-5 pb-2">
-              {leaderboards.map(lb => (
+              {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId} className="w-72 flex-shrink-0">
-                  <GameCard lb={lb} slug={slug || ''} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} />
                 </div>
               ))}
             </div>
@@ -140,7 +180,7 @@ export default function Scoreboard() {
   );
 }
 
-function GameCard({ lb, slug }: { lb: GameLeaderboard; slug: string }) {
+function GameCard({ lb, slug, maxScores }: { lb: GameLeaderboard; slug: string; maxScores: number }) {
   const borderColor = getTournamentBorderColor(lb.tournamentType);
 
   // Catalogue style takes priority over imageUrl
@@ -184,7 +224,7 @@ function GameCard({ lb, slug }: { lb: GameLeaderboard; slug: string }) {
               <span>Player</span>
               <span>Score</span>
             </div>
-            {lb.rankings.slice(0, TOP_N).map((entry) => (
+            {lb.rankings.slice(0, maxScores).map((entry) => (
               <div
                 key={entry.discord_user_id}
                 className={`flex items-center justify-between px-4 py-2.5 border-b border-border/20 last:border-0 ${

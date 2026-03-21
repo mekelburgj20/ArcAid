@@ -112,6 +112,29 @@ body {
   box-shadow: 0 0 8px rgba(255, 170, 0, 0.3), inset 0 0 8px rgba(255, 170, 0, 0.05);
 }
 
+/* Scoreboard title styles */
+.title-glow {
+  text-shadow: 0 0 10px var(--color-neon-cyan), 0 0 20px var(--color-neon-cyan), 0 0 40px var(--color-neon-cyan);
+  color: var(--color-neon-cyan);
+  font-size: 1.5rem;
+}
+
+.title-retro {
+  font-family: var(--font-pixel);
+  color: var(--color-neon-green);
+  text-shadow: 2px 2px 0 var(--color-deep), 0 0 10px var(--color-neon-green);
+  font-size: 1rem;
+  letter-spacing: 0.15em;
+}
+
+.title-pixel {
+  font-family: var(--font-pixel);
+  color: var(--color-neon-amber);
+  text-shadow: 2px 2px 0 var(--color-deep);
+  font-size: 0.875rem;
+  letter-spacing: 0.2em;
+}
+
 /* Soften glow on light theme */
 .theme-light .glow-cyan,
 .theme-light .glow-green,
