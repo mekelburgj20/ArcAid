@@ -62,6 +62,7 @@ interface ActiveGame {
   name: string;
   tournament_id: string;
   tournament_name: string;
+  tournament_type: string;
   iscored_id: string | null;
   start_date: string;
   catalogue_style_id: string | null;
@@ -241,21 +242,8 @@ export default function Tournaments() {
     <div>
       <h1 className="font-display text-2xl font-bold mb-6">Tournaments</h1>
 
-      {/* Create Form */}
-      <NeonCard glowColor="cyan" className="mb-6" title="Create New Tournament">
-        <TournamentFormFields
-          state={createForm.state}
-          set={createForm.set}
-          platforms={platforms}
-          onAddPlatform={handleAddPlatform}
-        />
-        <NeonButton onClick={handleCreate} disabled={!createForm.state.name.trim() || !createForm.state.tag.trim()}>
-          Create Tournament
-        </NeonButton>
-      </NeonCard>
-
       {/* Tournament List */}
-      <NeonCard>
+      <NeonCard className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display text-sm font-bold uppercase tracking-wider text-muted">Active Tournaments</h3>
           <NeonButton variant="ghost" onClick={handleReorderLineup} disabled={reordering} className="text-xs px-3 py-1">
@@ -294,11 +282,16 @@ export default function Tournaments() {
       </NeonCard>
 
       {/* Active Games */}
-      <NeonCard title="Active Games" className="mt-6">
+      <NeonCard title="Active Games" className="mb-6">
         <DataTable<ActiveGame>
           columns={[
             { key: 'name', header: 'Game', render: g => <span className="font-medium">{g.name}</span> },
-            { key: 'tournament_name', header: 'Tournament', render: g => <span className="text-muted">{g.tournament_name}</span> },
+            { key: 'tournament_name', header: 'Tournament', render: g => (
+              <div className="flex items-center gap-2">
+                <TournamentBadge type={g.tournament_type} />
+                <span className="text-muted">{g.tournament_name}</span>
+              </div>
+            )},
             { key: 'start_date', header: 'Started', render: g => (
               <span className="text-sm text-muted">{g.start_date ? new Date(g.start_date).toLocaleString() : '—'}</span>
             )},
@@ -327,6 +320,19 @@ export default function Tournaments() {
           keyExtractor={g => g.id}
           emptyMessage="No active games."
         />
+      </NeonCard>
+
+      {/* Create Form */}
+      <NeonCard glowColor="cyan" title="Create New Tournament">
+        <TournamentFormFields
+          state={createForm.state}
+          set={createForm.set}
+          platforms={platforms}
+          onAddPlatform={handleAddPlatform}
+        />
+        <NeonButton onClick={handleCreate} disabled={!createForm.state.name.trim() || !createForm.state.tag.trim()}>
+          Create Tournament
+        </NeonButton>
       </NeonCard>
 
       {/* Deactivate Confirm */}

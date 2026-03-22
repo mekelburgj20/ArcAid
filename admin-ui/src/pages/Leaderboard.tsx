@@ -8,6 +8,15 @@ import TournamentBadge from '../components/TournamentBadge';
 import LoadingState from '../components/LoadingState';
 import StylePicker from '../components/StylePicker';
 import NeonButton from '../components/NeonButton';
+import {
+  RankingsColumn,
+  RankingsRow,
+  getTitleStyleClass,
+  getTitleSizeClass,
+  getTournamentBorderColor,
+  cardWidthMap,
+} from '../components/ScoreboardComponents';
+import type { RankingGroupData } from '../components/ScoreboardComponents';
 
 interface RankedEntry {
   rank: number;
@@ -34,40 +43,13 @@ interface GameLeaderboard {
   rankings: RankedEntry[];
 }
 
-interface RankingGroupData {
-  group: {
-    id: string;
-    name: string;
-    description: string;
-    rank_method: string;
-    best_n: number;
-    min_games: number;
-  };
-  rankings: Array<{
-    rank: number;
-    iscored_username: string;
-    total_points: number;
-    games_played: number;
-  }>;
-}
-
-const METHOD_LABELS: Record<string, { label: string; scoreLabel: string }> = {
-  max_10: { label: 'Max 10', scoreLabel: 'Points' },
-  average_rank: { label: 'Average Rank', scoreLabel: 'Avg Rank' },
-  best_game_papa: { label: 'Best Game (PAPA)', scoreLabel: 'Points' },
-  best_game_linear: { label: 'Best Game (Linear)', scoreLabel: 'Points' },
-};
-
-const RANKINGS_TOP_N = 10;
-const TOP_N = 10;
-const CARDS_PER_ROW = 8;
-
 export default function Leaderboard() {
   const room = useRoom();
   const { toast } = useToast();
   const [leaderboards, setLeaderboards] = useState<GameLeaderboard[]>([]);
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<Record<string, string>>({});
   const [styleTarget, setStyleTarget] = useState<GameLeaderboard | null>(null);
   const [libraryHasDefault, setLibraryHasDefault] = useState(false);
 
@@ -84,9 +66,16 @@ export default function Leaderboard() {
       .finally(() => setLoading(false));
   };
 
+  const loadConfig = () => {
+    api.get<Record<string, string>>(`/rooms/${room.roomId}/scoreboard-config`)
+      .then(setConfig)
+      .catch(() => {});
+  };
+
   useEffect(() => {
     loadData();
     loadRankings();
+    loadConfig();
 
     const socket = getSocket();
     socket.on('leaderboard:updated', () => { loadData(); loadRankings(); });
@@ -100,67 +89,137 @@ export default function Leaderboard() {
 
   if (loading) return <LoadingState message="Loading leaderboards..." />;
 
-  // Build rows: each row has up to CARDS_PER_ROW slots.
-  // Rankings take the first column of every row, game cards fill the rest.
-  const hasRankings = rankingGroups.length > 0;
-  const gameSlots = hasRankings ? CARDS_PER_ROW - 1 : CARDS_PER_ROW;
+  // Config-driven values (matching public scoreboard)
+  const maxScores = parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5;
+  const hideEmpty = config.SCOREBOARD_HIDE_EMPTY === 'true';
+  const titleHidden = config.SCOREBOARD_TITLE_HIDDEN === 'true';
+  const titleText = config.SCOREBOARD_TITLE || room.roomName || 'High Scores';
+  const titleStyle = config.SCOREBOARD_TITLE_STYLE || 'default';
+  const titleSize = config.SCOREBOARD_TITLE_SIZE || 'sm';
+  const zoom = parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100;
+  const bgUrl = config.SCOREBOARD_BG_URL || '';
+  const bgMode = config.SCOREBOARD_BG_MODE || 'cover';
+  const logoUrl = config.LOGO_URL || '';
+  const logoPosition = config.LOGO_POSITION || 'left';
+  const logoMaxHeight = parseInt(config.LOGO_MAX_HEIGHT || '64', 10) || 64;
+  const layout = config.SCOREBOARD_LAYOUT || 'scroll';
+  const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
+  const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
 
-  // Split games into rows
-  const gameRows: GameLeaderboard[][] = [];
-  for (let i = 0; i < leaderboards.length; i += gameSlots) {
-    gameRows.push(leaderboards.slice(i, i + gameSlots));
-  }
-
-  // Ensure at least one row if we have rankings
-  if (gameRows.length === 0 && hasRankings) {
-    gameRows.push([]);
-  }
+  const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
+  const cardWidth = cardWidthMap[cardSize] || 288;
 
   return (
     <div>
       <h1 className="font-display text-2xl font-bold mb-6">Leaderboards</h1>
 
-      {leaderboards.length === 0 && !hasRankings ? (
-        <div className="text-center py-16">
-          <p className="text-muted font-display">No active games with scores yet.</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {gameRows.map((row, rowIdx) => (
-            <div key={rowIdx} className="flex gap-3">
-              {/* Rankings column — only on first column of each row */}
-              {hasRankings && (
-                <div className="w-[calc((100%-1.75rem*7)/8)] flex-shrink-0">
-                  {rowIdx < rankingGroups.length ? (
-                    <RankingGroupCard
-                      group={rankingGroups[rowIdx].group}
-                      rankings={rankingGroups[rowIdx].rankings}
-                    />
-                  ) : (
-                    <div /> /* empty placeholder to maintain grid alignment */
-                  )}
-                </div>
+      {/* Scoreboard Preview — matches public layout */}
+      <div
+        className="rounded-lg overflow-hidden border border-border/50 px-4 sm:px-6 py-6"
+        style={{
+          ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
+          ...(bgUrl ? {
+            backgroundImage: `url(${bgUrl})`,
+            backgroundSize: bgMode === 'repeat' ? 'auto' : bgMode,
+            backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
+            backgroundPosition: 'center',
+          } : {}),
+        }}
+      >
+        {/* Header */}
+        {!titleHidden && (
+          <div className="text-center mb-8">
+            <div className={`inline-flex items-center gap-4 ${
+              logoPosition === 'above' || logoPosition === 'below' ? 'flex-col' : 'flex-row'
+            }`}>
+              {logoUrl && (logoPosition === 'left' || logoPosition === 'above') && (
+                <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain" />
               )}
-
-              {/* Game cards */}
-              {row.map(lb => (
-                <div key={lb.gameId} className="w-[calc((100%-1.75rem*7)/8)] flex-shrink-0">
-                  <GameCard lb={lb} roomId={room.roomId} onStyleClick={async (target) => {
-                    // Check if library has a default style for this game
-                    try {
-                      const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
-                      setLibraryHasDefault(!!libStyle.catalogueStyleId);
-                    } catch {
-                      setLibraryHasDefault(false);
-                    }
-                    setStyleTarget(target);
-                  }} />
-                </div>
-              ))}
+              <p className={`font-display text-muted ${getTitleSizeClass(titleSize)} uppercase tracking-widest ${getTitleStyleClass(titleStyle)}`}>
+                {titleText}
+              </p>
+              {logoUrl && (logoPosition === 'right' || logoPosition === 'below') && (
+                <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain" />
+              )}
             </div>
-          ))}
+          </div>
+        )}
+        {titleHidden && logoUrl && (
+          <div className="text-center mb-8">
+            <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto" />
+          </div>
+        )}
+
+        {/* Rankings: top position */}
+        {rankingsPosition === 'top' && rankingGroups.length > 0 && (
+          <RankingsRow rankingGroups={rankingGroups} />
+        )}
+
+        {/* Main content area */}
+        <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row' : 'flex-col'} gap-6 items-start`}>
+
+          {/* Rankings: left position */}
+          {rankingsPosition === 'left' && rankingGroups.length > 0 && (
+            <RankingsColumn rankingGroups={rankingGroups} />
+          )}
+
+          {/* Game leaderboards */}
+          {visibleLeaderboards.length === 0 && rankingGroups.length === 0 ? (
+            <div className="flex-1 text-center py-16">
+              <p className="text-muted font-display">No active games with scores yet.</p>
+            </div>
+          ) : visibleLeaderboards.length === 0 ? (
+            <div className="flex-1 text-center py-16">
+              <p className="text-muted font-display">No active games with scores yet.</p>
+            </div>
+          ) : layout === 'grid' ? (
+            <div className="flex-1 min-w-0">
+              <div
+                className="grid gap-3 sm:gap-5"
+                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardWidth}px, 100%), 1fr))` }}
+              >
+                {visibleLeaderboards.map(lb => (
+                  <div key={lb.gameId}>
+                    <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onStyleClick={async (target) => {
+                      try {
+                        const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
+                        setLibraryHasDefault(!!libStyle.catalogueStyleId);
+                      } catch { setLibraryHasDefault(false); }
+                      setStyleTarget(target);
+                    }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 min-w-0 overflow-x-auto">
+              <div className="flex gap-3 sm:gap-5 pb-2">
+                {visibleLeaderboards.map(lb => (
+                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
+                    <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onStyleClick={async (target) => {
+                      try {
+                        const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
+                        setLibraryHasDefault(!!libStyle.catalogueStyleId);
+                      } catch { setLibraryHasDefault(false); }
+                      setStyleTarget(target);
+                    }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Rankings: right position */}
+          {rankingsPosition === 'right' && rankingGroups.length > 0 && (
+            <RankingsColumn rankingGroups={rankingGroups} />
+          )}
         </div>
-      )}
+
+        {/* Rankings: bottom position */}
+        {rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
+          <RankingsRow rankingGroups={rankingGroups} />
+        )}
+      </div>
 
       {/* Style Picker for leaderboard games */}
       {styleTarget && (
@@ -182,7 +241,6 @@ export default function Leaderboard() {
                 await api.delete(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/style`);
                 toast('Style removed', 'success');
               }
-              // Also update library default if requested
               if (setAsDefault) {
                 try {
                   if (styleId) {
@@ -211,10 +269,16 @@ export default function Leaderboard() {
   );
 }
 
-function GameCard({ lb, roomId, onStyleClick }: { lb: GameLeaderboard; roomId: string; onStyleClick: (lb: GameLeaderboard) => void }) {
+function AdminGameCard({ lb, roomId, maxScores, onStyleClick }: {
+  lb: GameLeaderboard;
+  roomId: string;
+  maxScores: number;
+  onStyleClick: (lb: GameLeaderboard) => void;
+}) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loadingSubs, setLoadingSubs] = useState(false);
+  const borderColor = getTournamentBorderColor(lb.tournamentType);
 
   const toggleExpand = async (username: string) => {
     if (expanded === username) {
@@ -240,36 +304,19 @@ function GameCard({ lb, roomId, onStyleClick }: { lb: GameLeaderboard; roomId: s
       .filter(s => s.iscored_username.toLowerCase() === username.toLowerCase())
       .sort((a, b) => b.score - a.score);
 
-  const bgUrl = lb.catalogueStyleId ? `/api/styles/images/backgrounds/${lb.catalogueStyleId}.png` : null;
-  const headerUrl = lb.catalogueStyleId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${lb.catalogueStyleId}.png` : null;
+  const styleBgUrl = lb.catalogueStyleId ? `/api/styles/images/backgrounds/${lb.catalogueStyleId}.png` : null;
+  const styleHeaderUrl = lb.catalogueStyleId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${lb.catalogueStyleId}.png` : null;
+  const bgImage = styleBgUrl || null;
 
   return (
-    <div className="bg-surface border border-border rounded-lg overflow-hidden flex flex-col h-full">
-      {/* Style header (background + optional header image) */}
-      {bgUrl && (
-        <div
-          className="h-24 bg-cover bg-center relative"
-          style={{ backgroundImage: `url(${bgUrl})` }}
-        >
-          {headerUrl && (
-            <img src={headerUrl} alt="" className="absolute inset-0 w-full h-full object-contain" />
-          )}
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="px-3 py-2.5 border-b border-border/50">
+    <div className={`bg-surface border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`}>
+      {/* Title area */}
+      <div className="px-3 py-2.5 text-center border-b border-border/30">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="font-display font-bold text-sm text-primary truncate">{lb.gameName}</h3>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <TournamentBadge type={lb.tournamentType || lb.tournamentName} />
-            {lb.gameStatus === 'COMPLETED' && (
-              <span title="Completed"><Lock size={12} className="text-faint" /></span>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] text-muted truncate">{lb.tournamentName}</p>
+          <h3 className="font-display font-bold text-sm leading-tight truncate flex items-center gap-1.5">
+            {lb.gameName}
+            {lb.gameStatus === 'COMPLETED' && <span title="Completed"><Lock size={14} className="text-faint flex-shrink-0" /></span>}
+          </h3>
           <NeonButton
             variant={lb.catalogueStyleId ? 'secondary' : 'ghost'}
             onClick={() => onStyleClick(lb)}
@@ -278,7 +325,28 @@ function GameCard({ lb, roomId, onStyleClick }: { lb: GameLeaderboard; roomId: s
             Style
           </NeonButton>
         </div>
+        <div className="flex items-center justify-center gap-2 mt-0.5">
+          <TournamentBadge type={lb.tournamentType || lb.tournamentName} />
+          <p className="text-[11px] text-muted uppercase tracking-wider">{lb.tournamentName}</p>
+        </div>
       </div>
+
+      {/* Background image area */}
+      {bgImage && (
+        <div className="relative h-28 bg-raised">
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${bgImage})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          />
+          {styleHeaderUrl && (
+            <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+          )}
+        </div>
+      )}
 
       {/* Scores */}
       <div className="flex-1 text-sm">
@@ -288,14 +356,19 @@ function GameCard({ lb, roomId, onStyleClick }: { lb: GameLeaderboard; roomId: s
           </div>
         ) : (
           <>
-            {lb.rankings.slice(0, TOP_N).map((entry) => {
+            {/* Header row */}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+              <span>Player</span>
+              <span>Score</span>
+            </div>
+            {lb.rankings.slice(0, maxScores).map((entry) => {
               const isExpanded = expanded === entry.iscored_username;
               const playerSubs = isExpanded ? getPlayerSubmissions(entry.iscored_username) : [];
 
               return (
                 <div key={entry.discord_user_id}>
                   <div
-                    className={`flex items-center justify-between px-3 py-1.5 border-b border-border/20 last:border-0 cursor-pointer hover:bg-raised/30 transition-colors ${
+                    className={`flex items-center justify-between px-3 py-2 border-b border-border/20 last:border-0 cursor-pointer hover:bg-raised/30 transition-colors ${
                       entry.rank === 1 ? 'bg-neon-amber/8' : ''
                     }`}
                     onClick={() => toggleExpand(entry.iscored_username)}
@@ -340,74 +413,6 @@ function GameCard({ lb, roomId, onStyleClick }: { lb: GameLeaderboard; roomId: s
                 </div>
               );
             })}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function RankingGroupCard({ group, rankings }: { group: RankingGroupData['group']; rankings: RankingGroupData['rankings'] }) {
-  const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
-
-  return (
-    <div className="bg-neon-purple/5 border border-neon-purple/20 rounded-lg overflow-hidden h-full flex flex-col">
-      {/* Header */}
-      <div className="px-3 py-2.5 border-b border-neon-purple/15 bg-neon-purple/10">
-        <h3 className="font-display font-bold text-sm text-primary">{group.name}</h3>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[10px] text-muted uppercase tracking-wider">{methodInfo.label}</span>
-          {group.description && (
-            <span className="text-[10px] text-faint">{group.description}</span>
-          )}
-        </div>
-      </div>
-
-      {/* Rankings */}
-      <div className="flex-1 text-sm">
-        {rankings.length === 0 ? (
-          <div className="py-6 text-center">
-            <p className="text-faint text-xs">No qualified players yet</p>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-neon-purple/10 text-[10px] text-faint uppercase tracking-wider">
-              <span>Player</span>
-              <div className="flex gap-4">
-                <span className="w-8 text-right">GP</span>
-                <span className="w-12 text-right">{methodInfo.scoreLabel}</span>
-              </div>
-            </div>
-            {rankings.slice(0, RANKINGS_TOP_N).map((entry) => (
-              <div
-                key={entry.iscored_username}
-                className={`flex items-center justify-between px-3 py-1.5 border-b border-neon-purple/10 last:border-0 ${
-                  entry.rank === 1 ? 'bg-neon-amber/8' : ''
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`font-display font-bold text-xs w-5 text-center flex-shrink-0 ${
-                    entry.rank === 1 ? 'text-neon-amber' :
-                    entry.rank === 2 ? 'text-neon-cyan' :
-                    entry.rank === 3 ? 'text-neon-green' :
-                    'text-faint'
-                  }`}>
-                    {entry.rank}
-                  </span>
-                  <span className="text-xs truncate">{entry.iscored_username}</span>
-                </div>
-                <div className="flex gap-4">
-                  <span className="text-xs text-muted w-8 text-right">{entry.games_played}</span>
-                  <span className={`font-display font-bold text-xs w-12 text-right ${
-                    entry.rank === 1 ? 'text-neon-amber' : 'text-primary'
-                  }`}>
-                    {group.rank_method === 'average_rank'
-                      ? entry.total_points.toFixed(2)
-                      : entry.total_points.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            ))}
           </>
         )}
       </div>

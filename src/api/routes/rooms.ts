@@ -667,7 +667,7 @@ router.get('/:roomId/games/active', async (req, res) => {
         const rows = await db.all(
             `SELECT g.id, g.name, g.tournament_id, g.iscored_id, g.start_date,
                     g.catalogue_style_id, g.style_header_disabled,
-                    t.name as tournament_name
+                    t.name as tournament_name, t.type as tournament_type
              FROM games g JOIN tournaments t ON g.tournament_id = t.id
              WHERE g.status = 'ACTIVE' AND t.game_room_id = ?
              ORDER BY g.start_date DESC`,
