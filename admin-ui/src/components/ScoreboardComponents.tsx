@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { Lock } from 'lucide-react';
 
 // --- Shared interfaces ---
 
@@ -15,6 +16,7 @@ export interface GameLeaderboard {
   tournamentName: string;
   tournamentType: string;
   imageUrl: string | null;
+  gameStatus: string;
   catalogueStyleId: string | null;
   styleHeaderDisabled: boolean;
   rankings: RankedEntry[];
@@ -114,7 +116,10 @@ export function GameCard({ lb, slug, maxScores }: { lb: GameLeaderboard; slug: s
         {/* Dark gradient overlay for text readability */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10 z-[2]" />
         <div className="relative z-10 px-4 pb-3 w-full" style={{ zIndex: 3 }}>
-          <h3 className="font-display font-bold text-base text-white leading-tight truncate">{lb.gameName}</h3>
+          <h3 className="font-display font-bold text-base text-white leading-tight truncate flex items-center gap-1.5">
+            {lb.gameName}
+            {lb.gameStatus === 'COMPLETED' && <span title="Completed"><Lock size={12} className="text-white/50 flex-shrink-0" /></span>}
+          </h3>
           <p className="text-[11px] text-white/60 uppercase tracking-wider">{lb.tournamentName}</p>
         </div>
       </div>
