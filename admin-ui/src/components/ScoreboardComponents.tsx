@@ -100,29 +100,31 @@ export function GameCard({ lb, slug, maxScores }: { lb: GameLeaderboard; slug: s
 
   return (
     <div className={`bg-surface border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`}>
-      {/* Image / Header area */}
-      <div
-        className="relative h-32 bg-raised flex items-end"
-        style={bgImage ? {
-          backgroundImage: `url(${bgImage})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        } : undefined}
-      >
-        {/* Style header image overlay */}
-        {styleHeaderUrl && (
-          <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
-        )}
-        {/* Dark gradient overlay for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/10 z-[2]" />
-        <div className="relative z-10 px-4 pb-3 w-full" style={{ zIndex: 3 }}>
-          <h3 className="font-display font-bold text-base text-white leading-tight truncate flex items-center gap-1.5">
-            {lb.gameName}
-            {lb.gameStatus === 'COMPLETED' && <span title="Completed"><Lock size={12} className="text-white/50 flex-shrink-0" /></span>}
-          </h3>
-          <p className="text-[11px] text-white/60 uppercase tracking-wider">{lb.tournamentName}</p>
-        </div>
+      {/* Title area */}
+      <div className="px-4 py-3 text-center border-b border-border/30">
+        <h3 className="font-display font-bold text-base leading-tight truncate flex items-center justify-center gap-1.5">
+          {lb.gameName}
+          {lb.gameStatus === 'COMPLETED' && <span title="Completed"><Lock size={14} className="text-faint flex-shrink-0" /></span>}
+        </h3>
+        <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
       </div>
+
+      {/* Background image area */}
+      {bgImage && (
+        <div className="relative h-28 bg-raised">
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${bgImage})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          />
+          {styleHeaderUrl && (
+            <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+          )}
+        </div>
+      )}
 
       {/* Scores */}
       <div className="flex-1">
