@@ -1189,7 +1189,7 @@ router.post('/:roomId/admin/upload/background', requireAuth, requireRoomAccess('
         const filename = `background.${ext}`;
         fs.writeFileSync(path.join(dir, filename), file.buffer);
 
-        const url = `/api/room-assets/${roomId}/${filename}`;
+        const url = `/api/room-assets/${roomId}/${filename}?v=${Date.now()}`;
         await GameRoomSettingsService.set(roomId, 'SCOREBOARD_BG_URL', url);
         res.json({ success: true, url });
     } catch (error) {
@@ -1235,7 +1235,7 @@ router.post('/:roomId/admin/upload/logo', requireAuth, requireRoomAccess('roomId
         const filename = `logo.${ext}`;
         fs.writeFileSync(path.join(dir, filename), file.buffer);
 
-        const url = `/api/room-assets/${roomId}/${filename}`;
+        const url = `/api/room-assets/${roomId}/${filename}?v=${Date.now()}`;
         // Update both game_rooms.logo_url and settings
         await GameRoomService.update(roomId, { logo_url: url });
         await GameRoomSettingsService.set(roomId, 'LOGO_URL', url);

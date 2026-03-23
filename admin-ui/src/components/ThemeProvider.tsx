@@ -60,9 +60,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const hydrate = async () => {
       try {
+        // Extract slug from URL path (e.g., /arcaid_demo/... → arcaid_demo)
+        const pathSlug = window.location.pathname.split('/').filter(Boolean)[0] || '';
         // Always fetch global theme from portal (public endpoint)
-        const portalRes = await fetch('/api/portal');
-        if (portalRes.ok) {
+        const portalRes = pathSlug && pathSlug !== 'admin'
+          ? await fetch(`/api/portal?slug=${encodeURIComponent(pathSlug)}`)
+          : null;
+        if (portalRes?.ok) {
           const portal = await portalRes.json();
           if (portal.ui_theme && portal.ui_theme !== globalTheme) {
             setGlobalThemeState(portal.ui_theme);
