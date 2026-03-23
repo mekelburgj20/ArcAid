@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
 import { api } from '../lib/api';
-import { Search, Trophy, TrendingUp, Target, Medal, Plus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
+import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
 
 interface RankedEntry {
   rank: number;
@@ -443,8 +443,8 @@ export default function GameDetail() {
                             {entry.score.toLocaleString()}
                           </span>
                           {expandedPlayer === entry.iscored_username
-                            ? <ChevronUp size={16} className="text-faint" />
-                            : <ChevronDown size={16} className="text-faint" />
+                            ? <Minus size={14} className="text-neon-cyan" />
+                            : <Plus size={14} className="text-faint hover:text-neon-cyan" />
                           }
                         </div>
                       </div>
