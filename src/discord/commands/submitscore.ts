@@ -185,14 +185,17 @@ async function sendRatingFollowUp(
 ) {
     const uniqueId = uuidv4().slice(0, 8);
 
-    // Build star rating buttons (1-5) + Skip
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    // Build star rating buttons (1-5) in first row, Skip in second row
+    // Discord allows max 5 buttons per ActionRow
+    const starRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         ...[1, 2, 3, 4, 5].map(n =>
             new ButtonBuilder()
                 .setCustomId(`rate_${uniqueId}_${n}`)
-                .setLabel(`${'⭐'.repeat(n)}`)
+                .setLabel(`${n} ⭐`)
                 .setStyle(ButtonStyle.Primary)
         ),
+    );
+    const skipRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
             .setCustomId(`rate_${uniqueId}_skip`)
             .setLabel('Skip')
@@ -201,7 +204,7 @@ async function sendRatingFollowUp(
 
     const followUp = await interaction.followUp({
         content: `**Rate ${gameName}!** How would you rate this game?`,
-        components: [row],
+        components: [starRow, skipRow],
         ephemeral: true,
     });
 
