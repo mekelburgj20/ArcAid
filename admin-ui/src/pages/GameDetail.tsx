@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
 import { api } from '../lib/api';
-import { Search, Trophy, TrendingUp, Target, Medal, Plus, Clock, Lightbulb, MessageCircle, Trash2 } from 'lucide-react';
+import { Search, Trophy, TrendingUp, Target, Medal, Plus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
 
 interface RankedEntry {
   rank: number;
@@ -67,6 +67,15 @@ interface GameComment {
   created_at: string;
 }
 
+interface ScoreHistoryEntry {
+  id: number;
+  iscored_username: string;
+  score: number;
+  source: 'tournament' | 'community' | 'sync';
+  created_at: string;
+  photo_url?: string;
+}
+
 type Tab = 'leaderboard' | 'community' | 'tips' | 'your-stats';
 
 export default function GameDetail() {
@@ -78,9 +87,19 @@ export default function GameDetail() {
   const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('leaderboard');
 
+  // Expandable score history per player in leaderboard
+  const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
+  const [playerHistory, setPlayerHistory] = useState<ScoreHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Full game score history
+  const [gameHistory, setGameHistory] = useState<ScoreHistoryEntry[]>([]);
+  const [showGameHistory, setShowGameHistory] = useState(false);
+
   // Player lookup state
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('arcaid-player-name') || '');
   const [playerStats, setPlayerStats] = useState<PlayerGameStats | null>(null);
+  const [playerScoreHistory, setPlayerScoreHistory] = useState<ScoreHistoryEntry[]>([]);
   const [playerLoading, setPlayerLoading] = useState(false);
   const [playerError, setPlayerError] = useState('');
 
@@ -220,6 +239,33 @@ export default function GameDetail() {
     } catch {}
   };
 
+  const togglePlayerHistory = (playerUsername: string) => {
+    if (expandedPlayer === playerUsername) {
+      setExpandedPlayer(null);
+      setPlayerHistory([]);
+      return;
+    }
+    if (!roomId || !name) return;
+    setExpandedPlayer(playerUsername);
+    setHistoryLoading(true);
+    fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(name)}/player/${encodeURIComponent(playerUsername)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setPlayerHistory)
+      .catch(() => setPlayerHistory([]))
+      .finally(() => setHistoryLoading(false));
+  };
+
+  const loadGameHistory = () => {
+    if (!roomId || !name) return;
+    setShowGameHistory(!showGameHistory);
+    if (!showGameHistory && gameHistory.length === 0) {
+      fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(name)}`)
+        .then(r => r.ok ? r.json() : [])
+        .then(setGameHistory)
+        .catch(() => {});
+    }
+  };
+
   const lookupPlayer = () => {
     const trimmed = playerName.trim();
     if (!trimmed || !roomId || !name) return;
@@ -227,6 +273,7 @@ export default function GameDetail() {
     setPlayerLoading(true);
     setPlayerError('');
     setPlayerStats(null);
+    setPlayerScoreHistory([]);
     fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}/player/${encodeURIComponent(trimmed)}`)
       .then(r => {
         if (r.status === 404) { setPlayerError('No stats found for this player on this game.'); return null; }
@@ -236,6 +283,12 @@ export default function GameDetail() {
       .then(data => { if (data) setPlayerStats(data); })
       .catch(() => setPlayerError('Failed to load stats.'))
       .finally(() => setPlayerLoading(false));
+
+    // Also load score history
+    fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(name)}/player/${encodeURIComponent(trimmed)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setPlayerScoreHistory)
+      .catch(() => {});
   };
 
   const handleSubmitScore = async (e: React.FormEvent) => {
@@ -365,28 +418,62 @@ export default function GameDetail() {
                     <span>Score</span>
                   </div>
                   {leaderboard.rankings.map((entry) => (
-                    <div
-                      key={entry.discord_user_id}
-                      className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
-                        entry.rank === 1 ? 'bg-neon-amber/8' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
-                          entry.rank === 1 ? 'text-neon-amber text-lg' :
-                          entry.rank === 2 ? 'text-neon-cyan' :
-                          entry.rank === 3 ? 'text-neon-green' :
-                          'text-faint'
-                        }`}>
-                          {entry.rank}
-                        </span>
-                        <span className="font-medium truncate">{entry.iscored_username}</span>
+                    <div key={entry.discord_user_id}>
+                      <div
+                        className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 cursor-pointer hover:bg-raised/50 transition-colors ${
+                          entry.rank === 1 ? 'bg-neon-amber/8' : ''
+                        }`}
+                        onClick={() => togglePlayerHistory(entry.iscored_username)}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
+                            entry.rank === 1 ? 'text-neon-amber text-lg' :
+                            entry.rank === 2 ? 'text-neon-cyan' :
+                            entry.rank === 3 ? 'text-neon-green' :
+                            'text-faint'
+                          }`}>
+                            {entry.rank}
+                          </span>
+                          <span className="font-medium truncate">{entry.iscored_username}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-display font-bold flex-shrink-0 ${
+                            entry.rank === 1 ? 'text-neon-amber text-lg' : 'text-primary'
+                          }`}>
+                            {entry.score.toLocaleString()}
+                          </span>
+                          {expandedPlayer === entry.iscored_username
+                            ? <ChevronUp size={16} className="text-faint" />
+                            : <ChevronDown size={16} className="text-faint" />
+                          }
+                        </div>
                       </div>
-                      <span className={`font-display font-bold flex-shrink-0 ml-2 ${
-                        entry.rank === 1 ? 'text-neon-amber text-lg' : 'text-primary'
-                      }`}>
-                        {entry.score.toLocaleString()}
-                      </span>
+                      {expandedPlayer === entry.iscored_username && (
+                        <div className="bg-deep/50 border-b border-border/20 px-5 py-2">
+                          {historyLoading ? (
+                            <p className="text-faint text-xs py-2">Loading history...</p>
+                          ) : playerHistory.length > 0 ? (
+                            <div className="space-y-1">
+                              <p className="text-faint text-[10px] uppercase tracking-wider mb-1">Score History</p>
+                              {playerHistory.map(h => (
+                                <div key={h.id} className="flex items-center justify-between text-sm">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted">{h.score.toLocaleString()}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                      h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
+                                      h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
+                                      'bg-neon-green/10 text-neon-green'
+                                    }`}>{h.source}</span>
+                                  </div>
+                                  <span className="text-faint text-xs">{new Date(h.created_at).toLocaleDateString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-faint text-xs py-2">No score history recorded yet.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -435,6 +522,50 @@ export default function GameDetail() {
                 </div>
               </div>
             )}
+
+            {/* Full Score History */}
+            <div className="mt-8">
+              <button
+                onClick={loadGameHistory}
+                className="flex items-center gap-2 text-sm text-muted hover:text-primary transition-colors"
+              >
+                <History size={14} />
+                {showGameHistory ? 'Hide' : 'Show'} All Score History
+                {showGameHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              {showGameHistory && (
+                <div className="mt-3 bg-surface border border-border rounded-lg overflow-hidden">
+                  {gameHistory.length > 0 ? (
+                    <>
+                      <div className="flex items-center justify-between px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+                        <span>Player</span>
+                        <div className="flex items-center gap-6">
+                          <span>Source</span>
+                          <span className="w-20 text-right">Score</span>
+                          <span className="w-20 text-right">Date</span>
+                        </div>
+                      </div>
+                      {gameHistory.map(h => (
+                        <div key={h.id} className="flex items-center justify-between px-5 py-2.5 border-b border-border/20 last:border-0 text-sm">
+                          <span className="font-medium truncate">{h.iscored_username}</span>
+                          <div className="flex items-center gap-6">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                              h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
+                              h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
+                              'bg-neon-green/10 text-neon-green'
+                            }`}>{h.source}</span>
+                            <span className="font-display font-bold w-20 text-right">{h.score.toLocaleString()}</span>
+                            <span className="text-faint text-xs w-20 text-right">{new Date(h.created_at).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <p className="text-muted text-sm text-center py-6">No score history recorded yet. History starts tracking from now.</p>
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -702,6 +833,30 @@ export default function GameDetail() {
                     <div className="flex items-center gap-3 pt-3 border-t border-border/30">
                       <span className="text-faint text-xs uppercase tracking-wider">Score Trend</span>
                       <Sparkline data={playerStats.trend.map(t => t.score)} width={160} height={32} />
+                    </div>
+                  )}
+
+                  {/* Full score history for this player */}
+                  {playerScoreHistory.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-border/30">
+                      <h3 className="text-faint text-[10px] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <History size={12} /> All Score Entries
+                      </h3>
+                      <div className="space-y-1">
+                        {playerScoreHistory.map(h => (
+                          <div key={h.id} className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="font-display font-bold text-primary">{h.score.toLocaleString()}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
+                                h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
+                                'bg-neon-green/10 text-neon-green'
+                              }`}>{h.source}</span>
+                            </div>
+                            <span className="text-faint text-xs">{new Date(h.created_at).toLocaleDateString()}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

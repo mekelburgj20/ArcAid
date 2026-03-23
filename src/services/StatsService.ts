@@ -601,7 +601,7 @@ export class StatsService {
             ${roomJoin}
             WHERE LOWER(s.iscored_username) = LOWER(?)
             AND LOWER(g.name) = LOWER(?)
-            AND g.status = 'COMPLETED'
+            AND g.status IN ('ACTIVE', 'COMPLETED')
             ${roomWhere}
             ORDER BY g.end_date DESC
         `, username, gameName, ...roomParams);

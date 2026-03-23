@@ -1,4 +1,5 @@
 import { getDatabase } from '../database/database.js';
+import { ScoreHistoryService } from './ScoreHistoryService.js';
 
 export class CommunityScoreService {
     /**
@@ -18,6 +19,14 @@ export class CommunityScoreService {
              VALUES (?, ?, ?, ?, ?, ?)`,
             gameName, gameRoomId, username, discordUserId || 'ANON', score, photoUrl || null
         );
+
+        // Also log to unified score history
+        await ScoreHistoryService.log({
+            gameName, gameRoomId, username,
+            discordUserId, score, photoUrl,
+            source: 'community',
+        });
+
         return { id: result.lastID };
     }
 

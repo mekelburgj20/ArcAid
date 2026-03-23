@@ -394,6 +394,49 @@ router.get('/:roomId/stats/game/:name/player/:identifier', async (req, res) => {
     }
 });
 
+// Score history for a player on a specific game
+router.get('/:roomId/score-history/:gameName/player/:identifier', async (req, res) => {
+    try {
+        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+        const gameName = decodeURIComponent(req.params.gameName as string);
+        const identifier = decodeURIComponent(req.params.identifier as string);
+        const roomId = req.params.roomId as string;
+        const history = await ScoreHistoryService.getPlayerGameHistory(roomId, gameName, identifier);
+        res.json(history);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/score-history/:gameName/player/:identifier):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// All score history for a game
+router.get('/:roomId/score-history/:gameName', async (req, res) => {
+    try {
+        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+        const gameName = decodeURIComponent(req.params.gameName as string);
+        const roomId = req.params.roomId as string;
+        const history = await ScoreHistoryService.getGameHistory(roomId, gameName);
+        res.json(history);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/score-history/:gameName):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Score submissions for a specific tournament game instance
+router.get('/:roomId/score-history/game/:gameId', async (req, res) => {
+    try {
+        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const submissions = await ScoreHistoryService.getGameSubmissions(roomId, gameId);
+        res.json(submissions);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/score-history/game/:gameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.get('/:roomId/stats/game/:name', async (req, res) => {
     try {
         const { StatsService } = await import('../../services/StatsService.js');

@@ -90,6 +90,12 @@ export const syncstate: Command = {
                             const mapping = await db.get('SELECT discord_user_id FROM user_mappings WHERE iscored_username = ? COLLATE NOCASE', score.name);
                             const discordUserId = mapping?.discord_user_id || `iscored:${score.name}`;
 
+                            const scoreValue = parseInt(score.score.replace(/,/g, ''));
+
+                            // Check if this is a new or updated score (for history logging)
+                            const existing = await db.get('SELECT score FROM submissions WHERE id = ?', syncId);
+                            const isNewOrHigher = !existing || scoreValue > existing.score;
+
                             await db.run(`
                                 INSERT INTO submissions (id, game_id, iscored_username, score, photo_url, timestamp, discord_user_id)
                                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -99,11 +105,31 @@ export const syncstate: Command = {
                                 syncId,
                                 localGame.id,
                                 score.name,
-                                parseInt(score.score.replace(/,/g, '')),
+                                scoreValue,
                                 score.photoUrl,
                                 new Date().toISOString(),
                                 discordUserId
                             );
+
+                            // Log to score history if new or improved score
+                            if (isNewOrHigher && localGame.tournament_id) {
+                                try {
+                                    const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', localGame.tournament_id);
+                                    if (tournament?.game_room_id) {
+                                        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+                                        await ScoreHistoryService.log({
+                                            gameName: localGame.name,
+                                            gameRoomId: tournament.game_room_id,
+                                            gameId: localGame.id,
+                                            username: score.name,
+                                            discordUserId,
+                                            score: scoreValue,
+                                            photoUrl: score.photoUrl,
+                                            source: 'sync',
+                                        });
+                                    }
+                                } catch {}
+                            }
                         }
 
                         // Remove local synced submissions that no longer exist on iScored

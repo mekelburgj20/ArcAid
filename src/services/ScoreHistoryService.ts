@@ -1,0 +1,81 @@
+import { getDatabase } from '../database/database.js';
+
+export class ScoreHistoryService {
+    /**
+     * Log a score entry to history. Called alongside every score submission.
+     */
+    static async log(params: {
+        gameName: string;
+        gameRoomId: string;
+        gameId?: string;
+        username: string;
+        discordUserId?: string;
+        score: number;
+        photoUrl?: string;
+        source: 'tournament' | 'community' | 'sync';
+    }) {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO score_history (game_name, game_room_id, game_id, iscored_username, discord_user_id, score, photo_url, source)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            params.gameName, params.gameRoomId, params.gameId || null,
+            params.username, params.discordUserId || 'SYSTEM',
+            params.score, params.photoUrl || null, params.source
+        );
+    }
+
+    /**
+     * Get all score history for a specific player + game in a room.
+     * Returns both tournament and community submissions.
+     */
+    static async getPlayerGameHistory(
+        gameRoomId: string,
+        gameName: string,
+        username: string,
+        limit = 50,
+    ) {
+        const db = await getDatabase();
+        return db.all(`
+            SELECT id, score, source, photo_url, created_at, game_id
+            FROM score_history
+            WHERE game_room_id = ?
+            AND LOWER(game_name) = LOWER(?)
+            AND LOWER(iscored_username) = LOWER(?)
+            ORDER BY created_at DESC
+            LIMIT ?
+        `, gameRoomId, gameName, username, limit);
+    }
+
+    /**
+     * Get all score history entries for a specific game (all players).
+     */
+    static async getGameHistory(
+        gameRoomId: string,
+        gameName: string,
+        limit = 100,
+    ) {
+        const db = await getDatabase();
+        return db.all(`
+            SELECT id, iscored_username, score, source, created_at
+            FROM score_history
+            WHERE game_room_id = ?
+            AND LOWER(game_name) = LOWER(?)
+            ORDER BY created_at DESC
+            LIMIT ?
+        `, gameRoomId, gameName, limit);
+    }
+
+    /**
+     * Get all submissions for a specific game_id (tournament game instance).
+     * Returns every score submitted by each player, not just the best.
+     */
+    static async getGameSubmissions(gameRoomId: string, gameId: string) {
+        const db = await getDatabase();
+        return db.all(`
+            SELECT id, iscored_username, score, source, photo_url, created_at
+            FROM score_history
+            WHERE game_room_id = ? AND game_id = ?
+            ORDER BY score DESC, created_at ASC
+        `, gameRoomId, gameId);
+    }
+}

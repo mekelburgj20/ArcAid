@@ -157,6 +157,20 @@ export async function initDatabase(): Promise<Database> {
             FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS score_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_name TEXT NOT NULL,
+            game_room_id TEXT NOT NULL,
+            game_id TEXT,
+            iscored_username TEXT NOT NULL,
+            discord_user_id TEXT DEFAULT 'SYSTEM',
+            score INTEGER NOT NULL,
+            photo_url TEXT,
+            source TEXT NOT NULL DEFAULT 'tournament' CHECK(source IN ('tournament', 'community', 'sync')),
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS game_comments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             game_name TEXT NOT NULL,

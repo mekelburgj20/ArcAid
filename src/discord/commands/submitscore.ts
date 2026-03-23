@@ -93,8 +93,13 @@ export const submitscore: Command = {
         const db = await getDatabase();
 
         try {
-            // Find the game ID
-            const game = await db.get("SELECT id, iscored_id FROM games WHERE name = ? COLLATE NOCASE AND status = 'ACTIVE'", gameName);
+            // Find the game ID and room
+            const game = await db.get(`
+                SELECT g.id, g.iscored_id, t.game_room_id
+                FROM games g
+                JOIN tournaments t ON g.tournament_id = t.id
+                WHERE g.name = ? COLLATE NOCASE AND g.status = 'ACTIVE'
+            `, gameName);
 
             if (!game || !game.iscored_id) {
                 await interaction.editReply(`Could not find an active ${term.game} named '${gameName}' linked to iScored.`);
@@ -146,6 +151,14 @@ export const submitscore: Command = {
                      ON CONFLICT(id) DO UPDATE SET score = MAX(score, excluded.score), discord_user_id = excluded.discord_user_id, photo_url = excluded.photo_url`,
                     `${game.id}-${username!.toLowerCase()}`, game.id, interaction.user.id, username, score, photo.url, new Date().toISOString()
                 );
+
+                // Log to score history
+                const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+                await ScoreHistoryService.log({
+                    gameName, gameRoomId: game.game_room_id, gameId: game.id,
+                    username: username!, discordUserId: interaction.user.id,
+                    score, photoUrl: photo.url, source: 'tournament',
+                });
 
                 // Invalidate leaderboard cache
                 await LeaderboardService.invalidate(game.id);
