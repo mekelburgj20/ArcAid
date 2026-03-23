@@ -13,6 +13,8 @@ import {
     CreateRankingGroupSchema, UpdateRankingGroupSchema,
     CreateLocalAdminSchema,
     AssignStyleSchema,
+    CommunityScoreSchema,
+    GameCommentSchema,
 } from '../schemas.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
@@ -347,6 +349,51 @@ router.get('/:roomId/stats/player/:identifier', async (req, res) => {
     }
 });
 
+// Enhanced stats
+router.get('/:roomId/stats/enhanced/players', async (req, res) => {
+    try {
+        const { StatsService } = await import('../../services/StatsService.js');
+        const players = await StatsService.getEnhancedAllPlayerStats(req.params.roomId as string);
+        res.json(players);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/stats/enhanced/players):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/:roomId/stats/enhanced/player/:identifier', async (req, res) => {
+    try {
+        const { StatsService } = await import('../../services/StatsService.js');
+        const identifier = decodeURIComponent(req.params.identifier as string);
+        const roomId = req.params.roomId as string;
+        const isDiscordId = /^\d{17,20}$/.test(identifier);
+        const stats = isDiscordId
+            ? await StatsService.getEnhancedPlayerStats(identifier, roomId)
+            : await StatsService.getEnhancedPlayerStatsByUsername(identifier, roomId);
+        if (!stats) return res.status(404).json({ error: 'Player not found' });
+        res.json(stats);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/stats/enhanced/player/:identifier):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Per-game player stats
+router.get('/:roomId/stats/game/:name/player/:identifier', async (req, res) => {
+    try {
+        const { StatsService } = await import('../../services/StatsService.js');
+        const gameName = decodeURIComponent(req.params.name as string);
+        const identifier = decodeURIComponent(req.params.identifier as string);
+        const roomId = req.params.roomId as string;
+        const stats = await StatsService.getPlayerGameStats(identifier, gameName, roomId);
+        if (!stats) return res.status(404).json({ error: 'No stats found for this player and game' });
+        res.json(stats);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/stats/game/:name/player/:identifier):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.get('/:roomId/stats/game/:name', async (req, res) => {
     try {
         const { StatsService } = await import('../../services/StatsService.js');
@@ -358,6 +405,96 @@ router.get('/:roomId/stats/game/:name', async (req, res) => {
         res.json(stats);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/stats/game/:name):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Community scores
+router.get('/:roomId/community-scores/recent', async (req, res) => {
+    try {
+        const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
+        const activity = await CommunityScoreService.getRecentActivity(req.params.roomId as string);
+        res.json(activity);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/community-scores/recent):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/:roomId/community-scores/:gameName', async (req, res) => {
+    try {
+        const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
+        const gameName = decodeURIComponent(req.params.gameName as string);
+        const roomId = req.params.roomId as string;
+        const leaderboard = await CommunityScoreService.getGameLeaderboard(roomId, gameName);
+        res.json(leaderboard);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/community-scores/:gameName):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/community-scores/:gameName', async (req, res) => {
+    try {
+        const validationResult = validate(CommunityScoreSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
+        const gameName = decodeURIComponent(req.params.gameName as string);
+        const roomId = req.params.roomId as string;
+        const { username, score, discord_user_id, photo_url } = validationResult.data;
+        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, discord_user_id, photo_url);
+        res.status(201).json(result);
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/community-scores/:gameName):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Game comments & tips
+router.get('/:roomId/games/:gameName/comments', async (req, res) => {
+    try {
+        const { CommentService } = await import('../../services/CommentService.js');
+        const gameName = decodeURIComponent(req.params.gameName as string);
+        const roomId = req.params.roomId as string;
+        const type = req.query.type as 'comment' | 'tip' | undefined;
+        const comments = await CommentService.getComments(roomId, gameName, type);
+        res.json(comments);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/games/:gameName/comments):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/games/:gameName/comments', async (req, res) => {
+    try {
+        const validationResult = validate(GameCommentSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { CommentService } = await import('../../services/CommentService.js');
+        const gameName = decodeURIComponent(req.params.gameName as string);
+        const roomId = req.params.roomId as string;
+        const userId = (req.headers['x-user-id'] as string) || 'anon';
+        const { display_name, type, body } = validationResult.data;
+        const comment = await CommentService.addComment(roomId, gameName, userId, display_name, type, body);
+        res.status(201).json(comment);
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/games/:gameName/comments):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/:roomId/games/:gameName/comments/:id', async (req, res) => {
+    try {
+        const { CommentService } = await import('../../services/CommentService.js');
+        const commentId = parseInt(req.params.id as string, 10);
+        const userId = (req.headers['x-user-id'] as string) || '';
+        const comment = await CommentService.getCommentById(commentId);
+        if (!comment) return res.status(404).json({ error: 'Comment not found' });
+        // Only author can delete (admin deletion handled via admin routes)
+        if (comment.user_id !== userId) return res.status(403).json({ error: 'Not authorized' });
+        await CommentService.deleteComment(commentId);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/games/:gameName/comments/:id):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

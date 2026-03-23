@@ -1,4 +1,9 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import {
+    ChatInputCommandInteraction, SlashCommandBuilder,
+    ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    ModalBuilder, TextInputBuilder, TextInputStyle,
+    ComponentType,
+} from 'discord.js';
 import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
@@ -62,7 +67,7 @@ export const submitscore: Command = {
             );
         }
     },
-        
+
     async execute(interaction: ChatInputCommandInteraction) {
         // Check cooldown (30 seconds)
         const remaining = checkCooldown(interaction.user.id, 'submit-score', 30);
@@ -121,7 +126,7 @@ export const submitscore: Command = {
             const buffer = Buffer.from(arrayBuffer);
             const ext = path.extname(photo.name) || '.jpg';
             const tempPhotoPath = path.join(process.cwd(), 'data', `${uuidv4()}${ext}`);
-            
+
             await fs.writeFile(tempPhotoPath, buffer);
 
             try {
@@ -151,6 +156,11 @@ export const submitscore: Command = {
 
                 logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
                 await interaction.editReply(`Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!`);
+
+                // Send rating follow-up (fire-and-forget, don't block the score confirmation)
+                sendRatingFollowUp(interaction, gameName, username!).catch(err => {
+                    logError('Error in rating follow-up:', err);
+                });
             } finally {
                 // Always cleanup temp photo, even on error
                 await fs.unlink(tempPhotoPath).catch(() => {});
@@ -162,3 +172,142 @@ export const submitscore: Command = {
         }
     },
 };
+
+/**
+ * After a successful score submission, send an ephemeral follow-up asking the user to rate the game.
+ * Flow: Star buttons (1-5) + Skip → if rated, show comment modal → done.
+ * Buttons auto-expire after 5 minutes with no action needed.
+ */
+async function sendRatingFollowUp(
+    interaction: ChatInputCommandInteraction,
+    gameName: string,
+    username: string,
+) {
+    const uniqueId = uuidv4().slice(0, 8);
+
+    // Build star rating buttons (1-5) + Skip
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        ...[1, 2, 3, 4, 5].map(n =>
+            new ButtonBuilder()
+                .setCustomId(`rate_${uniqueId}_${n}`)
+                .setLabel(`${'⭐'.repeat(n)}`)
+                .setStyle(ButtonStyle.Primary)
+        ),
+        new ButtonBuilder()
+            .setCustomId(`rate_${uniqueId}_skip`)
+            .setLabel('Skip')
+            .setStyle(ButtonStyle.Secondary),
+    );
+
+    const followUp = await interaction.followUp({
+        content: `**Rate ${gameName}!** How would you rate this game?`,
+        components: [row],
+        ephemeral: true,
+    });
+
+    // Collect a single button click (5 min timeout)
+    const collector = followUp.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        time: 5 * 60 * 1000,
+        max: 1,
+    });
+
+    collector.on('collect', async (btnInteraction) => {
+        const customId = btnInteraction.customId;
+
+        // Skip button — no rating, no modal
+        if (customId.endsWith('_skip')) {
+            await btnInteraction.update({
+                content: 'No problem! You can rate anytime on the web.',
+                components: [],
+            });
+            return;
+        }
+
+        // Parse rating value
+        const ratingStr = customId.split('_').pop();
+        const rating = parseInt(ratingStr || '0', 10);
+        if (rating < 1 || rating > 5) return;
+
+        // Save the rating
+        try {
+            const { RatingService } = await import('../../services/RatingService.js');
+            await RatingService.setRating(gameName, interaction.user.id, rating);
+            logInfo(`Game rated: ${interaction.user.tag} gave ${gameName} ${rating} stars`);
+        } catch (err) {
+            logError('Error saving rating:', err);
+        }
+
+        // Show comment modal
+        const modalId = `comment_${uniqueId}`;
+        const modal = new ModalBuilder()
+            .setCustomId(modalId)
+            .setTitle(`${gameName} — Leave a Comment`)
+            .addComponents(
+                new ActionRowBuilder<TextInputBuilder>().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('comment_body')
+                        .setLabel('Any tips or comments? (optional)')
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setMaxLength(500)
+                        .setRequired(false)
+                        .setPlaceholder('Share a pro tip or leave a comment...')
+                ),
+            );
+
+        await btnInteraction.showModal(modal);
+
+        // Update the button message to show the rating was saved
+        await btnInteraction.editReply({
+            content: `Thanks! You rated **${gameName}** ${'⭐'.repeat(rating)}`,
+            components: [],
+        });
+
+        // Wait for modal submission (5 min timeout)
+        try {
+            const modalInteraction = await btnInteraction.awaitModalSubmit({
+                filter: (i) => i.customId === modalId,
+                time: 5 * 60 * 1000,
+            });
+
+            const commentText = modalInteraction.fields.getTextInputValue('comment_body')?.trim();
+            if (commentText) {
+                // Save the comment
+                try {
+                    const { CommentService } = await import('../../services/CommentService.js');
+                    // Resolve game room ID for the comment
+                    const db = await getDatabase();
+                    const game = await db.get("SELECT g.id, t.game_room_id FROM games g JOIN tournaments t ON g.tournament_id = t.id WHERE g.name = ? COLLATE NOCASE", gameName);
+                    if (game?.game_room_id) {
+                        await CommentService.addComment(
+                            game.game_room_id,
+                            gameName,
+                            interaction.user.id,
+                            username,
+                            'tip',
+                            commentText,
+                        );
+                        logInfo(`Comment saved: ${username} on ${gameName}`);
+                    }
+                } catch (err) {
+                    logError('Error saving comment:', err);
+                }
+                await modalInteraction.reply({ content: 'Thanks for the feedback!', ephemeral: true });
+            } else {
+                await modalInteraction.reply({ content: 'No problem!', ephemeral: true });
+            }
+        } catch {
+            // Modal timed out or was cancelled — no action needed
+        }
+    });
+
+    collector.on('end', async (collected) => {
+        // If no buttons were clicked, silently clean up
+        if (collected.size === 0) {
+            await interaction.editReply({
+                content: `Successfully submitted your score to **${gameName}**!`,
+                components: [],
+            }).catch(() => {});
+        }
+    });
+}

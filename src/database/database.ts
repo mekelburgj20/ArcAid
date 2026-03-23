@@ -145,6 +145,30 @@ export async function initDatabase(): Promise<Database> {
             ui_theme TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS community_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_name TEXT NOT NULL,
+            game_room_id TEXT NOT NULL,
+            iscored_username TEXT NOT NULL,
+            discord_user_id TEXT DEFAULT 'ANON',
+            score INTEGER NOT NULL,
+            photo_url TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS game_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_name TEXT NOT NULL,
+            game_room_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'comment' CHECK(type IN ('comment', 'tip')),
+            body TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS game_ratings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             game_name TEXT NOT NULL,

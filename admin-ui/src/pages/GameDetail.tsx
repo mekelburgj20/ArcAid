@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
+import Sparkline from '../components/Sparkline';
 import { api } from '../lib/api';
+import { Search, Trophy, TrendingUp, Target, Medal, Plus, Clock, Lightbulb, MessageCircle, Trash2 } from 'lucide-react';
 
 interface RankedEntry {
   rank: number;
@@ -33,37 +35,182 @@ interface GameStats {
   }>;
 }
 
+interface PlayerGameStats {
+  times_played: number;
+  best_score: number;
+  worst_score: number;
+  avg_rank: number;
+  wins: number;
+  trend: Array<{ date: string; score: number; rank: number }>;
+}
+
+interface CommunityLeaderboardEntry {
+  iscored_username: string;
+  best_score: number;
+  times_played: number;
+  last_played: string;
+}
+
+interface CommunityHistoryEntry {
+  id: number;
+  iscored_username: string;
+  score: number;
+  created_at: string;
+}
+
+interface GameComment {
+  id: number;
+  user_id: string;
+  display_name: string;
+  type: 'comment' | 'tip';
+  body: string;
+  created_at: string;
+}
+
+type Tab = 'leaderboard' | 'community' | 'tips' | 'your-stats';
+
 export default function GameDetail() {
   const { slug, name } = useParams<{ slug: string; name: string }>();
+  const [roomId, setRoomId] = useState<string | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('leaderboard');
 
+  // Player lookup state
+  const [playerName, setPlayerName] = useState(() => localStorage.getItem('arcaid-player-name') || '');
+  const [playerStats, setPlayerStats] = useState<PlayerGameStats | null>(null);
+  const [playerLoading, setPlayerLoading] = useState(false);
+  const [playerError, setPlayerError] = useState('');
+
+  // Community scores state
+  const [communityBoard, setCommunityBoard] = useState<CommunityLeaderboardEntry[]>([]);
+  const [communityHistory, setCommunityHistory] = useState<CommunityHistoryEntry[]>([]);
+  const [showSubmitForm, setShowSubmitForm] = useState(false);
+  const [submitUsername, setSubmitUsername] = useState(() => localStorage.getItem('arcaid-player-name') || '');
+  const [submitScore, setSubmitScore] = useState('');
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState('');
+
+  // Comments/tips state
+  const [tips, setTips] = useState<GameComment[]>([]);
+  const [comments, setComments] = useState<GameComment[]>([]);
+  const [commentDisplayName, setCommentDisplayName] = useState(() => localStorage.getItem('arcaid-player-name') || '');
+  const [commentBody, setCommentBody] = useState('');
+  const [commentType, setCommentType] = useState<'comment' | 'tip'>('comment');
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+
+  // Anonymous user ID for comment ownership
+  const [userId] = useState(() => {
+    const stored = localStorage.getItem('arcaid-user-id');
+    if (stored) return stored;
+    const id = crypto.randomUUID();
+    localStorage.setItem('arcaid-user-id', id);
+    return id;
+  });
+
+  // Resolve room from slug
   useEffect(() => {
-    if (!name) return;
+    if (!slug) return;
+    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(portal => { if (portal?.id) setRoomId(portal.id); })
+      .catch(() => {});
+  }, [slug]);
 
-    // Load game stats
-    fetch(`/api/stats/game/${encodeURIComponent(name)}`)
+  // Load game data once room is resolved
+  useEffect(() => {
+    if (!name || !roomId) return;
+
+    fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}`)
       .then(r => r.json())
       .then(setStats)
       .catch(() => {})
       .finally(() => setLoading(false));
 
-    // Load ratings
     api.get<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`/ratings/${encodeURIComponent(name)}`)
       .then(setRatingInfo)
       .catch(() => {});
 
-    // Load active leaderboard for this game (find matching game from active leaderboards)
-    fetch('/api/leaderboard')
+    fetch(`/api/rooms/${roomId}/leaderboard`)
       .then(r => r.json())
       .then((boards: GameLeaderboard[]) => {
         const match = boards.find(b => b.gameName.toLowerCase() === name.toLowerCase());
         if (match) setLeaderboard(match);
       })
       .catch(() => {});
-  }, [name]);
+
+    // Load community scores
+    loadCommunityData(roomId, name);
+
+    // Load comments and tips
+    loadComments(roomId, name);
+  }, [name, roomId]);
+
+  const loadCommunityData = (rid: string, gameName: string) => {
+    fetch(`/api/rooms/${rid}/community-scores/${encodeURIComponent(gameName)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setCommunityBoard)
+      .catch(() => {});
+
+    fetch(`/api/rooms/${rid}/community-scores/${encodeURIComponent(gameName)}?history=1`)
+      .then(r => r.ok ? r.json() : [])
+      .then(() => {
+        // Load recent history separately
+        fetch(`/api/rooms/${rid}/community-scores/recent`)
+          .then(r => r.ok ? r.json() : [])
+          .then((all: CommunityHistoryEntry[]) => {
+            // Filter to this game
+            setCommunityHistory(all.filter((e: any) => e.game_name?.toLowerCase() === gameName.toLowerCase()));
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
+  };
+
+  const loadComments = (rid: string, gameName: string) => {
+    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=tip`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setTips)
+      .catch(() => {});
+    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=comment`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setComments)
+      .catch(() => {});
+  };
+
+  const handleSubmitComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedName = commentDisplayName.trim();
+    const trimmedBody = commentBody.trim();
+    if (!trimmedName || !trimmedBody || !roomId || !name) return;
+    setCommentSubmitting(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/games/${encodeURIComponent(name)}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+        body: JSON.stringify({ display_name: trimmedName, type: commentType, body: trimmedBody }),
+      });
+      if (res.ok) {
+        setCommentBody('');
+        localStorage.setItem('arcaid-player-name', trimmedName);
+        loadComments(roomId, name);
+      }
+    } catch {}
+    setCommentSubmitting(false);
+  };
+
+  const handleDeleteComment = async (commentId: number) => {
+    if (!roomId || !name) return;
+    try {
+      await fetch(`/api/rooms/${roomId}/games/${encodeURIComponent(name)}/comments/${commentId}`, {
+        method: 'DELETE',
+        headers: { 'x-user-id': userId },
+      });
+      loadComments(roomId, name);
+    } catch {}
+  };
 
   const handleRate = async (rating: number) => {
     if (!name) return;
@@ -71,6 +218,54 @@ export default function GameDetail() {
       const info = await api.post<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`/ratings/${encodeURIComponent(name)}`, { rating });
       setRatingInfo(info);
     } catch {}
+  };
+
+  const lookupPlayer = () => {
+    const trimmed = playerName.trim();
+    if (!trimmed || !roomId || !name) return;
+    localStorage.setItem('arcaid-player-name', trimmed);
+    setPlayerLoading(true);
+    setPlayerError('');
+    setPlayerStats(null);
+    fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}/player/${encodeURIComponent(trimmed)}`)
+      .then(r => {
+        if (r.status === 404) { setPlayerError('No stats found for this player on this game.'); return null; }
+        if (!r.ok) { setPlayerError('Failed to load stats.'); return null; }
+        return r.json();
+      })
+      .then(data => { if (data) setPlayerStats(data); })
+      .catch(() => setPlayerError('Failed to load stats.'))
+      .finally(() => setPlayerLoading(false));
+  };
+
+  const handleSubmitScore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedName = submitUsername.trim();
+    const scoreNum = parseInt(submitScore, 10);
+    if (!trimmedName || isNaN(scoreNum) || scoreNum < 0 || !roomId || !name) return;
+
+    setSubmitLoading(true);
+    setSubmitMessage('');
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: trimmedName, score: scoreNum }),
+      });
+      if (res.ok) {
+        setSubmitMessage('Score submitted!');
+        setSubmitScore('');
+        localStorage.setItem('arcaid-player-name', trimmedName);
+        loadCommunityData(roomId, name);
+        setTimeout(() => setSubmitMessage(''), 3000);
+      } else {
+        setSubmitMessage('Failed to submit score.');
+      }
+    } catch {
+      setSubmitMessage('Failed to submit score.');
+    } finally {
+      setSubmitLoading(false);
+    }
   };
 
   if (loading) {
@@ -90,6 +285,12 @@ export default function GameDetail() {
   }
 
   const imageUrl = leaderboard?.imageUrl;
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'leaderboard', label: 'Leaderboard' },
+    { id: 'community', label: 'Community' },
+    { id: 'tips', label: 'Tips & Comments' },
+    { id: 'your-stats', label: 'Your Stats' },
+  ];
 
   return (
     <div>
@@ -131,87 +332,384 @@ export default function GameDetail() {
           <StatCard label="All-Time High" value={stats.allTimeHigh.toLocaleString()} color="text-neon-amber" />
         </div>
 
-        {/* Active Leaderboard - Full scores */}
-        {leaderboard && leaderboard.rankings.length > 0 && (
-          <div className="mb-8">
-            <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Current Leaderboard</h2>
-            <div className="bg-surface border border-border rounded-lg overflow-hidden">
-              {/* Header row */}
-              <div className="flex items-center justify-between px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-                <div className="flex items-center gap-3">
-                  <span className="w-8 text-center">Rank</span>
-                  <span>Player</span>
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-border mb-6">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                activeTab === tab.id
+                  ? 'text-neon-cyan border-neon-cyan'
+                  : 'text-muted border-transparent hover:text-primary'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === 'leaderboard' && (
+          <>
+            {/* Active Leaderboard */}
+            {leaderboard && leaderboard.rankings.length > 0 && (
+              <div className="mb-8">
+                <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Current Leaderboard</h2>
+                <div className="bg-surface border border-border rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 text-center">Rank</span>
+                      <span>Player</span>
+                    </div>
+                    <span>Score</span>
+                  </div>
+                  {leaderboard.rankings.map((entry) => (
+                    <div
+                      key={entry.discord_user_id}
+                      className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
+                        entry.rank === 1 ? 'bg-neon-amber/8' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
+                          entry.rank === 1 ? 'text-neon-amber text-lg' :
+                          entry.rank === 2 ? 'text-neon-cyan' :
+                          entry.rank === 3 ? 'text-neon-green' :
+                          'text-faint'
+                        }`}>
+                          {entry.rank}
+                        </span>
+                        <span className="font-medium truncate">{entry.iscored_username}</span>
+                      </div>
+                      <span className={`font-display font-bold flex-shrink-0 ml-2 ${
+                        entry.rank === 1 ? 'text-neon-amber text-lg' : 'text-primary'
+                      }`}>
+                        {entry.score.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                <span>Score</span>
               </div>
-              {leaderboard.rankings.map((entry) => (
-                <div
-                  key={entry.discord_user_id}
-                  className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
-                    entry.rank === 1 ? 'bg-neon-amber/8' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
-                      entry.rank === 1 ? 'text-neon-amber text-lg' :
-                      entry.rank === 2 ? 'text-neon-cyan' :
-                      entry.rank === 3 ? 'text-neon-green' :
-                      'text-faint'
-                    }`}>
-                      {entry.rank}
-                    </span>
-                    <span className="font-medium truncate">{entry.iscored_username}</span>
-                  </div>
-                  <span className={`font-display font-bold flex-shrink-0 ml-2 ${
-                    entry.rank === 1 ? 'text-neon-amber text-lg' : 'text-primary'
-                  }`}>
-                    {entry.score.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* Record Holder */}
-        {stats.allTimeHighPlayer && (
-          <div className="bg-surface border border-neon-amber/30 rounded-lg p-5 mb-8 text-center">
-            <p className="text-faint text-xs uppercase tracking-wider mb-1">All-Time Record Holder</p>
-            <p className="font-display text-xl font-bold text-neon-amber">{stats.allTimeHighPlayer}</p>
-            <p className="text-muted text-sm">{stats.allTimeHigh.toLocaleString()} points</p>
-          </div>
-        )}
+            {/* Record Holder */}
+            {stats.allTimeHighPlayer && (
+              <div className="bg-surface border border-neon-amber/30 rounded-lg p-5 mb-8 text-center">
+                <p className="text-faint text-xs uppercase tracking-wider mb-1">All-Time Record Holder</p>
+                <p className="font-display text-xl font-bold text-neon-amber">{stats.allTimeHighPlayer}</p>
+                <p className="text-muted text-sm">{stats.allTimeHigh.toLocaleString()} points</p>
+              </div>
+            )}
 
-        {/* Recent Results */}
-        {stats.recentResults.length > 0 && (
-          <div>
-            <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Past Results</h2>
-            <div className="bg-surface border border-border rounded-lg overflow-hidden">
-              {stats.recentResults.map((r, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between px-5 py-3 border-b border-border/30 last:border-0"
-                >
-                  <div>
-                    <p className="font-medium">{r.tournament_name}</p>
-                    <p className="text-faint text-xs">
-                      {r.end_date ? new Date(r.end_date).toLocaleDateString() : 'In progress'}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    {r.winner_name ? (
-                      <>
-                        <p className="text-neon-green text-sm font-medium">{r.winner_name}</p>
-                        <p className="font-display font-bold text-neon-amber">
-                          {r.winner_score?.toLocaleString() ?? '--'}
+            {/* Past Results */}
+            {stats.recentResults.length > 0 && (
+              <div>
+                <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Past Results</h2>
+                <div className="bg-surface border border-border rounded-lg overflow-hidden">
+                  {stats.recentResults.map((r, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between px-5 py-3 border-b border-border/30 last:border-0"
+                    >
+                      <div>
+                        <p className="font-medium">{r.tournament_name}</p>
+                        <p className="text-faint text-xs">
+                          {r.end_date ? new Date(r.end_date).toLocaleDateString() : 'In progress'}
                         </p>
-                      </>
-                    ) : (
-                      <p className="text-faint text-sm">No winner</p>
+                      </div>
+                      <div className="text-right">
+                        {r.winner_name ? (
+                          <>
+                            <p className="text-neon-green text-sm font-medium">{r.winner_name}</p>
+                            <p className="font-display font-bold text-neon-amber">
+                              {r.winner_score?.toLocaleString() ?? '--'}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-faint text-sm">No winner</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'community' && (
+          <>
+            {/* Submit Score */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-display text-sm text-muted uppercase tracking-wider">Community Scores</h2>
+                <button
+                  onClick={() => setShowSubmitForm(!showSubmitForm)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-neon-green/15 border border-neon-green/40 text-neon-green rounded-lg text-xs font-medium hover:bg-neon-green/25 transition-colors"
+                >
+                  <Plus size={14} />
+                  Submit Score
+                </button>
+              </div>
+
+              {showSubmitForm && (
+                <form onSubmit={handleSubmitScore} className="bg-surface border border-border rounded-lg p-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                    <input
+                      type="text"
+                      placeholder="Your player name"
+                      value={submitUsername}
+                      onChange={e => setSubmitUsername(e.target.value)}
+                      className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Score"
+                      value={submitScore}
+                      onChange={e => setSubmitScore(e.target.value)}
+                      min="0"
+                      className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={!submitUsername.trim() || !submitScore || submitLoading}
+                      className="px-4 py-2 bg-neon-green/15 border border-neon-green/40 text-neon-green rounded-lg text-sm font-medium hover:bg-neon-green/25 transition-colors disabled:opacity-40"
+                    >
+                      {submitLoading ? 'Submitting...' : 'Submit'}
+                    </button>
+                    {submitMessage && (
+                      <span className={`text-sm ${submitMessage.includes('!') ? 'text-neon-green' : 'text-neon-coral'}`}>
+                        {submitMessage}
+                      </span>
                     )}
                   </div>
+                </form>
+              )}
+            </div>
+
+            {/* Community Leaderboard */}
+            {communityBoard.length > 0 ? (
+              <div className="mb-8">
+                <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Best Scores</h2>
+                <div className="bg-surface border border-border rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 text-center">#</span>
+                      <span>Player</span>
+                    </div>
+                    <div className="flex items-center gap-6">
+                      <span>Plays</span>
+                      <span className="w-20 text-right">Best</span>
+                    </div>
+                  </div>
+                  {communityBoard.map((entry, i) => (
+                    <div
+                      key={entry.iscored_username}
+                      className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
+                        i === 0 ? 'bg-neon-amber/8' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
+                          i === 0 ? 'text-neon-amber' : i === 1 ? 'text-neon-cyan' : i === 2 ? 'text-neon-green' : 'text-faint'
+                        }`}>
+                          {i + 1}
+                        </span>
+                        <span className="font-medium truncate">{entry.iscored_username}</span>
+                      </div>
+                      <div className="flex items-center gap-6">
+                        <span className="text-muted text-sm">{entry.times_played}</span>
+                        <span className={`font-display font-bold w-20 text-right ${i === 0 ? 'text-neon-amber' : 'text-primary'}`}>
+                          {entry.best_score.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+            ) : (
+              <div className="bg-surface border border-border rounded-lg p-8 text-center mb-8">
+                <p className="text-muted">No community scores yet. Be the first to submit!</p>
+              </div>
+            )}
+
+            {/* Recent Submissions */}
+            {communityHistory.length > 0 && (
+              <div>
+                <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Recent Submissions</h2>
+                <div className="bg-surface border border-border rounded-lg overflow-hidden">
+                  {communityHistory.slice(0, 10).map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="font-medium truncate">{entry.iscored_username}</span>
+                        <span className="flex items-center gap-1 text-faint text-xs">
+                          <Clock size={12} />
+                          {new Date(entry.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <span className="font-display font-bold text-primary">{entry.score.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'tips' && (
+          <>
+            {/* Post a comment/tip */}
+            <div className="bg-surface border border-border rounded-lg p-4 mb-6">
+              <form onSubmit={handleSubmitComment}>
+                <div className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    placeholder="Your name"
+                    value={commentDisplayName}
+                    onChange={e => setCommentDisplayName(e.target.value)}
+                    className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50 w-40"
+                  />
+                  <select
+                    value={commentType}
+                    onChange={e => setCommentType(e.target.value as 'comment' | 'tip')}
+                    className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary focus:outline-none focus:border-neon-cyan/50"
+                  >
+                    <option value="comment">Comment</option>
+                    <option value="tip">Pro Tip</option>
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder={commentType === 'tip' ? 'Share a pro tip...' : 'Leave a comment...'}
+                    value={commentBody}
+                    onChange={e => setCommentBody(e.target.value)}
+                    maxLength={500}
+                    className="flex-1 bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!commentDisplayName.trim() || !commentBody.trim() || commentSubmitting}
+                    className="px-4 py-2 bg-neon-cyan/15 border border-neon-cyan/40 text-neon-cyan rounded-lg text-sm font-medium hover:bg-neon-cyan/25 transition-colors disabled:opacity-40"
+                  >
+                    Post
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Pro Tips */}
+            {tips.length > 0 && (
+              <div className="mb-6">
+                <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Lightbulb size={14} className="text-neon-amber" /> Pro Tips
+                </h2>
+                <div className="space-y-2">
+                  {tips.map(tip => (
+                    <div key={tip.id} className="bg-surface border border-neon-amber/20 rounded-lg px-4 py-3 flex items-start gap-3">
+                      <Lightbulb size={16} className="text-neon-amber flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-primary">{tip.body}</p>
+                        <p className="text-xs text-faint mt-1">
+                          {tip.display_name} &middot; {new Date(tip.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                      {tip.user_id === userId && (
+                        <button onClick={() => handleDeleteComment(tip.id)} className="text-faint hover:text-neon-coral transition-colors flex-shrink-0">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Comments */}
+            <div>
+              <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3 flex items-center gap-2">
+                <MessageCircle size={14} className="text-neon-cyan" /> Comments
+              </h2>
+              {comments.length > 0 ? (
+                <div className="space-y-2">
+                  {comments.map(comment => (
+                    <div key={comment.id} className="bg-surface border border-border rounded-lg px-4 py-3 flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-medium text-primary">{comment.display_name}</span>
+                          <span className="text-xs text-faint">{new Date(comment.created_at).toLocaleDateString()}</span>
+                        </div>
+                        <p className="text-sm text-muted">{comment.body}</p>
+                      </div>
+                      {comment.user_id === userId && (
+                        <button onClick={() => handleDeleteComment(comment.id)} className="text-faint hover:text-neon-coral transition-colors flex-shrink-0">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted text-sm text-center py-8">No comments yet. Be the first!</p>
+              )}
+            </div>
+          </>
+        )}
+
+        {activeTab === 'your-stats' && (
+          <div>
+            <div className="bg-surface border border-border rounded-lg p-5">
+              <form onSubmit={e => { e.preventDefault(); lookupPlayer(); }} className="flex gap-2 mb-4">
+                <div className="relative flex-1">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+                  <input
+                    type="text"
+                    placeholder="Enter your player name..."
+                    value={playerName}
+                    onChange={e => setPlayerName(e.target.value)}
+                    className="w-full bg-raised border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={!playerName.trim() || playerLoading}
+                  className="px-4 py-2 bg-neon-cyan/15 border border-neon-cyan/40 text-neon-cyan rounded-lg text-sm font-medium hover:bg-neon-cyan/25 transition-colors disabled:opacity-40"
+                >
+                  {playerLoading ? 'Loading...' : 'Look Up'}
+                </button>
+              </form>
+
+              {playerError && (
+                <p className="text-neon-coral text-sm">{playerError}</p>
+              )}
+
+              {playerStats && (
+                <div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                    <MiniStat icon={<Target size={14} />} label="Times Played" value={playerStats.times_played.toString()} />
+                    <MiniStat icon={<Medal size={14} />} label="Avg Rank" value={`#${playerStats.avg_rank}`} />
+                    <MiniStat icon={<Trophy size={14} />} label="Wins" value={playerStats.wins.toString()} />
+                    <MiniStat icon={<TrendingUp size={14} />} label="Personal Best" value={playerStats.best_score.toLocaleString()} />
+                  </div>
+
+                  {playerStats.trend.length >= 2 && (
+                    <div className="flex items-center gap-3 pt-3 border-t border-border/30">
+                      <span className="text-faint text-xs uppercase tracking-wider">Score Trend</span>
+                      <Sparkline data={playerStats.trend.map(t => t.score)} width={160} height={32} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!playerStats && !playerError && !playerLoading && (
+                <p className="text-muted text-sm text-center py-4">Enter your player name to see your stats for this game.</p>
+              )}
             </div>
           </div>
         )}
@@ -225,6 +723,18 @@ function StatCard({ label, value, color }: { label: string; value: string; color
     <div className="bg-surface border border-border rounded-lg p-4 text-center">
       <p className="text-faint text-xs uppercase tracking-wider mb-1">{label}</p>
       <p className={`font-display font-bold text-2xl ${color}`}>{value}</p>
+    </div>
+  );
+}
+
+function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="bg-raised border border-border/50 rounded-lg p-3 text-center">
+      <div className="flex items-center justify-center gap-1 text-faint mb-1">
+        {icon}
+        <span className="text-[10px] uppercase tracking-wider">{label}</span>
+      </div>
+      <p className="font-display font-bold text-lg text-primary">{value}</p>
     </div>
   );
 }

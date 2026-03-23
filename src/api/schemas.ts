@@ -128,3 +128,16 @@ export const StyleUploadSchema = z.object({
     author: z.string().min(1).max(100),
     notes: z.string().max(500).default(''),
 });
+
+export const CommunityScoreSchema = z.object({
+    username: z.string().min(1).max(100),
+    score: z.number().int().min(0),
+    discord_user_id: z.string().optional(),
+    photo_url: z.string().url().optional(),
+});
+
+export const GameCommentSchema = z.object({
+    display_name: z.string().min(1).max(50),
+    type: z.enum(['comment', 'tip']),
+    body: z.string().min(1).max(500),
+});

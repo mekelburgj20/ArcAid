@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { Flame } from 'lucide-react';
 
 interface PlayerStats {
   discordUserId: string;
@@ -7,8 +8,9 @@ interface PlayerStats {
   totalGamesPlayed: number;
   totalWins: number;
   winPercentage: number;
-  averageScore: number;
-  bestScore: number;
+  avg_finish_position: number;
+  top5_rate: number;
+  champion_streak: number;
   bestGame: string | null;
   recentScores: Array<{ game_name: string; score: number; date: string }>;
 }
@@ -19,13 +21,19 @@ export default function PlayerDetail() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!id) return;
-    fetch(`/api/stats/player/${encodeURIComponent(id)}`)
+    if (!id || !slug) return;
+    fetch('/api/rooms')
       .then(r => r.json())
-      .then(setStats)
+      .then((rooms: Array<{ id: string; slug: string }>) => {
+        const found = rooms.find(r => r.slug.toLowerCase() === slug!.toLowerCase());
+        if (!found) { setLoading(false); return; }
+        return fetch(`/api/rooms/${found.id}/stats/enhanced/player/${encodeURIComponent(id!)}`);
+      })
+      .then(r => r?.json())
+      .then(data => { if (data) setStats(data); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [slug, id]);
 
   if (loading) {
     return (
@@ -64,10 +72,31 @@ export default function PlayerDetail() {
           <StatCard label="Games Played" value={stats.totalGamesPlayed.toString()} color="text-neon-cyan" />
           <StatCard label="Wins" value={stats.totalWins.toString()} color="text-neon-green" />
           <StatCard label="Win %" value={`${stats.winPercentage}%`} color="text-neon-amber" />
-          <StatCard label="Avg Score" value={stats.averageScore.toLocaleString()} color="text-muted" />
-          <StatCard label="Best Score" value={stats.bestScore.toLocaleString()} color="text-neon-magenta" />
-          <StatCard label="Best Game" value={stats.bestGame || 'N/A'} color="text-primary" small />
+          <StatCard label="Avg Finish" value={stats.avg_finish_position.toFixed(1)} color="text-muted" />
+          <StatCard label="Top 5 %" value={`${Math.round(stats.top5_rate * 100)}%`} color="text-neon-magenta" />
+          <div className="bg-surface border border-border rounded-lg p-4 text-center">
+            <p className="text-faint text-xs uppercase tracking-wider mb-1">Streak</p>
+            <div className="flex items-center justify-center gap-1">
+              {stats.champion_streak > 0 && <Flame size={18} className="text-neon-amber" />}
+              <p className={`font-display font-bold text-2xl ${stats.champion_streak > 0 ? 'text-neon-amber' : 'text-faint'}`}>
+                {stats.champion_streak}
+              </p>
+            </div>
+          </div>
         </div>
+
+        {/* Best Game */}
+        {stats.bestGame && (
+          <div className="mb-8">
+            <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Best Game</h2>
+            <Link
+              to={`/${slug}/games/${encodeURIComponent(stats.bestGame)}`}
+              className="inline-block bg-surface border border-border rounded-lg px-5 py-3 text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
+            >
+              {stats.bestGame}
+            </Link>
+          </div>
+        )}
 
         {/* Recent Scores */}
         {stats.recentScores.length > 0 && (
@@ -99,11 +128,11 @@ export default function PlayerDetail() {
   );
 }
 
-function StatCard({ label, value, color, small }: { label: string; value: string; color: string; small?: boolean }) {
+function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
     <div className="bg-surface border border-border rounded-lg p-4 text-center">
       <p className="text-faint text-xs uppercase tracking-wider mb-1">{label}</p>
-      <p className={`font-display font-bold ${small ? 'text-sm' : 'text-2xl'} ${color}`}>{value}</p>
+      <p className={`font-display font-bold text-2xl ${color}`}>{value}</p>
     </div>
   );
 }

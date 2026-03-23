@@ -5,8 +5,10 @@ interface PlayerSummary {
   discord_user_id: string;
   iscored_username: string | null;
   games_played: number;
-  best_score: number;
-  avg_score: number;
+  wins: number;
+  avg_finish_position: number;
+  top5_rate: number;
+  champion_streak: number;
 }
 
 export default function Players() {
@@ -16,12 +18,19 @@ export default function Players() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/stats/players')
+    if (!slug) return;
+    fetch('/api/rooms')
       .then(r => r.json())
-      .then(setPlayers)
+      .then((rooms: Array<{ id: string; slug: string }>) => {
+        const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
+        if (!found) { setLoading(false); return; }
+        return fetch(`/api/rooms/${found.id}/stats/enhanced/players`);
+      })
+      .then(r => r?.json())
+      .then(data => { if (data) setPlayers(data); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [slug]);
 
   const filtered = players.filter(p =>
     (p.iscored_username || p.discord_user_id).toLowerCase().includes(search.toLowerCase())
@@ -69,12 +78,12 @@ export default function Players() {
                 </div>
                 <div className="flex gap-3 sm:gap-6 text-right flex-shrink-0">
                   <div>
-                    <p className="text-xs text-faint">Best</p>
-                    <p className="font-display font-bold text-neon-amber">{player.best_score.toLocaleString()}</p>
+                    <p className="text-xs text-faint">Avg Finish</p>
+                    <p className="font-display font-bold text-neon-amber">{player.avg_finish_position.toFixed(1)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-faint">Avg</p>
-                    <p className="font-display font-bold text-muted">{player.avg_score.toLocaleString()}</p>
+                    <p className="text-xs text-faint">Top 5 %</p>
+                    <p className="font-display font-bold text-muted">{Math.round(player.top5_rate * 100)}%</p>
                   </div>
                 </div>
               </Link>
