@@ -487,6 +487,7 @@ export default function Settings() {
             )}
             <div className="flex items-center gap-3">
               <input
+                id="bg-upload"
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 disabled={uploadingBg}
@@ -508,8 +509,16 @@ export default function Settings() {
                     e.target.value = '';
                   }
                 }}
-                className="text-sm text-muted"
+                className="hidden"
               />
+              <NeonButton
+                variant="secondary"
+                className="text-xs"
+                disabled={uploadingBg}
+                onClick={() => document.getElementById('bg-upload')?.click()}
+              >
+                {uploadingBg ? 'Uploading...' : bgUrl ? 'Replace Image' : 'Upload Image'}
+              </NeonButton>
               {bgUrl && (
                 <NeonButton
                   variant="ghost"
@@ -537,7 +546,6 @@ export default function Settings() {
                 </NeonButton>
               )}
             </div>
-            {uploadingBg && <p className="text-xs text-muted mt-1">Uploading...</p>}
             <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Displayed behind the scoreboard.</p>
 
             <div className="mt-3">
@@ -565,6 +573,7 @@ export default function Settings() {
             )}
             <div className="flex items-center gap-3">
               <input
+                id="logo-upload"
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 disabled={uploadingLogo}
@@ -586,8 +595,16 @@ export default function Settings() {
                     e.target.value = '';
                   }
                 }}
-                className="text-sm text-muted"
+                className="hidden"
               />
+              <NeonButton
+                variant="secondary"
+                className="text-xs"
+                disabled={uploadingLogo}
+                onClick={() => document.getElementById('logo-upload')?.click()}
+              >
+                {uploadingLogo ? 'Uploading...' : logoUrl ? 'Replace Logo' : 'Upload Logo'}
+              </NeonButton>
               {logoUrl && (
                 <NeonButton
                   variant="ghost"
@@ -615,7 +632,6 @@ export default function Settings() {
                 </NeonButton>
               )}
             </div>
-            {uploadingLogo && <p className="text-xs text-muted mt-1">Uploading...</p>}
             <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Shown alongside the scoreboard title.</p>
 
             <div className="grid grid-cols-2 gap-3 mt-3">
