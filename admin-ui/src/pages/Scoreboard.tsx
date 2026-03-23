@@ -20,6 +20,7 @@ export default function Scoreboard() {
   const [flash, setFlash] = useState(false);
   const [config, setConfig] = useState<Record<string, string>>({});
   const [roomName, setRoomName] = useState('');
+  const [roomId, setRoomId] = useState('');
   const viewerHeaders = useViewerHeaders();
 
   // Resolve room and fetch scoreboard config
@@ -29,6 +30,7 @@ export default function Scoreboard() {
       .then(r => r.ok ? r.json() : Promise.reject())
       .then((portal: { id: string; name: string }) => {
         setRoomName(portal.name);
+        setRoomId(portal.id);
         return fetch(`/api/rooms/${portal.id}/scoreboard-config`, { headers: viewerHeaders });
       })
       .then(r => r.ok ? r.json() : {})
@@ -160,7 +162,7 @@ export default function Scoreboard() {
             >
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} />
                 </div>
               ))}
             </div>
@@ -170,7 +172,7 @@ export default function Scoreboard() {
             <div className="flex gap-3 sm:gap-5 pb-2">
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} />
                 </div>
               ))}
             </div>

@@ -394,6 +394,20 @@ router.get('/:roomId/stats/game/:name/player/:identifier', async (req, res) => {
     }
 });
 
+// Score counts per player for a game (for showing expand button only when multiple scores exist)
+router.get('/:roomId/score-counts/:gameId', async (req, res) => {
+    try {
+        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const counts = await ScoreHistoryService.getPlayerScoreCounts(roomId, gameId);
+        res.json(counts);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/score-counts/:gameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Score history for a player on a specific game
 router.get('/:roomId/score-history/:gameName/player/:identifier', async (req, res) => {
     try {

@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock } from 'lucide-react';
+import { Lock, Plus, Minus } from 'lucide-react';
 
 // --- Shared interfaces ---
 
@@ -90,8 +91,44 @@ export function getTitleSizeClass(size: string): string {
 
 // --- Components ---
 
-export function GameCard({ lb, slug, maxScores }: { lb: GameLeaderboard; slug: string; maxScores: number }) {
+interface ScoreHistoryEntry {
+  id: number;
+  score: number;
+  source: string;
+  created_at: string;
+}
+
+export function GameCard({ lb, slug, maxScores, roomId }: { lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string }) {
   const borderColor = getTournamentBorderColor(lb.tournamentType);
+  const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
+  const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
+  const [playerHistory, setPlayerHistory] = useState<ScoreHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Fetch score counts for this game to know which players have multiple scores
+  useEffect(() => {
+    if (!roomId || !lb.gameId || lb.rankings.length === 0) return;
+    fetch(`/api/rooms/${roomId}/score-counts/${lb.gameId}`)
+      .then(r => r.ok ? r.json() : {})
+      .then(setScoreCounts)
+      .catch(() => {});
+  }, [roomId, lb.gameId, lb.rankings.length]);
+
+  const togglePlayer = (username: string) => {
+    if (expandedPlayer === username) {
+      setExpandedPlayer(null);
+      setPlayerHistory([]);
+      return;
+    }
+    if (!roomId) return;
+    setExpandedPlayer(username);
+    setHistoryLoading(true);
+    fetch(`/api/rooms/${roomId}/score-history/${encodeURIComponent(lb.gameName)}/player/${encodeURIComponent(username)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setPlayerHistory)
+      .catch(() => setPlayerHistory([]))
+      .finally(() => setHistoryLoading(false));
+  };
 
   // Catalogue style takes priority over imageUrl
   const styleBgUrl = lb.catalogueStyleId ? `/api/styles/images/backgrounds/${lb.catalogueStyleId}.png` : null;
@@ -139,31 +176,62 @@ export function GameCard({ lb, slug, maxScores }: { lb: GameLeaderboard; slug: s
               <span>Player</span>
               <span>Score</span>
             </div>
-            {lb.rankings.slice(0, maxScores).map((entry) => (
-              <div
-                key={entry.discord_user_id}
-                className={`flex items-center justify-between px-4 py-2.5 border-b border-border/20 last:border-0 ${
-                  entry.rank === 1 ? 'bg-neon-amber/8' : ''
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
-                    entry.rank === 1 ? 'text-neon-amber' :
-                    entry.rank === 2 ? 'text-neon-cyan' :
-                    entry.rank === 3 ? 'text-neon-green' :
-                    'text-faint'
-                  }`}>
-                    {entry.rank}
-                  </span>
-                  <span className="text-sm truncate">{entry.iscored_username}</span>
+            {lb.rankings.slice(0, maxScores).map((entry) => {
+              const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
+              const isExpanded = expandedPlayer === entry.iscored_username;
+              return (
+                <div key={entry.discord_user_id}>
+                  <div
+                    className={`flex items-center justify-between px-4 py-2.5 border-b border-border/20 last:border-0 ${
+                      entry.rank === 1 ? 'bg-neon-amber/8' : ''
+                    } ${hasMultiple ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
+                    onClick={hasMultiple ? () => togglePlayer(entry.iscored_username) : undefined}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
+                        entry.rank === 1 ? 'text-neon-amber' :
+                        entry.rank === 2 ? 'text-neon-cyan' :
+                        entry.rank === 3 ? 'text-neon-green' :
+                        'text-faint'
+                      }`}>
+                        {entry.rank}
+                      </span>
+                      <span className="text-sm truncate">{entry.iscored_username}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`font-display font-bold text-sm flex-shrink-0 ${
+                        entry.rank === 1 ? 'text-neon-amber' : 'text-primary'
+                      }`}>
+                        {entry.score.toLocaleString()}
+                      </span>
+                      {hasMultiple && (
+                        isExpanded
+                          ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
+                          : <Plus size={12} className="text-faint flex-shrink-0" />
+                      )}
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div className="bg-deep/50 border-b border-border/20 px-4 py-2">
+                      {historyLoading ? (
+                        <p className="text-faint text-xs py-1">Loading...</p>
+                      ) : playerHistory.length > 0 ? (
+                        <div className="space-y-1">
+                          {playerHistory.map(h => (
+                            <div key={h.id} className="flex items-center justify-between text-xs">
+                              <span className="text-muted">{h.score.toLocaleString()}</span>
+                              <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-faint text-xs py-1">No additional scores recorded.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <span className={`font-display font-bold text-sm flex-shrink-0 ml-2 ${
-                  entry.rank === 1 ? 'text-neon-amber' : 'text-primary'
-                }`}>
-                  {entry.score.toLocaleString()}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

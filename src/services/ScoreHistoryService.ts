@@ -78,4 +78,24 @@ export class ScoreHistoryService {
             ORDER BY score DESC, created_at ASC
         `, gameRoomId, gameId);
     }
+
+    /**
+     * Get score counts per player for a specific game instance.
+     * Returns { username: count } for players with more than 1 score.
+     */
+    static async getPlayerScoreCounts(gameRoomId: string, gameId: string): Promise<Record<string, number>> {
+        const db = await getDatabase();
+        const rows = await db.all(`
+            SELECT LOWER(iscored_username) as player_key, COUNT(*) as cnt
+            FROM score_history
+            WHERE game_room_id = ? AND game_id = ?
+            GROUP BY LOWER(iscored_username)
+            HAVING cnt > 1
+        `, gameRoomId, gameId);
+        const map: Record<string, number> = {};
+        for (const row of rows) {
+            map[(row as any).player_key] = (row as any).cnt;
+        }
+        return map;
+    }
 }

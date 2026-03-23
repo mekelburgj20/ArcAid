@@ -91,6 +91,7 @@ export default function GameDetail() {
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   const [playerHistory, setPlayerHistory] = useState<ScoreHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
 
   // Full game score history
   const [gameHistory, setGameHistory] = useState<ScoreHistoryEntry[]>([]);
@@ -156,7 +157,14 @@ export default function GameDetail() {
       .then(r => r.json())
       .then((boards: GameLeaderboard[]) => {
         const match = boards.find(b => b.gameName.toLowerCase() === name.toLowerCase());
-        if (match) setLeaderboard(match);
+        if (match) {
+          setLeaderboard(match);
+          // Fetch score counts for conditional expand icons
+          fetch(`/api/rooms/${roomId}/score-counts/${match.gameId}`)
+            .then(r => r.ok ? r.json() : {})
+            .then(setScoreCounts)
+            .catch(() => {});
+        }
       })
       .catch(() => {});
 
@@ -417,13 +425,15 @@ export default function GameDetail() {
                     </div>
                     <span>Score</span>
                   </div>
-                  {leaderboard.rankings.map((entry) => (
+                  {leaderboard.rankings.map((entry) => {
+                    const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
+                    return (
                     <div key={entry.discord_user_id}>
                       <div
-                        className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 cursor-pointer hover:bg-raised/50 transition-colors ${
+                        className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
                           entry.rank === 1 ? 'bg-neon-amber/8' : ''
-                        }`}
-                        onClick={() => togglePlayerHistory(entry.iscored_username)}
+                        } ${hasMultiple ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
+                        onClick={hasMultiple ? () => togglePlayerHistory(entry.iscored_username) : undefined}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
@@ -442,10 +452,11 @@ export default function GameDetail() {
                           }`}>
                             {entry.score.toLocaleString()}
                           </span>
-                          {expandedPlayer === entry.iscored_username
-                            ? <Minus size={14} className="text-neon-cyan" />
-                            : <Plus size={14} className="text-faint hover:text-neon-cyan" />
-                          }
+                          {hasMultiple && (
+                            expandedPlayer === entry.iscored_username
+                              ? <Minus size={14} className="text-neon-cyan" />
+                              : <Plus size={14} className="text-faint" />
+                          )}
                         </div>
                       </div>
                       {expandedPlayer === entry.iscored_username && (
@@ -475,7 +486,8 @@ export default function GameDetail() {
                         </div>
                       )}
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               </div>
             )}

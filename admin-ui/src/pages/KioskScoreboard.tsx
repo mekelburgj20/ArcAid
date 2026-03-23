@@ -16,6 +16,7 @@ export default function KioskScoreboard() {
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [config, setConfig] = useState<Record<string, string>>({});
   const [roomName, setRoomName] = useState('');
+  const [roomId, setRoomId] = useState('');
 
   // Resolve room and fetch scoreboard config
   useEffect(() => {
@@ -24,6 +25,7 @@ export default function KioskScoreboard() {
       .then(r => r.ok ? r.json() : Promise.reject())
       .then((portal: { id: string; name: string }) => {
         setRoomName(portal.name);
+        setRoomId(portal.id);
         return fetch(`/api/rooms/${portal.id}/scoreboard-config`);
       })
       .then(r => r.ok ? r.json() : {})
@@ -140,7 +142,7 @@ export default function KioskScoreboard() {
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} />
                   </div>
                 ))}
               </div>
@@ -150,7 +152,7 @@ export default function KioskScoreboard() {
               <div className="flex gap-3 sm:gap-5 pb-2">
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} />
                   </div>
                 ))}
               </div>
