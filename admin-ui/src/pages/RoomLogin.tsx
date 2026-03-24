@@ -1,7 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api, setToken } from '../lib/api';
+import { api, setToken, getToken } from '../lib/api';
 import NeonButton from '../components/NeonButton';
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
+}
+
+function isTokenValid(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload?.exp) return false;
+  return (payload.exp as number) * 1000 > Date.now();
+}
 
 export default function RoomLogin({ onLogin }: { onLogin: () => void }) {
   const { slug } = useParams<{ slug: string }>();
@@ -13,6 +30,15 @@ export default function RoomLogin({ onLogin }: { onLogin: () => void }) {
   const [loading, setLoading] = useState(false);
   const [discordLoading, setDiscordLoading] = useState(false);
   const [roomLoading, setRoomLoading] = useState(true);
+
+  // Redirect if already authenticated with a valid token
+  useEffect(() => {
+    const token = getToken();
+    if (token && isTokenValid(token)) {
+      onLogin();
+      navigate(`/${slug}/admin/dashboard`, { replace: true });
+    }
+  }, [slug]);
 
   useEffect(() => {
     if (!slug) return;

@@ -31,11 +31,11 @@ interface PendingInvite {
   created_at: string;
 }
 
-const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
+const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
 
 const CATEGORIES: Record<string, string[]> = {
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
-  'Discord': ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
+  'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
   'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
   'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_CARDS_PER_ROW', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_RANKINGS_POSITION'],
@@ -73,9 +73,6 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   GAME_ROOM_NAME: { label: 'Game Room Name', description: 'Display name shown on the public landing page and all public pages.' },
   GAME_ROOM_SLUG: { label: 'Game Room Slug', description: 'URL identifier for your room (e.g. "my_room" → /my_room/). Lowercase, no spaces.' },
   // Discord
-  DISCORD_BOT_TOKEN: { label: 'Bot Token', description: 'Bot authentication token from the Discord Developer Portal. Keep this secret.' },
-  DISCORD_CLIENT_ID: { label: 'Client ID', description: 'OAuth2 application client ID from the Discord Developer Portal.' },
-  DISCORD_CLIENT_SECRET: { label: 'Client Secret', description: 'OAuth2 client secret used for admin Discord login. Keep this secret.' },
   DISCORD_GUILD_ID: { label: 'Guild ID', description: 'Your Discord server ID. Right-click server name → Copy Server ID (requires Developer Mode).' },
   DISCORD_ADMIN_ROLE_ID: { label: 'Admin Role ID', description: 'Discord role that grants access to admin bot commands. Right-click role → Copy Role ID.' },
   DISCORD_ANNOUNCEMENT_CHANNEL_ID: { label: 'Default Announcement Channel ID', description: 'Default channel for tournament announcements. Used when a tournament doesn\'t have its own channel configured. Right-click channel → Copy Channel ID.' },
@@ -479,7 +476,7 @@ export default function Settings() {
         <div className="space-y-6">
           {/* Background Image */}
           <div>
-            <p className="text-xs font-display uppercase tracking-wider text-muted mb-2">Background Image</p>
+            <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Background Image</p>
             {bgUrl && (
               <div className="mb-3">
                 <img src={bgUrl} alt="Background preview" className="max-h-32 rounded border border-border object-cover" />
@@ -565,7 +562,7 @@ export default function Settings() {
 
           {/* Logo Image */}
           <div>
-            <p className="text-xs font-display uppercase tracking-wider text-muted mb-2">Logo</p>
+            <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Logo</p>
             {logoUrl && (
               <div className="mb-3">
                 <img src={logoUrl} alt="Logo preview" className="max-h-16 rounded border border-border object-contain" />
@@ -670,7 +667,7 @@ export default function Settings() {
         </p>
 
         {/* Discord Admins */}
-        <p className="text-xs font-display uppercase tracking-wider text-muted mb-2">Discord Admins</p>
+        <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Discord Admins</p>
         <p className="text-xs text-faint mb-3">Log in via Discord OAuth — no password needed.</p>
         {discordAdmins.length > 0 ? (
           <div className="space-y-2 mb-3">
@@ -727,7 +724,7 @@ export default function Settings() {
         )}
 
         {/* Local Admins (username/password) */}
-        <p className="text-xs font-display uppercase tracking-wider text-muted mb-2">Local Admins</p>
+        <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Local Admins</p>
         <p className="text-xs text-faint mb-3">Username/password accounts for users without Discord.</p>
         {localAdmins.length > 0 ? (
           <div className="space-y-2 mb-3">
@@ -754,7 +751,7 @@ export default function Settings() {
         {/* Pending invites */}
         {pendingInvites.length > 0 && (
           <div className="mb-3">
-            <p className="text-xs font-display uppercase tracking-wider text-muted mb-2">Pending Invites</p>
+            <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Pending Invites</p>
             <div className="space-y-2">
               {pendingInvites.map(inv => (
                 <div key={inv.id} className="flex items-center justify-between bg-raised border border-neon-amber/20 rounded px-4 py-2">

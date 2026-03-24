@@ -19,7 +19,7 @@ export default function NeonCard({ children, title, glowColor = 'none', classNam
   return (
     <div className={`bg-surface border rounded-lg p-4 sm:p-5 min-w-0 ${glowClasses[glowColor]} ${className}`}>
       {title && (
-        <h3 className="font-display text-sm font-bold uppercase tracking-wider text-muted mb-4">{title}</h3>
+        <h3 className="font-display text-sm font-bold uppercase tracking-wider text-neon-cyan bg-neon-cyan/8 -mx-4 sm:-mx-5 -mt-4 sm:-mt-5 px-4 sm:px-5 py-3 mb-4 rounded-t-lg border-b border-neon-cyan/15">{title}</h3>
       )}
       {children}
     </div>
