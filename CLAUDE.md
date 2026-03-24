@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this ArcAid repository.
 
+## Development Environment
+
+This project runs in Docker containers. Never suggest `npm run dev` directly — always use `docker compose up` or equivalent Docker commands for local development and testing. The `npm run dev` and `npm run build` commands are for CI/build verification only, not for running the app.
+
+## Permissions / Tool Usage
+
+Do not ask for permission to run `cd`, `git`, or basic file navigation commands. Execute them directly.
+
+## Tech Stack
+
+Primary stack: TypeScript (frontend + backend), Docker for deployment. `better-sqlite3` is NOT available in this project — use the correct SQLite package already in `package.json` before trying alternatives.
+
+## Workflow
+
+Always run the build (`docker compose build`) and verify tests pass before committing. Never push to main without a successful build.
+
 ## Session Start Checklist
 
 1. Read `SPRINT_STATUS.md` for current work and last session notes
@@ -162,3 +178,11 @@ SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Idem
 - Admin UI production assets built during Docker image build and served by Express
 - Custom domain mapping is infrastructure-level (DNS + reverse proxy), not app-level
 - **ngrok** can be used for quick public exposure during development: `ngrok http 3001`
+
+### Deployment Checklist
+
+After any deployment, verify:
+1. All required env vars are set (especially `JWT_SECRET`)
+2. Dockerfile CMD format is correct
+3. Container starts without restart loops — check with `docker logs arcaid --tail 50`
+4. Do not mark a deploy as complete until logs confirm healthy startup
