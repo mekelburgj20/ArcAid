@@ -115,6 +115,15 @@ Two sub-applications in one process:
 - **Themes:** 3 themes (arcade/dark/light). CSS variables, per-user override in `user_preferences`. `ThemeProvider` reads localStorage first (no flash).
 - Login pages auto-redirect to dashboard if valid JWT exists in localStorage (24h expiry)
 
+## Community Features
+
+- **Public write endpoints** (`community-scores`, `comments`, `ratings`) use rate limiting but no JWT auth — anonymous access by design
+- **Anonymous user tracking:** `x-user-id` header (UUID from `localStorage`), used for comment ownership (author-only delete)
+- **Community scores** are separate from tournament `submissions` — stored in `community_scores` table, also logged to `score_history`
+- **Score counts endpoint** (`GET /:roomId/score-counts/:gameId`) returns `{ username: count }` for players with >1 submission — used for conditional expand icons on scoreboard
+- **GameDetail tabs:** Leaderboard | Community | Tips & Comments | Your Stats — organizes the growing per-game content
+- **Discord rating flow:** After `/submit-score`, bot sends star-rating buttons (max 5 per ActionRow) + Skip button, then a comment modal on rating click
+
 ## Score System
 
 - **Single source of truth:** The `submissions` table
