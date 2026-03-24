@@ -252,6 +252,26 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             ORDER BY g.start_date DESC
         `, tournamentId, lookbackString);
 
+        // Get all-time high scores per game name (across all tournaments in this room)
+        const allTimeHighs = await db.all(`
+            SELECT LOWER(g.name) as game_key, s.score as high_score, s.iscored_username as high_score_player
+            FROM submissions s
+            JOIN games g ON g.id = s.game_id
+            WHERE g.tournament_id IN (SELECT id FROM tournaments WHERE game_room_id = ?)
+              AND s.score = (
+                SELECT MAX(s2.score) FROM submissions s2
+                JOIN games g2 ON g2.id = s2.game_id
+                WHERE LOWER(g2.name) = LOWER(g.name)
+                  AND g2.tournament_id IN (SELECT id FROM tournaments WHERE game_room_id = ?)
+              )
+            GROUP BY LOWER(g.name)
+        `, roomId, roomId);
+
+        const highScoreMap = new Map<string, { score: number; player: string }>();
+        for (const row of allTimeHighs) {
+            highScoreMap.set(row.game_key, { score: row.high_score, player: row.high_score_player });
+        }
+
         // Build a map of game name → most recent play info (case-insensitive, also match variants)
         const recentMap = new Map<string, { playedDate: string; endDate: string | null; status: string; winnerName: string | null; winnerScore: number | null }>();
         for (const g of recentGames) {
@@ -279,6 +299,9 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             const recent = recentMap.get(key) ||
                 [...recentMap.entries()].find(([k]) => k.startsWith(key + ' ') || key.startsWith(k + ' '))?.[1];
 
+            const highScore = highScoreMap.get(key) ||
+                [...highScoreMap.entries()].find(([k]) => k.startsWith(key + ' ') || key.startsWith(k + ' '))?.[1];
+
             if (recent) {
                 const playedDate = new Date(recent.playedDate);
                 const availableDate = new Date(playedDate);
@@ -294,6 +317,8 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                     lastStatus: recent.status,
                     winnerName: recent.winnerName,
                     winnerScore: recent.winnerScore,
+                    allTimeHigh: highScore?.score ?? null,
+                    allTimeHighPlayer: highScore?.player ?? null,
                 };
             }
 
@@ -306,6 +331,8 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                 lastStatus: null,
                 winnerName: null,
                 winnerScore: null,
+                allTimeHigh: highScore?.score ?? null,
+                allTimeHighPlayer: highScore?.player ?? null,
             };
         });
 

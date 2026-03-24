@@ -559,9 +559,11 @@ export default function GameLibrary() {
                 <th className="px-4 py-3 text-left">
                   <SortHeader label="Platforms" sortKey="platforms" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                 </th>
-                <th className="px-4 py-3 text-left">
-                  <SortHeader label="Rating" sortKey="rating" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                </th>
+                {room && (
+                  <th className="px-4 py-3 text-left">
+                    <SortHeader label="Rating" sortKey="rating" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  </th>
+                )}
                 <th className="px-4 py-3 text-left">
                   <SortHeader label="Style ID" sortKey="style_id" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                 </th>
@@ -571,7 +573,7 @@ export default function GameLibrary() {
             <tbody>
               {sortedGames.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-muted">
+                  <td colSpan={room ? 7 : 6} className="px-4 py-8 text-center text-muted">
                     No games in the library.
                   </td>
                 </tr>
@@ -599,20 +601,22 @@ export default function GameLibrary() {
                     <td className="px-4 py-3">
                       <PlatformChips platforms={g.platforms} />
                     </td>
-                    <td className="px-4 py-3">
-                      {(() => {
-                        const cr = communityRatings[g.name];
-                        const ur = userRatings[g.name] || 0;
-                        return (
-                          <div className="flex items-center gap-1.5">
-                            <StarRating rating={ur} onRate={(r) => handleRate(g.name, r)} />
-                            {cr && cr.rating_count > 0 && (
-                              <span className="text-xs text-muted">{cr.avg_rating} ({cr.rating_count})</span>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </td>
+                    {room && (
+                      <td className="px-4 py-3">
+                        {(() => {
+                          const cr = communityRatings[g.name];
+                          const ur = userRatings[g.name] || 0;
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <StarRating rating={ur} onRate={(r) => handleRate(g.name, r)} />
+                              {cr && cr.rating_count > 0 && (
+                                <span className="text-xs text-muted">{cr.avg_rating} ({cr.rating_count})</span>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <span className="text-sm text-muted font-mono">{g.style_id || '-'}</span>
                     </td>

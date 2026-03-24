@@ -6,7 +6,7 @@ import NeonButton from '../components/NeonButton';
 import DataTable from '../components/DataTable';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, ExternalLink } from 'lucide-react';
 
 interface Room {
   id: string;
@@ -158,12 +158,25 @@ export default function GameRoomManager() {
     {
       key: 'name',
       header: 'Name',
-      render: (item: Room) => <span className="font-medium">{item.name}</span>,
+      render: (item: Room) => (
+        <a href={`/${item.slug}/admin/`} className="font-medium text-primary hover:text-neon-cyan no-underline transition-colors">
+          {item.name}
+        </a>
+      ),
     },
     {
-      key: 'slug',
-      header: 'Slug',
-      render: (item: Room) => <span className="font-mono text-sm text-muted">/{item.slug}</span>,
+      key: 'scoreboard',
+      header: 'Scoreboard',
+      render: (item: Room) => (
+        <a
+          href={`/${item.slug}/`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-sm text-muted hover:text-neon-cyan no-underline transition-colors"
+        >
+          /{item.slug} <ExternalLink size={12} />
+        </a>
+      ),
     },
     {
       key: 'is_public',

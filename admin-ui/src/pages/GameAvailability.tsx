@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, Shuffle } from 'lucide-react';
+import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, Shuffle, Star } from 'lucide-react';
 import PinballPicker from '../components/PinballPicker';
 
 interface GameAvailabilityEntry {
@@ -12,6 +12,8 @@ interface GameAvailabilityEntry {
   lastStatus: string | null;
   winnerName: string | null;
   winnerScore: number | null;
+  allTimeHigh: number | null;
+  allTimeHighPlayer: string | null;
 }
 
 interface TournamentInfo {
@@ -189,16 +191,17 @@ export default function GameAvailability() {
       ) : (
         <div className="bg-surface border border-border rounded-lg overflow-hidden">
           {/* Header */}
-          <div className="hidden sm:grid grid-cols-[1fr_100px_110px_120px] gap-2 px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+          <div className="hidden sm:grid grid-cols-[1fr_100px_110px_140px_120px] gap-2 px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
             <span>Game</span>
             <span className="text-center">Status</span>
             <span className="text-center">Last Played</span>
-            <span className="text-right">Winner</span>
+            <span className="text-right">All-Time High</span>
+            <span className="text-right">Last Winner</span>
           </div>
           {filteredGames.map((game) => (
             <div
               key={game.name}
-              className="grid grid-cols-1 sm:grid-cols-[1fr_100px_110px_120px] gap-1 sm:gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center"
+              className="grid grid-cols-1 sm:grid-cols-[1fr_100px_110px_140px_120px] gap-1 sm:gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center"
             >
               {/* Game name */}
               <div className="flex items-center gap-2 min-w-0">
@@ -237,7 +240,22 @@ export default function GameAvailability() {
                 )}
               </div>
 
-              {/* Winner */}
+              {/* All-Time High */}
+              <div className="text-right text-xs">
+                {game.allTimeHigh != null ? (
+                  <div className="flex items-center justify-end gap-1">
+                    <Star size={12} className="text-neon-amber flex-shrink-0" />
+                    <span className="text-primary font-medium">{game.allTimeHigh.toLocaleString()}</span>
+                    {game.allTimeHighPlayer && (
+                      <span className="text-muted hidden lg:inline">({game.allTimeHighPlayer})</span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-faint">--</span>
+                )}
+              </div>
+
+              {/* Last Winner */}
               <div className="text-right text-xs">
                 {game.winnerName ? (
                   <div className="flex items-center justify-end gap-1">
