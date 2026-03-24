@@ -149,13 +149,28 @@
 
 ---
 
+## Community Platform Features (COMPLETE)
+
+- [x] Public stats page with enhanced metrics (avg finish position, top 5% rate, champion streak, sparklines)
+- [x] Per-game player stats lookup on game detail page
+- [x] Community score submissions (scores outside tournaments, community leaderboards)
+- [x] Game tips & comments (player-submitted tips and comments per game)
+- [x] Discord post-score rating flow (star buttons + comment modal after /submit-score)
+- [x] Score history tracking (score_history table, expandable per-player history on scoreboard)
+- [x] Style catalogue (iScored style import/upload, per-game assignment)
+- [x] Kiosk mode (/:slug/kiosk, auto-refresh)
+- [x] Scoreboard branding (logo upload, background upload, title customization)
+- [x] Session persistence (login auto-redirect with valid JWT)
+- [x] Styled admin section headings (NeonCard cyan accent)
+
+---
+
 ## Future
 
 ### Multi-Room
 - [ ] Discord Bot Multi-Room (Phase 5) — single bot, multi-guild, per-room command scoping
 
 ### UX Polish
-- [ ] Trend charts / sparklines on player profile pages
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
 - [ ] Additional themes
 - [ ] Scoreboard designer page (admin-only CSS customization)

@@ -14,7 +14,18 @@
 - **Cross-tournament rankings** — Ranking groups with 4 scoring methods
 - **Game library imports** — Bulk import from Virtual Pinball Spreadsheet (VPS) and VPXS Wizard Tables
 - **Admin invite system** — One-time invite links with optional Discord DM delivery for onboarding room admins
-- **2 UI themes** — Dark and Light — per-user preference
+- **Community scores** — Submit scores outside tournaments; per-game community leaderboards
+- **Game tips & comments** — Player-submitted tips and comments on each game
+- **Score history tracking** — Expandable per-player submission history on leaderboards
+- **Style catalogue** — iScored visual styles imported or uploaded, assigned per game
+- **Kiosk mode** — Auto-refreshing scoreboard display for TV/kiosk use (no nav, configurable refresh interval)
+- **Game merge tool** — Consolidate duplicate games across all tables
+- **Audit logging** — Admin action tracking with full history
+- **Public stats page** — Enhanced player metrics: average finish, top 5%, champion streak
+- **Session persistence** — Login pages auto-redirect if a valid JWT exists (24h expiry)
+- **Discord post-score rating flow** — Star rating buttons and comment modal after `/submit-score`
+- **Scoreboard branding** — Custom logos, background images, and title styles per room
+- **3 UI themes** — Arcade, Dark, and Light — per-user preference
 - **Public pages** — Scoreboard, player profiles, game details, and game availability — no login required
 - **Mobile-responsive** — Full functionality on phones and tablets
 
@@ -52,10 +63,12 @@ npm run dev            # Vite dev server with HMR
 | `/admin/*` | Super-admin panel (dashboard, rooms, library, backups, logs, settings) |
 | `/invite/:token` | Admin invite acceptance (public) |
 | `/:slug/` | Public scoreboard |
+| `/:slug/kiosk` | Kiosk scoreboard (auto-refresh, no nav) |
 | `/:slug/players` | Public player list |
 | `/:slug/players/:id` | Player detail (stats, history) |
-| `/:slug/games/:name` | Game detail (scores, ratings) |
+| `/:slug/games/:name` | Game detail — tabs: scores, community, tips/comments, player stats |
 | `/:slug/games` | Game availability (cooldowns, random picker) |
+| `/:slug/stats` | Public enhanced stats (avg finish, top 5%, champion streak) |
 | `/:slug/login` | Room admin login |
 | `/:slug/admin/*` | Room admin panel (dashboard, tournaments, library, leaderboard, rankings, stats, history, settings) |
 
@@ -74,7 +87,8 @@ npm run dev            # Vite dev server with HMR
 |---------|-------------|
 | `/list-active` | Show currently active games across all tournaments |
 | `/list-scores` | Leaderboard for active games (optional `@user` filter, pagination) |
-| `/submit-score` | Submit score + photo to iScored (auto-maps username on first use) |
+| `/submit-score` | Submit score + photo to iScored (auto-maps username on first use); prompts star rating + comment |
+| `/ping` | Check bot responsiveness |
 | `/view-stats` | Historical stats for any game (autocomplete) |
 | `/my-stats` | Personal stats card (wins, win%, average, best, recent games) |
 | `/list-winners` | Hall of fame — recent tournament winners |
@@ -125,7 +139,11 @@ npm run dev            # Vite dev server with HMR
 | Game Eligibility Cooldown | Days before a previously played game can be picked again |
 | Winner Pick Window | Minutes the winner has to pick the next game |
 | Runner-up Pick Window | Minutes for runner-up fallback if winner doesn't pick |
-| UI Theme | Theme for public pages (Dark or Light) |
+| UI Theme | Theme for public pages (Arcade, Dark, or Light) |
+| Scoreboard Branding | Custom background image, logo, and title style/size for public scoreboard |
+| Kiosk Refresh Interval | Auto-refresh interval (seconds) for kiosk display |
+| Hide Empty Games | Toggle to suppress games with no scores from public views |
+| Discord @Mentions | Toggle Discord role/user @mentions in tournament announcements |
 | Callouts | Easter egg — bot responds to trigger words from `data/callouts.json` |
 
 ### Tournament Settings

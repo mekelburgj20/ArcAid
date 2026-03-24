@@ -9,6 +9,21 @@
 
 **Sprint 10: Production Hardening** — COMPLETE
 **Post-Sprint Features** — COMPLETE (deployed to production)
+**Community Platform Features** — COMPLETE (deployed to production)
+
+### Community Platform Features (2026-03-21 → 2026-03-23)
+- [x] Public stats page with enhanced metrics (avg finish position, top 5% rate, champion streak, sparklines)
+- [x] Per-game player stats lookup on game detail page
+- [x] Community score submissions (scores outside tournaments, community leaderboards)
+- [x] Game tips & comments (player-submitted tips and comments per game)
+- [x] Discord post-score rating flow (star buttons + comment modal after /submit-score)
+- [x] Score history tracking (score_history table, expandable per-player history on scoreboard)
+- [x] Style catalogue system (iScored style import/upload, per-game assignment)
+- [x] Kiosk mode (/:slug/kiosk, auto-refresh)
+- [x] Scoreboard branding (logo upload, background upload, title customization)
+- [x] Session persistence on login pages (auto-redirect with valid JWT)
+- [x] Removed room-level Discord bot token/client ID/secret (global-only)
+- [x] Styled admin section headings (NeonCard cyan accent)
 
 ### Sprint 10 Summary
 - Tier 1 Critical: Rate limiting, DB indexes, CORS, JWT validation
@@ -46,9 +61,9 @@
 
 ## Last Session
 
-**Date:** 2026-03-19
-**What happened:** Added VPXS Wizard Tables import feature (fetches table list from LegendsUnchained GitHub README, imports with VPXS platform). Fixed room-scoped imports (VPS and Wizard) to associate imported games with the current room via junction table. Fixed "Last day of month" schedule display showing NaNth. Updated all docs.
-**Next:** Discord Bot Multi-Room (Phase 5) — deferred. User-driven features as needed.
+**Date:** 2026-03-23
+**What happened:** Completed community platform features. Added public stats, community scores, game comments/tips, score history tracking, Discord rating flow, kiosk mode, style catalogue, scoreboard branding. Fixed conditional expand icons. Added session persistence. Styled admin section headings. Removed room-level Discord creds.
+**Next:** User-driven features as needed.
 
 ## Blockers
 

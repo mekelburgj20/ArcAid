@@ -56,7 +56,7 @@ Two sub-applications in one process:
 - `src/api/auditMiddleware.ts` — Auto-logs admin write operations to `audit_log` table
 - `src/services/` — Business logic layer:
   - **Global:** `SettingsService`, `AdminService`, `GameRoomService`, `GameRoomSettingsService`, `PreferencesService`, `LogService`, `BackupService`, `DashboardService`, `AuditService`
-  - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`
+  - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `CommentService`, `CommunityScoreService`, `ScoreHistoryService`, `StyleCatalogueService`
   - **Import:** `VpsImportService` (VPS database JSON), `WizardImportService` (VPXS Wizard Tables from GitHub)
 - `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`
 
@@ -66,8 +66,8 @@ Two sub-applications in one process:
 - **Room context:** `admin-ui/src/contexts/RoomContext.tsx` provides `roomId`, `roomSlug`, `roomName` to room pages
 - **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings (+ shared: Logs, Backups, MasterGameLibrary)
 - **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Settings (includes Users section)
-- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, etc.
+- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, etc.
 - Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
 
 ## Multi-Room Architecture
@@ -113,6 +113,7 @@ Two sub-applications in one process:
 - Discord OAuth flow: frontend builds OAuth URL with `window.location.origin`, callback uses raw `fetch`
 - Public slug matching is case-insensitive
 - **Themes:** 3 themes (arcade/dark/light). CSS variables, per-user override in `user_preferences`. `ThemeProvider` reads localStorage first (no flash).
+- Login pages auto-redirect to dashboard if valid JWT exists in localStorage (24h expiry)
 
 ## Score System
 
@@ -122,6 +123,7 @@ Two sub-applications in one process:
 - **Sync cleanup:** `/sync-state` removes local synced records not found on iScored
 - **Player identity:** `iscored_username` is the primary key (not `discord_user_id`)
 - **Merge/rename:** `POST /api/rooms/:roomId/admin/merge-player` updates across all tables
+- `score_history` table logs every score event (tournament, community, sync) for full historical tracking separate from best-score-only `submissions`
 
 ## Ranking System
 
@@ -140,6 +142,10 @@ SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Idem
 **Core tables:** `tournaments` (with `game_room_id`), `game_library`, `games`, `submissions`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`, `ranking_groups` (with `game_room_id`), `ranking_group_tournaments`, `ranking_groups_cache`, `user_preferences`
 
 **Admin tables:** `admin_invites` (one-time invite tokens with expiry), `audit_log` (admin action tracking), `schema_migrations` (versioned migration tracking)
+
+**Community tables:** `community_scores` (non-tournament score submissions), `score_history` (all score events with source tracking), `game_comments` (player tips and comments per game)
+
+**Style tables:** `style_catalogue` (iScored style catalog entries)
 
 ## Deployment
 
