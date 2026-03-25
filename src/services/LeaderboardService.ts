@@ -15,22 +15,30 @@ export class LeaderboardService {
     static async recalculate(gameId: string): Promise<RankedEntry[]> {
         const db = await getDatabase();
 
-        // Get best score per player for this game
-        // Group by lowercase iscored_username to handle case variations (Cal vs CAL)
-        // Prefer a real discord_user_id over 'SYSTEM' placeholder
+        // Get best score per player across both submissions and community_scores.
+        // submissions uses game_id; community_scores uses game_name + game_room_id.
+        // Union both sources, then take MAX(score) per player.
         const entries = await db.all(`
             SELECT
-                CASE WHEN MAX(CASE WHEN discord_user_id != 'SYSTEM' THEN discord_user_id END) IS NOT NULL
-                     THEN MAX(CASE WHEN discord_user_id != 'SYSTEM' THEN discord_user_id END)
-                     ELSE discord_user_id
+                CASE WHEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') THEN discord_user_id END) IS NOT NULL
+                     THEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') THEN discord_user_id END)
+                     ELSE MAX(discord_user_id)
                 END as discord_user_id,
                 iscored_username,
                 MAX(score) as score
-            FROM submissions
-            WHERE game_id = ?
+            FROM (
+                SELECT discord_user_id, iscored_username, score
+                FROM submissions
+                WHERE game_id = ?
+                UNION ALL
+                SELECT discord_user_id, iscored_username, score
+                FROM community_scores
+                WHERE LOWER(game_name) = LOWER((SELECT name FROM games WHERE id = ?))
+                  AND game_room_id = (SELECT t.game_room_id FROM games g JOIN tournaments t ON t.id = g.tournament_id WHERE g.id = ?)
+            ) combined
             GROUP BY LOWER(iscored_username)
             ORDER BY score DESC
-        `, gameId);
+        `, gameId, gameId, gameId);
 
         const rankings: RankedEntry[] = entries.map((e: any, i: number) => ({
             rank: i + 1,

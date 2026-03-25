@@ -138,6 +138,44 @@
   --color-faint: oklch(42% 0.02 50);
 }
 
+/* Space Invaders theme (classic arcade black with bright alien colors) */
+.theme-invaders {
+  --color-deep: oklch(5% 0 0);
+  --color-surface: oklch(10% 0 0);
+  --color-raised: oklch(14% 0 0);
+  --color-border: oklch(25% 0.04 140);
+  --color-border-glow: oklch(75% 0.25 140);
+  --color-neon-cyan: oklch(80% 0.18 195);
+  --color-neon-magenta: oklch(68% 0.26 350);
+  --color-neon-green: oklch(82% 0.28 140);
+  --color-neon-amber: oklch(85% 0.2 95);
+  --color-neon-purple: oklch(60% 0.25 300);
+  --color-neon-coral: oklch(65% 0.22 25);
+  --color-neon-blue: oklch(68% 0.18 250);
+  --color-primary: oklch(95% 0.01 140);
+  --color-muted: oklch(65% 0.06 140);
+  --color-faint: oklch(38% 0.04 140);
+}
+
+/* Coffee theme (warm cream/brown light theme, daisyUI retro-inspired) */
+.theme-coffee {
+  --color-deep: oklch(91.6% 0.034 90.5);
+  --color-surface: oklch(88.3% 0.049 91.8);
+  --color-raised: oklch(84.1% 0.065 90.9);
+  --color-border: oklch(72% 0.06 85);
+  --color-border-glow: oklch(68% 0.162 75.8);
+  --color-neon-cyan: oklch(51% 0.096 186.4);
+  --color-neon-magenta: oklch(70% 0.191 22.2);
+  --color-neon-green: oklch(51% 0.096 186.4);
+  --color-neon-amber: oklch(68% 0.162 75.8);
+  --color-neon-purple: oklch(58% 0.158 242);
+  --color-neon-coral: oklch(70% 0.191 22.2);
+  --color-neon-blue: oklch(58% 0.158 242);
+  --color-primary: oklch(41% 0.112 45.9);
+  --color-muted: oklch(55% 0.08 50);
+  --color-faint: oklch(72% 0.05 85);
+}
+
 /* Minimal theme (monochrome + single cyan accent) */
 .theme-minimal {
   --color-deep: oklch(14% 0 0);
@@ -219,6 +257,44 @@ body {
 .theme-retro textarea:focus {
   border-color: oklch(70% 0.2 140);
   box-shadow: 0 0 6px oklch(70% 0.2 140 / 0.3);
+}
+
+/* Space Invaders theme: alien silhouettes as background pattern */
+.theme-invaders body,
+.theme-invaders {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cpath d='M10 8h2v2h-2zM14 8h2v2h-2zM8 10h2v2h-2zM10 10h6v2h-6zM16 10h2v2h-2zM6 12h12v2h-12zM6 14h2v2h-2zM10 14h4v2h-4zM16 14h2v2h-2zM6 16h2v2h-2zM16 16h2v2h-2zM8 18h2v2h-2zM14 18h2v2h-2z' fill='rgba(130,255,130,0.04)'/%3E%3Cpath d='M38 38h2v2h-2zM44 38h2v2h-2zM36 40h2v2h-2zM38 40h8v2h-8zM46 40h2v2h-2zM34 42h14v2h-14zM34 44h2v2h-2zM38 44h6v2h-6zM46 44h2v2h-2zM34 46h2v2h-2zM46 46h2v2h-2zM36 48h2v2h-2zM44 48h2v2h-2z' fill='rgba(255,100,255,0.04)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+}
+
+/* Space Invaders: stronger scanlines for arcade feel */
+.theme-invaders .scanlines::after {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 1px,
+    rgba(0, 0, 0, 0.2) 1px,
+    rgba(0, 0, 0, 0.2) 3px
+  );
+}
+
+/* Coffee theme: no scanlines, warm input styling */
+.theme-coffee .scanlines::after {
+  background: none;
+}
+
+.theme-coffee input,
+.theme-coffee select,
+.theme-coffee textarea {
+  border-color: oklch(72% 0.06 85);
+  color: oklch(41% 0.112 45.9);
+}
+
+.theme-coffee input:focus,
+.theme-coffee select:focus,
+.theme-coffee textarea:focus {
+  border-color: oklch(68% 0.162 75.8);
+  box-shadow: 0 0 4px oklch(68% 0.162 75.8 / 0.3);
 }
 
 /* Minimal theme: no scanlines, no glow */

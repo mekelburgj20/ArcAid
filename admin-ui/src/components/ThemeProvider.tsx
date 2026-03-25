@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, isAuthenticated } from '../lib/api';
 
-export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal';
+export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal' | 'invaders' | 'coffee';
 
 export const THEMES: Record<ThemeId, { label: string; description: string }> = {
   dark: { label: 'Dark', description: 'Deep indigo dark theme with accent colors' },
@@ -11,6 +11,8 @@ export const THEMES: Record<ThemeId, { label: string; description: string }> = {
   ocean: { label: 'Ocean', description: 'Cool teal tones on deep navy' },
   sunset: { label: 'Sunset', description: 'Warm orange and amber on dark brown' },
   minimal: { label: 'Minimal', description: 'Monochrome with a single accent color' },
+  invaders: { label: 'Space Invaders', description: 'Classic arcade black with alien silhouettes' },
+  coffee: { label: 'Coffee', description: 'Warm cream and brown light theme' },
 };
 
 interface ThemeContextType {
@@ -27,7 +29,7 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_KEY = 'arcaid-theme';
 const STORAGE_GLOBAL_KEY = 'arcaid-theme-global';
 
-const ALL_THEME_CLASSES = ['theme-light', 'theme-retro', 'theme-cyberpunk', 'theme-ocean', 'theme-sunset', 'theme-minimal'];
+const ALL_THEME_CLASSES = ['theme-light', 'theme-retro', 'theme-cyberpunk', 'theme-ocean', 'theme-sunset', 'theme-minimal', 'theme-invaders', 'theme-coffee'];
 
 function applyThemeClass(theme: ThemeId) {
   const root = document.documentElement;
