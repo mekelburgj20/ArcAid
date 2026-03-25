@@ -143,7 +143,9 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
   const bgImage = styleBgUrl || lb.imageUrl || null;
 
   return (
-    <div className={`bg-surface border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`} style={cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : undefined}>
+    <div className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`}>
+      {/* Background layer — opacity controlled independently */}
+      <div className="absolute inset-0 bg-surface" style={cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : undefined} />
       {/* Title area — clickable to submit score if handler provided */}
       <div
         className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
@@ -180,7 +182,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
       )}
 
       {/* Scores */}
-      <div className="flex-1">
+      <div className="flex-1 relative">
         {lb.rankings.length === 0 ? (
           <div className="py-8 text-center">
             <p className="text-faint text-sm">No scores yet</p>
@@ -264,7 +266,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
       </div>
 
       {/* Footer link */}
-      <div className="border-t border-border/50 px-4 py-2.5">
+      <div className="border-t border-border/50 px-4 py-2.5 relative">
         <Link
           to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
           className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
@@ -290,9 +292,11 @@ export function RankingGroupCard({ group, rankings, cardOpacity }: { group: Rank
   const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
 
   return (
-    <div className="bg-neon-purple/5 border border-neon-purple/20 rounded-lg overflow-hidden" style={cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : undefined}>
+    <div className="relative border border-neon-purple/20 rounded-lg overflow-hidden">
+      {/* Background layer — opacity controlled independently */}
+      <div className="absolute inset-0 bg-neon-purple/5" style={cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : undefined} />
       {/* Header */}
-      <div className="px-4 py-3 border-b border-neon-purple/15 bg-neon-purple/10">
+      <div className="px-4 py-3 border-b border-neon-purple/15 bg-neon-purple/10 relative">
         <h3 className="font-display font-bold text-base text-primary">{group.name}</h3>
         <div className="flex items-center gap-3 mt-1">
           <span className="text-[11px] text-muted uppercase tracking-wider">{methodInfo.label}</span>
@@ -304,11 +308,11 @@ export function RankingGroupCard({ group, rankings, cardOpacity }: { group: Rank
 
       {/* Rankings */}
       {rankings.length === 0 ? (
-        <div className="py-8 text-center">
+        <div className="py-8 text-center relative">
           <p className="text-faint text-sm">No qualified players yet</p>
         </div>
       ) : (
-        <div>
+        <div className="relative">
           <div className="flex items-center justify-between px-4 py-2 border-b border-neon-purple/10 text-[10px] text-faint uppercase tracking-wider">
             <span>Player</span>
             <div className="flex gap-6">
