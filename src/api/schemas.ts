@@ -136,6 +136,11 @@ export const CommunityScoreSchema = z.object({
     photo_url: z.string().url().optional(),
 });
 
+export const ScoreSubmissionSchema = z.object({
+    username: z.string().min(1).max(100),
+    score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0)),
+});
+
 export const GameCommentSchema = z.object({
     display_name: z.string().min(1).max(50),
     type: z.enum(['comment', 'tip']),

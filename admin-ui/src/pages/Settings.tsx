@@ -66,6 +66,10 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     label: 'Hide Scoreboard Title',
     description: 'When enabled, the scoreboard title/heading is hidden on the public scoreboard.',
   },
+  'REQUIRE_SCORE_PHOTO': {
+    label: 'Require Photo with Score Submission',
+    description: 'When enabled, players must include a photo when submitting scores from the scoreboard.',
+  },
 };
 
 const SETTING_LABELS: Record<string, { label: string; description: string }> = {

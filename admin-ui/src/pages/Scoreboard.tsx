@@ -11,6 +11,7 @@ import {
   getTitleSizeClass,
   cardWidthMap,
 } from '../components/ScoreboardComponents';
+import ScoreSubmitModal from '../components/ScoreSubmitModal';
 
 
 export default function Scoreboard() {
@@ -21,6 +22,7 @@ export default function Scoreboard() {
   const [config, setConfig] = useState<Record<string, string>>({});
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
+  const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   const viewerHeaders = useViewerHeaders();
 
   // Resolve room and fetch scoreboard config
@@ -89,6 +91,7 @@ export default function Scoreboard() {
   const layout = config.SCOREBOARD_LAYOUT || 'scroll';
   const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
   const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
+  const requirePhoto = config.REQUIRE_SCORE_PHOTO === 'true';
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
@@ -162,7 +165,7 @@ export default function Scoreboard() {
             >
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} />
                 </div>
               ))}
             </div>
@@ -172,7 +175,7 @@ export default function Scoreboard() {
             <div className="flex gap-3 sm:gap-5 pb-2">
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} />
                 </div>
               ))}
             </div>
@@ -188,6 +191,17 @@ export default function Scoreboard() {
       {/* Rankings: bottom position */}
       {rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
         <RankingsRow rankingGroups={rankingGroups} />
+      )}
+
+      {/* Score submission modal */}
+      {selectedGame && roomId && (
+        <ScoreSubmitModal
+          gameName={selectedGame.gameName}
+          roomId={roomId}
+          requirePhoto={requirePhoto}
+          onClose={() => setSelectedGame(null)}
+          onSubmitted={() => { loadData(); loadRankings(); }}
+        />
       )}
     </div>
   );

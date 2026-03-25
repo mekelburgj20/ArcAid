@@ -14,8 +14,10 @@ import {
     CreateLocalAdminSchema,
     AssignStyleSchema,
     CommunityScoreSchema,
+    ScoreSubmissionSchema,
     GameCommentSchema,
 } from '../schemas.js';
+import { writeLimiter } from '../rateLimit.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
 import { GameRoomSettingsService } from '../../services/GameRoomSettingsService.js';
@@ -530,6 +532,87 @@ router.post('/:roomId/community-scores/:gameName', async (req, res) => {
         res.status(201).json(result);
     } catch (error) {
         logError('API Error (POST rooms/:roomId/community-scores/:gameName):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Score submission with photo upload (public, rate-limited)
+router.post('/:roomId/submit-score/:gameName', writeLimiter, roomAssetUpload.single('photo'), async (req, res) => {
+    try {
+        const validationResult = validate(ScoreSubmissionSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const roomId = req.params.roomId as string;
+        const gameName = decodeURIComponent(req.params.gameName as string);
+        const { username, score } = validationResult.data;
+
+        // Check if photo is required
+        const requirePhoto = await GameRoomSettingsService.get(roomId, 'REQUIRE_SCORE_PHOTO');
+        if (requirePhoto === 'true' && !req.file) {
+            return res.status(400).json({ error: 'A photo is required with score submissions.' });
+        }
+
+        // Save photo to persistent storage if provided
+        let photoUrl: string | undefined;
+        let persistentPhotoPath: string | undefined;
+        if (req.file) {
+            const ext = req.file.mimetype === 'image/png' ? 'png' : req.file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+            const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+            const dir = path.join(process.cwd(), 'data', 'score-photos', roomId);
+            fs.mkdirSync(dir, { recursive: true });
+            persistentPhotoPath = path.join(dir, filename);
+            fs.writeFileSync(persistentPhotoPath, req.file.buffer);
+            photoUrl = `/api/score-photos/${roomId}/${filename}`;
+        }
+
+        // Save to DB
+        const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
+        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, undefined, photoUrl);
+
+        // Fire-and-forget iScored sync
+        (async () => {
+            let tempPhotoPath: string | undefined;
+            try {
+                const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+                if (!hasCredentials) return;
+
+                const db = await getDatabase();
+                const activeGame = await db.get(`
+                    SELECT g.iscored_id FROM games g
+                    JOIN tournaments t ON t.id = g.tournament_id
+                    WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
+                      AND g.status = 'ACTIVE' AND g.iscored_id IS NOT NULL
+                    LIMIT 1
+                `, gameName, roomId);
+                if (!activeGame) {
+                    logWarn(`No active iScored game found for "${gameName}" in room ${roomId}, skipping sync`);
+                    return;
+                }
+
+                // Write temp copy for IScoredClient (needs filesystem path)
+                if (persistentPhotoPath) {
+                    tempPhotoPath = persistentPhotoPath + '.tmp';
+                    fs.copyFileSync(persistentPhotoPath, tempPhotoPath);
+                }
+
+                const { IScoredClient } = await import('../../engine/IScoredClient.js');
+                const client = new IScoredClient();
+                await client.connect();
+                try {
+                    await client.submitScore(activeGame.iscored_id, username, score, tempPhotoPath);
+                    logInfo(`iScored sync: submitted score for "${gameName}" by ${username}`);
+                } finally {
+                    await client.disconnect();
+                }
+            } catch (err) {
+                logError(`iScored sync failed for "${gameName}" by ${username}:`, err);
+            } finally {
+                if (tempPhotoPath) try { fs.unlinkSync(tempPhotoPath); } catch {}
+            }
+        })();
+
+        res.status(201).json(result);
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/submit-score/:gameName):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

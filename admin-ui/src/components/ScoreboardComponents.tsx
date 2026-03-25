@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Plus, Minus } from 'lucide-react';
+import { Lock, Plus, Minus, Camera, Upload } from 'lucide-react';
+import ScorePhotoModal from './ScorePhotoModal';
 
 // --- Shared interfaces ---
 
@@ -95,15 +96,20 @@ interface ScoreHistoryEntry {
   id: number;
   score: number;
   source: string;
+  photo_url: string | null;
   created_at: string;
 }
 
-export function GameCard({ lb, slug, maxScores, roomId }: { lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string }) {
+export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore }: {
+  lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
+  onSubmitScore?: (lb: GameLeaderboard) => void;
+}) {
   const borderColor = getTournamentBorderColor(lb.tournamentType);
   const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   const [playerHistory, setPlayerHistory] = useState<ScoreHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [photoModal, setPhotoModal] = useState<{ playerName: string; score: number; photoUrl: string | null } | null>(null);
 
   // Fetch score counts for this game to know which players have multiple scores
   useEffect(() => {
@@ -137,18 +143,27 @@ export function GameCard({ lb, slug, maxScores, roomId }: { lb: GameLeaderboard;
 
   return (
     <div className={`bg-surface border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`}>
-      {/* Title area */}
-      <div className="px-4 py-3 text-center border-b border-border/30">
-        <h3 className="font-display font-bold text-base leading-tight truncate flex items-center justify-center gap-1.5">
+      {/* Title area — clickable to submit score if handler provided */}
+      <div
+        className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
+        onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+      >
+        <h3 className="font-display font-bold text-base leading-tight truncate px-5">
           {lb.gameName}
-          {lb.gameStatus === 'COMPLETED' && <span title="Completed"><Lock size={14} className="text-faint flex-shrink-0" /></span>}
         </h3>
+        {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-3"><Lock size={14} className="text-neon-amber" /></span>}
+        {onSubmitScore && (
+          <span className="absolute left-3 top-3"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
+        )}
         <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
       </div>
 
-      {/* Background image area */}
+      {/* Background image area — also clickable for submit */}
       {bgImage && (
-        <div className="relative h-28 bg-raised">
+        <div
+          className={`relative h-28 bg-raised ${onSubmitScore ? 'cursor-pointer' : ''}`}
+          onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+        >
           <div
             className="absolute inset-0"
             style={{
@@ -219,7 +234,18 @@ export function GameCard({ lb, slug, maxScores, roomId }: { lb: GameLeaderboard;
                         <div className="space-y-1">
                           {playerHistory.map(h => (
                             <div key={h.id} className="flex items-center justify-between text-xs">
-                              <span className="text-muted">{h.score.toLocaleString()}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-muted">{h.score.toLocaleString()}</span>
+                                {h.photo_url && (
+                                  <button
+                                    className="text-neon-cyan hover:text-neon-cyan/80 transition-colors cursor-pointer"
+                                    onClick={(e) => { e.stopPropagation(); setPhotoModal({ playerName: expandedPlayer || '', score: h.score, photoUrl: h.photo_url }); }}
+                                    title="View score photo"
+                                  >
+                                    <Camera size={12} />
+                                  </button>
+                                )}
+                              </div>
                               <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
                             </div>
                           ))}
@@ -245,6 +271,16 @@ export function GameCard({ lb, slug, maxScores, roomId }: { lb: GameLeaderboard;
           Full Leaderboard &rarr;
         </Link>
       </div>
+
+      {/* Score photo modal */}
+      {photoModal && (
+        <ScorePhotoModal
+          playerName={photoModal.playerName}
+          score={photoModal.score}
+          photoUrl={photoModal.photoUrl}
+          onClose={() => setPhotoModal(null)}
+        />
+      )}
     </div>
   );
 }

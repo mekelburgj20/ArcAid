@@ -171,6 +171,7 @@
 - [ ] Discord Bot Multi-Room (Phase 5) — single bot, multi-guild, per-room command scoping
 
 ### UX Polish
+- [ ] QR code score submission — per-game QR codes on scoreboard cards linking to score entry screen (username, score, photo upload), configurable position (top/bottom × left/center/right), option to disable, iScored sync on submit
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
 - [ ] Additional themes
 - [ ] Scoreboard designer page (admin-only CSS customization)

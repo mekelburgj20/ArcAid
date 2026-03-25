@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { EmbedBuilder } from 'discord.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getDatabase } from '../database/database.js';
@@ -708,8 +710,48 @@ export class TournamentEngine {
         }
 
         // Always mark as HIDDEN in DB regardless of iScored
+        const roomId = tournamentRow?.game_room_id;
         for (const game of toHide) {
             await db.run('UPDATE games SET status = ? WHERE id = ?', 'HIDDEN', game.id);
+
+            // Clean up score photos for this game
+            if (roomId) {
+                try {
+                    const photoRows = await db.all(`
+                        SELECT photo_url FROM score_history
+                        WHERE LOWER(game_name) = LOWER(?) AND game_room_id = ?
+                          AND photo_url LIKE '/api/score-photos/%'
+                        UNION
+                        SELECT photo_url FROM community_scores
+                        WHERE LOWER(game_name) = LOWER(?) AND game_room_id = ?
+                          AND photo_url LIKE '/api/score-photos/%'
+                    `, game.name, roomId, game.name, roomId);
+
+                    for (const row of photoRows) {
+                        const relativePath = (row.photo_url as string).replace('/api/score-photos/', '');
+                        const filePath = path.join(process.cwd(), 'data', 'score-photos', relativePath);
+                        try { fs.unlinkSync(filePath); } catch {}
+                    }
+
+                    // Null out photo_url in DB to prevent broken image links
+                    await db.run(`
+                        UPDATE score_history SET photo_url = NULL
+                        WHERE LOWER(game_name) = LOWER(?) AND game_room_id = ?
+                          AND photo_url LIKE '/api/score-photos/%'
+                    `, game.name, roomId);
+                    await db.run(`
+                        UPDATE community_scores SET photo_url = NULL
+                        WHERE LOWER(game_name) = LOWER(?) AND game_room_id = ?
+                          AND photo_url LIKE '/api/score-photos/%'
+                    `, game.name, roomId);
+
+                    if (photoRows.length > 0) {
+                        logInfo(`   -> Cleaned up ${photoRows.length} score photo(s) for ${game.name}`);
+                    }
+                } catch (err) {
+                    logWarn(`   -> Failed to clean up score photos for ${game.name}:`, err);
+                }
+            }
         }
     }
 
