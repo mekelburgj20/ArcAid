@@ -564,9 +564,32 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, roomAssetUpload.sin
             photoUrl = `/api/score-photos/${roomId}/${filename}`;
         }
 
-        // Save to DB
+        // Save to community_scores + score_history
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, undefined, photoUrl);
+
+        // Also upsert into submissions so the main leaderboard reflects the highest score
+        const db = await getDatabase();
+        const activeGame = await db.get(`
+            SELECT g.id FROM games g
+            JOIN tournaments t ON t.id = g.tournament_id
+            WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
+              AND g.status IN ('ACTIVE', 'COMPLETED')
+            LIMIT 1
+        `, gameName, roomId);
+        if (activeGame) {
+            const submissionId = `${activeGame.id}-${username.toLowerCase()}`;
+            const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
+            if (!existing || score > existing.score) {
+                await db.run(
+                    `INSERT OR REPLACE INTO submissions (id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    submissionId, activeGame.id, 'COMMUNITY', username, score, photoUrl || null, new Date().toISOString()
+                );
+                const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+                await LeaderboardService.invalidate(activeGame.id);
+            }
+        }
 
         // Fire-and-forget iScored sync
         (async () => {
