@@ -4,6 +4,7 @@ import { useToast } from '../components/Toast';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
+import { THEMES, useTheme, type ThemeId } from '../components/ThemeProvider';
 
 const GLOBAL_KEYS = [
   'DISCORD_BOT_TOKEN',
@@ -45,6 +46,7 @@ export default function GlobalSettings() {
   const [superAdmins, setSuperAdmins] = useState<SuperAdmin[]>([]);
   const [newAdminId, setNewAdminId] = useState('');
   const [addingAdmin, setAddingAdmin] = useState(false);
+  const { userTheme, setUserTheme } = useTheme();
 
   useEffect(() => {
     Promise.all([
@@ -154,6 +156,30 @@ export default function GlobalSettings() {
               </div>
             );
           })}
+        </div>
+      </NeonCard>
+
+      <NeonCard title="Theme" className="mb-4">
+        <div>
+          <label className="text-xs text-faint block mb-1">My Theme (Personal Override)</label>
+          <select
+            value={userTheme || ''}
+            onChange={e => {
+              const val = e.target.value as ThemeId | '';
+              const newTheme = val || null;
+              setUserTheme(newTheme);
+              api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
+                toast('Failed to save theme preference', 'error');
+              });
+            }}
+            className={inputClass}
+          >
+            <option value="">(Use Default)</option>
+            {Object.entries(THEMES).map(([id, { label, description }]) => (
+              <option key={id} value={id}>{label} — {description}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted mt-1">Applies to global admin pages for your session only.</p>
         </div>
       </NeonCard>
 

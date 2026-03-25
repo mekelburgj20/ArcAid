@@ -354,7 +354,7 @@ export default function GameLibrary() {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <h1 className="font-display text-2xl font-bold">Game Library</h1>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <NeonButton onClick={() => setShowAddForm(!showAddForm)}>
             {showAddForm ? 'Cancel' : 'Add Game'}
           </NeonButton>
@@ -388,7 +388,6 @@ export default function GameLibrary() {
           }} disabled={wizardImporting}>
             {wizardImporting ? 'Importing Wizard...' : 'Import VPXS Wizard'}
           </NeonButton>
-          <NeonButton variant="secondary" onClick={downloadTemplate}>CSV Template</NeonButton>
           <label htmlFor="csv-upload" className="cursor-pointer">
             <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" id="csv-upload" disabled={importing} />
             <span className={`
@@ -400,6 +399,8 @@ export default function GameLibrary() {
               {importing ? 'Importing...' : 'Import CSV'}
             </span>
           </label>
+          <div className="flex-1" />
+          <NeonButton variant="ghost" onClick={downloadTemplate}>CSV Template</NeonButton>
         </div>
       </div>
 
