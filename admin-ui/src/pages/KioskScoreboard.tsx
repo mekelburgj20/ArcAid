@@ -73,6 +73,7 @@ export default function KioskScoreboard() {
   const layout = config.SCOREBOARD_LAYOUT || 'scroll';
   const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
   const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
+  const cardOpacity = config.SCOREBOARD_CARD_OPACITY ? parseFloat(config.SCOREBOARD_CARD_OPACITY) : undefined;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
@@ -118,7 +119,7 @@ export default function KioskScoreboard() {
 
         {/* Rankings: top position */}
         {rankingsPosition === 'top' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} />
+          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
         )}
 
         {/* Main content area */}
@@ -126,7 +127,7 @@ export default function KioskScoreboard() {
 
           {/* Rankings: left position */}
           {rankingsPosition === 'left' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} />
+            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
           )}
 
           {/* Game leaderboards */}
@@ -142,7 +143,7 @@ export default function KioskScoreboard() {
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} />
                   </div>
                 ))}
               </div>
@@ -152,7 +153,7 @@ export default function KioskScoreboard() {
               <div className="flex gap-3 sm:gap-5 pb-2">
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} />
                   </div>
                 ))}
               </div>
@@ -161,13 +162,13 @@ export default function KioskScoreboard() {
 
           {/* Rankings: right position */}
           {rankingsPosition === 'right' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} />
+            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
           )}
         </div>
 
         {/* Rankings: bottom position */}
         {rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} />
+          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
         )}
       </div>
 

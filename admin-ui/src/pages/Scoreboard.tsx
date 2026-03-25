@@ -92,6 +92,7 @@ export default function Scoreboard() {
   const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
   const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
   const requirePhoto = config.REQUIRE_SCORE_PHOTO === 'true';
+  const cardOpacity = config.SCOREBOARD_CARD_OPACITY ? parseFloat(config.SCOREBOARD_CARD_OPACITY) : undefined;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
@@ -141,7 +142,7 @@ export default function Scoreboard() {
 
       {/* Rankings: top position */}
       {rankingsPosition === 'top' && rankingGroups.length > 0 && (
-        <RankingsRow rankingGroups={rankingGroups} />
+        <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
       )}
 
       {/* Main content area */}
@@ -149,7 +150,7 @@ export default function Scoreboard() {
 
         {/* Rankings: left position */}
         {rankingsPosition === 'left' && rankingGroups.length > 0 && (
-          <RankingsColumn rankingGroups={rankingGroups} />
+          <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
         )}
 
         {/* Game leaderboards */}
@@ -165,7 +166,7 @@ export default function Scoreboard() {
             >
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} />
                 </div>
               ))}
             </div>
@@ -175,7 +176,7 @@ export default function Scoreboard() {
             <div className="flex gap-3 sm:gap-5 pb-2">
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} />
                 </div>
               ))}
             </div>
@@ -184,13 +185,13 @@ export default function Scoreboard() {
 
         {/* Rankings: right position */}
         {rankingsPosition === 'right' && rankingGroups.length > 0 && (
-          <RankingsColumn rankingGroups={rankingGroups} />
+          <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
         )}
       </div>
 
       {/* Rankings: bottom position */}
       {rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
-        <RankingsRow rankingGroups={rankingGroups} />
+        <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
       )}
 
       {/* Score submission modal */}

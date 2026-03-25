@@ -38,7 +38,7 @@ const CATEGORIES: Record<string, string[]> = {
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
   'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
-  'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_CARDS_PER_ROW', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_RANKINGS_POSITION'],
+  'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_CARDS_PER_ROW', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_RANKINGS_POSITION'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
 };
@@ -101,6 +101,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_TITLE: { label: 'Scoreboard Title', description: 'Custom title displayed on the public scoreboard. Leave empty to use the room name.' },
   SCOREBOARD_TITLE_STYLE: { label: 'Title Style', description: 'Visual style for the scoreboard title: default, glow, retro, or pixel.' },
   SCOREBOARD_TITLE_SIZE: { label: 'Title Size', description: 'Font size for the scoreboard title. Default: small.' },
+  SCOREBOARD_CARD_OPACITY: { label: 'Card Transparency', description: 'Opacity of score cards and ranking cards. 100% = fully opaque (default), 0% = fully transparent.' },
   SCOREBOARD_LAYOUT: { label: 'Layout Mode', description: 'Score card layout: scroll (horizontal scrolling, default) or grid (CSS grid with rows and columns).' },
   SCOREBOARD_CARDS_PER_ROW: { label: 'Cards Per Row (Grid)', description: 'Number of score cards per row in grid mode. Range: 2-8. Default: 4. Only applies in grid layout.' },
   SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
@@ -876,7 +877,20 @@ export default function Settings() {
                       {meta?.label || key}
                       {meta?.description && <InfoTip text={meta.description} />}
                     </label>
-                    {SELECT_OPTIONS[key] ? (
+                    {key === 'SCOREBOARD_CARD_OPACITY' ? (
+                      <div className="flex items-center gap-3 flex-1">
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="5"
+                          value={Math.round((parseFloat(value || '1') * 100))}
+                          onChange={e => handleChange(key, String(parseInt(e.target.value, 10) / 100))}
+                          className="flex-1 accent-neon-cyan cursor-pointer"
+                        />
+                        <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
+                      </div>
+                    ) : SELECT_OPTIONS[key] ? (
                       <select
                         value={value || SELECT_OPTIONS[key][0].value}
                         onChange={e => handleChange(key, e.target.value)}

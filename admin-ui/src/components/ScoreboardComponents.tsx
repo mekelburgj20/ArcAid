@@ -100,9 +100,10 @@ interface ScoreHistoryEntry {
   created_at: string;
 }
 
-export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore }: {
+export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpacity }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
+  cardOpacity?: number;
 }) {
   const borderColor = getTournamentBorderColor(lb.tournamentType);
   const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
@@ -142,7 +143,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore }: {
   const bgImage = styleBgUrl || lb.imageUrl || null;
 
   return (
-    <div className={`bg-surface border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`}>
+    <div className={`bg-surface border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`} style={cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : undefined}>
       {/* Title area — clickable to submit score if handler provided */}
       <div
         className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
@@ -285,11 +286,11 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore }: {
   );
 }
 
-export function RankingGroupCard({ group, rankings }: { group: RankingGroupData['group']; rankings: RankingGroupData['rankings'] }) {
+export function RankingGroupCard({ group, rankings, cardOpacity }: { group: RankingGroupData['group']; rankings: RankingGroupData['rankings']; cardOpacity?: number }) {
   const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
 
   return (
-    <div className="bg-neon-purple/5 border border-neon-purple/20 rounded-lg overflow-hidden">
+    <div className="bg-neon-purple/5 border border-neon-purple/20 rounded-lg overflow-hidden" style={cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : undefined}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-neon-purple/15 bg-neon-purple/10">
         <h3 className="font-display font-bold text-base text-primary">{group.name}</h3>
@@ -351,27 +352,27 @@ export function RankingGroupCard({ group, rankings }: { group: RankingGroupData[
   );
 }
 
-export function RankingsColumn({ rankingGroups }: { rankingGroups: RankingGroupData[] }) {
+export function RankingsColumn({ rankingGroups, cardOpacity }: { rankingGroups: RankingGroupData[]; cardOpacity?: number }) {
   return (
     <div className="w-full lg:w-80 flex-shrink-0 lg:sticky lg:top-6">
       <p className="font-display text-muted text-sm uppercase tracking-widest mb-4">Overall Rankings</p>
       <div className="flex flex-col gap-5">
         {rankingGroups.map(({ group, rankings }) => (
-          <RankingGroupCard key={group.id} group={group} rankings={rankings} />
+          <RankingGroupCard key={group.id} group={group} rankings={rankings} cardOpacity={cardOpacity} />
         ))}
       </div>
     </div>
   );
 }
 
-export function RankingsRow({ rankingGroups }: { rankingGroups: RankingGroupData[] }) {
+export function RankingsRow({ rankingGroups, cardOpacity }: { rankingGroups: RankingGroupData[]; cardOpacity?: number }) {
   return (
     <div className="mb-6">
       <p className="font-display text-muted text-sm uppercase tracking-widest mb-4">Overall Rankings</p>
       <div className="flex gap-5 overflow-x-auto pb-2">
         {rankingGroups.map(({ group, rankings }) => (
           <div key={group.id} className="w-80 flex-shrink-0">
-            <RankingGroupCard group={group} rankings={rankings} />
+            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} />
           </div>
         ))}
       </div>
