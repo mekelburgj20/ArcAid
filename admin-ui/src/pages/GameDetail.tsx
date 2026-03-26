@@ -577,7 +577,7 @@ export default function GameDetail() {
                       ))}
                     </>
                   ) : (
-                    <p className="text-muted text-sm text-center py-6">No score history recorded yet. History starts tracking from now.</p>
+                    <p className="text-muted text-sm text-center py-6">No score history recorded for this game.</p>
                   )}
                 </div>
               )}
