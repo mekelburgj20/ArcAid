@@ -102,7 +102,7 @@ export default function Scoreboard() {
 
   return (
     <div
-      className="px-4 sm:px-6 py-6 overflow-hidden"
+      className="h-full flex flex-col overflow-hidden"
       style={{
         ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
         ...(bgUrl ? {
@@ -110,7 +110,6 @@ export default function Scoreboard() {
           backgroundSize: bgMode === 'repeat' ? 'auto' : bgMode,
           backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
           backgroundPosition: 'center',
-          minHeight: '100vh',
         } : {}),
       }}
     >
@@ -119,9 +118,10 @@ export default function Scoreboard() {
         <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
       )}
 
-      {/* Header */}
+      {/* Header — non-scrolling */}
+      <div className="flex-shrink-0 px-4 sm:px-6 pt-6">
       {!titleHidden && (
-        <div className="text-center mb-8 overflow-hidden">
+        <div className="text-center mb-4 overflow-hidden">
           <div className={`inline-flex items-center gap-4 max-w-full ${
             logoPosition === 'above' || logoPosition === 'below' ? 'flex-col' : 'flex-row'
           }`}>
@@ -138,10 +138,15 @@ export default function Scoreboard() {
         </div>
       )}
       {titleHidden && logoUrl && (
-        <div className="text-center mb-8">
+        <div className="text-center mb-4">
           <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto" />
         </div>
       )}
+
+      </div>
+
+      {/* Scrollable content area */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 sm:px-6 pb-6">
 
       {/* Rankings: top position */}
       {rankingsPosition === 'top' && rankingGroups.length > 0 && (
@@ -198,6 +203,8 @@ export default function Scoreboard() {
       {rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
         <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
       )}
+
+      </div>
 
       {/* Score submission modal */}
       {selectedGame && roomId && (

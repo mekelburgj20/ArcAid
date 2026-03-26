@@ -30,9 +30,9 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-deep text-primary relative overflow-x-hidden">
+    <div className="h-[100dvh] bg-deep text-primary relative flex flex-col overflow-hidden">
       {/* Public Nav Bar */}
-      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
+      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm z-20 flex-shrink-0">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <Link to={`/${slug}`} className="no-underline flex items-center gap-2 sm:gap-3 min-w-0">
             <img src="/arcaid-logo.png" alt="ArcAid" className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0" />
@@ -54,7 +54,9 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       </nav>
 
       {/* Page Content */}
-      <Outlet />
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <Outlet />
+      </div>
 
       {/* Scanline overlay */}
       <div className="fixed inset-0 pointer-events-none z-50 scanlines" />
