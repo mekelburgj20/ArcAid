@@ -96,18 +96,18 @@ export default function KioskScoreboard() {
       >
         {/* Title */}
         {!titleHidden && (
-          <div className="text-center mb-8">
-            <div className={`inline-flex items-center gap-4 ${
+          <div className="text-center mb-8 overflow-hidden">
+            <div className={`inline-flex items-center gap-4 max-w-full ${
               logoPosition === 'above' || logoPosition === 'below' ? 'flex-col' : 'flex-row'
             }`}>
               {logoUrl && (logoPosition === 'left' || logoPosition === 'above') && (
-                <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain" />
+                <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain flex-shrink-0" />
               )}
-              <p className={`font-display text-muted ${getTitleSizeClass(titleSize)} uppercase tracking-widest ${getTitleStyleClass(titleStyle)}`}>
+              <p className={`font-display text-muted ${getTitleSizeClass(titleSize)} uppercase tracking-widest ${getTitleStyleClass(titleStyle)} min-w-0`}>
                 {titleText}
               </p>
               {logoUrl && (logoPosition === 'right' || logoPosition === 'below') && (
-                <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain" />
+                <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain flex-shrink-0" />
               )}
             </div>
           </div>
@@ -124,7 +124,7 @@ export default function KioskScoreboard() {
         )}
 
         {/* Main content area */}
-        <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row' : 'flex-col'} gap-6 items-start`}>
+        <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row' : 'flex-col'} gap-6 items-stretch lg:items-start`}>
 
           {/* Rankings: left position */}
           {rankingsPosition === 'left' && rankingGroups.length > 0 && (

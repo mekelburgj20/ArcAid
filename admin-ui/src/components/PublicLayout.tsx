@@ -30,7 +30,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-deep text-primary relative">
+    <div className="min-h-screen bg-deep text-primary relative overflow-x-hidden">
       {/* Public Nav Bar */}
       <nav className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
