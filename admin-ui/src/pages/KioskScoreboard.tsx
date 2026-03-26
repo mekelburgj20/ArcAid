@@ -152,7 +152,7 @@ export default function KioskScoreboard() {
             <div className="flex-1 min-w-0 overflow-x-auto">
               <div className="flex gap-3 sm:gap-5 pb-2">
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
+                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} />
                   </div>
                 ))}
