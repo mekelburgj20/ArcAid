@@ -41,20 +41,23 @@ export default function Scoreboard() {
   }, [slug]);
 
   const loadData = async () => {
+    if (!roomId) return;
     try {
-      const res = await fetch('/api/leaderboard', { headers: viewerHeaders });
+      const res = await fetch(`/api/rooms/${roomId}/leaderboard`, { headers: viewerHeaders });
       if (res.ok) setLeaderboards(await res.json());
     } catch { /* ignore */ }
   };
 
   const loadRankings = async () => {
+    if (!roomId) return;
     try {
-      const res = await fetch('/api/rankings', { headers: viewerHeaders });
+      const res = await fetch(`/api/rooms/${roomId}/rankings`, { headers: viewerHeaders });
       if (res.ok) setRankingGroups(await res.json());
     } catch { /* ignore */ }
   };
 
   useEffect(() => {
+    if (!roomId) return;
     loadData();
     loadRankings();
 
@@ -73,7 +76,7 @@ export default function Scoreboard() {
       socket.off('leaderboard:updated');
       socket.off('game:rotated');
     };
-  }, []);
+  }, [roomId]);
 
   // Config-driven values
   const maxScores = parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5;
@@ -175,7 +178,7 @@ export default function Scoreboard() {
           <div className="flex-1 min-w-0 overflow-x-auto">
             <div className="flex gap-3 sm:gap-5 pb-2">
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
+                <div key={lb.gameId} className="flex-shrink-0 max-w-full" style={{ width: `${cardWidth}px` }}>
                   <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} />
                 </div>
               ))}

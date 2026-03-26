@@ -151,7 +151,7 @@ export default function GameRoomManager() {
   };
 
   const autoSlug = (name: string) => {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '');
   };
 
   const columns = [

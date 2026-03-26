@@ -34,15 +34,16 @@ export default function KioskScoreboard() {
   }, [slug]);
 
   const loadData = useCallback(async () => {
+    if (!roomId) return;
     try {
-      const res = await fetch('/api/leaderboard');
+      const res = await fetch(`/api/rooms/${roomId}/leaderboard`);
       if (res.ok) setLeaderboards(await res.json());
     } catch { /* ignore */ }
     try {
-      const res = await fetch('/api/rankings');
+      const res = await fetch(`/api/rooms/${roomId}/rankings`);
       if (res.ok) setRankingGroups(await res.json());
     } catch { /* ignore */ }
-  }, []);
+  }, [roomId]);
 
   // Initial load + auto-refresh
   useEffect(() => {
@@ -152,7 +153,7 @@ export default function KioskScoreboard() {
             <div className="flex-1 min-w-0 overflow-x-auto">
               <div className="flex gap-3 sm:gap-5 pb-2">
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
+                  <div key={lb.gameId} className="flex-shrink-0 max-w-full" style={{ width: `${cardWidth}px` }}>
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} />
                   </div>
                 ))}
