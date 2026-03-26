@@ -123,7 +123,7 @@ export default function GameAvailability() {
             <select
               value={selectedTournamentId || ''}
               onChange={(e) => setSelectedTournamentId(e.target.value)}
-              className="appearance-none bg-surface border border-border rounded-lg px-4 py-2 pr-8 text-sm text-primary focus:outline-none focus:border-neon-cyan/50 cursor-pointer"
+              className="w-full appearance-none bg-surface border border-border rounded-lg px-4 py-2 pr-8 text-sm text-primary focus:outline-none focus:border-neon-cyan/50 cursor-pointer"
             >
               {tournaments.map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>

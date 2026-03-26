@@ -144,7 +144,7 @@ export default function GameDetail() {
     if (!name || !roomId) return;
 
     fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}`)
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : null)
       .then(setStats)
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -154,7 +154,7 @@ export default function GameDetail() {
       .catch(() => {});
 
     fetch(`/api/rooms/${roomId}/leaderboard`)
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : [])
       .then((boards: GameLeaderboard[]) => {
         const match = boards.find(b => b.gameName.toLowerCase() === name.toLowerCase());
         if (match) {
@@ -339,8 +339,12 @@ export default function GameDetail() {
 
   if (!stats) {
     return (
-      <div className="flex items-center justify-center py-24 text-muted">
-        Game not found.
+      <div className="text-center py-24 px-4">
+        <p className="text-muted mb-2">No stats available for <span className="text-primary font-medium">{name}</span>.</p>
+        <p className="text-faint text-sm mb-4">This game hasn&apos;t been played in a tournament yet.</p>
+        <Link to={`/${slug}/games`} className="text-neon-cyan text-sm hover:text-neon-cyan/80 no-underline transition-colors">
+          &larr; Back to Game Availability
+        </Link>
       </div>
     );
   }
