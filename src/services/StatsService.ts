@@ -236,6 +236,50 @@ export class StatsService {
     }
 
     /**
+     * Get all-time player rankings for a specific game (all instances, any status).
+     * Returns every player's best score, total plays, and last played date.
+     */
+    static async getGamePlayerRankings(gameName: string, gameRoomId?: string) {
+        const db = await getDatabase();
+
+        let games;
+        if (gameRoomId) {
+            games = await db.all(
+                `SELECT g.id FROM games g
+                 JOIN tournaments t ON g.tournament_id = t.id
+                 WHERE g.name = ? COLLATE NOCASE AND t.game_room_id = ?`,
+                gameName, gameRoomId
+            );
+        } else {
+            games = await db.all('SELECT id FROM games WHERE name = ? COLLATE NOCASE', gameName);
+        }
+        if (games.length === 0) return [];
+
+        const gameIds = games.map((g: any) => g.id);
+        const placeholders = gameIds.map(() => '?').join(',');
+
+        const rows = await db.all(`
+            SELECT
+                iscored_username,
+                MAX(score) as best_score,
+                COUNT(*) as times_played,
+                MAX(timestamp) as last_played
+            FROM submissions
+            WHERE game_id IN (${placeholders})
+            GROUP BY LOWER(iscored_username)
+            ORDER BY best_score DESC
+        `, ...gameIds);
+
+        return rows.map((r: any, i: number) => ({
+            rank: i + 1,
+            iscored_username: r.iscored_username,
+            best_score: r.best_score,
+            times_played: r.times_played,
+            last_played: r.last_played,
+        }));
+    }
+
+    /**
      * Get enhanced stats for a single player by Discord user ID.
      * Returns finish positions, top-5 rate, champion streak, and recent scores.
      */

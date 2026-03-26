@@ -76,7 +76,15 @@ interface ScoreHistoryEntry {
   photo_url?: string;
 }
 
-type Tab = 'leaderboard' | 'community' | 'tips' | 'your-stats';
+interface GamePlayerRanking {
+  rank: number;
+  iscored_username: string;
+  best_score: number;
+  times_played: number;
+  last_played: string;
+}
+
+type Tab = 'leaderboard' | 'community' | 'tips' | 'player-stats';
 
 export default function GameDetail() {
   const { slug, name } = useParams<{ slug: string; name: string }>();
@@ -97,7 +105,8 @@ export default function GameDetail() {
   const [gameHistory, setGameHistory] = useState<ScoreHistoryEntry[]>([]);
   const [showGameHistory, setShowGameHistory] = useState(false);
 
-  // Player lookup state
+  // Player rankings + lookup state
+  const [gamePlayerRankings, setGamePlayerRankings] = useState<GamePlayerRanking[]>([]);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('arcaid-player-name') || '');
   const [playerStats, setPlayerStats] = useState<PlayerGameStats | null>(null);
   const [playerScoreHistory, setPlayerScoreHistory] = useState<ScoreHistoryEntry[]>([]);
@@ -166,6 +175,12 @@ export default function GameDetail() {
             .catch(() => {});
         }
       })
+      .catch(() => {});
+
+    // Load all-time player rankings for this game
+    fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name)}/players`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setGamePlayerRankings)
       .catch(() => {});
 
     // Load community scores
@@ -274,9 +289,10 @@ export default function GameDetail() {
     }
   };
 
-  const lookupPlayer = () => {
-    const trimmed = playerName.trim();
+  const lookupPlayer = (overrideName?: string) => {
+    const trimmed = (overrideName ?? playerName).trim();
     if (!trimmed || !roomId || !name) return;
+    setPlayerName(trimmed);
     localStorage.setItem('arcaid-player-name', trimmed);
     setPlayerLoading(true);
     setPlayerError('');
@@ -354,7 +370,7 @@ export default function GameDetail() {
     { id: 'leaderboard', label: 'Leaderboard' },
     { id: 'community', label: 'Community' },
     { id: 'tips', label: 'Tips & Comments' },
-    { id: 'your-stats', label: 'Your Stats' },
+    { id: 'player-stats', label: 'Player Stats' },
   ];
 
   return (
@@ -391,7 +407,7 @@ export default function GameDetail() {
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
         {/* Stat Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatCard label="Times Played" value={stats.timesPlayed.toString()} color="text-neon-cyan" />
+          <StatCard label="Times Featured" value={stats.timesPlayed.toString()} color="text-neon-cyan" />
           <StatCard label="Unique Players" value={stats.uniquePlayers.toString()} color="text-neon-green" />
           <StatCard label="Avg Score" value={stats.avgScore.toLocaleString()} color="text-muted" />
           <StatCard label="All-Time High" value={stats.allTimeHigh.toLocaleString()} color="text-neon-amber" />
@@ -809,15 +825,54 @@ export default function GameDetail() {
           </>
         )}
 
-        {activeTab === 'your-stats' && (
-          <div>
+        {activeTab === 'player-stats' && (
+          <div className="space-y-6">
+            {/* Top Players */}
+            {gamePlayerRankings.length > 0 && (
+              <div className="bg-surface border border-border rounded-lg overflow-hidden">
+                <div className="px-4 py-3 border-b border-border/50">
+                  <h3 className="font-display font-bold text-sm text-primary">Top Players</h3>
+                </div>
+                <div className="divide-y divide-border/20">
+                  {gamePlayerRankings.map(p => (
+                    <button
+                      key={p.iscored_username}
+                      onClick={() => lookupPlayer(p.iscored_username)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-raised/50 transition-colors cursor-pointer text-left"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
+                          p.rank === 1 ? 'text-neon-amber' :
+                          p.rank === 2 ? 'text-neon-cyan' :
+                          p.rank === 3 ? 'text-neon-green' :
+                          'text-faint'
+                        }`}>
+                          {p.rank}
+                        </span>
+                        <span className={`text-sm truncate ${playerName === p.iscored_username && playerStats ? 'text-neon-cyan font-medium' : 'text-primary'}`}>
+                          {p.iscored_username}
+                        </span>
+                      </div>
+                      <span className={`font-display font-bold text-sm flex-shrink-0 ${
+                        p.rank === 1 ? 'text-neon-amber' : 'text-primary'
+                      }`}>
+                        {p.best_score.toLocaleString()}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Player Lookup */}
             <div className="bg-surface border border-border rounded-lg p-5">
+              <h3 className="font-display font-bold text-sm text-primary mb-3">Player Lookup</h3>
               <form onSubmit={e => { e.preventDefault(); lookupPlayer(); }} className="flex gap-2 mb-4">
                 <div className="relative flex-1">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
                   <input
                     type="text"
-                    placeholder="Enter your player name..."
+                    placeholder="Enter a player name..."
                     value={playerName}
                     onChange={e => setPlayerName(e.target.value)}
                     className="w-full bg-raised border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
@@ -826,7 +881,7 @@ export default function GameDetail() {
                 <button
                   type="submit"
                   disabled={!playerName.trim() || playerLoading}
-                  className="px-4 py-2 bg-neon-cyan/15 border border-neon-cyan/40 text-neon-cyan rounded-lg text-sm font-medium hover:bg-neon-cyan/25 transition-colors disabled:opacity-40"
+                  className="px-4 py-2 bg-neon-cyan/15 border border-neon-cyan/40 text-neon-cyan rounded-lg text-sm font-medium hover:bg-neon-cyan/25 transition-colors disabled:opacity-40 cursor-pointer"
                 >
                   {playerLoading ? 'Loading...' : 'Look Up'}
                 </button>
@@ -845,18 +900,25 @@ export default function GameDetail() {
                     <MiniStat icon={<TrendingUp size={14} />} label="Personal Best" value={playerStats.best_score.toLocaleString()} />
                   </div>
 
+                  {/* Score trend chart */}
                   {playerStats.trend.length >= 2 && (
-                    <div className="flex items-center gap-3 pt-3 border-t border-border/30">
-                      <span className="text-faint text-xs uppercase tracking-wider">Score Trend</span>
-                      <Sparkline data={playerStats.trend.map(t => t.score)} width={160} height={32} />
+                    <div className="pt-3 border-t border-border/30 mb-4">
+                      <span className="text-faint text-[10px] uppercase tracking-wider block mb-2">Score Trend</span>
+                      <div className="bg-raised/50 rounded-lg p-3">
+                        <Sparkline data={playerStats.trend.map(t => t.score)} width={400} height={80} />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-faint mt-1 px-1">
+                        <span>{playerStats.trend[0]?.date ? new Date(playerStats.trend[0].date).toLocaleDateString() : ''}</span>
+                        <span>{playerStats.trend[playerStats.trend.length - 1]?.date ? new Date(playerStats.trend[playerStats.trend.length - 1].date).toLocaleDateString() : ''}</span>
+                      </div>
                     </div>
                   )}
 
-                  {/* Full score history for this player */}
+                  {/* Score history with dates */}
                   {playerScoreHistory.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-border/30">
+                    <div className="pt-3 border-t border-border/30">
                       <h3 className="text-faint text-[10px] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                        <History size={12} /> All Score Entries
+                        <History size={12} /> Score History
                       </h3>
                       <div className="space-y-1">
                         {playerScoreHistory.map(h => (
@@ -875,11 +937,35 @@ export default function GameDetail() {
                       </div>
                     </div>
                   )}
+
+                  {/* Show trend data as history fallback when score_history is empty */}
+                  {playerScoreHistory.length === 0 && playerStats.trend.length > 0 && (
+                    <div className="pt-3 border-t border-border/30">
+                      <h3 className="text-faint text-[10px] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <History size={12} /> Tournament History
+                      </h3>
+                      <div className="space-y-1">
+                        {playerStats.trend.map((t, i) => (
+                          <div key={i} className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="font-display font-bold text-primary">{t.score.toLocaleString()}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan">#{t.rank}</span>
+                            </div>
+                            <span className="text-faint text-xs">{t.date ? new Date(t.date).toLocaleDateString() : '--'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {!playerStats && !playerError && !playerLoading && (
-                <p className="text-muted text-sm text-center py-4">Enter your player name to see your stats for this game.</p>
+                <p className="text-muted text-sm text-center py-4">
+                  {gamePlayerRankings.length > 0
+                    ? 'Click a player above or search by name to view their stats.'
+                    : 'Enter a player name to look up their stats for this game.'}
+                </p>
               )}
             </div>
           </div>

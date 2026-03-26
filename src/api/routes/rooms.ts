@@ -407,6 +407,20 @@ router.get('/:roomId/stats/enhanced/player/:identifier', async (req, res) => {
     }
 });
 
+// All-time player rankings for a game
+router.get('/:roomId/stats/game/:name/players', async (req, res) => {
+    try {
+        const { StatsService } = await import('../../services/StatsService.js');
+        const gameName = decodeURIComponent(req.params.name as string);
+        const roomId = req.params.roomId as string;
+        const rankings = await StatsService.getGamePlayerRankings(gameName, roomId);
+        res.json(rankings);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/stats/game/:name/players):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Per-game player stats
 router.get('/:roomId/stats/game/:name/player/:identifier', async (req, res) => {
     try {
