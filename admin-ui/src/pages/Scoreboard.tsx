@@ -96,23 +96,30 @@ export default function Scoreboard() {
   const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
   const requirePhoto = config.REQUIRE_SCORE_PHOTO === 'true';
   const cardOpacity = config.SCOREBOARD_CARD_OPACITY ? parseFloat(config.SCOREBOARD_CARD_OPACITY) : undefined;
+  const bgOpacity = config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
 
   return (
     <div
-      className="h-full flex flex-col overflow-hidden"
-      style={{
-        ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
-        ...(bgUrl ? {
-          backgroundImage: `url(${bgUrl})`,
-          backgroundSize: bgMode === 'repeat' ? 'auto' : bgMode,
-          backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
-          backgroundPosition: 'center',
-        } : {}),
-      }}
+      className="h-full flex flex-col overflow-hidden relative"
+      style={zoom !== 100 ? { zoom: `${zoom}%` } : undefined}
     >
+      {/* Background image layer with opacity control */}
+      {bgUrl && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: `url(${bgUrl})`,
+            backgroundSize: bgMode === 'repeat' ? 'auto' : bgMode,
+            backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
+            backgroundPosition: 'center',
+            opacity: bgOpacity,
+          }}
+        />
+      )}
+
       {/* Score flash overlay */}
       {flash && (
         <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />

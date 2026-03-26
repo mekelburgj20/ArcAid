@@ -108,6 +108,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_RANKINGS_POSITION: { label: 'Rankings Position', description: 'Where overall rankings are displayed: left (default), right, top, bottom, or hidden.' },
   // Scoreboard Branding
   SCOREBOARD_BG_MODE: { label: 'Background Mode', description: 'How the background image is displayed: cover (fill screen), contain (fit), repeat (tile), or center.' },
+  SCOREBOARD_BG_OPACITY: { label: 'Background Opacity', description: 'Opacity of the background image. 100% = fully visible (default), 0% = fully hidden. Lower values let the dark theme show through.' },
   LOGO_POSITION: { label: 'Logo Position', description: 'Where the logo appears relative to the scoreboard title: left, right, above, or below.' },
   LOGO_MAX_HEIGHT: { label: 'Logo Max Height (px)', description: 'Maximum height of the logo in pixels. Default: 64.' },
   // Kiosk
@@ -563,6 +564,21 @@ export default function Settings() {
                 <option value="center">Center</option>
               </select>
             </div>
+            <div className="mt-3">
+              <label className="text-xs text-faint block mb-1">Background Opacity</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={Math.round((parseFloat(settings.SCOREBOARD_BG_OPACITY || '1') * 100))}
+                  onChange={e => handleChange('SCOREBOARD_BG_OPACITY', String(parseInt(e.target.value, 10) / 100))}
+                  className="flex-1 accent-neon-cyan cursor-pointer"
+                />
+                <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(settings.SCOREBOARD_BG_OPACITY || '1') * 100))}%</span>
+              </div>
+            </div>
           </div>
 
           {/* Logo Image */}
@@ -877,7 +893,7 @@ export default function Settings() {
                       {meta?.label || key}
                       {meta?.description && <InfoTip text={meta.description} />}
                     </label>
-                    {key === 'SCOREBOARD_CARD_OPACITY' ? (
+                    {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY') ? (
                       <div className="flex items-center gap-3 flex-1">
                         <input
                           type="range"

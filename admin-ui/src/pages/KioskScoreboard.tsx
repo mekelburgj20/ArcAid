@@ -75,23 +75,31 @@ export default function KioskScoreboard() {
   const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
   const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
   const cardOpacity = config.SCOREBOARD_CARD_OPACITY ? parseFloat(config.SCOREBOARD_CARD_OPACITY) : undefined;
+  const bgOpacity = config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
 
   return (
     <div className="min-h-screen bg-deep text-primary relative">
-      <div
-        className="px-4 sm:px-6 py-6"
-        style={{
-          ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
-          ...(bgUrl ? {
+      {/* Background image layer with opacity control */}
+      {bgUrl && (
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{
             backgroundImage: `url(${bgUrl})`,
             backgroundSize: bgMode === 'repeat' ? 'auto' : bgMode,
             backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
             backgroundPosition: 'center',
-            minHeight: '100vh',
-          } : {}),
+            opacity: bgOpacity,
+          }}
+        />
+      )}
+      <div
+        className="px-4 sm:px-6 py-6 relative"
+        style={{
+          ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
+          minHeight: '100vh',
         }}
       >
         {/* Title */}
