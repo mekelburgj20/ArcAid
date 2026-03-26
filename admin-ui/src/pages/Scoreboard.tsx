@@ -102,7 +102,7 @@ export default function Scoreboard() {
 
   return (
     <div
-      className="px-4 sm:px-6 py-6 overflow-x-hidden"
+      className="px-4 sm:px-6 py-6 overflow-hidden"
       style={{
         ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
         ...(bgUrl ? {
@@ -175,13 +175,15 @@ export default function Scoreboard() {
             </div>
           </div>
         ) : (
-          <div className="flex-1 min-w-0 overflow-x-auto">
-            <div className="flex gap-3 sm:gap-5 pb-2">
-              {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="flex-shrink-0 max-w-full" style={{ width: `${cardWidth}px` }}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} />
-                </div>
-              ))}
+          <div className="flex-1 min-w-0">
+            <div className="-mx-4 sm:-mx-6 overflow-x-auto">
+              <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
+                {visibleLeaderboards.map(lb => (
+                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} />
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

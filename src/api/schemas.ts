@@ -105,7 +105,7 @@ export const UpdatePreferencesSchema = z.object({
 
 export const CreateGameRoomSchema = z.object({
     name: z.string().min(1).max(100),
-    slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
+    slug: z.string().min(1).max(50).regex(/^[a-z0-9_]+$/, 'Slug must be lowercase alphanumeric with underscores'),
     description: z.string().max(500).default(''),
     is_public: z.boolean().default(true),
     logo_url: z.string().url().optional().or(z.literal('')),

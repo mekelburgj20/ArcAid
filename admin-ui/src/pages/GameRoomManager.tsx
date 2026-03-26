@@ -243,8 +243,8 @@ export default function GameRoomManager() {
               <input
                 type="text"
                 value={formSlug}
-                onChange={e => setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                placeholder="my-game-room"
+                onChange={e => setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                placeholder="my_game_room"
                 className={inputClass}
               />
               <p className="text-xs text-muted mt-1">URL: /{formSlug || 'slug'}</p>
