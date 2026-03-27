@@ -384,7 +384,10 @@ router.post('/game_library/import-vps', async (req, res) => {
             for (const m of result.autoMerged) roomNames.push(m.existing);
             await GameLibraryService.addToRoom(req.body.roomId, roomNames);
         }
-        const nearMatches = await GameLibraryService.findNearMatches(result.names);
+        // Exclude auto-merged names from near-match detection (they're already handled)
+        const autoMergedNames = new Set(result.autoMerged.map(m => m.imported.toLowerCase()));
+        const nearMatchNames = result.names.filter(n => !autoMergedNames.has(n.toLowerCase()));
+        const nearMatches = await GameLibraryService.findNearMatches(nearMatchNames);
         res.json({ success: true, imported: result.imported, total: result.total, nearMatches, autoMerged: result.autoMerged });
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-vps):', error);
@@ -401,7 +404,10 @@ router.post('/game_library/import-wizard', async (req, res) => {
             for (const m of result.autoMerged) roomNames.push(m.existing);
             await GameLibraryService.addToRoom(req.body.roomId, roomNames);
         }
-        const nearMatches = await GameLibraryService.findNearMatches(result.names);
+        // Exclude auto-merged names from near-match detection (they're already handled)
+        const autoMergedNames = new Set(result.autoMerged.map(m => m.imported.toLowerCase()));
+        const nearMatchNames = result.names.filter(n => !autoMergedNames.has(n.toLowerCase()));
+        const nearMatches = await GameLibraryService.findNearMatches(nearMatchNames);
         res.json({ success: true, imported: result.imported, total: result.total, nearMatches, autoMerged: result.autoMerged });
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-wizard):', error);
