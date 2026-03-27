@@ -141,6 +141,11 @@ export const ScoreSubmissionSchema = z.object({
     score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0)),
 });
 
+export const PickGameSchema = z.object({
+    tournamentId: z.string().min(1),
+    gameName: z.string().min(1).max(200),
+});
+
 export const GameCommentSchema = z.object({
     display_name: z.string().min(1).max(50),
     type: z.enum(['comment', 'tip']),

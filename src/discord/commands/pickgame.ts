@@ -7,29 +7,8 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
+import { passesplatformRules } from '../../utils/platformRules.js';
 import { v4 as uuidv4 } from 'uuid';
-
-/**
- * Checks if a game passes a tournament's platform rules.
- */
-function passesplatformRules(
-    gamePlatforms: string[],
-    rules: { required: string[]; excluded: string[] }
-): boolean {
-    const upper = gamePlatforms.map(p => p.toUpperCase());
-
-    if (rules.required.length > 0) {
-        const hasRequired = rules.required.some(rp => upper.includes(rp.toUpperCase()));
-        if (!hasRequired) return false;
-    }
-
-    if (rules.excluded.length > 0) {
-        const hasExcluded = rules.excluded.some(ep => upper.includes(ep.toUpperCase()));
-        if (hasExcluded) return false;
-    }
-
-    return true;
-}
 
 export const pickgame: Command = {
     data: new SlashCommandBuilder()

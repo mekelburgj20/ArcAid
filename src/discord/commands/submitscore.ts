@@ -168,7 +168,21 @@ export const submitscore: Command = {
                 await RankingService.invalidateAll();
 
                 logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
-                await interaction.editReply(`Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!`);
+
+                // Build web UI tip with room slug
+                let webTip = '';
+                try {
+                    const roomRow = await db.get(
+                        'SELECT gr.slug FROM game_rooms gr JOIN tournaments t ON t.game_room_id = gr.id JOIN games g ON g.tournament_id = t.id WHERE g.id = ?',
+                        game.id
+                    );
+                    const publicUrl = process.env.PUBLIC_URL || 'https://arcaid.app';
+                    if (roomRow?.slug) {
+                        webTip = `\n> **Tip:** You can also submit scores and pick games at ${publicUrl}/${roomRow.slug}`;
+                    }
+                } catch { /* non-critical */ }
+
+                await interaction.editReply(`Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!${webTip}`);
 
                 // Send rating follow-up (fire-and-forget, don't block the score confirmation)
                 sendRatingFollowUp(interaction, gameName, username!).catch(err => {

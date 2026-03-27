@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider } from './components/ThemeProvider';
+import { ViewerAuthProvider } from './contexts/ViewerAuthContext';
 
 // Layouts
 import SuperAdminLayout from './components/SuperAdminLayout';
@@ -104,7 +105,7 @@ function App() {
         <Route path="/:slug/kiosk" element={<KioskScoreboard />} />
 
         {/* Public room routes */}
-        <Route path="/:slug" element={<PublicLayout />}>
+        <Route path="/:slug" element={<ViewerAuthProvider><PublicLayout /></ViewerAuthProvider>}>
           <Route index element={<Scoreboard />} />
           <Route path="players" element={<Players />} />
           <Route path="players/:id" element={<PlayerDetail />} />

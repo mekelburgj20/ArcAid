@@ -23,6 +23,15 @@ export const writeLimiter = rateLimit({
     message: { error: 'Too many requests. Please slow down.' },
 });
 
+/** Pick/queue game: 5 requests per minute per IP */
+export const pickLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many pick attempts. Please wait a moment.' },
+});
+
 /** General API: 100 requests per minute per IP */
 export const generalLimiter = rateLimit({
     windowMs: 60 * 1000,

@@ -66,15 +66,15 @@ Two sub-applications in one process:
 - `src/api/routes/rooms.ts` — All room-scoped endpoints (public + admin): leaderboard, tournaments, settings, stats, etc.
 - `src/api/routes/admin.ts` — Super-admin endpoints: room CRUD, super-admin management, backups, logs, global settings, master library, VPS/Wizard imports
 - `src/api/routes/global.ts` — Non-scoped: /status, /me/preferences, /rooms (public listing), invite accept
-- `src/api/middleware.ts` — `requireAuth`, `requireRoomAccess(paramName)`, `requireSuperAdmin`
-- `src/api/rateLimit.ts` — Rate limiters: `authLimiter` (5/min), `writeLimiter` (30/min), `generalLimiter` (100/min)
+- `src/api/middleware.ts` — `requireAuth`, `requireRoomAccess(paramName)`, `requireSuperAdmin`, `requireDiscordUser`
+- `src/api/rateLimit.ts` — Rate limiters: `authLimiter` (5/min), `writeLimiter` (30/min), `pickLimiter` (5/min), `generalLimiter` (100/min)
 - `src/api/correlationId.ts` — Assigns UUID per request, sets `X-Correlation-ID` header
 - `src/api/auditMiddleware.ts` — Auto-logs admin write operations to `audit_log` table
 - `src/services/` — Business logic layer:
   - **Global:** `SettingsService`, `AdminService`, `GameRoomService`, `GameRoomSettingsService`, `PreferencesService`, `LogService`, `BackupService`, `DashboardService`, `AuditService`
   - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `CommentService`, `CommunityScoreService`, `ScoreHistoryService`, `StyleCatalogueService`
   - **Import:** `VpsImportService` (VPS database JSON), `WizardImportService` (VPXS Wizard Tables from GitHub)
-- `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`
+- `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`, `platformRules.ts`
 
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
@@ -100,14 +100,17 @@ Two sub-applications in one process:
 ### Auth
 - **Super-admin password** — Bootstrap/fallback admin, issues `{ role: 'super_admin', gameRoomIds: [] }`
 - **Room local admin** — Username/password per room, issues `{ role: 'room_admin', gameRoomIds: [roomId] }`
-- **Discord OAuth** — Available on both super-admin and room login pages. Checks `super_admins` → `game_room_admins` → 403
+- **Discord OAuth** — Available on super-admin, room login, and public pages. Checks `super_admins` → `game_room_admins` → issues `player` token
+- **Player auth** — Non-admin Discord users get `role: 'player'` tokens for public features (game picking). Stored separately from admin tokens.
 - **Admin invites** — One-time invite links (48h expiry) for onboarding room admins without sharing passwords. Optional Discord DM delivery.
-- Middleware: `requireAuth` (JWT), `requireRoomAccess('roomId')` (checks scope), `requireSuperAdmin` (role check)
+- Middleware: `requireAuth` (JWT), `requireRoomAccess('roomId')` (checks scope), `requireSuperAdmin` (role check), `requireDiscordUser` (any Discord-authenticated user)
 
 ### API Structure
 - `POST /api/auth/login` — super-admin password login
 - `POST /api/auth/login/:roomSlug` — room local admin login
 - `GET /api/rooms/:roomId/*` — room-scoped endpoints (public + admin)
+- `GET /api/rooms/:roomId/pick-status` — pending pick info for logged-in Discord user (requireDiscordUser)
+- `POST /api/rooms/:roomId/pick-game` — pick/queue a game from web UI (requireDiscordUser + pickLimiter)
 - `GET /api/admin/*` — super-admin endpoints (requireSuperAdmin)
 - `GET /api/*` — global endpoints (status, preferences, public room listing)
 - **Legacy aliases:** `/api/leaderboard`, `/api/tournaments`, etc. redirect to default room for backward compat with Discord commands

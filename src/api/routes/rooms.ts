@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
-import { requireAuth, requireRoomAccess } from '../middleware.js';
+import { requireAuth, requireRoomAccess, requireDiscordUser } from '../middleware.js';
 import { validate } from '../validate.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema,
@@ -16,8 +16,12 @@ import {
     CommunityScoreSchema,
     ScoreSubmissionSchema,
     GameCommentSchema,
+    PickGameSchema,
 } from '../schemas.js';
-import { writeLimiter } from '../rateLimit.js';
+import { writeLimiter, pickLimiter } from '../rateLimit.js';
+import { TournamentEngine } from '../../engine/TournamentEngine.js';
+import { IScoredClient } from '../../engine/IScoredClient.js';
+import { passesplatformRules } from '../../utils/platformRules.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
 import { GameRoomSettingsService } from '../../services/GameRoomSettingsService.js';
@@ -346,6 +350,173 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
     } catch (error) {
         logError('API Error (GET rooms/:roomId/game-availability/:tournamentId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Pick status — returns pending picks for the logged-in Discord user
+router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const discordId = req.user!.discordId!;
+
+        const pendingPicks = await db.all(`
+            SELECT g.tournament_id, t.name as tournament_name, g.picker_type, g.picker_designated_at
+            FROM games g
+            JOIN tournaments t ON g.tournament_id = t.id
+            WHERE t.game_room_id = ? AND g.status = 'QUEUED'
+              AND g.name = '[Pending Pick]' AND g.picker_discord_id = ?
+        `, roomId, discordId);
+
+        // Also get tournaments for this room so the UI knows what's available
+        const tournaments = await db.all(
+            'SELECT id, name, type, mode, max_active_games, platform_rules FROM tournaments WHERE game_room_id = ? AND is_active = 1 ORDER BY display_order',
+            roomId
+        );
+
+        res.json({ pendingPicks, tournaments });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/pick-status):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Pick/queue a game — requires Discord login
+router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const validationResult = validate(PickGameSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const discordId = req.user!.discordId!;
+        const { tournamentId, gameName } = validationResult.data;
+
+        // 1. Verify tournament belongs to this room and is active
+        const tournament = await db.get(
+            'SELECT id, name, type, mode, max_active_games, platform_rules, game_room_id FROM tournaments WHERE id = ? AND game_room_id = ? AND is_active = 1',
+            tournamentId, roomId
+        );
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found or inactive' });
+
+        // 2. Look up game in library
+        const gameLibEntry = await db.get(
+            'SELECT name, mode, platforms, style_id FROM game_library WHERE name = ? COLLATE NOCASE',
+            gameName
+        );
+        if (!gameLibEntry) return res.status(404).json({ error: `Game "${gameName}" not found in the library` });
+
+        // 3. Check mode match
+        if (gameLibEntry.mode !== tournament.mode) {
+            return res.status(400).json({ error: `Game mode "${gameLibEntry.mode}" does not match tournament mode "${tournament.mode}"` });
+        }
+
+        // 4. Check platform rules
+        let platformRules = { required: [] as string[], excluded: [] as string[] };
+        try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
+
+        let gamePlatforms: string[] = [];
+        try { gamePlatforms = JSON.parse(gameLibEntry.platforms || '[]'); } catch {}
+
+        if (!passesplatformRules(gamePlatforms, platformRules)) {
+            const restrictedText = (JSON.parse(tournament.platform_rules || '{}') as any).restrictedText;
+            return res.status(400).json({
+                error: restrictedText || 'This game is not available for this tournament type (platform restriction)',
+            });
+        }
+
+        // 5. Check cooldown (eligibility)
+        const engine = TournamentEngine.getInstance();
+        const isEligible = await engine.isGameEligible(tournamentId, gameLibEntry.name);
+        if (!isEligible) {
+            // Calculate remaining cooldown days for the error message
+            const roomSetting = await db.get(
+                "SELECT value FROM game_room_settings WHERE game_room_id = ? AND key = 'GAME_ELIGIBILITY_DAYS'",
+                roomId
+            );
+            const globalSetting = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
+            const eligibilityDays = parseInt(roomSetting?.value ?? globalSetting?.value ?? '120', 10);
+
+            const lastPlayed = await db.get(
+                `SELECT start_date FROM games WHERE tournament_id = ? AND name = ? COLLATE NOCASE AND status != 'QUEUED' ORDER BY start_date DESC LIMIT 1`,
+                tournamentId, gameLibEntry.name
+            );
+            let daysRemaining = eligibilityDays;
+            if (lastPlayed?.start_date) {
+                const playedDate = new Date(lastPlayed.start_date);
+                const availableDate = new Date(playedDate);
+                availableDate.setDate(availableDate.getDate() + eligibilityDays);
+                daysRemaining = Math.max(1, Math.ceil((availableDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+            }
+
+            return res.status(400).json({
+                error: `"${gameLibEntry.name}" is in cooldown for ${daysRemaining} more day${daysRemaining === 1 ? '' : 's'}`,
+            });
+        }
+
+        // 6. Check for pending pick slot (user won and has picking rights)
+        const pendingPick = await db.get(
+            `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND picker_discord_id = ?`,
+            tournamentId, discordId
+        );
+
+        const styleId = gameLibEntry.style_id || undefined;
+        const maxSlots = tournament.max_active_games ?? 1;
+        const activeGames = await engine.getActiveGames(tournamentId);
+        const hasOpenSlot = activeGames.length < maxSlots;
+
+        if (pendingPick) {
+            // User has a win pick — fulfil it
+            if (hasOpenSlot) {
+                // Activate immediately — create on iScored if enabled
+                const { GameRoomSettingsService: GRS } = await import('../../services/GameRoomSettingsService.js');
+                const iscoredEnabled = (await GRS.get(roomId, 'ISCORED_ENABLED')) !== 'false';
+                const hasCredentials = iscoredEnabled && !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+
+                let iscoredId: string | undefined;
+                if (hasCredentials) {
+                    const client = new IScoredClient();
+                    await client.connect();
+                    try {
+                        iscoredId = await client.createGame(gameLibEntry.name, styleId);
+                        await client.setGameTags(iscoredId, tournament.type);
+                        await client.setGameStatus(iscoredId, { locked: false, hidden: false });
+                    } finally {
+                        await client.disconnect();
+                    }
+                }
+
+                // Delete the pending pick placeholder and activate the real game
+                await db.run('DELETE FROM games WHERE id = ?', pendingPick.id);
+                await engine.activateGame(tournamentId, gameLibEntry.name, styleId, iscoredId, false);
+
+                // Reorder iScored lineup in background
+                if (hasCredentials) {
+                    engine.reorderIScoredLineup().catch(() => {});
+                }
+
+                logInfo(`Web pick (activated): ${req.user!.username} picked ${gameLibEntry.name} for ${tournament.name}`);
+                return res.json({ status: 'activated', gameName: gameLibEntry.name, tournamentName: tournament.name });
+            } else {
+                // All slots full — update placeholder to real game name (will activate at next maintenance)
+                await db.run(
+                    'UPDATE games SET name = ?, style_id = ? WHERE id = ?',
+                    gameLibEntry.name, styleId || null, pendingPick.id
+                );
+
+                logInfo(`Web pick (queued, slots full): ${req.user!.username} picked ${gameLibEntry.name} for ${tournament.name}`);
+                return res.json({ status: 'queued', gameName: gameLibEntry.name, tournamentName: tournament.name });
+            }
+        } else {
+            // No pending pick — queue the game for next time
+            await engine.queueGame(tournamentId, gameLibEntry.name, styleId);
+
+            logInfo(`Web pick (queued): ${req.user!.username} queued ${gameLibEntry.name} for ${tournament.name}`);
+            return res.json({ status: 'queued', gameName: gameLibEntry.name, tournamentName: tournament.name });
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/pick-game):', error);
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Internal Server Error' });
     }
 });
 

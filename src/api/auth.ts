@@ -17,7 +17,7 @@ const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRY = '24h';
 
 export interface TokenPayload {
-    role: 'room_admin' | 'super_admin';
+    role: 'room_admin' | 'super_admin' | 'player';
     gameRoomIds: string[];
     // Identity — exactly one of these is set:
     discordId?: string;

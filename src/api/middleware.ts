@@ -64,6 +64,29 @@ export function requireRoomAccess(paramName: string = 'roomId') {
 }
 
 /**
+ * Validates JWT and confirms the user has a Discord identity (any role).
+ * Used for public features that require Discord login (e.g. game picking).
+ */
+export function requireDiscordUser(req: Request, res: Response, next: NextFunction): void {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+    if (!token) {
+        res.status(401).json({ error: 'Discord login required' });
+        return;
+    }
+
+    const payload = verifyToken(token);
+    if (!payload || !payload.discordId) {
+        res.status(401).json({ error: 'Discord login required' });
+        return;
+    }
+
+    req.user = payload;
+    next();
+}
+
+/**
  * Checks req.user.role === 'super_admin'.
  */
 export function requireSuperAdmin(req: Request, res: Response, next: NextFunction): void {

@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, Shuffle, Star } from 'lucide-react';
+import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, Shuffle, Star, Crosshair } from 'lucide-react';
 import PinballPicker from '../components/PinballPicker';
+import PickGameModal from '../components/PickGameModal';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { useToast } from '../components/Toast';
 
 interface GameAvailabilityEntry {
   name: string;
@@ -27,12 +30,25 @@ interface TournamentOption {
   id: string;
   name: string;
   type: string;
+  mode?: string;
 }
 
 interface AvailabilityData {
   tournament: TournamentInfo;
   eligibilityDays: number;
   games: GameAvailabilityEntry[];
+}
+
+interface PendingPick {
+  tournament_id: string;
+  tournament_name: string;
+  picker_type: string;
+  picker_designated_at: string;
+}
+
+interface PickStatusData {
+  pendingPicks: PendingPick[];
+  tournaments: Array<{ id: string; name: string; type: string; mode: string; max_active_games: number; platform_rules: string }>;
 }
 
 export default function GameAvailability() {
@@ -46,6 +62,12 @@ export default function GameAvailability() {
   const [filter, setFilter] = useState<'all' | 'available' | 'cooldown'>('all');
   const [search, setSearch] = useState('');
   const [showPicker, setShowPicker] = useState(false);
+
+  // Pick game state
+  const { discordUser, playerToken } = useViewerAuth();
+  const { toast } = useToast();
+  const [pickStatus, setPickStatus] = useState<PickStatusData | null>(null);
+  const [pickTarget, setPickTarget] = useState<string | null>(null);
 
   // Resolve room
   useEffect(() => {
@@ -87,6 +109,48 @@ export default function GameAvailability() {
       .finally(() => setLoading(false));
   }, [roomId, selectedTournamentId]);
 
+  // Load pick status when Discord user is logged in
+  const fetchPickStatus = useCallback(() => {
+    if (!roomId || !playerToken) return;
+    fetch(`/api/rooms/${roomId}/pick-status`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setPickStatus(data); })
+      .catch(() => {});
+  }, [roomId, playerToken]);
+
+  useEffect(() => { fetchPickStatus(); }, [fetchPickStatus]);
+
+  const handlePickConfirm = async (tournamentId: string) => {
+    if (!roomId || !playerToken) return;
+    const res = await fetch(`/api/rooms/${roomId}/pick-game`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${playerToken}`,
+      },
+      body: JSON.stringify({ tournamentId, gameName: pickTarget }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Pick failed');
+
+    setPickTarget(null);
+    if (result.status === 'activated') {
+      toast(`${result.gameName} is now active for ${result.tournamentName}!`, 'success');
+    } else {
+      toast(`${result.gameName} queued for ${result.tournamentName}`, 'success');
+    }
+    // Refresh data
+    fetchPickStatus();
+    if (selectedTournamentId) {
+      fetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
+        .then(r => r.json())
+        .then(setData)
+        .catch(() => {});
+    }
+  };
+
   const filteredGames = data?.games.filter(g => {
     if (filter === 'available' && !g.available) return false;
     if (filter === 'cooldown' && g.available) return false;
@@ -97,6 +161,8 @@ export default function GameAvailability() {
   const availableCount = data?.games.filter(g => g.available).length ?? 0;
   const cooldownCount = data?.games.filter(g => !g.available).length ?? 0;
   const totalCount = data?.games.length ?? 0;
+
+  const hasPendingPicks = (pickStatus?.pendingPicks.length ?? 0) > 0;
 
   return (
     <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
@@ -133,6 +199,16 @@ export default function GameAvailability() {
           </div>
         )}
       </div>
+
+      {/* Pending pick banner */}
+      {discordUser && hasPendingPicks && (
+        <div className="flex items-center gap-2 px-4 py-2.5 mb-4 rounded-lg bg-neon-green/10 border border-neon-green/30">
+          <Crosshair size={16} className="text-neon-green flex-shrink-0" />
+          <p className="text-xs text-neon-green">
+            It's your turn to pick! Select an available game below to activate it.
+          </p>
+        </div>
+      )}
 
       {data && (
         <p className="text-muted text-xs mb-4">
@@ -191,17 +267,22 @@ export default function GameAvailability() {
       ) : (
         <div className="bg-surface border border-border rounded-lg overflow-hidden">
           {/* Header */}
-          <div className="hidden sm:grid grid-cols-[1fr_100px_110px_140px_120px] gap-2 px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+          <div className={`hidden sm:grid gap-2 px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider ${
+            discordUser ? 'grid-cols-[1fr_100px_110px_140px_120px_60px]' : 'grid-cols-[1fr_100px_110px_140px_120px]'
+          }`}>
             <span>Game</span>
             <span className="text-center">Status</span>
             <span className="text-center">Last Played</span>
             <span className="text-right">All-Time High</span>
             <span className="text-right">Last Winner</span>
+            {discordUser && <span className="text-center">Pick</span>}
           </div>
           {filteredGames.map((game) => (
             <div
               key={game.name}
-              className="grid grid-cols-1 sm:grid-cols-[1fr_100px_110px_140px_120px] gap-1 sm:gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center"
+              className={`grid grid-cols-1 gap-1 sm:gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center ${
+                discordUser ? 'sm:grid-cols-[1fr_100px_110px_140px_120px_60px]' : 'sm:grid-cols-[1fr_100px_110px_140px_120px]'
+              }`}
             >
               {/* Game name */}
               <div className="flex items-center gap-2 min-w-0">
@@ -266,14 +347,45 @@ export default function GameAvailability() {
                   <span className="text-faint">{game.lastPlayedDate ? (game.lastStatus === 'ACTIVE' ? 'In progress' : '--') : '--'}</span>
                 )}
               </div>
+
+              {/* Pick button */}
+              {discordUser && (
+                <div className="flex items-center justify-center">
+                  {game.available ? (
+                    <button
+                      onClick={() => setPickTarget(game.name)}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20 transition-colors cursor-pointer"
+                      title="Pick this game"
+                    >
+                      <Crosshair size={12} />
+                      <span className="hidden sm:inline">Pick</span>
+                    </button>
+                  ) : (
+                    <span className="text-faint text-[10px]">--</span>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
+
       {showPicker && data && (
         <PinballPicker
           availableGames={data.games.filter(g => g.available).map(g => g.name)}
           onClose={() => setShowPicker(false)}
+        />
+      )}
+
+      {/* Pick game modal */}
+      {pickTarget && pickStatus && (
+        <PickGameModal
+          gameName={pickTarget}
+          tournaments={pickStatus.tournaments.map(t => ({ id: t.id, name: t.name, type: t.type, mode: t.mode }))}
+          pendingPicks={pickStatus.pendingPicks}
+          selectedTournamentId={selectedTournamentId}
+          onConfirm={handlePickConfirm}
+          onClose={() => setPickTarget(null)}
         />
       )}
     </main>

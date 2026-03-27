@@ -167,8 +167,16 @@ router.post('/discord/callback', async (req, res) => {
             return res.json({ token, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
         }
 
-        // 3. Not an admin of any room
-        return res.status(403).json({ error: 'You are not an admin of any game room' });
+        // 3. Not an admin — issue a player token (for public features like game picking)
+        const token = signToken({
+            role: 'player',
+            gameRoomIds: [],
+            discordId: user.id,
+            username: displayName,
+            avatar: avatarUrl || undefined,
+        });
+        logInfo(`Discord OAuth login (player): ${displayName} (${user.id})`);
+        return res.json({ token, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
     } catch (error) {
         logError('API Error (POST /api/auth/discord/callback):', error);
         res.status(500).json({ error: 'Internal Server Error' });

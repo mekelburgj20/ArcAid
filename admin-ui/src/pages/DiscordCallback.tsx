@@ -25,7 +25,7 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
 
     const code = searchParams.get('code');
     const errorParam = searchParams.get('error');
-    const state = searchParams.get('state'); // room slug, if coming from room login
+    const state = searchParams.get('state'); // room slug, player:slug, or __super__
 
     if (errorParam) {
       setError(`Discord authorization denied: ${searchParams.get('error_description') || errorParam}`);
@@ -51,16 +51,41 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
         return data;
       })
       .then(data => {
+        const payload = decodeJwtPayload(data.token);
+        const role = payload?.role as string | undefined;
+
+        // Check if this is a player login flow (initiated from public page)
+        const isPlayerFlow = state?.startsWith('player:');
+
+        if (isPlayerFlow || role === 'player') {
+          // Store player token separately — don't overwrite admin session
+          localStorage.setItem('arcaid_player_token', data.token);
+          if (data.user) {
+            localStorage.setItem('arcaid_player_user', JSON.stringify(data.user));
+          }
+          // Notify ViewerAuthContext
+          window.dispatchEvent(new Event('arcaid_player_login'));
+
+          // Redirect back to the public page
+          const returnPath = localStorage.getItem('arcaid_player_return');
+          localStorage.removeItem('arcaid_player_return');
+          if (returnPath) {
+            window.location.href = returnPath;
+          } else if (state?.startsWith('player:')) {
+            const slug = state.slice('player:'.length);
+            window.location.href = `/${slug}/games`;
+          } else {
+            window.location.href = '/';
+          }
+          return;
+        }
+
+        // Admin login flow — store as admin token
         setToken(data.token);
         onLogin();
 
-        // Decode JWT to determine where to redirect
-        const payload = decodeJwtPayload(data.token);
         if (payload) {
-          const role = payload.role as string | undefined;
-
           if (role === 'super_admin') {
-            // If login was initiated from a room page, go to that room's admin
             if (state && state !== '__super__') {
               window.location.href = `/${state}/admin/dashboard`;
             } else {
@@ -71,18 +96,15 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
 
           if (role === 'room_admin') {
             const gameRoomIds = payload.gameRoomIds as string[] | undefined;
-            // If we have state (slug from room login), redirect there
             if (state && state !== '__super__') {
               window.location.href = `/${state}/admin/dashboard`;
               return;
             }
-            // If token includes room slugs, redirect to the first one
             const roomSlugs = payload.roomSlugs as string[] | undefined;
             if (roomSlugs && roomSlugs.length > 0) {
               window.location.href = `/${roomSlugs[0]}/admin/dashboard`;
               return;
             }
-            // If we have room IDs but no slugs, go to super admin to pick
             if (gameRoomIds && gameRoomIds.length > 0) {
               window.location.href = '/admin/dashboard';
               return;
