@@ -280,91 +280,130 @@ export default function GameAvailability() {
           {filteredGames.map((game) => (
             <div
               key={game.name}
-              className={`grid grid-cols-1 gap-1 sm:gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center ${
-                discordUser ? 'sm:grid-cols-[1fr_100px_110px_140px_120px_60px]' : 'sm:grid-cols-[1fr_100px_110px_140px_120px]'
-              }`}
+              className="border-b border-border/20 last:border-0"
             >
-              {/* Game name */}
-              <div className="flex items-center gap-2 min-w-0">
-                <Link
-                  to={`/${slug}/games/${encodeURIComponent(game.name)}`}
-                  className="font-medium text-sm truncate no-underline text-primary hover:text-neon-cyan transition-colors"
-                >
-                  {game.name}
-                </Link>
-              </div>
-
-              {/* Status */}
-              <div className="flex items-center justify-center gap-1.5">
-                {game.available ? (
-                  <>
-                    <CheckCircle size={14} className="text-neon-green flex-shrink-0" />
-                    <span className="text-neon-green text-xs font-medium">Available</span>
-                  </>
-                ) : (
-                  <>
-                    <Clock size={14} className="text-neon-amber flex-shrink-0" />
-                    <span className="text-neon-amber text-xs font-medium">{game.daysUntilAvailable}d</span>
-                  </>
-                )}
-              </div>
-
-              {/* Last played */}
-              <div className="flex items-center justify-center gap-1 text-xs text-muted">
-                {game.lastPlayedDate ? (
-                  <>
-                    <Calendar size={12} className="flex-shrink-0 hidden sm:block" />
-                    <span>{new Date(game.lastPlayedDate).toLocaleDateString()}</span>
-                  </>
-                ) : (
-                  <span className="text-faint">Never</span>
-                )}
-              </div>
-
-              {/* All-Time High */}
-              <div className="text-right text-xs">
-                {game.allTimeHigh != null ? (
-                  <div className="flex items-center justify-end gap-1">
-                    <Star size={12} className="text-neon-amber flex-shrink-0" />
-                    <span className="text-primary font-medium">{game.allTimeHigh.toLocaleString()}</span>
-                    {game.allTimeHighPlayer && (
-                      <span className="text-muted hidden lg:inline">({game.allTimeHighPlayer})</span>
-                    )}
-                  </div>
-                ) : (
-                  <span className="text-faint">--</span>
-                )}
-              </div>
-
-              {/* Last Winner */}
-              <div className="text-right text-xs">
-                {game.winnerName ? (
-                  <div className="flex items-center justify-end gap-1">
-                    <Trophy size={12} className="text-neon-amber flex-shrink-0" />
-                    <span className="text-primary truncate">{game.winnerName}</span>
-                  </div>
-                ) : (
-                  <span className="text-faint">{game.lastPlayedDate ? (game.lastStatus === 'ACTIVE' ? 'In progress' : '--') : '--'}</span>
-                )}
-              </div>
-
-              {/* Pick button */}
-              {discordUser && (
-                <div className="flex items-center justify-center">
+              {/* Desktop row */}
+              <div className={`hidden sm:grid gap-2 px-4 py-3 items-center ${
+                discordUser ? 'grid-cols-[1fr_100px_110px_140px_120px_60px]' : 'grid-cols-[1fr_100px_110px_140px_120px]'
+              }`}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Link
+                    to={`/${slug}/games/${encodeURIComponent(game.name)}`}
+                    className="font-medium text-sm truncate no-underline text-primary hover:text-neon-cyan transition-colors"
+                  >
+                    {game.name}
+                  </Link>
+                </div>
+                <div className="flex items-center justify-center gap-1.5">
                   {game.available ? (
-                    <button
-                      onClick={() => setPickTarget(game.name)}
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20 transition-colors cursor-pointer"
-                      title="Pick this game"
-                    >
-                      <Crosshair size={12} />
-                      <span className="hidden sm:inline">Pick</span>
-                    </button>
+                    <>
+                      <CheckCircle size={14} className="text-neon-green flex-shrink-0" />
+                      <span className="text-neon-green text-xs font-medium">Available</span>
+                    </>
                   ) : (
-                    <span className="text-faint text-[10px]">--</span>
+                    <>
+                      <Clock size={14} className="text-neon-amber flex-shrink-0" />
+                      <span className="text-neon-amber text-xs font-medium">{game.daysUntilAvailable}d</span>
+                    </>
                   )}
                 </div>
-              )}
+                <div className="flex items-center justify-center gap-1 text-xs text-muted">
+                  {game.lastPlayedDate ? (
+                    <>
+                      <Calendar size={12} className="flex-shrink-0" />
+                      <span>{new Date(game.lastPlayedDate).toLocaleDateString()}</span>
+                    </>
+                  ) : (
+                    <span className="text-faint">Never</span>
+                  )}
+                </div>
+                <div className="text-right text-xs">
+                  {game.allTimeHigh != null ? (
+                    <div className="flex items-center justify-end gap-1">
+                      <Star size={12} className="text-neon-amber flex-shrink-0" />
+                      <span className="text-primary font-medium">{game.allTimeHigh.toLocaleString()}</span>
+                      {game.allTimeHighPlayer && (
+                        <span className="text-muted hidden lg:inline">({game.allTimeHighPlayer})</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-faint">--</span>
+                  )}
+                </div>
+                <div className="text-right text-xs">
+                  {game.winnerName ? (
+                    <div className="flex items-center justify-end gap-1">
+                      <Trophy size={12} className="text-neon-amber flex-shrink-0" />
+                      <span className="text-primary truncate">{game.winnerName}</span>
+                    </div>
+                  ) : (
+                    <span className="text-faint">{game.lastPlayedDate ? (game.lastStatus === 'ACTIVE' ? 'In progress' : '--') : '--'}</span>
+                  )}
+                </div>
+                {discordUser && (
+                  <div className="flex items-center justify-center">
+                    {game.available ? (
+                      <button
+                        onClick={() => setPickTarget(game.name)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20 transition-colors cursor-pointer"
+                      >
+                        <Crosshair size={12} />
+                        Pick
+                      </button>
+                    ) : (
+                      <span className="text-faint text-[10px]">--</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Mobile card */}
+              <div className="sm:hidden px-4 py-3">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <Link
+                    to={`/${slug}/games/${encodeURIComponent(game.name)}`}
+                    className="font-medium text-sm no-underline text-primary hover:text-neon-cyan transition-colors leading-tight"
+                  >
+                    {game.name}
+                  </Link>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {game.available ? (
+                      <>
+                        <CheckCircle size={14} className="text-neon-green" />
+                        <span className="text-neon-green text-xs font-medium">Available</span>
+                      </>
+                    ) : (
+                      <>
+                        <Clock size={14} className="text-neon-amber" />
+                        <span className="text-neon-amber text-xs font-medium">{game.daysUntilAvailable}d</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-[11px]">
+                  <div>
+                    <span className="text-faint">Played</span>
+                    <p className="text-muted">{game.lastPlayedDate ? new Date(game.lastPlayedDate).toLocaleDateString() : 'Never'}</p>
+                  </div>
+                  <div>
+                    <span className="text-faint">High Score</span>
+                    <p className="text-primary">{game.allTimeHigh != null ? game.allTimeHigh.toLocaleString() : '--'}</p>
+                  </div>
+                  <div>
+                    <span className="text-faint">Winner</span>
+                    <p className="text-primary truncate">{game.winnerName || '--'}</p>
+                  </div>
+                </div>
+                {discordUser && game.available && (
+                  <button
+                    onClick={() => setPickTarget(game.name)}
+                    className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20 transition-colors cursor-pointer"
+                  >
+                    <Crosshair size={12} />
+                    Pick Game
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
