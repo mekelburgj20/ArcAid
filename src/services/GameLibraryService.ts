@@ -91,23 +91,48 @@ export class GameLibraryService {
     /**
      * Imports an array of games into the library (upsert).
      * Runs in a transaction for atomicity.
+     * Auto-merges games whose names differ only by trivial formatting
+     * (e.g. comma in parenthetical: "Game (Stern, 2009)" vs "Game (Stern 2009)").
+     * Returns the count of imported games and any auto-merged entries.
      */
-    static async importGames(games: GameData[]): Promise<number> {
+    static async importGames(games: GameData[]): Promise<{ imported: number; autoMerged: Array<{ imported: string; existing: string }> }> {
         const db = await getDatabase();
+
+        // Build a normalized lookup of all existing games for auto-merge detection
+        const allExisting = await db.all('SELECT name, platforms FROM game_library');
+        const normalizedMap = new Map<string, { name: string; platforms: string }>();
+        for (const row of allExisting) {
+            normalizedMap.set(this.normalizeName(row.name), { name: row.name, platforms: row.platforms || '' });
+        }
+
+        const autoMerged: Array<{ imported: string; existing: string }> = [];
 
         await db.exec('BEGIN TRANSACTION');
         try {
             for (const game of games) {
-                // Check if game exists so we can merge platforms
+                // Check if game exists by exact name (case-insensitive)
                 const existing = await db.get(
-                    'SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE',
+                    'SELECT name, platforms FROM game_library WHERE name = ? COLLATE NOCASE',
                     game.name
                 );
 
+                // If no exact match, check for a normalized match (auto-merge candidate)
+                let mergeTarget: { name: string; platforms: string } | null = null;
+                if (!existing) {
+                    const norm = this.normalizeName(game.name);
+                    const normMatch = normalizedMap.get(norm);
+                    if (normMatch && normMatch.name.toLowerCase() !== game.name.toLowerCase()) {
+                        mergeTarget = normMatch;
+                    }
+                }
+
+                const targetName = existing?.name || mergeTarget?.name || null;
+                const targetPlatforms = existing?.platforms || mergeTarget?.platforms || '';
+
                 // Merge platforms: union of existing + new
                 let mergedPlatforms = game.platforms || '[]';
-                if (existing) {
-                    const existingList = this.parsePlatformsList(existing.platforms || '');
+                if (targetName) {
+                    const existingList = this.parsePlatformsList(targetPlatforms);
                     const newList = this.parsePlatformsList(mergedPlatforms);
                     const seen = new Set(existingList.map(p => p.toUpperCase()));
                     const result = [...existingList];
@@ -145,6 +170,48 @@ export class GameLibraryService {
                         mergedPlatforms,
                         game.name
                     );
+                } else if (mergeTarget) {
+                    // Auto-merge: update the existing game's platforms and add alias
+                    const existingAliases = await db.get(
+                        'SELECT aliases FROM game_library WHERE name = ?',
+                        mergeTarget.name
+                    );
+                    const aliasStr = existingAliases?.aliases || '';
+                    const aliasList = aliasStr ? aliasStr.split(',').map((a: string) => a.trim()).filter(Boolean) : [];
+                    if (!aliasList.some((a: string) => a.toLowerCase() === game.name.toLowerCase())) {
+                        aliasList.push(game.name);
+                    }
+
+                    await db.run(
+                        `UPDATE game_library SET
+                            aliases = ?,
+                            style_id = CASE WHEN ? != '' THEN ? ELSE style_id END,
+                            mode = ?,
+                            css_title = CASE WHEN ? != '' THEN ? ELSE css_title END,
+                            css_initials = CASE WHEN ? != '' THEN ? ELSE css_initials END,
+                            css_scores = CASE WHEN ? != '' THEN ? ELSE css_scores END,
+                            css_box = CASE WHEN ? != '' THEN ? ELSE css_box END,
+                            bg_color = CASE WHEN ? != '' THEN ? ELSE bg_color END,
+                            platforms = ?
+                        WHERE name = ?`,
+                        aliasList.join(', '),
+                        game.style_id || '', game.style_id || '',
+                        game.mode || 'pinball',
+                        game.css_title || '', game.css_title || '',
+                        game.css_initials || '', game.css_initials || '',
+                        game.css_scores || '', game.css_scores || '',
+                        game.css_box || '', game.css_box || '',
+                        game.bg_color || '', game.bg_color || '',
+                        mergedPlatforms,
+                        mergeTarget.name
+                    );
+
+                    // Transfer room associations if the imported name had any queued
+                    // (not applicable during bulk import, but keeps behavior consistent)
+
+                    autoMerged.push({ imported: game.name, existing: mergeTarget.name });
+                    // Update the normalized map so subsequent games in this batch see the merged platforms
+                    normalizedMap.set(this.normalizeName(mergeTarget.name), { name: mergeTarget.name, platforms: mergedPlatforms });
                 } else {
                     // Insert new game
                     await db.run(
@@ -157,6 +224,8 @@ export class GameLibraryService {
                         game.css_scores || '', game.css_box || '',
                         game.bg_color || '', mergedPlatforms
                     );
+                    // Add to normalized map for subsequent games in this batch
+                    normalizedMap.set(this.normalizeName(game.name), { name: game.name, platforms: mergedPlatforms });
                 }
             }
             await db.exec('COMMIT');
@@ -164,7 +233,11 @@ export class GameLibraryService {
             // Auto-sync: merge any new platforms into the master PLATFORMS setting
             await this.syncPlatformsSetting(db, games);
 
-            return games.length;
+            if (autoMerged.length > 0) {
+                logInfo(`Auto-merged ${autoMerged.length} near-duplicate games during import`);
+            }
+
+            return { imported: games.length, autoMerged };
         } catch (error) {
             await db.exec('ROLLBACK').catch(() => {});
             throw error;

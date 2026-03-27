@@ -1027,11 +1027,11 @@ router.post('/:roomId/game_library/import', requireAuth, requireRoomAccess('room
         const validationResult = validate(ImportGamesSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
-        const imported = await GameLibraryService.importGames(validationResult.data.games);
+        const result = await GameLibraryService.importGames(validationResult.data.games);
         // Also add to room
         const gameNames = validationResult.data.games.map((g: any) => g.name);
         await GameLibraryService.addToRoom(req.params.roomId as string, gameNames);
-        res.json({ success: true, imported });
+        res.json({ success: true, imported: result.imported, autoMerged: result.autoMerged });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/game_library/import):', error);
         res.status(500).json({ error: 'Internal Server Error' });

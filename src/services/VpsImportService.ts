@@ -54,7 +54,7 @@ export class VpsImportService {
      * Only imports entries with at least one tableFile (playable games).
      * Game names include manufacturer and year for identification.
      */
-    static async importFromVps(): Promise<{ imported: number; total: number; names: string[] }> {
+    static async importFromVps(): Promise<{ imported: number; total: number; names: string[]; autoMerged: Array<{ imported: string; existing: string }> }> {
         logInfo('VPS Import: fetching database...');
         const resp = await fetch('https://virtualpinballspreadsheet.github.io/vps-db/db/vpsdb.json');
         if (!resp.ok) throw new Error(`VPS API returned ${resp.status}`);
@@ -74,9 +74,9 @@ export class VpsImportService {
             platforms: JSON.stringify(extractPlatforms(t)),
         }));
 
-        const imported = await GameLibraryService.importGames(games);
+        const result = await GameLibraryService.importGames(games);
         const names = games.map(g => g.name);
-        logInfo(`VPS Import: imported ${imported} games`);
-        return { imported, total: tables.length, names };
+        logInfo(`VPS Import: imported ${result.imported} games, auto-merged ${result.autoMerged.length}`);
+        return { imported: result.imported, total: tables.length, names, autoMerged: result.autoMerged };
     }
 }

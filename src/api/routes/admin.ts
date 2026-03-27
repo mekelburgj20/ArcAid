@@ -379,10 +379,13 @@ router.post('/game_library/import-vps', async (req, res) => {
     try {
         const result = await VpsImportService.importFromVps();
         if (req.body?.roomId) {
-            await GameLibraryService.addToRoom(req.body.roomId, result.names);
+            // Add imported games to room; also add auto-merge targets (existing names kept)
+            const roomNames = [...result.names];
+            for (const m of result.autoMerged) roomNames.push(m.existing);
+            await GameLibraryService.addToRoom(req.body.roomId, roomNames);
         }
         const nearMatches = await GameLibraryService.findNearMatches(result.names);
-        res.json({ success: true, imported: result.imported, total: result.total, nearMatches });
+        res.json({ success: true, imported: result.imported, total: result.total, nearMatches, autoMerged: result.autoMerged });
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-vps):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'VPS import failed' });
@@ -393,10 +396,13 @@ router.post('/game_library/import-wizard', async (req, res) => {
     try {
         const result = await WizardImportService.importFromWizard();
         if (req.body?.roomId) {
-            await GameLibraryService.addToRoom(req.body.roomId, result.names);
+            // Add imported games to room; also add auto-merge targets (existing names kept)
+            const roomNames = [...result.names];
+            for (const m of result.autoMerged) roomNames.push(m.existing);
+            await GameLibraryService.addToRoom(req.body.roomId, roomNames);
         }
         const nearMatches = await GameLibraryService.findNearMatches(result.names);
-        res.json({ success: true, imported: result.imported, total: result.total, nearMatches });
+        res.json({ success: true, imported: result.imported, total: result.total, nearMatches, autoMerged: result.autoMerged });
     } catch (error) {
         logError('API Error (POST /api/admin/game_library/import-wizard):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'Wizard import failed' });

@@ -361,8 +361,9 @@ export default function GameLibrary() {
           <NeonButton variant="secondary" onClick={async () => {
             setVpsImporting(true);
             try {
-              const res = await api.post<{ imported: number; total: number; nearMatches?: Array<{ imported: string; existing: string }> }>('/admin/game_library/import-vps', { roomId: room?.roomId });
-              toast(`Imported ${res.imported} games from VPS`, 'success');
+              const res = await api.post<{ imported: number; total: number; nearMatches?: Array<{ imported: string; existing: string }>; autoMerged?: Array<{ imported: string; existing: string }> }>('/admin/game_library/import-vps', { roomId: room?.roomId });
+              const mergeMsg = res.autoMerged?.length ? ` (${res.autoMerged.length} auto-merged)` : '';
+              toast(`Imported ${res.imported} games from VPS${mergeMsg}`, 'success');
               if (res.nearMatches && res.nearMatches.length > 0) setNearMatches(res.nearMatches);
               fetchGames();
             } catch (err: any) {
@@ -376,8 +377,9 @@ export default function GameLibrary() {
           <NeonButton variant="secondary" onClick={async () => {
             setWizardImporting(true);
             try {
-              const res = await api.post<{ imported: number; total: number; nearMatches?: Array<{ imported: string; existing: string }> }>('/admin/game_library/import-wizard', { roomId: room?.roomId });
-              toast(`Imported ${res.imported} VPXS Wizard tables`, 'success');
+              const res = await api.post<{ imported: number; total: number; nearMatches?: Array<{ imported: string; existing: string }>; autoMerged?: Array<{ imported: string; existing: string }> }>('/admin/game_library/import-wizard', { roomId: room?.roomId });
+              const mergeMsg = res.autoMerged?.length ? ` (${res.autoMerged.length} auto-merged)` : '';
+              toast(`Imported ${res.imported} VPXS Wizard tables${mergeMsg}`, 'success');
               if (res.nearMatches && res.nearMatches.length > 0) setNearMatches(res.nearMatches);
               fetchGames();
             } catch (err: any) {

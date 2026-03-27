@@ -45,7 +45,7 @@ export class WizardImportService {
      * Fetches the VPXS Wizard Tables list from GitHub and imports them
      * into the game library with platform "VPXS".
      */
-    static async importFromWizard(): Promise<{ imported: number; total: number; names: string[] }> {
+    static async importFromWizard(): Promise<{ imported: number; total: number; names: string[]; autoMerged: Array<{ imported: string; existing: string }> }> {
         logInfo('Wizard Import: fetching README from GitHub...');
         const resp = await fetch(README_URL);
         if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
@@ -67,8 +67,8 @@ export class WizardImportService {
             platforms: JSON.stringify(['VPXS']),
         }));
 
-        const imported = await GameLibraryService.importGames(games);
-        logInfo(`Wizard Import: imported ${imported} games`);
-        return { imported, total: tableNames.length, names: tableNames };
+        const result = await GameLibraryService.importGames(games);
+        logInfo(`Wizard Import: imported ${result.imported} games, auto-merged ${result.autoMerged.length}`);
+        return { imported: result.imported, total: tableNames.length, names: tableNames, autoMerged: result.autoMerged };
     }
 }
