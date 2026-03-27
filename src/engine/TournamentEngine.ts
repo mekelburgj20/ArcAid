@@ -118,6 +118,14 @@ export class TournamentEngine {
      */
     public async queueGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, pickerDiscordId?: string): Promise<Game> {
         const db = await getDatabase();
+
+        // Get next queue_order for this tournament
+        const maxRow = await db.get(
+            'SELECT COALESCE(MAX(queue_order), 0) + 1 as next_order FROM games WHERE tournament_id = ? AND status = ?',
+            tournamentId, 'QUEUED'
+        );
+        const queueOrder = maxRow?.next_order ?? 1;
+
         const game: Game = {
             id: uuidv4(),
             tournamentId,
@@ -125,13 +133,14 @@ export class TournamentEngine {
             iscoredId,
             styleId,
             status: 'QUEUED',
+            queueOrder,
         };
 
-        logInfo(`Queuing game for tournament ${tournamentId}: ${gameName}`);
+        logInfo(`Queuing game for tournament ${tournamentId}: ${gameName} (queue_order: ${queueOrder})`);
 
         await db.run(
-            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, picker_discord_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, pickerDiscordId || null
+            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, picker_discord_id, queue_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, pickerDiscordId || null, queueOrder
         );
 
         return game;
@@ -295,7 +304,7 @@ export class TournamentEngine {
         // --- Gather all active games and queued games ---
         const activeGames = await this.getActiveGames(tournamentId);
         const queuedRows = await db.all(
-            'SELECT * FROM games WHERE tournament_id = ? AND status = ? ORDER BY rowid ASC',
+            'SELECT * FROM games WHERE tournament_id = ? AND status = ? ORDER BY queue_order ASC, rowid ASC',
             tournamentId, 'QUEUED'
         );
 
@@ -342,6 +351,14 @@ export class TournamentEngine {
                 const queuedRow = queuedQueue.shift()!;
                 // Skip placeholder picker slots
                 if (queuedRow.name === '[Pending Pick]') continue;
+
+                // Cooldown revalidation — skip games that became ineligible while queued
+                const stillEligible = await this.isGameEligible(tournamentId, queuedRow.name);
+                if (!stillEligible) {
+                    logWarn(`   -> Skipping queued game "${queuedRow.name}" — no longer eligible (cooldown). Removing from queue.`);
+                    await db.run('DELETE FROM games WHERE id = ?', queuedRow.id);
+                    continue;
+                }
 
                 let newIscoredId: string | null = null;
                 if (client && !queuedRow.iscored_id) {
@@ -513,16 +530,24 @@ export class TournamentEngine {
         }
 
         // --- Activate the next queued game for this slot ---
-        // Find the next non-placeholder queued game
+        // Find the next non-placeholder, eligible queued game
         let queuedRow: any = null;
         while (queuedQueue.length > 0) {
             const candidate = queuedQueue.shift();
-            if (candidate.name !== '[Pending Pick]') {
-                queuedRow = candidate;
-                break;
+            if (candidate.name === '[Pending Pick]') {
+                // Clean up orphaned picker slots
+                await db.run('DELETE FROM games WHERE id = ?', candidate.id);
+                continue;
             }
-            // Clean up orphaned picker slots
-            await db.run('DELETE FROM games WHERE id = ?', candidate.id);
+            // Cooldown revalidation — skip games that became ineligible while queued
+            const stillEligible = await this.isGameEligible(tournamentId, candidate.name);
+            if (!stillEligible) {
+                logWarn(`   -> Skipping queued game "${candidate.name}" — no longer eligible (cooldown). Removing from queue.`);
+                await db.run('DELETE FROM games WHERE id = ?', candidate.id);
+                continue;
+            }
+            queuedRow = candidate;
+            break;
         }
 
         if (queuedRow) {

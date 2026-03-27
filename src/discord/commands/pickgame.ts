@@ -126,6 +126,18 @@ export const pickgame: Command = {
                 return;
             }
 
+            // Check queue limit (max 5 per user per tournament)
+            const queueCount = await db.get(
+                `SELECT COUNT(*) as count FROM games
+                 WHERE tournament_id = ? AND status = 'QUEUED'
+                   AND picker_discord_id = ? AND name != '[Pending Pick]'`,
+                tournament.id, interaction.user.id
+            );
+            if ((queueCount?.count ?? 0) >= 5) {
+                await interaction.editReply('Queue limit reached (max 5 games per tournament). Remove a queued game first.');
+                return;
+            }
+
             // Look up style_id from game_library
             const gameLibEntry = await db.get('SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
             const styleId = gameLibEntry?.style_id || undefined;
@@ -160,7 +172,7 @@ export const pickgame: Command = {
                 }
             } else {
                 // All slots full — queue the game (no iScored creation yet, happens at maintenance)
-                await engine.queueGame(tournament.id, gameName, styleId);
+                await engine.queueGame(tournament.id, gameName, styleId, undefined, interaction.user.id);
             }
 
             logInfo(`User ${interaction.user.tag} picked ${gameName} for ${tournamentName}`);

@@ -380,6 +380,7 @@ export async function initDatabase(): Promise<Database> {
         { name: '017_games_style_header_disabled', sql: `ALTER TABLE games ADD COLUMN style_header_disabled INTEGER DEFAULT 0` },
         { name: '018_room_library_catalogue_style', sql: `ALTER TABLE game_room_game_library ADD COLUMN catalogue_style_id TEXT` },
         { name: '019_room_library_style_header_disabled', sql: `ALTER TABLE game_room_game_library ADD COLUMN style_header_disabled INTEGER DEFAULT 0` },
+        { name: '020_games_queue_order', sql: `ALTER TABLE games ADD COLUMN queue_order INTEGER` },
     ];
 
     for (const migration of migrations) {
@@ -392,6 +393,18 @@ export async function initDatabase(): Promise<Database> {
         }
         await db.run('INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)', migration.name);
     }
+
+    // --- Backfill queue_order for existing QUEUED games (idempotent) ---
+    try {
+        await db.exec(`
+            UPDATE games SET queue_order = (
+                SELECT COUNT(*) FROM games g2
+                WHERE g2.tournament_id = games.tournament_id
+                  AND g2.status = 'QUEUED'
+                  AND g2.rowid <= games.rowid
+            ) WHERE status = 'QUEUED' AND queue_order IS NULL
+        `);
+    } catch { /* safe to skip if column doesn't exist yet */ }
 
     // --- Multi-room data migration (idempotent) ---
     await migrateToMultiRoom(db);

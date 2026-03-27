@@ -49,6 +49,7 @@ export interface Game {
     wonGameId?: string;
     startDate?: Date;
     endDate?: Date;
+    queueOrder?: number;
 }
 
 export interface Submission {

@@ -17,6 +17,7 @@ import {
     ScoreSubmissionSchema,
     GameCommentSchema,
     PickGameSchema,
+    ReorderQueueSchema,
 } from '../schemas.js';
 import { writeLimiter, pickLimiter } from '../rateLimit.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
@@ -371,12 +372,12 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
 
         // Named queued games picked by this user
         const queuedGames = await db.all(`
-            SELECT g.name as game_name, g.tournament_id, t.name as tournament_name
+            SELECT g.id, g.name as game_name, g.tournament_id, t.name as tournament_name, g.queue_order
             FROM games g
             JOIN tournaments t ON g.tournament_id = t.id
             WHERE t.game_room_id = ? AND g.status = 'QUEUED'
               AND g.name != '[Pending Pick]' AND g.picker_discord_id = ?
-            ORDER BY t.display_order
+            ORDER BY g.queue_order ASC, g.rowid ASC
         `, roomId, discordId);
 
         // Also get tournaments for this room so the UI knows what's available
@@ -465,7 +466,18 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
             });
         }
 
-        // 6. Check for pending pick slot (user won and has picking rights)
+        // 6. Check queue limit (max 5 per user per tournament)
+        const queueCount = await db.get(
+            `SELECT COUNT(*) as count FROM games
+             WHERE tournament_id = ? AND status = 'QUEUED'
+               AND picker_discord_id = ? AND name != '[Pending Pick]'`,
+            tournamentId, discordId
+        );
+        if ((queueCount?.count ?? 0) >= 5) {
+            return res.status(400).json({ error: 'Queue limit reached (max 5 games per tournament)' });
+        }
+
+        // 7. Check for pending pick slot (user won and has picking rights)
         const pendingPick = await db.get(
             `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND picker_discord_id = ?`,
             tournamentId, discordId
@@ -528,6 +540,77 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
     } catch (error) {
         logError('API Error (POST rooms/:roomId/pick-game):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'Internal Server Error' });
+    }
+});
+
+// Delete a queued game — requires Discord login + ownership
+router.delete('/:roomId/queue/:gameId', requireDiscordUser, async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const discordId = req.user!.discordId!;
+
+        const game = await db.get(
+            `SELECT g.id, g.picker_discord_id, t.game_room_id
+             FROM games g JOIN tournaments t ON g.tournament_id = t.id
+             WHERE g.id = ? AND g.status = 'QUEUED' AND g.name != '[Pending Pick]'`,
+            gameId
+        );
+        if (!game) return res.status(404).json({ error: 'Queued game not found' });
+        if (game.game_room_id !== roomId) return res.status(403).json({ error: 'Game does not belong to this room' });
+        if (game.picker_discord_id !== discordId) return res.status(403).json({ error: 'You can only remove your own queued games' });
+
+        await db.run('DELETE FROM games WHERE id = ?', gameId);
+        logInfo(`Queue delete: ${req.user!.username} removed queued game ${gameId}`);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/queue/:gameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Reorder queued games — requires Discord login + ownership
+router.put('/:roomId/queue/reorder', requireDiscordUser, async (req, res) => {
+    try {
+        const validationResult = validate(ReorderQueueSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const discordId = req.user!.discordId!;
+        const { gameIds } = validationResult.data;
+
+        // Verify all games belong to this user in this room
+        for (const gameId of gameIds) {
+            const game = await db.get(
+                `SELECT g.id, g.picker_discord_id, t.game_room_id
+                 FROM games g JOIN tournaments t ON g.tournament_id = t.id
+                 WHERE g.id = ? AND g.status = 'QUEUED' AND g.name != '[Pending Pick]'`,
+                gameId
+            );
+            if (!game || game.game_room_id !== roomId || game.picker_discord_id !== discordId) {
+                return res.status(403).json({ error: 'Invalid game in reorder list' });
+            }
+        }
+
+        // Update queue_order based on position in array
+        await db.exec('BEGIN TRANSACTION');
+        try {
+            for (let i = 0; i < gameIds.length; i++) {
+                await db.run('UPDATE games SET queue_order = ? WHERE id = ?', i + 1, gameIds[i]);
+            }
+            await db.exec('COMMIT');
+        } catch (err) {
+            await db.exec('ROLLBACK').catch(() => {});
+            throw err;
+        }
+
+        logInfo(`Queue reorder: ${req.user!.username} reordered ${gameIds.length} queued games`);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/queue/reorder):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 

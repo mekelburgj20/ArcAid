@@ -146,6 +146,10 @@ export const PickGameSchema = z.object({
     gameName: z.string().min(1).max(200),
 });
 
+export const ReorderQueueSchema = z.object({
+    gameIds: z.array(z.string().min(1)).min(1).max(20),
+});
+
 export const GameCommentSchema = z.object({
     display_name: z.string().min(1).max(50),
     type: z.enum(['comment', 'tip']),

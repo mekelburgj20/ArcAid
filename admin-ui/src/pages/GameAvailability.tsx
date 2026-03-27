@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, Shuffle, Star, Crosshair } from 'lucide-react';
+import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Shuffle, Star, Crosshair, X } from 'lucide-react';
 import PinballPicker from '../components/PinballPicker';
 import PickGameModal from '../components/PickGameModal';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
@@ -47,9 +47,11 @@ interface PendingPick {
 }
 
 interface QueuedGame {
+  id: string;
   game_name: string;
   tournament_id: string;
   tournament_name: string;
+  queue_order: number;
 }
 
 interface PickStatusData {
@@ -158,6 +160,37 @@ export default function GameAvailability() {
     }
   };
 
+  const handleDeleteQueued = async (gameId: string) => {
+    if (!roomId || !playerToken) return;
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/queue/${gameId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (!res.ok) { const d = await res.json(); toast(d.error || 'Failed to remove', 'error'); return; }
+      toast('Game removed from queue', 'success');
+      fetchPickStatus();
+    } catch { toast('Failed to remove game', 'error'); }
+  };
+
+  const handleMoveQueued = async (index: number, direction: 'up' | 'down') => {
+    if (!roomId || !playerToken || !pickStatus) return;
+    const games = [...pickStatus.queuedGames];
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= games.length) return;
+    [games[index], games[swapIndex]] = [games[swapIndex], games[index]];
+    // Optimistic update
+    setPickStatus({ ...pickStatus, queuedGames: games });
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/queue/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
+        body: JSON.stringify({ gameIds: games.map(g => g.id) }),
+      });
+      if (!res.ok) { fetchPickStatus(); toast('Failed to reorder', 'error'); }
+    } catch { fetchPickStatus(); }
+  };
+
   const filteredGames = data?.games.filter(g => {
     if (filter === 'available' && !g.available) return false;
     if (filter === 'cooldown' && g.available) return false;
@@ -233,13 +266,39 @@ export default function GameAvailability() {
                 <span className="text-xs text-neon-green font-medium flex-shrink-0">Awaiting your pick</span>
               </div>
             ))}
-            {pickStatus.queuedGames.map(q => (
-              <div key={`queued-${q.tournament_id}-${q.game_name}`} className="flex items-center justify-between px-4 py-2.5">
-                <div className="flex items-center gap-2 min-w-0">
+            {pickStatus.queuedGames.map((q, idx) => (
+              <div key={`queued-${q.id}`} className="flex items-center justify-between px-4 py-2.5 gap-2">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className="text-[10px] text-faint w-4 text-center flex-shrink-0">{idx + 1}</span>
                   <Clock size={14} className="text-neon-cyan flex-shrink-0" />
-                  <span className="text-xs text-muted truncate">{q.tournament_name}</span>
+                  <span className="text-xs text-muted truncate flex-shrink-0">{q.tournament_name}</span>
+                  <span className="text-xs text-primary font-medium truncate">{q.game_name}</span>
                 </div>
-                <span className="text-xs text-primary font-medium truncate ml-2">{q.game_name}</span>
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  <button
+                    onClick={() => handleMoveQueued(idx, 'up')}
+                    disabled={idx === 0}
+                    className="p-1 text-muted hover:text-neon-cyan disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    title="Move up"
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleMoveQueued(idx, 'down')}
+                    disabled={idx === pickStatus.queuedGames.length - 1}
+                    className="p-1 text-muted hover:text-neon-cyan disabled:opacity-20 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    title="Move down"
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteQueued(q.id)}
+                    className="p-1 text-muted hover:text-neon-magenta transition-colors cursor-pointer"
+                    title="Remove from queue"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
