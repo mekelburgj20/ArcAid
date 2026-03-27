@@ -116,7 +116,7 @@ export class TournamentEngine {
     /**
      * Queues a game for a tournament (status = QUEUED, no start date).
      */
-    public async queueGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string): Promise<Game> {
+    public async queueGame(tournamentId: string, gameName: string, styleId?: string, iscoredId?: string, pickerDiscordId?: string): Promise<Game> {
         const db = await getDatabase();
         const game: Game = {
             id: uuidv4(),
@@ -130,8 +130,8 @@ export class TournamentEngine {
         logInfo(`Queuing game for tournament ${tournamentId}: ${gameName}`);
 
         await db.run(
-            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status) VALUES (?, ?, ?, ?, ?, ?)',
-            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status
+            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, picker_discord_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, pickerDiscordId || null
         );
 
         return game;

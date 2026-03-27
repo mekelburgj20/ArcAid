@@ -353,13 +353,14 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
     }
 });
 
-// Pick status — returns pending picks for the logged-in Discord user
+// Pick status — returns pending picks and queued games for the logged-in Discord user
 router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
     try {
         const db = await getDatabase();
         const roomId = req.params.roomId as string;
         const discordId = req.user!.discordId!;
 
+        // Unfulfilled win picks (placeholder name)
         const pendingPicks = await db.all(`
             SELECT g.tournament_id, t.name as tournament_name, g.picker_type, g.picker_designated_at
             FROM games g
@@ -368,13 +369,23 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
               AND g.name = '[Pending Pick]' AND g.picker_discord_id = ?
         `, roomId, discordId);
 
+        // Named queued games picked by this user
+        const queuedGames = await db.all(`
+            SELECT g.name as game_name, g.tournament_id, t.name as tournament_name
+            FROM games g
+            JOIN tournaments t ON g.tournament_id = t.id
+            WHERE t.game_room_id = ? AND g.status = 'QUEUED'
+              AND g.name != '[Pending Pick]' AND g.picker_discord_id = ?
+            ORDER BY t.display_order
+        `, roomId, discordId);
+
         // Also get tournaments for this room so the UI knows what's available
         const tournaments = await db.all(
             'SELECT id, name, type, mode, max_active_games, platform_rules FROM tournaments WHERE game_room_id = ? AND is_active = 1 ORDER BY display_order',
             roomId
         );
 
-        res.json({ pendingPicks, tournaments });
+        res.json({ pendingPicks, queuedGames, tournaments });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/pick-status):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -509,7 +520,7 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
             }
         } else {
             // No pending pick — queue the game for next time
-            await engine.queueGame(tournamentId, gameLibEntry.name, styleId);
+            await engine.queueGame(tournamentId, gameLibEntry.name, styleId, undefined, discordId);
 
             logInfo(`Web pick (queued): ${req.user!.username} queued ${gameLibEntry.name} for ${tournament.name}`);
             return res.json({ status: 'queued', gameName: gameLibEntry.name, tournamentName: tournament.name });

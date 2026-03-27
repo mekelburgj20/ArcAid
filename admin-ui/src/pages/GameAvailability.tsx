@@ -46,8 +46,15 @@ interface PendingPick {
   picker_designated_at: string;
 }
 
+interface QueuedGame {
+  game_name: string;
+  tournament_id: string;
+  tournament_name: string;
+}
+
 interface PickStatusData {
   pendingPicks: PendingPick[];
+  queuedGames: QueuedGame[];
   tournaments: Array<{ id: string; name: string; type: string; mode: string; max_active_games: number; platform_rules: string }>;
 }
 
@@ -207,6 +214,35 @@ export default function GameAvailability() {
           <p className="text-xs text-neon-green">
             It's your turn to pick! Select an available game below to activate it.
           </p>
+        </div>
+      )}
+
+      {/* Your Picks summary */}
+      {discordUser && pickStatus && (pickStatus.pendingPicks.length > 0 || pickStatus.queuedGames.length > 0) && (
+        <div className="mb-4 bg-surface border border-border rounded-lg overflow-hidden">
+          <div className="px-4 py-2 border-b border-border/50">
+            <h2 className="text-xs font-medium text-faint uppercase tracking-wider">Your Picks</h2>
+          </div>
+          <div className="divide-y divide-border/20">
+            {pickStatus.pendingPicks.map(p => (
+              <div key={`pending-${p.tournament_id}`} className="flex items-center justify-between px-4 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Crosshair size={14} className="text-neon-green flex-shrink-0" />
+                  <span className="text-xs text-muted truncate">{p.tournament_name}</span>
+                </div>
+                <span className="text-xs text-neon-green font-medium flex-shrink-0">Awaiting your pick</span>
+              </div>
+            ))}
+            {pickStatus.queuedGames.map(q => (
+              <div key={`queued-${q.tournament_id}-${q.game_name}`} className="flex items-center justify-between px-4 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Clock size={14} className="text-neon-cyan flex-shrink-0" />
+                  <span className="text-xs text-muted truncate">{q.tournament_name}</span>
+                </div>
+                <span className="text-xs text-primary font-medium truncate ml-2">{q.game_name}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
