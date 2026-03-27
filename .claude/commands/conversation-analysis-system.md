@@ -21,4 +21,18 @@ Output Format: Present your final output in the following structure:
 [List the issues identified and potential improvements] [For each approved improvement: 1. Section being modified 2. New or modified instruction text 3. Explanation of how this addresses the identified issue]
 <final_instructions> [Present the complete, updated set of instructions for Claude, incorporating all approved changes] </final_instructions>
 
+Relevant Documentation:
+- `README.md` — Public-facing feature list, URL structure, commands, config, tech stack
+- `ROADMAP.md` — Completed work, future plans, sprint history
+- `SPRINT_STATUS.md` — Live progress tracker, last session notes, blockers
+- `CLAUDE.md` (ArcAid root) — Architecture tables, key patterns, database schema, session checklist
+- `../CLAUDE.md` (parent repo root) — Repository overview, architecture tables shared across projects
+- `VIDEO_TUTORIAL_GUIDE.md` — Video tutorial scripts, episode list, B-roll checklist, production standards
+- `DEPLOY.md` — Deployment procedures and server configuration
+- `DISCORD_SETUP.md` — Discord bot setup and configuration guide
+- `ArcAid_Project_Handover.md` — Project handover documentation
+- `PolyForm Noncommercial License 1.0.0.md` — Project license terms
+- `.claude/commands/deploy.md` — Production deployment checklist slash command
+- `.claude/commands/update-docs.md` — Documentation update slash command
+
 Remember, your goal is to enhance Claude's performance and consistency while maintaining the core functionality and purpose of the AI assistant. Be thorough in your analysis, clear in your explanations, and precise in your implementations.

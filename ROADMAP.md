@@ -15,13 +15,13 @@
 - [x] `GameRoom`, `LocalAdmin`, `GameRoomAdmin`, `SuperAdmin` TypeScript interfaces
 
 ### Phase 2: Auth Overhaul
-- [x] Updated `TokenPayload` — `role: 'super_admin' | 'room_admin'`, `gameRoomIds`, `discordId?`, `localAdminId?`
+- [x] Updated `TokenPayload` — `role: 'super_admin' | 'room_admin' | 'player'`, `gameRoomIds`, `discordId?`, `localAdminId?`
 - [x] `requireRoomAccess(paramName)` middleware — checks super_admin OR room membership
 - [x] `requireSuperAdmin` middleware
 - [x] `AdminService` — super-admin, room Discord admin, and local admin management
 - [x] Super-admin password login (`POST /api/auth/login`)
 - [x] Room local admin login (`POST /api/auth/login/:roomSlug`)
-- [x] Discord OAuth — checks `super_admins` → `game_room_admins` → 403
+- [x] Discord OAuth — checks `super_admins` → `game_room_admins` → issues `player` token for non-admin users
 
 ### Phase 3: API Route Restructuring
 - [x] Split `server.ts` into `routes/auth.ts`, `routes/rooms.ts`, `routes/admin.ts`, `routes/global.ts`
@@ -165,6 +165,25 @@
 
 ---
 
+## Player Engagement Features (COMPLETE)
+
+- [x] Discord player login on public pages (OAuth → player token for non-admin users)
+- [x] Web-based game picking from Game Availability page (pick/queue with tournament selector)
+- [x] Queue management (reorder, delete, max 5 per tournament per user)
+- [x] Queue cooldown revalidation (ineligible games skipped at activation time)
+- [x] "Your Picks" summary on Game Availability page (pending win picks + queued games)
+- [x] Player avatar and logout in public nav bar
+- [x] PickGameModal component (tournament selector, pending pick indicator)
+- [x] Discord `/submit-score` now shows web UI tip with room URL
+- [x] Auto-merge near-duplicate games during import (comma-variant names merged as aliases)
+- [x] `platformRules.ts` shared utility (extracted from Discord command for API reuse)
+- [x] Explicit `queue_order` column for FIFO game queue ordering
+- [x] Queue limit enforcement in both web and Discord `/pick-game`
+- [x] Mobile-responsive Game Availability layout (labeled card format)
+- [x] Scoreboard background opacity slider
+
+---
+
 ## Future
 
 ### Multi-Room
@@ -180,6 +199,21 @@
 - [ ] CI/CD pipeline (build + test on push)
 - [ ] Automated backup schedule (configurable via admin UI)
 - [ ] Monitoring / alerting (health check dashboard, error rate tracking)
+- [ ] Super-admin dashboard server metrics (CPU, memory, I/O, container stats)
+- [ ] High availability / multi-container — see notes below
+- [ ] Friends-list score filtering (requires OAuth2 user token flow or manual friends list — Discord bots can't access `relationships.read`)
+
+#### High Availability Notes
+Current constraints: SQLite (single-writer), singleton engine classes (in-memory state), Playwright persistent sessions (local disk).
+
+| Approach | Effort | Notes |
+|----------|--------|-------|
+| Active-passive failover | Low | 2 containers, 1 active. Docker restart policy + health checks. Shared volume for SQLite. |
+| Read replicas (Litestream) | Medium | SQLite WAL mode + Litestream replication. One writer, N readers. Public scoreboard benefits most. |
+| Separate concerns | Medium | Stateless API container (scales horizontally) + singleton engine/scheduler container. Requires DB change. |
+| Migrate to PostgreSQL | High | True multi-container with connection pooling. Rewrite all raw SQL + migrations. Biggest payoff, largest effort. |
+
+**Quick wins:** Docker `restart: always` + health check, Litestream for continuous S3 backups, reverse proxy (nginx/Caddy) for SSL/rate limiting, CDN for static assets. **Recommendation:** Start with active-passive + Litestream, migrate to PostgreSQL when scale demands it.
 
 ### Platform Integrations
 - [ ] IFPA (International Flipper Pinball Association) — submit tournament results to official world rankings via API

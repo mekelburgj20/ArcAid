@@ -74,7 +74,7 @@ Two sub-applications in one process:
   - **Global:** `SettingsService`, `AdminService`, `GameRoomService`, `GameRoomSettingsService`, `PreferencesService`, `LogService`, `BackupService`, `DashboardService`, `AuditService`
   - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `CommentService`, `CommunityScoreService`, `ScoreHistoryService`, `StyleCatalogueService`
   - **Import:** `VpsImportService` (VPS database JSON), `WizardImportService` (VPXS Wizard Tables from GitHub)
-- `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`, `platformRules.ts`
+- `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`, `platformRules.ts` (shared platform eligibility check for API + Discord)
 
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
@@ -83,7 +83,8 @@ Two sub-applications in one process:
 - **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings (+ shared: Logs, Backups, MasterGameLibrary)
 - **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Settings (includes Users section)
 - **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, etc.
+- **Viewer auth context:** `ViewerAuthContext.tsx` provides `discordUser`, `playerToken`, `loginWithDiscord`, `logoutPlayer`, `usePlayerHeaders` — wraps public routes via `ViewerAuthProvider` in App.tsx
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, etc.
 - Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
 
 ## Multi-Room Architecture
@@ -100,8 +101,8 @@ Two sub-applications in one process:
 ### Auth
 - **Super-admin password** — Bootstrap/fallback admin, issues `{ role: 'super_admin', gameRoomIds: [] }`
 - **Room local admin** — Username/password per room, issues `{ role: 'room_admin', gameRoomIds: [roomId] }`
-- **Discord OAuth** — Available on super-admin, room login, and public pages. Checks `super_admins` → `game_room_admins` → issues `player` token
-- **Player auth** — Non-admin Discord users get `role: 'player'` tokens for public features (game picking). Stored separately from admin tokens.
+- **Discord OAuth** — Available on super-admin, room login, and public pages. Checks `super_admins` → `game_room_admins` → issues `player` token. State param: `__super__` for super-admin, `player:<slug>` for public page login, or bare slug for room admin
+- **Player auth** — Non-admin Discord users get `role: 'player'` tokens for public features (game picking, queue management). Stored separately from admin tokens in `arcaid_player_token` localStorage key.
 - **Admin invites** — One-time invite links (48h expiry) for onboarding room admins without sharing passwords. Optional Discord DM delivery.
 - Middleware: `requireAuth` (JWT), `requireRoomAccess('roomId')` (checks scope), `requireSuperAdmin` (role check), `requireDiscordUser` (any Discord-authenticated user)
 
@@ -109,8 +110,10 @@ Two sub-applications in one process:
 - `POST /api/auth/login` — super-admin password login
 - `POST /api/auth/login/:roomSlug` — room local admin login
 - `GET /api/rooms/:roomId/*` — room-scoped endpoints (public + admin)
-- `GET /api/rooms/:roomId/pick-status` — pending pick info for logged-in Discord user (requireDiscordUser)
-- `POST /api/rooms/:roomId/pick-game` — pick/queue a game from web UI (requireDiscordUser + pickLimiter)
+- `GET /api/rooms/:roomId/pick-status` — pending picks, queued games, and tournaments for logged-in Discord user (requireDiscordUser)
+- `POST /api/rooms/:roomId/pick-game` — pick/queue a game from web UI (requireDiscordUser + pickLimiter, max 5 per tournament)
+- `DELETE /api/rooms/:roomId/queue/:gameId` — remove a queued game (requireDiscordUser, ownership verified)
+- `PUT /api/rooms/:roomId/queue/reorder` — reorder queued games (requireDiscordUser, ownership verified)
 - `GET /api/admin/*` — super-admin endpoints (requireSuperAdmin)
 - `GET /api/*` — global endpoints (status, preferences, public room listing)
 - **Legacy aliases:** `/api/leaderboard`, `/api/tournaments`, etc. redirect to default room for backward compat with Discord commands
@@ -133,6 +136,7 @@ Two sub-applications in one process:
 - Public slug matching is case-insensitive
 - **Themes:** 3 themes (arcade/dark/light). CSS variables, per-user override in `user_preferences`. `ThemeProvider` reads localStorage first (no flash).
 - Login pages auto-redirect to dashboard if valid JWT exists in localStorage (24h expiry)
+- **Game queue:** Explicit `queue_order` column (FIFO), max 5 per user per tournament, cooldown revalidation at activation time. Ineligible queued games auto-removed during maintenance.
 
 ## Community Features
 

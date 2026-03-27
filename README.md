@@ -9,7 +9,8 @@
 - **Multi-tenant game rooms** — Each room has its own tournaments, leaderboards, admins, settings, and iScored account
 - **Automated tournament rotation** — Daily, Weekly, Monthly (including last-day-of-month), or custom cron schedules
 - **iScored integration** — Automated game creation, locking, score scraping, and cleanup via Playwright
-- **Pick system** — Winner picks the next game with tiered timeouts (winner → runner-up → auto-select)
+- **Pick system** — Winner picks the next game with tiered timeouts (winner → runner-up → auto-select). Web-based game picking for Discord-authenticated players with queue management (reorder, delete, max 5 per tournament)
+- **Discord player login** — Public page visitors can log in via Discord to pick/queue games directly from the Game Availability page
 - **Discord bot** — Full slash command suite for players (submit scores, check stats) and admins (force rotations, manage games)
 - **Cross-tournament rankings** — Ranking groups with 4 scoring methods
 - **Game library imports** — Bulk import from Virtual Pinball Spreadsheet (VPS) and VPXS Wizard Tables
@@ -19,7 +20,7 @@
 - **Score history tracking** — Expandable per-player submission history on leaderboards
 - **Style catalogue** — iScored visual styles imported or uploaded, assigned per game
 - **Kiosk mode** — Auto-refreshing scoreboard display for TV/kiosk use (no nav, configurable refresh interval)
-- **Game merge tool** — Consolidate duplicate games across all tables
+- **Game merge tool** — Consolidate duplicate games across all tables; auto-merge near-duplicates during import (comma-variant names)
 - **Audit logging** — Admin action tracking with full history
 - **Public stats page** — Enhanced player metrics: average finish, top 5%, champion streak
 - **Session persistence** — Login pages auto-redirect if a valid JWT exists (24h expiry)
@@ -67,7 +68,7 @@ npm run dev            # Vite dev server with HMR
 | `/:slug/players` | Public player list |
 | `/:slug/players/:id` | Player detail (stats, history) |
 | `/:slug/games/:name` | Game detail — tabs: scores, community, tips/comments, player stats |
-| `/:slug/games` | Game availability (cooldowns, random picker) |
+| `/:slug/games` | Game availability (cooldowns, random picker, pick/queue games if Discord-logged-in) |
 | `/:slug/stats` | Public enhanced stats (avg finish, top 5%, champion streak) |
 | `/:slug/login` | Room admin login |
 | `/:slug/admin/*` | Room admin panel (dashboard, tournaments, library, leaderboard, rankings, stats, history, settings) |
@@ -78,7 +79,7 @@ npm run dev            # Vite dev server with HMR
 |--------|-------|-------------|
 | Super-admin password | Server-wide | Set on first login. Full access to all rooms and global settings. |
 | Room local admin | Per-room | Username/password created via invite link or super-admin. Scoped to specific rooms. |
-| Discord OAuth | Either | Available on both login pages. Checks `super_admins` → `game_room_admins` → 403. |
+| Discord OAuth | Either | Available on all login pages + public pages. Checks `super_admins` → `game_room_admins` → issues `player` token for public features. |
 
 ## Discord Commands
 

@@ -10,6 +10,17 @@
 **Sprint 10: Production Hardening** — COMPLETE
 **Post-Sprint Features** — COMPLETE (deployed to production)
 **Community Platform Features** — COMPLETE (deployed to production)
+**Player Engagement Features** — COMPLETE (deployed to production)
+
+### Player Engagement Features (2026-03-27)
+- [x] Discord player login on public pages (OAuth → player token)
+- [x] Web-based game picking from Game Availability page
+- [x] Queue management (reorder, delete, max 5 per tournament)
+- [x] Queue cooldown revalidation at activation time
+- [x] "Your Picks" summary card with numbered queue
+- [x] Auto-merge near-duplicate games during import
+- [x] Mobile-responsive Game Availability layout
+- [x] Scoreboard background opacity slider
 
 ### Community Platform Features (2026-03-21 → 2026-03-23)
 - [x] Public stats page with enhanced metrics (avg finish position, top 5% rate, champion streak, sparklines)
@@ -58,11 +69,12 @@
 - Feature: Ranking Groups — COMPLETE
 - Feature: UI Theme System — COMPLETE
 - Sprint 10 (Production Hardening) — COMPLETE
+- Feature: Player Engagement (Discord login, web picking, queue management) — COMPLETE
 
 ## Last Session
 
-**Date:** 2026-03-23
-**What happened:** Completed community platform features. Added public stats, community scores, game comments/tips, score history tracking, Discord rating flow, kiosk mode, style catalogue, scoreboard branding. Fixed conditional expand icons. Added session persistence. Styled admin section headings. Removed room-level Discord creds.
+**Date:** 2026-03-27
+**What happened:** Added Discord player login on public pages, web-based game picking/queuing from Game Availability, queue management (reorder/delete/max 5), cooldown revalidation at activation, "Your Picks" summary card. Fixed auto-merge near-duplicate import bug. Mobile-responsive Game Availability layout. Background opacity slider for scoreboard branding.
 **Next:** User-driven features as needed.
 
 ## Blockers
