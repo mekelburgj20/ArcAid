@@ -27,7 +27,7 @@ export class StatsService {
                 FROM submissions s
                 JOIN games g ON s.game_id = g.id
                 ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
-                WHERE g.status = 'COMPLETED'
+                WHERE g.status IN ('COMPLETED', 'HIDDEN')
                 AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id)
                 AND s.discord_user_id = ?
                 ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
@@ -107,7 +107,7 @@ export class StatsService {
                 FROM submissions s
                 JOIN games g ON s.game_id = g.id
                 ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
-                WHERE g.status = 'COMPLETED'
+                WHERE g.status IN ('COMPLETED', 'HIDDEN')
                 AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id)
                 AND LOWER(s.iscored_username) = LOWER(?)
                 ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
@@ -218,7 +218,7 @@ export class StatsService {
                        ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY score DESC) AS rn
                 FROM submissions
             ) s ON s.game_id = g.id AND s.rn = 1
-            WHERE g.name = ? COLLATE NOCASE AND g.status = 'COMPLETED'
+            WHERE g.name = ? COLLATE NOCASE AND g.status IN ('COMPLETED', 'HIDDEN')
             ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY g.end_date DESC
             LIMIT 10
@@ -308,7 +308,7 @@ export class StatsService {
                 FROM submissions s
                 JOIN games g ON s.game_id = g.id
                 ${roomJoin}
-                WHERE g.status = 'COMPLETED'
+                WHERE g.status IN ('COMPLETED', 'HIDDEN')
                 AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id)
                 AND s.discord_user_id = ?
                 ${roomWhere}
@@ -323,7 +323,7 @@ export class StatsService {
             FROM submissions s
             JOIN games g ON s.game_id = g.id
             ${roomJoin}
-            WHERE g.status = 'COMPLETED' AND s.discord_user_id = ?
+            WHERE g.status IN ('COMPLETED', 'HIDDEN') AND s.discord_user_id = ?
             ${roomWhere}
         `, discordUserId, ...roomParams);
 
@@ -341,7 +341,7 @@ export class StatsService {
                    (SELECT s2.discord_user_id FROM submissions s2 WHERE s2.game_id = g.id ORDER BY s2.score DESC LIMIT 1) as winner_id
             FROM games g
             ${roomJoin}
-            WHERE g.status = 'COMPLETED'
+            WHERE g.status IN ('COMPLETED', 'HIDDEN')
             ${roomWhere}
             ORDER BY g.end_date DESC
         `, ...roomParams);
@@ -421,7 +421,7 @@ export class StatsService {
                 FROM submissions s
                 JOIN games g ON s.game_id = g.id
                 ${roomJoin}
-                WHERE g.status = 'COMPLETED'
+                WHERE g.status IN ('COMPLETED', 'HIDDEN')
                 AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id)
                 AND LOWER(s.iscored_username) = LOWER(?)
                 ${roomWhere}
@@ -435,7 +435,7 @@ export class StatsService {
             FROM submissions s
             JOIN games g ON s.game_id = g.id
             ${roomJoin}
-            WHERE g.status = 'COMPLETED' AND LOWER(s.iscored_username) = LOWER(?)
+            WHERE g.status IN ('COMPLETED', 'HIDDEN') AND LOWER(s.iscored_username) = LOWER(?)
             ${roomWhere}
         `, username, ...roomParams);
 
@@ -453,7 +453,7 @@ export class StatsService {
                    (SELECT LOWER(s2.iscored_username) FROM submissions s2 WHERE s2.game_id = g.id ORDER BY s2.score DESC LIMIT 1) as winner_username
             FROM games g
             ${roomJoin}
-            WHERE g.status = 'COMPLETED'
+            WHERE g.status IN ('COMPLETED', 'HIDDEN')
             ${roomWhere}
             ORDER BY g.end_date DESC
         `, ...roomParams);
@@ -529,7 +529,7 @@ export class StatsService {
             JOIN games g ON s.game_id = g.id
             ${roomJoin}
             LEFT JOIN user_mappings um ON LOWER(s.iscored_username) = LOWER(um.iscored_username)
-            WHERE g.status = 'COMPLETED'
+            WHERE g.status IN ('COMPLETED', 'HIDDEN')
             ${roomWhere}
             GROUP BY LOWER(s.iscored_username)
         `, ...roomParams);
@@ -542,7 +542,7 @@ export class StatsService {
             FROM submissions s
             JOIN games g ON s.game_id = g.id
             ${roomJoin}
-            WHERE g.status = 'COMPLETED'
+            WHERE g.status IN ('COMPLETED', 'HIDDEN')
             ${roomWhere}
         `, ...roomParams);
 
@@ -562,7 +562,7 @@ export class StatsService {
                 FROM submissions s
                 JOIN games g ON s.game_id = g.id
                 ${roomJoin}
-                WHERE g.status = 'COMPLETED'
+                WHERE g.status IN ('COMPLETED', 'HIDDEN')
                 AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id)
                 ${roomWhere}
             ) s
@@ -580,7 +580,7 @@ export class StatsService {
                    (SELECT LOWER(s2.iscored_username) FROM submissions s2 WHERE s2.game_id = g.id ORDER BY s2.score DESC LIMIT 1) as winner_key
             FROM games g
             ${roomJoin}
-            WHERE g.status = 'COMPLETED'
+            WHERE g.status IN ('COMPLETED', 'HIDDEN')
             ${roomWhere}
             ORDER BY g.end_date DESC
         `, ...roomParams);
