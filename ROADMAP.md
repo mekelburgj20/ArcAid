@@ -184,15 +184,30 @@
 
 ---
 
+## Leaderboard UX Redesign (COMPLETE)
+
+- [x] 8 new themes (backglass, crt-green, plasma, cabinet, silverball, wizard, playfield, marquee) — total 11 themes
+- [x] Admin/Public theme split (admin theme per-admin, public theme room-wide via SCOREBOARD_THEME)
+- [x] Discord avatar integration (avatar_hash on user_mappings, PlayerAvatar component)
+- [x] Two-column score layout (SCOREBOARD_SCORE_COLUMNS setting)
+- [x] QR code score submission (SCOREBOARD_QR_MODE: disabled/kiosk-only/all, standalone /:slug/submit/:gameId page)
+- [x] Viewer rank highlight for logged-in players (cyan row)
+- [x] Countdown timers on game cards (cron-parser based next-run calculation)
+- [x] Kiosk enabled toggle with frontend enforcement
+- [x] Game room admin activity log (RoomEventService + /:slug/admin/activity page)
+- [x] Game library autocomplete with fuzzy match warnings
+- [x] Inline platform add from Game Library page
+- [x] Settings page reorganized with inline toggles
+
+---
+
 ## Future
 
 ### Multi-Room
 - [ ] Discord Bot Multi-Room (Phase 5) — single bot, multi-guild, per-room command scoping
 
 ### UX Polish
-- [ ] QR code score submission — per-game QR codes on scoreboard cards linking to score entry screen (username, score, photo upload), configurable position (top/bottom × left/center/right), option to disable, iScored sync on submit
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
-- [ ] Additional themes
 - [ ] Scoreboard designer page (admin-only CSS customization)
 
 ### Ops / Infrastructure

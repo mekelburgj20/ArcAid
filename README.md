@@ -26,7 +26,7 @@
 - **Session persistence** — Login pages auto-redirect if a valid JWT exists (24h expiry)
 - **Discord post-score rating flow** — Star rating buttons and comment modal after `/submit-score`
 - **Scoreboard branding** — Custom logos, background images, and title styles per room
-- **3 UI themes** — Arcade, Dark, and Light — per-user preference
+- **11 UI themes** — Arcade, Dark, Light, Backglass, CRT Green, Plasma, Cabinet, Silverball, Wizard, Playfield, Marquee — admin theme per-user, public theme per-room
 - **Public pages** — Scoreboard, player profiles, game details, and game availability — no login required
 - **Mobile-responsive** — Full functionality on phones and tablets
 
@@ -140,7 +140,7 @@ npm run dev            # Vite dev server with HMR
 | Game Eligibility Cooldown | Days before a previously played game can be picked again |
 | Winner Pick Window | Minutes the winner has to pick the next game |
 | Runner-up Pick Window | Minutes for runner-up fallback if winner doesn't pick |
-| UI Theme | Theme for public pages (Arcade, Dark, or Light) |
+| UI Theme | Admin theme (per-user) and public/scoreboard theme (per-room) — 11 themes available |
 | Scoreboard Branding | Custom background image, logo, and title style/size for public scoreboard |
 | Kiosk Refresh Interval | Auto-refresh interval (seconds) for kiosk display |
 | Hide Empty Games | Toggle to suppress games with no scores from public views |

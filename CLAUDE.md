@@ -72,19 +72,19 @@ Two sub-applications in one process:
 - `src/api/auditMiddleware.ts` — Auto-logs admin write operations to `audit_log` table
 - `src/services/` — Business logic layer:
   - **Global:** `SettingsService`, `AdminService`, `GameRoomService`, `GameRoomSettingsService`, `PreferencesService`, `LogService`, `BackupService`, `DashboardService`, `AuditService`
-  - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `CommentService`, `CommunityScoreService`, `ScoreHistoryService`, `StyleCatalogueService`
+  - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `CommentService`, `CommunityScoreService`, `ScoreHistoryService`, `StyleCatalogueService`, `RoomEventService` (activity event logging)
   - **Import:** `VpsImportService` (VPS database JSON), `WizardImportService` (VPXS Wizard Tables from GitHub)
-- `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`, `platformRules.ts` (shared platform eligibility check for API + Discord)
+- `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`, `platformRules.ts` (shared platform eligibility check for API + Discord), `cronUtils.ts` (getNextRunTime via cron-parser for countdown timers)
 
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
 - **Layouts:** `SuperAdminLayout` (`/admin/*`), `RoomAdminLayout` (`/:slug/admin/*`), `PublicLayout` (`/:slug/*`)
 - **Room context:** `admin-ui/src/contexts/RoomContext.tsx` provides `roomId`, `roomSlug`, `roomName` to room pages
 - **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings (+ shared: Logs, Backups, MasterGameLibrary)
-- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Settings (includes Users section)
-- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard
+- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Settings (includes Users section), ActivityLog
+- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard, ScoreSubmit (standalone QR code score submission)
 - **Viewer auth context:** `ViewerAuthContext.tsx` provides `discordUser`, `playerToken`, `loginWithDiscord`, `logoutPlayer`, `usePlayerHeaders` — wraps public routes via `ViewerAuthProvider` in App.tsx
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, etc.
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, `PlayerAvatar`, etc.
 - Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
 
 ## Multi-Room Architecture
@@ -114,6 +114,9 @@ Two sub-applications in one process:
 - `POST /api/rooms/:roomId/pick-game` — pick/queue a game from web UI (requireDiscordUser + pickLimiter, max 5 per tournament)
 - `DELETE /api/rooms/:roomId/queue/:gameId` — remove a queued game (requireDiscordUser, ownership verified)
 - `PUT /api/rooms/:roomId/queue/reorder` — reorder queued games (requireDiscordUser, ownership verified)
+- `GET /api/rooms/:roomId/games/:gameId/info` — public game info for standalone score submission
+- `GET /api/rooms/:roomId/game_library/search` — game library autocomplete with fuzzy matching (requireAuth)
+- `GET /api/rooms/:roomId/admin/activity` — room admin activity log (requireAuth + requireRoomAccess)
 - `GET /api/admin/*` — super-admin endpoints (requireSuperAdmin)
 - `GET /api/*` — global endpoints (status, preferences, public room listing)
 - **Legacy aliases:** `/api/leaderboard`, `/api/tournaments`, etc. redirect to default room for backward compat with Discord commands
@@ -134,9 +137,14 @@ Two sub-applications in one process:
 - API write endpoints require JWT Bearer token
 - Discord OAuth flow: frontend builds OAuth URL with `window.location.origin`, callback uses raw `fetch`
 - Public slug matching is case-insensitive
-- **Themes:** 3 themes (arcade/dark/light). CSS variables, per-user override in `user_preferences`. `ThemeProvider` reads localStorage first (no flash).
+- **Themes:** 11 themes (arcade/dark/light + backglass/crt-green/plasma/cabinet/silverball/wizard/playfield/marquee). Admin theme is per-admin preference (`user_preferences`); public/scoreboard theme is room-wide (`SCOREBOARD_THEME` setting). CSS variables, `ThemeProvider` reads localStorage first (no flash).
 - Login pages auto-redirect to dashboard if valid JWT exists in localStorage (24h expiry)
 - **Game queue:** Explicit `queue_order` column (FIFO), max 5 per user per tournament, cooldown revalidation at activation time. Ineligible queued games auto-removed during maintenance.
+- **QR code submission:** `SCOREBOARD_QR_MODE` setting (disabled/kiosk-only/all) controls QR codes on score cards; standalone submit page at `/:slug/submit/:gameId` (`ScoreSubmit.tsx`)
+- **Discord avatars:** `avatar_hash` column on `user_mappings`, displayed via `PlayerAvatar` component on scoreboards and player pages
+- **Countdown timers:** Game cards show time until next maintenance using `cronUtils.ts` (`cron-parser` package)
+- **Activity log:** `room_events` table, `RoomEventService` logs admin actions (tournament changes, settings updates, etc.), viewable at `/:slug/admin/activity`
+- **Scoreboard layout:** `SCOREBOARD_SCORE_COLUMNS` setting enables two-column score layout; viewer rank highlight (cyan row) for logged-in players
 
 ## Community Features
 
@@ -171,9 +179,9 @@ SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Idem
 
 **Multi-room tables:** `game_rooms`, `game_room_settings`, `local_admins`, `game_room_admins`, `super_admins`, `game_room_game_library`
 
-**Core tables:** `tournaments` (with `game_room_id`), `game_library`, `games`, `submissions`, `leaderboard_cache`, `user_mappings`, `settings`, `game_ratings`, `ranking_groups` (with `game_room_id`), `ranking_group_tournaments`, `ranking_groups_cache`, `user_preferences`
+**Core tables:** `tournaments` (with `game_room_id`), `game_library`, `games`, `submissions`, `leaderboard_cache`, `user_mappings` (includes `avatar_hash`), `settings`, `game_ratings`, `ranking_groups` (with `game_room_id`), `ranking_group_tournaments`, `ranking_groups_cache`, `user_preferences`
 
-**Admin tables:** `admin_invites` (one-time invite tokens with expiry), `audit_log` (admin action tracking), `schema_migrations` (versioned migration tracking)
+**Admin tables:** `admin_invites` (one-time invite tokens with expiry), `audit_log` (admin action tracking), `schema_migrations` (versioned migration tracking), `room_events` (per-room activity log)
 
 **Community tables:** `community_scores` (non-tournament score submissions), `score_history` (all score events with source tracking), `game_comments` (player tips and comments per game)
 

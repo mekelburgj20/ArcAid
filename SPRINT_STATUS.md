@@ -11,6 +11,25 @@
 **Post-Sprint Features** — COMPLETE (deployed to production)
 **Community Platform Features** — COMPLETE (deployed to production)
 **Player Engagement Features** — COMPLETE (deployed to production)
+**Leaderboard UX Redesign** — COMPLETE (deployed to production)
+
+### Leaderboard UX Redesign (2026-03-28)
+- [x] 8 new themes: backglass, crt-green, plasma, cabinet, silverball, wizard, playfield, marquee
+- [x] Admin/Public theme split (admin theme per-admin, public theme room-wide via SCOREBOARD_THEME)
+- [x] Discord avatar integration (avatar_hash on user_mappings, PlayerAvatar component)
+- [x] Two-column score layout option (SCOREBOARD_SCORE_COLUMNS setting)
+- [x] QR codes on score cards with three-state toggle (SCOREBOARD_QR_MODE: disabled/kiosk-only/all)
+- [x] Standalone score submission page at /:slug/submit/:gameId (ScoreSubmit.tsx)
+- [x] Viewer rank highlight for logged-in players (cyan row)
+- [x] Countdown timers on game cards showing time until next maintenance (cronUtils.ts)
+- [x] Kiosk enabled toggle with frontend enforcement
+- [x] Game room admin activity log at /:slug/admin/activity (RoomEventService + ActivityLog.tsx)
+- [x] Game library autocomplete with fuzzy match warnings
+- [x] Inline platform add from Game Library page
+- [x] Settings page reorganized with inline toggles
+- [x] New DB table: room_events (activity log)
+- [x] New DB column: user_mappings.avatar_hash
+- [x] New dependencies: cron-parser (backend), qrcode (frontend)
 
 ### Player Engagement Features (2026-03-27)
 - [x] Discord player login on public pages (OAuth → player token)
@@ -70,11 +89,12 @@
 - Feature: UI Theme System — COMPLETE
 - Sprint 10 (Production Hardening) — COMPLETE
 - Feature: Player Engagement (Discord login, web picking, queue management) — COMPLETE
+- Feature: Leaderboard UX Redesign — COMPLETE
 
 ## Last Session
 
-**Date:** 2026-03-27
-**What happened:** Added Discord player login on public pages, web-based game picking/queuing from Game Availability, queue management (reorder/delete/max 5), cooldown revalidation at activation, "Your Picks" summary card. Fixed auto-merge near-duplicate import bug. Mobile-responsive Game Availability layout. Background opacity slider for scoreboard branding.
+**Date:** 2026-03-28
+**What happened:** Leaderboard UX redesign: 8 new themes, admin/public theme split, Discord avatars, two-column scores, QR code score submission (3 modes), standalone submit page, viewer rank highlight, countdown timers, kiosk toggle, admin activity log, game library autocomplete with fuzzy warnings, inline platform add, settings reorganization.
 **Next:** User-driven features as needed.
 
 ## Blockers
