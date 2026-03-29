@@ -170,6 +170,7 @@ router.get('/portal', async (req, res) => {
         if (!room) return res.status(404).json({ error: 'Room not found' });
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
+        const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
         res.json({
             id: room.id,
             slug: room.slug,
@@ -177,6 +178,7 @@ router.get('/portal', async (req, res) => {
             description: room.description || '',
             logo_url: room.logo_url || null,
             ui_theme: uiTheme || 'dark',
+            admin_theme: adminTheme || 'dark',
             is_public: !!room.is_public,
         });
     } catch (error) {

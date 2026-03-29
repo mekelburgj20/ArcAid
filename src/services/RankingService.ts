@@ -21,6 +21,7 @@ export interface OverallRanking {
     discord_user_id: string;
     total_points: number;
     games_played: number;
+    avatar_hash?: string | null;
     /** Per-game breakdown: game name -> { rank, points } */
     breakdown: Array<{ game_name: string; game_rank: number; points: number }>;
 }
@@ -256,6 +257,26 @@ export class RankingService {
             }
         }
 
+        // Batch-load avatar hashes for all known discord user IDs
+        const discordIds = [...new Set(
+            [...playerData.values()]
+                .map(p => p.discord_user_id)
+                .filter(id => id && id !== 'SYSTEM')
+        )];
+        const avatarMap = new Map<string, string>();
+        if (discordIds.length > 0) {
+            const ph = discordIds.map(() => '?').join(',');
+            const avatarRows = await db.all(
+                `SELECT discord_user_id, avatar_hash FROM user_mappings WHERE discord_user_id IN (${ph})`,
+                ...discordIds
+            );
+            for (const row of avatarRows) {
+                if (row.avatar_hash) {
+                    avatarMap.set(row.discord_user_id, row.avatar_hash);
+                }
+            }
+        }
+
         // Now compute total scores
         const results: OverallRanking[] = [];
         for (const [, player] of playerData) {
@@ -274,6 +295,7 @@ export class RankingService {
                     discord_user_id: player.discord_user_id,
                     total_points: Math.round(avgRank * 100) / 100, // 2 decimal places
                     games_played: gamesPlayed,
+                    avatar_hash: avatarMap.get(player.discord_user_id) || null,
                     breakdown: bestGames,
                 });
             } else {
@@ -287,6 +309,7 @@ export class RankingService {
                     discord_user_id: player.discord_user_id,
                     total_points: totalPoints,
                     games_played: gamesPlayed,
+                    avatar_hash: avatarMap.get(player.discord_user_id) || null,
                     breakdown: bestGames,
                 });
             }

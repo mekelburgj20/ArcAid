@@ -1,11 +1,13 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
+import { getNextRunTime } from '../utils/cronUtils.js';
 
 export interface RankedEntry {
     rank: number;
     discord_user_id: string;
     iscored_username: string;
     score: number;
+    avatar_hash?: string | null;
 }
 
 export class LeaderboardService {
@@ -18,26 +20,35 @@ export class LeaderboardService {
         // Get best score per player across both submissions and community_scores.
         // submissions uses game_id; community_scores uses game_name + game_room_id.
         // Union both sources, then take MAX(score) per player.
+        // Left join user_mappings to get avatar_hash for Discord-linked players.
         const entries = await db.all(`
             SELECT
-                CASE WHEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') THEN discord_user_id END) IS NOT NULL
-                     THEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') THEN discord_user_id END)
-                     ELSE MAX(discord_user_id)
-                END as discord_user_id,
-                iscored_username,
-                MAX(score) as score
+                combined.discord_user_id,
+                combined.iscored_username,
+                combined.score,
+                um.avatar_hash
             FROM (
-                SELECT discord_user_id, iscored_username, score
-                FROM submissions
-                WHERE game_id = ?
-                UNION ALL
-                SELECT discord_user_id, iscored_username, score
-                FROM community_scores
-                WHERE LOWER(game_name) = LOWER((SELECT name FROM games WHERE id = ?))
-                  AND game_room_id = (SELECT t.game_room_id FROM games g JOIN tournaments t ON t.id = g.tournament_id WHERE g.id = ?)
+                SELECT
+                    CASE WHEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') THEN discord_user_id END) IS NOT NULL
+                         THEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') THEN discord_user_id END)
+                         ELSE MAX(discord_user_id)
+                    END as discord_user_id,
+                    iscored_username,
+                    MAX(score) as score
+                FROM (
+                    SELECT discord_user_id, iscored_username, score
+                    FROM submissions
+                    WHERE game_id = ?
+                    UNION ALL
+                    SELECT discord_user_id, iscored_username, score
+                    FROM community_scores
+                    WHERE LOWER(game_name) = LOWER((SELECT name FROM games WHERE id = ?))
+                      AND game_room_id = (SELECT t.game_room_id FROM games g JOIN tournaments t ON t.id = g.tournament_id WHERE g.id = ?)
+                ) raw
+                GROUP BY LOWER(iscored_username)
             ) combined
-            GROUP BY LOWER(iscored_username)
-            ORDER BY score DESC
+            LEFT JOIN user_mappings um ON um.discord_user_id = combined.discord_user_id
+            ORDER BY combined.score DESC
         `, gameId, gameId, gameId);
 
         const rankings: RankedEntry[] = entries.map((e: any, i: number) => ({
@@ -45,6 +56,7 @@ export class LeaderboardService {
             discord_user_id: e.discord_user_id,
             iscored_username: e.iscored_username || 'Unknown',
             score: e.score,
+            avatar_hash: e.avatar_hash || null,
         }));
 
         // Cache the result
@@ -90,7 +102,7 @@ export class LeaderboardService {
     /**
      * Get leaderboards for all active games, optionally filtered by game room.
      */
-    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; styleHeaderDisabled: boolean; rankings: RankedEntry[] }>> {
+    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; styleHeaderDisabled: boolean; rankings: RankedEntry[]; nextMaintenanceAt: string | null }>> {
         const db = await getDatabase();
 
         const roomFilter = gameRoomId ? ' AND t.game_room_id = ?' : '';
@@ -100,7 +112,8 @@ export class LeaderboardService {
         const activeGames = await db.all(`
             SELECT g.id, g.name as game_name, g.status, t.name as tournament_name, t.type as tournament_type,
                    COALESCE(t.display_order, 9999) as display_order, gl.image_url,
-                   g.catalogue_style_id, g.style_header_disabled
+                   g.catalogue_style_id, g.style_header_disabled,
+                   g.tournament_id
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
             LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
@@ -179,10 +192,44 @@ export class LeaderboardService {
             : [];
         const cacheMap = new Map(cachedRows.map((r: any) => [r.game_id, JSON.parse(r.rankings)]));
 
+        // Build cadence map for active tournaments to compute next maintenance time
+        const cadenceMap = new Map<string, { cron: string; timezone: string }>();
+        const tournamentIds = [...new Set(deduped.map((g: any) => g.tournament_id).filter(Boolean))];
+        for (const tid of tournamentIds) {
+            const tRow = await db.get('SELECT cadence, game_room_id FROM tournaments WHERE id = ?', tid);
+            if (tRow?.cadence) {
+                try {
+                    const cadenceObj = JSON.parse(tRow.cadence);
+                    if (cadenceObj?.cron) {
+                        let tz = cadenceObj.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+                        if (tRow.game_room_id) {
+                            const roomTz = await db.get(
+                                "SELECT value FROM game_room_settings WHERE game_room_id = ? AND key = 'TIMEZONE'",
+                                tRow.game_room_id
+                            );
+                            if (roomTz?.value) tz = roomTz.value;
+                        }
+                        cadenceMap.set(tid, { cron: cadenceObj.cron, timezone: tz });
+                    }
+                } catch {}
+            }
+        }
+
         const results = [];
         for (const game of deduped) {
             // Use cached rankings if available, otherwise recalculate
             const rankings = cacheMap.get(game.id) ?? await this.recalculate(game.id);
+
+            // Compute next maintenance time for active games
+            let nextMaintenanceAt: string | null = null;
+            if (game.status === 'ACTIVE' && game.tournament_id) {
+                const cadenceInfo = cadenceMap.get(game.tournament_id);
+                if (cadenceInfo) {
+                    const nextRun = getNextRunTime(cadenceInfo.cron, cadenceInfo.timezone);
+                    if (nextRun) nextMaintenanceAt = nextRun.toISOString();
+                }
+            }
+
             results.push({
                 gameId: game.id,
                 gameName: game.game_name,
@@ -193,6 +240,7 @@ export class LeaderboardService {
                 catalogueStyleId: game.catalogue_style_id || null,
                 styleHeaderDisabled: game.style_header_disabled === 1,
                 rankings,
+                nextMaintenanceAt,
             });
         }
         return results;

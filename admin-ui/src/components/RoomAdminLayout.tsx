@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle } from 'lucide-react';
+import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity } from 'lucide-react';
 import { api, isAuthenticated, setToken } from '../lib/api';
 import { RoomContext } from '../contexts/RoomContext';
 import LoadingState from './LoadingState';
@@ -77,6 +77,7 @@ export default function RoomAdminLayout() {
     { path: `${basePath}/rankings`, label: 'Rankings', icon: <Crown size={18} /> },
     { path: `${basePath}/stats`, label: 'Stats', icon: <BarChart3 size={18} /> },
     { path: `${basePath}/history`, label: 'History', icon: <Clock size={18} /> },
+    { path: `${basePath}/activity`, label: 'Activity', icon: <Activity size={18} /> },
     { path: `${basePath}/settings`, label: 'Room Settings', icon: <SettingsIcon size={18} /> },
     { path: `${basePath}/help`, label: 'Help', icon: <HelpCircle size={18} /> },
   ];

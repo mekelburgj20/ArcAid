@@ -54,12 +54,14 @@ router.get('/:roomId/portal', async (req, res) => {
         const room = await GameRoomService.getById(req.params.roomId as string);
         if (!room) return res.status(404).json({ error: 'Room not found' });
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
+        const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
         res.json({
             slug: room.slug,
             name: room.name,
             description: room.description || '',
             logo_url: room.logo_url || null,
             ui_theme: uiTheme || 'dark',
+            admin_theme: adminTheme || 'dark',
         });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/portal):', error);
@@ -85,11 +87,68 @@ router.get('/:roomId/scoreboard-config', async (req, res) => {
     }
 });
 
+// Game info by ID (public — used by QR code score submission page)
+router.get('/:roomId/games/:gameId/info', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const db = await getDatabase();
+        const game = await db.get(`
+            SELECT g.id, g.name, g.status
+            FROM games g
+            JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.id = ? AND t.game_room_id = ?
+        `, gameId, roomId);
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        const requirePhoto = await GameRoomSettingsService.get(roomId, 'REQUIRE_SCORE_PHOTO');
+        res.json({ id: game.id, name: game.name, status: game.status, requirePhoto: requirePhoto === 'true' });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/games/:gameId/info):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Leaderboard
 router.get('/:roomId/leaderboard', async (req, res) => {
     try {
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         const leaderboards = await LeaderboardService.getActiveLeaderboards(req.params.roomId as string);
+
+        // Optionally identify viewer from player token for rank highlighting
+        let viewerUsername: string | null = null;
+        const authHeader = req.headers.authorization;
+        if (authHeader?.startsWith('Bearer ')) {
+            try {
+                const { verifyToken } = await import('../auth.js');
+                const payload = verifyToken(authHeader.slice(7));
+                if (payload?.discordId) {
+                    const db = await getDatabase();
+                    const mapping = await db.get<{ iscored_username: string }>(
+                        'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?',
+                        payload.discordId
+                    );
+                    if (mapping) {
+                        viewerUsername = mapping.iscored_username;
+                    } else if (payload.username) {
+                        viewerUsername = payload.username;
+                    }
+                }
+            } catch {
+                // Invalid token — ignore, viewer is anonymous
+            }
+        }
+
+        if (viewerUsername) {
+            const lowerViewer = viewerUsername.toLowerCase();
+            const annotated = leaderboards.map((lb: any) => {
+                const viewerEntry = lb.rankings.find(
+                    (r: any) => r.iscored_username.toLowerCase() === lowerViewer
+                ) || null;
+                return { ...lb, viewerEntry };
+            });
+            return res.json(annotated);
+        }
+
         res.json(leaderboards);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/leaderboard):', error);
@@ -847,6 +906,10 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, roomAssetUpload.sin
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, undefined, photoUrl);
 
+        // Log activity event
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        RoomEventService.log(roomId, 'score_submission', { gameName, username, score }).catch(() => {});
+
         // Also upsert into submissions so the main leaderboard reflects the highest score
         const db = await getDatabase();
         const activeGame = await db.get(`
@@ -964,6 +1027,22 @@ router.delete('/:roomId/games/:gameName/comments/:id', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/games/:gameName/comments/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Game library search (autocomplete)
+router.get('/:roomId/game_library/search', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const q = req.query.q as string;
+        if (!q || typeof q !== 'string' || !q.trim()) {
+            res.json([]);
+            return;
+        }
+        const results = await GameLibraryService.search(q.trim());
+        res.json(results);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/game_library/search):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -1112,7 +1191,13 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), async
         const validationResult = validate(SettingsSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
-        await GameRoomSettingsService.saveMany(req.params.roomId as string, validationResult.data);
+        const roomId = req.params.roomId as string;
+        await GameRoomSettingsService.saveMany(roomId, validationResult.data);
+
+        // Log activity event
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        RoomEventService.log(roomId, 'settings_change', { keys: Object.keys(validationResult.data) }).catch(() => {});
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/settings):', error);
@@ -1868,6 +1953,21 @@ router.delete('/:roomId/admin/upload/logo', requireAuth, requireRoomAccess('room
     } catch (error) {
         logError('API Error (DELETE upload/logo):', error);
         res.status(500).json({ error: 'Delete failed' });
+    }
+});
+
+// Room activity log
+router.get('/:roomId/admin/activity', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        const roomId = req.params.roomId as string;
+        const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+        const offset = parseInt(req.query.offset as string) || 0;
+        const events = await RoomEventService.getRecent(roomId, limit, offset);
+        res.json(events);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/activity):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 

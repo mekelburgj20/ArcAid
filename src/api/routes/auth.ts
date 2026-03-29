@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { AdminService } from '../../services/AdminService.js';
+import { getDatabase } from '../../database/database.js';
 
 const router = Router();
 
@@ -66,6 +67,10 @@ router.post('/login/:roomSlug', async (req, res) => {
             localAdminId: admin.id,
             username: admin.display_name || admin.username,
         });
+
+        // Log activity event
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        RoomEventService.log(room.id, 'admin_login', { username }).catch(() => {});
 
         res.json({ token, roomId: room.id, roomSlug: room.slug });
     } catch (error) {
@@ -138,6 +143,15 @@ router.post('/discord/callback', async (req, res) => {
         const avatarUrl = user.avatar
             ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
             : null;
+
+        // Store avatar hash in user_mappings if the user has a mapping
+        if (user.avatar) {
+            const db = await getDatabase();
+            await db.run(
+                'UPDATE user_mappings SET avatar_hash = ? WHERE discord_user_id = ?',
+                user.avatar, user.id
+            );
+        }
 
         // 1. Check super_admins table
         const isSuperAdmin = await AdminService.isSuperAdmin(user.id);

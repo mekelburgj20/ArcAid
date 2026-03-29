@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import Papa from 'papaparse';
 import { api } from '../lib/api';
 import { useOptionalRoom } from '../contexts/RoomContext';
@@ -118,6 +118,47 @@ export default function GameLibrary() {
   // Sorting
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  // Autocomplete for add-game name field
+  const [suggestions, setSuggestions] = useState<Array<{ name: string; mode: string; platforms: string }>>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nameInputRef = useRef<HTMLDivElement>(null);
+
+  const searchLibrary = useCallback(async (query: string) => {
+    if (query.length < 2) { setSuggestions([]); setShowSuggestions(false); return; }
+    try {
+      const results = await api.get<Array<{ name: string; mode: string; platforms: string }>>(`${prefix}/game_library/search?q=${encodeURIComponent(query)}`);
+      setSuggestions(results);
+      setShowSuggestions(results.length > 0);
+    } catch {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  }, [prefix]);
+
+  const handleNameChange = (value: string) => {
+    setNewGame(prev => ({ ...prev, name: value }));
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => searchLibrary(value), 300);
+  };
+
+  const selectSuggestion = (s: { name: string; mode: string; platforms: string }) => {
+    const plats = parsePlatforms(s.platforms).join(', ');
+    setNewGame(prev => ({ ...prev, name: s.name, mode: s.mode, platforms: plats }));
+    setShowSuggestions(false);
+  };
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (nameInputRef.current && !nameInputRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const fetchGames = async () => {
     try {
@@ -409,9 +450,36 @@ export default function GameLibrary() {
       {showAddForm && (
         <NeonCard glowColor="cyan" className="mb-6 border-l-2 border-l-neon-cyan" title="Add New Game">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-4">
-            <div>
+            <div ref={nameInputRef} className="relative">
               <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Game Name *</label>
-              <input type="text" value={newGame.name} onChange={e => setNewGame({...newGame, name: e.target.value})} className={inputClass} />
+              <input
+                type="text"
+                value={newGame.name}
+                onChange={e => handleNameChange(e.target.value)}
+                onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+                className={inputClass}
+                autoComplete="off"
+              />
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute z-50 left-0 right-0 mt-1 bg-surface border border-default rounded shadow-lg max-h-48 overflow-y-auto">
+                  {suggestions.map(s => (
+                    <button
+                      key={s.name}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-raised transition-colors flex items-center justify-between gap-2"
+                      onClick={() => selectSuggestion(s)}
+                    >
+                      <span className="truncate">{s.name}</span>
+                      <span className="text-xs text-faint flex-shrink-0">{parsePlatforms(s.platforms).join(', ') || s.mode}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!showSuggestions && newGame.name.length >= 2 && suggestions.length > 0 && (
+                <p className="text-xs text-neon-amber mt-1">
+                  Similar game found: {suggestions[0].name}{parsePlatforms(suggestions[0].platforms).length > 0 ? ` (${parsePlatforms(suggestions[0].platforms).join(', ')})` : ''}
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Mode</label>

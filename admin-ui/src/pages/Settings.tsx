@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
@@ -34,15 +34,39 @@ interface PendingInvite {
 const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
 
 const CATEGORIES: Record<string, string[]> = {
+  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
+  'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
-  'Tournament Defaults': ['GAME_ELIGIBILITY_DAYS', 'WINNER_PICK_WINDOW_MIN', 'RUNNERUP_PICK_WINDOW_MIN', 'BOT_TIMEZONE'],
-  'Scoreboard': ['SCOREBOARD_MAX_SCORES', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE', 'SCOREBOARD_LAYOUT', 'SCOREBOARD_CARDS_PER_ROW', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_RANKINGS_POSITION'],
-  'Kiosk': ['KIOSK_REFRESH_SECONDS'],
-  'System': ['PORT', 'LOG_LEVEL', 'MAX_LOG_LINES', 'BACKUP_RETENTION_DAYS', 'SETUP_COMPLETE'],
 };
 
+// Toggles that render inside the Scoreboard Display card
+const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
+  'SCOREBOARD_HIDE_EMPTY': {
+    label: 'Hide Empty Games',
+    description: 'When enabled, game cards with no scores are hidden from the public scoreboard.',
+  },
+  'SCOREBOARD_TITLE_HIDDEN': {
+    label: 'Hide Scoreboard Title',
+    description: 'When enabled, the scoreboard title/heading is hidden on the public scoreboard.',
+  },
+  'REQUIRE_SCORE_PHOTO': {
+    label: 'Require Photo with Score Submission',
+    description: 'When enabled, players must include a photo when submitting scores from the scoreboard.',
+  },
+};
+
+// Toggles that render inside the Kiosk card
+const KIOSK_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
+  'KIOSK_ENABLED': {
+    label: 'Kiosk Mode',
+    description: 'When enabled, the kiosk display page is available at /{slug}/kiosk. When disabled, the kiosk page returns a 404.',
+    defaultOn: true,
+  },
+};
+
+// Remaining feature toggles (Discord/iScored)
 const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
   'ISCORED_ENABLED': {
     label: 'iScored Integration',
@@ -58,18 +82,6 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     label: 'Callouts (Easter Egg)',
     description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',
   },
-  'SCOREBOARD_HIDE_EMPTY': {
-    label: 'Hide Empty Games',
-    description: 'When enabled, game cards with no scores are hidden from the public scoreboard.',
-  },
-  'SCOREBOARD_TITLE_HIDDEN': {
-    label: 'Hide Scoreboard Title',
-    description: 'When enabled, the scoreboard title/heading is hidden on the public scoreboard.',
-  },
-  'REQUIRE_SCORE_PHOTO': {
-    label: 'Require Photo with Score Submission',
-    description: 'When enabled, players must include a photo when submitting scores from the scoreboard.',
-  },
 };
 
 const SETTING_LABELS: Record<string, { label: string; description: string }> = {
@@ -84,17 +96,6 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   ISCORED_USERNAME: { label: 'iScored Username', description: 'Login email or username for your room\'s iScored.info account.' },
   ISCORED_PASSWORD: { label: 'iScored Password', description: 'Password for the iScored account. Used for automated game creation and score scraping.' },
   ISCORED_PUBLIC_URL: { label: 'iScored Public URL', description: 'Public leaderboard URL for score scraping (e.g. https://iscored.info/your_account).' },
-  // Tournament Defaults
-  WINNER_PICK_WINDOW_MIN: { label: 'Winner Pick Window (minutes)', description: 'How long the winner has to pick the next game before it falls to the runner-up.' },
-  RUNNERUP_PICK_WINDOW_MIN: { label: 'Runner-up Pick Window (minutes)', description: 'How long the runner-up has to pick if the winner doesn\'t. After this, auto-select kicks in.' },
-  GAME_ELIGIBILITY_DAYS: { label: 'Game Eligibility Cooldown (days)', description: 'How many days before a previously played game can be picked again. Prevents repeat picks.' },
-  BOT_TIMEZONE: { label: 'Bot Timezone', description: 'Default timezone for all schedules (e.g. America/Chicago). Can be overridden per tournament.' },
-  // System
-  PORT: { label: 'Port', description: 'HTTP server port (default: 3001).' },
-  LOG_LEVEL: { label: 'Log Level', description: 'Logging verbosity: debug, info, warn, or error.' },
-  MAX_LOG_LINES: { label: 'Max Log Lines', description: 'Maximum number of log lines returned by the API.' },
-  BACKUP_RETENTION_DAYS: { label: 'Backup Retention (days)', description: 'How many days to keep automatic database backups before cleanup.' },
-  SETUP_COMPLETE: { label: 'Setup Complete', description: 'Marks whether initial setup has been finished. Set automatically.' },
   // Scoreboard
   SCOREBOARD_MAX_SCORES: { label: 'Scores Per Card', description: 'Maximum number of scores displayed per game card on the public scoreboard. Default: 5.' },
   SCOREBOARD_ZOOM: { label: 'Zoom Level (%)', description: 'Scale the scoreboard for high-res monitors or TV displays. Range: 50-200. Default: 100.' },
@@ -106,6 +107,8 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_CARDS_PER_ROW: { label: 'Cards Per Row (Grid)', description: 'Number of score cards per row in grid mode. Range: 2-8. Default: 4. Only applies in grid layout.' },
   SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
   SCOREBOARD_RANKINGS_POSITION: { label: 'Rankings Position', description: 'Where overall rankings are displayed: left (default), right, top, bottom, or hidden.' },
+  SCOREBOARD_SCORE_COLUMNS: { label: 'Score Columns', description: 'Number of score columns within each card. 2 columns shows ranks side-by-side (e.g. 1-5 left, 6-10 right). Collapses to 1 on mobile.' },
+  SCOREBOARD_QR_MODE: { label: 'QR Codes', description: 'Show QR codes on score cards linking to mobile score submission. Disabled: no QR codes. Kiosk Only: QR on kiosk display. All: QR on both scoreboard and kiosk.' },
   // Scoreboard Branding
   SCOREBOARD_BG_MODE: { label: 'Background Mode', description: 'How the background image is displayed: cover (fill screen), contain (fit), repeat (tile), or center.' },
   SCOREBOARD_BG_OPACITY: { label: 'Background Opacity', description: 'Opacity of the background image. 100% = fully visible (default), 0% = fully hidden. Lower values let the dark theme show through.' },
@@ -147,6 +150,15 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: 'top', label: 'Top' },
     { value: 'bottom', label: 'Bottom' },
     { value: 'hidden', label: 'Hidden' },
+  ],
+  SCOREBOARD_SCORE_COLUMNS: [
+    { value: '1', label: '1 Column (Default)' },
+    { value: '2', label: '2 Columns (Side-by-Side)' },
+  ],
+  SCOREBOARD_QR_MODE: [
+    { value: 'disabled', label: 'Disabled' },
+    { value: 'kiosk-only', label: 'Kiosk Only' },
+    { value: 'all', label: 'All Scoreboards' },
   ],
   SCOREBOARD_BG_MODE: [
     { value: 'cover', label: 'Cover (Fill Screen)' },
@@ -221,7 +233,7 @@ function PlatformsEditor({ platforms, onChange }: { platforms: string[]; onChang
 export default function Settings() {
   const room = useRoom();
   const { toast } = useToast();
-  const { globalTheme, setGlobalTheme, userTheme, setUserTheme } = useTheme();
+  const { publicTheme, setPublicTheme, adminTheme, setAdminTheme, userTheme, setUserTheme } = useTheme();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -230,8 +242,6 @@ export default function Settings() {
   const [mergeFrom, setMergeFrom] = useState('');
   const [mergeTo, setMergeTo] = useState('');
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
 
   // Users state
   const [localAdmins, setLocalAdmins] = useState<LocalAdmin[]>([]);
@@ -361,8 +371,11 @@ export default function Settings() {
       .then(data => {
         setSettings(data);
         // Sync global theme from settings
-        if (data.UI_THEME && data.UI_THEME !== globalTheme) {
-          setGlobalTheme(data.UI_THEME as ThemeId);
+        if (data.UI_THEME && data.UI_THEME !== publicTheme) {
+          setPublicTheme(data.UI_THEME as ThemeId);
+        }
+        if (data.ADMIN_THEME && data.ADMIN_THEME !== adminTheme) {
+          setAdminTheme(data.ADMIN_THEME as ThemeId);
         }
         setBgUrl(data.SCOREBOARD_BG_URL || '');
         setLogoUrl(data.LOGO_URL || '');
@@ -391,13 +404,6 @@ export default function Settings() {
     }
   };
 
-  const handleAdd = () => {
-    if (!newKey.trim()) return;
-    setSettings(prev => ({ ...prev, [newKey.trim().toUpperCase()]: newValue }));
-    setNewKey('');
-    setNewValue('');
-  };
-
   const toggleReveal = (key: string) => {
     setRevealed(prev => {
       const next = new Set(prev);
@@ -414,7 +420,24 @@ export default function Settings() {
     entries: keys.map(k => [k, settings[k] ?? ''] as [string, string]),
   }));
 
-  const uncategorizedKeys = Object.keys(settings).filter(k => !Object.values(CATEGORIES).flat().includes(k));
+  // Keys managed elsewhere (branding card, toggles, removed sections) — exclude from "Other"
+  const managedKeys = new Set([
+    ...Object.values(CATEGORIES).flat(),
+    ...Object.keys(SCOREBOARD_TOGGLES),
+    ...Object.keys(KIOSK_TOGGLES),
+    ...Object.keys(TOGGLE_SETTINGS),
+    // Scoreboard branding (managed in inline card)
+    'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
+    'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT',
+    'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE',
+    // Theme (managed in Theme card)
+    'UI_THEME', 'ADMIN_THEME',
+    // Platforms (managed in Platforms card)
+    'PLATFORMS',
+    // Legacy/removed — no longer surfaced
+    'SCOREBOARD_CARDS_PER_ROW',
+  ]);
+  const uncategorizedKeys = Object.keys(settings).filter(k => !managedKeys.has(k));
 
   if (loading) return <LoadingState message="Loading settings..." />;
 
@@ -429,19 +452,15 @@ export default function Settings() {
 
       <NeonCard title="Theme" className="mb-4">
         <div className="space-y-4">
-          {/* Global Theme */}
+          {/* Public Theme */}
           <div>
-            <label className="text-xs text-faint block mb-1">Global Theme (Public Portal Default)</label>
+            <label className="text-xs text-faint block mb-1">Public Theme</label>
             <select
-              value={settings.UI_THEME || globalTheme}
+              value={settings.UI_THEME || publicTheme}
               onChange={e => {
                 const newTheme = e.target.value as ThemeId;
                 handleChange('UI_THEME', newTheme);
-                setGlobalTheme(newTheme);
-                // Preview immediately if no personal override
-                if (!userTheme) {
-                  // Theme applies automatically via context
-                }
+                setPublicTheme(newTheme);
               }}
               className={inputClass}
             >
@@ -449,7 +468,26 @@ export default function Settings() {
                 <option key={id} value={id}>{label} — {description}</option>
               ))}
             </select>
-            <p className="text-xs text-muted mt-1">Applied to the public scoreboard and as the default for all admins.</p>
+            <p className="text-xs text-muted mt-1">Applied to the public scoreboard, kiosk, and all public-facing pages.</p>
+          </div>
+
+          {/* Admin Theme */}
+          <div>
+            <label className="text-xs text-faint block mb-1">Admin Theme</label>
+            <select
+              value={settings.ADMIN_THEME || adminTheme}
+              onChange={e => {
+                const newTheme = e.target.value as ThemeId;
+                handleChange('ADMIN_THEME', newTheme);
+                setAdminTheme(newTheme);
+              }}
+              className={inputClass}
+            >
+              {Object.entries(THEMES).map(([id, { label, description }]) => (
+                <option key={id} value={id}>{label} — {description}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted mt-1">Applied to admin pages only. Does not affect the public portal.</p>
           </div>
 
           {/* Personal Theme Override */}
@@ -461,223 +499,18 @@ export default function Settings() {
                 const val = e.target.value as ThemeId | '';
                 const newTheme = val || null;
                 setUserTheme(newTheme);
-                // Persist to server
                 api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
                   toast('Failed to save theme preference', 'error');
                 });
               }}
               className={inputClass}
             >
-              <option value="">(Use Global Default)</option>
+              <option value="">(Use Default)</option>
               {Object.entries(THEMES).map(([id, { label, description }]) => (
                 <option key={id} value={id}>{label} — {description}</option>
               ))}
             </select>
-            <p className="text-xs text-muted mt-1">Overrides the global theme for your admin session only. Does not affect other admins or the public portal.</p>
-          </div>
-        </div>
-      </NeonCard>
-
-      <NeonCard title="Scoreboard Branding" className="mb-4">
-        <div className="space-y-6">
-          {/* Background Image */}
-          <div>
-            <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Background Image</p>
-            {bgUrl && (
-              <div className="mb-3">
-                <img src={bgUrl} alt="Background preview" className="max-h-32 rounded border border-border object-cover" />
-              </div>
-            )}
-            <div className="flex items-center gap-3">
-              <input
-                id="bg-upload"
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                disabled={uploadingBg}
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  setUploadingBg(true);
-                  try {
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/background`, formData);
-                    setBgUrl(result.url);
-                    setSettings(prev => ({ ...prev, SCOREBOARD_BG_URL: result.url }));
-                    toast('Background uploaded', 'success');
-                  } catch (err: any) {
-                    toast(err.message || 'Upload failed', 'error');
-                  } finally {
-                    setUploadingBg(false);
-                    e.target.value = '';
-                  }
-                }}
-                className="hidden"
-              />
-              <NeonButton
-                variant="secondary"
-                className="text-xs"
-                disabled={uploadingBg}
-                onClick={() => document.getElementById('bg-upload')?.click()}
-              >
-                {uploadingBg ? 'Uploading...' : bgUrl ? 'Replace Image' : 'Upload Image'}
-              </NeonButton>
-              {bgUrl && (
-                <NeonButton
-                  variant="ghost"
-                  className="text-xs text-neon-magenta"
-                  disabled={uploadingBg}
-                  onClick={async () => {
-                    setUploadingBg(true);
-                    try {
-                      await api.delete(`/rooms/${room.roomId}/admin/upload/background`);
-                      setBgUrl('');
-                      setSettings(prev => {
-                        const next = { ...prev };
-                        delete next.SCOREBOARD_BG_URL;
-                        return next;
-                      });
-                      toast('Background removed', 'success');
-                    } catch {
-                      toast('Failed to remove background', 'error');
-                    } finally {
-                      setUploadingBg(false);
-                    }
-                  }}
-                >
-                  Remove
-                </NeonButton>
-              )}
-            </div>
-            <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Displayed behind the scoreboard.</p>
-
-            <div className="mt-3">
-              <label className="text-xs text-faint block mb-1">Background Mode</label>
-              <select
-                value={settings.SCOREBOARD_BG_MODE || 'cover'}
-                onChange={e => handleChange('SCOREBOARD_BG_MODE', e.target.value)}
-                className={inputClass}
-              >
-                <option value="cover">Cover (fill screen)</option>
-                <option value="contain">Contain (fit)</option>
-                <option value="repeat">Repeat (tile)</option>
-                <option value="center">Center</option>
-              </select>
-            </div>
-            <div className="mt-3">
-              <label className="text-xs text-faint block mb-1">Background Opacity</label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={Math.round((parseFloat(settings.SCOREBOARD_BG_OPACITY || '1') * 100))}
-                  onChange={e => handleChange('SCOREBOARD_BG_OPACITY', String(parseInt(e.target.value, 10) / 100))}
-                  className="flex-1 accent-neon-cyan cursor-pointer"
-                />
-                <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(settings.SCOREBOARD_BG_OPACITY || '1') * 100))}%</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Logo Image */}
-          <div>
-            <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Logo</p>
-            {logoUrl && (
-              <div className="mb-3">
-                <img src={logoUrl} alt="Logo preview" className="max-h-16 rounded border border-border object-contain" />
-              </div>
-            )}
-            <div className="flex items-center gap-3">
-              <input
-                id="logo-upload"
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                disabled={uploadingLogo}
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  setUploadingLogo(true);
-                  try {
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/logo`, formData);
-                    setLogoUrl(result.url);
-                    setSettings(prev => ({ ...prev, LOGO_URL: result.url }));
-                    toast('Logo uploaded', 'success');
-                  } catch (err: any) {
-                    toast(err.message || 'Upload failed', 'error');
-                  } finally {
-                    setUploadingLogo(false);
-                    e.target.value = '';
-                  }
-                }}
-                className="hidden"
-              />
-              <NeonButton
-                variant="secondary"
-                className="text-xs"
-                disabled={uploadingLogo}
-                onClick={() => document.getElementById('logo-upload')?.click()}
-              >
-                {uploadingLogo ? 'Uploading...' : logoUrl ? 'Replace Logo' : 'Upload Logo'}
-              </NeonButton>
-              {logoUrl && (
-                <NeonButton
-                  variant="ghost"
-                  className="text-xs text-neon-magenta"
-                  disabled={uploadingLogo}
-                  onClick={async () => {
-                    setUploadingLogo(true);
-                    try {
-                      await api.delete(`/rooms/${room.roomId}/admin/upload/logo`);
-                      setLogoUrl('');
-                      setSettings(prev => {
-                        const next = { ...prev };
-                        delete next.LOGO_URL;
-                        return next;
-                      });
-                      toast('Logo removed', 'success');
-                    } catch {
-                      toast('Failed to remove logo', 'error');
-                    } finally {
-                      setUploadingLogo(false);
-                    }
-                  }}
-                >
-                  Remove
-                </NeonButton>
-              )}
-            </div>
-            <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Shown alongside the scoreboard title.</p>
-
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <div>
-                <label className="text-xs text-faint block mb-1">Logo Position</label>
-                <select
-                  value={settings.LOGO_POSITION || 'left'}
-                  onChange={e => handleChange('LOGO_POSITION', e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="left">Left of title</option>
-                  <option value="right">Right of title</option>
-                  <option value="above">Above title</option>
-                  <option value="below">Below title</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-faint block mb-1">Logo Max Height (px)</label>
-                <input
-                  type="number"
-                  value={settings.LOGO_MAX_HEIGHT || '64'}
-                  onChange={e => handleChange('LOGO_MAX_HEIGHT', e.target.value)}
-                  className={inputClass}
-                  min="16"
-                  max="256"
-                />
-              </div>
-            </div>
+            <p className="text-xs text-muted mt-1">Overrides the theme for your session only. Does not affect other users.</p>
           </div>
         </div>
       </NeonCard>
@@ -853,7 +686,7 @@ export default function Settings() {
         />
       </NeonCard>
 
-      <NeonCard title="Features" className="mb-4">
+      <NeonCard title="Integrations" className="mb-4">
         <div className="space-y-4">
           {Object.entries(TOGGLE_SETTINGS).map(([key, { label, description, defaultOn }]) => {
             const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
@@ -882,7 +715,8 @@ export default function Settings() {
       </NeonCard>
 
       {categorized.map(({ category, entries }) => entries.length > 0 && (
-        <NeonCard key={category} title={category} className="mb-4">
+        <Fragment key={category}>
+        <NeonCard title={category} className="mb-4">
           <div className="space-y-3">
             {entries.map(([key, value]) => {
               const meta = SETTING_LABELS[key];
@@ -936,8 +770,300 @@ export default function Settings() {
                 </div>
               );
             })}
+
+            {/* Inline toggles for Scoreboard Display */}
+            {category === 'Scoreboard Display' && (
+              <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
+                {Object.entries(SCOREBOARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
+                  const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-primary">{label}</p>
+                        <p className="text-xs text-muted">{description}</p>
+                      </div>
+                      <button
+                        onClick={() => handleChange(key, isOn ? 'false' : 'true')}
+                        className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                          isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                        }`}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Inline toggles for Kiosk */}
+            {category === 'Kiosk' && (
+              <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
+                {Object.entries(KIOSK_TOGGLES).map(([key, { label, description, defaultOn }]) => {
+                  const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-primary">{label}</p>
+                        <p className="text-xs text-muted">{description}</p>
+                      </div>
+                      <button
+                        onClick={() => handleChange(key, isOn ? 'false' : 'true')}
+                        className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                          isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                        }`}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </NeonCard>
+
+        {/* Scoreboard Branding — renders right after Scoreboard Display */}
+        {category === 'Scoreboard Display' && (
+          <NeonCard title="Scoreboard Branding" className="mb-4">
+            <div className="space-y-6">
+              {/* Background Image */}
+              <div>
+                <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Background Image</p>
+                {bgUrl && (
+                  <div className="mb-3">
+                    <img src={bgUrl} alt="Background preview" className="max-h-32 rounded border border-border object-cover" />
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  <input
+                    id="bg-upload"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={uploadingBg}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setUploadingBg(true);
+                      try {
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/background`, formData);
+                        setBgUrl(result.url);
+                        setSettings(prev => ({ ...prev, SCOREBOARD_BG_URL: result.url }));
+                        toast('Background uploaded', 'success');
+                      } catch (err: any) {
+                        toast(err.message || 'Upload failed', 'error');
+                      } finally {
+                        setUploadingBg(false);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <NeonButton
+                    variant="secondary"
+                    className="text-xs"
+                    disabled={uploadingBg}
+                    onClick={() => document.getElementById('bg-upload')?.click()}
+                  >
+                    {uploadingBg ? 'Uploading...' : bgUrl ? 'Replace Image' : 'Upload Image'}
+                  </NeonButton>
+                  {bgUrl && (
+                    <NeonButton
+                      variant="ghost"
+                      className="text-xs text-neon-magenta"
+                      disabled={uploadingBg}
+                      onClick={async () => {
+                        setUploadingBg(true);
+                        try {
+                          await api.delete(`/rooms/${room.roomId}/admin/upload/background`);
+                          setBgUrl('');
+                          setSettings(prev => {
+                            const next = { ...prev };
+                            delete next.SCOREBOARD_BG_URL;
+                            return next;
+                          });
+                          toast('Background removed', 'success');
+                        } catch {
+                          toast('Failed to remove background', 'error');
+                        } finally {
+                          setUploadingBg(false);
+                        }
+                      }}
+                    >
+                      Remove
+                    </NeonButton>
+                  )}
+                </div>
+                <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Displayed behind the scoreboard.</p>
+                <div className="mt-3">
+                  <label className="text-xs text-faint block mb-1">Background Mode</label>
+                  <select
+                    value={settings.SCOREBOARD_BG_MODE || 'cover'}
+                    onChange={e => handleChange('SCOREBOARD_BG_MODE', e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="cover">Cover (fill screen)</option>
+                    <option value="contain">Contain (fit)</option>
+                    <option value="repeat">Repeat (tile)</option>
+                    <option value="center">Center</option>
+                  </select>
+                </div>
+                <div className="mt-3">
+                  <label className="text-xs text-faint block mb-1">Background Opacity</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value={Math.round((parseFloat(settings.SCOREBOARD_BG_OPACITY || '1') * 100))}
+                      onChange={e => handleChange('SCOREBOARD_BG_OPACITY', String(parseInt(e.target.value, 10) / 100))}
+                      className="flex-1 accent-neon-cyan cursor-pointer"
+                    />
+                    <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(settings.SCOREBOARD_BG_OPACITY || '1') * 100))}%</span>
+                  </div>
+                </div>
+              </div>
+              {/* Logo Image */}
+              <div>
+                <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Logo</p>
+                {logoUrl && (
+                  <div className="mb-3">
+                    <img src={logoUrl} alt="Logo preview" className="max-h-16 rounded border border-border object-contain" />
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  <input
+                    id="logo-upload"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={uploadingLogo}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setUploadingLogo(true);
+                      try {
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/logo`, formData);
+                        setLogoUrl(result.url);
+                        setSettings(prev => ({ ...prev, LOGO_URL: result.url }));
+                        toast('Logo uploaded', 'success');
+                      } catch (err: any) {
+                        toast(err.message || 'Upload failed', 'error');
+                      } finally {
+                        setUploadingLogo(false);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <NeonButton
+                    variant="secondary"
+                    className="text-xs"
+                    disabled={uploadingLogo}
+                    onClick={() => document.getElementById('logo-upload')?.click()}
+                  >
+                    {uploadingLogo ? 'Uploading...' : logoUrl ? 'Replace Logo' : 'Upload Logo'}
+                  </NeonButton>
+                  {logoUrl && (
+                    <NeonButton
+                      variant="ghost"
+                      className="text-xs text-neon-magenta"
+                      disabled={uploadingLogo}
+                      onClick={async () => {
+                        setUploadingLogo(true);
+                        try {
+                          await api.delete(`/rooms/${room.roomId}/admin/upload/logo`);
+                          setLogoUrl('');
+                          setSettings(prev => {
+                            const next = { ...prev };
+                            delete next.LOGO_URL;
+                            return next;
+                          });
+                          toast('Logo removed', 'success');
+                        } catch {
+                          toast('Failed to remove logo', 'error');
+                        } finally {
+                          setUploadingLogo(false);
+                        }
+                      }}
+                    >
+                      Remove
+                    </NeonButton>
+                  )}
+                </div>
+                <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Shown alongside the scoreboard title.</p>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div>
+                    <label className="text-xs text-faint block mb-1">Logo Position</label>
+                    <select
+                      value={settings.LOGO_POSITION || 'left'}
+                      onChange={e => handleChange('LOGO_POSITION', e.target.value)}
+                      className={inputClass}
+                    >
+                      <option value="left">Left of title</option>
+                      <option value="right">Right of title</option>
+                      <option value="above">Above title</option>
+                      <option value="below">Below title</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-faint block mb-1">Logo Max Height (px)</label>
+                    <input
+                      type="number"
+                      value={settings.LOGO_MAX_HEIGHT || '64'}
+                      onChange={e => handleChange('LOGO_MAX_HEIGHT', e.target.value)}
+                      className={inputClass}
+                      min="16"
+                      max="256"
+                    />
+                  </div>
+                </div>
+                {/* Scoreboard Title */}
+                <div className="mt-3">
+                  <label className="text-xs text-faint block mb-1">Scoreboard Title</label>
+                  <input
+                    type="text"
+                    value={settings.SCOREBOARD_TITLE || ''}
+                    onChange={e => handleChange('SCOREBOARD_TITLE', e.target.value)}
+                    placeholder="Leave empty to use room name"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div>
+                    <label className="text-xs text-faint block mb-1">Title Style</label>
+                    <select
+                      value={settings.SCOREBOARD_TITLE_STYLE || 'default'}
+                      onChange={e => handleChange('SCOREBOARD_TITLE_STYLE', e.target.value)}
+                      className={inputClass}
+                    >
+                      {SELECT_OPTIONS.SCOREBOARD_TITLE_STYLE.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-faint block mb-1">Title Size</label>
+                    <select
+                      value={settings.SCOREBOARD_TITLE_SIZE || 'sm'}
+                      onChange={e => handleChange('SCOREBOARD_TITLE_SIZE', e.target.value)}
+                      className={inputClass}
+                    >
+                      {SELECT_OPTIONS.SCOREBOARD_TITLE_SIZE.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </NeonCard>
+        )}
+        </Fragment>
       ))}
 
       {uncategorizedKeys.length > 0 && (
@@ -962,8 +1088,8 @@ export default function Settings() {
         <div className="flex items-center gap-4">
           <div className="flex-1">
             <p className="text-sm text-muted">
-              Reload tournament schedules after changing cron settings, timezones, or activating/deactivating tournaments.
-              This happens automatically when you save tournament changes, but you can trigger it manually here.
+              Refresh tournament schedules after changing cron settings, timezones, or activating/deactivating tournaments.
+              This happens automatically when you save tournament changes, but you can trigger it manually here if schedules seem out of sync.
             </p>
           </div>
           <NeonButton
@@ -972,16 +1098,16 @@ export default function Settings() {
               setReloadingScheduler(true);
               try {
                 await api.post(`/rooms/${room.roomId}/scheduler/reload`, {});
-                toast('Scheduler reloaded', 'success');
+                toast('Schedules refreshed', 'success');
               } catch {
-                toast('Failed to reload scheduler', 'error');
+                toast('Failed to refresh schedules', 'error');
               } finally {
                 setReloadingScheduler(false);
               }
             }}
             disabled={reloadingScheduler}
           >
-            {reloadingScheduler ? 'Reloading...' : 'Reload Scheduler'}
+            {reloadingScheduler ? 'Refreshing...' : 'Refresh Schedules'}
           </NeonButton>
         </div>
       </NeonCard>
@@ -1038,13 +1164,6 @@ export default function Settings() {
         </div>
       </NeonCard>
 
-      <NeonCard title="Add Custom Setting" className="mb-4">
-        <div className="flex gap-3">
-          <input type="text" placeholder="KEY_NAME" value={newKey} onChange={e => setNewKey(e.target.value)} className={`${inputClass} w-48`} />
-          <input type="text" placeholder="Value" value={newValue} onChange={e => setNewValue(e.target.value)} className={`${inputClass} flex-1`} />
-          <NeonButton variant="secondary" onClick={handleAdd}>Add</NeonButton>
-        </div>
-      </NeonCard>
 
       {deleteAdminTarget && (
         <ConfirmModal

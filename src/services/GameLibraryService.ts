@@ -16,6 +16,17 @@ interface GameData {
 
 export class GameLibraryService {
     /**
+     * Searches games in the library by name (partial, case-insensitive).
+     */
+    static async search(query: string, limit: number = 10): Promise<Array<{ name: string; mode: string; platforms: string }>> {
+        const db = await getDatabase();
+        return db.all(
+            'SELECT name, mode, platforms FROM game_library WHERE name LIKE ? COLLATE NOCASE LIMIT ?',
+            `%${query}%`, limit
+        );
+    }
+
+    /**
      * Returns all games in the library.
      */
     static async getAll(): Promise<any[]> {

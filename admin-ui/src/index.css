@@ -195,6 +195,158 @@
   --color-faint: oklch(38% 0 0);
 }
 
+/* Backglass theme (warm amber/orange — 1970s-80s pinball backglass translite) */
+.theme-backglass {
+  --color-deep: oklch(8% 0.02 50);
+  --color-surface: oklch(12% 0.03 50);
+  --color-raised: oklch(16% 0.04 50);
+  --color-border: oklch(28% 0.06 50);
+  --color-border-glow: oklch(75% 0.18 65);
+  --color-neon-cyan: oklch(80% 0.18 70);
+  --color-neon-magenta: oklch(65% 0.22 15);
+  --color-neon-green: oklch(72% 0.15 120);
+  --color-neon-amber: oklch(82% 0.2 70);
+  --color-neon-purple: oklch(55% 0.15 310);
+  --color-neon-coral: oklch(70% 0.22 25);
+  --color-neon-blue: oklch(60% 0.12 230);
+  --color-primary: oklch(90% 0.04 65);
+  --color-muted: oklch(65% 0.05 60);
+  --color-faint: oklch(40% 0.03 50);
+}
+
+/* CRT Green theme (phosphor green monochrome CRT monitor) */
+.theme-crt-green {
+  --color-deep: oklch(5% 0 0);
+  --color-surface: oklch(8% 0.01 140);
+  --color-raised: oklch(12% 0.02 140);
+  --color-border: oklch(25% 0.06 140);
+  --color-border-glow: oklch(78% 0.28 140);
+  --color-neon-cyan: oklch(80% 0.25 140);
+  --color-neon-magenta: oklch(70% 0.2 140);
+  --color-neon-green: oklch(85% 0.3 140);
+  --color-neon-amber: oklch(82% 0.26 140);
+  --color-neon-purple: oklch(68% 0.2 140);
+  --color-neon-coral: oklch(75% 0.22 140);
+  --color-neon-blue: oklch(78% 0.25 140);
+  --color-primary: oklch(85% 0.2 140);
+  --color-muted: oklch(62% 0.12 140);
+  --color-faint: oklch(35% 0.06 140);
+}
+
+/* Plasma theme (hot pink + electric blue on dark purple-black) */
+.theme-plasma {
+  --color-deep: oklch(10% 0.04 310);
+  --color-surface: oklch(14% 0.05 310);
+  --color-raised: oklch(18% 0.06 310);
+  --color-border: oklch(28% 0.08 310);
+  --color-border-glow: oklch(68% 0.28 340);
+  --color-neon-cyan: oklch(72% 0.18 230);
+  --color-neon-magenta: oklch(70% 0.3 340);
+  --color-neon-green: oklch(75% 0.2 160);
+  --color-neon-amber: oklch(80% 0.18 85);
+  --color-neon-purple: oklch(58% 0.28 300);
+  --color-neon-coral: oklch(68% 0.25 15);
+  --color-neon-blue: oklch(70% 0.22 250);
+  --color-primary: oklch(93% 0.03 310);
+  --color-muted: oklch(68% 0.05 310);
+  --color-faint: oklch(42% 0.04 310);
+}
+
+/* Cabinet theme (classic black arcade cabinet — primary colors on black) */
+.theme-cabinet {
+  --color-deep: oklch(6% 0 0);
+  --color-surface: oklch(10% 0 0);
+  --color-raised: oklch(15% 0 0);
+  --color-border: oklch(25% 0.02 60);
+  --color-border-glow: oklch(80% 0.2 90);
+  --color-neon-cyan: oklch(72% 0.16 230);
+  --color-neon-magenta: oklch(62% 0.26 15);
+  --color-neon-green: oklch(78% 0.22 140);
+  --color-neon-amber: oklch(85% 0.22 90);
+  --color-neon-purple: oklch(55% 0.2 290);
+  --color-neon-coral: oklch(65% 0.24 25);
+  --color-neon-blue: oklch(68% 0.18 245);
+  --color-primary: oklch(95% 0 0);
+  --color-muted: oklch(65% 0.01 60);
+  --color-faint: oklch(38% 0 0);
+}
+
+/* Silverball theme (gunmetal/steel gray — chrome pinball machine aesthetic) */
+.theme-silverball {
+  --color-deep: oklch(18% 0.005 260);
+  --color-surface: oklch(22% 0.008 260);
+  --color-raised: oklch(27% 0.01 260);
+  --color-border: oklch(40% 0.015 260);
+  --color-border-glow: oklch(65% 0.03 260);
+  --color-neon-cyan: oklch(70% 0.08 230);
+  --color-neon-magenta: oklch(60% 0.12 350);
+  --color-neon-green: oklch(68% 0.08 160);
+  --color-neon-amber: oklch(80% 0.16 80);
+  --color-neon-purple: oklch(55% 0.08 280);
+  --color-neon-coral: oklch(65% 0.1 20);
+  --color-neon-blue: oklch(65% 0.06 240);
+  --color-primary: oklch(88% 0.01 260);
+  --color-muted: oklch(62% 0.01 260);
+  --color-faint: oklch(42% 0.008 260);
+}
+
+/* Wizard theme (deep indigo — mystical/fantasy pinball) */
+.theme-wizard {
+  --color-deep: oklch(12% 0.04 280);
+  --color-surface: oklch(16% 0.05 280);
+  --color-raised: oklch(20% 0.06 280);
+  --color-border: oklch(30% 0.08 280);
+  --color-border-glow: oklch(60% 0.2 280);
+  --color-neon-cyan: oklch(68% 0.14 195);
+  --color-neon-magenta: oklch(62% 0.22 340);
+  --color-neon-green: oklch(72% 0.16 160);
+  --color-neon-amber: oklch(80% 0.18 80);
+  --color-neon-purple: oklch(60% 0.25 280);
+  --color-neon-coral: oklch(65% 0.18 20);
+  --color-neon-blue: oklch(62% 0.18 260);
+  --color-primary: oklch(90% 0.02 280);
+  --color-muted: oklch(65% 0.04 280);
+  --color-faint: oklch(40% 0.03 280);
+}
+
+/* Playfield theme (dark green felt — pinball playing surface) */
+.theme-playfield {
+  --color-deep: oklch(14% 0.03 150);
+  --color-surface: oklch(18% 0.04 150);
+  --color-raised: oklch(22% 0.05 150);
+  --color-border: oklch(32% 0.06 150);
+  --color-border-glow: oklch(65% 0.15 80);
+  --color-neon-cyan: oklch(75% 0.14 195);
+  --color-neon-magenta: oklch(65% 0.22 15);
+  --color-neon-green: oklch(78% 0.2 150);
+  --color-neon-amber: oklch(82% 0.2 80);
+  --color-neon-purple: oklch(55% 0.18 290);
+  --color-neon-coral: oklch(70% 0.2 25);
+  --color-neon-blue: oklch(65% 0.14 235);
+  --color-primary: oklch(92% 0.02 100);
+  --color-muted: oklch(65% 0.04 140);
+  --color-faint: oklch(40% 0.03 150);
+}
+
+/* Marquee theme (bright white text with glow — illuminated arcade marquee) */
+.theme-marquee {
+  --color-deep: oklch(8% 0 0);
+  --color-surface: oklch(12% 0 0);
+  --color-raised: oklch(16% 0.005 260);
+  --color-border: oklch(28% 0.01 260);
+  --color-border-glow: oklch(85% 0.02 260);
+  --color-neon-cyan: oklch(80% 0.15 200);
+  --color-neon-magenta: oklch(70% 0.24 345);
+  --color-neon-green: oklch(80% 0.2 145);
+  --color-neon-amber: oklch(85% 0.18 85);
+  --color-neon-purple: oklch(62% 0.22 285);
+  --color-neon-coral: oklch(72% 0.2 20);
+  --color-neon-blue: oklch(72% 0.16 240);
+  --color-primary: oklch(97% 0.005 260);
+  --color-muted: oklch(70% 0.01 260);
+  --color-faint: oklch(42% 0.005 260);
+}
+
 /* Base resets */
 * {
   box-sizing: border-box;
@@ -307,6 +459,41 @@ body {
 .theme-minimal .glow-magenta,
 .theme-minimal .glow-amber {
   box-shadow: 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* CRT Green theme: strong phosphor scanlines + text glow */
+.theme-crt-green .scanlines::after {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 1px,
+    rgba(0, 0, 0, 0.2) 1px,
+    rgba(0, 0, 0, 0.2) 3px
+  );
+}
+
+.theme-crt-green {
+  text-shadow: 0 0 6px oklch(75% 0.25 140 / 0.5);
+}
+
+/* Backglass theme: warm amber text glow */
+.theme-backglass {
+  text-shadow: 0 0 3px oklch(75% 0.15 65 / 0.3);
+}
+
+/* Marquee theme: bright white text glow */
+.theme-marquee {
+  text-shadow: 0 0 8px oklch(90% 0.01 260 / 0.4);
+}
+
+/* Playfield theme: no scanlines (clean felt look) */
+.theme-playfield .scanlines::after {
+  background: none;
+}
+
+/* Silverball theme: no scanlines, subtle metallic sheen */
+.theme-silverball .scanlines::after {
+  background: none;
 }
 
 /* Neon glow utilities */

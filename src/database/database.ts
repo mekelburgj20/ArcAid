@@ -104,7 +104,8 @@ export async function initDatabase(): Promise<Database> {
     await db.exec(`
         CREATE TABLE IF NOT EXISTS user_mappings (
             discord_user_id TEXT PRIMARY KEY,
-            iscored_username TEXT NOT NULL
+            iscored_username TEXT NOT NULL,
+            avatar_hash TEXT
         )
     `);
 
@@ -317,6 +318,20 @@ export async function initDatabase(): Promise<Database> {
         )
     `);
 
+    // 11. Room events (activity log)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS room_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_room_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            event_data TEXT DEFAULT '{}',
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_room_events_room_type ON room_events(game_room_id, event_type);
+        CREATE INDEX IF NOT EXISTS idx_room_events_created ON room_events(created_at)
+    `);
+
     // --- Indexes for performance ---
     await db.exec(`
         CREATE INDEX IF NOT EXISTS idx_games_tournament_id ON games(tournament_id);
@@ -381,6 +396,7 @@ export async function initDatabase(): Promise<Database> {
         { name: '018_room_library_catalogue_style', sql: `ALTER TABLE game_room_game_library ADD COLUMN catalogue_style_id TEXT` },
         { name: '019_room_library_style_header_disabled', sql: `ALTER TABLE game_room_game_library ADD COLUMN style_header_disabled INTEGER DEFAULT 0` },
         { name: '020_games_queue_order', sql: `ALTER TABLE games ADD COLUMN queue_order INTEGER` },
+        { name: '021_user_mappings_avatar_hash', sql: `ALTER TABLE user_mappings ADD COLUMN avatar_hash TEXT` },
     ];
 
     for (const migration of migrations) {

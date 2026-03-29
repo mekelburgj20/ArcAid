@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, isAuthenticated } from '../lib/api';
 
-export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal' | 'invaders' | 'coffee';
+export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal' | 'invaders' | 'coffee' | 'backglass' | 'crt-green' | 'plasma' | 'cabinet' | 'silverball' | 'wizard' | 'playfield' | 'marquee';
 
 export const THEMES: Record<ThemeId, { label: string; description: string }> = {
   dark: { label: 'Dark', description: 'Deep indigo dark theme with accent colors' },
@@ -13,6 +13,14 @@ export const THEMES: Record<ThemeId, { label: string; description: string }> = {
   minimal: { label: 'Minimal', description: 'Monochrome with a single accent color' },
   invaders: { label: 'Space Invaders', description: 'Classic arcade black with alien silhouettes' },
   coffee: { label: 'Coffee', description: 'Warm cream and brown light theme' },
+  backglass: { label: 'Backglass', description: 'Warm amber pinball backglass translite feel' },
+  'crt-green': { label: 'CRT Green', description: 'Phosphor green monochrome CRT monitor' },
+  plasma: { label: 'Plasma', description: 'Hot pink and electric blue plasma ball energy' },
+  cabinet: { label: 'Cabinet', description: 'Classic black arcade cabinet with primary colors' },
+  silverball: { label: 'Silverball', description: 'Chrome and steel pinball machine aesthetic' },
+  wizard: { label: 'Wizard', description: 'Mystical indigo fantasy pinball atmosphere' },
+  playfield: { label: 'Playfield', description: 'Dark green felt pinball playing surface' },
+  marquee: { label: 'Marquee', description: 'Illuminated arcade marquee with bright glow' },
 };
 
 interface ThemeContextType {
@@ -20,6 +28,10 @@ interface ThemeContextType {
   setTheme: (theme: ThemeId) => void;
   globalTheme: ThemeId;
   setGlobalTheme: (theme: ThemeId) => void;
+  publicTheme: ThemeId;
+  setPublicTheme: (theme: ThemeId) => void;
+  adminTheme: ThemeId;
+  setAdminTheme: (theme: ThemeId) => void;
   userTheme: ThemeId | null;
   setUserTheme: (theme: ThemeId | null) => void;
 }
@@ -28,8 +40,17 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'arcaid-theme';
 const STORAGE_GLOBAL_KEY = 'arcaid-theme-global';
+const STORAGE_PUBLIC_KEY = 'arcaid-theme-public';
+const STORAGE_ADMIN_KEY = 'arcaid-theme-admin';
 
-const ALL_THEME_CLASSES = ['theme-light', 'theme-retro', 'theme-cyberpunk', 'theme-ocean', 'theme-sunset', 'theme-minimal', 'theme-invaders', 'theme-coffee'];
+function isAdminRoute(): boolean {
+  const path = window.location.pathname;
+  // /admin/* = super admin, /:slug/admin/* = room admin
+  const parts = path.split('/').filter(Boolean);
+  return parts[0] === 'admin' || parts[1] === 'admin';
+}
+
+const ALL_THEME_CLASSES = ['theme-light', 'theme-retro', 'theme-cyberpunk', 'theme-ocean', 'theme-sunset', 'theme-minimal', 'theme-invaders', 'theme-coffee', 'theme-backglass', 'theme-crt-green', 'theme-plasma', 'theme-cabinet', 'theme-silverball', 'theme-wizard', 'theme-playfield', 'theme-marquee'];
 
 function applyThemeClass(theme: ThemeId) {
   const root = document.documentElement;
@@ -41,8 +62,13 @@ function applyThemeClass(theme: ThemeId) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   // Initialize from localStorage for instant rendering (no flash)
-  const [globalTheme, setGlobalThemeState] = useState<ThemeId>(() => {
-    const stored = localStorage.getItem(STORAGE_GLOBAL_KEY);
+  const [publicThemeState, setPublicThemeState] = useState<ThemeId>(() => {
+    // Backward compat: check PUBLIC_THEME first, then fall back to legacy GLOBAL key
+    const stored = localStorage.getItem(STORAGE_PUBLIC_KEY) || localStorage.getItem(STORAGE_GLOBAL_KEY);
+    return (stored as ThemeId) || 'dark';
+  });
+  const [adminThemeState, setAdminThemeState] = useState<ThemeId>(() => {
+    const stored = localStorage.getItem(STORAGE_ADMIN_KEY);
     return (stored as ThemeId) || 'dark';
   });
   const [userTheme, setUserThemeState] = useState<ThemeId | null>(() => {
@@ -50,7 +76,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return stored ? (stored as ThemeId) : null;
   });
 
-  // The effective theme: user override > global default
+  // The effective global theme depends on whether we're on an admin route
+  const globalTheme = isAdminRoute() ? adminThemeState : publicThemeState;
+  // The effective theme: user override > route-appropriate global default
   const theme = userTheme || globalTheme;
 
   // Apply theme class whenever effective theme changes
@@ -70,9 +98,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           : null;
         if (portalRes?.ok) {
           const portal = await portalRes.json();
-          if (portal.ui_theme && portal.ui_theme !== globalTheme) {
-            setGlobalThemeState(portal.ui_theme);
-            localStorage.setItem(STORAGE_GLOBAL_KEY, portal.ui_theme);
+          // Hydrate public theme (backward compat: ui_theme = PUBLIC_THEME)
+          const serverPublicTheme = portal.public_theme || portal.ui_theme;
+          if (serverPublicTheme && serverPublicTheme !== publicThemeState) {
+            setPublicThemeState(serverPublicTheme);
+            localStorage.setItem(STORAGE_PUBLIC_KEY, serverPublicTheme);
+          }
+          // Hydrate admin theme
+          if (portal.admin_theme && portal.admin_theme !== adminThemeState) {
+            setAdminThemeState(portal.admin_theme);
+            localStorage.setItem(STORAGE_ADMIN_KEY, portal.admin_theme);
           }
         }
 
@@ -96,9 +131,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     hydrate();
   }, []);
 
-  const setGlobalTheme = (newTheme: ThemeId) => {
-    setGlobalThemeState(newTheme);
+  const setPublicTheme = (newTheme: ThemeId) => {
+    setPublicThemeState(newTheme);
+    localStorage.setItem(STORAGE_PUBLIC_KEY, newTheme);
+    // Keep legacy key in sync for backward compat
     localStorage.setItem(STORAGE_GLOBAL_KEY, newTheme);
+  };
+
+  const setAdminTheme = (newTheme: ThemeId) => {
+    setAdminThemeState(newTheme);
+    localStorage.setItem(STORAGE_ADMIN_KEY, newTheme);
+  };
+
+  // setGlobalTheme sets the route-appropriate theme (backward compat)
+  const setGlobalTheme = (newTheme: ThemeId) => {
+    if (isAdminRoute()) {
+      setAdminTheme(newTheme);
+    } else {
+      setPublicTheme(newTheme);
+    }
   };
 
   const setUserTheme = (newTheme: ThemeId | null) => {
@@ -111,12 +162,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   };
 
   const setTheme = (newTheme: ThemeId) => {
-    // Convenience method — sets user theme
     setUserTheme(newTheme);
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, globalTheme, setGlobalTheme, userTheme, setUserTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, globalTheme, setGlobalTheme, publicTheme: publicThemeState, setPublicTheme, adminTheme: adminThemeState, setAdminTheme, userTheme, setUserTheme }}>
       {children}
     </ThemeContext.Provider>
   );

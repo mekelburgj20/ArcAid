@@ -29,6 +29,7 @@ import Stats from './pages/Stats';
 import History from './pages/History';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
+import ActivityLog from './pages/ActivityLog';
 
 // Pages — Public
 import Scoreboard from './pages/Scoreboard';
@@ -40,6 +41,9 @@ import PublicStats from './pages/PublicStats';
 
 // Pages — Kiosk
 import KioskScoreboard from './pages/KioskScoreboard';
+
+// Pages — Standalone
+import ScoreSubmit from './pages/ScoreSubmit';
 
 // Pages — Auth
 import RoomLogin from './pages/RoomLogin';
@@ -97,12 +101,16 @@ function App() {
           <Route path="rankings" element={<Rankings />} />
           <Route path="stats" element={<Stats />} />
           <Route path="history" element={<History />} />
+          <Route path="activity" element={<ActivityLog />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
         </Route>
 
         {/* Kiosk mode (standalone, no layout wrapper) */}
         <Route path="/:slug/kiosk" element={<KioskScoreboard />} />
+
+        {/* QR code score submission (standalone, with viewer auth for Discord prepopulation) */}
+        <Route path="/:slug/submit/:gameId" element={<ViewerAuthProvider><ScoreSubmit /></ViewerAuthProvider>} />
 
         {/* Public room routes */}
         <Route path="/:slug" element={<ViewerAuthProvider><PublicLayout /></ViewerAuthProvider>}>

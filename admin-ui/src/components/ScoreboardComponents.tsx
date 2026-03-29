@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus, Camera, Upload } from 'lucide-react';
+import QRCode from 'qrcode';
 import ScorePhotoModal from './ScorePhotoModal';
 
 // --- Shared interfaces ---
@@ -10,6 +11,7 @@ export interface RankedEntry {
   discord_user_id: string;
   iscored_username: string;
   score: number;
+  avatar_hash?: string | null;
 }
 
 export interface GameLeaderboard {
@@ -22,6 +24,7 @@ export interface GameLeaderboard {
   catalogueStyleId: string | null;
   styleHeaderDisabled: boolean;
   rankings: RankedEntry[];
+  nextMaintenanceAt?: string | null;
 }
 
 export interface RankingGroupData {
@@ -36,8 +39,10 @@ export interface RankingGroupData {
   rankings: Array<{
     rank: number;
     iscored_username: string;
+    discord_user_id?: string;
     total_points: number;
     games_played: number;
+    avatar_hash?: string | null;
   }>;
 }
 
@@ -90,6 +95,99 @@ export function getTitleSizeClass(size: string): string {
   }
 }
 
+// --- Player Avatar Component ---
+
+const AVATAR_COLORS = [
+  'bg-neon-magenta', 'bg-neon-cyan', 'bg-neon-green', 'bg-neon-amber',
+  'bg-neon-purple', 'bg-neon-coral', 'bg-neon-blue',
+];
+
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+export function PlayerAvatar({ username, discordUserId, avatarHash, size = 24 }: {
+  username: string;
+  discordUserId?: string | null;
+  avatarHash?: string | null;
+  size?: number;
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  const hasDiscordAvatar = discordUserId && avatarHash && !imgError;
+
+  if (hasDiscordAvatar) {
+    return (
+      <img
+        src={`https://cdn.discordapp.com/avatars/${discordUserId}/${avatarHash}.png?size=64`}
+        alt={username}
+        width={size}
+        height={size}
+        className="rounded-full flex-shrink-0 object-cover"
+        style={{ width: size, height: size }}
+        onError={() => setImgError(true)}
+      />
+    );
+  }
+
+  // Colored-letter fallback
+  const colorIndex = hashString(username) % AVATAR_COLORS.length;
+  const bgColor = AVATAR_COLORS[colorIndex];
+  const letter = (username[0] || '?').toUpperCase();
+
+  return (
+    <div
+      className={`rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold ${bgColor}`}
+      style={{ width: size, height: size, fontSize: size * 0.45 }}
+    >
+      {letter}
+    </div>
+  );
+}
+
+// --- Countdown helper ---
+
+export function formatCountdown(targetDate: string): string | null {
+  const now = Date.now();
+  const target = new Date(targetDate).getTime();
+  const diff = target - now;
+  if (diff <= 0) return null;
+
+  const totalMinutes = Math.floor(diff / 60000);
+  const totalHours = Math.floor(totalMinutes / 60);
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h left`;
+  if (hours > 0) return `${hours}h ${minutes}m left`;
+  if (totalMinutes > 0) return `< 1h left`;
+  return null;
+}
+
+// --- QR Code Component ---
+
+function GameQRCode({ slug, gameId, size = 48 }: { slug: string; gameId: string; size?: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const url = `${window.location.origin}/${slug}/submit/${gameId}`;
+    QRCode.toCanvas(canvasRef.current, url, {
+      width: size,
+      margin: 1,
+      color: { dark: '#ffffff', light: '#00000000' },
+    }).catch(() => {});
+  }, [slug, gameId, size]);
+
+  return <canvas ref={canvasRef} className="rounded" style={{ width: size, height: size }} />;
+}
+
 // --- Components ---
 
 interface ScoreHistoryEntry {
@@ -100,10 +198,14 @@ interface ScoreHistoryEntry {
   created_at: string;
 }
 
-export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpacity }: {
+export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled' }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
+  scoreColumns?: number;
+  viewerUsername?: string;
+  viewerEntry?: RankedEntry | null;
+  qrMode?: string;
 }) {
   const borderColor = getTournamentBorderColor(lb.tournamentType);
   const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
@@ -111,6 +213,19 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
   const [playerHistory, setPlayerHistory] = useState<ScoreHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [photoModal, setPhotoModal] = useState<{ playerName: string; score: number; photoUrl: string | null } | null>(null);
+  const [countdown, setCountdown] = useState<string | null>(
+    lb.nextMaintenanceAt ? formatCountdown(lb.nextMaintenanceAt) : null
+  );
+
+  // Update countdown every 60 seconds
+  useEffect(() => {
+    if (!lb.nextMaintenanceAt) { setCountdown(null); return; }
+    setCountdown(formatCountdown(lb.nextMaintenanceAt));
+    const interval = setInterval(() => {
+      setCountdown(formatCountdown(lb.nextMaintenanceAt!));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [lb.nextMaintenanceAt]);
 
   // Fetch score counts for this game to know which players have multiple scores
   useEffect(() => {
@@ -189,90 +304,170 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
           </div>
         ) : (
           <div>
-            {/* Header row */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-              <span>Player</span>
-              <span>Score</span>
-            </div>
-            {lb.rankings.slice(0, maxScores).map((entry) => {
-              const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
-              const isExpanded = expandedPlayer === entry.iscored_username;
-              return (
-                <div key={entry.discord_user_id}>
-                  <div
-                    className={`flex items-center justify-between px-4 py-2.5 border-b border-border/20 last:border-0 ${
-                      entry.rank === 1 ? 'bg-neon-amber/8' : ''
-                    } ${hasMultiple ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
-                    onClick={hasMultiple ? () => togglePlayer(entry.iscored_username) : undefined}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
-                        entry.rank === 1 ? 'text-neon-amber' :
-                        entry.rank === 2 ? 'text-neon-cyan' :
-                        entry.rank === 3 ? 'text-neon-green' :
-                        'text-faint'
-                      }`}>
-                        {entry.rank}
-                      </span>
-                      <span className="text-sm truncate">{entry.iscored_username}</span>
+            {(() => {
+              // Build the visible entries list, injecting viewer entry if outside top N
+              const lowerViewer = viewerUsername?.toLowerCase();
+              let visibleEntries = lb.rankings.slice(0, maxScores);
+              let viewerInjected = false;
+
+              if (viewerEntry && lowerViewer) {
+                const viewerInVisible = visibleEntries.some(
+                  e => e.iscored_username.toLowerCase() === lowerViewer
+                );
+                if (!viewerInVisible && viewerEntry.rank > maxScores) {
+                  // Replace last slot with viewer's entry
+                  visibleEntries = [...visibleEntries.slice(0, maxScores - 1), viewerEntry];
+                  viewerInjected = true;
+                }
+              }
+
+              const useTwoColumns = scoreColumns === 2 && visibleEntries.length > 5;
+              const midpoint = useTwoColumns ? Math.ceil(visibleEntries.length / 2) : visibleEntries.length;
+              const col1 = visibleEntries.slice(0, midpoint);
+              const col2 = useTwoColumns ? visibleEntries.slice(midpoint) : [];
+
+              const renderEntry = (entry: RankedEntry, isViewerRow: boolean, showSeparator: boolean) => {
+                const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
+                const isExpanded = expandedPlayer === entry.iscored_username;
+                return (
+                  <div key={`${entry.rank}-${entry.iscored_username}`}>
+                    {showSeparator && (
+                      <div className="border-t border-dashed border-neon-cyan/30 my-0.5" />
+                    )}
+                    <div
+                      className={`flex items-center justify-between px-3 py-2 border-b border-border/20 last:border-0 ${
+                        entry.rank === 1 ? 'bg-neon-amber/8' : ''
+                      } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''
+                      } ${hasMultiple && !useTwoColumns ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
+                      onClick={hasMultiple && !useTwoColumns ? () => togglePlayer(entry.iscored_username) : undefined}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
+                          entry.rank === 1 ? 'text-neon-amber' :
+                          entry.rank === 2 ? 'text-neon-cyan' :
+                          entry.rank === 3 ? 'text-neon-green' :
+                          'text-faint'
+                        }`}>
+                          {entry.rank}
+                        </span>
+                        <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
+                        <span className={`text-sm truncate ${isViewerRow ? 'text-neon-cyan font-medium' : ''}`}>{entry.iscored_username}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`font-display font-bold text-sm flex-shrink-0 ${
+                          entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-primary'
+                        }`}>
+                          {entry.score.toLocaleString()}
+                        </span>
+                        {hasMultiple && !useTwoColumns && (
+                          isExpanded
+                            ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
+                            : <Plus size={12} className="text-faint flex-shrink-0" />
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`font-display font-bold text-sm flex-shrink-0 ${
-                        entry.rank === 1 ? 'text-neon-amber' : 'text-primary'
-                      }`}>
-                        {entry.score.toLocaleString()}
-                      </span>
-                      {hasMultiple && (
-                        isExpanded
-                          ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
-                          : <Plus size={12} className="text-faint flex-shrink-0" />
-                      )}
-                    </div>
-                  </div>
-                  {isExpanded && (
-                    <div className="bg-deep/50 border-b border-border/20 px-4 py-2">
-                      {historyLoading ? (
-                        <p className="text-faint text-xs py-1">Loading...</p>
-                      ) : playerHistory.length > 0 ? (
-                        <div className="space-y-1">
-                          {playerHistory.map(h => (
-                            <div key={h.id} className="flex items-center justify-between text-xs">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-muted">{h.score.toLocaleString()}</span>
-                                {h.photo_url && (
-                                  <button
-                                    className="text-neon-cyan hover:text-neon-cyan/80 transition-colors cursor-pointer"
-                                    onClick={(e) => { e.stopPropagation(); setPhotoModal({ playerName: expandedPlayer || '', score: h.score, photoUrl: h.photo_url }); }}
-                                    title="View score photo"
-                                  >
-                                    <Camera size={12} />
-                                  </button>
-                                )}
+                    {isExpanded && !useTwoColumns && (
+                      <div className="bg-deep/50 border-b border-border/20 px-4 py-2">
+                        {historyLoading ? (
+                          <p className="text-faint text-xs py-1">Loading...</p>
+                        ) : playerHistory.length > 0 ? (
+                          <div className="space-y-1">
+                            {playerHistory.map(h => (
+                              <div key={h.id} className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-muted">{h.score.toLocaleString()}</span>
+                                  {h.photo_url && (
+                                    <button
+                                      className="text-neon-cyan hover:text-neon-cyan/80 transition-colors cursor-pointer"
+                                      onClick={(e) => { e.stopPropagation(); setPhotoModal({ playerName: expandedPlayer || '', score: h.score, photoUrl: h.photo_url }); }}
+                                      title="View score photo"
+                                    >
+                                      <Camera size={12} />
+                                    </button>
+                                  )}
+                                </div>
+                                <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
                               </div>
-                              <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-faint text-xs py-1">No additional scores recorded.</p>
-                      )}
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-faint text-xs py-1">No additional scores recorded.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              };
+
+              const isViewerEntry = (entry: RankedEntry) =>
+                !!lowerViewer && entry.iscored_username.toLowerCase() === lowerViewer;
+
+              if (useTwoColumns) {
+                return (
+                  <>
+                    {/* Header row — spans both columns */}
+                    <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+                      <span>Player</span>
+                      <span>Score</span>
                     </div>
-                  )}
-                </div>
+                    {/* Two-column grid: collapses to 1 on small screens */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2">
+                      <div className="sm:border-r sm:border-border/20">
+                        {col1.map((entry, i) => renderEntry(
+                          entry,
+                          isViewerEntry(entry),
+                          viewerInjected && i === col1.length - 1 && isViewerEntry(entry)
+                        ))}
+                      </div>
+                      <div>
+                        {col2.map((entry, i) => renderEntry(
+                          entry,
+                          isViewerEntry(entry),
+                          viewerInjected && i === col2.length - 1 && isViewerEntry(entry)
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                );
+              }
+
+              return (
+                <>
+                  {/* Header row */}
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+                    <span>Player</span>
+                    <span>Score</span>
+                  </div>
+                  {visibleEntries.map((entry, i) => renderEntry(
+                    entry,
+                    isViewerEntry(entry),
+                    viewerInjected && i === visibleEntries.length - 1
+                  ))}
+                </>
               );
-            })}
+            })()}
           </div>
         )}
       </div>
 
-      {/* Footer link */}
-      <div className="border-t border-border/50 px-4 py-2.5 relative">
+      {/* Footer link + QR code */}
+      <div className="border-t border-border/50 px-4 py-2.5 relative flex items-center justify-between">
         <Link
           to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
           className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
         >
           Full Leaderboard &rarr;
         </Link>
+        <div className="flex items-center gap-2">
+          {countdown && (
+            <span className="text-[11px] text-muted" title="Time until next rotation">
+              {countdown}
+            </span>
+          )}
+          {qrMode !== 'disabled' && (
+            <GameQRCode slug={slug} gameId={lb.gameId} size={40} />
+          )}
+        </div>
       </div>
 
       {/* Score photo modal */}
@@ -336,6 +531,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity }: { group: Rank
                 }`}>
                   {entry.rank}
                 </span>
+                <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
                 <span className="text-sm truncate">{entry.iscored_username}</span>
               </div>
               <div className="flex gap-6">

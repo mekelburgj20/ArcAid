@@ -15,6 +15,7 @@ export default function KioskScoreboard() {
   const [leaderboards, setLeaderboards] = useState<GameLeaderboard[]>([]);
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [config, setConfig] = useState<Record<string, string>>({});
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
 
@@ -29,8 +30,8 @@ export default function KioskScoreboard() {
         return fetch(`/api/rooms/${portal.id}/scoreboard-config`);
       })
       .then(r => r.ok ? r.json() : {})
-      .then(cfg => setConfig(cfg || {}))
-      .catch(() => {});
+      .then(cfg => { setConfig(cfg || {}); setConfigLoaded(true); })
+      .catch(() => { setConfigLoaded(true); });
   }, [slug]);
 
   const loadData = useCallback(async () => {
@@ -79,6 +80,18 @@ export default function KioskScoreboard() {
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
+
+  // Guard: wait for config to load, then check if kiosk is enabled
+  if (!configLoaded) {
+    return <div className="min-h-screen bg-deep" />;
+  }
+  if (config.KIOSK_ENABLED !== 'true') {
+    return (
+      <div className="min-h-screen bg-deep flex items-center justify-center">
+        <p className="text-muted font-display text-lg">Kiosk mode is not available for this room</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-deep text-primary relative">

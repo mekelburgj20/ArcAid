@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getSocket } from '../lib/websocket';
-import { useViewerHeaders } from '../contexts/ViewerAuthContext';
-import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
+import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
+import type { GameLeaderboard, RankingGroupData, RankedEntry } from '../components/ScoreboardComponents';
 import {
   GameCard,
   RankingsColumn,
@@ -14,9 +14,13 @@ import {
 import ScoreSubmitModal from '../components/ScoreSubmitModal';
 
 
+interface LeaderboardWithViewer extends GameLeaderboard {
+  viewerEntry?: RankedEntry | null;
+}
+
 export default function Scoreboard() {
   const { slug } = useParams<{ slug: string }>();
-  const [leaderboards, setLeaderboards] = useState<GameLeaderboard[]>([]);
+  const [leaderboards, setLeaderboards] = useState<LeaderboardWithViewer[]>([]);
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [flash, setFlash] = useState(false);
   const [config, setConfig] = useState<Record<string, string>>({});
@@ -24,6 +28,7 @@ export default function Scoreboard() {
   const [roomId, setRoomId] = useState('');
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   const viewerHeaders = useViewerHeaders();
+  const { discordUser } = useViewerAuth();
 
   // Resolve room and fetch scoreboard config
   useEffect(() => {
@@ -97,6 +102,9 @@ export default function Scoreboard() {
   const requirePhoto = config.REQUIRE_SCORE_PHOTO === 'true';
   const cardOpacity = config.SCOREBOARD_CARD_OPACITY ? parseFloat(config.SCOREBOARD_CARD_OPACITY) : undefined;
   const bgOpacity = config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1;
+  const scoreColumns = parseInt(config.SCOREBOARD_SCORE_COLUMNS || '1', 10) || 1;
+  const qrMode = config.SCOREBOARD_QR_MODE || 'disabled';
+  const viewerUsername = discordUser?.username || undefined;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
@@ -181,7 +189,7 @@ export default function Scoreboard() {
             >
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} />
                 </div>
               ))}
             </div>
@@ -192,7 +200,7 @@ export default function Scoreboard() {
               <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} />
                   </div>
                 ))}
               </div>

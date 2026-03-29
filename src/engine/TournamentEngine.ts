@@ -11,6 +11,7 @@ import { IScoredClient } from './IScoredClient.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
+import { RoomEventService } from '../services/RoomEventService.js';
 
 export class TournamentEngine {
     private static instance: TournamentEngine;
@@ -496,6 +497,13 @@ export class TournamentEngine {
         );
         logInfo(`   -> Marked COMPLETED in DB: ${activeGame.name}`);
 
+        // Log tournament completion event
+        if (tournamentRow.game_room_id) {
+            RoomEventService.log(tournamentRow.game_room_id, 'tournament_completion', {
+                tournamentName: tournamentRow.name,
+            }).catch(() => {});
+        }
+
         // Resolve winner
         let winnerId: string | null = null;
         if (winnerIscoredName) {
@@ -590,6 +598,15 @@ export class TournamentEngine {
                 'ACTIVE', new Date().toISOString(), finalIscoredId, queuedRow.id
             );
             logInfo(`   -> Activated in DB: ${queuedRow.name}`);
+
+            // Log game rotation event
+            if (tournamentRow.game_room_id) {
+                RoomEventService.log(tournamentRow.game_room_id, 'game_rotation', {
+                    tournamentName: tournamentRow.name,
+                    oldGame: activeGame.name,
+                    newGame: queuedRow.name,
+                }).catch(() => {});
+            }
 
             // Create picker slot for winner
             if (winnerId) {

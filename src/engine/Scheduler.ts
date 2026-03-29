@@ -4,6 +4,7 @@ import { logInfo, logError } from '../utils/logger.js';
 import { Tournament, CadenceConfig, CleanupRule } from '../types/index.js';
 import { TournamentEngine } from './TournamentEngine.js';
 import { TimeoutManager } from './TimeoutManager.js';
+import { RoomEventService } from '../services/RoomEventService.js';
 
 export class Scheduler {
     private static instance: Scheduler;
@@ -51,6 +52,9 @@ export class Scheduler {
 
         // Run the timeout checker every minute to handle winner/runner-up pick windows
         this.startTimeoutChecker();
+
+        // Daily cleanup of old room events (3 AM)
+        this.startRoomEventCleanup();
     }
 
     /**
@@ -68,6 +72,24 @@ export class Scheduler {
 
         this.tasks.set('__timeout_checker__', task);
         logInfo('Timeout checker started (every minute).');
+    }
+
+    /**
+     * Schedules a daily cleanup of old room events at 3 AM.
+     */
+    private startRoomEventCleanup(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('0 3 * * *', async () => {
+            try {
+                const deleted = await RoomEventService.cleanup(7);
+                if (deleted > 0) logInfo(`Room event cleanup: removed ${deleted} old events.`);
+            } catch (error) {
+                logError('Room event cleanup error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__room_event_cleanup__', task);
+        logInfo('Room event cleanup scheduled (daily at 3 AM).');
     }
 
     /**
