@@ -119,6 +119,31 @@ export default function GameLibrary() {
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
+  // Inline platform add
+  const [showAddPlatform, setShowAddPlatform] = useState(false);
+  const [newPlatformName, setNewPlatformName] = useState('');
+
+  const addPlatform = async () => {
+    const name = newPlatformName.trim().toUpperCase();
+    if (!name || !room) return;
+    try {
+      // Fetch current platforms, add new one, save back
+      const settings = await api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`);
+      const existing: string[] = (() => { try { return JSON.parse(settings.PLATFORMS || '[]'); } catch { return []; } })();
+      if (existing.includes(name)) {
+        toast(`Platform "${name}" already exists`, 'error');
+        return;
+      }
+      const updated = [...existing, name].sort();
+      await api.post(`/rooms/${room.roomId}/settings`, { PLATFORMS: JSON.stringify(updated) });
+      toast(`Platform "${name}" added`);
+      setNewPlatformName('');
+      setShowAddPlatform(false);
+    } catch {
+      toast('Failed to add platform', 'error');
+    }
+  };
+
   // Autocomplete for add-game name field
   const [suggestions, setSuggestions] = useState<Array<{ name: string; mode: string; platforms: string }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -584,7 +609,7 @@ export default function GameLibrary() {
             </NeonButton>
           )}
         </div>
-        {allPlatforms.length > 0 && (
+        {(allPlatforms.length > 0 || room) && (
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             <span className="text-xs font-display uppercase tracking-wider text-muted">Platforms:</span>
             {allPlatforms.map(p => (
@@ -604,6 +629,30 @@ export default function GameLibrary() {
               <button onClick={() => setPlatformFilter(new Set())} className="text-xs text-faint hover:text-primary underline">
                 Clear
               </button>
+            )}
+            {room && !showAddPlatform && (
+              <button
+                onClick={() => setShowAddPlatform(true)}
+                className="text-xs px-1.5 py-0.5 rounded border border-dashed border-border hover:border-neon-cyan/40 text-faint hover:text-neon-cyan transition-colors"
+                title="Add platform"
+              >
+                +
+              </button>
+            )}
+            {showAddPlatform && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={newPlatformName}
+                  onChange={e => setNewPlatformName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addPlatform(); if (e.key === 'Escape') { setShowAddPlatform(false); setNewPlatformName(''); } }}
+                  placeholder="e.g. VPXS"
+                  className="text-xs px-2 py-0.5 rounded border border-border bg-deep text-primary w-20 focus:border-neon-cyan/60 outline-none"
+                  autoFocus
+                />
+                <button onClick={addPlatform} className="text-xs text-neon-cyan hover:text-neon-cyan/80">Add</button>
+                <button onClick={() => { setShowAddPlatform(false); setNewPlatformName(''); }} className="text-xs text-faint hover:text-primary">Cancel</button>
+              </div>
             )}
           </div>
         )}

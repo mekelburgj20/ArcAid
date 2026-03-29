@@ -46,7 +46,7 @@ export default function GlobalSettings() {
   const [superAdmins, setSuperAdmins] = useState<SuperAdmin[]>([]);
   const [newAdminId, setNewAdminId] = useState('');
   const [addingAdmin, setAddingAdmin] = useState(false);
-  const { userTheme, setUserTheme } = useTheme();
+  const { adminTheme, setAdminTheme } = useTheme();
 
   useEffect(() => {
     Promise.all([
@@ -161,25 +161,23 @@ export default function GlobalSettings() {
 
       <NeonCard title="Theme" className="mb-4">
         <div>
-          <label className="text-xs text-faint block mb-1">My Theme (Personal Override)</label>
+          <label className="text-xs text-faint block mb-1">Admin Theme</label>
           <select
-            value={userTheme || ''}
+            value={adminTheme}
             onChange={e => {
-              const val = e.target.value as ThemeId | '';
-              const newTheme = val || null;
-              setUserTheme(newTheme);
+              const newTheme = e.target.value as ThemeId;
+              setAdminTheme(newTheme);
               api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
                 toast('Failed to save theme preference', 'error');
               });
             }}
             className={inputClass}
           >
-            <option value="">(Use Default)</option>
             {Object.entries(THEMES).map(([id, { label, description }]) => (
               <option key={id} value={id}>{label} — {description}</option>
             ))}
           </select>
-          <p className="text-xs text-muted mt-1">Applies to global admin pages for your session only.</p>
+          <p className="text-xs text-muted mt-1">Your admin theme. Only affects your session — other admins see their own preference.</p>
         </div>
       </NeonCard>
 

@@ -258,7 +258,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
   const bgImage = styleBgUrl || lb.imageUrl || null;
 
   return (
-    <div className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`}>
+    <div className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col h-full`}>
       {/* Background layer — opacity controlled independently */}
       <div className="absolute inset-0 bg-surface" style={cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : undefined} />
       {/* Title area — clickable to submit score if handler provided */}

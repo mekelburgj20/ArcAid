@@ -32,13 +32,10 @@ interface ThemeContextType {
   setPublicTheme: (theme: ThemeId) => void;
   adminTheme: ThemeId;
   setAdminTheme: (theme: ThemeId) => void;
-  userTheme: ThemeId | null;
-  setUserTheme: (theme: ThemeId | null) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'arcaid-theme';
 const STORAGE_GLOBAL_KEY = 'arcaid-theme-global';
 const STORAGE_PUBLIC_KEY = 'arcaid-theme-public';
 const STORAGE_ADMIN_KEY = 'arcaid-theme-admin';
@@ -63,64 +60,47 @@ function applyThemeClass(theme: ThemeId) {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   // Initialize from localStorage for instant rendering (no flash)
   const [publicThemeState, setPublicThemeState] = useState<ThemeId>(() => {
-    // Backward compat: check PUBLIC_THEME first, then fall back to legacy GLOBAL key
     const stored = localStorage.getItem(STORAGE_PUBLIC_KEY) || localStorage.getItem(STORAGE_GLOBAL_KEY);
     return (stored as ThemeId) || 'dark';
   });
+  // Admin theme is per-admin (stored in user preferences + localStorage)
   const [adminThemeState, setAdminThemeState] = useState<ThemeId>(() => {
     const stored = localStorage.getItem(STORAGE_ADMIN_KEY);
     return (stored as ThemeId) || 'dark';
   });
-  const [userTheme, setUserThemeState] = useState<ThemeId | null>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? (stored as ThemeId) : null;
-  });
 
-  // The effective global theme depends on whether we're on an admin route
+  // Effective theme depends on route: admin routes use per-admin theme, public uses room theme
   const globalTheme = isAdminRoute() ? adminThemeState : publicThemeState;
-  // The effective theme: user override > route-appropriate global default
-  const theme = userTheme || globalTheme;
+  const theme = globalTheme;
 
   // Apply theme class whenever effective theme changes
   useEffect(() => {
     applyThemeClass(theme);
   }, [theme]);
 
-  // Hydrate from API on mount (updates if server state differs from localStorage)
+  // Hydrate from API on mount
   useEffect(() => {
     const hydrate = async () => {
       try {
-        // Extract slug from URL path (e.g., /arcaid_demo/... → arcaid_demo)
         const pathSlug = window.location.pathname.split('/').filter(Boolean)[0] || '';
-        // Always fetch global theme from portal (public endpoint)
         const portalRes = pathSlug && pathSlug !== 'admin'
           ? await fetch(`/api/portal?slug=${encodeURIComponent(pathSlug)}`)
           : null;
         if (portalRes?.ok) {
           const portal = await portalRes.json();
-          // Hydrate public theme (backward compat: ui_theme = PUBLIC_THEME)
           const serverPublicTheme = portal.public_theme || portal.ui_theme;
           if (serverPublicTheme && serverPublicTheme !== publicThemeState) {
             setPublicThemeState(serverPublicTheme);
             localStorage.setItem(STORAGE_PUBLIC_KEY, serverPublicTheme);
           }
-          // Hydrate admin theme
-          if (portal.admin_theme && portal.admin_theme !== adminThemeState) {
-            setAdminThemeState(portal.admin_theme);
-            localStorage.setItem(STORAGE_ADMIN_KEY, portal.admin_theme);
-          }
         }
 
-        // Fetch user preference if authenticated
+        // Hydrate admin theme from user preferences (per-admin, not room setting)
         if (isAuthenticated()) {
           const prefs = await api.get<{ ui_theme: ThemeId | null }>('/me/preferences');
-          if (prefs.ui_theme !== userTheme) {
-            setUserThemeState(prefs.ui_theme);
-            if (prefs.ui_theme) {
-              localStorage.setItem(STORAGE_KEY, prefs.ui_theme);
-            } else {
-              localStorage.removeItem(STORAGE_KEY);
-            }
+          if (prefs.ui_theme && prefs.ui_theme !== adminThemeState) {
+            setAdminThemeState(prefs.ui_theme);
+            localStorage.setItem(STORAGE_ADMIN_KEY, prefs.ui_theme);
           }
         }
       } catch {
@@ -134,7 +114,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setPublicTheme = (newTheme: ThemeId) => {
     setPublicThemeState(newTheme);
     localStorage.setItem(STORAGE_PUBLIC_KEY, newTheme);
-    // Keep legacy key in sync for backward compat
     localStorage.setItem(STORAGE_GLOBAL_KEY, newTheme);
   };
 
@@ -143,7 +122,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_ADMIN_KEY, newTheme);
   };
 
-  // setGlobalTheme sets the route-appropriate theme (backward compat)
   const setGlobalTheme = (newTheme: ThemeId) => {
     if (isAdminRoute()) {
       setAdminTheme(newTheme);
@@ -152,21 +130,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const setUserTheme = (newTheme: ThemeId | null) => {
-    setUserThemeState(newTheme);
-    if (newTheme) {
-      localStorage.setItem(STORAGE_KEY, newTheme);
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  };
-
   const setTheme = (newTheme: ThemeId) => {
-    setUserTheme(newTheme);
+    setGlobalTheme(newTheme);
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, globalTheme, setGlobalTheme, publicTheme: publicThemeState, setPublicTheme, adminTheme: adminThemeState, setAdminTheme, userTheme, setUserTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, globalTheme, setGlobalTheme, publicTheme: publicThemeState, setPublicTheme, adminTheme: adminThemeState, setAdminTheme }}>
       {children}
     </ThemeContext.Provider>
   );

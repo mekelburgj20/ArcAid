@@ -233,7 +233,7 @@ function PlatformsEditor({ platforms, onChange }: { platforms: string[]; onChang
 export default function Settings() {
   const room = useRoom();
   const { toast } = useToast();
-  const { publicTheme, setPublicTheme, adminTheme, setAdminTheme, userTheme, setUserTheme } = useTheme();
+  const { publicTheme, setPublicTheme, adminTheme, setAdminTheme } = useTheme();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -431,7 +431,7 @@ export default function Settings() {
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT',
     'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE',
     // Theme (managed in Theme card)
-    'UI_THEME', 'ADMIN_THEME',
+    'UI_THEME',
     // Platforms (managed in Platforms card)
     'PLATFORMS',
     // Legacy/removed — no longer surfaced
@@ -471,46 +471,25 @@ export default function Settings() {
             <p className="text-xs text-muted mt-1">Applied to the public scoreboard, kiosk, and all public-facing pages.</p>
           </div>
 
-          {/* Admin Theme */}
+          {/* Admin Theme (per-admin, saved to your preferences) */}
           <div>
             <label className="text-xs text-faint block mb-1">Admin Theme</label>
             <select
-              value={settings.ADMIN_THEME || adminTheme}
+              value={adminTheme}
               onChange={e => {
                 const newTheme = e.target.value as ThemeId;
-                handleChange('ADMIN_THEME', newTheme);
                 setAdminTheme(newTheme);
-              }}
-              className={inputClass}
-            >
-              {Object.entries(THEMES).map(([id, { label, description }]) => (
-                <option key={id} value={id}>{label} — {description}</option>
-              ))}
-            </select>
-            <p className="text-xs text-muted mt-1">Applied to admin pages only. Does not affect the public portal.</p>
-          </div>
-
-          {/* Personal Theme Override */}
-          <div>
-            <label className="text-xs text-faint block mb-1">My Theme (Personal Override)</label>
-            <select
-              value={userTheme || ''}
-              onChange={e => {
-                const val = e.target.value as ThemeId | '';
-                const newTheme = val || null;
-                setUserTheme(newTheme);
                 api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
-                  toast('Failed to save theme preference', 'error');
+                  toast('Failed to save admin theme preference', 'error');
                 });
               }}
               className={inputClass}
             >
-              <option value="">(Use Default)</option>
               {Object.entries(THEMES).map(([id, { label, description }]) => (
                 <option key={id} value={id}>{label} — {description}</option>
               ))}
             </select>
-            <p className="text-xs text-muted mt-1">Overrides the theme for your session only. Does not affect other users.</p>
+            <p className="text-xs text-muted mt-1">Your admin theme. Only affects your session — other admins see their own preference.</p>
           </div>
         </div>
       </NeonCard>
