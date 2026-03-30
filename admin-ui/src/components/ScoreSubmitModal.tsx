@@ -6,12 +6,13 @@ import OnScreenKeyboard from './OnScreenKeyboard';
 interface ScoreSubmitModalProps {
   gameName: string;
   roomId: string;
+  gameStatus?: string;
   requirePhoto: boolean;
   onClose: () => void;
   onSubmitted: () => void;
 }
 
-export default function ScoreSubmitModal({ gameName, roomId, requirePhoto, onClose, onSubmitted }: ScoreSubmitModalProps) {
+export default function ScoreSubmitModal({ gameName, roomId, gameStatus, requirePhoto, onClose, onSubmitted }: ScoreSubmitModalProps) {
   const [username, setUsername] = useState(localStorage.getItem('arcaid-player-name') || '');
   const [score, setScore] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -126,6 +127,13 @@ export default function ScoreSubmitModal({ gameName, roomId, requirePhoto, onClo
           </button>
         </div>
 
+        {/* Locked state */}
+        {gameStatus && gameStatus !== 'ACTIVE' ? (
+          <div className="px-4 py-8 text-center">
+            <div className="text-3xl mb-3">&#128274;</div>
+            <p className="text-yellow-400 text-sm font-display">This game is locked. Scores can no longer be submitted.</p>
+          </div>
+        ) : <>
         {/* Form */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {/* Username */}
@@ -244,6 +252,7 @@ export default function ScoreSubmitModal({ gameName, roomId, requirePhoto, onClo
             onDone={handleDone}
           />
         )}
+        </>}
       </div>
     </div>
   );

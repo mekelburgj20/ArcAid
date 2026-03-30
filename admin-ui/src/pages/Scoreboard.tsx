@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
-import type { GameLeaderboard, RankingGroupData, RankedEntry } from '../components/ScoreboardComponents';
+import type { GameLeaderboard, RankingGroupData, RankedEntry, GlobalCardStyles } from '../components/ScoreboardComponents';
 import {
   GameCard,
   RankingsColumn,
@@ -23,6 +23,7 @@ export default function Scoreboard() {
   const [leaderboards, setLeaderboards] = useState<LeaderboardWithViewer[]>([]);
   const [rankingGroups, setRankingGroups] = useState<RankingGroupData[]>([]);
   const [flash, setFlash] = useState(false);
+  const [scoreToast, setScoreToast] = useState<{ player: string; score: number; game: string } | null>(null);
   const [config, setConfig] = useState<Record<string, string>>({});
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
@@ -67,11 +68,15 @@ export default function Scoreboard() {
     loadRankings();
 
     const socket = getSocket();
-    socket.on('score:new', () => {
+    socket.on('score:new', (data?: { playerName?: string; score?: number; gameName?: string }) => {
       setFlash(true);
       loadData();
       loadRankings();
       setTimeout(() => setFlash(false), 1500);
+      if (data?.playerName && data?.gameName) {
+        setScoreToast({ player: data.playerName, score: data.score ?? 0, game: data.gameName });
+        setTimeout(() => setScoreToast(null), 5000);
+      }
     });
     socket.on('leaderboard:updated', () => { loadData(); loadRankings(); });
     socket.on('game:rotated', loadData);
@@ -104,7 +109,16 @@ export default function Scoreboard() {
   const bgOpacity = config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1;
   const scoreColumns = parseInt(config.SCOREBOARD_SCORE_COLUMNS || '1', 10) || 1;
   const qrMode = config.SCOREBOARD_QR_MODE || 'disabled';
+  const headerStyle = config.SCOREBOARD_CARD_HEADER_STYLE || 'banner';
   const viewerUsername = discordUser?.username || undefined;
+
+  const globalStyles: GlobalCardStyles | undefined = config.GLOBAL_CARD_STYLES_ENABLED === 'true' ? {
+    enabled: true,
+    cssTitle: config.GLOBAL_CARD_CSS_TITLE || undefined,
+    cssScores: config.GLOBAL_CARD_CSS_SCORES || undefined,
+    cssBox: config.GLOBAL_CARD_CSS_BOX || undefined,
+    bgColor: config.GLOBAL_CARD_BG_COLOR || undefined,
+  } : undefined;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
@@ -132,6 +146,29 @@ export default function Scoreboard() {
       {flash && (
         <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
       )}
+
+      {/* Score toast notification */}
+      {scoreToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-slideDown">
+          <div className="bg-surface border border-neon-cyan/40 rounded-lg shadow-lg px-6 py-3 text-sm text-primary">
+            <span className="text-neon-cyan font-bold">{scoreToast.player}</span>
+            {' '}posted{' '}
+            <span className="text-neon-cyan font-bold">{scoreToast.score.toLocaleString()}</span>
+            {' '}on{' '}
+            <span className="text-neon-cyan font-bold">{scoreToast.game}</span>!
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes slideDown {
+          from { opacity: 0; transform: translate(-50%, -100%); }
+          to { opacity: 1; transform: translate(-50%, 0); }
+        }
+        .animate-slideDown {
+          animation: slideDown 0.3s ease-out forwards;
+        }
+      `}</style>
 
       {/* Header — non-scrolling */}
       <div className="flex-shrink-0 px-4 sm:px-6 pt-6">
@@ -189,7 +226,7 @@ export default function Scoreboard() {
             >
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} />
                 </div>
               ))}
             </div>
@@ -200,7 +237,7 @@ export default function Scoreboard() {
               <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} />
                   </div>
                 ))}
               </div>
@@ -226,6 +263,7 @@ export default function Scoreboard() {
         <ScoreSubmitModal
           gameName={selectedGame.gameName}
           roomId={roomId}
+          gameStatus={selectedGame.gameStatus}
           requirePhoto={requirePhoto}
           onClose={() => setSelectedGame(null)}
           onSubmitted={() => { loadData(); loadRankings(); }}

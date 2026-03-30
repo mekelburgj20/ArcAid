@@ -198,7 +198,15 @@ interface ScoreHistoryEntry {
   created_at: string;
 }
 
-export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled' }: {
+export interface GlobalCardStyles {
+  enabled: boolean;
+  cssTitle?: string;
+  cssScores?: string;
+  cssBox?: string;
+  bgColor?: string;
+}
+
+export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
@@ -206,6 +214,8 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
   viewerUsername?: string;
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
+  headerStyle?: string;
+  globalStyles?: GlobalCardStyles;
 }) {
   const borderColor = getTournamentBorderColor(lb.tournamentType);
   const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
@@ -258,42 +268,82 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
   const bgImage = styleBgUrl || lb.imageUrl || null;
 
   return (
-    <div className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col h-full`}>
+    <div
+      className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col h-full`}
+      style={{
+        ...(globalStyles?.enabled && globalStyles.cssBox ? { borderColor: globalStyles.cssBox } : {}),
+        ...(globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
+      }}
+    >
       {/* Background layer — opacity controlled independently */}
-      <div className="absolute inset-0 bg-surface" style={cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : undefined} />
-      {/* Title area — clickable to submit score if handler provided */}
-      <div
-        className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
-        onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
-      >
-        <h3 className="font-display font-bold text-base leading-tight truncate px-5">
-          {lb.gameName}
-        </h3>
-        {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-3"><Lock size={14} className="text-neon-amber" /></span>}
-        {onSubmitScore && (
-          <span className="absolute left-3 top-3"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
-        )}
-        <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
-      </div>
-
-      {/* Background image area — also clickable for submit */}
-      {bgImage && (
+      <div className="absolute inset-0 bg-surface" style={{
+        ...(cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : {}),
+        ...(globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
+      }} />
+      {/* Header: compact mode with thumbnail */}
+      {headerStyle === 'compact' && bgImage ? (
         <div
-          className={`relative h-28 bg-raised ${onSubmitScore ? 'cursor-pointer' : ''}`}
+          className={`flex items-center gap-3 px-4 py-3 border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
           onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
         >
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage: `url(${bgImage})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            }}
-          />
-          {styleHeaderUrl && (
-            <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+          <div className="w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-raised">
+            <div
+              className="w-full h-full"
+              style={{
+                backgroundImage: `url(${bgImage})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-display font-bold text-base leading-tight truncate" style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
+              {lb.gameName}
+            </h3>
+            <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+          </div>
+          {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="flex-shrink-0"><Lock size={14} className="text-neon-amber" /></span>}
+          {onSubmitScore && (
+            <span className="absolute left-3 top-3 hidden"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
           )}
         </div>
+      ) : (
+        <>
+          {/* Title area — clickable to submit score if handler provided */}
+          <div
+            className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
+            onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+          >
+            <h3 className="font-display font-bold text-base leading-tight truncate px-5" style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
+              {lb.gameName}
+            </h3>
+            {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-3"><Lock size={14} className="text-neon-amber" /></span>}
+            {onSubmitScore && (
+              <span className="absolute left-3 top-3"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
+            )}
+            <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+          </div>
+
+          {/* Background image area — also clickable for submit */}
+          {bgImage && (
+            <div
+              className={`relative h-28 bg-raised ${onSubmitScore ? 'cursor-pointer' : ''}`}
+              onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+            >
+              <div
+                className="absolute inset-0"
+                style={{
+                  backgroundImage: `url(${bgImage})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                }}
+              />
+              {styleHeaderUrl && (
+                <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* Scores */}
@@ -354,9 +404,12 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
                         <span className={`text-sm truncate ${isViewerRow ? 'text-neon-cyan font-medium' : ''}`}>{entry.iscored_username}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className={`font-display font-bold text-sm flex-shrink-0 ${
-                          entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-primary'
-                        }`}>
+                        <span
+                          className={`font-display font-bold text-sm flex-shrink-0 ${
+                            entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-primary'
+                          }`}
+                          style={globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : undefined}
+                        >
                           {entry.score.toLocaleString()}
                         </span>
                         {hasMultiple && !useTwoColumns && (
@@ -449,6 +502,15 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
           </div>
         )}
       </div>
+
+      {/* Viewer's best score */}
+      {viewerEntry && (
+        <div className="border-t border-border/20 pt-2 mt-2 px-4 pb-3 relative">
+          <p className="text-xs text-neon-cyan/70">
+            Your best: {viewerEntry.score.toLocaleString()} (Rank #{viewerEntry.rank})
+          </p>
+        </div>
+      )}
 
       {/* Footer link + QR code */}
       <div className="border-t border-border/50 px-4 py-2.5 relative flex items-center justify-between">

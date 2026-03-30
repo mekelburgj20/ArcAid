@@ -34,7 +34,7 @@ interface PendingInvite {
 const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
 
 const CATEGORIES: Record<string, string[]> = {
-  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
+  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_HEADER_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
@@ -63,6 +63,14 @@ const KIOSK_TOGGLES: Record<string, { label: string; description: string; defaul
     label: 'Kiosk Mode',
     description: 'When enabled, the kiosk display page is available at /{slug}/kiosk. When disabled, the kiosk page returns a 404.',
     defaultOn: true,
+  },
+};
+
+// Toggles that render inside the Global Card Styles card
+const GLOBAL_CARD_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
+  GLOBAL_CARD_STYLES_ENABLED: {
+    label: 'Enable Global Card Styles',
+    description: 'When enabled, the color settings below override individual game card styles on the scoreboard.',
   },
 };
 
@@ -107,6 +115,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_CARDS_PER_ROW: { label: 'Cards Per Row (Grid)', description: 'Number of score cards per row in grid mode. Range: 2-8. Default: 4. Only applies in grid layout.' },
   SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
   SCOREBOARD_RANKINGS_POSITION: { label: 'Rankings Position', description: 'Where overall rankings are displayed: left (default), right, top, bottom, or hidden.' },
+  SCOREBOARD_CARD_HEADER_STYLE: { label: 'Card Header Style', description: 'Banner shows full-width game artwork. Compact shows a small thumbnail with the game title.' },
   SCOREBOARD_SCORE_COLUMNS: { label: 'Score Columns', description: 'Number of score columns within each card. 2 columns shows ranks side-by-side (e.g. 1-5 left, 6-10 right). Collapses to 1 on mobile.' },
   SCOREBOARD_QR_MODE: { label: 'QR Codes', description: 'Show QR codes on score cards linking to mobile score submission. Disabled: no QR codes. Kiosk Only: QR on kiosk display. All: QR on both scoreboard and kiosk.' },
   // Scoreboard Branding
@@ -151,6 +160,10 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: 'bottom', label: 'Bottom' },
     { value: 'hidden', label: 'Hidden' },
   ],
+  SCOREBOARD_CARD_HEADER_STYLE: [
+    { value: 'banner', label: 'Banner' },
+    { value: 'compact', label: 'Compact' },
+  ],
   SCOREBOARD_SCORE_COLUMNS: [
     { value: '1', label: '1 Column (Default)' },
     { value: '2', label: '2 Columns (Side-by-Side)' },
@@ -176,7 +189,7 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
 
-function PlatformsEditor({ platforms, onChange }: { platforms: string[]; onChange: (p: string[]) => void }) {
+function PlatformsEditor({ platforms, onChange, roomId, toast }: { platforms: string[]; onChange: (p: string[]) => void; roomId: string; toast: (msg: string, type?: 'success' | 'error') => void }) {
   const [newPlatform, setNewPlatform] = useState('');
 
   const handleAdd = () => {
@@ -186,7 +199,18 @@ function PlatformsEditor({ platforms, onChange }: { platforms: string[]; onChang
     setNewPlatform('');
   };
 
-  const handleRemove = (p: string) => {
+  const handleRemove = async (p: string) => {
+    try {
+      const usage = await api.get<{ inUse: boolean; tournaments: string[] }>(
+        `/rooms/${roomId}/admin/platform-usage/${encodeURIComponent(p)}`
+      );
+      if (usage.inUse) {
+        toast(`Platform "${p}" is in use by tournament(s): ${usage.tournaments.join(', ')}. Modify the tournament settings first.`, 'error');
+        return;
+      }
+    } catch {
+      // If the check fails, allow removal anyway
+    }
     onChange(platforms.filter(x => x !== p));
   };
 
@@ -662,6 +686,8 @@ export default function Settings() {
         <PlatformsEditor
           platforms={(() => { try { return JSON.parse(settings.PLATFORMS || '[]'); } catch { return []; } })()}
           onChange={p => handleChange('PLATFORMS', JSON.stringify(p))}
+          roomId={room.roomId}
+          toast={toast}
         />
       </NeonCard>
 
@@ -729,6 +755,30 @@ export default function Settings() {
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
                         ))}
                       </select>
+                    ) : key.startsWith('GLOBAL_CARD_CSS_') || key === 'GLOBAL_CARD_BG_COLOR' ? (
+                      <div className="flex items-center gap-2 flex-1">
+                        <input
+                          type="color"
+                          value={value || '#000000'}
+                          onChange={e => handleChange(key, e.target.value)}
+                          className="w-10 h-9 rounded border border-border cursor-pointer bg-transparent p-0.5"
+                        />
+                        <input
+                          type="text"
+                          value={value}
+                          onChange={e => handleChange(key, e.target.value)}
+                          placeholder="#000000"
+                          className={`${inputClass} flex-1`}
+                        />
+                        {value && (
+                          <button
+                            onClick={() => handleChange(key, '')}
+                            className="text-xs text-faint hover:text-neon-magenta cursor-pointer bg-transparent border-none whitespace-nowrap"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
                     ) : (
                       <input
                         type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
@@ -779,6 +829,31 @@ export default function Settings() {
             {category === 'Kiosk' && (
               <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
                 {Object.entries(KIOSK_TOGGLES).map(([key, { label, description, defaultOn }]) => {
+                  const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-primary">{label}</p>
+                        <p className="text-xs text-muted">{description}</p>
+                      </div>
+                      <button
+                        onClick={() => handleChange(key, isOn ? 'false' : 'true')}
+                        className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                          isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                        }`}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Inline toggle for Global Card Styles */}
+            {category === 'Global Card Styles' && (
+              <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
+                {Object.entries(GLOBAL_CARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
                   const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
                   return (
                     <div key={key} className="flex items-center justify-between gap-4">

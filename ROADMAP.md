@@ -198,6 +198,13 @@
 - [x] Game library autocomplete with fuzzy match warnings
 - [x] Inline platform add from Game Library page
 - [x] Settings page reorganized with inline toggles
+- [x] PWA support (manifest.json, service worker, installable on Android/iOS)
+- [x] "Your Best" quick stat on game cards (footer shows logged-in user's best score + rank)
+- [x] Compact card header option (SCOREBOARD_CARD_HEADER_STYLE: banner/compact)
+- [x] Score toast notifications (WebSocket-powered slide-down toast on new scores)
+- [x] Platform in-use validation on deletion (checks tournaments before removing)
+- [x] Global game CSS override UI (GLOBAL_CARD_STYLES_ENABLED + color pickers for title/scores/border/background)
+- [x] Locked game score rejection (backend 403 + frontend lock icon for non-ACTIVE games)
 
 ---
 
@@ -208,7 +215,6 @@
 
 ### UX Polish
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
-- [ ] Scoreboard designer page (admin-only CSS customization)
 
 ### Ops / Infrastructure
 - [ ] CI/CD pipeline (build + test on push)

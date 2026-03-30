@@ -69,14 +69,14 @@ router.get('/:roomId/portal', async (req, res) => {
     }
 });
 
-// Scoreboard config (public — returns SCOREBOARD_*, LOGO_*, and KIOSK_* settings)
+// Scoreboard config (public — returns SCOREBOARD_*, LOGO_*, KIOSK_*, and GLOBAL_CARD_* settings)
 router.get('/:roomId/scoreboard-config', async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const allSettings = await GameRoomSettingsService.getAll(roomId);
         const config: Record<string, string> = {};
         for (const [key, value] of Object.entries(allSettings)) {
-            if (key.startsWith('SCOREBOARD_') || key.startsWith('LOGO_') || key.startsWith('KIOSK_')) {
+            if (key.startsWith('SCOREBOARD_') || key.startsWith('LOGO_') || key.startsWith('KIOSK_') || key.startsWith('GLOBAL_CARD_')) {
                 config[key] = value;
             }
         }
@@ -1967,6 +1967,26 @@ router.get('/:roomId/admin/activity', requireAuth, requireRoomAccess('roomId'), 
         res.json(events);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/activity):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Platform usage check (are any tournaments using this platform in their platform_rules?)
+router.get('/:roomId/admin/platform-usage/:platform', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const platform = req.params.platform as string;
+        const db = await getDatabase();
+        const rows = await db.all(
+            `SELECT name FROM tournaments WHERE game_room_id = ? AND platform_rules LIKE ?`,
+            [roomId, `%${platform}%`]
+        );
+        res.json({
+            inUse: rows.length > 0,
+            tournaments: rows.map((r: any) => r.name),
+        });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/platform-usage/:platform):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

@@ -31,6 +31,17 @@
 - [x] New DB column: user_mappings.avatar_hash
 - [x] New dependencies: cron-parser (backend), qrcode (frontend)
 
+### UX Plan Completion & Bug Fixes (2026-03-29)
+- [x] Bug fix: locked game score rejection (backend 403 on non-ACTIVE games for submit-score and community-scores)
+- [x] Locked game UI on ScoreSubmit.tsx (lock icon) and ScoreSubmitModal (gameStatus prop, locked state)
+- [x] PWA support: manifest.json, service worker (cache-first static, network-first navigation), PWA meta tags
+- [x] "Your Best" quick stat on game cards (footer: "Your best: X (Rank #Y)" for logged-in users)
+- [x] Compact card header option (SCOREBOARD_CARD_HEADER_STYLE: banner/compact — thumbnail + title bar mode)
+- [x] Score toast notifications (WebSocket score:new data payload → slide-down toast on scoreboard)
+- [x] Platform in-use validation on deletion (GET /admin/platform-usage/:platform, error toast with tournament names)
+- [x] Global game CSS override UI (GLOBAL_CARD_STYLES_ENABLED toggle + color pickers for title/scores/border/background)
+- [x] Kiosk backend enforcement confirmed working (frontend checks KIOSK_ENABLED from scoreboard-config)
+
 ### Player Engagement Features (2026-03-27)
 - [x] Discord player login on public pages (OAuth → player token)
 - [x] Web-based game picking from Game Availability page
@@ -90,12 +101,13 @@
 - Sprint 10 (Production Hardening) — COMPLETE
 - Feature: Player Engagement (Discord login, web picking, queue management) — COMPLETE
 - Feature: Leaderboard UX Redesign — COMPLETE
+- Feature: UX Plan Completion (PWA, global styles, compact header, toast, platform validation) — COMPLETE
 
 ## Last Session
 
-**Date:** 2026-03-28
-**What happened:** Leaderboard UX redesign: 8 new themes, admin/public theme split, Discord avatars, two-column scores, QR code score submission (3 modes), standalone submit page, viewer rank highlight, countdown timers, kiosk toggle, admin activity log, game library autocomplete with fuzzy warnings, inline platform add, settings reorganization.
-**Next:** User-driven features as needed.
+**Date:** 2026-03-29
+**What happened:** Completed all remaining items from UX_Leaderboard_Plan.md (P0-P3). Bug fix: locked game score rejection (backend + frontend). PWA support (manifest, service worker). "Your Best" quick stat on cards. Compact card header option. Score toast notifications via WebSocket. Platform in-use validation on deletion. Global game CSS override UI with color pickers. Kiosk enforcement confirmed.
+**Next:** Deploy to production. User-driven features as needed.
 
 ## Blockers
 

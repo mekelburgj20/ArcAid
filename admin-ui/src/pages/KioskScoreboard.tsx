@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
+import type { GameLeaderboard, RankingGroupData, GlobalCardStyles } from '../components/ScoreboardComponents';
 import {
   GameCard,
   RankingsColumn,
@@ -77,6 +77,15 @@ export default function KioskScoreboard() {
   const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
   const cardOpacity = config.SCOREBOARD_CARD_OPACITY ? parseFloat(config.SCOREBOARD_CARD_OPACITY) : undefined;
   const bgOpacity = config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1;
+  const headerStyle = config.SCOREBOARD_CARD_HEADER_STYLE || 'banner';
+
+  const globalStyles: GlobalCardStyles | undefined = config.GLOBAL_CARD_STYLES_ENABLED === 'true' ? {
+    enabled: true,
+    cssTitle: config.GLOBAL_CARD_CSS_TITLE || undefined,
+    cssScores: config.GLOBAL_CARD_CSS_SCORES || undefined,
+    cssBox: config.GLOBAL_CARD_CSS_BOX || undefined,
+    bgColor: config.GLOBAL_CARD_BG_COLOR || undefined,
+  } : undefined;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
@@ -165,7 +174,7 @@ export default function KioskScoreboard() {
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} />
                   </div>
                 ))}
               </div>
@@ -176,7 +185,7 @@ export default function KioskScoreboard() {
                 <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
                   {visibleLeaderboards.map(lb => (
                     <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
-                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} />
+                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} />
                     </div>
                   ))}
                 </div>

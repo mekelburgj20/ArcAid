@@ -28,10 +28,11 @@ Relevant Documentation:
 - `CLAUDE.md` (ArcAid root) — Architecture tables, key patterns, database schema, session checklist
 - `../CLAUDE.md` (parent repo root) — Repository overview, architecture tables shared across projects
 - `VIDEO_TUTORIAL_GUIDE.md` — Video tutorial scripts, episode list, B-roll checklist, production standards
-- `DEPLOY.md` — Deployment procedures and server configuration
 - `DISCORD_SETUP.md` — Discord bot setup and configuration guide
-- `ArcAid_Project_Handover.md` — Project handover documentation
 - `PolyForm Noncommercial License 1.0.0.md` — Project license terms
+- `UX_Leaderboard_Plan.md` — UX design plan with priority matrix (all items P0-P3 now complete)
+- `Leaderboard_RoomSettings_Redesign.md` — Original redesign requirements from user
+- `followup.md` — Deferred items with user answers (all items now implemented)
 - `.claude/commands/deploy.md` — Production deployment checklist slash command
 - `.claude/commands/update-docs.md` — Documentation update slash command
 

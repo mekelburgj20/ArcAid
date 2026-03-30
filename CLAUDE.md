@@ -117,6 +117,7 @@ Two sub-applications in one process:
 - `GET /api/rooms/:roomId/games/:gameId/info` — public game info for standalone score submission
 - `GET /api/rooms/:roomId/game_library/search` — game library autocomplete with fuzzy matching (requireAuth)
 - `GET /api/rooms/:roomId/admin/activity` — room admin activity log (requireAuth + requireRoomAccess)
+- `GET /api/rooms/:roomId/admin/platform-usage/:platform` — check if platform is used by tournaments (requireAuth + requireRoomAccess)
 - `GET /api/admin/*` — super-admin endpoints (requireSuperAdmin)
 - `GET /api/*` — global endpoints (status, preferences, public room listing)
 - **Legacy aliases:** `/api/leaderboard`, `/api/tournaments`, etc. redirect to default room for backward compat with Discord commands
@@ -145,6 +146,13 @@ Two sub-applications in one process:
 - **Countdown timers:** Game cards show time until next maintenance using `cronUtils.ts` (`cron-parser` package)
 - **Activity log:** `room_events` table, `RoomEventService` logs admin actions (tournament changes, settings updates, etc.), viewable at `/:slug/admin/activity`
 - **Scoreboard layout:** `SCOREBOARD_SCORE_COLUMNS` setting enables two-column score layout; viewer rank highlight (cyan row) for logged-in players
+- **"Your Best" stat:** Game cards show logged-in user's best score and rank in a footer section when `viewerEntry` exists
+- **Compact card header:** `SCOREBOARD_CARD_HEADER_STYLE` setting (`banner`/`compact`); compact shows 48x48 thumbnail + title instead of full-width banner
+- **Global card styles:** `GLOBAL_CARD_STYLES_ENABLED` toggle + `GLOBAL_CARD_CSS_TITLE`, `GLOBAL_CARD_CSS_SCORES`, `GLOBAL_CARD_CSS_BOX`, `GLOBAL_CARD_BG_COLOR` color overrides applied room-wide
+- **Score toast:** WebSocket `score:new` event carries `{ gameId, gameName, playerName, score }` payload; Scoreboard shows slide-down toast notification
+- **Platform validation:** `GET /:roomId/admin/platform-usage/:platform` checks tournament references before platform deletion
+- **Locked game protection:** `POST submit-score` and `POST community-scores` reject non-ACTIVE games with 403; frontend shows lock icon
+- **PWA:** `manifest.json` + `sw.js` in `admin-ui/public/`; service worker caches static assets (cache-first) and navigation (network-first)
 
 ## Community Features
 

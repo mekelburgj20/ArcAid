@@ -190,6 +190,24 @@ export default function ScoreSubmit() {
 
   const isInactive = gameStatus !== 'ACTIVE';
 
+  // Show locked message instead of form for non-active games
+  if (isInactive) {
+    return (
+      <div className="min-h-screen bg-deep flex items-center justify-center px-4">
+        <div className="bg-surface border border-border rounded-lg p-8 max-w-md w-full text-center">
+          <div className="text-4xl mb-4">&#128274;</div>
+          <h2 className="font-display text-xl text-primary mb-2">{gameName}</h2>
+          <p className="text-yellow-400 text-sm mb-6 font-display">
+            This game is locked. Scores can no longer be submitted.
+          </p>
+          <Link to={`/${slug}`} className="text-neon-cyan hover:underline text-sm font-display">
+            View Scoreboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-deep flex items-start justify-center px-4 py-8">
       <div className="bg-surface border border-border rounded-lg p-6 max-w-md w-full">
@@ -197,11 +215,6 @@ export default function ScoreSubmit() {
         <div className="text-center mb-6">
           <h1 className="font-display text-xl font-bold text-primary mb-1">{gameName}</h1>
           <p className="text-muted text-sm">Submit your score</p>
-          {isInactive && (
-            <p className="text-yellow-400 text-xs mt-2 font-display">
-              This game is no longer active. Scores may not count toward rankings.
-            </p>
-          )}
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">

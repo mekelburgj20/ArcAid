@@ -26,6 +26,13 @@
 - **Session persistence** — Login pages auto-redirect if a valid JWT exists (24h expiry)
 - **Discord post-score rating flow** — Star rating buttons and comment modal after `/submit-score`
 - **Scoreboard branding** — Custom logos, background images, and title styles per room
+- **Progressive Web App (PWA)** — Installable on Android/iOS with standalone display, offline caching, and home screen icon
+- **Global card style overrides** — Room-wide color customization for game card titles, scores, borders, and backgrounds via color pickers
+- **Compact card header** — Alternative card layout with small thumbnail + title bar instead of full-width banner
+- **Score toast notifications** — Real-time WebSocket-powered slide-down notifications when players submit scores
+- **"Your Best" quick stat** — Logged-in users see their best score and rank on each game card footer
+- **Platform in-use validation** — Prevents deleting platforms that are referenced by active tournaments
+- **Locked game protection** — Score submissions blocked for completed/locked games (backend 403 + frontend lock UI)
 - **11 UI themes** — Arcade, Dark, Light, Backglass, CRT Green, Plasma, Cabinet, Silverball, Wizard, Playfield, Marquee — admin theme per-user, public theme per-room
 - **Public pages** — Scoreboard, player profiles, game details, and game availability — no login required
 - **Mobile-responsive** — Full functionality on phones and tablets
@@ -69,6 +76,7 @@ npm run dev            # Vite dev server with HMR
 | `/:slug/players/:id` | Player detail (stats, history) |
 | `/:slug/games/:name` | Game detail — tabs: scores, community, tips/comments, player stats |
 | `/:slug/games` | Game availability (cooldowns, random picker, pick/queue games if Discord-logged-in) |
+| `/:slug/submit/:gameId` | Standalone score submission (QR code target) |
 | `/:slug/stats` | Public enhanced stats (avg finish, top 5%, champion streak) |
 | `/:slug/login` | Room admin login |
 | `/:slug/admin/*` | Room admin panel (dashboard, tournaments, library, leaderboard, rankings, stats, history, settings) |
@@ -145,6 +153,8 @@ npm run dev            # Vite dev server with HMR
 | Kiosk Refresh Interval | Auto-refresh interval (seconds) for kiosk display |
 | Hide Empty Games | Toggle to suppress games with no scores from public views |
 | Discord @Mentions | Toggle Discord role/user @mentions in tournament announcements |
+| Card Header Style | Banner (full-width artwork) or Compact (thumbnail + title bar) |
+| Global Card Styles | Toggle + color overrides for game card titles, scores, borders, backgrounds |
 | Callouts | Easter egg — bot responds to trigger words from `data/callouts.json` |
 
 ### Tournament Settings
