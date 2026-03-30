@@ -200,7 +200,6 @@ export default function ScoreSubmitModal({ gameName, roomId, gameStatus, require
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              capture="environment"
               onChange={handlePhotoChange}
               className="hidden"
             />

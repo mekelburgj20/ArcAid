@@ -279,7 +279,6 @@ export default function ScoreSubmit() {
               ref={fileInputRef}
               type="file"
               accept="image/png,image/jpeg,image/webp"
-              capture="environment"
               onChange={handlePhotoChange}
               className="hidden"
             />

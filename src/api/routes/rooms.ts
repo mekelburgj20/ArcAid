@@ -189,7 +189,7 @@ router.get('/:roomId/leaderboard/:gameId/submissions', async (req, res) => {
         const gameId = req.params.gameId as string;
         const db = await getDatabase();
         const submissions = await db.all(`
-            SELECT iscored_username, score, timestamp, photo_url
+            SELECT id, iscored_username, score, timestamp, photo_url
             FROM submissions
             WHERE game_id = ?
             ORDER BY LOWER(iscored_username), score DESC
@@ -1842,6 +1842,53 @@ router.delete('/:roomId/admin/games/:gameId/style', requireAuth, requireRoomAcce
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admin/games/:gameId/style):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Delete a score submission (admin only)
+router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const submissionId = req.params.submissionId as string;
+        const db = await getDatabase();
+
+        // Verify game belongs to this room
+        const game = await db.get(
+            `SELECT g.id FROM games g
+             JOIN tournaments t ON g.tournament_id = t.id
+             WHERE g.id = ? AND t.game_room_id = ?`,
+            gameId, roomId
+        );
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        // Verify submission exists and belongs to this game
+        const submission = await db.get(
+            'SELECT id, iscored_username, score FROM submissions WHERE id = ? AND game_id = ?',
+            submissionId, gameId
+        );
+        if (!submission) return res.status(404).json({ error: 'Submission not found' });
+
+        // Delete the submission
+        await db.run('DELETE FROM submissions WHERE id = ?', submissionId);
+
+        // Invalidate leaderboard cache
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        await LeaderboardService.invalidate(gameId);
+
+        // Log activity event
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        RoomEventService.log(roomId, 'score_deleted', {
+            gameId,
+            player: submission.iscored_username,
+            score: submission.score,
+        }).catch(() => {});
+
+        logInfo(`Admin deleted submission ${submissionId} (${submission.iscored_username}: ${submission.score}) from game ${gameId}`);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admin/games/:gameId/submissions/:submissionId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

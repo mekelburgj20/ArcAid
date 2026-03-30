@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
@@ -26,6 +26,7 @@ interface RankedEntry {
 }
 
 interface Submission {
+  id: string;
   iscored_username: string;
   score: number;
   timestamp: string;
@@ -180,7 +181,7 @@ export default function Leaderboard() {
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId}>
-                    <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onStyleClick={async (target) => {
+                    <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onScoreDeleted={() => { loadData(); loadRankings(); }} onStyleClick={async (target) => {
                       try {
                         const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
                         setLibraryHasDefault(!!libStyle.catalogueStyleId);
@@ -196,7 +197,7 @@ export default function Leaderboard() {
               <div className="flex gap-3 sm:gap-5 pb-2">
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
-                    <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onStyleClick={async (target) => {
+                    <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onScoreDeleted={() => { loadData(); loadRankings(); }} onStyleClick={async (target) => {
                       try {
                         const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
                         setLibraryHasDefault(!!libStyle.catalogueStyleId);
@@ -269,15 +270,33 @@ export default function Leaderboard() {
   );
 }
 
-function AdminGameCard({ lb, roomId, maxScores, onStyleClick }: {
+function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted }: {
   lb: GameLeaderboard;
   roomId: string;
   maxScores: number;
   onStyleClick: (lb: GameLeaderboard) => void;
+  onScoreDeleted: () => void;
 }) {
+  const { toast } = useToast();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loadingSubs, setLoadingSubs] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const deleteSubmission = async (sub: Submission) => {
+    if (!confirm(`Delete score ${sub.score.toLocaleString()} by ${sub.iscored_username}?`)) return;
+    setDeleting(sub.id);
+    try {
+      await api.delete(`/rooms/${roomId}/admin/games/${lb.gameId}/submissions/${encodeURIComponent(sub.id)}`);
+      toast(`Score deleted: ${sub.iscored_username} (${sub.score.toLocaleString()})`, 'success');
+      setSubmissions(prev => prev.filter(s => s.id !== sub.id));
+      onScoreDeleted();
+    } catch (err: any) {
+      toast(err.message || 'Failed to delete score', 'error');
+    } finally {
+      setDeleting(null);
+    }
+  };
   const borderColor = getTournamentBorderColor(lb.tournamentType);
 
   const toggleExpand = async (username: string) => {
@@ -398,13 +417,23 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick }: {
                     <div className="bg-raised/20 border-b border-border/20 px-3 py-1">
                       {loadingSubs ? (
                         <p className="text-faint text-[10px] py-1">Loading...</p>
-                      ) : playerSubs.length <= 1 ? (
-                        <p className="text-faint text-[10px] py-1">No additional submissions</p>
+                      ) : playerSubs.length === 0 ? (
+                        <p className="text-faint text-[10px] py-1">No submissions</p>
                       ) : (
-                        playerSubs.slice(1).map((sub, i) => (
-                          <div key={i} className="flex items-center justify-between py-0.5 text-[11px]">
-                            <span className="text-faint">{new Date(sub.timestamp).toLocaleDateString()}</span>
-                            <span className="text-muted font-display">{sub.score.toLocaleString()}</span>
+                        playerSubs.map((sub, i) => (
+                          <div key={sub.id} className="flex items-center justify-between py-0.5 text-[11px] group">
+                            <span className="text-faint">{i === 0 ? 'Best' : new Date(sub.timestamp).toLocaleDateString()}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted font-display">{sub.score.toLocaleString()}</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteSubmission(sub); }}
+                                disabled={deleting === sub.id}
+                                className="opacity-0 group-hover:opacity-100 text-red-400/60 hover:text-red-400 transition-all cursor-pointer disabled:opacity-30"
+                                title="Delete this score"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           </div>
                         ))
                       )}
