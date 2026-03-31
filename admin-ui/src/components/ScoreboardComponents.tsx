@@ -272,7 +272,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
     <div
       className={`relative border-2 ${borderColor} rounded-lg ${headerStyle === 'wheel' ? 'overflow-visible' : 'overflow-hidden'} flex flex-col h-full`}
       style={{
-        ...(headerStyle === 'wheel' ? { marginTop: `${wheelScale * 0.071}rem` } : {}),
+        ...(headerStyle === 'wheel' ? { marginTop: '2.5rem' } : {}),
         ...(globalStyles?.enabled && globalStyles.cssBox ? { borderColor: globalStyles.cssBox } : {}),
         ...(globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
       }}
@@ -318,7 +318,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
           >
             {/* Wheel icon — negative top margin pushes it above the card edge */}
             {bgImage && (
-              <div className="flex items-center justify-center z-10" style={{ height: `${wheelScale * 0.07}rem`, marginTop: `${wheelScale * -0.071}rem` }}>
+              <div className="flex items-center justify-center z-10" style={{ height: `${wheelScale * 0.07}rem`, marginTop: '-2.5rem' }}>
                 <img
                   src={bgImage}
                   alt=""
