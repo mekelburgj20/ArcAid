@@ -14,6 +14,8 @@ const GLOBAL_KEYS = [
   'PORT',
   'MAX_LOG_LINES',
   'BACKUP_RETENTION_DAYS',
+  'ISCORED_API_ENABLED',
+  'ISCORED_API_POLL_INTERVAL',
 ];
 
 const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'JWT_SECRET'];
@@ -26,6 +28,8 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   PORT: { label: 'Port', description: 'HTTP server port (default: 3001).' },
   MAX_LOG_LINES: { label: 'Max Log Lines', description: 'Maximum number of log lines returned by the API.' },
   BACKUP_RETENTION_DAYS: { label: 'Backup Retention Days', description: 'How many days to keep automatic backups.' },
+  ISCORED_API_ENABLED: { label: 'iScored API Enabled', description: 'Use iScored REST API for score sync instead of Playwright. Set to "false" to revert to Playwright.' },
+  ISCORED_API_POLL_INTERVAL: { label: 'iScored Poll Interval (seconds)', description: 'How often to poll iScored for new scores. Default: 30. Hot-reloads on save.' },
 };
 
 interface SuperAdmin {
