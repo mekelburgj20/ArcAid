@@ -269,7 +269,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
 
   return (
     <div
-      className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col h-full`}
+      className={`relative border-2 ${borderColor} rounded-lg ${headerStyle === 'wheel' ? 'overflow-visible mt-10' : 'overflow-hidden'} flex flex-col h-full`}
       style={{
         ...(globalStyles?.enabled && globalStyles.cssBox ? { borderColor: globalStyles.cssBox } : {}),
         ...(globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
@@ -309,36 +309,35 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
         </div>
       ) : headerStyle === 'wheel' ? (
         <>
-          {/* Wheel mode: title overlays top of wheel image */}
+          {/* Wheel mode: icon sits on top of card, poking above the border */}
           <div
             className={`relative flex flex-col items-center ${onSubmitScore ? 'cursor-pointer' : ''}`}
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
-            {/* Title overlay — sits on top of wheel with text shadow for readability */}
-            <div className="w-full text-center px-4 pt-2 pb-0 relative z-10">
+            {/* Wheel icon — negative top margin pushes it above the card edge */}
+            {bgImage && (
+              <div className="flex items-center justify-center -mt-10 z-10" style={{ height: '7rem' }}>
+                <img
+                  src={bgImage}
+                  alt=""
+                  className="h-full max-w-full object-contain drop-shadow-lg"
+                />
+              </div>
+            )}
+            {/* Title + tournament below the wheel */}
+            <div className="w-full text-center px-4 pb-2 pt-1 relative">
               <h3
                 className="font-display font-bold text-base leading-tight truncate"
-                style={{
-                  textShadow: '0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7)',
-                  ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}),
-                }}
+                style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}
               >
                 {lb.gameName}
               </h3>
-              <p className="text-[11px] text-muted uppercase tracking-wider" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.9)' }}>
-                {lb.tournamentName}
-              </p>
-              {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-2"><Lock size={14} className="text-neon-amber" /></span>}
+              <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+              {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-1"><Lock size={14} className="text-neon-amber" /></span>}
               {onSubmitScore && (
-                <span className="absolute left-3 top-2"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
+                <span className="absolute left-3 top-1"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
               )}
             </div>
-            {/* Wheel image — pulled up to overlap with title */}
-            {bgImage && (
-              <div className="w-full flex items-center justify-center -mt-2" style={{ height: '8rem' }}>
-                <img src={bgImage} alt="" className="h-full max-w-full object-contain" />
-              </div>
-            )}
           </div>
         </>
       ) : (
