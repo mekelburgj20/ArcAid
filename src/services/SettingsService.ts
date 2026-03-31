@@ -46,6 +46,20 @@ export class SettingsService {
             }
         }
 
+        // Hot-reload poller settings when changed
+        if ('ISCORED_API_ENABLED' in settings || 'ISCORED_API_POLL_INTERVAL' in settings) {
+            try {
+                const { ScoreSyncPoller } = await import('../engine/ScoreSyncPoller.js');
+                const poller = ScoreSyncPoller.getInstance();
+                if (process.env.ISCORED_API_ENABLED === 'false') {
+                    poller.stop();
+                } else if (process.env.ISCORED_PUBLIC_URL) {
+                    const intervalSec = parseInt(process.env.ISCORED_API_POLL_INTERVAL || '30', 10);
+                    poller.start(intervalSec * 1000);
+                }
+            } catch {}
+        }
+
         return { needsRestart };
     }
 

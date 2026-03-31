@@ -293,6 +293,19 @@ export class TournamentEngine {
     }
 
     private async runMaintenanceInternal(tournamentId: string): Promise<void> {
+        // Pause score poller during maintenance to avoid conflicts
+        const { ScoreSyncPoller } = await import('./ScoreSyncPoller.js');
+        const poller = ScoreSyncPoller.getInstance();
+        poller.pause();
+
+        try {
+            await this.runMaintenanceWork(tournamentId);
+        } finally {
+            poller.resume();
+        }
+    }
+
+    private async runMaintenanceWork(tournamentId: string): Promise<void> {
         const db = await getDatabase();
         const tournamentRow = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
         if (!tournamentRow) throw new Error(`Tournament ${tournamentId} not found.`);
@@ -471,8 +484,40 @@ export class TournamentEngine {
                     logWarn('   -> Failed to learn styles (continuing):', err);
                 }
 
-                // Scrape final standings
-                if (hasPublicUrl) {
+                // Get final standings — API preferred, Playwright fallback
+                const useApi = process.env.ISCORED_API_ENABLED !== 'false';
+                if (useApi && activeGame.iscoredId) {
+                    try {
+                        const { IScoredApiClient } = await import('./IScoredApiClient.js');
+                        const apiClient = new IScoredApiClient();
+                        const gameScores = await apiClient.getGameScores(activeGame.iscoredId, 1);
+                        const topScore = gameScores.scores?.[0];
+                        if (topScore) {
+                            winnerIscoredName = topScore.name;
+                            const rawScore = String(topScore.score).replace(/[^0-9]/g, '');
+                            winnerScore = parseInt(rawScore, 10) || null;
+                            logInfo(`   -> Top scorer (API): ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
+                        } else {
+                            logWarn('   -> No scores found on iScored API for this game.');
+                        }
+                    } catch (err) {
+                        logError('   -> iScored API failed, trying Playwright fallback:', err);
+                        // Fall through to Playwright
+                        if (hasPublicUrl && client) {
+                            try {
+                                const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId!);
+                                if (scores.length > 0) {
+                                    winnerIscoredName = scores[0].name;
+                                    const rawScore = String(scores[0].score).replace(/[^0-9]/g, '');
+                                    winnerScore = parseInt(rawScore, 10) || null;
+                                    logInfo(`   -> Top scorer (Playwright fallback): ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
+                                }
+                            } catch (err2) {
+                                logError('   -> Playwright fallback also failed:', err2);
+                            }
+                        }
+                    }
+                } else if (hasPublicUrl && activeGame.iscoredId) {
                     try {
                         const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId);
                         if (scores.length > 0) {

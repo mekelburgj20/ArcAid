@@ -6,6 +6,7 @@ import { startApiServer } from './api/server.js';
 import { serverEvents } from './api/server.js';
 import { validateEnvironment } from './utils/startup.js';
 import { Scheduler } from './engine/Scheduler.js';
+import { ScoreSyncPoller } from './engine/ScoreSyncPoller.js';
 
 async function bootstrap() {
     logInfo('Starting ArcAid...');
@@ -69,6 +70,12 @@ async function bootstrap() {
 
             // 6. Start Scheduler (cron maintenance + timeout checker)
             await Scheduler.getInstance().start();
+        }
+
+        // 7. Start iScored API score poller (if enabled)
+        if (process.env.ISCORED_API_ENABLED !== 'false' && process.env.ISCORED_PUBLIC_URL) {
+            const intervalSec = parseInt(process.env.ISCORED_API_POLL_INTERVAL || '30', 10);
+            ScoreSyncPoller.getInstance().start(intervalSec * 1000);
         }
 
     } catch (error) {

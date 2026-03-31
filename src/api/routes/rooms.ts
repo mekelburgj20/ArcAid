@@ -936,13 +936,10 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, roomAssetUpload.sin
             }
         }
 
-        // Fire-and-forget iScored sync
+        // Fire-and-forget iScored sync (API preferred, Playwright fallback for photos)
         (async () => {
             let tempPhotoPath: string | undefined;
             try {
-                const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
-                if (!hasCredentials) return;
-
                 const db = await getDatabase();
                 const activeGame = await db.get(`
                     SELECT g.iscored_id FROM games g
@@ -956,20 +953,32 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, roomAssetUpload.sin
                     return;
                 }
 
-                // Write temp copy for IScoredClient (needs filesystem path)
-                if (persistentPhotoPath) {
-                    tempPhotoPath = persistentPhotoPath + '.tmp';
-                    fs.copyFileSync(persistentPhotoPath, tempPhotoPath);
-                }
+                const useApi = process.env.ISCORED_API_ENABLED !== 'false';
+                if (useApi) {
+                    // API path — fast, no browser overhead (no photo support)
+                    const { IScoredApiClient } = await import('../../engine/IScoredApiClient.js');
+                    const apiClient = new IScoredApiClient();
+                    await apiClient.submitScore(activeGame.iscored_id, username, score);
+                    logInfo(`iScored API sync: submitted score for "${gameName}" by ${username}`);
+                } else {
+                    // Playwright fallback — supports photos
+                    const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+                    if (!hasCredentials) return;
 
-                const { IScoredClient } = await import('../../engine/IScoredClient.js');
-                const client = new IScoredClient();
-                await client.connect();
-                try {
-                    await client.submitScore(activeGame.iscored_id, username, score, tempPhotoPath);
-                    logInfo(`iScored sync: submitted score for "${gameName}" by ${username}`);
-                } finally {
-                    await client.disconnect();
+                    if (persistentPhotoPath) {
+                        tempPhotoPath = persistentPhotoPath + '.tmp';
+                        fs.copyFileSync(persistentPhotoPath, tempPhotoPath);
+                    }
+
+                    const { IScoredClient } = await import('../../engine/IScoredClient.js');
+                    const client = new IScoredClient();
+                    await client.connect();
+                    try {
+                        await client.submitScore(activeGame.iscored_id, username, score, tempPhotoPath);
+                        logInfo(`iScored Playwright sync: submitted score for "${gameName}" by ${username}`);
+                    } finally {
+                        await client.disconnect();
+                    }
                 }
             } catch (err) {
                 logError(`iScored sync failed for "${gameName}" by ${username}:`, err);
