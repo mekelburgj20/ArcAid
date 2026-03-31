@@ -42,6 +42,12 @@
 - [x] Global game CSS override UI (GLOBAL_CARD_STYLES_ENABLED toggle + color pickers for title/scores/border/background)
 - [x] Kiosk backend enforcement confirmed working (frontend checks KIOSK_ENABLED from scoreboard-config)
 
+### Bug Fixes (2026-03-30)
+- [x] Bug fix: timeout/queue logic — picker slot was created even when a queued game was activated, causing erroneous pick timer + reminders
+- [x] Bug fix: phantom games on iScored — erroneous picker timeout cascaded to auto-selection, creating games on iScored that weren't ACTIVE in ArcAid
+- [x] Admin score deletion (Trash2 icon on leaderboard, backend DELETE endpoint with cache invalidation)
+- [x] Photo upload on mobile now allows gallery choice (removed capture="environment" attribute)
+
 ### Player Engagement Features (2026-03-27)
 - [x] Discord player login on public pages (OAuth → player token)
 - [x] Web-based game picking from Game Availability page
@@ -105,9 +111,9 @@
 
 ## Last Session
 
-**Date:** 2026-03-29
-**What happened:** Completed all remaining items from UX_Leaderboard_Plan.md (P0-P3). Bug fix: locked game score rejection (backend + frontend). PWA support (manifest, service worker). "Your Best" quick stat on cards. Compact card header option. Score toast notifications via WebSocket. Platform in-use validation on deletion. Global game CSS override UI with color pickers. Kiosk enforcement confirmed.
-**Next:** Deploy to production. User-driven features as needed.
+**Date:** 2026-03-30
+**What happened:** Fixed critical timeout/queue logic bug — when maintenance activated a queued game, it erroneously created a picker slot with a 60min timer for the winner. This caused cascading timeouts → runner-up pivots → auto-selection, creating phantom games on iScored that weren't tracked as ACTIVE in ArcAid. Fix: don't create picker slot when queue already supplied a game. Also deployed prior session's admin score deletion + photo gallery upload fix.
+**Next:** Clean up phantom games (Black Belt remake, Pennant Fever) on production if needed. User-driven features as needed.
 
 ## Blockers
 

@@ -608,21 +608,11 @@ export class TournamentEngine {
                 }).catch(() => {});
             }
 
-            // Create picker slot for winner
-            if (winnerId) {
-                const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
-                const slotId = uuidv4();
-                await db.run(
-                    `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id)
-                     VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?)`,
-                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame.id
-                );
-                logInfo(`   -> Created picker slot for winner (pick window active).`);
-            }
+            // Queued game was activated — no picker slot needed (queue already had a game).
+            // The winner can still use /pick-game to add more games to queue at any time.
 
             // Announce new active game
             if (channelId) {
-                const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
                 const color = getTournamentColor(tournamentRow.type);
                 const embed = new EmbedBuilder()
                     .setTitle(`Now Active: ${queuedRow.name}`)
@@ -631,11 +621,11 @@ export class TournamentEngine {
 
                 if (winnerId) {
                     const winnerMention = await formatUserMention(winnerId, winnerIscoredName || 'Unknown', tournamentRow.game_room_id);
-                    embed.setDescription(`${winnerMention} — you won! You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` to queue the next ${term.game}.`);
+                    embed.setDescription(`${winnerMention} — congrats on the win! **${queuedRow.name}** is now active from the queue.`);
                 } else if (winnerIscoredName) {
-                    embed.setDescription(`**${winnerIscoredName}** — you won! Ask a moderator to link your iScored account with \`/map-user\`, then use \`/pick-game\`.`);
+                    embed.setDescription(`**${winnerIscoredName}** wins! **${queuedRow.name}** is now active from the queue.`);
                 } else {
-                    embed.setDescription(`A moderator can use \`/nominate-picker\` to assign picking rights.`);
+                    embed.setDescription(`**${queuedRow.name}** is now active from the queue.`);
                 }
                 embed.setFooter({ text: tournamentRow.name });
                 await sendChannelEmbed(channelId, embed);
@@ -646,14 +636,6 @@ export class TournamentEngine {
                 oldGame: activeGame.name,
                 newGame: queuedRow.name,
             });
-
-            if (winnerId) {
-                emitPickerAssigned({
-                    tournamentName: tournamentRow.name,
-                    pickerName: winnerIscoredName || 'Unknown',
-                    deadline: new Date(Date.now() + parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60') * 60000).toISOString(),
-                });
-            }
         } else {
             // No queued game — create picker slot for timeout tracking
             logInfo(`   -> No ${term.game} queued for this slot. Creating picker slot for timeout tracking.`);
