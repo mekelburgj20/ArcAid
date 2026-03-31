@@ -78,6 +78,7 @@ export default function KioskScoreboard() {
   const cardOpacity = config.SCOREBOARD_CARD_OPACITY ? parseFloat(config.SCOREBOARD_CARD_OPACITY) : undefined;
   const bgOpacity = config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1;
   const headerStyle = config.SCOREBOARD_CARD_HEADER_STYLE || 'banner';
+  const wheelScale = parseInt(config.SCOREBOARD_WHEEL_SCALE || '150', 10) || 150;
 
   const globalStyles: GlobalCardStyles | undefined = config.GLOBAL_CARD_STYLES_ENABLED === 'true' ? {
     enabled: true,
@@ -174,7 +175,7 @@ export default function KioskScoreboard() {
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} />
                   </div>
                 ))}
               </div>
@@ -185,7 +186,7 @@ export default function KioskScoreboard() {
                 <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
                   {visibleLeaderboards.map(lb => (
                     <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
-                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} />
+                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} />
                     </div>
                   ))}
                 </div>

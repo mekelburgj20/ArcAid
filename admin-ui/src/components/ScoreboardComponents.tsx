@@ -206,7 +206,7 @@ export interface GlobalCardStyles {
   bgColor?: string;
 }
 
-export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles }: {
+export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150 }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
@@ -216,6 +216,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
   qrMode?: string;
   headerStyle?: string;
   globalStyles?: GlobalCardStyles;
+  wheelScale?: number;
 }) {
   const borderColor = getTournamentBorderColor(lb.tournamentType);
   const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
@@ -269,8 +270,9 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
 
   return (
     <div
-      className={`relative border-2 ${borderColor} rounded-lg ${headerStyle === 'wheel' ? 'overflow-visible mt-10' : 'overflow-hidden'} flex flex-col h-full`}
+      className={`relative border-2 ${borderColor} rounded-lg ${headerStyle === 'wheel' ? 'overflow-visible' : 'overflow-hidden'} flex flex-col h-full`}
       style={{
+        ...(headerStyle === 'wheel' ? { marginTop: `${wheelScale * 0.071}rem` } : {}),
         ...(globalStyles?.enabled && globalStyles.cssBox ? { borderColor: globalStyles.cssBox } : {}),
         ...(globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
       }}
@@ -316,7 +318,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
           >
             {/* Wheel icon — negative top margin pushes it above the card edge */}
             {bgImage && (
-              <div className="flex items-center justify-center -mt-10 z-10" style={{ height: '7rem' }}>
+              <div className="flex items-center justify-center z-10" style={{ height: `${wheelScale * 0.07}rem`, marginTop: `${wheelScale * -0.071}rem` }}>
                 <img
                   src={bgImage}
                   alt=""

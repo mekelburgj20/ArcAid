@@ -34,7 +34,7 @@ interface PendingInvite {
 const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
 
 const CATEGORIES: Record<string, string[]> = {
-  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_HEADER_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
+  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_HEADER_STYLE', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
@@ -116,6 +116,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
   SCOREBOARD_RANKINGS_POSITION: { label: 'Rankings Position', description: 'Where overall rankings are displayed: left (default), right, top, bottom, or hidden.' },
   SCOREBOARD_CARD_HEADER_STYLE: { label: 'Card Header Style', description: 'Banner shows full-width game artwork. Compact shows a small thumbnail with the title. Wheel shows the image centered and contained (ideal for wheel icons).' },
+  SCOREBOARD_WHEEL_SCALE: { label: 'Wheel Icon Size', description: 'Size of wheel icons in Wheel header mode. Default: 150. Only applies when Card Header Style is set to Wheel.' },
   SCOREBOARD_SCORE_COLUMNS: { label: 'Score Columns', description: 'Number of score columns within each card. 2 columns shows ranks side-by-side (e.g. 1-5 left, 6-10 right). Collapses to 1 on mobile.' },
   SCOREBOARD_QR_MODE: { label: 'QR Codes', description: 'Show QR codes on score cards linking to mobile score submission. Disabled: no QR codes. Kiosk Only: QR on kiosk display. All: QR on both scoreboard and kiosk.' },
   // Scoreboard Branding
@@ -164,6 +165,13 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: 'banner', label: 'Banner' },
     { value: 'compact', label: 'Compact' },
     { value: 'wheel', label: 'Wheel Icon' },
+  ],
+  SCOREBOARD_WHEEL_SCALE: [
+    { value: '100', label: 'Small (100%)' },
+    { value: '125', label: 'Medium (125%)' },
+    { value: '150', label: 'Large (150%) — Default' },
+    { value: '175', label: 'X-Large (175%)' },
+    { value: '200', label: 'XX-Large (200%)' },
   ],
   SCOREBOARD_SCORE_COLUMNS: [
     { value: '1', label: '1 Column (Default)' },
