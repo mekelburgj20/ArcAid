@@ -307,6 +307,40 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
             <span className="absolute left-3 top-3 hidden"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
           )}
         </div>
+      ) : headerStyle === 'wheel' ? (
+        <>
+          {/* Wheel mode: title overlays top of wheel image */}
+          <div
+            className={`relative flex flex-col items-center ${onSubmitScore ? 'cursor-pointer' : ''}`}
+            onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+          >
+            {/* Title overlay — sits on top of wheel with text shadow for readability */}
+            <div className="w-full text-center px-4 pt-2 pb-0 relative z-10">
+              <h3
+                className="font-display font-bold text-base leading-tight truncate"
+                style={{
+                  textShadow: '0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7)',
+                  ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}),
+                }}
+              >
+                {lb.gameName}
+              </h3>
+              <p className="text-[11px] text-muted uppercase tracking-wider" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.9)' }}>
+                {lb.tournamentName}
+              </p>
+              {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-2"><Lock size={14} className="text-neon-amber" /></span>}
+              {onSubmitScore && (
+                <span className="absolute left-3 top-2"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
+              )}
+            </div>
+            {/* Wheel image — pulled up to overlap with title */}
+            {bgImage && (
+              <div className="w-full flex items-center justify-center -mt-2" style={{ height: '8rem' }}>
+                <img src={bgImage} alt="" className="h-full max-w-full object-contain" />
+              </div>
+            )}
+          </div>
+        </>
       ) : (
         <>
           {/* Title area — clickable to submit score if handler provided */}
@@ -327,29 +361,19 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
           {/* Background image area — also clickable for submit */}
           {bgImage && (
             <div
-              className={`relative ${headerStyle === 'wheel' ? 'h-36 flex items-center justify-center' : 'h-28 bg-raised'} ${onSubmitScore ? 'cursor-pointer' : ''}`}
+              className={`relative h-28 bg-raised ${onSubmitScore ? 'cursor-pointer' : ''}`}
               onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
             >
-              {headerStyle === 'wheel' ? (
-                <img
-                  src={bgImage}
-                  alt=""
-                  className="h-full max-w-full object-contain py-1"
-                />
-              ) : (
-                <>
-                  <div
-                    className="absolute inset-0"
-                    style={{
-                      backgroundImage: `url(${bgImage})`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                    }}
-                  />
-                  {styleHeaderUrl && (
-                    <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
-                  )}
-                </>
+              <div
+                className="absolute inset-0"
+                style={{
+                  backgroundImage: `url(${bgImage})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                }}
+              />
+              {styleHeaderUrl && (
+                <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
               )}
             </div>
           )}
