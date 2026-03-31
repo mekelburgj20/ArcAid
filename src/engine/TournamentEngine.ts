@@ -490,6 +490,22 @@ export class TournamentEngine {
             }
         }
 
+        // --- Fallback: check ArcAid DB if iScored scraping found no winner ---
+        if (!winnerIscoredName) {
+            const topSubmission = await db.get(
+                `SELECT iscored_username, score FROM submissions
+                 WHERE game_id = ? ORDER BY score DESC LIMIT 1`,
+                activeGame.id
+            );
+            if (topSubmission) {
+                winnerIscoredName = topSubmission.iscored_username;
+                winnerScore = topSubmission.score;
+                logInfo(`   -> Winner from ArcAid DB: ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
+            } else {
+                logWarn('   -> No scores found in ArcAid DB either.');
+            }
+        }
+
         // --- Mark active game COMPLETED ---
         await db.run(
             'UPDATE games SET status = ?, end_date = ? WHERE id = ?',
