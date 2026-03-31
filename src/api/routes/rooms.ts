@@ -18,6 +18,9 @@ import {
     GameCommentSchema,
     PickGameSchema,
     ReorderQueueSchema,
+    UpdateGameStateSchema,
+    DeleteGameStateSchema,
+    SyncIScoredActionSchema,
 } from '../schemas.js';
 import { writeLimiter, pickLimiter } from '../rateLimit.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
@@ -2034,6 +2037,298 @@ router.get('/:roomId/admin/platform-usage/:platform', requireAuth, requireRoomAc
         });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/platform-usage/:platform):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ==================== GAME STATE MANAGEMENT ====================
+
+// List all games for a room (admin view with full state info)
+router.get('/:roomId/admin/game-states', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const db = await getDatabase();
+        const statusFilter = req.query.status ? (req.query.status as string).split(',') : null;
+
+        let query = `
+            SELECT g.id, g.name, g.status, g.iscored_id, g.picker_discord_id,
+                   g.picker_type, g.picker_designated_at, g.reminder_count,
+                   g.won_game_id, g.start_date, g.end_date,
+                   g.queue_order, g.style_id,
+                   t.name as tournament_name, t.type as tournament_type, t.id as tournament_id
+            FROM games g
+            JOIN tournaments t ON g.tournament_id = t.id
+            WHERE t.game_room_id = ?
+        `;
+        const params: any[] = [roomId];
+
+        if (statusFilter) {
+            query += ` AND g.status IN (${statusFilter.map(() => '?').join(',')})`;
+            params.push(...statusFilter);
+        }
+
+        query += `
+            ORDER BY
+              CASE g.status
+                WHEN 'ACTIVE' THEN 1
+                WHEN 'QUEUED' THEN 2
+                WHEN 'COMPLETED' THEN 3
+                WHEN 'HIDDEN' THEN 4
+              END,
+              g.start_date DESC, g.queue_order ASC
+        `;
+
+        const games = await db.all(query, ...params);
+        res.json(games);
+    } catch (error) {
+        logError('API Error (GET game-states):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Force change a game's status
+router.patch('/:roomId/admin/game-states/:gameId/status', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const parsed = UpdateGameStateSchema.parse(req.body);
+        const db = await getDatabase();
+
+        // Verify game belongs to this room
+        const game = await db.get(`
+            SELECT g.*, t.game_room_id, t.type as tournament_type
+            FROM games g JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.id = ? AND t.game_room_id = ?
+        `, gameId, roomId);
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        const oldStatus = game.status;
+        const now = new Date().toISOString();
+
+        // Update status with appropriate date fields
+        if (parsed.status === 'ACTIVE') {
+            await db.run('UPDATE games SET status = ?, start_date = COALESCE(start_date, ?), end_date = NULL WHERE id = ?', 'ACTIVE', now, gameId);
+        } else if (parsed.status === 'COMPLETED') {
+            await db.run('UPDATE games SET status = ?, end_date = ? WHERE id = ?', 'COMPLETED', now, gameId);
+        } else if (parsed.status === 'QUEUED') {
+            await db.run('UPDATE games SET status = ?, start_date = NULL, end_date = NULL WHERE id = ?', 'QUEUED', gameId);
+        } else {
+            await db.run('UPDATE games SET status = ? WHERE id = ?', parsed.status, gameId);
+        }
+
+        // Sync to iScored if requested
+        if (parsed.syncIScored && game.iscored_id) {
+            const client = new IScoredClient();
+            try {
+                await client.connect();
+                if (parsed.status === 'ACTIVE') {
+                    await client.setGameStatus(game.iscored_id, { locked: false, hidden: false });
+                } else if (parsed.status === 'COMPLETED') {
+                    await client.setGameStatus(game.iscored_id, { locked: true });
+                } else if (parsed.status === 'HIDDEN') {
+                    await client.setGameStatus(game.iscored_id, { hidden: true });
+                }
+            } catch (err) {
+                logError(`Failed to sync game ${gameId} to iScored:`, err);
+            } finally {
+                await client.disconnect();
+            }
+        }
+
+        // Invalidate leaderboard cache
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        await LeaderboardService.invalidate(gameId);
+
+        // Log activity
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        await RoomEventService.log(roomId, 'game_state_change', {
+            gameName: game.name,
+            oldStatus,
+            newStatus: parsed.status,
+            syncedIScored: parsed.syncIScored && !!game.iscored_id,
+        });
+
+        logInfo(`Admin forced game state: ${game.name} ${oldStatus} → ${parsed.status} (room: ${roomId})`);
+        res.json({ success: true, oldStatus, newStatus: parsed.status });
+    } catch (error: any) {
+        if (error.name === 'ZodError') return res.status(400).json({ error: 'Invalid request', details: error.errors });
+        logError('API Error (PATCH game-states/:gameId/status):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Clear picker assignment (cancel timeout)
+router.patch('/:roomId/admin/game-states/:gameId/clear-picker', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const db = await getDatabase();
+
+        const game = await db.get(`
+            SELECT g.*, t.game_room_id
+            FROM games g JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.id = ? AND t.game_room_id = ?
+        `, gameId, roomId);
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        await db.run(
+            'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL, reminder_count = 0 WHERE id = ?',
+            gameId
+        );
+
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        await RoomEventService.log(roomId, 'picker_cleared', { gameName: game.name });
+
+        logInfo(`Admin cleared picker for game: ${game.name} (room: ${roomId})`);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PATCH game-states/:gameId/clear-picker):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Delete a game row (cleanup phantom/orphaned entries)
+router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const parsed = DeleteGameStateSchema.parse(req.body);
+        const db = await getDatabase();
+
+        const game = await db.get(`
+            SELECT g.*, t.game_room_id
+            FROM games g JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.id = ? AND t.game_room_id = ?
+        `, gameId, roomId);
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        // Delete from iScored if requested
+        if (parsed.deleteFromIScored && game.iscored_id) {
+            const client = new IScoredClient();
+            try {
+                await client.connect();
+                await client.deleteGame(game.iscored_id);
+                logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
+            } catch (err) {
+                logError(`Failed to delete game ${gameId} from iScored:`, err);
+            } finally {
+                await client.disconnect();
+            }
+        }
+
+        // Cascade: delete submissions, leaderboard cache, score history
+        await db.run('DELETE FROM submissions WHERE game_id = ?', gameId);
+        await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', gameId);
+        await db.run('DELETE FROM score_history WHERE game_id = ?', gameId);
+        await db.run('DELETE FROM games WHERE id = ?', gameId);
+
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        await RoomEventService.log(roomId, 'game_deleted', {
+            gameName: game.name,
+            status: game.status,
+            deletedFromIScored: parsed.deleteFromIScored && !!game.iscored_id,
+        });
+
+        logInfo(`Admin deleted game: ${game.name} (status: ${game.status}, room: ${roomId})`);
+        res.json({ success: true });
+    } catch (error: any) {
+        if (error.name === 'ZodError') return res.status(400).json({ error: 'Invalid request', details: error.errors });
+        logError('API Error (DELETE game-states/:gameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Sync a single game to iScored (granular operations)
+router.post('/:roomId/admin/game-states/:gameId/sync-iscored', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const parsed = SyncIScoredActionSchema.parse(req.body);
+        const db = await getDatabase();
+
+        const game = await db.get(`
+            SELECT g.*, t.game_room_id
+            FROM games g JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.id = ? AND t.game_room_id = ?
+        `, gameId, roomId);
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        const client = new IScoredClient();
+        try {
+            await client.connect();
+
+            switch (parsed.action) {
+                case 'lock':
+                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
+                    await client.setGameStatus(game.iscored_id, { locked: true });
+                    break;
+                case 'unlock':
+                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
+                    await client.setGameStatus(game.iscored_id, { locked: false, hidden: false });
+                    break;
+                case 'hide':
+                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
+                    await client.setGameStatus(game.iscored_id, { hidden: true });
+                    break;
+                case 'unhide':
+                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
+                    await client.setGameStatus(game.iscored_id, { hidden: false });
+                    break;
+                case 'delete':
+                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
+                    await client.deleteGame(game.iscored_id);
+                    await db.run('UPDATE games SET iscored_id = NULL WHERE id = ?', gameId);
+                    break;
+                case 'create': {
+                    const libraryEntry = await db.get(
+                        'SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', game.name
+                    );
+                    const styleId = libraryEntry?.style_id || game.style_id || undefined;
+                    const newId = await client.createGame(game.name, styleId);
+                    await db.run('UPDATE games SET iscored_id = ? WHERE id = ?', newId, gameId);
+                    break;
+                }
+            }
+        } finally {
+            await client.disconnect();
+        }
+
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        await RoomEventService.log(roomId, 'iscored_sync', { gameName: game.name, action: parsed.action });
+
+        logInfo(`Admin iScored sync: ${parsed.action} on ${game.name} (room: ${roomId})`);
+        res.json({ success: true, action: parsed.action });
+    } catch (error: any) {
+        if (error.name === 'ZodError') return res.status(400).json({ error: 'Invalid request', details: error.errors });
+        logError('API Error (POST game-states/:gameId/sync-iscored):', error);
+        res.status(500).json({ error: error.message || 'Internal Server Error' });
+    }
+});
+
+// Force maintenance for a tournament
+router.post('/:roomId/admin/game-states/force-maintenance', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { tournamentId } = req.body;
+        if (!tournamentId) return res.status(400).json({ error: 'tournamentId required' });
+
+        const db = await getDatabase();
+        const tournament = await db.get('SELECT id, name, game_room_id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId);
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        await RoomEventService.log(roomId, 'force_maintenance', { tournamentName: tournament.name });
+
+        logInfo(`Admin forcing maintenance for tournament: ${tournament.name} (room: ${roomId})`);
+
+        // Run maintenance asynchronously — don't block the response
+        TournamentEngine.getInstance().runMaintenance(tournamentId).catch(err => {
+            logError(`Forced maintenance failed for ${tournament.name}:`, err);
+        });
+
+        res.json({ success: true, message: `Maintenance triggered for ${tournament.name}` });
+    } catch (error) {
+        logError('API Error (POST game-states/force-maintenance):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

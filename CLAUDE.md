@@ -81,7 +81,7 @@ Two sub-applications in one process:
 - **Layouts:** `SuperAdminLayout` (`/admin/*`), `RoomAdminLayout` (`/:slug/admin/*`), `PublicLayout` (`/:slug/*`)
 - **Room context:** `admin-ui/src/contexts/RoomContext.tsx` provides `roomId`, `roomSlug`, `roomName` to room pages
 - **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings (+ shared: Logs, Backups, MasterGameLibrary)
-- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, Settings (includes Users section), ActivityLog
+- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, GameStates (game state management escape hatch), Settings (includes Users section), ActivityLog
 - **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard, ScoreSubmit (standalone QR code score submission)
 - **Viewer auth context:** `ViewerAuthContext.tsx` provides `discordUser`, `playerToken`, `loginWithDiscord`, `logoutPlayer`, `usePlayerHeaders` — wraps public routes via `ViewerAuthProvider` in App.tsx
 - Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, `PlayerAvatar`, etc.
@@ -118,6 +118,12 @@ Two sub-applications in one process:
 - `GET /api/rooms/:roomId/game_library/search` — game library autocomplete with fuzzy matching (requireAuth)
 - `GET /api/rooms/:roomId/admin/activity` — room admin activity log (requireAuth + requireRoomAccess)
 - `GET /api/rooms/:roomId/admin/platform-usage/:platform` — check if platform is used by tournaments (requireAuth + requireRoomAccess)
+- `GET /api/rooms/:roomId/admin/game-states` — list all games with full state info for game state management (requireAuth + requireRoomAccess)
+- `PATCH /api/rooms/:roomId/admin/game-states/:gameId/status` — force game status change with optional iScored sync (requireAuth + requireRoomAccess)
+- `PATCH /api/rooms/:roomId/admin/game-states/:gameId/clear-picker` — cancel picker timeout (requireAuth + requireRoomAccess)
+- `DELETE /api/rooms/:roomId/admin/game-states/:gameId` — delete game entry with optional iScored deletion (requireAuth + requireRoomAccess)
+- `POST /api/rooms/:roomId/admin/game-states/:gameId/sync-iscored` — granular iScored operations (requireAuth + requireRoomAccess)
+- `POST /api/rooms/:roomId/admin/game-states/force-maintenance` — trigger maintenance for a tournament (requireAuth + requireRoomAccess)
 - `GET /api/admin/*` — super-admin endpoints (requireSuperAdmin)
 - `GET /api/*` — global endpoints (status, preferences, public room listing)
 - **Legacy aliases:** `/api/leaderboard`, `/api/tournaments`, etc. redirect to default room for backward compat with Discord commands
@@ -153,6 +159,7 @@ Two sub-applications in one process:
 - **Platform validation:** `GET /:roomId/admin/platform-usage/:platform` checks tournament references before platform deletion
 - **Locked game protection:** `POST submit-score` and `POST community-scores` reject non-ACTIVE games with 403; frontend shows lock icon
 - **PWA:** `manifest.json` + `sw.js` in `admin-ui/public/`; service worker caches static assets (cache-first) and navigation (network-first)
+- **Game State Management:** Admin escape hatch at `/:slug/admin/games` — force status changes, clear picker timeouts, delete phantom entries, granular iScored sync, force maintenance trigger. All actions require confirmation and are logged to activity.
 
 ## Community Features
 

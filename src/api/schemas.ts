@@ -155,3 +155,18 @@ export const GameCommentSchema = z.object({
     type: z.enum(['comment', 'tip']),
     body: z.string().min(1).max(500),
 });
+
+export const UpdateGameStateSchema = z.object({
+    status: z.enum(['QUEUED', 'ACTIVE', 'COMPLETED', 'HIDDEN']),
+    syncIScored: z.boolean().default(false),
+    confirm: z.literal(true),
+});
+
+export const DeleteGameStateSchema = z.object({
+    deleteFromIScored: z.boolean().default(false),
+    confirm: z.literal(true),
+});
+
+export const SyncIScoredActionSchema = z.object({
+    action: z.enum(['lock', 'unlock', 'hide', 'unhide', 'delete', 'create']),
+});

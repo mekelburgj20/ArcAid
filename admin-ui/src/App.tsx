@@ -30,6 +30,7 @@ import History from './pages/History';
 import Settings from './pages/Settings';
 import Help from './pages/Help';
 import ActivityLog from './pages/ActivityLog';
+import GameStates from './pages/GameStates';
 
 // Pages — Public
 import Scoreboard from './pages/Scoreboard';
@@ -101,6 +102,7 @@ function App() {
           <Route path="rankings" element={<Rankings />} />
           <Route path="stats" element={<Stats />} />
           <Route path="history" element={<History />} />
+          <Route path="games" element={<GameStates />} />
           <Route path="activity" element={<ActivityLog />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
