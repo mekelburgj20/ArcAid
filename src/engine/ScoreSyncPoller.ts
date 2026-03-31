@@ -1,5 +1,5 @@
 import { logInfo, logError, logWarn, logDebug } from '../utils/logger.js';
-import { IScoredApiClient } from './IScoredApiClient.js';
+import { IScoredApiClient, IScoredApiGameScores } from './IScoredApiClient.js';
 import { getDatabase } from '../database/database.js';
 
 const DEFAULT_INTERVAL_MS = 30_000; // 30 seconds
@@ -20,6 +20,8 @@ export class ScoreSyncPoller {
     private _paused = false;
     private intervalMs = DEFAULT_INTERVAL_MS;
     private consecutiveErrors = 0;
+    private _lastPollSucceeded = false;
+    private _pollCount = 0;
 
     static getInstance(): ScoreSyncPoller {
         if (!ScoreSyncPoller.instance) {
@@ -73,7 +75,16 @@ export class ScoreSyncPoller {
         this.polling = true;
         try {
             const apiClient = new IScoredApiClient();
-            const allScores = await apiClient.getAllScores();
+            const rawResponse = await apiClient.getAllScores();
+
+            // Log on first successful poll or when data shape is unexpected
+            if (this.consecutiveErrors > 0 || !this._lastPollSucceeded) {
+                logInfo(`ScoreSyncPoller: API returned ${rawResponse.length} game(s)`);
+            }
+            this._lastPollSucceeded = true;
+
+            // Normalize: getAllScores may return various shapes
+            const allScores = this.normalizeScoreResponse(rawResponse);
 
             const db = await getDatabase();
 
@@ -161,7 +172,9 @@ export class ScoreSyncPoller {
             }
 
             this.consecutiveErrors = 0;
+            this._pollCount++;
         } catch (err) {
+            this._lastPollSucceeded = false;
             this.consecutiveErrors++;
             if (this.consecutiveErrors <= 3) {
                 logError('ScoreSyncPoller: poll failed:', err);
@@ -172,5 +185,52 @@ export class ScoreSyncPoller {
         } finally {
             this.polling = false;
         }
+    }
+
+    /**
+     * Normalize the getAllScores flat response into grouped-by-game format.
+     *
+     * API returns: { scores: [{ name, game, gameName, score, date, ... }] }
+     * We need:     [{ GameID, gameName, scores: [{ name, score, ... }] }]
+     */
+    private normalizeScoreResponse(data: any): IScoredApiGameScores[] {
+        // getAllScores returns { scores: [...] } with flat score entries
+        let flatScores: any[] = [];
+
+        if (data && data.scores && Array.isArray(data.scores)) {
+            flatScores = data.scores;
+        } else if (Array.isArray(data)) {
+            flatScores = data;
+        } else {
+            logWarn(`ScoreSyncPoller: unexpected API response shape — keys: ${data ? Object.keys(data).join(', ') : 'null'}`);
+            return [];
+        }
+
+        if (this._pollCount === 0) {
+            logInfo(`ScoreSyncPoller: API returned ${flatScores.length} total score entries`);
+        }
+
+        // Group flat scores by game ID
+        const grouped = new Map<string, IScoredApiGameScores>();
+        for (const entry of flatScores) {
+            const gameId = String(entry.game || entry.GameID || '');
+            if (!gameId) continue;
+
+            if (!grouped.has(gameId)) {
+                grouped.set(gameId, {
+                    GameID: gameId,
+                    gameName: entry.gameName || '',
+                    scores: [],
+                });
+            }
+            grouped.get(gameId)!.scores.push({
+                name: entry.name || '',
+                score: String(entry.score || '0'),
+                date: entry.date || '',
+                rank: entry.rank || '',
+            });
+        }
+
+        return Array.from(grouped.values());
     }
 }

@@ -73,15 +73,21 @@ export class IScoredApiClient {
         return res.json();
     }
 
-    /** Get all scores for all games in one call. */
-    async getAllScores(): Promise<IScoredApiGameScores[]> {
+    /** Get all scores for all games in one call. Returns raw API response for caller normalization. */
+    async getAllScores(): Promise<any> {
         const url = `${this.baseUrl}/${encodeURIComponent(this.gameroomName)}/getAllScores`;
         logDebug(`iScored API: GET ${url}`);
         const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
         if (!res.ok) throw new Error(`iScored API error: ${res.status} ${res.statusText}`);
-        const data = await res.json();
-        // Normalize: API may return a single object or an array
-        return Array.isArray(data) ? data : [data];
+        const text = await res.text();
+        try {
+            const data = JSON.parse(text);
+            // Return raw data — let caller handle normalization
+            return data;
+        } catch {
+            logError(`iScored API: getAllScores returned non-JSON (first 200 chars): ${text.slice(0, 200)}`);
+            return [];
+        }
     }
 
     /**

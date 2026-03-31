@@ -93,8 +93,26 @@ export const syncstate: Command = {
 async function syncScoresViaApi(db: any, allIscoredGames: any[]): Promise<number> {
     logInfo('   Syncing scores via iScored API...');
     const apiClient = new IScoredApiClient();
-    const allScores = await apiClient.getAllScores();
-    logInfo(`   -> API returned scores for ${allScores.length} game(s)`);
+    const rawData = await apiClient.getAllScores();
+
+    // getAllScores returns { scores: [{ name, game, gameName, score, ... }] } — group by game
+    const flatScores: any[] = rawData?.scores && Array.isArray(rawData.scores) ? rawData.scores : (Array.isArray(rawData) ? rawData : []);
+    const grouped = new Map<string, { GameID: string; gameName: string; scores: any[] }>();
+    for (const entry of flatScores) {
+        const gameId = String(entry.game || entry.GameID || '');
+        if (!gameId) continue;
+        if (!grouped.has(gameId)) {
+            grouped.set(gameId, { GameID: gameId, gameName: entry.gameName || '', scores: [] });
+        }
+        grouped.get(gameId)!.scores.push({
+            name: entry.name || '',
+            score: String(entry.score || '0'),
+            date: entry.date || '',
+            rank: entry.rank || '',
+        });
+    }
+    const allScores = Array.from(grouped.values());
+    logInfo(`   -> API returned ${flatScores.length} score(s) across ${allScores.length} game(s)`);
 
     let scoresSynced = 0;
 
