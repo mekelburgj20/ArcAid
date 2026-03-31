@@ -77,6 +77,7 @@ export const syncstate: Command = {
                     const publicUrl = process.env.ISCORED_PUBLIC_URL;
                     if (publicUrl) {
                         const scores = await iscored.scrapePublicScores(publicUrl, iscoredGame.id);
+                        logInfo(`   -> Scraped ${scores.length} score(s) for "${iscoredGame.name}" (${iscoredGame.id})`);
 
                         // Track synced IDs so we can remove stale ones
                         const syncedIds = new Set<string>();
@@ -135,13 +136,19 @@ export const syncstate: Command = {
                         // Remove local synced submissions that no longer exist on iScored
                         // (handles deleted scores, username changes on iScored)
                         // Only remove sync-format IDs (gameId-username), not UUID Discord submissions
+                        // Preserve web-submitted scores (discord_user_id = 'COMMUNITY') — these may not be on iScored yet
                         const localSynced = await db.all(
-                            `SELECT id FROM submissions WHERE game_id = ? AND id LIKE ? || '-%'`,
+                            `SELECT id, discord_user_id FROM submissions WHERE game_id = ? AND id LIKE ? || '-%'`,
                             localGame.id, localGame.id
                         );
                         for (const row of localSynced) {
                             if (!syncedIds.has(row.id)) {
-                                await db.run('DELETE FROM submissions WHERE id = ?', row.id);
+                                if (row.discord_user_id === 'COMMUNITY') {
+                                    logInfo(`   -> Preserving web-submitted score: ${row.id} (not yet on iScored)`);
+                                } else {
+                                    logInfo(`   -> Removing stale synced score: ${row.id}`);
+                                    await db.run('DELETE FROM submissions WHERE id = ?', row.id);
+                                }
                             }
                         }
 
