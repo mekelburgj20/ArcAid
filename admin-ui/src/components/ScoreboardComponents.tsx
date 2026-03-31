@@ -327,7 +327,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
           {/* Background image area — also clickable for submit */}
           {bgImage && (
             <div
-              className={`relative ${headerStyle === 'wheel' ? 'h-36 flex items-center justify-center' : 'h-28'} bg-raised ${onSubmitScore ? 'cursor-pointer' : ''}`}
+              className={`relative ${headerStyle === 'wheel' ? 'h-36 flex items-center justify-center' : 'h-28 bg-raised'} ${onSubmitScore ? 'cursor-pointer' : ''}`}
               onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
             >
               {headerStyle === 'wheel' ? (
