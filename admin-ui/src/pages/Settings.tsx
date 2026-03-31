@@ -115,7 +115,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_CARDS_PER_ROW: { label: 'Cards Per Row (Grid)', description: 'Number of score cards per row in grid mode. Range: 2-8. Default: 4. Only applies in grid layout.' },
   SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
   SCOREBOARD_RANKINGS_POSITION: { label: 'Rankings Position', description: 'Where overall rankings are displayed: left (default), right, top, bottom, or hidden.' },
-  SCOREBOARD_CARD_HEADER_STYLE: { label: 'Card Header Style', description: 'Banner shows full-width game artwork. Compact shows a small thumbnail with the game title.' },
+  SCOREBOARD_CARD_HEADER_STYLE: { label: 'Card Header Style', description: 'Banner shows full-width game artwork. Compact shows a small thumbnail with the title. Wheel shows the image centered and contained (ideal for wheel icons).' },
   SCOREBOARD_SCORE_COLUMNS: { label: 'Score Columns', description: 'Number of score columns within each card. 2 columns shows ranks side-by-side (e.g. 1-5 left, 6-10 right). Collapses to 1 on mobile.' },
   SCOREBOARD_QR_MODE: { label: 'QR Codes', description: 'Show QR codes on score cards linking to mobile score submission. Disabled: no QR codes. Kiosk Only: QR on kiosk display. All: QR on both scoreboard and kiosk.' },
   // Scoreboard Branding
@@ -163,6 +163,7 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
   SCOREBOARD_CARD_HEADER_STYLE: [
     { value: 'banner', label: 'Banner' },
     { value: 'compact', label: 'Compact' },
+    { value: 'wheel', label: 'Wheel Icon' },
   ],
   SCOREBOARD_SCORE_COLUMNS: [
     { value: '1', label: '1 Column (Default)' },

@@ -327,19 +327,29 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
           {/* Background image area — also clickable for submit */}
           {bgImage && (
             <div
-              className={`relative h-28 bg-raised ${onSubmitScore ? 'cursor-pointer' : ''}`}
+              className={`relative ${headerStyle === 'wheel' ? 'h-36 flex items-center justify-center' : 'h-28'} bg-raised ${onSubmitScore ? 'cursor-pointer' : ''}`}
               onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
             >
-              <div
-                className="absolute inset-0"
-                style={{
-                  backgroundImage: `url(${bgImage})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                }}
-              />
-              {styleHeaderUrl && (
-                <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+              {headerStyle === 'wheel' ? (
+                <img
+                  src={bgImage}
+                  alt=""
+                  className="h-full max-w-full object-contain py-1"
+                />
+              ) : (
+                <>
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      backgroundImage: `url(${bgImage})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }}
+                  />
+                  {styleHeaderUrl && (
+                    <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+                  )}
+                </>
               )}
             </div>
           )}

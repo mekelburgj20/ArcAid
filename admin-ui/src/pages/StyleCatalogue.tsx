@@ -252,7 +252,7 @@ function StylePreviewModal({ style, onClose }: { style: Style; onClose: () => vo
           )}
           {/* Sample scoreboard overlay */}
           <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-3">
-            <div className="text-xs text-yellow-400 font-bold">PEZ</div>
+            <div className="text-xs text-yellow-400 font-bold">Player1</div>
             <div className="text-xs text-red-400">123,456,789</div>
           </div>
         </div>
