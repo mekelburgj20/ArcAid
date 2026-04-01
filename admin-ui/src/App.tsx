@@ -103,6 +103,7 @@ function App() {
           <Route path="stats" element={<Stats />} />
           <Route path="history" element={<History />} />
           <Route path="games" element={<GameStates />} />
+          <Route path="styles" element={<StyleCatalogue />} />
           <Route path="activity" element={<ActivityLog />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />

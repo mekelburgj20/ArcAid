@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useContext } from 'react';
 import { Search, Upload, Trash2, Image, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
+import { RoomContext } from '../contexts/RoomContext';
 
 interface Style {
   id: string;
@@ -21,6 +22,8 @@ const PAGE_SIZE = 50;
 
 export default function StyleCatalogue() {
   const { toast } = useToast();
+  const roomCtx = useContext(RoomContext);
+  const isSuperAdmin = !roomCtx;
   const [styles, setStyles] = useState<Style[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
@@ -84,6 +87,9 @@ export default function StyleCatalogue() {
     }
   };
 
+  // Upload path: super-admin uses /admin/styles/upload, room-admin uses /rooms/:roomId/admin/styles/upload
+  const uploadPath = isSuperAdmin ? '/admin/styles/upload' : `/rooms/${roomCtx!.roomId}/admin/styles/upload`;
+
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -98,9 +104,11 @@ export default function StyleCatalogue() {
           <NeonButton onClick={() => setShowUpload(true)}>
             <Upload size={16} /> Upload
           </NeonButton>
-          <NeonButton variant="secondary" onClick={handleImport} disabled={importing}>
-            {importing ? 'Importing...' : 'Re-import iScored'}
-          </NeonButton>
+          {isSuperAdmin && (
+            <NeonButton variant="secondary" onClick={handleImport} disabled={importing}>
+              {importing ? 'Importing...' : 'Re-import iScored'}
+            </NeonButton>
+          )}
         </div>
       </div>
 
@@ -134,7 +142,7 @@ export default function StyleCatalogue() {
               key={style.id}
               style={style}
               onClick={() => setPreviewStyle(style)}
-              onDelete={() => handleDelete(style)}
+              onDelete={isSuperAdmin ? () => handleDelete(style) : undefined}
             />
           ))
         )}
@@ -171,6 +179,7 @@ export default function StyleCatalogue() {
       {/* Upload Modal */}
       {showUpload && (
         <UploadModal
+          uploadPath={uploadPath}
           onClose={() => setShowUpload(false)}
           onUploaded={() => {
             setShowUpload(false);
@@ -184,7 +193,7 @@ export default function StyleCatalogue() {
 
 // ─── Style Card ────────────────────────────────────────────────────────────────
 
-function StyleCard({ style, onClick, onDelete }: { style: Style; onClick: () => void; onDelete: () => void }) {
+function StyleCard({ style, onClick, onDelete }: { style: Style; onClick: () => void; onDelete?: () => void }) {
   const bgUrl = style.has_background ? `/api/styles/images/backgrounds/${style.id}.png` : null;
   const headerUrl = style.has_header ? `/api/styles/images/headers/${style.id}.png` : null;
 
@@ -206,13 +215,15 @@ function StyleCard({ style, onClick, onDelete }: { style: Style; onClick: () => 
             <Image size={24} />
           </div>
         )}
-        {/* Delete button */}
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(); }}
-          className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-magenta opacity-0 group-hover:opacity-100 transition-opacity border-0 cursor-pointer"
-        >
-          <Trash2 size={14} />
-        </button>
+        {/* Delete button (super-admin only) */}
+        {onDelete && (
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(); }}
+            className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-magenta opacity-0 group-hover:opacity-100 transition-opacity border-0 cursor-pointer"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
       </div>
       {/* Info */}
       <div className="p-2">
@@ -299,7 +310,7 @@ function StylePreviewModal({ style, onClose }: { style: Style; onClose: () => vo
 
 // ─── Upload Modal ──────────────────────────────────────────────────────────────
 
-function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded: () => void }) {
+function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; onClose: () => void; onUploaded: () => void }) {
   const { toast } = useToast();
   const [name, setName] = useState('');
   const [author, setAuthor] = useState('');
@@ -310,11 +321,11 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
   const [bgPreview, setBgPreview] = useState<string | null>(null);
   const [headerPreview, setHeaderPreview] = useState<string | null>(null);
 
-  const MAX_SIZE = 2 * 1024 * 1024; // 2 MB
+  const MAX_SIZE = 30 * 1024 * 1024; // 30 MB
 
   const handleBgChange = (file: File | null) => {
     if (file && file.size > MAX_SIZE) {
-      toast('Background image must be under 2 MB', 'error');
+      toast('Background image must be under 30 MB', 'error');
       return;
     }
     setBgFile(file);
@@ -328,7 +339,7 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
 
   const handleHeaderChange = (file: File | null) => {
     if (file && file.size > MAX_SIZE) {
-      toast('Header image must be under 2 MB', 'error');
+      toast('Header image must be under 30 MB', 'error');
       return;
     }
     setHeaderFile(file);
@@ -355,7 +366,7 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
       formData.append('background', bgFile);
       if (headerFile) formData.append('header', headerFile);
 
-      await api.upload('/admin/styles/upload', formData);
+      await api.upload(uploadPath, formData);
       toast('Style uploaded successfully', 'success');
       onUploaded();
     } catch (err: any) {
@@ -414,7 +425,7 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
 
           {/* Background image */}
           <div>
-            <label className="text-xs text-muted block mb-1">Background Image * (max 2 MB)</label>
+            <label className="text-xs text-muted block mb-1">Background Image * (max 30 MB)</label>
             {bgPreview ? (
               <div className="relative rounded overflow-hidden">
                 <img src={bgPreview} alt="Background preview" className="w-full h-32 object-cover" />
@@ -429,7 +440,7 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
               <label className="flex items-center justify-center h-24 border border-dashed border-border rounded cursor-pointer hover:border-neon-cyan/50 transition-colors">
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp"
+                  accept="image/png,image/apng,image/jpeg,image/webp"
                   className="hidden"
                   onChange={e => handleBgChange(e.target.files?.[0] || null)}
                 />
@@ -440,7 +451,7 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
 
           {/* Header image */}
           <div>
-            <label className="text-xs text-muted block mb-1">Header Image (optional, max 2 MB)</label>
+            <label className="text-xs text-muted block mb-1">Header Image (optional, max 30 MB)</label>
             {headerPreview ? (
               <div className="relative rounded overflow-hidden">
                 <img src={headerPreview} alt="Header preview" className="w-full h-24 object-contain bg-raised" />
@@ -455,7 +466,7 @@ function UploadModal({ onClose, onUploaded }: { onClose: () => void; onUploaded:
               <label className="flex items-center justify-center h-20 border border-dashed border-border rounded cursor-pointer hover:border-neon-cyan/50 transition-colors">
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp"
+                  accept="image/png,image/apng,image/jpeg,image/webp"
                   className="hidden"
                   onChange={e => handleHeaderChange(e.target.files?.[0] || null)}
                 />

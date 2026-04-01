@@ -13,6 +13,7 @@ import {
     CreateRankingGroupSchema, UpdateRankingGroupSchema,
     CreateLocalAdminSchema,
     AssignStyleSchema,
+    StyleUploadSchema,
     CommunityScoreSchema,
     ScoreSubmissionSchema,
     GameCommentSchema,
@@ -1855,6 +1856,47 @@ router.delete('/:roomId/admin/games/:gameId/style', requireAuth, requireRoomAcce
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admin/games/:gameId/style):', error);
         res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Upload a custom style to the global catalogue (room admins can contribute)
+router.post('/:roomId/admin/styles/upload', requireAuth, requireRoomAccess('roomId'), roomAssetUpload.fields([
+    { name: 'background', maxCount: 1 },
+    { name: 'header', maxCount: 1 },
+]), async (req, res) => {
+    try {
+        const validationResult = validate(StyleUploadSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+        const bgFile = files?.background?.[0];
+        if (!bgFile) {
+            return res.status(400).json({ error: 'Background image is required' });
+        }
+
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+        const headerFile = files?.header?.[0];
+        const id = await StyleCatalogueService.createCustom({
+            name: validationResult.data.name,
+            author: validationResult.data.author,
+            notes: validationResult.data.notes,
+            backgroundBuffer: bgFile.buffer,
+            headerBuffer: headerFile?.buffer,
+        });
+
+        const style = await StyleCatalogueService.getById(id);
+
+        // Log activity event
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        RoomEventService.log(req.params.roomId as string, 'style_uploaded', {
+            styleId: id,
+            styleName: validationResult.data.name,
+        }).catch(() => {});
+
+        res.status(201).json({ success: true, style });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/styles/upload):', error);
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Style upload failed' });
     }
 });
 
