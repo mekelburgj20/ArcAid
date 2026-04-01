@@ -8,7 +8,7 @@
 
 - **Multi-tenant game rooms** — Each room has its own tournaments, leaderboards, admins, settings, and iScored account
 - **Automated tournament rotation** — Daily, Weekly, Monthly (including last-day-of-month), or custom cron schedules
-- **iScored integration** — Automated game creation, locking, score scraping, and cleanup via Playwright
+- **iScored integration** — REST API for score sync (preferred) with Playwright fallback for game management. Continuous background polling keeps leaderboards in sync across all submission methods (web, iScored, Discord)
 - **Pick system** — Winner picks the next game with tiered timeouts (winner → runner-up → auto-select). Web-based game picking for Discord-authenticated players with queue management (reorder, delete, max 5 per tournament)
 - **Discord player login** — Public page visitors can log in via Discord to pick/queue games directly from the Game Availability page
 - **Discord bot** — Full slash command suite for players (submit scores, check stats) and admins (force rotations, manage games)
@@ -29,6 +29,7 @@
 - **Progressive Web App (PWA)** — Installable on Android/iOS with standalone display, offline caching, and home screen icon
 - **Global card style overrides** — Room-wide color customization for game card titles, scores, borders, and backgrounds via color pickers
 - **Compact card header** — Alternative card layout with small thumbnail + title bar instead of full-width banner
+- **Wheel icon card header** — Pinball wheel PNGs displayed above the card border with configurable scale (100-200%)
 - **Score toast notifications** — Real-time WebSocket-powered slide-down notifications when players submit scores
 - **"Your Best" quick stat** — Logged-in users see their best score and rank on each game card footer
 - **Platform in-use validation** — Prevents deleting platforms that are referenced by active tournaments
@@ -131,6 +132,8 @@ npm run dev            # Vite dev server with HMR
 | Port | HTTP server port (default: 3001) |
 | Max Log Lines | Maximum log lines returned by the API |
 | Backup Retention Days | How many days to keep automatic backups |
+| iScored API Enabled | Use iScored REST API for score sync instead of Playwright (default: true) |
+| iScored API Poll Interval | How often to poll iScored for new scores in seconds (default: 30, hot-reloads on save) |
 
 ### Per-Room Settings (Room Admin)
 | Setting | Description |
@@ -153,7 +156,8 @@ npm run dev            # Vite dev server with HMR
 | Kiosk Refresh Interval | Auto-refresh interval (seconds) for kiosk display |
 | Hide Empty Games | Toggle to suppress games with no scores from public views |
 | Discord @Mentions | Toggle Discord role/user @mentions in tournament announcements |
-| Card Header Style | Banner (full-width artwork) or Compact (thumbnail + title bar) |
+| Card Header Style | Banner (full-width artwork), Compact (thumbnail + title bar), or Wheel (pinball wheel icon above card) |
+| Wheel Icon Scale | Size of wheel icons when using Wheel header style (100-200%, default 150%) |
 | Global Card Styles | Toggle + color overrides for game card titles, scores, borders, backgrounds |
 | Callouts | Easter egg — bot responds to trigger words from `data/callouts.json` |
 

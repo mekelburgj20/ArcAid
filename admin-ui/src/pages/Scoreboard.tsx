@@ -226,7 +226,7 @@ export default function Scoreboard() {
               style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardWidth}px, 100%), 1fr))` }}
             >
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId}>
+                <div key={lb.gameId} style={headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>
                   <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} />
                 </div>
               ))}
@@ -237,7 +237,7 @@ export default function Scoreboard() {
             <div className="-mx-4 sm:-mx-6 overflow-x-auto">
               <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
+                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} />
                   </div>
                 ))}

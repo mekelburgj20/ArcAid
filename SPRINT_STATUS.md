@@ -13,6 +13,19 @@
 **Player Engagement Features** — COMPLETE (deployed to production)
 **Leaderboard UX Redesign** — COMPLETE (deployed to production)
 
+### iScored API Integration & Wheel Icons (2026-03-31)
+- [x] iScored REST API client (IScoredApiClient.ts) — lightweight HTTP replacement for Playwright scraping
+- [x] Score sync poller (ScoreSyncPoller.ts) — continuous background polling with configurable interval (default 30s)
+- [x] Dual-path score sync: API-preferred with Playwright fallback (controlled by ISCORED_API_ENABLED)
+- [x] Hot-reload for API settings (enable/disable poller, change interval without restart)
+- [x] sync-state Discord command updated: API path (single HTTP call) or Playwright path (per-game scraping)
+- [x] Fire-and-forget iScored sync on web score submission uses API when enabled
+- [x] Winner resolution in TournamentEngine uses API with Playwright fallback
+- [x] Global settings UI: ISCORED_API_ENABLED and ISCORED_API_POLL_INTERVAL exposed in super-admin panel
+- [x] Wheel icon card header style (SCOREBOARD_CARD_HEADER_STYLE: 'wheel') — pinball wheel PNGs as game identifiers
+- [x] Configurable wheel icon scale (SCOREBOARD_WHEEL_SCALE: 100-200%, default 150%)
+- [x] Wheel icons overflow card border (transparent background, drop shadow, proper card spacing)
+
 ### Leaderboard UX Redesign (2026-03-28)
 - [x] 8 new themes: backglass, crt-green, plasma, cabinet, silverball, wizard, playfield, marquee
 - [x] Admin/Public theme split (admin theme per-admin, public theme room-wide via SCOREBOARD_THEME)
@@ -116,12 +129,13 @@
 - Feature: Leaderboard UX Redesign — COMPLETE
 - Feature: UX Plan Completion (PWA, global styles, compact header, toast, platform validation) — COMPLETE
 - Feature: Game State Management (admin escape hatch for game/queue/iScored issues) — COMPLETE
+- Feature: iScored API Integration (REST API client, score sync poller, wheel icons) — COMPLETE
 
 ## Last Session
 
-**Date:** 2026-03-30
-**What happened:** Fixed critical timeout/queue logic bug (picker slot created when queue already supplied game). Built Game States admin page — full escape hatch for managing game statuses, picker timeouts, phantom entries, and iScored sync from the admin portal.
-**Next:** Clean up phantom games (Black Belt remake, Pennant Fever) on production if needed. User-driven features as needed.
+**Date:** 2026-03-31
+**What happened:** Integrated iScored REST API as primary score sync method (replacing Playwright for reads/writes). Built ScoreSyncPoller for continuous background sync. Added wheel icon card header style for pinball wheel PNGs on scoreboards. All settings exposed in admin UI with hot-reload support.
+**Next:** Verify iScored API polling in production (user must enable API in iScored gameroom settings). User-driven features as needed.
 
 ## Blockers
 

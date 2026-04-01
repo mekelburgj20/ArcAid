@@ -272,7 +272,6 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
     <div
       className={`relative border-2 ${borderColor} rounded-lg ${headerStyle === 'wheel' ? 'overflow-visible' : 'overflow-hidden'} flex flex-col h-full`}
       style={{
-        ...(headerStyle === 'wheel' ? { marginTop: '2.5rem' } : {}),
         ...(globalStyles?.enabled && globalStyles.cssBox ? { borderColor: globalStyles.cssBox } : {}),
         ...(globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
       }}

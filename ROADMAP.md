@@ -208,6 +208,21 @@
 
 ---
 
+## iScored API Integration & Wheel Icons (COMPLETE)
+
+- [x] iScored REST API client (IScoredApiClient.ts) — lightweight HTTP client for score reads/writes
+- [x] Score sync poller (ScoreSyncPoller.ts) — continuous background polling, configurable interval (default 30s)
+- [x] Dual-path architecture: API-preferred with Playwright fallback (ISCORED_API_ENABLED toggle)
+- [x] Hot-reload settings: enable/disable poller and change interval without restart
+- [x] sync-state command: API path (single HTTP call) or Playwright path (per-game scraping)
+- [x] Fire-and-forget iScored sync on web score submission uses API when enabled
+- [x] Winner resolution in TournamentEngine uses API with Playwright fallback
+- [x] Global settings UI for ISCORED_API_ENABLED and ISCORED_API_POLL_INTERVAL
+- [x] Wheel icon card header style (SCOREBOARD_CARD_HEADER_STYLE: 'wheel')
+- [x] Configurable wheel icon scale (SCOREBOARD_WHEEL_SCALE: 100-200%, default 150%)
+
+---
+
 ## Future
 
 ### Multi-Room

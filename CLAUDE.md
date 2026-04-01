@@ -30,7 +30,7 @@ Always run the build (`docker compose build`) and verify tests pass before commi
 
 ## Project Summary
 
-ArcAid is a multi-tenant tournament management platform for virtual pinball and retro gaming communities. Multiple game rooms on one server, each with independent tournaments, admins, settings, and iScored accounts. Discord bot + React Admin UI + Playwright-powered iScored automation.
+ArcAid is a multi-tenant tournament management platform for virtual pinball and retro gaming communities. Multiple game rooms on one server, each with independent tournaments, admins, settings, and iScored accounts. Discord bot + React Admin UI + iScored REST API integration (with Playwright fallback).
 
 **Stack:** TypeScript (CommonJS, NodeNext), Node.js 20, Discord.js v14, Playwright, SQLite, Express v5, React 19 + Vite
 
@@ -56,9 +56,11 @@ cd admin-ui && npm run lint    # ESLint
 Two sub-applications in one process:
 
 **Backend (`src/`):**
-- `src/index.ts` — Bootstrap (DB → settings → env → clear leaderboard cache → validate → API → Discord)
+- `src/index.ts` — Bootstrap (DB → settings → env → clear leaderboard cache → validate → API → Discord → ScoreSyncPoller)
 - `src/engine/TournamentEngine.ts` — Core singleton: tournament CRUD + `runMaintenance()` + `runCleanup()`
 - `src/engine/IScoredClient.ts` — Playwright browser automation (retry with backoff, persistent sessions, screenshot-on-failure)
+- `src/engine/IScoredApiClient.ts` — Lightweight HTTP client for iScored REST API (score reads/writes, no Playwright needed)
+- `src/engine/ScoreSyncPoller.ts` — Singleton; continuous iScored API polling with configurable interval, pause/resume for maintenance
 - `src/engine/Scheduler.ts` — Cron-based maintenance scheduling with hot-reload, supports `L` (last day of month)
 - `src/engine/TimeoutManager.ts` — Winner/runner-up pick window tracking
 - `src/api/server.ts` — Express app setup, mounts 4 routers, backward-compat legacy aliases
@@ -153,13 +155,14 @@ Two sub-applications in one process:
 - **Activity log:** `room_events` table, `RoomEventService` logs admin actions (tournament changes, settings updates, etc.), viewable at `/:slug/admin/activity`
 - **Scoreboard layout:** `SCOREBOARD_SCORE_COLUMNS` setting enables two-column score layout; viewer rank highlight (cyan row) for logged-in players
 - **"Your Best" stat:** Game cards show logged-in user's best score and rank in a footer section when `viewerEntry` exists
-- **Compact card header:** `SCOREBOARD_CARD_HEADER_STYLE` setting (`banner`/`compact`); compact shows 48x48 thumbnail + title instead of full-width banner
+- **Card header styles:** `SCOREBOARD_CARD_HEADER_STYLE` setting (`banner`/`compact`/`wheel`); compact shows 48x48 thumbnail + title; wheel shows pinball wheel PNG above card border with configurable scale (`SCOREBOARD_WHEEL_SCALE`, 100-200%, default 150%)
 - **Global card styles:** `GLOBAL_CARD_STYLES_ENABLED` toggle + `GLOBAL_CARD_CSS_TITLE`, `GLOBAL_CARD_CSS_SCORES`, `GLOBAL_CARD_CSS_BOX`, `GLOBAL_CARD_BG_COLOR` color overrides applied room-wide
 - **Score toast:** WebSocket `score:new` event carries `{ gameId, gameName, playerName, score }` payload; Scoreboard shows slide-down toast notification
 - **Platform validation:** `GET /:roomId/admin/platform-usage/:platform` checks tournament references before platform deletion
 - **Locked game protection:** `POST submit-score` and `POST community-scores` reject non-ACTIVE games with 403; frontend shows lock icon
 - **PWA:** `manifest.json` + `sw.js` in `admin-ui/public/`; service worker caches static assets (cache-first) and navigation (network-first)
 - **Game State Management:** Admin escape hatch at `/:slug/admin/games` — force status changes, clear picker timeouts, delete phantom entries, granular iScored sync, force maintenance trigger. All actions require confirmation and are logged to activity.
+- **iScored API integration:** `IScoredApiClient` (HTTP) preferred over `IScoredClient` (Playwright) for score operations. `ISCORED_API_ENABLED` toggle (default true) controls path selection. `ScoreSyncPoller` runs continuous background sync (default 30s). Settings hot-reload via `SettingsService`.
 
 ## Community Features
 
