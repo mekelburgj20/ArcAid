@@ -16,9 +16,8 @@ Production deployment checklist for ArcAid.
 
 4. **Wait for GitHub Actions:**
    - Push to main triggers the CI/CD pipeline automatically
-   - Monitor the run: `gh run list --limit 1`
-   - Wait for the run to complete successfully: `gh run watch`
-   - If `gh` is not available, direct the user to https://github.com/mekelburgj20/ArcAid/actions
+   - Try `gh run list --limit 1` to check status. If `gh` works, use `gh run watch` to wait for completion.
+   - If `gh` fails (not authenticated), direct the user to monitor at: https://github.com/mekelburgj20/ArcAid/actions
 
 5. **Verify deployment:**
    - Test public scoreboard: https://arcaid.app/arcaid_demo/

@@ -22,18 +22,24 @@ Output Format: Present your final output in the following structure:
 <final_instructions> [Present the complete, updated set of instructions for Claude, incorporating all approved changes] </final_instructions>
 
 Relevant Documentation:
+
+**Active (update regularly):**
 - `README.md` — Public-facing feature list, URL structure, commands, config, tech stack
 - `ROADMAP.md` — Completed work, future plans, sprint history
 - `SPRINT_STATUS.md` — Live progress tracker, last session notes, blockers
 - `CLAUDE.md` (ArcAid root) — Architecture tables, key patterns, database schema, session checklist
 - `../CLAUDE.md` (parent repo root) — Repository overview, architecture tables shared across projects
+
+**Reference (update occasionally):**
 - `VIDEO_TUTORIAL_GUIDE.md` — Video tutorial scripts, episode list, B-roll checklist, production standards
 - `DISCORD_SETUP.md` — Discord bot setup and configuration guide
 - `PolyForm Noncommercial License 1.0.0.md` — Project license terms
-- `UX_Leaderboard_Plan.md` — UX design plan with priority matrix (all items P0-P3 now complete)
-- `Leaderboard_RoomSettings_Redesign.md` — Original redesign requirements from user
-- `followup.md` — Deferred items with user answers (all items now implemented)
 - `.claude/commands/deploy.md` — Production deployment checklist slash command
 - `.claude/commands/update-docs.md` — Documentation update slash command
+
+**Archival (all items implemented, keep for historical context):**
+- `UX_Leaderboard_Plan.md` — UX design plan with priority matrix (all items P0-P3 complete)
+- `Leaderboard_RoomSettings_Redesign.md` — Original redesign requirements from user (all implemented)
+- `followup.md` — Deferred items with user answers (all implemented)
 
 Remember, your goal is to enhance Claude's performance and consistency while maintaining the core functionality and purpose of the AI assistant. Be thorough in your analysis, clear in your explanations, and precise in your implementations.

@@ -138,10 +138,10 @@ Two sub-applications in one process:
 
 ## Key Patterns
 
-- Engine classes are **singletons** (`getInstance()`) except IScoredClient (instantiated per-use)
+- Engine classes are **singletons** (`getInstance()`) except IScoredClient and IScoredApiClient (instantiated per-use). ScoreSyncPoller is a singleton.
 - `getTerminology(mode?)` — per-tournament terminology based on mode (pinball/videogame)
 - Tournaments have a `mode`, `platformRules`, `cleanup_rule`, and `game_room_id`
-- DB `settings` table = global runtime config; `game_room_settings` = per-room config
+- DB `settings` table = global runtime config (includes `ISCORED_API_ENABLED`, `ISCORED_API_POLL_INTERVAL`); `game_room_settings` = per-room config (iScored creds, theme, etc.)
 - Room-scoped services accept an optional `gameRoomId` parameter for filtering
 - API write endpoints require JWT Bearer token
 - Discord OAuth flow: frontend builds OAuth URL with `window.location.origin`, callback uses raw `fetch`

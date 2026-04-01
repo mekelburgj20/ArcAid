@@ -433,15 +433,15 @@ router.post('/game_library/merge', async (req, res) => {
 
 // --- Style Catalogue Management ---
 
-// Multer config: memory storage, 2MB max per file
+// Multer config: memory storage, 30MB max per file (wheel PNGs / APNGs can be large)
 const styleUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB
+    limits: { fileSize: 30 * 1024 * 1024 }, // 30 MB
     fileFilter: (_req, file, cb) => {
-        if (['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype)) {
+        if (['image/png', 'image/apng', 'image/jpeg', 'image/webp'].includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error('Only PNG, JPEG, and WebP images are allowed'));
+            cb(new Error('Only PNG, APNG, JPEG, and WebP images are allowed'));
         }
     },
 });

@@ -38,12 +38,12 @@ const router = Router({ mergeParams: true });
 
 const roomAssetUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+    limits: { fileSize: 30 * 1024 * 1024 }, // 30 MB
     fileFilter: (_req, file, cb) => {
-        if (['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype)) {
+        if (['image/png', 'image/apng', 'image/jpeg', 'image/webp'].includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error('Only PNG, JPEG, and WebP images are allowed'));
+            cb(new Error('Only PNG, APNG, JPEG, and WebP images are allowed'));
         }
     },
 });
@@ -896,7 +896,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, roomAssetUpload.sin
         let photoUrl: string | undefined;
         let persistentPhotoPath: string | undefined;
         if (req.file) {
-            const ext = req.file.mimetype === 'image/png' ? 'png' : req.file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+            const ext = (req.file.mimetype === 'image/png' || req.file.mimetype === 'image/apng') ? 'png' : req.file.mimetype === 'image/webp' ? 'webp' : 'jpg';
             const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
             const dir = path.join(process.cwd(), 'data', 'score-photos', roomId);
             fs.mkdirSync(dir, { recursive: true });
@@ -1927,7 +1927,7 @@ router.post('/:roomId/admin/upload/background', requireAuth, requireRoomAccess('
         const file = req.file;
         if (!file) return res.status(400).json({ error: 'No file uploaded' });
 
-        const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+        const ext = (file.mimetype === 'image/png' || file.mimetype === 'image/apng') ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
         const dir = path.join(process.cwd(), 'data', 'room-assets', roomId);
         fs.mkdirSync(dir, { recursive: true });
 
@@ -1973,7 +1973,7 @@ router.post('/:roomId/admin/upload/logo', requireAuth, requireRoomAccess('roomId
         const file = req.file;
         if (!file) return res.status(400).json({ error: 'No file uploaded' });
 
-        const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+        const ext = (file.mimetype === 'image/png' || file.mimetype === 'image/apng') ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
         const dir = path.join(process.cwd(), 'data', 'room-assets', roomId);
         fs.mkdirSync(dir, { recursive: true });
 
