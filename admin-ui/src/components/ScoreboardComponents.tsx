@@ -338,28 +338,32 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
         <div className="absolute inset-0 bg-black/30" />
 
         {/* Content over the background */}
-        <div className="relative flex flex-col h-full gap-2 p-2.5">
-          {/* Title panel */}
-          <div
-            className={`${glassPanel} px-4 py-3 ${onSubmitScore ? 'cursor-pointer hover:bg-black/70 transition-colors group' : ''}`}
-            onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <h3 className="font-display font-bold text-base leading-tight truncate text-white"
-                  style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
-                  {lb.gameName}
-                </h3>
-                <p className="text-[11px] text-white/60 uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
-              </div>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {lb.gameStatus === 'COMPLETED' && <Lock size={14} className="text-neon-amber" />}
-                {onSubmitScore && <Upload size={14} className="text-white/40 group-hover:text-neon-cyan transition-colors" />}
+        <div className="relative flex flex-col h-full p-2.5">
+          {/* Title — compact floating label at top */}
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div
+              className={`${glassPanel} px-3 py-1.5 max-w-[85%] ${onSubmitScore ? 'cursor-pointer hover:bg-black/70 transition-colors group' : ''}`}
+              onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+            >
+              <div className="flex items-center gap-2">
+                <div className="min-w-0">
+                  <h3 className="font-display font-bold text-base leading-tight truncate text-white"
+                    style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
+                    {lb.gameName}
+                  </h3>
+                  <p className="text-[11px] text-white/60 uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+                </div>
+                {onSubmitScore && <Upload size={14} className="text-white/40 group-hover:text-neon-cyan transition-colors flex-shrink-0" />}
               </div>
             </div>
+            {lb.gameStatus === 'COMPLETED' && (
+              <div className={`${glassPanel} p-1.5 flex-shrink-0`}>
+                <Lock size={14} className="text-neon-amber" />
+              </div>
+            )}
           </div>
 
-          {/* Scores panel */}
+          {/* Scores panel — full width, takes remaining space */}
           <div className={`${glassPanel} flex-1 overflow-hidden`}>
             {lb.rankings.length === 0 ? (
               <div className="py-8 text-center">
@@ -383,29 +387,31 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
 
           {/* Viewer's best */}
           {viewerEntry && (
-            <div className={`${glassPanel} px-4 py-2`}>
+            <div className={`${glassPanel} px-3 py-1.5 mt-2 self-start`}>
               <p className="text-xs text-neon-cyan/70">
                 Your best: {viewerEntry.score.toLocaleString()} (Rank #{viewerEntry.rank})
               </p>
             </div>
           )}
 
-          {/* Footer panel */}
-          <div className={`${glassPanel} px-4 py-2 flex items-center justify-between`}>
-            <Link
-              to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
-              className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
-            >
-              Full Leaderboard &rarr;
-            </Link>
+          {/* Footer — compact floating elements at bottom */}
+          <div className="flex items-end justify-between mt-2">
+            <div className={`${glassPanel} px-3 py-1.5`}>
+              <Link
+                to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
+                className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
+              >
+                Full Leaderboard &rarr;
+              </Link>
+            </div>
             <div className="flex items-center gap-2">
               {countdown && (
-                <span className="text-[11px] text-white/50" title="Time until next rotation">{countdown}</span>
+                <div className={`${glassPanel} px-2 py-1`}>
+                  <span className="text-[11px] text-white/50">{countdown}</span>
+                </div>
               )}
               {qrMode !== 'disabled' && (
-                <div className="bg-white rounded p-0.5">
-                  <GameQRCode slug={slug} gameId={lb.gameId} size={36} />
-                </div>
+                <GameQRCode slug={slug} gameId={lb.gameId} size={40} />
               )}
             </div>
           </div>
