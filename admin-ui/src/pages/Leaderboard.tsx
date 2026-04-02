@@ -181,7 +181,7 @@ export default function Leaderboard() {
                 style={gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardWidth}px, 100%), 1fr))` } : undefined}
               >
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex flex-col">
+                  <div key={lb.gameId} className="grid">
                     <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onScoreDeleted={() => { loadData(); loadRankings(); }} onStyleClick={async (target) => {
                       try {
                         const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
