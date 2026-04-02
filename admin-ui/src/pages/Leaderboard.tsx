@@ -106,6 +106,7 @@ export default function Leaderboard() {
   const layout = config.SCOREBOARD_LAYOUT || 'scroll';
   const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
   const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
+  const gameColumns = config.SCOREBOARD_GAME_COLUMNS || 'auto';
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const cardWidth = cardWidthMap[cardSize] || 288;
@@ -176,8 +177,8 @@ export default function Leaderboard() {
           ) : layout === 'grid' ? (
             <div className="flex-1 min-w-0">
               <div
-                className="grid gap-3 sm:gap-5"
-                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardWidth}px, 100%), 1fr))` }}
+                className={`grid gap-3 sm:gap-5 ${gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
+                style={gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardWidth}px, 100%), 1fr))` } : undefined}
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId}>

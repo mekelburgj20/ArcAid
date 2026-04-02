@@ -111,6 +111,7 @@ export default function Scoreboard() {
   const qrMode = config.SCOREBOARD_QR_MODE || 'disabled';
   const headerStyle = config.SCOREBOARD_CARD_HEADER_STYLE || 'banner';
   const wheelScale = parseInt(config.SCOREBOARD_WHEEL_SCALE || '150', 10) || 150;
+  const gameColumns = config.SCOREBOARD_GAME_COLUMNS || 'auto';
   const viewerUsername = discordUser?.username || undefined;
 
   const globalStyles: GlobalCardStyles | undefined = config.GLOBAL_CARD_STYLES_ENABLED === 'true' ? {
@@ -222,8 +223,8 @@ export default function Scoreboard() {
         ) : layout === 'grid' ? (
           <div className="flex-1 min-w-0">
             <div
-              className="grid gap-3 sm:gap-5"
-              style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardWidth}px, 100%), 1fr))` }}
+              className={`grid gap-3 sm:gap-5 ${gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
+              style={gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardWidth}px, 100%), 1fr))` } : undefined}
             >
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId} style={headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>

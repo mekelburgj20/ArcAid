@@ -82,8 +82,8 @@ Two sub-applications in one process:
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)
 - **Layouts:** `SuperAdminLayout` (`/admin/*`), `RoomAdminLayout` (`/:slug/admin/*`), `PublicLayout` (`/:slug/*`)
 - **Room context:** `admin-ui/src/contexts/RoomContext.tsx` provides `roomId`, `roomSlug`, `roomName` to room pages
-- **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings (+ shared: Logs, Backups, MasterGameLibrary)
-- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, GameStates (game state management escape hatch), Settings (includes Users section), ActivityLog
+- **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings, StyleCatalogue (+ shared: Logs, Backups, MasterGameLibrary)
+- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, GameStates (game state management escape hatch), StyleCatalogue (upload to global catalogue), Settings (includes Users section), ActivityLog
 - **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard, ScoreSubmit (standalone QR code score submission)
 - **Viewer auth context:** `ViewerAuthContext.tsx` provides `discordUser`, `playerToken`, `loginWithDiscord`, `logoutPlayer`, `usePlayerHeaders` — wraps public routes via `ViewerAuthProvider` in App.tsx
 - Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, `PlayerAvatar`, etc.
@@ -126,6 +126,7 @@ Two sub-applications in one process:
 - `DELETE /api/rooms/:roomId/admin/game-states/:gameId` — delete game entry with optional iScored deletion (requireAuth + requireRoomAccess)
 - `POST /api/rooms/:roomId/admin/game-states/:gameId/sync-iscored` — granular iScored operations (requireAuth + requireRoomAccess)
 - `POST /api/rooms/:roomId/admin/game-states/force-maintenance` — trigger maintenance for a tournament (requireAuth + requireRoomAccess)
+- `POST /api/rooms/:roomId/admin/styles/upload` — room admins upload custom styles to global catalogue (requireAuth + requireRoomAccess)
 - `GET /api/admin/*` — super-admin endpoints (requireSuperAdmin)
 - `GET /api/*` — global endpoints (status, preferences, public room listing)
 - **Legacy aliases:** `/api/leaderboard`, `/api/tournaments`, etc. redirect to default room for backward compat with Discord commands
@@ -155,7 +156,8 @@ Two sub-applications in one process:
 - **Activity log:** `room_events` table, `RoomEventService` logs admin actions (tournament changes, settings updates, etc.), viewable at `/:slug/admin/activity`
 - **Scoreboard layout:** `SCOREBOARD_SCORE_COLUMNS` setting enables two-column score layout; viewer rank highlight (cyan row) for logged-in players
 - **"Your Best" stat:** Game cards show logged-in user's best score and rank in a footer section when `viewerEntry` exists
-- **Card header styles:** `SCOREBOARD_CARD_HEADER_STYLE` setting (`banner`/`compact`/`wheel`); compact shows 48x48 thumbnail + title; wheel shows pinball wheel PNG above card border with configurable scale (`SCOREBOARD_WHEEL_SCALE`, 100-200%, default 150%)
+- **Card header styles:** `SCOREBOARD_CARD_HEADER_STYLE` setting (`banner`/`compact`/`wheel`/`sidebar`); compact shows 48x48 thumbnail + title; wheel shows pinball wheel PNG above card border with configurable scale (`SCOREBOARD_WHEEL_SCALE`, 100-200%, default 150%); sidebar shows image left of game title (Stern Insider style)
+- **Game columns:** `SCOREBOARD_GAME_COLUMNS` setting (`auto`/`2`); auto fills based on card size, `2` forces two game cards per row on desktop (single column on mobile)
 - **Global card styles:** `GLOBAL_CARD_STYLES_ENABLED` toggle + `GLOBAL_CARD_CSS_TITLE`, `GLOBAL_CARD_CSS_SCORES`, `GLOBAL_CARD_CSS_BOX`, `GLOBAL_CARD_BG_COLOR` color overrides applied room-wide
 - **Score toast:** WebSocket `score:new` event carries `{ gameId, gameName, playerName, score }` payload; Scoreboard shows slide-down toast notification
 - **Platform validation:** `GET /:roomId/admin/platform-usage/:platform` checks tournament references before platform deletion
@@ -163,6 +165,8 @@ Two sub-applications in one process:
 - **PWA:** `manifest.json` + `sw.js` in `admin-ui/public/`; service worker caches static assets (cache-first) and navigation (network-first)
 - **Game State Management:** Admin escape hatch at `/:slug/admin/games` — force status changes, clear picker timeouts, delete phantom entries, granular iScored sync, force maintenance trigger. All actions require confirmation and are logged to activity.
 - **iScored API integration:** `IScoredApiClient` (HTTP) preferred over `IScoredClient` (Playwright) for score operations. `ISCORED_API_ENABLED` toggle (default true) controls path selection. `ScoreSyncPoller` runs continuous background sync (default 30s). Settings hot-reload via `SettingsService`.
+- **Style catalogue:** Global catalogue shared across all rooms. Super-admins can import from iScored, upload custom styles, and delete. Room admins can browse and upload custom styles (added to global catalogue). Upload limit 30MB, supports PNG/APNG/JPEG/WebP. APNG files animate natively in `<img>` tags on scorecards.
+- **Upload limits:** All image uploads (styles, room assets, score photos) accept up to 30MB. Supported formats: PNG, APNG, JPEG, WebP.
 
 ## Community Features
 

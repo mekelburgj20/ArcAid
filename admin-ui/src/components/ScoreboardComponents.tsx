@@ -341,6 +341,37 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
             </div>
           </div>
         </>
+      ) : headerStyle === 'sidebar' ? (
+        <div
+          className={`flex items-stretch border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
+          onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+        >
+          {/* Image panel on the left */}
+          {bgImage && (
+            <div className="w-20 flex-shrink-0 bg-raised relative overflow-hidden">
+              <img
+                src={bgImage}
+                alt=""
+                className="w-full h-full object-contain"
+              />
+            </div>
+          )}
+          {/* Title + tournament on the right */}
+          <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
+            <h3
+              className="font-display font-bold text-base leading-tight truncate"
+              style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}
+            >
+              {lb.gameName}
+            </h3>
+            <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+          </div>
+          {/* Status icons */}
+          <div className="flex items-center gap-1.5 pr-3 flex-shrink-0">
+            {lb.gameStatus === 'COMPLETED' && <span title="Completed"><Lock size={14} className="text-neon-amber" /></span>}
+            {onSubmitScore && <Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" />}
+          </div>
+        </div>
       ) : (
         <>
           {/* Title area — clickable to submit score if handler provided */}
