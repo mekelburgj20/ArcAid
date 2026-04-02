@@ -857,14 +857,20 @@ export default function GameLibrary() {
         <StylePicker
           currentStyleId={styleTarget.catalogue_style_id}
           headerDisabled={styleTarget.style_header_disabled === 1}
+          showImageTypeSelector
           onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled) => {
+          onSelect={async (styleId, headerDisabled, _setAsDefault, imageType) => {
             try {
               if (styleId) {
-                await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
-                  catalogueStyleId: styleId,
-                  headerDisabled,
-                });
+                if (imageType && imageType !== 'both') {
+                  await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/image`, {
+                    styleId, imageType,
+                  });
+                } else {
+                  await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
+                    catalogueStyleId: styleId, headerDisabled,
+                  });
+                }
                 toast('Default style set', 'success');
               } else {
                 await api.delete(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`);

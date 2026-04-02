@@ -13,6 +13,7 @@ import {
     CreateRankingGroupSchema, UpdateRankingGroupSchema,
     CreateLocalAdminSchema,
     AssignStyleSchema,
+    AssignImageSchema,
     StyleUploadSchema,
     CommunityScoreSchema,
     ScoreSubmissionSchema,
@@ -1859,6 +1860,74 @@ router.delete('/:roomId/admin/games/:gameId/style', requireAuth, requireRoomAcce
     }
 });
 
+// Assign a style image (logo/background/both) to an active game
+router.put('/:roomId/admin/games/:gameId/image', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(AssignImageSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { styleId, imageType } = validationResult.data;
+        const gameId = req.params.gameId as string;
+
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+        const ok = await StyleCatalogueService.assignImageToGame(gameId, styleId, imageType);
+        if (!ok) return res.status(404).json({ error: 'Style not found' });
+
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        await LeaderboardService.invalidate(gameId);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/admin/games/:gameId/image):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Assign a style image (logo/background/both) as room library default
+router.put('/:roomId/game_library/:name/image', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(AssignImageSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { styleId, imageType } = validationResult.data;
+        const roomId = req.params.roomId as string;
+        const gameName = decodeURIComponent(req.params.name as string);
+
+        const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
+        const ok = await StyleCatalogueService.assignImageToLibrary(roomId, gameName, styleId, imageType);
+        if (!ok) return res.status(404).json({ error: 'Style not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/game_library/:name/image):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Get games for the "Apply to Game" picker (leaderboard games + library games)
+router.get('/:roomId/admin/games-for-picker', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        const { GameLibraryService } = await import('../../services/GameLibraryService.js');
+
+        const leaderboards = await LeaderboardService.getActiveLeaderboards(roomId);
+        const leaderboardGames = leaderboards.map(lb => ({
+            gameId: lb.gameId,
+            gameName: lb.gameName,
+            tournamentName: lb.tournamentName,
+            gameStatus: lb.gameStatus,
+        }));
+
+        const libraryGames = await GameLibraryService.getForRoom(roomId);
+        const leaderboardNames = new Set(leaderboardGames.map(g => g.gameName.toLowerCase()));
+        const libraryOnly = (libraryGames as any[])
+            .filter((g: any) => !leaderboardNames.has((g.name || g.game_name || '').toLowerCase()))
+            .map((g: any) => ({ gameName: g.name || g.game_name }));
+
+        res.json({ leaderboardGames, libraryGames: libraryOnly });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/games-for-picker):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Upload a custom style to the global catalogue (room admins can contribute)
 router.post('/:roomId/admin/styles/upload', requireAuth, requireRoomAccess('roomId'), roomAssetUpload.fields([
     { name: 'background', maxCount: 1 },
@@ -1870,17 +1939,17 @@ router.post('/:roomId/admin/styles/upload', requireAuth, requireRoomAccess('room
 
         const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
         const bgFile = files?.background?.[0];
-        if (!bgFile) {
-            return res.status(400).json({ error: 'Background image is required' });
+        const headerFile = files?.header?.[0];
+        if (!bgFile && !headerFile) {
+            return res.status(400).json({ error: 'At least one image (background or header) is required' });
         }
 
         const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
-        const headerFile = files?.header?.[0];
         const id = await StyleCatalogueService.createCustom({
             name: validationResult.data.name,
             author: validationResult.data.author,
             notes: validationResult.data.notes,
-            backgroundBuffer: bgFile.buffer,
+            backgroundBuffer: bgFile?.buffer,
             headerBuffer: headerFile?.buffer,
         });
 

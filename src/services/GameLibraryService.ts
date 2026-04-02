@@ -294,7 +294,7 @@ export class GameLibraryService {
     static async getForRoom(gameRoomId: string): Promise<any[]> {
         const db = await getDatabase();
         return db.all(
-            `SELECT gl.*, grgl.catalogue_style_id, grgl.style_header_disabled
+            `SELECT gl.*, grgl.catalogue_style_id, grgl.logo_style_id, grgl.bg_style_id, grgl.style_header_disabled
              FROM game_library gl
              JOIN game_room_game_library grgl ON gl.name = grgl.game_name
              WHERE grgl.game_room_id = ?`,
@@ -318,10 +318,10 @@ export class GameLibraryService {
     /**
      * Get the default catalogue style for a game in a room's library.
      */
-    static async getRoomGameStyle(gameRoomId: string, gameName: string): Promise<{ catalogue_style_id: string | null; style_header_disabled: number } | undefined> {
+    static async getRoomGameStyle(gameRoomId: string, gameName: string): Promise<{ catalogue_style_id: string | null; logo_style_id: string | null; bg_style_id: string | null; style_header_disabled: number } | undefined> {
         const db = await getDatabase();
         return db.get(
-            `SELECT catalogue_style_id, style_header_disabled FROM game_room_game_library
+            `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled FROM game_room_game_library
              WHERE game_room_id = ? AND game_name = ?`,
             gameRoomId, gameName
         );

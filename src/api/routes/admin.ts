@@ -457,7 +457,7 @@ router.post('/styles/import', async (req, res) => {
     }
 });
 
-// Upload a custom style (background required, header optional)
+// Upload a custom style (at least one image required)
 router.post('/styles/upload', styleUpload.fields([
     { name: 'background', maxCount: 1 },
     { name: 'header', maxCount: 1 },
@@ -468,16 +468,16 @@ router.post('/styles/upload', styleUpload.fields([
 
         const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
         const bgFile = files?.background?.[0];
-        if (!bgFile) {
-            return res.status(400).json({ error: 'Background image is required' });
+        const headerFile = files?.header?.[0];
+        if (!bgFile && !headerFile) {
+            return res.status(400).json({ error: 'At least one image (background or header) is required' });
         }
 
-        const headerFile = files?.header?.[0];
         const id = await StyleCatalogueService.createCustom({
             name: validationResult.data.name,
             author: validationResult.data.author,
             notes: validationResult.data.notes,
-            backgroundBuffer: bgFile.buffer,
+            backgroundBuffer: bgFile?.buffer,
             headerBuffer: headerFile?.buffer,
         });
 

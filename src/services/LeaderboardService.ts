@@ -102,7 +102,7 @@ export class LeaderboardService {
     /**
      * Get leaderboards for all active games, optionally filtered by game room.
      */
-    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; styleHeaderDisabled: boolean; rankings: RankedEntry[]; nextMaintenanceAt: string | null }>> {
+    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; rankings: RankedEntry[]; nextMaintenanceAt: string | null }>> {
         const db = await getDatabase();
 
         const roomFilter = gameRoomId ? ' AND t.game_room_id = ?' : '';
@@ -112,7 +112,7 @@ export class LeaderboardService {
         const activeGames = await db.all(`
             SELECT g.id, g.name as game_name, g.status, t.name as tournament_name, t.type as tournament_type,
                    COALESCE(t.display_order, 9999) as display_order, gl.image_url,
-                   g.catalogue_style_id, g.style_header_disabled,
+                   g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                    g.tournament_id
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
@@ -146,7 +146,7 @@ export class LeaderboardService {
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, g.status, ? as tournament_name, ? as tournament_type,
                            ? as display_order, gl.image_url,
-                           g.catalogue_style_id, g.style_header_disabled
+                           g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled
                     FROM games g
                     LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
                     WHERE g.tournament_id = ? AND g.status = 'COMPLETED'
@@ -158,7 +158,7 @@ export class LeaderboardService {
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, g.status, ? as tournament_name, ? as tournament_type,
                            ? as display_order, gl.image_url,
-                           g.catalogue_style_id, g.style_header_disabled
+                           g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled
                     FROM games g
                     LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
                     WHERE g.tournament_id = ? AND g.status = 'COMPLETED'
@@ -238,6 +238,8 @@ export class LeaderboardService {
                 imageUrl: game.image_url || null,
                 gameStatus: game.status || 'ACTIVE',
                 catalogueStyleId: game.catalogue_style_id || null,
+                logoStyleId: game.logo_style_id || null,
+                bgStyleId: game.bg_style_id || null,
                 styleHeaderDisabled: game.style_header_disabled === 1,
                 rankings,
                 nextMaintenanceAt,

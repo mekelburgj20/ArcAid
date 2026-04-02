@@ -123,6 +123,11 @@ export const AssignStyleSchema = z.object({
     headerDisabled: z.boolean().default(false),
 });
 
+export const AssignImageSchema = z.object({
+    styleId: z.string().min(1),
+    imageType: z.enum(['logo', 'background', 'both']),
+});
+
 export const StyleUploadSchema = z.object({
     name: z.string().min(1).max(200),
     author: z.string().min(1).max(100),

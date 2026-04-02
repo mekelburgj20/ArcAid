@@ -397,6 +397,10 @@ export async function initDatabase(): Promise<Database> {
         { name: '019_room_library_style_header_disabled', sql: `ALTER TABLE game_room_game_library ADD COLUMN style_header_disabled INTEGER DEFAULT 0` },
         { name: '020_games_queue_order', sql: `ALTER TABLE games ADD COLUMN queue_order INTEGER` },
         { name: '021_user_mappings_avatar_hash', sql: `ALTER TABLE user_mappings ADD COLUMN avatar_hash TEXT` },
+        { name: '022_games_logo_style_id', sql: `ALTER TABLE games ADD COLUMN logo_style_id TEXT` },
+        { name: '023_games_bg_style_id', sql: `ALTER TABLE games ADD COLUMN bg_style_id TEXT` },
+        { name: '024_room_library_logo_style_id', sql: `ALTER TABLE game_room_game_library ADD COLUMN logo_style_id TEXT` },
+        { name: '025_room_library_bg_style_id', sql: `ALTER TABLE game_room_game_library ADD COLUMN bg_style_id TEXT` },
     ];
 
     for (const migration of migrations) {

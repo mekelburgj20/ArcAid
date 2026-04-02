@@ -22,6 +22,8 @@ export interface GameLeaderboard {
   imageUrl: string | null;
   gameStatus: string;
   catalogueStyleId: string | null;
+  logoStyleId: string | null;
+  bgStyleId: string | null;
   styleHeaderDisabled: boolean;
   rankings: RankedEntry[];
   nextMaintenanceAt?: string | null;
@@ -265,9 +267,11 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
       .finally(() => setHistoryLoading(false));
   };
 
-  // Catalogue style takes priority over imageUrl
-  const styleBgUrl = lb.catalogueStyleId ? `/api/styles/images/backgrounds/${lb.catalogueStyleId}.png` : null;
-  const styleHeaderUrl = lb.catalogueStyleId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${lb.catalogueStyleId}.png` : null;
+  // Independent logo/bg override the legacy catalogue style
+  const effectiveBgId = lb.bgStyleId || lb.catalogueStyleId;
+  const effectiveLogoId = lb.logoStyleId || lb.catalogueStyleId;
+  const styleBgUrl = effectiveBgId ? `/api/styles/images/backgrounds/${effectiveBgId}.png` : null;
+  const styleHeaderUrl = effectiveLogoId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${effectiveLogoId}.png` : null;
   const bgImage = styleBgUrl || lb.imageUrl || null;
   const isFullart = headerStyle === 'fullart';
 

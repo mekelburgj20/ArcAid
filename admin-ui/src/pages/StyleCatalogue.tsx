@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useContext } from 'react';
-import { Search, Upload, Trash2, Image, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Upload, Trash2, Image, X, ChevronLeft, ChevronRight, Gamepad2 } from 'lucide-react';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
+import GamePickerModal from '../components/GamePickerModal';
 import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
 import { RoomContext } from '../contexts/RoomContext';
@@ -33,6 +34,7 @@ export default function StyleCatalogue() {
   const [previewStyle, setPreviewStyle] = useState<Style | null>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [applyTarget, setApplyTarget] = useState<Style | null>(null);
 
   const fetchStyles = useCallback(async (q: string, off: number) => {
     setLoading(true);
@@ -143,6 +145,7 @@ export default function StyleCatalogue() {
               style={style}
               onClick={() => setPreviewStyle(style)}
               onDelete={isSuperAdmin ? () => handleDelete(style) : undefined}
+              onApply={roomCtx ? () => setApplyTarget(style) : undefined}
             />
           ))
         )}
@@ -173,7 +176,24 @@ export default function StyleCatalogue() {
 
       {/* Preview Modal */}
       {previewStyle && (
-        <StylePreviewModal style={previewStyle} onClose={() => setPreviewStyle(null)} />
+        <StylePreviewModal
+          style={previewStyle}
+          onClose={() => setPreviewStyle(null)}
+          onApply={roomCtx ? () => { setApplyTarget(previewStyle); setPreviewStyle(null); } : undefined}
+        />
+      )}
+
+      {/* Apply to Game Modal */}
+      {applyTarget && (
+        <GamePickerModal
+          styleName={applyTarget.name}
+          styleId={applyTarget.id}
+          onClose={() => setApplyTarget(null)}
+          onApplied={() => {
+            toast(`Style "${applyTarget.name}" applied`, 'success');
+            setApplyTarget(null);
+          }}
+        />
       )}
 
       {/* Upload Modal */}
@@ -193,7 +213,7 @@ export default function StyleCatalogue() {
 
 // ─── Style Card ────────────────────────────────────────────────────────────────
 
-function StyleCard({ style, onClick, onDelete }: { style: Style; onClick: () => void; onDelete?: () => void }) {
+function StyleCard({ style, onClick, onDelete, onApply }: { style: Style; onClick: () => void; onDelete?: () => void; onApply?: () => void }) {
   const bgUrl = style.has_background ? `/api/styles/images/backgrounds/${style.id}.png` : null;
   const headerUrl = style.has_header ? `/api/styles/images/headers/${style.id}.png` : null;
 
@@ -215,15 +235,27 @@ function StyleCard({ style, onClick, onDelete }: { style: Style; onClick: () => 
             <Image size={24} />
           </div>
         )}
-        {/* Delete button (super-admin only) */}
-        {onDelete && (
-          <button
-            onClick={e => { e.stopPropagation(); onDelete(); }}
-            className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-magenta opacity-0 group-hover:opacity-100 transition-opacity border-0 cursor-pointer"
-          >
-            <Trash2 size={14} />
-          </button>
-        )}
+        {/* Hover actions */}
+        <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onApply && (
+            <button
+              onClick={e => { e.stopPropagation(); onApply(); }}
+              className="p-1 bg-black/60 rounded text-muted hover:text-neon-cyan border-0 cursor-pointer"
+              title="Apply to Game"
+            >
+              <Gamepad2 size={14} />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(); }}
+              className="p-1 bg-black/60 rounded text-muted hover:text-neon-magenta border-0 cursor-pointer"
+              title="Delete"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
       </div>
       {/* Info */}
       <div className="p-2">
@@ -236,7 +268,7 @@ function StyleCard({ style, onClick, onDelete }: { style: Style; onClick: () => 
 
 // ─── Preview Modal ─────────────────────────────────────────────────────────────
 
-function StylePreviewModal({ style, onClose }: { style: Style; onClose: () => void }) {
+function StylePreviewModal({ style, onClose, onApply }: { style: Style; onClose: () => void; onApply?: () => void }) {
   const bgUrl = style.has_background ? `/api/styles/images/backgrounds/${style.id}.png` : null;
   const headerUrl = style.has_header ? `/api/styles/images/headers/${style.id}.png` : null;
 
@@ -302,6 +334,14 @@ function StylePreviewModal({ style, onClose }: { style: Style; onClose: () => vo
             <span className="text-muted">Catalogue ID</span>
             <span className="text-faint text-xs font-mono">{style.id}</span>
           </div>
+
+          {onApply && (
+            <div className="pt-2">
+              <NeonButton onClick={onApply} className="w-full">
+                <Gamepad2 size={16} /> Apply to Game
+              </NeonButton>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -352,8 +392,8 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
   };
 
   const handleSubmit = async () => {
-    if (!name.trim() || !author.trim() || !bgFile) {
-      toast('Name, author, and background image are required', 'error');
+    if (!name.trim() || !author.trim() || (!bgFile && !headerFile)) {
+      toast('Name, author, and at least one image are required', 'error');
       return;
     }
 
@@ -363,7 +403,7 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
       formData.append('name', name.trim());
       formData.append('author', author.trim());
       formData.append('notes', notes.trim());
-      formData.append('background', bgFile);
+      if (bgFile) formData.append('background', bgFile);
       if (headerFile) formData.append('header', headerFile);
 
       await api.upload(uploadPath, formData);
@@ -425,7 +465,7 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
 
           {/* Background image */}
           <div>
-            <label className="text-xs text-muted block mb-1">Background Image * (max 30 MB)</label>
+            <label className="text-xs text-muted block mb-1">Background Image (max 30 MB)</label>
             {bgPreview ? (
               <div className="relative rounded overflow-hidden">
                 <img src={bgPreview} alt="Background preview" className="w-full h-32 object-cover" />
@@ -449,9 +489,11 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
             )}
           </div>
 
+          <p className="text-[11px] text-faint">At least one image is required. Upload both, or just a background or logo.</p>
+
           {/* Header image */}
           <div>
-            <label className="text-xs text-muted block mb-1">Header Image (optional, max 30 MB)</label>
+            <label className="text-xs text-muted block mb-1">Logo/Header Image (max 30 MB)</label>
             {headerPreview ? (
               <div className="relative rounded overflow-hidden">
                 <img src={headerPreview} alt="Header preview" className="w-full h-24 object-contain bg-raised" />
@@ -478,7 +520,7 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
           {/* Submit */}
           <div className="flex justify-end gap-2 pt-2">
             <NeonButton variant="ghost" onClick={onClose}>Cancel</NeonButton>
-            <NeonButton onClick={handleSubmit} disabled={uploading || !name.trim() || !author.trim() || !bgFile}>
+            <NeonButton onClick={handleSubmit} disabled={uploading || !name.trim() || !author.trim() || (!bgFile && !headerFile)}>
               {uploading ? 'Uploading...' : 'Upload Style'}
             </NeonButton>
           </div>

@@ -40,6 +40,8 @@ interface GameLeaderboard {
   tournamentType: string;
   gameStatus: string;
   catalogueStyleId: string | null;
+  logoStyleId: string | null;
+  bgStyleId: string | null;
   styleHeaderDisabled: boolean;
   rankings: RankedEntry[];
 }
@@ -229,15 +231,22 @@ export default function Leaderboard() {
           currentStyleId={styleTarget.catalogueStyleId}
           headerDisabled={styleTarget.styleHeaderDisabled}
           showDefaultOption
+          showImageTypeSelector
           libraryHasDefault={libraryHasDefault}
           onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled, setAsDefault) => {
+          onSelect={async (styleId, headerDisabled, setAsDefault, imageType) => {
             try {
               if (styleId) {
-                await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/style`, {
-                  catalogueStyleId: styleId,
-                  headerDisabled,
-                });
+                // Use new image endpoint for logo/background, legacy for 'both'
+                if (imageType && imageType !== 'both') {
+                  await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/image`, {
+                    styleId, imageType,
+                  });
+                } else {
+                  await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/style`, {
+                    catalogueStyleId: styleId, headerDisabled,
+                  });
+                }
                 toast('Style applied', 'success');
               } else {
                 await api.delete(`/rooms/${room.roomId}/admin/games/${styleTarget.gameId}/style`);
@@ -246,10 +255,15 @@ export default function Leaderboard() {
               if (setAsDefault) {
                 try {
                   if (styleId) {
-                    await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/style`, {
-                      catalogueStyleId: styleId,
-                      headerDisabled,
-                    });
+                    if (imageType && imageType !== 'both') {
+                      await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/image`, {
+                        styleId, imageType,
+                      });
+                    } else {
+                      await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/style`, {
+                        catalogueStyleId: styleId, headerDisabled,
+                      });
+                    }
                     toast('Default style updated in library', 'success');
                   } else {
                     await api.delete(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.gameName)}/style`);
@@ -324,8 +338,10 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted }: 
       .filter(s => s.iscored_username.toLowerCase() === username.toLowerCase())
       .sort((a, b) => b.score - a.score);
 
-  const styleBgUrl = lb.catalogueStyleId ? `/api/styles/images/backgrounds/${lb.catalogueStyleId}.png` : null;
-  const styleHeaderUrl = lb.catalogueStyleId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${lb.catalogueStyleId}.png` : null;
+  const effectiveBgId = lb.bgStyleId || lb.catalogueStyleId;
+  const effectiveLogoId = lb.logoStyleId || lb.catalogueStyleId;
+  const styleBgUrl = effectiveBgId ? `/api/styles/images/backgrounds/${effectiveBgId}.png` : null;
+  const styleHeaderUrl = effectiveLogoId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${effectiveLogoId}.png` : null;
   const bgImage = styleBgUrl || null;
 
   return (

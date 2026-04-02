@@ -141,17 +141,23 @@ export class StyleCatalogueService {
         name: string;
         author: string;
         notes: string;
-        backgroundBuffer: Buffer;
+        backgroundBuffer?: Buffer;
         headerBuffer?: Buffer;
     }): Promise<string> {
+        if (!data.backgroundBuffer && !data.headerBuffer) {
+            throw new Error('At least one image (background or header/logo) is required');
+        }
         const db = await getDatabase();
         const id = `custom-${crypto.randomUUID()}`;
 
         ensureDir(BG_DIR);
         ensureDir(HEADER_DIR);
 
-        // Save background image
-        fs.writeFileSync(path.join(BG_DIR, `${id}.png`), data.backgroundBuffer);
+        // Save background image if provided
+        const hasBackground = !!data.backgroundBuffer;
+        if (data.backgroundBuffer) {
+            fs.writeFileSync(path.join(BG_DIR, `${id}.png`), data.backgroundBuffer);
+        }
 
         // Save header image if provided
         const hasHeader = !!data.headerBuffer;
@@ -161,8 +167,8 @@ export class StyleCatalogueService {
 
         await db.run(
             `INSERT INTO style_catalogue (id, iscored_style_id, name, author, notes, has_background, has_header, source)
-             VALUES (?, NULL, ?, ?, ?, 1, ?, 'custom')`,
-            id, data.name, data.author, data.notes, hasHeader ? 1 : 0
+             VALUES (?, NULL, ?, ?, ?, ?, ?, 'custom')`,
+            id, data.name, data.author, data.notes, hasBackground ? 1 : 0, hasHeader ? 1 : 0
         );
 
         logInfo(`Custom style created: "${data.name}" by ${data.author} (${id})`);
@@ -185,6 +191,10 @@ export class StyleCatalogueService {
 
         // Clear references on any games using this style
         await db.run('UPDATE games SET catalogue_style_id = NULL, style_header_disabled = 0 WHERE catalogue_style_id = ?', id);
+        await db.run('UPDATE games SET logo_style_id = NULL WHERE logo_style_id = ?', id);
+        await db.run('UPDATE games SET bg_style_id = NULL WHERE bg_style_id = ?', id);
+        await db.run('UPDATE game_room_game_library SET logo_style_id = NULL WHERE logo_style_id = ?', id);
+        await db.run('UPDATE game_room_game_library SET bg_style_id = NULL WHERE bg_style_id = ?', id);
 
         logInfo(`Style deleted: ${id}`);
         return true;
@@ -235,6 +245,54 @@ export class StyleCatalogueService {
         if (!style) return null;
 
         return { style, headerDisabled: game.style_header_disabled === 1 };
+    }
+
+    /**
+     * Assign a style image to a game as logo, background, or both.
+     */
+    static async assignImageToGame(gameId: string, styleId: string, imageType: 'logo' | 'background' | 'both'): Promise<boolean> {
+        const db = await getDatabase();
+        const style = await db.get('SELECT id FROM style_catalogue WHERE id = ?', styleId);
+        if (!style) return false;
+
+        if (imageType === 'logo' || imageType === 'both') {
+            await db.run('UPDATE games SET logo_style_id = ? WHERE id = ?', styleId, gameId);
+        }
+        if (imageType === 'background' || imageType === 'both') {
+            await db.run('UPDATE games SET bg_style_id = ? WHERE id = ?', styleId, gameId);
+        }
+        return true;
+    }
+
+    /**
+     * Remove logo, background, or both image assignments from a game.
+     */
+    static async removeImageFromGame(gameId: string, imageType: 'logo' | 'background' | 'both'): Promise<boolean> {
+        const db = await getDatabase();
+        if (imageType === 'logo' || imageType === 'both') {
+            await db.run('UPDATE games SET logo_style_id = NULL WHERE id = ?', gameId);
+        }
+        if (imageType === 'background' || imageType === 'both') {
+            await db.run('UPDATE games SET bg_style_id = NULL WHERE id = ?', gameId);
+        }
+        return true;
+    }
+
+    /**
+     * Assign a style image as room library default for a game.
+     */
+    static async assignImageToLibrary(gameRoomId: string, gameName: string, styleId: string, imageType: 'logo' | 'background' | 'both'): Promise<boolean> {
+        const db = await getDatabase();
+        const style = await db.get('SELECT id FROM style_catalogue WHERE id = ?', styleId);
+        if (!style) return false;
+
+        if (imageType === 'logo' || imageType === 'both') {
+            await db.run('UPDATE game_room_game_library SET logo_style_id = ? WHERE game_room_id = ? AND game_name = ?', styleId, gameRoomId, gameName);
+        }
+        if (imageType === 'background' || imageType === 'both') {
+            await db.run('UPDATE game_room_game_library SET bg_style_id = ? WHERE game_room_id = ? AND game_name = ?', styleId, gameRoomId, gameName);
+        }
+        return true;
     }
 
     /**

@@ -99,14 +99,14 @@ export class TournamentEngine {
         const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
         if (tournament?.game_room_id) {
             const libraryStyle = await db.get(
-                `SELECT catalogue_style_id, style_header_disabled FROM game_room_game_library
-                 WHERE game_room_id = ? AND game_name = ? AND catalogue_style_id IS NOT NULL`,
+                `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled FROM game_room_game_library
+                 WHERE game_room_id = ? AND game_name = ? AND (catalogue_style_id IS NOT NULL OR logo_style_id IS NOT NULL OR bg_style_id IS NOT NULL)`,
                 tournament.game_room_id, gameName
             );
             if (libraryStyle) {
                 await db.run(
-                    'UPDATE games SET catalogue_style_id = ?, style_header_disabled = ? WHERE id = ?',
-                    libraryStyle.catalogue_style_id, libraryStyle.style_header_disabled, game.id
+                    'UPDATE games SET catalogue_style_id = ?, logo_style_id = ?, bg_style_id = ?, style_header_disabled = ? WHERE id = ?',
+                    libraryStyle.catalogue_style_id, libraryStyle.logo_style_id, libraryStyle.bg_style_id, libraryStyle.style_header_disabled, game.id
                 );
             }
         }

@@ -12,23 +12,27 @@ interface Style {
   source: string;
 }
 
+export type ImageApplyType = 'both' | 'logo' | 'background';
+
 interface StylePickerProps {
   /** Currently assigned style ID, if any */
   currentStyleId?: string | null;
   /** Whether header is currently disabled */
   headerDisabled?: boolean;
   /** Called when a style is selected (or cleared) */
-  onSelect: (styleId: string | null, headerDisabled: boolean, setAsDefault?: boolean) => void;
+  onSelect: (styleId: string | null, headerDisabled: boolean, setAsDefault?: boolean, imageType?: ImageApplyType) => void;
   onClose: () => void;
   /** Show "Set as default style for this game" checkbox */
   showDefaultOption?: boolean;
   /** Whether the library already has a default style for this game */
   libraryHasDefault?: boolean;
+  /** Show image type selector (logo/background/both) */
+  showImageTypeSelector?: boolean;
 }
 
 const PAGE_SIZE = 30;
 
-export default function StylePicker({ currentStyleId, headerDisabled = false, onSelect, onClose, showDefaultOption = false, libraryHasDefault = false }: StylePickerProps) {
+export default function StylePicker({ currentStyleId, headerDisabled = false, onSelect, onClose, showDefaultOption = false, libraryHasDefault = false, showImageTypeSelector = false }: StylePickerProps) {
   const [styles, setStyles] = useState<Style[]>([]);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
@@ -38,6 +42,7 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
   const [selectedId, setSelectedId] = useState<string | null>(currentStyleId || null);
   const [disableHeader, setDisableHeader] = useState(headerDisabled);
   const [setAsDefault, setSetAsDefault] = useState(!libraryHasDefault);
+  const [imageType, setImageType] = useState<ImageApplyType>('both');
 
   const fetchStyles = useCallback(async (q: string, off: number) => {
     setLoading(true);
@@ -168,8 +173,28 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
 
         {/* Footer */}
         <div className="border-t border-border p-4 shrink-0">
+          {/* Image type selector */}
+          {showImageTypeSelector && selectedId ? (
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm text-muted">Apply as:</span>
+              <div className="inline-flex rounded border border-border overflow-hidden">
+                {(['both', 'background', 'logo'] as const).map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setImageType(t)}
+                    className={`px-3 py-1 text-xs border-0 cursor-pointer transition-colors ${
+                      imageType === t ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-surface text-muted hover:text-primary'
+                    }`}
+                  >
+                    {t === 'both' ? 'Both' : t === 'background' ? 'Background' : 'Logo'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {/* Header toggle */}
-          {selectedId && selectedStyle?.has_header ? (
+          {selectedId && selectedStyle?.has_header && (!showImageTypeSelector || imageType === 'both') ? (
             <label className="flex items-center gap-2 mb-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -199,14 +224,14 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
           ) : null}
 
           <div className="flex justify-between gap-2">
-            <NeonButton variant="ghost" onClick={() => onSelect(null, false, showDefaultOption ? setAsDefault : undefined)}>
+            <NeonButton variant="ghost" onClick={() => onSelect(null, false, showDefaultOption ? setAsDefault : undefined, showImageTypeSelector ? imageType : undefined)}>
               Clear Style
             </NeonButton>
             <div className="flex gap-2">
               <NeonButton variant="ghost" onClick={onClose}>Cancel</NeonButton>
               <NeonButton
                 disabled={!selectedId}
-                onClick={() => onSelect(selectedId, disableHeader, showDefaultOption ? setAsDefault : undefined)}
+                onClick={() => onSelect(selectedId, disableHeader, showDefaultOption ? setAsDefault : undefined, showImageTypeSelector ? imageType : undefined)}
               >
                 Apply Style
               </NeonButton>
