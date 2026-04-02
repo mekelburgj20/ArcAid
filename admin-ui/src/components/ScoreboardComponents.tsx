@@ -525,11 +525,6 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
               if (useTwoColumns) {
                 return (
                   <>
-                    {/* Header row — spans both columns */}
-                    <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-                      <span>Player</span>
-                      <span>Score</span>
-                    </div>
                     {/* Two-column grid: collapses to 1 on small screens */}
                     <div className="grid grid-cols-1 sm:grid-cols-2">
                       <div className="sm:border-r sm:border-border/20">
@@ -553,11 +548,6 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
 
               return (
                 <>
-                  {/* Header row */}
-                  <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-                    <span>Player</span>
-                    <span>Score</span>
-                  </div>
                   {visibleEntries.map((entry, i) => renderEntry(
                     entry,
                     isViewerEntry(entry),
