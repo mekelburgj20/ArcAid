@@ -28,8 +28,13 @@
 - **Scoreboard branding** — Custom logos, background images, and title styles per room
 - **Progressive Web App (PWA)** — Installable on Android/iOS with standalone display, offline caching, and home screen icon
 - **Global card style overrides** — Room-wide color customization for game card titles, scores, borders, and backgrounds via color pickers
-- **Compact card header** — Alternative card layout with small thumbnail + title bar instead of full-width banner
-- **Wheel icon card header** — Pinball wheel PNGs displayed above the card border with configurable scale (100-200%)
+- **4 card header styles** — Banner (full-width artwork), Compact (thumbnail + title bar, stacked score entries), Wheel (pinball wheel icons above card border, configurable scale), Sidebar (image left of title)
+- **Card background fill** — Background image fills entire card behind layout with glass-panel overlay for readability
+- **Layout presets** — 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) with auto-detection of custom settings
+- **Live preview** — Settings page shows multi-card scaled preview with real game art, updating instantly on changes
+- **Image cropper** — Locked aspect ratio cropping for branding uploads and style catalogue images
+- **Per-game art assignment** — Independent logo and background images from different style catalogue entries
+- **Auto-sizing text** — CSS container queries scale card text based on card width for readable scores at any size
 - **Score toast notifications** — Real-time WebSocket-powered slide-down notifications when players submit scores
 - **"Your Best" quick stat** — Logged-in users see their best score and rank on each game card footer
 - **Platform in-use validation** — Prevents deleting platforms that are referenced by active tournaments
@@ -156,7 +161,10 @@ npm run dev            # Vite dev server with HMR
 | Kiosk Refresh Interval | Auto-refresh interval (seconds) for kiosk display |
 | Hide Empty Games | Toggle to suppress games with no scores from public views |
 | Discord @Mentions | Toggle Discord role/user @mentions in tournament announcements |
-| Card Header Style | Banner (full-width artwork), Compact (thumbnail + title bar), or Wheel (pinball wheel icon above card) |
+| Card Layout | Banner (full-width artwork), Compact (thumbnail + stacked scores), Wheel (pinball wheel icon above card), or Sidebar (image left of title) |
+| Card Background Fill | Off or Fill — fill mode shows background image behind entire card with glass overlay |
+| Card Background Size | Cover, Contain, or Tile — controls how background images are sized |
+| Game Columns | Auto (fill based on card size) or 2 (force two cards per row on desktop) |
 | Wheel Icon Scale | Size of wheel icons when using Wheel header style (100-200%, default 150%) |
 | Global Card Styles | Toggle + color overrides for game card titles, scores, borders, backgrounds |
 | Callouts | Easter egg — bot responds to trigger words from `data/callouts.json` |

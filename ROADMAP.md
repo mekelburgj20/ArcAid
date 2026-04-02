@@ -223,6 +223,27 @@
 
 ---
 
+## Scoreboard UX Overhaul (COMPLETE)
+
+- [x] CSS container query auto-sizing text — clamp() functions scale title and score text based on card width
+- [x] Layout presets — 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) with auto-detection of custom settings
+- [x] Live preview in Settings — multi-card scaled preview with real game art, mirrors grid/scroll layout
+- [x] Image cropper — react-easy-crop integration for branding and style uploads with locked aspect ratios
+- [x] Shared config utility (deriveCardProps in scoreboardConfig.ts) — eliminates duplicated config parsing
+- [x] Sidebar card header style (SCOREBOARD_CARD_LAYOUT: 'sidebar') — image left of game title
+- [x] Card background fill toggle (SCOREBOARD_BG_FILL: off/fill) — background fills entire card with glass-panel overlay
+- [x] Card background sizing (SCOREBOARD_BG_SIZE: cover/contain/tile) — controls CSS background-size
+- [x] 2-column game layout (SCOREBOARD_GAME_COLUMNS: auto/2) — forces two game cards per row on desktop
+- [x] Per-game logo/background images — independent logo_style_id and bg_style_id on games and game_room_game_library
+- [x] Image type selector (both/background/logo) in StylePicker and GamePickerModal
+- [x] Compact score entry stacked layout — rank/avatar/name above score for compact card style
+- [x] Sticky save button — Settings page header pinned to viewport top with backdrop blur
+- [x] >1T score abbreviation with tooltip for scores exceeding 999,999,999,999
+- [x] Terminology unification — "Logo" → "Identifier", "Style" → "Art Pack"
+- [x] PresetSelector component with smart constraint hiding (wheel scale hidden when not wheel layout, etc.)
+
+---
+
 ## Future
 
 ### Multi-Room

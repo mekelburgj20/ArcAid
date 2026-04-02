@@ -13,6 +13,30 @@
 **Player Engagement Features** — COMPLETE (deployed to production)
 **Leaderboard UX Redesign** — COMPLETE (deployed to production)
 
+### Scoreboard Preview & UX Fixes (2026-04-02)
+- [x] Multi-card preview in Settings — 3 real game cards (Medieval Madness, Addams Family, Twilight Zone) with distinct background and identifier images from style catalogue
+- [x] Scale-transform preview — cards render at full size and scale down to fit sidebar, preserving pixel-accurate layout
+- [x] Grid vs Scroll preview — preview mirrors actual Scoreboard.tsx rendering logic for both layout modes
+- [x] Compact score entry layout — stacked vertical format (rank/avatar/name above score) for compact card style
+- [x] Sticky save button — Settings page header pinned to viewport top with backdrop blur
+- [x] Tournament preset no longer overlaps in preview (scale transform renders at real width)
+
+### Scoreboard UX Overhaul (2026-04-01)
+- [x] CSS container query auto-sizing text — clamp() functions scale title and score text based on card width
+- [x] Layout presets — 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) with "Custom" auto-detection
+- [x] Live preview in Settings — renders cards with current unsaved settings, updates instantly on change
+- [x] Image cropper — react-easy-crop integration for branding and style uploads with locked aspect ratios
+- [x] Shared config utility (deriveCardProps) — eliminates duplicated config parsing across Scoreboard, KioskScoreboard, ScoreboardPreview
+- [x] Sidebar card header style (SCOREBOARD_CARD_LAYOUT: 'sidebar') — image left of game title
+- [x] Card background fill toggle (SCOREBOARD_BG_FILL: off/fill) — background image fills entire card with glass-panel styling
+- [x] Card background sizing (SCOREBOARD_BG_SIZE: cover/contain/tile) — controls CSS background-size
+- [x] 2-column game layout (SCOREBOARD_GAME_COLUMNS: auto/2) — forces two game cards per row on desktop
+- [x] Per-game logo/background images — independent logo_style_id and bg_style_id, mix backgrounds and logos from different styles
+- [x] Image type selector (both/background/logo) in StylePicker and GamePickerModal
+- [x] >1T score abbreviation with tooltip for scores exceeding 999,999,999,999
+- [x] Smart constraint hiding — wheel scale hidden when not wheel layout, etc.
+- [x] Terminology unification — "Logo" → "Identifier", "Style" → "Art Pack"
+
 ### iScored API Integration & Wheel Icons (2026-03-31)
 - [x] iScored REST API client (IScoredApiClient.ts) — lightweight HTTP replacement for Playwright scraping
 - [x] Score sync poller (ScoreSyncPoller.ts) — continuous background polling with configurable interval (default 30s)
@@ -130,12 +154,14 @@
 - Feature: UX Plan Completion (PWA, global styles, compact header, toast, platform validation) — COMPLETE
 - Feature: Game State Management (admin escape hatch for game/queue/iScored issues) — COMPLETE
 - Feature: iScored API Integration (REST API client, score sync poller, wheel icons) — COMPLETE
+- Feature: Scoreboard UX Overhaul (presets, preview, auto-sizing, image cropper, sidebar/fill layouts) — COMPLETE
+- Feature: Scoreboard Preview & UX Fixes (multi-card preview, compact stacked scores, sticky save) — COMPLETE
 
 ## Last Session
 
-**Date:** 2026-03-31
-**What happened:** Integrated iScored REST API as primary score sync method (replacing Playwright for reads/writes). Built ScoreSyncPoller for continuous background sync. Added wheel icon card header style for pinball wheel PNGs on scoreboards. All settings exposed in admin UI with hot-reload support.
-**Next:** Verify iScored API polling in production (user must enable API in iScored gameroom settings). User-driven features as needed.
+**Date:** 2026-04-02
+**What happened:** Implemented scoreboard preview fixes: multi-card scaled preview with real game art (Medieval Madness, Addams Family, Twilight Zone), compact stacked score entry layout, sticky save button. Previously shipped UX overhaul with layout presets, live preview, CSS container query auto-sizing, image cropper, sidebar layout, bg fill, per-game images, and shared deriveCardProps config utility.
+**Next:** Deploy to production. User-driven features as needed.
 
 ## Blockers
 

@@ -549,11 +549,13 @@ export default function Settings() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="font-display text-2xl font-bold">Settings</h1>
-        <NeonButton onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving...' : 'Save All Changes'}
-        </NeonButton>
+      <div className="sticky top-0 z-20 bg-deep/95 backdrop-blur-sm -mx-4 px-4 py-3 mb-4 border-b border-border/20">
+        <div className="flex items-center justify-between">
+          <h1 className="font-display text-2xl font-bold">Settings</h1>
+          <NeonButton onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save All Changes'}
+          </NeonButton>
+        </div>
       </div>
 
       <NeonCard title="Theme" className="mb-4">

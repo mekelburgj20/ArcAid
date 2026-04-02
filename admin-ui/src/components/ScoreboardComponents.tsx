@@ -462,52 +462,79 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
               const col1 = visibleEntries.slice(0, midpoint);
               const col2 = useTwoColumns ? visibleEntries.slice(midpoint) : [];
 
+              const isCompactLayout = headerStyle === 'compact';
+
               const renderEntry = (entry: RankedEntry, isViewerRow: boolean, showSeparator: boolean) => {
                 const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
                 const isExpanded = expandedPlayer === entry.iscored_username;
+                const rankColor = entry.rank === 1 ? 'text-neon-amber' :
+                  entry.rank === 2 ? 'text-neon-cyan' :
+                  entry.rank === 3 ? 'text-neon-green' :
+                  isFill ? 'text-white/50' : 'text-faint';
+                const scoreColor = entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : isFill ? 'text-white' : 'text-primary';
+                const formattedScore = entry.score >= 1_000_000_000_000
+                  ? `${(entry.score / 1_000_000_000_000).toFixed(1)}T`
+                  : entry.score.toLocaleString();
+
                 return (
                   <div key={`${entry.rank}-${entry.iscored_username}`}>
                     {showSeparator && (
                       <div className="border-t border-dashed border-neon-cyan/30 my-0.5" />
                     )}
-                    <div
-                      className={`flex items-center justify-between px-3 py-2 border-b ${isFill ? 'border-white/10' : 'border-border/20'} last:border-0 ${
-                        entry.rank === 1 ? 'bg-neon-amber/8' : ''
-                      } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''
-                      } ${hasMultiple && !useTwoColumns ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
-                      onClick={hasMultiple && !useTwoColumns ? () => togglePlayer(entry.iscored_username) : undefined}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${
-                          entry.rank === 1 ? 'text-neon-amber' :
-                          entry.rank === 2 ? 'text-neon-cyan' :
-                          entry.rank === 3 ? 'text-neon-green' :
-                          isFill ? 'text-white/50' : 'text-faint'
-                        }`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>
-                          {entry.rank}
-                        </span>
-                        <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-                        <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>{entry.iscored_username}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
+                    {isCompactLayout ? (
+                      /* Compact: stacked vertical layout — name above score */
+                      <div
+                        className={`flex flex-col items-center text-center px-2 py-2.5 border-b ${isFill ? 'border-white/10' : 'border-border/20'} last:border-0 ${
+                          entry.rank === 1 ? 'bg-neon-amber/8' : ''
+                        } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''}`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-display font-bold ${rankColor}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>
+                            {entry.rank}
+                          </span>
+                          <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
+                          <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>{entry.iscored_username}</span>
+                        </div>
                         <span
-                          className={`font-display font-bold flex-shrink-0 ${
-                            entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : isFill ? 'text-white' : 'text-primary'
-                          }`}
-                          style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
+                          className={`font-display font-bold mt-0.5 ${scoreColor}`}
+                          style={{ fontSize: 'clamp(0.75rem, 3.2cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
                           title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
                         >
-                          {entry.score >= 1_000_000_000_000
-                            ? `${(entry.score / 1_000_000_000_000).toFixed(1)}T`
-                            : entry.score.toLocaleString()}
+                          {formattedScore}
                         </span>
-                        {hasMultiple && !useTwoColumns && (
-                          isExpanded
-                            ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
-                            : <Plus size={12} className="text-faint flex-shrink-0" />
-                        )}
                       </div>
-                    </div>
+                    ) : (
+                      /* Default: horizontal row — name left, score right */
+                      <div
+                        className={`flex items-center justify-between px-3 py-2 border-b ${isFill ? 'border-white/10' : 'border-border/20'} last:border-0 ${
+                          entry.rank === 1 ? 'bg-neon-amber/8' : ''
+                        } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''
+                        } ${hasMultiple && !useTwoColumns ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
+                        onClick={hasMultiple && !useTwoColumns ? () => togglePlayer(entry.iscored_username) : undefined}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${rankColor}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>
+                            {entry.rank}
+                          </span>
+                          <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
+                          <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>{entry.iscored_username}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`font-display font-bold flex-shrink-0 ${scoreColor}`}
+                            style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
+                            title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                          >
+                            {formattedScore}
+                          </span>
+                          {hasMultiple && !useTwoColumns && (
+                            isExpanded
+                              ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
+                              : <Plus size={12} className="text-faint flex-shrink-0" />
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {isExpanded && !useTwoColumns && (
                       <div className="bg-deep/50 border-b border-border/20 px-4 py-2">
                         {historyLoading ? (

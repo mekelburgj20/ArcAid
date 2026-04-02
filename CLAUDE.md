@@ -86,7 +86,11 @@ Two sub-applications in one process:
 - **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, GameStates (game state management escape hatch), StyleCatalogue (upload to global catalogue), Settings (includes Users section), ActivityLog
 - **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard, ScoreSubmit (standalone QR code score submission)
 - **Viewer auth context:** `ViewerAuthContext.tsx` provides `discordUser`, `playerToken`, `loginWithDiscord`, `logoutPlayer`, `usePlayerHeaders` — wraps public routes via `ViewerAuthProvider` in App.tsx
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, `GamePickerModal`, `StylePicker`, `PlayerAvatar`, etc.
+- **Scoreboard config:** `admin-ui/src/lib/scoreboardConfig.ts` exports `deriveCardProps(settings)` — shared config derivation used by Scoreboard, KioskScoreboard, and ScoreboardPreview
+- **Scoreboard preview:** `admin-ui/src/components/ScoreboardPreview.tsx` — multi-card scaled preview in Settings using real catalogue images, scale-transform for sidebar fit
+- **Layout presets:** `admin-ui/src/components/PresetSelector.tsx` — 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) with auto-detection of custom settings
+- **Image cropper:** `admin-ui/src/components/ImageCropper.tsx` — react-easy-crop wrapper for branding/style uploads with locked aspect ratios
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, `GamePickerModal`, `StylePicker`, `PlayerAvatar`, `PresetSelector`, `ScoreboardPreview`, `ImageCropper`, etc.
 - Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
 
 ## Multi-Room Architecture
@@ -156,10 +160,15 @@ Two sub-applications in one process:
 - **Activity log:** `room_events` table, `RoomEventService` logs admin actions (tournament changes, settings updates, etc.), viewable at `/:slug/admin/activity`
 - **Scoreboard layout:** `SCOREBOARD_SCORE_COLUMNS` setting enables two-column score layout; viewer rank highlight (cyan row) for logged-in players
 - **"Your Best" stat:** Game cards show logged-in user's best score and rank in a footer section when `viewerEntry` exists
-- **Card layout:** `SCOREBOARD_CARD_LAYOUT` setting (`banner`/`compact`/`wheel`/`sidebar`); compact shows thumbnail + title; wheel shows pinball wheel PNG above card border with configurable scale (`SCOREBOARD_WHEEL_SCALE`, 100-200%, default 150%); sidebar shows image left of game title in proportional square. All layouts use `iconImage` (logo preferred, falls back to background) for compact/wheel/sidebar thumbnails.
+- **Card layout:** `SCOREBOARD_CARD_LAYOUT` setting (`banner`/`compact`/`wheel`/`sidebar`); compact shows thumbnail + title with stacked score entries (name above score); wheel shows pinball wheel PNG above card border with configurable scale (`SCOREBOARD_WHEEL_SCALE`, 100-200%, default 150%); sidebar shows image left of game title in proportional square. All layouts use `iconImage` (logo preferred, falls back to background) for compact/wheel/sidebar thumbnails.
 - **Card background fill:** `SCOREBOARD_BG_FILL` setting (`off`/`fill`); when `fill`, game background image fills the entire card behind the layout with glass-panel styling for readability. Works with any card layout.
 - **Card background sizing:** `SCOREBOARD_BG_SIZE` setting (`cover`/`contain`/`tile`); controls CSS background-size for game images in card headers and fill mode. Backward compat: old `SCOREBOARD_CARD_HEADER_STYLE=fullart` maps to layout=banner + bgFill=fill.
 - **Game columns:** `SCOREBOARD_GAME_COLUMNS` setting (`auto`/`2`); auto fills based on card size, `2` forces two game cards per row on desktop (single column on mobile)
+- **Layout presets:** Settings page offers 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) via `PresetSelector`. Individual settings hidden behind "Customize" toggle. `computeActivePreset()` auto-detects custom settings.
+- **Settings live preview:** `ScoreboardPreview` renders 3 mock game cards with real catalogue art, using CSS `transform: scale()` to fit the sidebar. Mirrors actual grid/scroll rendering logic. Updates instantly on setting changes.
+- **Auto-sizing text:** CSS container queries (`containerType: 'inline-size'`) with `clamp()` functions scale card title and score text based on card width.
+- **Image cropper:** `ImageCropper` component (react-easy-crop) used for branding uploads and style catalogue uploads. Canvas-based resize before upload.
+- **Score abbreviation:** Scores ≥1T (1,000,000,000,000) display as "X.XT" with full value in tooltip.
 - **Global card styles:** `GLOBAL_CARD_STYLES_ENABLED` toggle + `GLOBAL_CARD_CSS_TITLE`, `GLOBAL_CARD_CSS_SCORES`, `GLOBAL_CARD_CSS_BOX`, `GLOBAL_CARD_BG_COLOR` color overrides applied room-wide
 - **Score toast:** WebSocket `score:new` event carries `{ gameId, gameName, playerName, score }` payload; Scoreboard shows slide-down toast notification
 - **Platform validation:** `GET /:roomId/admin/platform-usage/:platform` checks tournament references before platform deletion
