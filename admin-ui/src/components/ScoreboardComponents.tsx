@@ -206,7 +206,7 @@ export interface GlobalCardStyles {
   bgColor?: string;
 }
 
-export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150 }: {
+export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150 }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
@@ -218,6 +218,8 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
   globalStyles?: GlobalCardStyles;
   wheelScale?: number;
 }) {
+  // When 2-column scores are enabled, double the visible scores so both columns fill
+  const maxScores = scoreColumns === 2 ? Math.max(maxScoresProp, maxScoresProp * 2) : maxScoresProp;
   const borderColor = getTournamentBorderColor(lb.tournamentType);
   const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
@@ -436,7 +438,7 @@ export function GameCard({ lb, slug, maxScores, roomId, onSubmitScore, cardOpaci
                 }
               }
 
-              const useTwoColumns = scoreColumns === 2 && visibleEntries.length > 5;
+              const useTwoColumns = scoreColumns === 2 && visibleEntries.length > 1;
               const midpoint = useTwoColumns ? Math.ceil(visibleEntries.length / 2) : visibleEntries.length;
               const col1 = visibleEntries.slice(0, midpoint);
               const col2 = useTwoColumns ? visibleEntries.slice(midpoint) : [];
