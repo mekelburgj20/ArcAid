@@ -25,6 +25,10 @@ export interface GameLeaderboard {
   logoStyleId: string | null;
   bgStyleId: string | null;
   styleHeaderDisabled: boolean;
+  bgHasBg?: number | null;
+  logoHasHeader?: number | null;
+  catHasBg?: number | null;
+  catHasHeader?: number | null;
   rankings: RankedEntry[];
   nextMaintenanceAt?: string | null;
 }
@@ -208,7 +212,7 @@ export interface GlobalCardStyles {
   bgColor?: string;
 }
 
-export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150 }: {
+export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover' }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
@@ -219,6 +223,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   headerStyle?: string;
   globalStyles?: GlobalCardStyles;
   wheelScale?: number;
+  bgFill?: string;
+  bgSize?: string;
 }) {
   // When 2-column scores are enabled, double the visible scores so both columns fill
   const maxScores = scoreColumns === 2 ? Math.max(maxScoresProp, maxScoresProp * 2) : maxScoresProp;
@@ -267,172 +273,28 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
       .finally(() => setHistoryLoading(false));
   };
 
-  // Independent logo/bg override the legacy catalogue style
-  const effectiveBgId = lb.bgStyleId || lb.catalogueStyleId;
-  const effectiveLogoId = lb.logoStyleId || lb.catalogueStyleId;
+  // Independent logo/bg override the legacy catalogue style — fall through if style lacks the image type
+  const effectiveBgId = (lb.bgStyleId && lb.bgHasBg !== 0) ? lb.bgStyleId
+    : (lb.catalogueStyleId && lb.catHasBg !== 0) ? lb.catalogueStyleId : null;
+  const effectiveLogoId = (lb.logoStyleId && lb.logoHasHeader !== 0) ? lb.logoStyleId
+    : (lb.catalogueStyleId && lb.catHasHeader !== 0) ? lb.catalogueStyleId : null;
   const styleBgUrl = effectiveBgId ? `/api/styles/images/backgrounds/${effectiveBgId}.png` : null;
   const styleHeaderUrl = effectiveLogoId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${effectiveLogoId}.png` : null;
   const bgImage = styleBgUrl || lb.imageUrl || null;
-  const isFullart = headerStyle === 'fullart';
+  // Use the logo as the primary "icon" image for compact/wheel/sidebar, falling back to bgImage
+  const iconImage = styleHeaderUrl || bgImage;
+  const isFill = bgFill === 'fill';
 
-  // --- Fullart glass-panel helper ---
+  // Background sizing CSS
+  const bgSizeStyle = (url: string) => ({
+    backgroundImage: `url(${url})`,
+    backgroundSize: bgSize === 'tile' ? 'auto' : bgSize,
+    backgroundRepeat: bgSize === 'tile' ? 'repeat' : 'no-repeat',
+    backgroundPosition: 'center',
+  });
+
+  // Glass-panel helper for fill mode
   const glassPanel = 'bg-black/60 backdrop-blur-sm border border-white/10 rounded-lg';
-
-  // --- Fullart mode: entire card is the background image ---
-  if (isFullart) {
-    // Build visible entries (same logic as normal card)
-    const lowerViewer = viewerUsername?.toLowerCase();
-    let visibleEntries = lb.rankings.slice(0, maxScores);
-    let viewerInjected = false;
-    if (viewerEntry && lowerViewer) {
-      const viewerInVisible = visibleEntries.some(e => e.iscored_username.toLowerCase() === lowerViewer);
-      if (!viewerInVisible && viewerEntry.rank > maxScores) {
-        visibleEntries = [...visibleEntries.slice(0, maxScores - 1), viewerEntry];
-        viewerInjected = true;
-      }
-    }
-    const useTwoColumns = scoreColumns === 2 && visibleEntries.length > 1;
-    const midpoint = useTwoColumns ? Math.ceil(visibleEntries.length / 2) : visibleEntries.length;
-    const col1 = visibleEntries.slice(0, midpoint);
-    const col2 = useTwoColumns ? visibleEntries.slice(midpoint) : [];
-    const isViewerEntryFn = (entry: RankedEntry) => !!lowerViewer && entry.iscored_username.toLowerCase() === lowerViewer;
-
-    const renderFullartEntry = (entry: RankedEntry, isViewerRow: boolean, showSeparator: boolean) => (
-      <div key={`${entry.rank}-${entry.iscored_username}`}>
-        {showSeparator && <div className="border-t border-dashed border-neon-cyan/30 my-0.5" />}
-        <div className={`flex items-center justify-between px-3 py-1.5 ${isViewerRow ? 'bg-neon-cyan/15 border-l-2 border-l-neon-cyan' : ''}`}>
-          <div className="flex items-center gap-2 min-w-0">
-            <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
-              entry.rank === 1 ? 'text-neon-amber' :
-              entry.rank === 2 ? 'text-neon-cyan' :
-              entry.rank === 3 ? 'text-neon-green' :
-              'text-white/50'
-            }`}>{entry.rank}</span>
-            <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-            <span className={`text-sm truncate ${isViewerRow ? 'text-neon-cyan font-medium' : 'text-white'}`}>{entry.iscored_username}</span>
-          </div>
-          <span className={`font-display font-bold text-sm flex-shrink-0 ${
-            entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-white'
-          }`} style={globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : undefined}>
-            {entry.score.toLocaleString()}
-          </span>
-        </div>
-      </div>
-    );
-
-    return (
-      <div
-        className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col h-full`}
-        style={{
-          ...(globalStyles?.enabled && globalStyles.cssBox ? { borderColor: globalStyles.cssBox } : {}),
-        }}
-      >
-        {/* Full-bleed background image */}
-        {bgImage && (
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundImage: `url(${bgImage})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-            }}
-          />
-        )}
-        {/* Dark scrim for readability when no image */}
-        <div className="absolute inset-0 bg-black/30" />
-
-        {/* Content over the background */}
-        <div className="relative flex flex-col h-full p-2.5">
-          {/* Title — compact floating label at top */}
-          <div className="flex items-start justify-between gap-2 mb-2">
-            <div
-              className={`${glassPanel} px-3 py-1.5 max-w-[85%] ${onSubmitScore ? 'cursor-pointer hover:bg-black/70 transition-colors group' : ''}`}
-              onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
-            >
-              <div className="flex items-center gap-2">
-                <div className="min-w-0">
-                  <h3 className="font-display font-bold text-base leading-tight truncate text-white"
-                    style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
-                    {lb.gameName}
-                  </h3>
-                  <p className="text-[11px] text-white/60 uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
-                </div>
-                {onSubmitScore && <Upload size={14} className="text-white/40 group-hover:text-neon-cyan transition-colors flex-shrink-0" />}
-              </div>
-            </div>
-            {lb.gameStatus === 'COMPLETED' && (
-              <div className={`${glassPanel} p-1.5 flex-shrink-0`}>
-                <Lock size={14} className="text-neon-amber" />
-              </div>
-            )}
-          </div>
-
-          {/* Scores panel — full width, takes remaining space */}
-          <div className={`${glassPanel} flex-1 overflow-hidden`}>
-            {lb.rankings.length === 0 ? (
-              <div className="py-8 text-center">
-                <p className="text-white/40 text-sm">No scores yet</p>
-              </div>
-            ) : useTwoColumns ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2">
-                <div className="sm:border-r sm:border-white/10">
-                  {col1.map((entry, i) => renderFullartEntry(entry, isViewerEntryFn(entry), viewerInjected && i === col1.length - 1 && isViewerEntryFn(entry)))}
-                </div>
-                <div>
-                  {col2.map((entry, i) => renderFullartEntry(entry, isViewerEntryFn(entry), viewerInjected && i === col2.length - 1 && isViewerEntryFn(entry)))}
-                </div>
-              </div>
-            ) : (
-              <>
-                {visibleEntries.map((entry, i) => renderFullartEntry(entry, isViewerEntryFn(entry), viewerInjected && i === visibleEntries.length - 1))}
-              </>
-            )}
-          </div>
-
-          {/* Viewer's best */}
-          {viewerEntry && (
-            <div className={`${glassPanel} px-3 py-1.5 mt-2 self-start`}>
-              <p className="text-xs text-neon-cyan/70">
-                Your best: {viewerEntry.score.toLocaleString()} (Rank #{viewerEntry.rank})
-              </p>
-            </div>
-          )}
-
-          {/* Footer — compact floating elements at bottom */}
-          <div className="flex items-end justify-between mt-2">
-            <div className={`${glassPanel} px-3 py-1.5`}>
-              <Link
-                to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
-                className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
-              >
-                Full Leaderboard &rarr;
-              </Link>
-            </div>
-            <div className="flex items-center gap-2">
-              {countdown && (
-                <div className={`${glassPanel} px-2 py-1`}>
-                  <span className="text-[11px] text-white/50">{countdown}</span>
-                </div>
-              )}
-              {qrMode !== 'disabled' && (
-                <GameQRCode slug={slug} gameId={lb.gameId} size={40} />
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Score photo modal */}
-        {photoModal && (
-          <ScorePhotoModal
-            playerName={photoModal.playerName}
-            score={photoModal.score}
-            photoUrl={photoModal.photoUrl}
-            onClose={() => setPhotoModal(null)}
-          />
-        )}
-      </div>
-    );
-  }
 
   return (
     <div
@@ -443,31 +305,29 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
       }}
     >
       {/* Background layer — opacity controlled independently */}
-      <div className="absolute inset-0 bg-surface" style={{
+      <div className={`absolute inset-0 ${isFill ? '' : 'bg-surface'}`} style={{
         ...(cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : {}),
-        ...(globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
+        ...(!isFill && globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
       }} />
+      {/* Full-bleed background image when bgFill is enabled */}
+      {isFill && bgImage && (
+        <div className="absolute inset-0" style={bgSizeStyle(bgImage)} />
+      )}
+      {isFill && <div className="absolute inset-0 bg-black/30" />}
       {/* Header: compact mode with thumbnail */}
-      {headerStyle === 'compact' && bgImage ? (
+      {headerStyle === 'compact' && iconImage ? (
         <div
-          className={`flex items-center gap-3 px-4 py-3 border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
+          className={`flex items-center gap-3 px-4 py-3 border-b ${isFill ? 'border-white/10' : 'border-border/30'} relative ${isFill ? glassPanel + ' m-2 mb-0' : ''} ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
           onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
         >
           <div className="w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-raised">
-            <div
-              className="w-full h-full"
-              style={{
-                backgroundImage: `url(${bgImage})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-              }}
-            />
+            <img src={iconImage} alt="" className="w-full h-full object-contain" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="font-display font-bold text-base leading-tight truncate" style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
+            <h3 className={`font-display font-bold text-base leading-tight truncate ${isFill ? 'text-white' : ''}`} style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
               {lb.gameName}
             </h3>
-            <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+            <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
           </div>
           {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="flex-shrink-0"><Lock size={14} className="text-neon-amber" /></span>}
           {onSubmitScore && (
@@ -482,10 +342,10 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
             {/* Wheel icon — negative top margin pushes it above the card edge */}
-            {bgImage && (
+            {iconImage && (
               <div className="flex items-center justify-center z-10" style={{ height: `${wheelScale * 0.07}rem`, marginTop: '-2.5rem' }}>
                 <img
-                  src={bgImage}
+                  src={iconImage}
                   alt=""
                   className="h-full max-w-full object-contain drop-shadow-lg"
                 />
@@ -499,7 +359,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
               >
                 {lb.gameName}
               </h3>
-              <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+              <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
               {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-1"><Lock size={14} className="text-neon-amber" /></span>}
               {onSubmitScore && (
                 <span className="absolute left-3 top-1"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
@@ -509,14 +369,14 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
         </>
       ) : headerStyle === 'sidebar' ? (
         <div
-          className={`flex items-stretch border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
+          className={`flex items-center border-b ${isFill ? 'border-white/10' : 'border-border/30'} relative ${isFill ? glassPanel + ' m-2 mb-0' : ''} ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
           onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
         >
-          {/* Image panel on the left */}
-          {bgImage && (
-            <div className="w-20 flex-shrink-0 bg-raised relative overflow-hidden">
+          {/* Image panel on the left — square, proportional to title height */}
+          {iconImage && (
+            <div className="w-16 h-16 flex-shrink-0 bg-raised relative overflow-hidden rounded">
               <img
-                src={bgImage}
+                src={iconImage}
                 alt=""
                 className="w-full h-full object-contain"
               />
@@ -530,7 +390,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             >
               {lb.gameName}
             </h3>
-            <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+            <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
           </div>
           {/* Status icons */}
           <div className="flex items-center gap-1.5 pr-3 flex-shrink-0">
@@ -542,33 +402,26 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
         <>
           {/* Title area — clickable to submit score if handler provided */}
           <div
-            className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
+            className={`px-4 py-3 text-center border-b ${isFill ? 'border-white/10' : 'border-border/30'} relative ${isFill ? glassPanel + ' m-2 mb-0' : ''} ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
-            <h3 className="font-display font-bold text-base leading-tight truncate px-5" style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
+            <h3 className={`font-display font-bold text-base leading-tight truncate px-5 ${isFill ? 'text-white' : ''}`} style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
               {lb.gameName}
             </h3>
             {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-3"><Lock size={14} className="text-neon-amber" /></span>}
             {onSubmitScore && (
               <span className="absolute left-3 top-3"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
             )}
-            <p className="text-[11px] text-muted uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+            <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
           </div>
 
-          {/* Background image area — also clickable for submit */}
-          {bgImage && (
+          {/* Background image area — only shown in non-fill mode (fill mode uses the full card) */}
+          {bgImage && !isFill && (
             <div
               className={`relative h-28 bg-raised ${onSubmitScore ? 'cursor-pointer' : ''}`}
               onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
             >
-              <div
-                className="absolute inset-0"
-                style={{
-                  backgroundImage: `url(${bgImage})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                }}
-              />
+              <div className="absolute inset-0" style={bgSizeStyle(bgImage)} />
               {styleHeaderUrl && (
                 <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
               )}
@@ -578,10 +431,10 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
       )}
 
       {/* Scores */}
-      <div className="flex-1 relative">
+      <div className={`flex-1 relative ${isFill ? glassPanel + ' m-2' : ''}`}>
         {lb.rankings.length === 0 ? (
           <div className="py-8 text-center">
-            <p className="text-faint text-sm">No scores yet</p>
+            <p className={`text-sm ${isFill ? 'text-white/40' : 'text-faint'}`}>No scores yet</p>
           </div>
         ) : (
           <div>
@@ -616,7 +469,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                       <div className="border-t border-dashed border-neon-cyan/30 my-0.5" />
                     )}
                     <div
-                      className={`flex items-center justify-between px-3 py-2 border-b border-border/20 last:border-0 ${
+                      className={`flex items-center justify-between px-3 py-2 border-b ${isFill ? 'border-white/10' : 'border-border/20'} last:border-0 ${
                         entry.rank === 1 ? 'bg-neon-amber/8' : ''
                       } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''
                       } ${hasMultiple && !useTwoColumns ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
@@ -627,17 +480,17 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           entry.rank === 1 ? 'text-neon-amber' :
                           entry.rank === 2 ? 'text-neon-cyan' :
                           entry.rank === 3 ? 'text-neon-green' :
-                          'text-faint'
+                          isFill ? 'text-white/50' : 'text-faint'
                         }`}>
                           {entry.rank}
                         </span>
                         <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-                        <span className={`text-sm truncate ${isViewerRow ? 'text-neon-cyan font-medium' : ''}`}>{entry.iscored_username}</span>
+                        <span className={`text-sm truncate ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`}>{entry.iscored_username}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span
                           className={`font-display font-bold text-sm flex-shrink-0 ${
-                            entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-primary'
+                            entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : isFill ? 'text-white' : 'text-primary'
                           }`}
                           style={globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : undefined}
                         >
@@ -691,7 +544,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                   <>
                     {/* Two-column grid: collapses to 1 on small screens */}
                     <div className="grid grid-cols-1 sm:grid-cols-2">
-                      <div className="sm:border-r sm:border-border/20">
+                      <div className={`sm:border-r ${isFill ? 'sm:border-white/10' : 'sm:border-border/20'}`}>
                         {col1.map((entry, i) => renderEntry(
                           entry,
                           isViewerEntry(entry),
@@ -726,7 +579,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
 
       {/* Viewer's best score */}
       {viewerEntry && (
-        <div className="border-t border-border/20 pt-2 mt-2 px-4 pb-3 relative">
+        <div className={`${isFill ? glassPanel + ' mx-2 px-3 py-1.5' : 'border-t border-border/20 pt-2 mt-2 px-4 pb-3'} relative`}>
           <p className="text-xs text-neon-cyan/70">
             Your best: {viewerEntry.score.toLocaleString()} (Rank #{viewerEntry.rank})
           </p>
@@ -734,7 +587,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
       )}
 
       {/* Footer link + QR code */}
-      <div className="border-t border-border/50 px-4 py-2.5 relative flex items-center justify-between">
+      <div className={`${isFill ? glassPanel + ' m-2 mt-1 px-3 py-2' : 'border-t border-border/50 px-4 py-2.5'} relative flex items-center justify-between`}>
         <Link
           to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
           className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
@@ -743,7 +596,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
         </Link>
         <div className="flex items-center gap-2">
           {countdown && (
-            <span className="text-[11px] text-muted" title="Time until next rotation">
+            <span className={`text-[11px] ${isFill ? 'text-white/50' : 'text-muted'}`} title="Time until next rotation">
               {countdown}
             </span>
           )}

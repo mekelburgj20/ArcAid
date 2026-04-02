@@ -113,10 +113,15 @@ export class LeaderboardService {
             SELECT g.id, g.name as game_name, g.status, t.name as tournament_name, t.type as tournament_type,
                    COALESCE(t.display_order, 9999) as display_order, gl.image_url,
                    g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
-                   g.tournament_id
+                   g.tournament_id,
+                   sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
+                   sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
             LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
+            LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
+            LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
+            LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
             WHERE g.status = 'ACTIVE'${roomFilter}
             GROUP BY COALESCE(g.tournament_id, g.id), g.name
             ORDER BY display_order ASC, g.start_date ASC
@@ -146,9 +151,14 @@ export class LeaderboardService {
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, g.status, ? as tournament_name, ? as tournament_type,
                            ? as display_order, gl.image_url,
-                           g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled
+                           g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
+                           sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
+                           sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
                     FROM games g
                     LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
+                    LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
+                    LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
+                    LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
                     WHERE g.tournament_id = ? AND g.status = 'COMPLETED'
                     ORDER BY g.end_date DESC
                     LIMIT ?
@@ -158,9 +168,14 @@ export class LeaderboardService {
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, g.status, ? as tournament_name, ? as tournament_type,
                            ? as display_order, gl.image_url,
-                           g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled
+                           g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
+                           sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
+                           sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
                     FROM games g
                     LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
+                    LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
+                    LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
+                    LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
                     WHERE g.tournament_id = ? AND g.status = 'COMPLETED'
                     ORDER BY g.end_date DESC
                 `, t.name, t.type, t.display_order, t.id);
@@ -241,6 +256,10 @@ export class LeaderboardService {
                 logoStyleId: game.logo_style_id || null,
                 bgStyleId: game.bg_style_id || null,
                 styleHeaderDisabled: game.style_header_disabled === 1,
+                bgHasBg: game.bg_has_bg ?? null,
+                logoHasHeader: game.logo_has_header ?? null,
+                catHasBg: game.cat_has_bg ?? null,
+                catHasHeader: game.cat_has_header ?? null,
                 rankings,
                 nextMaintenanceAt,
             });

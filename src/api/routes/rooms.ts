@@ -1869,8 +1869,8 @@ router.put('/:roomId/admin/games/:gameId/image', requireAuth, requireRoomAccess(
         const gameId = req.params.gameId as string;
 
         const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
-        const ok = await StyleCatalogueService.assignImageToGame(gameId, styleId, imageType);
-        if (!ok) return res.status(404).json({ error: 'Style not found' });
+        const result = await StyleCatalogueService.assignImageToGame(gameId, styleId, imageType);
+        if (!result.ok) return res.status(400).json({ error: result.error });
 
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         await LeaderboardService.invalidate(gameId);
@@ -1891,8 +1891,8 @@ router.put('/:roomId/game_library/:name/image', requireAuth, requireRoomAccess('
         const gameName = decodeURIComponent(req.params.name as string);
 
         const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
-        const ok = await StyleCatalogueService.assignImageToLibrary(roomId, gameName, styleId, imageType);
-        if (!ok) return res.status(404).json({ error: 'Style not found' });
+        const result = await StyleCatalogueService.assignImageToLibrary(roomId, gameName, styleId, imageType);
+        if (!result.ok) return res.status(400).json({ error: result.error });
         res.json({ success: true });
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/game_library/:name/image):', error);
