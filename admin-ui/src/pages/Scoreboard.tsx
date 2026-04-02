@@ -2,16 +2,16 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
-import type { GameLeaderboard, RankingGroupData, RankedEntry, GlobalCardStyles } from '../components/ScoreboardComponents';
+import type { GameLeaderboard, RankingGroupData, RankedEntry } from '../components/ScoreboardComponents';
 import {
   GameCard,
   RankingsColumn,
   RankingsRow,
   getTitleStyleClass,
   getTitleSizeClass,
-  cardWidthMap,
 } from '../components/ScoreboardComponents';
 import ScoreSubmitModal from '../components/ScoreSubmitModal';
+import { deriveCardProps } from '../lib/scoreboardConfig';
 
 
 interface LeaderboardWithViewer extends GameLeaderboard {
@@ -88,46 +88,17 @@ export default function Scoreboard() {
     };
   }, [roomId]);
 
-  // Config-driven values
-  const maxScores = parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5;
-  const hideEmpty = config.SCOREBOARD_HIDE_EMPTY === 'true';
-  const titleHidden = config.SCOREBOARD_TITLE_HIDDEN === 'true';
-  const titleText = config.SCOREBOARD_TITLE || roomName || 'High Scores';
-  const titleStyle = config.SCOREBOARD_TITLE_STYLE || 'default';
-  const titleSize = config.SCOREBOARD_TITLE_SIZE || 'sm';
-  const zoom = parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100;
-  const bgUrl = config.SCOREBOARD_BG_URL || '';
-  const bgMode = config.SCOREBOARD_BG_MODE || 'cover';
-  const logoUrl = config.LOGO_URL || '';
-  const logoPosition = config.LOGO_POSITION || 'left';
-  const logoMaxHeight = parseInt(config.LOGO_MAX_HEIGHT || '64', 10) || 64;
-  const layout = config.SCOREBOARD_LAYOUT || 'scroll';
-  const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
-  const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
-  const requirePhoto = config.REQUIRE_SCORE_PHOTO === 'true';
-  const cardOpacity = config.SCOREBOARD_CARD_OPACITY ? parseFloat(config.SCOREBOARD_CARD_OPACITY) : undefined;
-  const bgOpacity = config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1;
-  const scoreColumns = parseInt(config.SCOREBOARD_SCORE_COLUMNS || '1', 10) || 1;
-  const qrMode = config.SCOREBOARD_QR_MODE || 'disabled';
-  // Backward compat: old 'fullart' maps to layout=banner + bgFill=fill
-  const rawLayout = config.SCOREBOARD_CARD_LAYOUT || config.SCOREBOARD_CARD_HEADER_STYLE || 'banner';
-  const headerStyle = rawLayout === 'fullart' ? 'banner' : rawLayout;
-  const bgFill = rawLayout === 'fullart' ? 'fill' : (config.SCOREBOARD_BG_FILL || 'off');
-  const bgSize = config.SCOREBOARD_BG_SIZE || 'cover';
-  const wheelScale = parseInt(config.SCOREBOARD_WHEEL_SCALE || '150', 10) || 150;
-  const gameColumns = config.SCOREBOARD_GAME_COLUMNS || 'auto';
+  // Config-driven values (shared derivation)
+  const {
+    maxScores, hideEmpty, titleHidden, titleText, titleStyle, titleSize,
+    zoom, bgUrl, bgMode, logoUrl, logoPosition, logoMaxHeight,
+    layout, cardWidth, rankingsPosition, requirePhoto,
+    cardOpacity, bgOpacity, scoreColumns, qrMode,
+    headerStyle, bgFill, bgSize, wheelScale, gameColumns, globalStyles,
+  } = deriveCardProps(config, roomName);
   const viewerUsername = discordUser?.username || undefined;
 
-  const globalStyles: GlobalCardStyles | undefined = config.GLOBAL_CARD_STYLES_ENABLED === 'true' ? {
-    enabled: true,
-    cssTitle: config.GLOBAL_CARD_CSS_TITLE || undefined,
-    cssScores: config.GLOBAL_CARD_CSS_SCORES || undefined,
-    cssBox: config.GLOBAL_CARD_CSS_BOX || undefined,
-    bgColor: config.GLOBAL_CARD_BG_COLOR || undefined,
-  } : undefined;
-
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
-  const cardWidth = cardWidthMap[cardSize] || 288;
 
   return (
     <div
@@ -232,7 +203,7 @@ export default function Scoreboard() {
             >
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId} className="grid" style={headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} />
+                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} />
                 </div>
               ))}
             </div>
@@ -243,7 +214,7 @@ export default function Scoreboard() {
               <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} />
                   </div>
                 ))}
               </div>

@@ -212,7 +212,7 @@ export interface GlobalCardStyles {
   bgColor?: string;
 }
 
-export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover' }: {
+export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover', cardWidth = 288 }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
@@ -225,6 +225,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   wheelScale?: number;
   bgFill?: string;
   bgSize?: string;
+  cardWidth?: number;
 }) {
   // When 2-column scores are enabled, double the visible scores so both columns fill
   const maxScores = scoreColumns === 2 ? Math.max(maxScoresProp, maxScoresProp * 2) : maxScoresProp;
@@ -300,6 +301,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
     <div
       className={`relative border-2 ${borderColor} rounded-lg ${headerStyle === 'wheel' ? 'overflow-visible' : 'overflow-hidden'} flex flex-col h-full`}
       style={{
+        containerType: 'inline-size',
         ...(globalStyles?.enabled && globalStyles.cssBox ? { borderColor: globalStyles.cssBox } : {}),
         ...(globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
       }}
@@ -324,7 +326,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             <img src={iconImage} alt="" className="w-full h-full object-contain" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className={`font-display font-bold text-base leading-tight truncate ${isFill ? 'text-white' : ''}`} style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
+            <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
               {lb.gameName}
             </h3>
             <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
@@ -354,8 +356,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             {/* Title + tournament below the wheel */}
             <div className="w-full text-center px-4 pb-2 pt-1 relative">
               <h3
-                className="font-display font-bold text-base leading-tight truncate"
-                style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}
+                className="font-display font-bold leading-tight truncate"
+                style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
               >
                 {lb.gameName}
               </h3>
@@ -385,8 +387,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           {/* Title + tournament on the right */}
           <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
             <h3
-              className="font-display font-bold text-base leading-tight truncate"
-              style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}
+              className="font-display font-bold leading-tight truncate"
+              style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
             >
               {lb.gameName}
             </h3>
@@ -405,7 +407,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             className={`px-4 py-3 text-center border-b ${isFill ? 'border-white/10' : 'border-border/30'} relative ${isFill ? glassPanel + ' m-2 mb-0' : ''} ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
-            <h3 className={`font-display font-bold text-base leading-tight truncate px-5 ${isFill ? 'text-white' : ''}`} style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
+            <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
               {lb.gameName}
             </h3>
             {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-3"><Lock size={14} className="text-neon-amber" /></span>}
@@ -455,7 +457,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                 }
               }
 
-              const useTwoColumns = scoreColumns === 2 && visibleEntries.length > 1;
+              const useTwoColumns = scoreColumns === 2 && visibleEntries.length > 1 && cardWidth >= 288;
               const midpoint = useTwoColumns ? Math.ceil(visibleEntries.length / 2) : visibleEntries.length;
               const col1 = visibleEntries.slice(0, midpoint);
               const col2 = useTwoColumns ? visibleEntries.slice(midpoint) : [];
@@ -476,25 +478,28 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                       onClick={hasMultiple && !useTwoColumns ? () => togglePlayer(entry.iscored_username) : undefined}
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
+                        <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${
                           entry.rank === 1 ? 'text-neon-amber' :
                           entry.rank === 2 ? 'text-neon-cyan' :
                           entry.rank === 3 ? 'text-neon-green' :
                           isFill ? 'text-white/50' : 'text-faint'
-                        }`}>
+                        }`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>
                           {entry.rank}
                         </span>
                         <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-                        <span className={`text-sm truncate ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`}>{entry.iscored_username}</span>
+                        <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>{entry.iscored_username}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span
-                          className={`font-display font-bold text-sm flex-shrink-0 ${
+                          className={`font-display font-bold flex-shrink-0 ${
                             entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : isFill ? 'text-white' : 'text-primary'
                           }`}
-                          style={globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : undefined}
+                          style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
+                          title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
                         >
-                          {entry.score.toLocaleString()}
+                          {entry.score >= 1_000_000_000_000
+                            ? `${(entry.score / 1_000_000_000_000).toFixed(1)}T`
+                            : entry.score.toLocaleString()}
                         </span>
                         {hasMultiple && !useTwoColumns && (
                           isExpanded

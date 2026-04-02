@@ -80,7 +80,7 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
       <div className="bg-surface border border-border rounded-lg w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border shrink-0">
-          <h3 className="font-display text-sm font-bold text-primary">Select Style</h3>
+          <h3 className="font-display text-sm font-bold text-primary">Select Art Pack</h3>
           <button onClick={onClose} className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer">
             <X size={18} />
           </button>
@@ -186,15 +186,15 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
                       imageType === t ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-surface text-muted hover:text-primary'
                     }`}
                   >
-                    {t === 'both' ? 'Both' : t === 'background' ? 'Background' : 'Logo'}
+                    {t === 'both' ? 'Both' : t === 'background' ? 'Background' : 'Identifier'}
                   </button>
                 ))}
               </div>
             </div>
           ) : null}
 
-          {/* Header toggle */}
-          {selectedId && selectedStyle?.has_header && (!showImageTypeSelector || imageType === 'both') ? (
+          {/* Hint when image type selector is not shown */}
+          {!showImageTypeSelector && selectedId && selectedStyle?.has_header ? (
             <label className="flex items-center gap-2 mb-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -202,7 +202,7 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
                 onChange={e => setDisableHeader(e.target.checked)}
                 className="accent-neon-cyan"
               />
-              <span className="text-sm text-muted">Hide header image (show background only)</span>
+              <span className="text-sm text-muted">Hide game identifier (show background only)</span>
             </label>
           ) : null}
 

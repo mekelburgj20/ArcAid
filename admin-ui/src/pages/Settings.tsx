@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
@@ -8,6 +9,10 @@ import NeonButton from '../components/NeonButton';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
 import { InfoTip } from '../components/Tooltip';
+import PresetSelector from '../components/PresetSelector';
+import type { PresetDefinition } from '../components/PresetSelector';
+import ScoreboardPreview from '../components/ScoreboardPreview';
+import ImageCropper from '../components/ImageCropper';
 
 interface LocalAdmin {
   id: string;
@@ -287,6 +292,7 @@ export default function Settings() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
   const [reloadingScheduler, setReloadingScheduler] = useState(false);
   const [merging, setMerging] = useState(false);
   const [mergeFrom, setMergeFrom] = useState('');
@@ -312,6 +318,9 @@ export default function Settings() {
   const [logoUrl, setLogoUrl] = useState('');
   const [uploadingBg, setUploadingBg] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  // Branding cropper state
+  const [brandingCropSrc, setBrandingCropSrc] = useState<string | null>(null);
+  const [brandingCropTarget, setBrandingCropTarget] = useState<'bg' | 'logo' | null>(null);
 
   const fetchAdmins = async () => {
     try {
@@ -439,6 +448,53 @@ export default function Settings() {
   const handleChange = (key: string, value: string) => {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
+
+  const handlePresetSelect = (preset: PresetDefinition) => {
+    setSettings(prev => ({ ...prev, ...preset.settings, SCOREBOARD_PRESET: preset.key }));
+  };
+
+  const handleBrandingCropConfirm = async (blob: Blob) => {
+    const target = brandingCropTarget;
+    setBrandingCropSrc(null);
+    setBrandingCropTarget(null);
+    if (!target) return;
+
+    const endpoint = target === 'bg' ? 'background' : 'logo';
+    const setUploading = target === 'bg' ? setUploadingBg : setUploadingLogo;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', new File([blob], `${endpoint}.png`, { type: 'image/png' }));
+      const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/${endpoint}`, formData);
+      if (target === 'bg') {
+        setBgUrl(result.url);
+        setSettings(prev => ({ ...prev, SCOREBOARD_BG_URL: result.url }));
+      } else {
+        setLogoUrl(result.url);
+        setSettings(prev => ({ ...prev, LOGO_URL: result.url }));
+      }
+      toast(`${target === 'bg' ? 'Background' : 'Logo'} uploaded`, 'success');
+    } catch (err: any) {
+      toast(err.message || 'Upload failed', 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleBrandingCropCancel = () => {
+    if (brandingCropSrc) URL.revokeObjectURL(brandingCropSrc);
+    setBrandingCropSrc(null);
+    setBrandingCropTarget(null);
+  };
+
+  // Smart constraints: keys to hide based on current settings
+  const hiddenKeys = new Set<string>();
+  if ((settings.SCOREBOARD_CARD_LAYOUT || 'banner') !== 'wheel') {
+    hiddenKeys.add('SCOREBOARD_WHEEL_SCALE');
+  }
+  if ((settings.SCOREBOARD_BG_FILL || 'off') === 'off' && (settings.SCOREBOARD_CARD_LAYOUT || 'banner') !== 'banner') {
+    hiddenKeys.add('SCOREBOARD_BG_SIZE');
+  }
 
   const handleSave = async () => {
     setSaving(true);
@@ -747,87 +803,68 @@ export default function Settings() {
 
       {categorized.map(({ category, entries }) => entries.length > 0 && (
         <Fragment key={category}>
-        <NeonCard title={category} className="mb-4">
-          <div className="space-y-3">
-            {entries.map(([key, value]) => {
-              const meta = SETTING_LABELS[key];
-              return (
-                <div key={key}>
-                  <div className="flex items-center gap-3">
-                    <label className="w-64 shrink-0 text-sm font-mono text-muted flex items-center">
-                      {meta?.label || key}
-                      {meta?.description && <InfoTip text={meta.description} />}
-                    </label>
-                    {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY') ? (
-                      <div className="flex items-center gap-3 flex-1">
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="5"
-                          value={Math.round((parseFloat(value || '1') * 100))}
-                          onChange={e => handleChange(key, String(parseInt(e.target.value, 10) / 100))}
-                          className="flex-1 accent-neon-cyan cursor-pointer"
-                        />
-                        <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
-                      </div>
-                    ) : SELECT_OPTIONS[key] ? (
-                      <select
-                        value={value || SELECT_OPTIONS[key][0].value}
-                        onChange={e => handleChange(key, e.target.value)}
-                        className={`${inputClass} flex-1`}
-                      >
-                        {SELECT_OPTIONS[key].map(opt => (
-                          <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                      </select>
-                    ) : key.startsWith('GLOBAL_CARD_CSS_') || key === 'GLOBAL_CARD_BG_COLOR' ? (
-                      <div className="flex items-center gap-2 flex-1">
-                        <input
-                          type="color"
-                          value={value || '#000000'}
-                          onChange={e => handleChange(key, e.target.value)}
-                          className="w-10 h-9 rounded border border-border cursor-pointer bg-transparent p-0.5"
-                        />
-                        <input
-                          type="text"
-                          value={value}
-                          onChange={e => handleChange(key, e.target.value)}
-                          placeholder="#000000"
-                          className={`${inputClass} flex-1`}
-                        />
-                        {value && (
-                          <button
-                            onClick={() => handleChange(key, '')}
-                            className="text-xs text-faint hover:text-neon-magenta cursor-pointer bg-transparent border-none whitespace-nowrap"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <input
-                        type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
-                        value={value}
-                        onChange={e => handleChange(key, e.target.value)}
-                        className={`${inputClass} flex-1`}
-                      />
-                    )}
-                    {isSensitive(key) && (
-                      <button
-                        onClick={() => toggleReveal(key)}
-                        className="text-xs text-faint hover:text-muted cursor-pointer bg-transparent border-none"
-                      >
-                        {revealed.has(key) ? 'Hide' : 'Show'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+        {category === 'Scoreboard Display' ? (
+          /* ── Scoreboard Display with Preview Sidebar ── */
+          <div className="flex flex-col lg:flex-row gap-4 mb-4">
+            <NeonCard title={category} className="flex-1 min-w-0">
+              {/* Preset selector */}
+              <PresetSelector settings={settings} onPresetSelect={handlePresetSelect} />
 
-            {/* Inline toggles for Scoreboard Display */}
-            {category === 'Scoreboard Display' && (
+              {/* Customize toggle */}
+              <button
+                onClick={() => setCustomizeOpen(!customizeOpen)}
+                className="flex items-center gap-2 mt-4 mb-2 text-sm text-muted hover:text-primary cursor-pointer bg-transparent border-none"
+              >
+                {customizeOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <span className="font-display text-xs uppercase tracking-wider">Customize</span>
+              </button>
+
+              {customizeOpen && (
+                <div className="space-y-3 pt-2 border-t border-border/30">
+                  <p className="text-[11px] text-neon-amber/70">Changing individual settings switches to Custom mode.</p>
+                  {entries.map(([key, value]) => {
+                    if (hiddenKeys.has(key)) return null;
+                    const meta = SETTING_LABELS[key];
+                    return (
+                      <div key={key}>
+                        <div className="flex items-center gap-3">
+                          <label className="w-64 shrink-0 text-sm font-mono text-muted flex items-center">
+                            {meta?.label || key}
+                            {meta?.description && <InfoTip text={meta.description} />}
+                          </label>
+                          {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY') ? (
+                            <div className="flex items-center gap-3 flex-1">
+                              <input type="range" min="0" max="100" step="5"
+                                value={Math.round((parseFloat(value || '1') * 100))}
+                                onChange={e => handleChange(key, String(parseInt(e.target.value, 10) / 100))}
+                                className="flex-1 accent-neon-cyan cursor-pointer"
+                              />
+                              <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
+                            </div>
+                          ) : SELECT_OPTIONS[key] ? (
+                            <select
+                              value={value || SELECT_OPTIONS[key][0].value}
+                              onChange={e => handleChange(key, e.target.value)}
+                              className={`${inputClass} flex-1`}
+                            >
+                              {SELECT_OPTIONS[key].map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input type="text" value={value}
+                              onChange={e => handleChange(key, e.target.value)}
+                              className={`${inputClass} flex-1`}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Inline toggles for Scoreboard Display */}
               <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
                 {Object.entries(SCOREBOARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
                   const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
@@ -849,59 +886,131 @@ export default function Settings() {
                   );
                 })}
               </div>
-            )}
+            </NeonCard>
 
-            {/* Inline toggles for Kiosk */}
-            {category === 'Kiosk' && (
-              <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
-                {Object.entries(KIOSK_TOGGLES).map(([key, { label, description, defaultOn }]) => {
-                  const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
-                  return (
-                    <div key={key} className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-primary">{label}</p>
-                        <p className="text-xs text-muted">{description}</p>
-                      </div>
-                      <button
-                        onClick={() => handleChange(key, isOn ? 'false' : 'true')}
-                        className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
-                          isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
-                        }`}
-                      >
-                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Inline toggle for Global Card Styles */}
-            {category === 'Global Card Styles' && (
-              <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
-                {Object.entries(GLOBAL_CARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
-                  const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
-                  return (
-                    <div key={key} className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-primary">{label}</p>
-                        <p className="text-xs text-muted">{description}</p>
-                      </div>
-                      <button
-                        onClick={() => handleChange(key, isOn ? 'false' : 'true')}
-                        className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
-                          isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
-                        }`}
-                      >
-                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            {/* Preview sidebar — sticky on desktop */}
+            <div className="lg:w-80 lg:sticky lg:top-4 lg:self-start shrink-0">
+              <ScoreboardPreview settings={settings} />
+            </div>
           </div>
-        </NeonCard>
+        ) : (
+          /* ── All other categories ── */
+          <NeonCard title={category} className="mb-4">
+            <div className="space-y-3">
+              {entries.map(([key, value]) => {
+                const meta = SETTING_LABELS[key];
+                return (
+                  <div key={key}>
+                    <div className="flex items-center gap-3">
+                      <label className="w-64 shrink-0 text-sm font-mono text-muted flex items-center">
+                        {meta?.label || key}
+                        {meta?.description && <InfoTip text={meta.description} />}
+                      </label>
+                      {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY') ? (
+                        <div className="flex items-center gap-3 flex-1">
+                          <input type="range" min="0" max="100" step="5"
+                            value={Math.round((parseFloat(value || '1') * 100))}
+                            onChange={e => handleChange(key, String(parseInt(e.target.value, 10) / 100))}
+                            className="flex-1 accent-neon-cyan cursor-pointer"
+                          />
+                          <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
+                        </div>
+                      ) : SELECT_OPTIONS[key] ? (
+                        <select
+                          value={value || SELECT_OPTIONS[key][0].value}
+                          onChange={e => handleChange(key, e.target.value)}
+                          className={`${inputClass} flex-1`}
+                        >
+                          {SELECT_OPTIONS[key].map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      ) : key.startsWith('GLOBAL_CARD_CSS_') || key === 'GLOBAL_CARD_BG_COLOR' ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <input type="color" value={value || '#000000'}
+                            onChange={e => handleChange(key, e.target.value)}
+                            className="w-10 h-9 rounded border border-border cursor-pointer bg-transparent p-0.5"
+                          />
+                          <input type="text" value={value}
+                            onChange={e => handleChange(key, e.target.value)}
+                            placeholder="#000000" className={`${inputClass} flex-1`}
+                          />
+                          {value && (
+                            <button onClick={() => handleChange(key, '')}
+                              className="text-xs text-faint hover:text-neon-magenta cursor-pointer bg-transparent border-none whitespace-nowrap"
+                            >Clear</button>
+                          )}
+                        </div>
+                      ) : (
+                        <input
+                          type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
+                          value={value}
+                          onChange={e => handleChange(key, e.target.value)}
+                          className={`${inputClass} flex-1`}
+                        />
+                      )}
+                      {isSensitive(key) && (
+                        <button onClick={() => toggleReveal(key)}
+                          className="text-xs text-faint hover:text-muted cursor-pointer bg-transparent border-none"
+                        >{revealed.has(key) ? 'Hide' : 'Show'}</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Inline toggle for Global Card Styles */}
+              {category === 'Global Card Styles' && (
+                <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
+                  {Object.entries(GLOBAL_CARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
+                    const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
+                    return (
+                      <div key={key} className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-primary">{label}</p>
+                          <p className="text-xs text-muted">{description}</p>
+                        </div>
+                        <button
+                          onClick={() => handleChange(key, isOn ? 'false' : 'true')}
+                          className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                            isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                          }`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Inline toggles for Kiosk */}
+              {category === 'Kiosk' && (
+                <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
+                  {Object.entries(KIOSK_TOGGLES).map(([key, { label, description, defaultOn }]) => {
+                    const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
+                    return (
+                      <div key={key} className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-primary">{label}</p>
+                          <p className="text-xs text-muted">{description}</p>
+                        </div>
+                        <button
+                          onClick={() => handleChange(key, isOn ? 'false' : 'true')}
+                          className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                            isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                          }`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </NeonCard>
+        )}
 
         {/* Scoreboard Branding — renders right after Scoreboard Display */}
         {category === 'Scoreboard Display' && (
@@ -921,23 +1030,13 @@ export default function Settings() {
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
                     disabled={uploadingBg}
-                    onChange={async (e) => {
+                    onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      setUploadingBg(true);
-                      try {
-                        const formData = new FormData();
-                        formData.append('file', file);
-                        const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/background`, formData);
-                        setBgUrl(result.url);
-                        setSettings(prev => ({ ...prev, SCOREBOARD_BG_URL: result.url }));
-                        toast('Background uploaded', 'success');
-                      } catch (err: any) {
-                        toast(err.message || 'Upload failed', 'error');
-                      } finally {
-                        setUploadingBg(false);
-                        e.target.value = '';
-                      }
+                      e.target.value = '';
+                      const url = URL.createObjectURL(file);
+                      setBrandingCropSrc(url);
+                      setBrandingCropTarget('bg');
                     }}
                     className="hidden"
                   />
@@ -1020,23 +1119,13 @@ export default function Settings() {
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
                     disabled={uploadingLogo}
-                    onChange={async (e) => {
+                    onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      setUploadingLogo(true);
-                      try {
-                        const formData = new FormData();
-                        formData.append('file', file);
-                        const result = await api.upload<{ success: boolean; url: string }>(`/rooms/${room.roomId}/admin/upload/logo`, formData);
-                        setLogoUrl(result.url);
-                        setSettings(prev => ({ ...prev, LOGO_URL: result.url }));
-                        toast('Logo uploaded', 'success');
-                      } catch (err: any) {
-                        toast(err.message || 'Upload failed', 'error');
-                      } finally {
-                        setUploadingLogo(false);
-                        e.target.value = '';
-                      }
+                      e.target.value = '';
+                      const url = URL.createObjectURL(file);
+                      setBrandingCropSrc(url);
+                      setBrandingCropTarget('logo');
                     }}
                     className="hidden"
                   />
@@ -1142,6 +1231,17 @@ export default function Settings() {
               </div>
             </div>
           </NeonCard>
+        )}
+
+        {/* Branding image cropper overlay */}
+        {brandingCropSrc && brandingCropTarget && (
+          <ImageCropper
+            imageSrc={brandingCropSrc}
+            aspectRatio={brandingCropTarget === 'bg' ? 16 / 9 : 1}
+            maxOutputWidth={brandingCropTarget === 'bg' ? 1920 : 600}
+            onConfirm={handleBrandingCropConfirm}
+            onCancel={handleBrandingCropCancel}
+          />
         )}
         </Fragment>
       ))}

@@ -1,14 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import type { GameLeaderboard, RankingGroupData, GlobalCardStyles } from '../components/ScoreboardComponents';
+import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
 import {
   GameCard,
   RankingsColumn,
   RankingsRow,
   getTitleStyleClass,
   getTitleSizeClass,
-  cardWidthMap,
 } from '../components/ScoreboardComponents';
+import { deriveCardProps } from '../lib/scoreboardConfig';
 
 export default function KioskScoreboard() {
   const { slug } = useParams<{ slug: string }>();
@@ -59,41 +59,16 @@ export default function KioskScoreboard() {
     }
   }, [loadData, config.KIOSK_REFRESH_SECONDS]);
 
-  // Config-driven values
-  const maxScores = parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5;
-  const hideEmpty = config.SCOREBOARD_HIDE_EMPTY === 'true';
-  const titleHidden = config.SCOREBOARD_TITLE_HIDDEN === 'true';
-  const titleText = config.SCOREBOARD_TITLE || roomName || 'High Scores';
-  const titleStyle = config.SCOREBOARD_TITLE_STYLE || 'default';
-  const titleSize = config.SCOREBOARD_TITLE_SIZE || 'sm';
-  const zoom = parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100;
-  const bgUrl = config.SCOREBOARD_BG_URL || '';
-  const bgMode = config.SCOREBOARD_BG_MODE || 'cover';
-  const logoUrl = config.LOGO_URL || '';
-  const logoPosition = config.LOGO_POSITION || 'left';
-  const logoMaxHeight = parseInt(config.LOGO_MAX_HEIGHT || '64', 10) || 64;
-  const layout = config.SCOREBOARD_LAYOUT || 'scroll';
-  const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
-  const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
-  const cardOpacity = config.SCOREBOARD_CARD_OPACITY ? parseFloat(config.SCOREBOARD_CARD_OPACITY) : undefined;
-  const bgOpacity = config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1;
-  const rawLayout = config.SCOREBOARD_CARD_LAYOUT || config.SCOREBOARD_CARD_HEADER_STYLE || 'banner';
-  const headerStyle = rawLayout === 'fullart' ? 'banner' : rawLayout;
-  const bgFill = rawLayout === 'fullart' ? 'fill' : (config.SCOREBOARD_BG_FILL || 'off');
-  const bgSize = config.SCOREBOARD_BG_SIZE || 'cover';
-  const wheelScale = parseInt(config.SCOREBOARD_WHEEL_SCALE || '150', 10) || 150;
-  const gameColumns = config.SCOREBOARD_GAME_COLUMNS || 'auto';
-
-  const globalStyles: GlobalCardStyles | undefined = config.GLOBAL_CARD_STYLES_ENABLED === 'true' ? {
-    enabled: true,
-    cssTitle: config.GLOBAL_CARD_CSS_TITLE || undefined,
-    cssScores: config.GLOBAL_CARD_CSS_SCORES || undefined,
-    cssBox: config.GLOBAL_CARD_CSS_BOX || undefined,
-    bgColor: config.GLOBAL_CARD_BG_COLOR || undefined,
-  } : undefined;
+  // Config-driven values (shared derivation)
+  const {
+    maxScores, hideEmpty, titleHidden, titleText, titleStyle, titleSize,
+    zoom, bgUrl, bgMode, logoUrl, logoPosition, logoMaxHeight,
+    layout, cardWidth, rankingsPosition,
+    cardOpacity, bgOpacity,
+    headerStyle, bgFill, bgSize, wheelScale, gameColumns, globalStyles,
+  } = deriveCardProps(config, roomName);
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
-  const cardWidth = cardWidthMap[cardSize] || 288;
 
   // Guard: wait for config to load, then check if kiosk is enabled
   if (!configLoaded) {
@@ -179,7 +154,7 @@ export default function KioskScoreboard() {
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="grid" style={headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} />
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} />
                   </div>
                 ))}
               </div>
@@ -190,7 +165,7 @@ export default function KioskScoreboard() {
                 <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
                   {visibleLeaderboards.map(lb => (
                     <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
-                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} />
+                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} />
                     </div>
                   ))}
                 </div>

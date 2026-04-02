@@ -3,6 +3,7 @@ import { Search, Upload, Trash2, Image, X, ChevronLeft, ChevronRight, Gamepad2 }
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import GamePickerModal from '../components/GamePickerModal';
+import ImageCropper from '../components/ImageCropper';
 import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
 import { RoomContext } from '../contexts/RoomContext';
@@ -321,7 +322,7 @@ function StylePreviewModal({ style, onClose, onApply }: { style: Style; onClose:
             <span className="text-primary">{style.has_background ? 'Yes' : 'No'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted">Header Image</span>
+            <span className="text-muted">Game Identifier</span>
             <span className="text-primary">{style.has_header ? 'Yes' : 'No'}</span>
           </div>
           {style.notes && (
@@ -360,35 +361,55 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
   const [uploading, setUploading] = useState(false);
   const [bgPreview, setBgPreview] = useState<string | null>(null);
   const [headerPreview, setHeaderPreview] = useState<string | null>(null);
+  // Cropper state
+  const [cropperSrc, setCropperSrc] = useState<string | null>(null);
+  const [cropperTarget, setCropperTarget] = useState<'bg' | 'header' | null>(null);
+  const [identifierShape, setIdentifierShape] = useState<'square' | 'wide'>('square');
 
   const MAX_SIZE = 30 * 1024 * 1024; // 30 MB
 
-  const handleBgChange = (file: File | null) => {
-    if (file && file.size > MAX_SIZE) {
+  const handleBgSelect = (file: File | null) => {
+    if (!file) { setBgFile(null); setBgPreview(null); return; }
+    if (file.size > MAX_SIZE) {
       toast('Background image must be under 30 MB', 'error');
       return;
     }
-    setBgFile(file);
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setBgPreview(url);
-    } else {
-      setBgPreview(null);
-    }
+    // Open cropper
+    const url = URL.createObjectURL(file);
+    setCropperSrc(url);
+    setCropperTarget('bg');
   };
 
-  const handleHeaderChange = (file: File | null) => {
-    if (file && file.size > MAX_SIZE) {
-      toast('Header image must be under 30 MB', 'error');
+  const handleHeaderSelect = (file: File | null) => {
+    if (!file) { setHeaderFile(null); setHeaderPreview(null); return; }
+    if (file.size > MAX_SIZE) {
+      toast('Game identifier image must be under 30 MB', 'error');
       return;
     }
-    setHeaderFile(file);
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setHeaderPreview(url);
+    // Open cropper
+    const url = URL.createObjectURL(file);
+    setCropperSrc(url);
+    setCropperTarget('header');
+  };
+
+  const handleCropConfirm = (blob: Blob) => {
+    const croppedUrl = URL.createObjectURL(blob);
+    const croppedFile = new File([blob], cropperTarget === 'bg' ? 'background.png' : 'identifier.png', { type: 'image/png' });
+    if (cropperTarget === 'bg') {
+      setBgFile(croppedFile);
+      setBgPreview(croppedUrl);
     } else {
-      setHeaderPreview(null);
+      setHeaderFile(croppedFile);
+      setHeaderPreview(croppedUrl);
     }
+    setCropperSrc(null);
+    setCropperTarget(null);
+  };
+
+  const handleCropCancel = () => {
+    if (cropperSrc) URL.revokeObjectURL(cropperSrc);
+    setCropperSrc(null);
+    setCropperTarget(null);
   };
 
   const handleSubmit = async () => {
@@ -420,7 +441,7 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-surface border border-border rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-border">
-          <h3 className="font-display text-sm font-bold text-primary">Upload Custom Style</h3>
+          <h3 className="font-display text-sm font-bold text-primary">Upload Art Pack</h3>
           <button onClick={onClose} className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer">
             <X size={18} />
           </button>
@@ -470,7 +491,7 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
               <div className="relative rounded overflow-hidden">
                 <img src={bgPreview} alt="Background preview" className="w-full h-32 object-cover" />
                 <button
-                  onClick={() => handleBgChange(null)}
+                  onClick={() => handleBgSelect(null)}
                   className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-magenta border-0 cursor-pointer"
                 >
                   <X size={14} />
@@ -482,23 +503,42 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
                   type="file"
                   accept="image/png,image/apng,image/jpeg,image/webp"
                   className="hidden"
-                  onChange={e => handleBgChange(e.target.files?.[0] || null)}
+                  onChange={e => handleBgSelect(e.target.files?.[0] || null)}
                 />
-                <span className="text-sm text-faint">Click to select background image</span>
+                <span className="text-sm text-faint">Click to select background image (16:9 crop)</span>
               </label>
             )}
           </div>
 
-          <p className="text-[11px] text-faint">At least one image is required. Upload both, or just a background or logo.</p>
+          <p className="text-[11px] text-faint">At least one image is required. Upload both, or just a background or game identifier.</p>
 
-          {/* Header image */}
+          {/* Game identifier image */}
           <div>
-            <label className="text-xs text-muted block mb-1">Logo/Header Image (max 30 MB)</label>
+            <label className="text-xs text-muted block mb-1">Game Identifier Image (max 30 MB)</label>
+            <p className="text-[11px] text-faint mb-1">Identifies the game on cards — appears as wheel icon, compact thumbnail, sidebar art, or banner overlay depending on card layout.</p>
+            {/* Shape selector */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs text-muted">Shape:</span>
+              <div className="inline-flex rounded border border-border overflow-hidden">
+                <button
+                  onClick={() => setIdentifierShape('square')}
+                  className={`px-3 py-1 text-xs border-0 cursor-pointer transition-colors ${
+                    identifierShape === 'square' ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-surface text-muted hover:text-primary'
+                  }`}
+                >Square 1:1</button>
+                <button
+                  onClick={() => setIdentifierShape('wide')}
+                  className={`px-3 py-1 text-xs border-0 cursor-pointer transition-colors ${
+                    identifierShape === 'wide' ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-surface text-muted hover:text-primary'
+                  }`}
+                >Wide 3:1</button>
+              </div>
+            </div>
             {headerPreview ? (
               <div className="relative rounded overflow-hidden">
-                <img src={headerPreview} alt="Header preview" className="w-full h-24 object-contain bg-raised" />
+                <img src={headerPreview} alt="Game identifier preview" className="w-full h-24 object-contain bg-raised" />
                 <button
-                  onClick={() => handleHeaderChange(null)}
+                  onClick={() => handleHeaderSelect(null)}
                   className="absolute top-1 right-1 p-1 bg-black/60 rounded text-muted hover:text-neon-magenta border-0 cursor-pointer"
                 >
                   <X size={14} />
@@ -510,12 +550,23 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
                   type="file"
                   accept="image/png,image/apng,image/jpeg,image/webp"
                   className="hidden"
-                  onChange={e => handleHeaderChange(e.target.files?.[0] || null)}
+                  onChange={e => handleHeaderSelect(e.target.files?.[0] || null)}
                 />
-                <span className="text-sm text-faint">Click to select header image</span>
+                <span className="text-sm text-faint">Click to select game identifier image</span>
               </label>
             )}
           </div>
+
+          {/* Image cropper overlay */}
+          {cropperSrc && cropperTarget && (
+            <ImageCropper
+              imageSrc={cropperSrc}
+              aspectRatio={cropperTarget === 'bg' ? 16 / 9 : (identifierShape === 'square' ? 1 : 3)}
+              maxOutputWidth={cropperTarget === 'bg' ? 1920 : 600}
+              onConfirm={handleCropConfirm}
+              onCancel={handleCropCancel}
+            />
+          )}
 
           {/* Submit */}
           <div className="flex justify-end gap-2 pt-2">
