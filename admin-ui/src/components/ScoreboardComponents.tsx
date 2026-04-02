@@ -269,6 +269,160 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   const styleBgUrl = lb.catalogueStyleId ? `/api/styles/images/backgrounds/${lb.catalogueStyleId}.png` : null;
   const styleHeaderUrl = lb.catalogueStyleId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${lb.catalogueStyleId}.png` : null;
   const bgImage = styleBgUrl || lb.imageUrl || null;
+  const isFullart = headerStyle === 'fullart';
+
+  // --- Fullart glass-panel helper ---
+  const glassPanel = 'bg-black/60 backdrop-blur-sm border border-white/10 rounded-lg';
+
+  // --- Fullart mode: entire card is the background image ---
+  if (isFullart) {
+    // Build visible entries (same logic as normal card)
+    const lowerViewer = viewerUsername?.toLowerCase();
+    let visibleEntries = lb.rankings.slice(0, maxScores);
+    let viewerInjected = false;
+    if (viewerEntry && lowerViewer) {
+      const viewerInVisible = visibleEntries.some(e => e.iscored_username.toLowerCase() === lowerViewer);
+      if (!viewerInVisible && viewerEntry.rank > maxScores) {
+        visibleEntries = [...visibleEntries.slice(0, maxScores - 1), viewerEntry];
+        viewerInjected = true;
+      }
+    }
+    const useTwoColumns = scoreColumns === 2 && visibleEntries.length > 1;
+    const midpoint = useTwoColumns ? Math.ceil(visibleEntries.length / 2) : visibleEntries.length;
+    const col1 = visibleEntries.slice(0, midpoint);
+    const col2 = useTwoColumns ? visibleEntries.slice(midpoint) : [];
+    const isViewerEntryFn = (entry: RankedEntry) => !!lowerViewer && entry.iscored_username.toLowerCase() === lowerViewer;
+
+    const renderFullartEntry = (entry: RankedEntry, isViewerRow: boolean, showSeparator: boolean) => (
+      <div key={`${entry.rank}-${entry.iscored_username}`}>
+        {showSeparator && <div className="border-t border-dashed border-neon-cyan/30 my-0.5" />}
+        <div className={`flex items-center justify-between px-3 py-1.5 ${isViewerRow ? 'bg-neon-cyan/15 border-l-2 border-l-neon-cyan' : ''}`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
+              entry.rank === 1 ? 'text-neon-amber' :
+              entry.rank === 2 ? 'text-neon-cyan' :
+              entry.rank === 3 ? 'text-neon-green' :
+              'text-white/50'
+            }`}>{entry.rank}</span>
+            <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
+            <span className={`text-sm truncate ${isViewerRow ? 'text-neon-cyan font-medium' : 'text-white'}`}>{entry.iscored_username}</span>
+          </div>
+          <span className={`font-display font-bold text-sm flex-shrink-0 ${
+            entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-white'
+          }`} style={globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : undefined}>
+            {entry.score.toLocaleString()}
+          </span>
+        </div>
+      </div>
+    );
+
+    return (
+      <div
+        className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col h-full`}
+        style={{
+          ...(globalStyles?.enabled && globalStyles.cssBox ? { borderColor: globalStyles.cssBox } : {}),
+        }}
+      >
+        {/* Full-bleed background image */}
+        {bgImage && (
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${bgImage})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          />
+        )}
+        {/* Dark scrim for readability when no image */}
+        <div className="absolute inset-0 bg-black/30" />
+
+        {/* Content over the background */}
+        <div className="relative flex flex-col h-full gap-2 p-2.5">
+          {/* Title panel */}
+          <div
+            className={`${glassPanel} px-4 py-3 ${onSubmitScore ? 'cursor-pointer hover:bg-black/70 transition-colors group' : ''}`}
+            onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <h3 className="font-display font-bold text-base leading-tight truncate text-white"
+                  style={globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : undefined}>
+                  {lb.gameName}
+                </h3>
+                <p className="text-[11px] text-white/60 uppercase tracking-wider mt-0.5">{lb.tournamentName}</p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {lb.gameStatus === 'COMPLETED' && <Lock size={14} className="text-neon-amber" />}
+                {onSubmitScore && <Upload size={14} className="text-white/40 group-hover:text-neon-cyan transition-colors" />}
+              </div>
+            </div>
+          </div>
+
+          {/* Scores panel */}
+          <div className={`${glassPanel} flex-1 overflow-hidden`}>
+            {lb.rankings.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-white/40 text-sm">No scores yet</p>
+              </div>
+            ) : useTwoColumns ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2">
+                <div className="sm:border-r sm:border-white/10">
+                  {col1.map((entry, i) => renderFullartEntry(entry, isViewerEntryFn(entry), viewerInjected && i === col1.length - 1 && isViewerEntryFn(entry)))}
+                </div>
+                <div>
+                  {col2.map((entry, i) => renderFullartEntry(entry, isViewerEntryFn(entry), viewerInjected && i === col2.length - 1 && isViewerEntryFn(entry)))}
+                </div>
+              </div>
+            ) : (
+              <>
+                {visibleEntries.map((entry, i) => renderFullartEntry(entry, isViewerEntryFn(entry), viewerInjected && i === visibleEntries.length - 1))}
+              </>
+            )}
+          </div>
+
+          {/* Viewer's best */}
+          {viewerEntry && (
+            <div className={`${glassPanel} px-4 py-2`}>
+              <p className="text-xs text-neon-cyan/70">
+                Your best: {viewerEntry.score.toLocaleString()} (Rank #{viewerEntry.rank})
+              </p>
+            </div>
+          )}
+
+          {/* Footer panel */}
+          <div className={`${glassPanel} px-4 py-2 flex items-center justify-between`}>
+            <Link
+              to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
+              className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
+            >
+              Full Leaderboard &rarr;
+            </Link>
+            <div className="flex items-center gap-2">
+              {countdown && (
+                <span className="text-[11px] text-white/50" title="Time until next rotation">{countdown}</span>
+              )}
+              {qrMode !== 'disabled' && (
+                <div className="bg-white rounded p-0.5">
+                  <GameQRCode slug={slug} gameId={lb.gameId} size={36} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Score photo modal */}
+        {photoModal && (
+          <ScorePhotoModal
+            playerName={photoModal.playerName}
+            score={photoModal.score}
+            photoUrl={photoModal.photoUrl}
+            onClose={() => setPhotoModal(null)}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

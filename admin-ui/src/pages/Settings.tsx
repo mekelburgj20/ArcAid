@@ -116,7 +116,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
   SCOREBOARD_RANKINGS_POSITION: { label: 'Rankings Position', description: 'Where overall rankings are displayed: left (default), right, top, bottom, or hidden.' },
   SCOREBOARD_GAME_COLUMNS: { label: 'Game Columns (Grid)', description: 'Number of game cards per row in grid mode. Auto: fills based on card size. 2-Column: exactly 2 cards per row on desktop, 1 on mobile.' },
-  SCOREBOARD_CARD_HEADER_STYLE: { label: 'Card Header Style', description: 'Banner shows full-width game artwork. Compact shows a small thumbnail with the title. Wheel shows the image centered above the card. Sidebar shows the image to the left of the game title.' },
+  SCOREBOARD_CARD_HEADER_STYLE: { label: 'Card Header Style', description: 'Banner shows full-width game artwork. Compact shows a small thumbnail with the title. Wheel shows the image centered above the card. Sidebar shows the image to the left of the game title. Full Art fills the entire card with the game image.' },
   SCOREBOARD_WHEEL_SCALE: { label: 'Wheel Icon Size', description: 'Size of wheel icons in Wheel header mode. Default: 150. Only applies when Card Header Style is set to Wheel.' },
   SCOREBOARD_SCORE_COLUMNS: { label: 'Score Columns', description: 'Number of score columns within each card. 2 columns shows ranks side-by-side (e.g. 1-5 left, 6-10 right). Collapses to 1 on mobile.' },
   SCOREBOARD_QR_MODE: { label: 'QR Codes', description: 'Show QR codes on score cards linking to mobile score submission. Disabled: no QR codes. Kiosk Only: QR on kiosk display. All: QR on both scoreboard and kiosk.' },
@@ -171,6 +171,7 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: 'compact', label: 'Compact' },
     { value: 'wheel', label: 'Wheel Icon' },
     { value: 'sidebar', label: 'Sidebar (image left of title)' },
+    { value: 'fullart', label: 'Full Art (image fills card)' },
   ],
   SCOREBOARD_WHEEL_SCALE: [
     { value: '100', label: 'Small (100%)' },
