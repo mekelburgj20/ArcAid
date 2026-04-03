@@ -375,7 +375,7 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted }: 
             style={{
               backgroundImage: `url(${bgImage})`,
               backgroundSize: 'cover',
-              backgroundPosition: 'center',
+              backgroundPosition: 'top center',
             }}
           />
           {styleHeaderUrl && (

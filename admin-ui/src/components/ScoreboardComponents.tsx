@@ -295,7 +295,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
     backgroundImage: `url(${url})`,
     backgroundSize: bgSize === 'tile' ? 'auto' : bgSize,
     backgroundRepeat: bgSize === 'tile' ? 'repeat' : 'no-repeat',
-    backgroundPosition: 'center',
+    backgroundPosition: 'top center',
   });
 
   // Glass-panel helper for fill mode — dynamic opacity

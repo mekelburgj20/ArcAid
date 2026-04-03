@@ -381,7 +381,7 @@ export default function GameDetail() {
         style={imageUrl ? {
           backgroundImage: `url(${imageUrl})`,
           backgroundSize: 'cover',
-          backgroundPosition: 'center',
+          backgroundPosition: 'top center',
         } : undefined}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/50 to-black/20" />
