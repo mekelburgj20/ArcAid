@@ -323,7 +323,6 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
     <div
       className={`relative border-2 ${borderColor} rounded-lg ${headerStyle === 'wheel' ? 'overflow-visible' : 'overflow-hidden'} flex flex-col h-full`}
       style={{
-        containerType: 'inline-size',
         ...(globalStyles?.enabled && globalStyles.cssBox ? { borderColor: globalStyles.cssBox } : {}),
         ...(globalStyles?.enabled && globalStyles.bgColor ? { backgroundColor: globalStyles.bgColor } : {}),
       }}
@@ -350,7 +349,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           </div>
           <div className="min-w-0 flex-1">
             {!hasIdentifierImage && (
-              <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
+              <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
                 {displayText}
               </h3>
             )}
@@ -383,7 +382,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
               {!hasIdentifierImage && (
                 <h3
                   className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass}`}
-                  style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
+                  style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
                 >
                   {displayText}
                 </h3>
@@ -417,7 +416,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             {!hasIdentifierImage && (
               <h3
                 className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass}`}
-                style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
+                style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
               >
                 {displayText}
               </h3>
@@ -439,7 +438,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
             {!hasIdentifierImage && (
-              <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
+              <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
                 {displayText}
               </h3>
             )}
@@ -522,15 +521,15 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''}`}
                       >
                         <div className="flex items-center gap-1.5">
-                          <span className={`font-display font-bold ${rankColor}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>
+                          <span className={`font-display font-bold ${rankColor}`} style={{ fontSize: '0.8125rem' }}>
                             {entry.rank}
                           </span>
                           <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-                          <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>{entry.iscored_username}</span>
+                          <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem' }}>{entry.iscored_username}</span>
                         </div>
                         <span
                           className={`font-display font-bold mt-0.5 ${scoreColor}`}
-                          style={{ fontSize: 'clamp(0.75rem, 3.2cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
+                          style={{ fontSize: '0.875rem', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
                           title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
                         >
                           {formattedScore}
@@ -546,16 +545,16 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         onClick={hasMultiple && !useTwoColumns ? () => togglePlayer(entry.iscored_username) : undefined}
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${rankColor}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>
+                          <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${rankColor}`} style={{ fontSize: '0.8125rem' }}>
                             {entry.rank}
                           </span>
                           <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-                          <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)' }}>{entry.iscored_username}</span>
+                          <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem' }}>{entry.iscored_username}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span
                             className={`font-display font-bold flex-shrink-0 ${scoreColor}`}
-                            style={{ fontSize: 'clamp(0.625rem, 2.8cqi, 0.875rem)', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
+                            style={{ fontSize: '0.8125rem', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
                             title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
                           >
                             {formattedScore}
