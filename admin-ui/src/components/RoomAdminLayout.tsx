@@ -69,18 +69,22 @@ export default function RoomAdminLayout() {
   };
 
   const basePath = `/${slug}/admin`;
-  const navItems = [
+  const navItems: Array<{ path: string; label: string; icon: React.ReactNode } | 'separator'> = [
     { path: `${basePath}/dashboard`, label: 'Dashboard', icon: <Home size={18} /> },
+    'separator',
     { path: `${basePath}/tournaments`, label: 'Tournaments', icon: <Trophy size={18} /> },
     { path: `${basePath}/library`, label: 'Game Library', icon: <Library size={18} /> },
+    { path: `${basePath}/games`, label: 'Game States', icon: <Wrench size={18} /> },
+    'separator',
     { path: `${basePath}/leaderboard`, label: 'Leaderboard', icon: <Medal size={18} /> },
     { path: `${basePath}/rankings`, label: 'Rankings', icon: <Crown size={18} /> },
     { path: `${basePath}/stats`, label: 'Stats', icon: <BarChart3 size={18} /> },
     { path: `${basePath}/history`, label: 'History', icon: <Clock size={18} /> },
-    { path: `${basePath}/games`, label: 'Game States', icon: <Wrench size={18} /> },
+    'separator',
     { path: `${basePath}/styles`, label: 'Style Catalogue', icon: <Palette size={18} /> },
-    { path: `${basePath}/activity`, label: 'Activity', icon: <Activity size={18} /> },
     { path: `${basePath}/settings`, label: 'Room Settings', icon: <SettingsIcon size={18} /> },
+    'separator',
+    { path: `${basePath}/activity`, label: 'Activity', icon: <Activity size={18} /> },
     { path: `${basePath}/help`, label: 'Help', icon: <HelpCircle size={18} /> },
   ];
 
@@ -116,7 +120,10 @@ export default function RoomAdminLayout() {
             </div>
           </div>
           <nav className="flex-1 py-2 flex flex-col gap-0.5 overflow-y-auto">
-            {navItems.map(item => {
+            {navItems.map((item, i) => {
+              if (item === 'separator') {
+                return <div key={`sep-${i}`} className="border-t border-border/50 my-1 mx-4" />;
+              }
               const isActive = location.pathname === item.path;
               return (
                 <Link
