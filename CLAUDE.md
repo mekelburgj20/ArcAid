@@ -171,7 +171,7 @@ Two sub-applications in one process:
 - **Game display name:** `game_library.display_name` (nullable) — optional override shown on scoreboard cards; falls back to `game_library.name`. Propagated to `games.display_name` on activation.
 - **Layout presets:** Settings page offers 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) via `PresetSelector`. Individual settings hidden behind "Customize" toggle. `computeActivePreset()` auto-detects custom settings. Preset grid is 2×3 with always-visible Custom indicator.
 - **Settings live preview:** `ScoreboardPreview` renders 3 mock game cards with real catalogue art, using CSS `transform: scale()` to fit the 50/50 layout. Mirrors actual grid/scroll rendering logic. Updates instantly on setting changes.
-- **Auto-sizing text:** CSS container queries (`containerType: 'inline-size'`) with `clamp()` functions scale card title and score text based on card width.
+- **Card text sizing:** Fixed `rem` font sizes for card titles and scores. (Container queries were removed due to a Chromium rendering bug with CSS `zoom`.)
 - **Image cropper:** `ImageCropper` component (react-easy-crop) used for branding uploads and style catalogue uploads. Canvas-based resize before upload.
 - **Score abbreviation:** Scores ≥1T (1,000,000,000,000) display as "X.XT" with full value in tooltip.
 - **Global card styles:** `GLOBAL_CARD_STYLES_ENABLED` toggle + `GLOBAL_CARD_CSS_TITLE`, `GLOBAL_CARD_CSS_SCORES`, `GLOBAL_CARD_CSS_BOX`, `GLOBAL_CARD_BG_COLOR` color overrides applied room-wide

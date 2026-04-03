@@ -37,7 +37,7 @@
 - **Smart title auto-hide** — Game name text automatically hidden when an identifier image exists on the card
 - **Image cropper** — Locked aspect ratio cropping for branding uploads and style catalogue images
 - **Per-game art assignment** — Independent logo and background images from different style catalogue entries
-- **Auto-sizing text** — CSS container queries scale card text based on card width for readable scores at any size
+- **Readable card text** — Fixed responsive font sizes for card titles and scores at any card width
 - **Score toast notifications** — Real-time WebSocket-powered slide-down notifications when players submit scores
 - **"Your Best" quick stat** — Logged-in users see their best score and rank on each game card footer
 - **Platform in-use validation** — Prevents deleting platforms that are referenced by active tournaments
