@@ -39,7 +39,7 @@ interface PendingInvite {
 const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
 
 const CATEGORIES: Record<string, string[]> = {
-  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
+  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
@@ -129,6 +129,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_BG_FILL: { label: 'Card Background Fill', description: 'When enabled, the game background image fills the entire card behind the layout with glass-panel styling for readability.' },
   SCOREBOARD_BG_SIZE: { label: 'Card Background Sizing', description: 'How game background images are sized. Cover: fills area (may crop). Contain: fits entirely (no crop). Tile: repeats the image as a pattern.' },
   SCOREBOARD_WHEEL_SCALE: { label: 'Wheel Icon Size', description: 'Size of wheel icons in Wheel header mode. Default: 150. Only applies when Card Header Style is set to Wheel.' },
+  SCOREBOARD_SCORE_STYLE: { label: 'Score Entry Style', description: 'How score entries are styled on cards. Glass: frosted panel behind scores. Shadow/Outlined/Glow: text effects with no panel, letting background images show through.' },
   SCOREBOARD_GLASS_OPACITY: { label: 'Glass Panel Opacity', description: 'Opacity of glass panels overlaying the background in Fill mode. 0 = transparent, 100 = fully opaque. Default: 60.' },
   SCOREBOARD_GAME_TITLE_STYLE: { label: 'Game Title Style', description: 'Visual style for game name text on score cards. Applies when game name is shown (no identifier image).' },
   SCOREBOARD_SCORE_COLUMNS: { label: 'Score Columns', description: 'Number of score columns within each card. 2 columns shows ranks side-by-side (e.g. 1-5 left, 6-10 right). Collapses to 1 on mobile.' },
@@ -200,6 +201,12 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: '150', label: 'Large (150%) — Default' },
     { value: '175', label: 'X-Large (175%)' },
     { value: '200', label: 'XX-Large (200%)' },
+  ],
+  SCOREBOARD_SCORE_STYLE: [
+    { value: 'glass', label: 'Glass Panel (Default)' },
+    { value: 'shadow', label: 'Shadow (Drop Shadow)' },
+    { value: 'outlined', label: 'Outlined (Stroke)' },
+    { value: 'glow', label: 'Glow (Neon)' },
   ],
   SCOREBOARD_GAME_TITLE_STYLE: [
     { value: 'default', label: 'Default (Plain)' },

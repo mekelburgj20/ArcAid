@@ -164,6 +164,7 @@ Two sub-applications in one process:
 - **Card background fill:** `SCOREBOARD_BG_FILL` setting (`off`/`fill`); when `fill`, game background image fills the entire card behind the layout with glass-panel styling for readability. Works with any card layout.
 - **Card background sizing:** `SCOREBOARD_BG_SIZE` setting (`cover`/`contain`/`tile`); controls CSS background-size for game images in card headers and fill mode. Backward compat: old `SCOREBOARD_CARD_HEADER_STYLE=fullart` maps to layout=banner + bgFill=fill.
 - **Game columns:** `SCOREBOARD_GAME_COLUMNS` setting (`auto`/`2`); auto fills based on card size, `2` forces two game cards per row on desktop (single column on mobile)
+- **Score entry style:** `SCOREBOARD_SCORE_STYLE` setting (`glass`/`shadow`/`outlined`/`glow`); glass uses frosted panels behind scores, other styles remove panels and apply text-shadow effects so background images show through
 - **Glass panel opacity:** `SCOREBOARD_GLASS_OPACITY` setting (0-100, default 60); controls `bg-black/XX` on glass panels in fill mode
 - **Game title style:** `SCOREBOARD_GAME_TITLE_STYLE` setting (`default`/`glow`/`shadow`/`outlined`/`backlit`); applies CSS text effects to game name `<h3>` on cards
 - **Game title enhance:** `SCOREBOARD_GAME_TITLE_ENHANCE` toggle; adds dark semi-transparent backdrop behind game title text for readability on busy backgrounds

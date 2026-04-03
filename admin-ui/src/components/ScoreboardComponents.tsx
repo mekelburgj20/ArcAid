@@ -213,7 +213,7 @@ export interface GlobalCardStyles {
   bgColor?: string;
 }
 
-export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover', cardWidth = 288, glassOpacity = 60, gameTitleStyle = 'default', gameTitleEnhance = false }: {
+export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover', cardWidth = 288, glassOpacity = 60, gameTitleStyle = 'default', gameTitleEnhance = false, scoreStyle = 'glass' }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
@@ -230,6 +230,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   glassOpacity?: number;
   gameTitleStyle?: string;
   gameTitleEnhance?: boolean;
+  scoreStyle?: string;
 }) {
   // When 2-column scores are enabled, double the visible scores so both columns fill
   const maxScores = scoreColumns === 2 ? Math.max(maxScoresProp, maxScoresProp * 2) : maxScoresProp;
@@ -318,6 +319,17 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   })();
   const titleEnhanceClass = gameTitleEnhance ? 'bg-black/50 px-2 py-0.5 rounded inline-block' : '';
   const titleBacklitClass = gameTitleStyle === 'backlit' ? 'bg-black/40 px-2 py-0.5 rounded inline-block' : '';
+
+  // Score entry style: glass uses panels, other styles use text effects with no panel
+  const useGlassScores = scoreStyle === 'glass';
+  const scoreTextCSS = (() => {
+    switch (scoreStyle) {
+      case 'glow': return { textShadow: '0 0 8px currentColor, 0 0 16px currentColor' };
+      case 'shadow': return { textShadow: '0 2px 6px rgba(0,0,0,0.8), 0 1px 3px rgba(0,0,0,0.9)' };
+      case 'outlined': return { textShadow: '-1px -1px 0 rgba(0,0,0,0.8), 1px -1px 0 rgba(0,0,0,0.8), -1px 1px 0 rgba(0,0,0,0.8), 1px 1px 0 rgba(0,0,0,0.8)' };
+      default: return {};
+    }
+  })();
 
   return (
     <div
@@ -465,7 +477,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
       )}
 
       {/* Scores */}
-      <div className={`flex-1 relative ${isFill ? glassPanel + ' m-2' : ''}`} style={isFill ? glassStyle : undefined}>
+      <div className={`flex-1 relative ${isFill && useGlassScores ? glassPanel + ' m-2' : isFill ? 'm-2' : ''}`} style={isFill && useGlassScores ? glassStyle : undefined}>
         {lb.rankings.length === 0 ? (
           <div className="py-8 text-center">
             <p className={`text-sm ${isFill ? 'text-white/40' : 'text-faint'}`}>No scores yet</p>
@@ -521,15 +533,15 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''}`}
                       >
                         <div className="flex items-center gap-1.5">
-                          <span className={`font-display font-bold ${rankColor}`} style={{ fontSize: '0.8125rem' }}>
+                          <span className={`font-display font-bold ${rankColor}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>
                             {entry.rank}
                           </span>
                           <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-                          <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem' }}>{entry.iscored_username}</span>
+                          <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{entry.iscored_username}</span>
                         </div>
                         <span
                           className={`font-display font-bold mt-0.5 ${scoreColor}`}
-                          style={{ fontSize: '0.875rem', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
+                          style={{ fontSize: '0.875rem', ...scoreTextCSS, ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
                           title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
                         >
                           {formattedScore}
@@ -545,16 +557,16 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         onClick={hasMultiple && !useTwoColumns ? () => togglePlayer(entry.iscored_username) : undefined}
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${rankColor}`} style={{ fontSize: '0.8125rem' }}>
+                          <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${rankColor}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>
                             {entry.rank}
                           </span>
                           <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-                          <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem' }}>{entry.iscored_username}</span>
+                          <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{entry.iscored_username}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span
                             className={`font-display font-bold flex-shrink-0 ${scoreColor}`}
-                            style={{ fontSize: '0.8125rem', ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
+                            style={{ fontSize: '0.8125rem', ...scoreTextCSS, ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
                             title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
                           >
                             {formattedScore}
@@ -643,8 +655,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
 
       {/* Viewer's best score */}
       {viewerEntry && (
-        <div className={`${isFill ? glassPanel + ' mx-2 px-3 py-1.5' : 'border-t border-border/20 pt-2 mt-2 px-4 pb-3'} relative`} style={isFill ? glassStyle : undefined}>
-          <p className="text-xs text-neon-cyan/70">
+        <div className={`${isFill && useGlassScores ? glassPanel + ' mx-2 px-3 py-1.5' : isFill ? 'mx-2 px-3 py-1.5' : 'border-t border-border/20 pt-2 mt-2 px-4 pb-3'} relative`} style={isFill && useGlassScores ? glassStyle : undefined}>
+          <p className="text-xs text-neon-cyan/70" style={scoreTextCSS}>
             Your best: {viewerEntry.score.toLocaleString()} (Rank #{viewerEntry.rank})
           </p>
         </div>
@@ -652,15 +664,16 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
 
       {/* Footer: link inside glass panel, QR code outside */}
       <div className={`relative flex items-center ${isFill ? 'mx-2 mb-2 mt-1 gap-2' : 'border-t border-border/50'}`}>
-        <div className={`${isFill ? glassPanel + ' px-3 py-2 flex-1' : 'px-4 py-2.5 flex-1'} flex items-center gap-2`} style={isFill ? glassStyle : undefined}>
+        <div className={`${isFill && useGlassScores ? glassPanel + ' px-3 py-2 flex-1' : isFill ? 'px-3 py-2 flex-1' : 'px-4 py-2.5 flex-1'} flex items-center gap-2`} style={isFill && useGlassScores ? glassStyle : undefined}>
           <Link
             to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
             className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
+            style={scoreTextCSS}
           >
             Full Leaderboard &rarr;
           </Link>
           {countdown && (
-            <span className={`text-[11px] ${isFill ? 'text-white/50' : 'text-muted'} ml-auto`} title="Time until next rotation">
+            <span className={`text-[11px] ${isFill ? 'text-white/50' : 'text-muted'} ml-auto`} style={scoreTextCSS} title="Time until next rotation">
               {countdown}
             </span>
           )}

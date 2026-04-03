@@ -30,6 +30,7 @@
 - [x] Display name propagation from game_library → games table on activation
 - [x] Game title style dropdown (SCOREBOARD_GAME_TITLE_STYLE: default/glow/shadow/outlined/backlit)
 - [x] Game title visibility enhancement toggle (SCOREBOARD_GAME_TITLE_ENHANCE: dark backdrop behind title text)
+- [x] Score entry style setting (SCOREBOARD_SCORE_STYLE: glass/shadow/outlined/glow) — replace glass panels with text effects to let background images show through
 
 ### Scoreboard UX Overhaul (2026-04-01)
 - [x] CSS container query auto-sizing text — clamp() functions scale title and score text based on card width

@@ -74,7 +74,7 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
   const {
     maxScores, cardWidth, cardOpacity, scoreColumns,
     headerStyle, bgFill, bgSize, wheelScale, globalStyles,
-    layout, gameColumns, glassOpacity, gameTitleStyle, gameTitleEnhance,
+    layout, gameColumns, glassOpacity, gameTitleStyle, gameTitleEnhance, scoreStyle,
   } = deriveCardProps(settings);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -147,6 +147,7 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
                     glassOpacity={glassOpacity}
                     gameTitleStyle={gameTitleStyle}
                     gameTitleEnhance={gameTitleEnhance}
+                    scoreStyle={scoreStyle}
                   />
                 </div>
               ))}
@@ -172,6 +173,10 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
                       bgFill={bgFill}
                       bgSize={bgSize}
                       cardWidth={cardWidth}
+                      glassOpacity={glassOpacity}
+                      gameTitleStyle={gameTitleStyle}
+                      gameTitleEnhance={gameTitleEnhance}
+                      scoreStyle={scoreStyle}
                     />
                   </div>
                 ))}
