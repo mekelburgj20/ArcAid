@@ -12,6 +12,7 @@ import StylePicker from '../components/StylePicker';
 
 interface GameRow {
   name: string;
+  display_name: string;
   aliases: string;
   style_id: string;
   mode: string;
@@ -26,7 +27,7 @@ interface GameRow {
 }
 
 const emptyGame: GameRow = {
-  name: '', aliases: '', style_id: '', mode: 'pinball', css_title: '', css_initials: '',
+  name: '', display_name: '', aliases: '', style_id: '', mode: 'pinball', css_title: '', css_initials: '',
   css_scores: '', css_box: '', bg_color: '', platforms: ''
 };
 
@@ -810,6 +811,10 @@ export default function GameLibrary() {
               <div>
                 <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Game Name *</label>
                 <input type="text" value={editGame.name} onChange={e => setEditGame({...editGame, name: e.target.value})} className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Display Name</label>
+                <input type="text" placeholder="Leave blank to use game name" value={editGame.display_name} onChange={e => setEditGame({...editGame, display_name: e.target.value})} className={inputClass} />
               </div>
               <div>
                 <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Mode</label>

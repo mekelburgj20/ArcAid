@@ -28,6 +28,9 @@ export interface CardDisplayProps {
   bgSize: string;
   wheelScale: number;
   gameColumns: string;
+  glassOpacity: number;
+  gameTitleStyle: string;
+  gameTitleEnhance: boolean;
   globalStyles: GlobalCardStyles | undefined;
 }
 
@@ -76,6 +79,9 @@ export function deriveCardProps(config: Record<string, string>, roomName?: strin
     bgSize: config.SCOREBOARD_BG_SIZE || 'cover',
     wheelScale: parseInt(config.SCOREBOARD_WHEEL_SCALE || '150', 10) || 150,
     gameColumns: config.SCOREBOARD_GAME_COLUMNS || 'auto',
+    glassOpacity: parseInt(config.SCOREBOARD_GLASS_OPACITY || '60', 10) || 60,
+    gameTitleStyle: config.SCOREBOARD_GAME_TITLE_STYLE || 'default',
+    gameTitleEnhance: config.SCOREBOARD_GAME_TITLE_ENHANCE === 'true',
     globalStyles,
   };
 }

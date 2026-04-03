@@ -164,8 +164,13 @@ Two sub-applications in one process:
 - **Card background fill:** `SCOREBOARD_BG_FILL` setting (`off`/`fill`); when `fill`, game background image fills the entire card behind the layout with glass-panel styling for readability. Works with any card layout.
 - **Card background sizing:** `SCOREBOARD_BG_SIZE` setting (`cover`/`contain`/`tile`); controls CSS background-size for game images in card headers and fill mode. Backward compat: old `SCOREBOARD_CARD_HEADER_STYLE=fullart` maps to layout=banner + bgFill=fill.
 - **Game columns:** `SCOREBOARD_GAME_COLUMNS` setting (`auto`/`2`); auto fills based on card size, `2` forces two game cards per row on desktop (single column on mobile)
-- **Layout presets:** Settings page offers 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) via `PresetSelector`. Individual settings hidden behind "Customize" toggle. `computeActivePreset()` auto-detects custom settings.
-- **Settings live preview:** `ScoreboardPreview` renders 3 mock game cards with real catalogue art, using CSS `transform: scale()` to fit the sidebar. Mirrors actual grid/scroll rendering logic. Updates instantly on setting changes.
+- **Glass panel opacity:** `SCOREBOARD_GLASS_OPACITY` setting (0-100, default 60); controls `bg-black/XX` on glass panels in fill mode
+- **Game title style:** `SCOREBOARD_GAME_TITLE_STYLE` setting (`default`/`glow`/`shadow`/`outlined`/`backlit`); applies CSS text effects to game name `<h3>` on cards
+- **Game title enhance:** `SCOREBOARD_GAME_TITLE_ENHANCE` toggle; adds dark semi-transparent backdrop behind game title text for readability on busy backgrounds
+- **Game title auto-hide:** When a card has an identifier (header) image (`styleHeaderUrl`), the game name `<h3>` text is hidden — the identifier serves as the name
+- **Game display name:** `game_library.display_name` (nullable) — optional override shown on scoreboard cards; falls back to `game_library.name`. Propagated to `games.display_name` on activation.
+- **Layout presets:** Settings page offers 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) via `PresetSelector`. Individual settings hidden behind "Customize" toggle. `computeActivePreset()` auto-detects custom settings. Preset grid is 2×3 with always-visible Custom indicator.
+- **Settings live preview:** `ScoreboardPreview` renders 3 mock game cards with real catalogue art, using CSS `transform: scale()` to fit the 50/50 layout. Mirrors actual grid/scroll rendering logic. Updates instantly on setting changes.
 - **Auto-sizing text:** CSS container queries (`containerType: 'inline-size'`) with `clamp()` functions scale card title and score text based on card width.
 - **Image cropper:** `ImageCropper` component (react-easy-crop) used for branding uploads and style catalogue uploads. Canvas-based resize before upload.
 - **Score abbreviation:** Scores ≥1T (1,000,000,000,000) display as "X.XT" with full value in tooltip.

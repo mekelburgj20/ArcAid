@@ -95,19 +95,27 @@ export class TournamentEngine {
             game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, game.startDate?.toISOString()
         );
 
-        // Auto-apply default catalogue style from room's game library (if set)
+        // Auto-apply default catalogue style and display_name from room's game library (if set)
         const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
         if (tournament?.game_room_id) {
-            const libraryStyle = await db.get(
+            const libraryEntry = await db.get(
                 `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled FROM game_room_game_library
                  WHERE game_room_id = ? AND game_name = ? AND (catalogue_style_id IS NOT NULL OR logo_style_id IS NOT NULL OR bg_style_id IS NOT NULL)`,
                 tournament.game_room_id, gameName
             );
-            if (libraryStyle) {
+            if (libraryEntry) {
                 await db.run(
                     'UPDATE games SET catalogue_style_id = ?, logo_style_id = ?, bg_style_id = ?, style_header_disabled = ? WHERE id = ?',
-                    libraryStyle.catalogue_style_id, libraryStyle.logo_style_id, libraryStyle.bg_style_id, libraryStyle.style_header_disabled, game.id
+                    libraryEntry.catalogue_style_id, libraryEntry.logo_style_id, libraryEntry.bg_style_id, libraryEntry.style_header_disabled, game.id
                 );
+            }
+            // Apply display_name from global library
+            const libGame = await db.get(
+                'SELECT display_name FROM game_library WHERE name = ? COLLATE NOCASE',
+                gameName
+            );
+            if (libGame?.display_name) {
+                await db.run('UPDATE games SET display_name = ? WHERE id = ?', libGame.display_name, game.id);
             }
         }
 

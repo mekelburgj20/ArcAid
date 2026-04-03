@@ -17,6 +17,7 @@ export interface RankedEntry {
 export interface GameLeaderboard {
   gameId: string;
   gameName: string;
+  displayName?: string | null;
   tournamentName: string;
   tournamentType: string;
   imageUrl: string | null;
@@ -212,7 +213,7 @@ export interface GlobalCardStyles {
   bgColor?: string;
 }
 
-export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover', cardWidth = 288 }: {
+export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitScore, cardOpacity, scoreColumns = 1, viewerUsername, viewerEntry, qrMode = 'disabled', headerStyle = 'banner', globalStyles, wheelScale = 150, bgFill = 'off', bgSize = 'cover', cardWidth = 288, glassOpacity = 60, gameTitleStyle = 'default', gameTitleEnhance = false }: {
   lb: GameLeaderboard; slug: string; maxScores: number; roomId?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
   cardOpacity?: number;
@@ -226,6 +227,9 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   bgFill?: string;
   bgSize?: string;
   cardWidth?: number;
+  glassOpacity?: number;
+  gameTitleStyle?: string;
+  gameTitleEnhance?: boolean;
 }) {
   // When 2-column scores are enabled, double the visible scores so both columns fill
   const maxScores = scoreColumns === 2 ? Math.max(maxScoresProp, maxScoresProp * 2) : maxScoresProp;
@@ -294,8 +298,26 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
     backgroundPosition: 'center',
   });
 
-  // Glass-panel helper for fill mode
-  const glassPanel = 'bg-black/60 backdrop-blur-sm border border-white/10 rounded-lg';
+  // Glass-panel helper for fill mode — dynamic opacity
+  const glassPanel = `backdrop-blur-sm border border-white/10 rounded-lg`;
+  const glassStyle = { backgroundColor: `rgba(0,0,0,${glassOpacity / 100})` };
+
+  // Game title: auto-hide when identifier image exists; fallback to displayName → gameName
+  const hasIdentifierImage = !!styleHeaderUrl;
+  const displayText = (lb as GameLeaderboard & { displayName?: string | null }).displayName || lb.gameName;
+
+  // Game title style CSS
+  const titleStyleCSS = (() => {
+    switch (gameTitleStyle) {
+      case 'glow': return { textShadow: '0 0 8px currentColor, 0 0 16px currentColor' };
+      case 'shadow': return { textShadow: '0 2px 6px rgba(0,0,0,0.8), 0 1px 3px rgba(0,0,0,0.9)' };
+      case 'outlined': return { textShadow: '-1px -1px 0 rgba(0,0,0,0.8), 1px -1px 0 rgba(0,0,0,0.8), -1px 1px 0 rgba(0,0,0,0.8), 1px 1px 0 rgba(0,0,0,0.8)' };
+      case 'backlit': return {};
+      default: return {};
+    }
+  })();
+  const titleEnhanceClass = gameTitleEnhance ? 'bg-black/50 px-2 py-0.5 rounded inline-block' : '';
+  const titleBacklitClass = gameTitleStyle === 'backlit' ? 'bg-black/40 px-2 py-0.5 rounded inline-block' : '';
 
   return (
     <div
@@ -320,16 +342,19 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
       {headerStyle === 'compact' && iconImage ? (
         <div
           className={`flex items-center gap-3 px-4 py-3 border-b ${isFill ? 'border-white/10' : 'border-border/30'} relative ${isFill ? glassPanel + ' m-2 mb-0' : ''} ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
+          style={isFill ? glassStyle : undefined}
           onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
         >
           <div className="w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-raised">
             <img src={iconImage} alt="" className="w-full h-full object-contain" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
-              {lb.gameName}
-            </h3>
-            <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
+            {!hasIdentifierImage && (
+              <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
+                {displayText}
+              </h3>
+            )}
+            <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
           </div>
           {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="flex-shrink-0"><Lock size={14} className="text-neon-amber" /></span>}
           {onSubmitScore && (
@@ -355,13 +380,15 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             )}
             {/* Title + tournament below the wheel */}
             <div className="w-full text-center px-4 pb-2 pt-1 relative">
-              <h3
-                className="font-display font-bold leading-tight truncate"
-                style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
-              >
-                {lb.gameName}
-              </h3>
-              <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
+              {!hasIdentifierImage && (
+                <h3
+                  className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass}`}
+                  style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
+                >
+                  {displayText}
+                </h3>
+              )}
+              <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
               {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-1"><Lock size={14} className="text-neon-amber" /></span>}
               {onSubmitScore && (
                 <span className="absolute left-3 top-1"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
@@ -372,6 +399,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
       ) : headerStyle === 'sidebar' ? (
         <div
           className={`flex items-center border-b ${isFill ? 'border-white/10' : 'border-border/30'} relative ${isFill ? glassPanel + ' m-2 mb-0' : ''} ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
+          style={isFill ? glassStyle : undefined}
           onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
         >
           {/* Image panel on the left — square, proportional to title height */}
@@ -386,13 +414,15 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           )}
           {/* Title + tournament on the right */}
           <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
-            <h3
-              className="font-display font-bold leading-tight truncate"
-              style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
-            >
-              {lb.gameName}
-            </h3>
-            <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
+            {!hasIdentifierImage && (
+              <h3
+                className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass}`}
+                style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
+              >
+                {displayText}
+              </h3>
+            )}
+            <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
           </div>
           {/* Status icons */}
           <div className="flex items-center gap-1.5 pr-3 flex-shrink-0">
@@ -405,16 +435,19 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           {/* Title area — clickable to submit score if handler provided */}
           <div
             className={`px-4 py-3 text-center border-b ${isFill ? 'border-white/10' : 'border-border/30'} relative ${isFill ? glassPanel + ' m-2 mb-0' : ''} ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors group' : ''}`}
+            style={isFill ? glassStyle : undefined}
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
-            <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''}`} style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
-              {lb.gameName}
-            </h3>
+            {!hasIdentifierImage && (
+              <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: 'clamp(0.75rem, 3.5cqi, 1rem)', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
+                {displayText}
+              </h3>
+            )}
             {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-3"><Lock size={14} className="text-neon-amber" /></span>}
             {onSubmitScore && (
               <span className="absolute left-3 top-3"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
             )}
-            <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
+            <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
           </div>
 
           {/* Background image area — only shown in non-fill mode (fill mode uses the full card) */}
@@ -433,7 +466,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
       )}
 
       {/* Scores */}
-      <div className={`flex-1 relative ${isFill ? glassPanel + ' m-2' : ''}`}>
+      <div className={`flex-1 relative ${isFill ? glassPanel + ' m-2' : ''}`} style={isFill ? glassStyle : undefined}>
         {lb.rankings.length === 0 ? (
           <div className="py-8 text-center">
             <p className={`text-sm ${isFill ? 'text-white/40' : 'text-faint'}`}>No scores yet</p>
@@ -611,31 +644,33 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
 
       {/* Viewer's best score */}
       {viewerEntry && (
-        <div className={`${isFill ? glassPanel + ' mx-2 px-3 py-1.5' : 'border-t border-border/20 pt-2 mt-2 px-4 pb-3'} relative`}>
+        <div className={`${isFill ? glassPanel + ' mx-2 px-3 py-1.5' : 'border-t border-border/20 pt-2 mt-2 px-4 pb-3'} relative`} style={isFill ? glassStyle : undefined}>
           <p className="text-xs text-neon-cyan/70">
             Your best: {viewerEntry.score.toLocaleString()} (Rank #{viewerEntry.rank})
           </p>
         </div>
       )}
 
-      {/* Footer link + QR code */}
-      <div className={`${isFill ? glassPanel + ' m-2 mt-1 px-3 py-2' : 'border-t border-border/50 px-4 py-2.5'} relative flex items-center justify-between`}>
-        <Link
-          to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
-          className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
-        >
-          Full Leaderboard &rarr;
-        </Link>
-        <div className="flex items-center gap-2">
+      {/* Footer: link inside glass panel, QR code outside */}
+      <div className={`relative flex items-center ${isFill ? 'mx-2 mb-2 mt-1 gap-2' : 'border-t border-border/50'}`}>
+        <div className={`${isFill ? glassPanel + ' px-3 py-2 flex-1' : 'px-4 py-2.5 flex-1'} flex items-center gap-2`} style={isFill ? glassStyle : undefined}>
+          <Link
+            to={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
+            className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline transition-colors"
+          >
+            Full Leaderboard &rarr;
+          </Link>
           {countdown && (
-            <span className={`text-[11px] ${isFill ? 'text-white/50' : 'text-muted'}`} title="Time until next rotation">
+            <span className={`text-[11px] ${isFill ? 'text-white/50' : 'text-muted'} ml-auto`} title="Time until next rotation">
               {countdown}
             </span>
           )}
-          {qrMode !== 'disabled' && (
-            <GameQRCode slug={slug} gameId={lb.gameId} size={40} />
-          )}
         </div>
+        {qrMode !== 'disabled' && (
+          <div className={`flex-shrink-0 ${isFill ? '' : 'pr-3 py-2'}`}>
+            <GameQRCode slug={slug} gameId={lb.gameId} size={40} />
+          </div>
+        )}
       </div>
 
       {/* Score photo modal */}

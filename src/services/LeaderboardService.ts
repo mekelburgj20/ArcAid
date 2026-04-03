@@ -102,7 +102,7 @@ export class LeaderboardService {
     /**
      * Get leaderboards for all active games, optionally filtered by game room.
      */
-    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; rankings: RankedEntry[]; nextMaintenanceAt: string | null }>> {
+    static async getActiveLeaderboards(gameRoomId?: string): Promise<Array<{ gameId: string; gameName: string; displayName: string | null; tournamentName: string; tournamentType: string; imageUrl: string | null; gameStatus: string; catalogueStyleId: string | null; logoStyleId: string | null; bgStyleId: string | null; styleHeaderDisabled: boolean; rankings: RankedEntry[]; nextMaintenanceAt: string | null }>> {
         const db = await getDatabase();
 
         const roomFilter = gameRoomId ? ' AND t.game_room_id = ?' : '';
@@ -110,7 +110,7 @@ export class LeaderboardService {
 
         // 1. All ACTIVE games always show
         const activeGames = await db.all(`
-            SELECT g.id, g.name as game_name, g.status, t.name as tournament_name, t.type as tournament_type,
+            SELECT g.id, g.name as game_name, g.display_name, g.status, t.name as tournament_name, t.type as tournament_type,
                    COALESCE(t.display_order, 9999) as display_order, gl.image_url,
                    g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                    g.tournament_id,
@@ -149,7 +149,7 @@ export class LeaderboardService {
 
             if (rule.mode === 'retain' && (rule.count || 0) > 0) {
                 const completed = await db.all(`
-                    SELECT g.id, g.name as game_name, g.status, ? as tournament_name, ? as tournament_type,
+                    SELECT g.id, g.name as game_name, g.display_name, g.status, ? as tournament_name, ? as tournament_type,
                            ? as display_order, gl.image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                            sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
@@ -166,7 +166,7 @@ export class LeaderboardService {
                 retainedGames.push(...completed);
             } else if (rule.mode === 'scheduled') {
                 const completed = await db.all(`
-                    SELECT g.id, g.name as game_name, g.status, ? as tournament_name, ? as tournament_type,
+                    SELECT g.id, g.name as game_name, g.display_name, g.status, ? as tournament_name, ? as tournament_type,
                            ? as display_order, gl.image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                            sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
@@ -248,6 +248,7 @@ export class LeaderboardService {
             results.push({
                 gameId: game.id,
                 gameName: game.game_name,
+                displayName: game.display_name || null,
                 tournamentName: game.tournament_name || 'Untracked',
                 tournamentType: game.tournament_type || '',
                 imageUrl: game.image_url || null,

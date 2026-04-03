@@ -1,4 +1,4 @@
-import { Layout, Grid3X3, Maximize2, Circle, Columns2 } from 'lucide-react';
+import { Layout, Grid3X3, Maximize2, Circle, Columns2, SlidersHorizontal } from 'lucide-react';
 
 export interface PresetDefinition {
   key: string;
@@ -115,7 +115,7 @@ export default function PresetSelector({ settings, onPresetSelect }: PresetSelec
   return (
     <div>
       <label className="text-xs text-muted block mb-2">Layout Preset</label>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {PRESET_DEFINITIONS.map(preset => {
           const isActive = activePreset === preset.key;
           const Icon = preset.icon;
@@ -135,13 +135,18 @@ export default function PresetSelector({ settings, onPresetSelect }: PresetSelec
             </button>
           );
         })}
-        {/* Custom indicator */}
-        {activePreset === 'custom' && (
-          <div className="flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg border-2 border-neon-amber/50 bg-neon-amber/5">
-            <span className="text-xs font-bold font-display text-neon-amber">Custom</span>
-            <span className="text-[10px] text-center leading-tight text-neon-amber/70">Modified settings</span>
-          </div>
-        )}
+        {/* Custom indicator — always visible */}
+        <div className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg border-2 ${
+          activePreset === 'custom'
+            ? 'border-neon-amber/50 bg-neon-amber/5'
+            : 'border-border/30 bg-raised/30'
+        }`}>
+          <SlidersHorizontal size={20} className={activePreset === 'custom' ? 'text-neon-amber' : 'text-faint'} />
+          <span className={`text-xs font-bold font-display ${activePreset === 'custom' ? 'text-neon-amber' : 'text-faint'}`}>Custom</span>
+          <span className={`text-[10px] text-center leading-tight ${activePreset === 'custom' ? 'text-neon-amber/70' : 'text-faint/50'}`}>
+            {activePreset === 'custom' ? 'Modified settings' : 'No custom changes'}
+          </span>
+        </div>
       </div>
     </div>
   );

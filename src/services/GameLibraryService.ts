@@ -3,6 +3,7 @@ import { logInfo } from '../utils/logger.js';
 
 interface GameData {
     name: string;
+    display_name?: string;
     aliases?: string;
     style_id?: string;
     mode?: string;
@@ -40,8 +41,8 @@ export class GameLibraryService {
     static async updateGame(originalName: string, game: GameData): Promise<boolean> {
         const db = await getDatabase();
         const result = await db.run(
-            `UPDATE game_library SET name = ?, aliases = ?, style_id = ?, mode = ?, css_title = ?, css_initials = ?, css_scores = ?, css_box = ?, bg_color = ?, platforms = ? WHERE name = ?`,
-            game.name, game.aliases || '', game.style_id || '',
+            `UPDATE game_library SET name = ?, display_name = ?, aliases = ?, style_id = ?, mode = ?, css_title = ?, css_initials = ?, css_scores = ?, css_box = ?, bg_color = ?, platforms = ? WHERE name = ?`,
+            game.name, game.display_name || null, game.aliases || '', game.style_id || '',
             game.mode || 'pinball',
             game.css_title || '', game.css_initials || '',
             game.css_scores || '', game.css_box || '',

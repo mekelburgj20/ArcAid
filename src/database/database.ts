@@ -401,6 +401,8 @@ export async function initDatabase(): Promise<Database> {
         { name: '023_games_bg_style_id', sql: `ALTER TABLE games ADD COLUMN bg_style_id TEXT` },
         { name: '024_room_library_logo_style_id', sql: `ALTER TABLE game_room_game_library ADD COLUMN logo_style_id TEXT` },
         { name: '025_room_library_bg_style_id', sql: `ALTER TABLE game_room_game_library ADD COLUMN bg_style_id TEXT` },
+        { name: '026_games_display_name', sql: `ALTER TABLE games ADD COLUMN display_name TEXT` },
+        { name: '027_game_library_display_name', sql: `ALTER TABLE game_library ADD COLUMN display_name TEXT` },
     ];
 
     for (const migration of migrations) {

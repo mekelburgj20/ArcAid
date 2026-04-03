@@ -29,9 +29,12 @@
 - **Progressive Web App (PWA)** — Installable on Android/iOS with standalone display, offline caching, and home screen icon
 - **Global card style overrides** — Room-wide color customization for game card titles, scores, borders, and backgrounds via color pickers
 - **4 card header styles** — Banner (full-width artwork), Compact (thumbnail + title bar, stacked score entries), Wheel (pinball wheel icons above card border, configurable scale), Sidebar (image left of title)
-- **Card background fill** — Background image fills entire card behind layout with glass-panel overlay for readability
+- **Card background fill** — Background image fills entire card behind layout with glass-panel overlay (adjustable opacity)
 - **Layout presets** — 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) with auto-detection of custom settings
 - **Live preview** — Settings page shows multi-card scaled preview with real game art, updating instantly on changes
+- **Game display names** — Optional display name override per game (falls back to game name on scoreboard cards)
+- **Game title styles** — 5 title rendering options (default, glow, shadow, outlined, backlit) plus visibility enhancement toggle
+- **Smart title auto-hide** — Game name text automatically hidden when an identifier image exists on the card
 - **Image cropper** — Locked aspect ratio cropping for branding uploads and style catalogue images
 - **Per-game art assignment** — Independent logo and background images from different style catalogue entries
 - **Auto-sizing text** — CSS container queries scale card text based on card width for readable scores at any size

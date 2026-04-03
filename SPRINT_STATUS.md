@@ -13,13 +13,23 @@
 **Player Engagement Features** — COMPLETE (deployed to production)
 **Leaderboard UX Redesign** — COMPLETE (deployed to production)
 
-### Scoreboard Preview & UX Fixes (2026-04-02)
-- [x] Multi-card preview in Settings — 3 real game cards (Medieval Madness, Addams Family, Twilight Zone) with distinct background and identifier images from style catalogue
+### Scoreboard Settings UX & Card Rendering Fixes (2026-04-02)
+- [x] Multi-card preview in Settings — 3 real game cards with distinct background and identifier images from style catalogue
 - [x] Scale-transform preview — cards render at full size and scale down to fit sidebar, preserving pixel-accurate layout
 - [x] Grid vs Scroll preview — preview mirrors actual Scoreboard.tsx rendering logic for both layout modes
 - [x] Compact score entry layout — stacked vertical format (rank/avatar/name above score) for compact card style
 - [x] Sticky save button — Settings page header pinned to viewport top with backdrop blur
 - [x] Tournament preset no longer overlaps in preview (scale transform renders at real width)
+- [x] Settings page layout widened — 50/50 split instead of flex-1 + fixed 320px sidebar
+- [x] Preset grid: 2×3 grid with Custom cell always visible (amber active, gray inactive)
+- [x] Renamed "Hide Scoreboard Title" → "Hide Game Room Title" with clarified description
+- [x] Footer split: "Full Leaderboard →" inside glass panel, QR code outside
+- [x] Glass panel opacity slider (SCOREBOARD_GLASS_OPACITY: 0-100%, default 60%) — controls fill mode glass panels
+- [x] Game title auto-hide — when identifier (header) image exists, game name text is hidden
+- [x] Display name field on game_library — optional override for game name on scoreboard cards
+- [x] Display name propagation from game_library → games table on activation
+- [x] Game title style dropdown (SCOREBOARD_GAME_TITLE_STYLE: default/glow/shadow/outlined/backlit)
+- [x] Game title visibility enhancement toggle (SCOREBOARD_GAME_TITLE_ENHANCE: dark backdrop behind title text)
 
 ### Scoreboard UX Overhaul (2026-04-01)
 - [x] CSS container query auto-sizing text — clamp() functions scale title and score text based on card width
@@ -155,13 +165,13 @@
 - Feature: Game State Management (admin escape hatch for game/queue/iScored issues) — COMPLETE
 - Feature: iScored API Integration (REST API client, score sync poller, wheel icons) — COMPLETE
 - Feature: Scoreboard UX Overhaul (presets, preview, auto-sizing, image cropper, sidebar/fill layouts) — COMPLETE
-- Feature: Scoreboard Preview & UX Fixes (multi-card preview, compact stacked scores, sticky save) — COMPLETE
+- Feature: Scoreboard Preview & UX Fixes (multi-card preview, compact stacked scores, sticky save, display names, glass opacity, title styles) — COMPLETE
 
 ## Last Session
 
 **Date:** 2026-04-02
-**What happened:** Implemented scoreboard preview fixes: multi-card scaled preview with real game art (Medieval Madness, Addams Family, Twilight Zone), compact stacked score entry layout, sticky save button. Previously shipped UX overhaul with layout presets, live preview, CSS container query auto-sizing, image cropper, sidebar layout, bg fill, per-game images, and shared deriveCardProps config utility.
-**Next:** Deploy to production. User-driven features as needed.
+**What happened:** Completed Settings UX & Card Rendering overhaul: widened preview (50/50 layout), 2×3 preset grid with always-visible Custom cell, renamed "Hide Game Room Title", footer/QR separation, glass panel opacity slider, game title auto-hide when identifier image exists, display_name field on game_library (DB migration + API + admin UI), game title style dropdown (glow/shadow/outlined/backlit), title visibility enhancement toggle.
+**Next:** Deploy to production. Visual verification of card size in preview, wheel icon scale, and Image 2 rendering scenario.
 
 ## Blockers
 

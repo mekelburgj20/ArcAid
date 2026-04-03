@@ -241,6 +241,15 @@
 - [x] >1T score abbreviation with tooltip for scores exceeding 999,999,999,999
 - [x] Terminology unification — "Logo" → "Identifier", "Style" → "Art Pack"
 - [x] PresetSelector component with smart constraint hiding (wheel scale hidden when not wheel layout, etc.)
+- [x] Settings page 50/50 layout — wider preview panel for pixel-accurate multi-card display
+- [x] Preset grid: 2×3 with always-visible Custom indicator (amber active, gray inactive)
+- [x] "Hide Game Room Title" toggle (renamed from "Hide Scoreboard Title" for clarity)
+- [x] Footer/QR separation — "Full Leaderboard →" inside glass panel, QR code outside
+- [x] Glass panel opacity slider (SCOREBOARD_GLASS_OPACITY: 0-100%) — controls fill mode glass panels independently
+- [x] Game title auto-hide — when identifier (header) image exists, game name text suppressed
+- [x] Display name field (game_library.display_name) — optional scoreboard name override, falls back to game name
+- [x] Game title style dropdown (SCOREBOARD_GAME_TITLE_STYLE: default/glow/shadow/outlined/backlit)
+- [x] Game title visibility enhancement toggle (SCOREBOARD_GAME_TITLE_ENHANCE: dark backdrop behind title text)
 
 ---
 

@@ -39,7 +39,7 @@ interface PendingInvite {
 const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
 
 const CATEGORIES: Record<string, string[]> = {
-  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
+  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID'],
@@ -53,8 +53,12 @@ const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; d
     description: 'When enabled, game cards with no scores are hidden from the public scoreboard.',
   },
   'SCOREBOARD_TITLE_HIDDEN': {
-    label: 'Hide Scoreboard Title',
-    description: 'When enabled, the scoreboard title/heading is hidden on the public scoreboard.',
+    label: 'Hide Game Room Title',
+    description: 'When enabled, the game room name/heading (e.g., "ArcAid_Demo") is hidden on the public scoreboard.',
+  },
+  'SCOREBOARD_GAME_TITLE_ENHANCE': {
+    label: 'Enhance Game Title Visibility',
+    description: 'When enabled, adds a dark backdrop behind game title text for readability on busy backgrounds.',
   },
   'REQUIRE_SCORE_PHOTO': {
     label: 'Require Photo with Score Submission',
@@ -125,6 +129,8 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_BG_FILL: { label: 'Card Background Fill', description: 'When enabled, the game background image fills the entire card behind the layout with glass-panel styling for readability.' },
   SCOREBOARD_BG_SIZE: { label: 'Card Background Sizing', description: 'How game background images are sized. Cover: fills area (may crop). Contain: fits entirely (no crop). Tile: repeats the image as a pattern.' },
   SCOREBOARD_WHEEL_SCALE: { label: 'Wheel Icon Size', description: 'Size of wheel icons in Wheel header mode. Default: 150. Only applies when Card Header Style is set to Wheel.' },
+  SCOREBOARD_GLASS_OPACITY: { label: 'Glass Panel Opacity', description: 'Opacity of glass panels overlaying the background in Fill mode. 0 = transparent, 100 = fully opaque. Default: 60.' },
+  SCOREBOARD_GAME_TITLE_STYLE: { label: 'Game Title Style', description: 'Visual style for game name text on score cards. Applies when game name is shown (no identifier image).' },
   SCOREBOARD_SCORE_COLUMNS: { label: 'Score Columns', description: 'Number of score columns within each card. 2 columns shows ranks side-by-side (e.g. 1-5 left, 6-10 right). Collapses to 1 on mobile.' },
   SCOREBOARD_QR_MODE: { label: 'QR Codes', description: 'Show QR codes on score cards linking to mobile score submission. Disabled: no QR codes. Kiosk Only: QR on kiosk display. All: QR on both scoreboard and kiosk.' },
   // Scoreboard Branding
@@ -194,6 +200,13 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: '150', label: 'Large (150%) — Default' },
     { value: '175', label: 'X-Large (175%)' },
     { value: '200', label: 'XX-Large (200%)' },
+  ],
+  SCOREBOARD_GAME_TITLE_STYLE: [
+    { value: 'default', label: 'Default (Plain)' },
+    { value: 'glow', label: 'Glow (Neon)' },
+    { value: 'shadow', label: 'Shadow (Drop Shadow)' },
+    { value: 'outlined', label: 'Outlined (Stroke)' },
+    { value: 'backlit', label: 'Backlit (Dark Pill)' },
   ],
   SCOREBOARD_SCORE_COLUMNS: [
     { value: '1', label: '1 Column (Default)' },
@@ -494,6 +507,9 @@ export default function Settings() {
   }
   if ((settings.SCOREBOARD_BG_FILL || 'off') === 'off' && (settings.SCOREBOARD_CARD_LAYOUT || 'banner') !== 'banner') {
     hiddenKeys.add('SCOREBOARD_BG_SIZE');
+  }
+  if ((settings.SCOREBOARD_BG_FILL || 'off') === 'off') {
+    hiddenKeys.add('SCOREBOARD_GLASS_OPACITY');
   }
 
   const handleSave = async () => {
@@ -808,7 +824,7 @@ export default function Settings() {
         {category === 'Scoreboard Display' ? (
           /* ── Scoreboard Display with Preview Sidebar ── */
           <div className="flex flex-col lg:flex-row gap-4 mb-4">
-            <NeonCard title={category} className="flex-1 min-w-0">
+            <NeonCard title={category} className="lg:w-1/2 min-w-0">
               {/* Preset selector */}
               <PresetSelector settings={settings} onPresetSelect={handlePresetSelect} />
 
@@ -834,14 +850,27 @@ export default function Settings() {
                             {meta?.label || key}
                             {meta?.description && <InfoTip text={meta.description} />}
                           </label>
-                          {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY') ? (
+                          {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY' || key === 'SCOREBOARD_GLASS_OPACITY') ? (
                             <div className="flex items-center gap-3 flex-1">
-                              <input type="range" min="0" max="100" step="5"
-                                value={Math.round((parseFloat(value || '1') * 100))}
-                                onChange={e => handleChange(key, String(parseInt(e.target.value, 10) / 100))}
-                                className="flex-1 accent-neon-cyan cursor-pointer"
-                              />
-                              <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
+                              {key === 'SCOREBOARD_GLASS_OPACITY' ? (
+                                <>
+                                  <input type="range" min="0" max="100" step="5"
+                                    value={parseInt(value || '60', 10)}
+                                    onChange={e => handleChange(key, e.target.value)}
+                                    className="flex-1 accent-neon-cyan cursor-pointer"
+                                  />
+                                  <span className="text-sm text-muted w-12 text-right">{parseInt(value || '60', 10)}%</span>
+                                </>
+                              ) : (
+                                <>
+                                  <input type="range" min="0" max="100" step="5"
+                                    value={Math.round((parseFloat(value || '1') * 100))}
+                                    onChange={e => handleChange(key, String(parseInt(e.target.value, 10) / 100))}
+                                    className="flex-1 accent-neon-cyan cursor-pointer"
+                                  />
+                                  <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
+                                </>
+                              )}
                             </div>
                           ) : SELECT_OPTIONS[key] ? (
                             <select
@@ -891,7 +920,7 @@ export default function Settings() {
             </NeonCard>
 
             {/* Preview sidebar — sticky on desktop */}
-            <div className="lg:w-80 lg:sticky lg:top-4 lg:self-start shrink-0">
+            <div className="lg:w-1/2 lg:sticky lg:top-16 lg:self-start shrink-0">
               <ScoreboardPreview settings={settings} />
             </div>
           </div>
@@ -908,7 +937,7 @@ export default function Settings() {
                         {meta?.label || key}
                         {meta?.description && <InfoTip text={meta.description} />}
                       </label>
-                      {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY') ? (
+                      {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY' || key === 'SCOREBOARD_GLASS_OPACITY') ? (
                         <div className="flex items-center gap-3 flex-1">
                           <input type="range" min="0" max="100" step="5"
                             value={Math.round((parseFloat(value || '1') * 100))}
