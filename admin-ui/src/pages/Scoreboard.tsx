@@ -102,10 +102,7 @@ export default function Scoreboard() {
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
 
   return (
-    <div
-      className="h-full flex flex-col overflow-hidden relative"
-      style={zoom !== 100 ? { zoom: `${zoom}%` } : undefined}
-    >
+    <div className="h-full flex flex-col overflow-hidden relative">
       {/* Background image layer with opacity control */}
       {bgUrl && (
         <div
@@ -148,8 +145,13 @@ export default function Scoreboard() {
         }
       `}</style>
 
-      {/* Header — non-scrolling */}
-      <div className="flex-shrink-0 px-4 sm:px-6 pt-6">
+      {/* Scrollable content — zoom applied here so it doesn't break the flex height chain */}
+      <div
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+        style={zoom !== 100 ? { zoom: `${zoom}%` } : undefined}
+      >
+      {/* Header */}
+      <div className="px-4 sm:px-6 pt-6">
       {!titleHidden && (
         <div className="text-center mb-4 overflow-hidden">
           <div className={`inline-flex items-center gap-4 max-w-full ${
@@ -175,8 +177,8 @@ export default function Scoreboard() {
 
       </div>
 
-      {/* Scrollable content area */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 sm:px-6 pb-6">
+      {/* Game cards */}
+      <div className="px-4 sm:px-6 pb-6">
 
       {/* Rankings: top position */}
       {rankingsPosition === 'top' && rankingGroups.length > 0 && (
@@ -234,7 +236,8 @@ export default function Scoreboard() {
         <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
       )}
 
-      </div>
+      </div>{/* end game cards */}
+      </div>{/* end scrollable */}
 
       {/* Score submission modal */}
       {selectedGame && roomId && (
