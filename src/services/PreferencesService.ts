@@ -1,8 +1,6 @@
 import { getDatabase } from '../database/database.js';
 
-export type ThemeId = 'dark' | 'light';
-
-export const VALID_THEMES: ThemeId[] = ['dark', 'light'];
+export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal' | 'invaders' | 'coffee' | 'backglass' | 'crt-green' | 'plasma' | 'cabinet' | 'silverball' | 'wizard' | 'playfield' | 'marquee';
 
 export class PreferencesService {
     /**

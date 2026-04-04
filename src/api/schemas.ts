@@ -100,7 +100,7 @@ export const CreateRankingGroupSchema = z.object({
 export const UpdateRankingGroupSchema = CreateRankingGroupSchema.omit({ id: true });
 
 export const UpdatePreferencesSchema = z.object({
-    ui_theme: z.enum(['dark', 'light']).nullable(),
+    ui_theme: z.enum(['dark', 'light', 'retro', 'cyberpunk', 'ocean', 'sunset', 'minimal', 'invaders', 'coffee', 'backglass', 'crt-green', 'plasma', 'cabinet', 'silverball', 'wizard', 'playfield', 'marquee']).nullable(),
 });
 
 export const CreateGameRoomSchema = z.object({
