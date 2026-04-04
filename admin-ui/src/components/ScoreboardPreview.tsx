@@ -128,7 +128,7 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
           {layout === 'grid' ? (
             <div
               className={`grid gap-3 ${gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
-              style={gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` } : undefined}
+              style={gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(${Math.round(cardWidth * 0.7)}px, 1fr))` } : undefined}
             >
               {MOCK_LEADERBOARDS.map(lb => (
                 <div key={lb.gameId} className="grid" style={wheelPad ? { paddingTop: wheelPad } : undefined}>
