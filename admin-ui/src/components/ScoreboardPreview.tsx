@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect } from 'react';
 import { GameCard } from './ScoreboardComponents';
 import type { GameLeaderboard } from './ScoreboardComponents';
-import { deriveCardProps } from '../lib/scoreboardConfig';
+import CardRouter from './scoreboard/CardRouter';
+import { deriveCardProps, deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
 
 const MOCK_LEADERBOARDS: GameLeaderboard[] = [
   {
@@ -71,11 +72,18 @@ interface ScoreboardPreviewProps {
 }
 
 export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) {
+  const newConfig = deriveScoreboardConfig(settings);
+  const useNewCards = !!settings.SCOREBOARD_STYLE;
+
+  const legacyProps = deriveCardProps(settings);
   const {
-    maxScores, cardWidth, cardOpacity, scoreColumns,
+    maxScores, cardWidth: legacyCardWidth, cardOpacity, scoreColumns,
     headerStyle, bgFill, bgSize, wheelScale, globalStyles,
     layout, gameColumns, glassOpacity, gameTitleStyle, gameTitleEnhance, scoreStyle,
-  } = deriveCardProps(settings);
+  } = legacyProps;
+
+  const cardWidth = useNewCards ? getCardWidth(newConfig.style) : legacyCardWidth;
+  const effectiveLayout = useNewCards ? newConfig.layout : layout;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -100,9 +108,9 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
     observer.observe(container);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [layout, gameColumns, cardWidth, headerStyle]);
+  }, [effectiveLayout, gameColumns, cardWidth, headerStyle, useNewCards, newConfig.style]);
 
-  const wheelPad = headerStyle === 'wheel' ? '2.5rem' : undefined;
+  const wheelPad = !useNewCards && headerStyle === 'wheel' ? '2.5rem' : undefined;
 
   return (
     <div className="relative">
@@ -125,42 +133,23 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
             width: scale < 1 ? `${100 / scale}%` : undefined,
           }}
         >
-          {layout === 'grid' ? (
+          {effectiveLayout === 'grid' ? (
             <div
-              className={`grid gap-3 ${gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
-              style={gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(${Math.round(cardWidth * 0.7)}px, 1fr))` } : undefined}
+              className={`grid gap-3 ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
+              style={useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(${Math.round(cardWidth * 0.7)}px, 1fr))` } : undefined}
             >
               {MOCK_LEADERBOARDS.map(lb => (
                 <div key={lb.gameId} className="grid" style={wheelPad ? { paddingTop: wheelPad } : undefined}>
-                  <GameCard
-                    lb={lb}
-                    slug="preview"
-                    maxScores={maxScores}
-                    cardOpacity={cardOpacity}
-                    scoreColumns={scoreColumns}
-                    headerStyle={headerStyle}
-                    globalStyles={globalStyles}
-                    wheelScale={wheelScale}
-                    bgFill={bgFill}
-                    bgSize={bgSize}
-                    cardWidth={cardWidth}
-                    glassOpacity={glassOpacity}
-                    gameTitleStyle={gameTitleStyle}
-                    gameTitleEnhance={gameTitleEnhance}
-                    scoreStyle={scoreStyle}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <div className="flex gap-3">
-                {MOCK_LEADERBOARDS.map(lb => (
-                  <div
-                    key={lb.gameId}
-                    className="flex-shrink-0"
-                    style={{ width: `${cardWidth}px`, ...(wheelPad ? { paddingTop: wheelPad } : {}) }}
-                  >
+                  {useNewCards ? (
+                    <CardRouter
+                      lb={lb}
+                      slug="preview"
+                      style={newConfig.style}
+                      theme={newConfig.theme}
+                      maxScores={newConfig.maxScores}
+                      showTimer={newConfig.showTimer}
+                    />
+                  ) : (
                     <GameCard
                       lb={lb}
                       slug="preview"
@@ -178,6 +167,47 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
                       gameTitleEnhance={gameTitleEnhance}
                       scoreStyle={scoreStyle}
                     />
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="flex gap-3">
+                {MOCK_LEADERBOARDS.map(lb => (
+                  <div
+                    key={lb.gameId}
+                    className="flex-shrink-0"
+                    style={{ width: `${cardWidth}px`, ...(wheelPad ? { paddingTop: wheelPad } : {}) }}
+                  >
+                    {useNewCards ? (
+                      <CardRouter
+                        lb={lb}
+                        slug="preview"
+                        style={newConfig.style}
+                        theme={newConfig.theme}
+                        maxScores={newConfig.maxScores}
+                        showTimer={newConfig.showTimer}
+                      />
+                    ) : (
+                      <GameCard
+                        lb={lb}
+                        slug="preview"
+                        maxScores={maxScores}
+                        cardOpacity={cardOpacity}
+                        scoreColumns={scoreColumns}
+                        headerStyle={headerStyle}
+                        globalStyles={globalStyles}
+                        wheelScale={wheelScale}
+                        bgFill={bgFill}
+                        bgSize={bgSize}
+                        cardWidth={cardWidth}
+                        glassOpacity={glassOpacity}
+                        gameTitleStyle={gameTitleStyle}
+                        gameTitleEnhance={gameTitleEnhance}
+                        scoreStyle={scoreStyle}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
