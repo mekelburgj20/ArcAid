@@ -1,0 +1,205 @@
+import { Layout, Sparkles, Type, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import type { ScoreboardStyle } from '../../lib/scoreboardThemes';
+import { SHOWCASE_THEMES, STYLE_LABELS, DEFAULT_SHOWCASE_THEME } from '../../lib/scoreboardThemes';
+
+const STYLE_ICONS: Record<ScoreboardStyle, typeof Layout> = {
+  banner: Layout,
+  showcase: Sparkles,
+  minimal: Type,
+};
+
+interface StyleThemePickerProps {
+  settings: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}
+
+export default function StyleThemePicker({ settings, onChange }: StyleThemePickerProps) {
+  const currentStyle = (settings.SCOREBOARD_STYLE || 'banner') as ScoreboardStyle;
+  const currentTheme = settings.SCOREBOARD_THEME || DEFAULT_SHOWCASE_THEME;
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const handleStyleSelect = (style: ScoreboardStyle) => {
+    onChange('SCOREBOARD_STYLE', style);
+    // Set default theme when switching to showcase
+    if (style === 'showcase' && !settings.SCOREBOARD_THEME) {
+      onChange('SCOREBOARD_THEME', DEFAULT_SHOWCASE_THEME);
+    }
+  };
+
+  const handleThemeSelect = (themeId: string) => {
+    onChange('SCOREBOARD_THEME', themeId);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Style selector */}
+      <div>
+        <label className="text-xs text-muted block mb-2">Card Style</label>
+        <div className="grid grid-cols-3 gap-2">
+          {(['banner', 'showcase', 'minimal'] as ScoreboardStyle[]).map(style => {
+            const isActive = currentStyle === style;
+            const Icon = STYLE_ICONS[style];
+            const meta = STYLE_LABELS[style];
+            return (
+              <button
+                key={style}
+                onClick={() => handleStyleSelect(style)}
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all cursor-pointer ${
+                  isActive
+                    ? 'border-neon-cyan bg-neon-cyan/10 text-neon-cyan'
+                    : 'border-border bg-raised text-muted hover:border-neon-cyan/30 hover:text-primary'
+                }`}
+              >
+                <Icon size={20} />
+                <span className="text-xs font-bold font-display">{meta.label}</span>
+                <span className="text-[10px] text-center leading-tight opacity-70">{meta.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Theme selector — only for showcase */}
+      {currentStyle === 'showcase' && (
+        <div>
+          <label className="text-xs text-muted block mb-2">Theme</label>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.values(SHOWCASE_THEMES).map(theme => {
+              const isActive = currentTheme === theme.id;
+              return (
+                <button
+                  key={theme.id}
+                  onClick={() => handleThemeSelect(theme.id)}
+                  className={`flex flex-col items-start gap-1 p-3 rounded-lg border-2 transition-all cursor-pointer text-left ${
+                    isActive
+                      ? 'border-neon-cyan bg-neon-cyan/10'
+                      : 'border-border bg-raised hover:border-neon-cyan/30'
+                  }`}
+                >
+                  {/* Mini preview swatch */}
+                  <div
+                    className="w-full h-8 rounded mb-1"
+                    style={{
+                      background: theme.cardBg,
+                      border: theme.cardBorder,
+                    }}
+                  >
+                    <div style={{ height: 2, background: theme.accentBar }} />
+                  </div>
+                  <span className={`text-xs font-bold font-display ${isActive ? 'text-neon-cyan' : 'text-primary'}`}>
+                    {theme.name}
+                  </span>
+                  <span className="text-[10px] text-muted leading-tight">{theme.description}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Advanced toggle */}
+      <button
+        onClick={() => setAdvancedOpen(!advancedOpen)}
+        className="flex items-center gap-2 mt-2 text-sm text-muted hover:text-primary cursor-pointer bg-transparent border-none"
+      >
+        {advancedOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <span className="font-display text-xs uppercase tracking-wider">Advanced</span>
+      </button>
+
+      {advancedOpen && (
+        <div className="space-y-3 pt-2 border-t border-border/30">
+          {/* Max scores per card */}
+          <div className="flex items-center gap-3">
+            <label className="w-48 shrink-0 text-sm text-muted">Scores per card</label>
+            <select
+              value={settings.SCOREBOARD_MAX_SCORES || '5'}
+              onChange={e => onChange('SCOREBOARD_MAX_SCORES', e.target.value)}
+              className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
+            >
+              {[5, 10, 15, 20].map(n => (
+                <option key={n} value={String(n)}>{n}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Show timer */}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-primary">Show countdown timer</p>
+              <p className="text-xs text-muted">Display time remaining until next rotation</p>
+            </div>
+            <button
+              onClick={() => onChange('SCOREBOARD_SHOW_TIMER', settings.SCOREBOARD_SHOW_TIMER === 'false' ? 'true' : 'false')}
+              className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                settings.SCOREBOARD_SHOW_TIMER !== 'false' ? 'bg-neon-cyan' : 'bg-raised border border-border'
+              }`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${
+                settings.SCOREBOARD_SHOW_TIMER !== 'false' ? 'translate-x-6' : ''
+              }`} />
+            </button>
+          </div>
+
+          {/* Layout (grid/scroll) */}
+          <div className="flex items-center gap-3">
+            <label className="w-48 shrink-0 text-sm text-muted">Card layout</label>
+            <select
+              value={settings.SCOREBOARD_LAYOUT || 'scroll'}
+              onChange={e => onChange('SCOREBOARD_LAYOUT', e.target.value)}
+              className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
+            >
+              <option value="scroll">Horizontal scroll</option>
+              <option value="grid">Grid</option>
+            </select>
+          </div>
+
+          {/* QR Mode */}
+          <div className="flex items-center gap-3">
+            <label className="w-48 shrink-0 text-sm text-muted">QR codes</label>
+            <select
+              value={settings.SCOREBOARD_QR_MODE || 'disabled'}
+              onChange={e => onChange('SCOREBOARD_QR_MODE', e.target.value)}
+              className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
+            >
+              <option value="disabled">Disabled</option>
+              <option value="kiosk-only">Kiosk only</option>
+              <option value="all">All scoreboards</option>
+            </select>
+          </div>
+
+          {/* Rankings position */}
+          <div className="flex items-center gap-3">
+            <label className="w-48 shrink-0 text-sm text-muted">Rankings position</label>
+            <select
+              value={settings.SCOREBOARD_RANKINGS_POSITION || 'left'}
+              onChange={e => onChange('SCOREBOARD_RANKINGS_POSITION', e.target.value)}
+              className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
+            >
+              <option value="left">Left sidebar</option>
+              <option value="right">Right sidebar</option>
+              <option value="top">Above cards</option>
+              <option value="bottom">Below cards</option>
+            </select>
+          </div>
+
+          {/* Zoom */}
+          <div className="flex items-center gap-3">
+            <label className="w-48 shrink-0 text-sm text-muted">Zoom</label>
+            <div className="flex items-center gap-2 flex-1">
+              <input
+                type="range" min="50" max="150" step="10"
+                value={parseInt(settings.SCOREBOARD_ZOOM || '100', 10)}
+                onChange={e => onChange('SCOREBOARD_ZOOM', e.target.value)}
+                className="flex-1 accent-neon-cyan cursor-pointer"
+              />
+              <span className="text-sm text-muted w-12 text-right">
+                {parseInt(settings.SCOREBOARD_ZOOM || '100', 10)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

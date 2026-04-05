@@ -10,8 +10,10 @@ import {
   getTitleStyleClass,
   getTitleSizeClass,
 } from '../components/ScoreboardComponents';
+import CardRouter from '../components/scoreboard/CardRouter';
 import ScoreSubmitModal from '../components/ScoreSubmitModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
+import { deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
 
 
 interface LeaderboardWithViewer extends GameLeaderboard {
@@ -88,15 +90,23 @@ export default function Scoreboard() {
     };
   }, [roomId]);
 
-  // Config-driven values (shared derivation)
+  // New style/theme config
+  const newConfig = deriveScoreboardConfig(config, roomName);
+  const useNewCards = !!config.SCOREBOARD_STYLE; // explicit style = new system
+
+  // Legacy config (used when SCOREBOARD_STYLE not set)
+  const legacyProps = deriveCardProps(config, roomName);
   const {
     maxScores, hideEmpty, titleHidden, titleText, titleStyle, titleSize,
     zoom, bgUrl, bgMode, logoUrl, logoPosition, logoMaxHeight,
-    layout, cardWidth, rankingsPosition, requirePhoto,
+    layout: legacyLayout, cardWidth: legacyCardWidth, rankingsPosition, requirePhoto,
     cardOpacity, bgOpacity, scoreColumns, qrMode,
     headerStyle, bgFill, bgSize, wheelScale, gameColumns, globalStyles,
     glassOpacity, gameTitleStyle, gameTitleEnhance, scoreStyle,
-  } = deriveCardProps(config, roomName);
+  } = legacyProps;
+  const layout = useNewCards ? newConfig.layout : legacyLayout;
+
+  const cardWidth = useNewCards ? getCardWidth(newConfig.style) : legacyCardWidth;
   const viewerUsername = discordUser?.username || undefined;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
@@ -201,12 +211,23 @@ export default function Scoreboard() {
         ) : layout === 'grid' ? (
           <div className="flex-1 min-w-0">
             <div
-              className={`grid gap-3 sm:gap-5 ${gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
-              style={gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : undefined}
+              className={`grid gap-3 sm:gap-5 ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
+              style={useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : undefined}
             >
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="grid" style={headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>
-                  <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
+                <div key={lb.gameId} className="grid" style={!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>
+                  {useNewCards ? (
+                    <CardRouter
+                      lb={lb} slug={slug || ''} roomId={roomId}
+                      style={newConfig.style} theme={newConfig.theme}
+                      maxScores={newConfig.maxScores} showTimer={newConfig.showTimer}
+                      viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
+                      qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
+                      onSubmitScore={(lb) => setSelectedGame(lb)}
+                    />
+                  ) : (
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
+                  )}
                 </div>
               ))}
             </div>
@@ -216,8 +237,19 @@ export default function Scoreboard() {
             <div className="-mx-4 sm:-mx-6 overflow-x-auto">
               <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
+                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
+                    {useNewCards ? (
+                      <CardRouter
+                        lb={lb} slug={slug || ''} roomId={roomId}
+                        style={newConfig.style} theme={newConfig.theme}
+                        maxScores={newConfig.maxScores} showTimer={newConfig.showTimer}
+                        viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
+                        qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
+                        onSubmitScore={(lb) => setSelectedGame(lb)}
+                      />
+                    ) : (
+                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
+                    )}
                   </div>
                 ))}
               </div>

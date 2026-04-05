@@ -1,5 +1,101 @@
 import type { GlobalCardStyles } from '../components/ScoreboardComponents';
 import { cardWidthMap } from '../components/ScoreboardComponents';
+import type { ScoreboardStyle } from './scoreboardThemes';
+import { STYLE_WIDTHS, DEFAULT_SHOWCASE_THEME } from './scoreboardThemes';
+
+// ═══════════════════════════════════════════
+// New config interface (Style + Theme system)
+// ═══════════════════════════════════════════
+
+export interface ScoreboardConfig {
+  // Card style + theme
+  style: ScoreboardStyle;
+  theme: string;                // only used when style === 'showcase'
+  maxScores: number;
+  showTimer: boolean;
+
+  // Page-level settings (retained from old system)
+  layout: string;               // 'scroll' | 'grid'
+  zoom: number;
+  bgUrl: string;
+  bgMode: string;
+  bgOpacity: number;
+  logoUrl: string;
+  logoPosition: string;
+  logoMaxHeight: number;
+  titleHidden: boolean;
+  titleText: string;
+  titleStyle: string;
+  titleSize: string;
+  rankingsPosition: string;
+  hideEmpty: boolean;
+  requirePhoto: boolean;
+  qrMode: string;
+}
+
+/**
+ * Derives the new ScoreboardConfig from a settings record.
+ * Includes legacy migration: if SCOREBOARD_STYLE is absent, heuristically
+ * maps old granular keys to the appropriate style/theme.
+ */
+export function deriveScoreboardConfig(config: Record<string, string>, roomName?: string): ScoreboardConfig {
+  let style = (config.SCOREBOARD_STYLE || '') as ScoreboardStyle;
+  let theme = config.SCOREBOARD_THEME || DEFAULT_SHOWCASE_THEME;
+
+  // Legacy migration: if no SCOREBOARD_STYLE key, infer from old settings
+  if (!style) {
+    const oldLayout = config.SCOREBOARD_CARD_LAYOUT || 'banner';
+    const oldBgFill = config.SCOREBOARD_BG_FILL || 'off';
+    if (oldLayout === 'fullart' || (oldLayout === 'banner' && oldBgFill === 'fill')) {
+      // "Showcase" look from old system
+      style = 'showcase';
+      theme = DEFAULT_SHOWCASE_THEME;
+    } else if (oldLayout === 'wheel') {
+      style = 'showcase';
+      theme = DEFAULT_SHOWCASE_THEME;
+    } else {
+      style = 'banner';
+    }
+  }
+
+  // Validate style
+  if (!['banner', 'showcase', 'minimal'].includes(style)) {
+    style = 'banner';
+  }
+
+  return {
+    style,
+    theme,
+    maxScores: parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5,
+    showTimer: config.SCOREBOARD_SHOW_TIMER !== 'false',
+
+    layout: config.SCOREBOARD_LAYOUT || 'scroll',
+    zoom: parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100,
+    bgUrl: config.SCOREBOARD_BG_URL || '',
+    bgMode: config.SCOREBOARD_BG_MODE || 'cover',
+    bgOpacity: config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1,
+    logoUrl: config.LOGO_URL || '',
+    logoPosition: config.LOGO_POSITION || 'left',
+    logoMaxHeight: parseInt(config.LOGO_MAX_HEIGHT || '64', 10) || 64,
+    titleHidden: config.SCOREBOARD_TITLE_HIDDEN === 'true',
+    titleText: config.SCOREBOARD_TITLE || roomName || 'High Scores',
+    titleStyle: config.SCOREBOARD_TITLE_STYLE || 'default',
+    titleSize: config.SCOREBOARD_TITLE_SIZE || 'sm',
+    rankingsPosition: config.SCOREBOARD_RANKINGS_POSITION || 'left',
+    hideEmpty: config.SCOREBOARD_HIDE_EMPTY === 'true',
+    requirePhoto: config.REQUIRE_SCORE_PHOTO === 'true',
+    qrMode: config.SCOREBOARD_QR_MODE || 'disabled',
+  };
+}
+
+/** Card width for the current style */
+export function getCardWidth(style: ScoreboardStyle): number {
+  return STYLE_WIDTHS[style] || STYLE_WIDTHS.banner;
+}
+
+// ═══════════════════════════════════════════
+// Legacy config (kept temporarily for old GameCard)
+// ═══════════════════════════════════════════
 
 export interface CardDisplayProps {
   maxScores: number;
@@ -36,8 +132,8 @@ export interface CardDisplayProps {
 }
 
 /**
- * Derives card display props from a settings config record.
- * Used by both Scoreboard.tsx and ScoreboardPreview.tsx.
+ * Legacy: derives old-style card props from settings.
+ * Kept temporarily while old GameCard is still used on the admin Leaderboard page.
  */
 export function deriveCardProps(config: Record<string, string>, roomName?: string): CardDisplayProps {
   const rawLayout = config.SCOREBOARD_CARD_LAYOUT || 'banner';

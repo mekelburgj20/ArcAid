@@ -11,6 +11,7 @@ import LoadingState from '../components/LoadingState';
 import { InfoTip } from '../components/Tooltip';
 import PresetSelector from '../components/PresetSelector';
 import type { PresetDefinition } from '../components/PresetSelector';
+import StyleThemePicker from '../components/scoreboard/StyleThemePicker';
 import ScoreboardPreview from '../components/ScoreboardPreview';
 import ImageCropper from '../components/ImageCropper';
 
@@ -832,98 +833,154 @@ export default function Settings() {
           /* ── Scoreboard Display with Preview Sidebar ── */
           <div className="flex flex-col lg:flex-row gap-4 mb-4">
             <NeonCard title={category} className="lg:w-1/2 min-w-0">
-              {/* Preset selector */}
-              <PresetSelector settings={settings} onPresetSelect={handlePresetSelect} />
+              {settings.SCOREBOARD_STYLE ? (
+                /* ── New Style/Theme picker ── */
+                <>
+                  <StyleThemePicker settings={settings} onChange={handleChange} />
 
-              {/* Customize toggle */}
-              <button
-                onClick={() => setCustomizeOpen(!customizeOpen)}
-                className="flex items-center gap-2 mt-4 mb-2 text-sm text-muted hover:text-primary cursor-pointer bg-transparent border-none"
-              >
-                {customizeOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <span className="font-display text-xs uppercase tracking-wider">Customize</span>
-              </button>
+                  {/* Inline toggles */}
+                  <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
+                    {Object.entries(SCOREBOARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
+                      const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
+                      return (
+                        <div key={key} className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium text-primary">{label}</p>
+                            <p className="text-xs text-muted">{description}</p>
+                          </div>
+                          <button
+                            onClick={() => handleChange(key, isOn ? 'false' : 'true')}
+                            className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                              isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                            }`}
+                          >
+                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
 
-              {customizeOpen && (
-                <div className="space-y-3 pt-2 border-t border-border/30">
-                  <p className="text-[11px] text-neon-amber/70">Changing individual settings switches to Custom mode.</p>
-                  {entries.map(([key, value]) => {
-                    if (hiddenKeys.has(key)) return null;
-                    const meta = SETTING_LABELS[key];
-                    return (
-                      <div key={key}>
-                        <div className="flex items-center gap-3">
-                          <label className="w-64 shrink-0 text-sm font-mono text-muted flex items-center">
-                            {meta?.label || key}
-                            {meta?.description && <InfoTip text={meta.description} />}
-                          </label>
-                          {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY' || key === 'SCOREBOARD_GLASS_OPACITY') ? (
-                            <div className="flex items-center gap-3 flex-1">
-                              {key === 'SCOREBOARD_GLASS_OPACITY' ? (
-                                <>
-                                  <input type="range" min="0" max="100" step="5"
-                                    value={parseInt(value || '60', 10)}
-                                    onChange={e => handleChange(key, e.target.value)}
-                                    className="flex-1 accent-neon-cyan cursor-pointer"
-                                  />
-                                  <span className="text-sm text-muted w-12 text-right">{parseInt(value || '60', 10)}%</span>
-                                </>
+                  {/* Switch back to legacy */}
+                  <div className="pt-3 mt-3 border-t border-border/30">
+                    <button
+                      onClick={() => {
+                        const { SCOREBOARD_STYLE: _, SCOREBOARD_THEME: __, ...rest } = settings;
+                        setSettings(rest);
+                      }}
+                      className="text-[11px] text-faint hover:text-muted cursor-pointer bg-transparent border-none"
+                    >
+                      Switch to legacy card settings
+                    </button>
+                  </div>
+                </>
+              ) : (
+                /* ── Legacy preset selector ── */
+                <>
+                  {/* Upgrade banner */}
+                  <div className="mb-3 p-3 rounded-lg border border-neon-cyan/20 bg-neon-cyan/5">
+                    <p className="text-xs text-muted mb-2">New card styles available — Showcase, Banner, and Minimal with theme support.</p>
+                    <button
+                      onClick={() => handleChange('SCOREBOARD_STYLE', 'banner')}
+                      className="text-xs font-bold text-neon-cyan hover:text-neon-cyan/80 cursor-pointer bg-transparent border-none"
+                    >
+                      Try new card styles &rarr;
+                    </button>
+                  </div>
+
+                  <PresetSelector settings={settings} onPresetSelect={handlePresetSelect} />
+
+                  {/* Customize toggle */}
+                  <button
+                    onClick={() => setCustomizeOpen(!customizeOpen)}
+                    className="flex items-center gap-2 mt-4 mb-2 text-sm text-muted hover:text-primary cursor-pointer bg-transparent border-none"
+                  >
+                    {customizeOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    <span className="font-display text-xs uppercase tracking-wider">Customize</span>
+                  </button>
+
+                  {customizeOpen && (
+                    <div className="space-y-3 pt-2 border-t border-border/30">
+                      <p className="text-[11px] text-neon-amber/70">Changing individual settings switches to Custom mode.</p>
+                      {entries.map(([key, value]) => {
+                        if (hiddenKeys.has(key)) return null;
+                        const meta = SETTING_LABELS[key];
+                        return (
+                          <div key={key}>
+                            <div className="flex items-center gap-3">
+                              <label className="w-64 shrink-0 text-sm font-mono text-muted flex items-center">
+                                {meta?.label || key}
+                                {meta?.description && <InfoTip text={meta.description} />}
+                              </label>
+                              {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY' || key === 'SCOREBOARD_GLASS_OPACITY') ? (
+                                <div className="flex items-center gap-3 flex-1">
+                                  {key === 'SCOREBOARD_GLASS_OPACITY' ? (
+                                    <>
+                                      <input type="range" min="0" max="100" step="5"
+                                        value={parseInt(value || '60', 10)}
+                                        onChange={e => handleChange(key, e.target.value)}
+                                        className="flex-1 accent-neon-cyan cursor-pointer"
+                                      />
+                                      <span className="text-sm text-muted w-12 text-right">{parseInt(value || '60', 10)}%</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <input type="range" min="0" max="100" step="5"
+                                        value={Math.round((parseFloat(value || '1') * 100))}
+                                        onChange={e => handleChange(key, String(parseInt(e.target.value, 10) / 100))}
+                                        className="flex-1 accent-neon-cyan cursor-pointer"
+                                      />
+                                      <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
+                                    </>
+                                  )}
+                                </div>
+                              ) : SELECT_OPTIONS[key] ? (
+                                <select
+                                  value={value || SELECT_OPTIONS[key][0].value}
+                                  onChange={e => handleChange(key, e.target.value)}
+                                  className={`${inputClass} flex-1`}
+                                >
+                                  {SELECT_OPTIONS[key].map(opt => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
                               ) : (
-                                <>
-                                  <input type="range" min="0" max="100" step="5"
-                                    value={Math.round((parseFloat(value || '1') * 100))}
-                                    onChange={e => handleChange(key, String(parseInt(e.target.value, 10) / 100))}
-                                    className="flex-1 accent-neon-cyan cursor-pointer"
-                                  />
-                                  <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
-                                </>
+                                <input type="text" value={value}
+                                  onChange={e => handleChange(key, e.target.value)}
+                                  className={`${inputClass} flex-1`}
+                                />
                               )}
                             </div>
-                          ) : SELECT_OPTIONS[key] ? (
-                            <select
-                              value={value || SELECT_OPTIONS[key][0].value}
-                              onChange={e => handleChange(key, e.target.value)}
-                              className={`${inputClass} flex-1`}
-                            >
-                              {SELECT_OPTIONS[key].map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input type="text" value={value}
-                              onChange={e => handleChange(key, e.target.value)}
-                              className={`${inputClass} flex-1`}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Inline toggles for Scoreboard Display */}
-              <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
-                {Object.entries(SCOREBOARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
-                  const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
-                  return (
-                    <div key={key} className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-primary">{label}</p>
-                        <p className="text-xs text-muted">{description}</p>
-                      </div>
-                      <button
-                        onClick={() => handleChange(key, isOn ? 'false' : 'true')}
-                        className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
-                          isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
-                        }`}
-                      >
-                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
-                      </button>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
+                  )}
+
+                  {/* Inline toggles for Scoreboard Display */}
+                  <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
+                    {Object.entries(SCOREBOARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
+                      const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
+                      return (
+                        <div key={key} className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium text-primary">{label}</p>
+                            <p className="text-xs text-muted">{description}</p>
+                          </div>
+                          <button
+                            onClick={() => handleChange(key, isOn ? 'false' : 'true')}
+                            className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none ${
+                              isOn ? 'bg-neon-cyan' : 'bg-raised border border-border'
+                            }`}
+                          >
+                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${isOn ? 'translate-x-6' : ''}`} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </NeonCard>
 
             {/* Preview sidebar — sticky on desktop */}

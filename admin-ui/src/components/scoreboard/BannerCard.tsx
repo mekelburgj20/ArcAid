@@ -1,0 +1,183 @@
+import { useEffect, useState } from 'react';
+import { Lock } from 'lucide-react';
+import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
+import { PlayerAvatar, formatCountdown } from '../ScoreboardComponents';
+
+interface BannerCardProps {
+  lb: GameLeaderboard;
+  slug: string;
+  roomId?: string;
+  maxScores: number;
+  showTimer?: boolean;
+  viewerUsername?: string;
+  viewerEntry?: RankedEntry | null;
+  qrMode?: string;
+  onSubmitScore?: (lb: GameLeaderboard) => void;
+}
+
+function formatScore(score: number): string {
+  if (score >= 1_000_000_000_000) return `${(score / 1_000_000_000_000).toFixed(1)}T`;
+  return score.toLocaleString();
+}
+
+function resolveImages(lb: GameLeaderboard) {
+  const effectiveBgId = (lb.bgStyleId && lb.bgHasBg !== 0) ? lb.bgStyleId
+    : (lb.catalogueStyleId && lb.catHasBg !== 0) ? lb.catalogueStyleId : null;
+  const effectiveLogoId = (lb.logoStyleId && lb.logoHasHeader !== 0) ? lb.logoStyleId
+    : (lb.catalogueStyleId && lb.catHasHeader !== 0) ? lb.catalogueStyleId : null;
+  const styleBgUrl = effectiveBgId ? `/api/styles/images/backgrounds/${effectiveBgId}.png` : null;
+  const styleHeaderUrl = effectiveLogoId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${effectiveLogoId}.png` : null;
+  const bgImage = styleBgUrl || lb.imageUrl || null;
+  return { bgImage, styleHeaderUrl };
+}
+
+const TOURNAMENT_BORDER_COLORS: Record<string, string> = {
+  DG:       'border-neon-magenta/50',
+  'WG-VPXS': 'border-neon-blue/50',
+  'WG-VR':  'border-neon-purple/50',
+  MG:       'border-neon-coral/50',
+};
+
+export default function BannerCard({
+  lb,
+  slug,
+  maxScores,
+  showTimer = true,
+  viewerUsername,
+  viewerEntry,
+  onSubmitScore,
+}: BannerCardProps) {
+  const { bgImage, styleHeaderUrl } = resolveImages(lb);
+  const displayName = lb.displayName || lb.gameName;
+  const hasIdentifierImage = !!styleHeaderUrl;
+  const borderColor = TOURNAMENT_BORDER_COLORS[lb.tournamentType?.toUpperCase()] ?? 'border-border';
+
+  const [countdown, setCountdown] = useState<string | null>(
+    lb.nextMaintenanceAt ? formatCountdown(lb.nextMaintenanceAt) : null
+  );
+
+  useEffect(() => {
+    if (!lb.nextMaintenanceAt) { setCountdown(null); return; }
+    setCountdown(formatCountdown(lb.nextMaintenanceAt));
+    const interval = setInterval(() => {
+      setCountdown(formatCountdown(lb.nextMaintenanceAt!));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [lb.nextMaintenanceAt]);
+
+  // Build visible entries with viewer injection
+  let visibleEntries = lb.rankings.slice(0, maxScores);
+  if (viewerEntry && viewerUsername) {
+    const lowerViewer = viewerUsername.toLowerCase();
+    const viewerInVisible = visibleEntries.some(
+      e => e.iscored_username.toLowerCase() === lowerViewer
+    );
+    if (!viewerInVisible && viewerEntry.rank > maxScores) {
+      visibleEntries = [...visibleEntries.slice(0, maxScores - 1), viewerEntry];
+    }
+  }
+
+  return (
+    <div
+      className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col h-full`}
+      style={{ width: 280 }}
+    >
+      {/* Background layer */}
+      <div className="absolute inset-0 bg-surface" />
+
+      {/* Title area */}
+      <div
+        className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
+        onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+      >
+        {!hasIdentifierImage && (
+          <h3 className="font-display font-bold leading-tight truncate px-5" style={{ fontSize: '0.875rem' }}>
+            {displayName}
+          </h3>
+        )}
+        {lb.gameStatus === 'COMPLETED' && (
+          <span title="Completed" className="absolute right-3 top-3">
+            <Lock size={14} className="text-neon-amber" />
+          </span>
+        )}
+        <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted`}>
+          {lb.tournamentName}
+        </p>
+        {showTimer && countdown && (
+          <p className="text-[10px] text-faint mt-0.5">{countdown}</p>
+        )}
+      </div>
+
+      {/* Background image area */}
+      {bgImage && (
+        <div className="relative h-28 bg-raised">
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${bgImage})`,
+              backgroundSize: 'cover',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'top center',
+            }}
+          />
+          {styleHeaderUrl && (
+            <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+          )}
+        </div>
+      )}
+
+      {/* Scores */}
+      <div className="flex-1 relative">
+        {lb.rankings.length === 0 ? (
+          <div className="py-8 text-center">
+            <p className="text-sm text-faint">No scores yet</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border/20">
+            {visibleEntries.map((entry) => {
+              const isViewerRow = viewerUsername && entry.iscored_username.toLowerCase() === viewerUsername.toLowerCase();
+              const rankColor = entry.rank === 1 ? 'text-neon-amber' :
+                entry.rank === 2 ? 'text-neon-cyan' :
+                entry.rank === 3 ? 'text-neon-green' : 'text-faint';
+              const scoreColor = entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-primary';
+
+              return (
+                <div
+                  key={`${entry.rank}-${entry.iscored_username}`}
+                  className={`flex items-center gap-2 px-3 py-1.5 ${isViewerRow ? 'bg-neon-cyan/10' : ''}`}
+                >
+                  <span className={`w-6 text-right text-xs font-bold tabular-nums ${rankColor}`}>
+                    {entry.rank}
+                  </span>
+                  <PlayerAvatar
+                    username={entry.iscored_username}
+                    discordUserId={entry.discord_user_id}
+                    avatarHash={entry.avatar_hash}
+                    size={20}
+                  />
+                  <span className="flex-1 text-xs truncate text-secondary">
+                    {entry.iscored_username}
+                  </span>
+                  <span
+                    className={`text-xs font-bold tabular-nums whitespace-nowrap ${scoreColor}`}
+                    title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                  >
+                    {formatScore(entry.score)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="border-t border-border/30 px-3 py-2 flex justify-between items-center text-[10px] text-faint">
+        <a href={`/${slug}`} className="text-neon-cyan/60 hover:text-neon-cyan transition-colors">
+          Full Leaderboard &rarr;
+        </a>
+        <span>{lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}</span>
+      </div>
+    </div>
+  );
+}
