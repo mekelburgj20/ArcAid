@@ -32,6 +32,8 @@ interface Tournament {
   display_order: number;
   max_active_games: number;
   cleanup_rule: string;
+  winner_picks: number;
+  auto_pick: number;
 }
 
 function formatCadenceDisplay(cadenceJson: string): string {
@@ -81,6 +83,8 @@ function toPayload(state: TournamentFormState, extra: Record<string, any> = {}) 
     display_order: state.displayOrder,
     max_active_games: state.maxActiveGames,
     cleanup_rule: state.cleanupRule,
+    winner_picks: state.winnerPicks,
+    auto_pick: state.autoPick,
     is_active: true,
     guild_id: '',
     discord_role_id: '',
@@ -97,6 +101,8 @@ function tournamentToFormState(t: Tournament): TournamentFormState {
     channel: t.discord_channel_id || '',
     displayOrder: t.display_order || 0,
     maxActiveGames: t.max_active_games || 1,
+    winnerPicks: t.winner_picks !== 0,
+    autoPick: t.auto_pick !== 0,
     platformRules: parsePlatformRules(t.platform_rules),
     cleanupRule: parseCleanupRule(t.cleanup_rule),
     schedule: parseCadence(t.cadence),

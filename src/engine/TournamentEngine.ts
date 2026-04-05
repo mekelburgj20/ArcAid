@@ -49,7 +49,9 @@ export class TournamentEngine {
             guildId,
             discordChannelId: channelId,
             discordRoleId: roleId,
-            isActive: true
+            isActive: true,
+            winnerPicks: true,
+            autoPick: true,
         };
 
         logInfo(`Creating new ${getTerminology(mode).tournament}: ${name} (${type})`);
@@ -706,10 +708,17 @@ export class TournamentEngine {
                 newGame: queuedRow.name,
             });
         } else {
-            // No queued game — create picker slot for timeout tracking
-            logInfo(`   -> No ${term.game} queued for this slot. Creating picker slot for timeout tracking.`);
+            // No queued game — behavior depends on winner_picks and auto_pick settings
+            const winnerPicks = tournamentRow.winner_picks !== 0;
+            const autoPick = tournamentRow.auto_pick !== 0;
 
-            if (winnerId) {
+            if (!winnerPicks && autoPick) {
+                // Skip pick windows — immediately auto-select and activate
+                logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=on — auto-selecting immediately.`);
+                await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId);
+            } else if (winnerPicks && winnerId) {
+                // Current behavior: give winner a pick window
+                logInfo(`   -> No ${term.game} queued for this slot. Creating picker slot for timeout tracking.`);
                 const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
                 const slotId = uuidv4();
                 await db.run(
@@ -736,19 +745,195 @@ export class TournamentEngine {
                     pickerName: winnerIscoredName || 'Unknown',
                     deadline: new Date(Date.now() + parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60') * 60000).toISOString(),
                 });
-            } else {
+            } else if (!winnerPicks && !autoPick) {
+                // Manual only — no pick windows, no auto-select
+                logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=off — waiting for admin.`);
                 if (channelId) {
                     const color = getTournamentColor(tournamentRow.type);
                     const embed = new EmbedBuilder()
                         .setTitle(`No ${term.game} Queued`)
-                        .setDescription(`A moderator should use \`/pick-game\` or \`/nominate-picker\`.`)
+                        .setDescription(`Auto-pick is disabled. A moderator should use \`/pick-game\` to select the next ${term.game}.`)
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
                         .setTimestamp();
                     await sendChannelEmbed(channelId, embed);
                 }
+            } else {
+                // winnerPicks=true but no winner found, or winnerPicks=true with auto_pick
+                if (autoPick) {
+                    logInfo(`   -> No ${term.game} queued and no winner found. auto_pick=on — auto-selecting.`);
+                    await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId);
+                } else {
+                    logInfo(`   -> No ${term.game} queued and no winner found. auto_pick=off — waiting for admin.`);
+                    if (channelId) {
+                        const color = getTournamentColor(tournamentRow.type);
+                        const embed = new EmbedBuilder()
+                            .setTitle(`No ${term.game} Queued`)
+                            .setDescription(`A moderator should use \`/pick-game\` or \`/nominate-picker\`.`)
+                            .setColor(color)
+                            .setFooter({ text: tournamentRow.name })
+                            .setTimestamp();
+                        await sendChannelEmbed(channelId, embed);
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * Auto-select a random eligible game and immediately activate it.
+     * Used when winner_picks is disabled or as a fallback when no winner exists.
+     */
+    private async autoPickAndActivate(
+        db: any,
+        tournamentRow: any,
+        tournamentId: string,
+        completedGame: Game,
+        client: IScoredClient | null,
+        term: ReturnType<typeof getTerminology>,
+        channelId: string | undefined,
+    ): Promise<void> {
+        // Parse platform rules
+        let platformRules = { required: [] as string[], excluded: [] as string[] };
+        try { platformRules = { ...platformRules, ...JSON.parse(tournamentRow.platform_rules || '{}') }; } catch {}
+
+        const eligibilityRow = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
+        const eligibilityDays = parseInt(eligibilityRow?.value ?? '120', 10);
+
+        // Get room-curated library if room-scoped, otherwise global library
+        let libraryGames: any[];
+        if (tournamentRow.game_room_id) {
+            libraryGames = await db.all(
+                `SELECT gl.name, gl.style_id, gl.mode, gl.platforms
+                 FROM game_library gl
+                 INNER JOIN game_room_game_library grgl ON gl.name = grgl.game_name AND grgl.game_room_id = ?`,
+                tournamentRow.game_room_id
+            );
+        } else {
+            libraryGames = await db.all('SELECT name, style_id, mode, platforms FROM game_library');
+        }
+
+        // Filter by mode + platform rules
+        const eligible = libraryGames.filter(g => {
+            if (g.mode !== tournamentRow.mode) return false;
+            let gamePlatforms: string[] = [];
+            try { gamePlatforms = JSON.parse(g.platforms || '[]'); } catch {}
+            const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
+            if (platformRules.required.length > 0) {
+                if (!platformRules.required.some((rp: string) => upperPlatforms.includes(rp.toUpperCase()))) return false;
+            }
+            if (platformRules.excluded.length > 0) {
+                if (platformRules.excluded.some((ep: string) => upperPlatforms.includes(ep.toUpperCase()))) return false;
+            }
+            return true;
+        });
+
+        // Filter by cooldown
+        const lookbackDate = new Date();
+        lookbackDate.setDate(lookbackDate.getDate() - eligibilityDays);
+        const recentlyPlayed = await db.all(
+            `SELECT DISTINCT name FROM games
+             WHERE tournament_id = ? AND start_date >= ? AND status != 'QUEUED'`,
+            tournamentId, lookbackDate.toISOString()
+        );
+        const recentlyPlayedSet = new Set(recentlyPlayed.map((r: any) => r.name.toLowerCase()));
+        const finalEligible = eligible.filter(g => !recentlyPlayedSet.has(g.name.toLowerCase()));
+
+        if (finalEligible.length === 0) {
+            logWarn(`No eligible ${term.games} found for auto-pick in ${tournamentRow.name}.`);
+            if (channelId) {
+                const color = getTournamentColor(tournamentRow.type);
+                const embed = new EmbedBuilder()
+                    .setTitle(`No Eligible ${term.games}`)
+                    .setDescription(`No eligible ${term.games} were found for auto-pick in **${tournamentRow.name}**. A moderator must use \`/pick-game\`.`)
+                    .setColor(color)
+                    .setFooter({ text: tournamentRow.name })
+                    .setTimestamp();
+                await sendChannelEmbed(channelId, embed);
+            }
+            return;
+        }
+
+        // Pick one at random
+        const pick = finalEligible[Math.floor(Math.random() * finalEligible.length)]!;
+        logInfo(`   -> Auto-picked: ${pick.name} for ${tournamentRow.name}`);
+
+        // Create on iScored if client available
+        let iscoredId: string | null = null;
+        if (client) {
+            const libraryEntry = await db.get(
+                'SELECT style_id, css_title, css_initials, css_scores, css_box, bg_color FROM game_library WHERE name = ? COLLATE NOCASE',
+                pick.name
+            );
+            try {
+                const styleId = libraryEntry?.style_id || pick.style_id || undefined;
+                iscoredId = await client.createGame(pick.name, styleId);
+                await client.setGameTags(iscoredId, tournamentRow.type);
+                await client.setGameStatus(iscoredId, { locked: false, hidden: false });
+                logInfo(`   -> Created on iScored: ${pick.name} (ID: ${iscoredId})`);
+                if (iscoredId && libraryEntry && (libraryEntry.css_title || libraryEntry.css_box || libraryEntry.bg_color)) {
+                    try { await client.applyStyle(iscoredId, libraryEntry); } catch {}
+                }
+            } catch (err) {
+                logError('   -> Failed to create auto-picked game on iScored (continuing):', err);
+            }
+        }
+
+        // Create game record as ACTIVE immediately
+        const gameId = uuidv4();
+        // Propagate display_name and style defaults from library
+        const libRow = await db.get('SELECT display_name FROM game_library WHERE name = ? COLLATE NOCASE', pick.name);
+        let catalogueStyleId: string | null = null;
+        let logoStyleId: string | null = null;
+        let bgStyleId: string | null = null;
+        if (tournamentRow.game_room_id) {
+            const libStyle = await db.get(
+                'SELECT catalogue_style_id, logo_style_id, bg_style_id FROM game_room_game_library WHERE game_room_id = ? AND game_name = ?',
+                tournamentRow.game_room_id, pick.name
+            );
+            if (libStyle) {
+                catalogueStyleId = libStyle.catalogue_style_id;
+                logoStyleId = libStyle.logo_style_id;
+                bgStyleId = libStyle.bg_style_id;
+            }
+        }
+
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, start_date, iscored_id, style_id, display_name, catalogue_style_id, logo_style_id, bg_style_id)
+             VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?)`,
+            gameId, tournamentId, pick.name, new Date().toISOString(),
+            iscoredId, pick.style_id || null,
+            libRow?.display_name || null,
+            catalogueStyleId, logoStyleId, bgStyleId
+        );
+        logInfo(`   -> Activated in DB: ${pick.name}`);
+
+        // Log game rotation event
+        if (tournamentRow.game_room_id) {
+            RoomEventService.log(tournamentRow.game_room_id, 'game_rotation', {
+                tournamentName: tournamentRow.name,
+                oldGame: completedGame.name,
+                newGame: pick.name,
+            }).catch(() => {});
+        }
+
+        // Announce
+        if (channelId) {
+            const color = getTournamentColor(tournamentRow.type);
+            const embed = new EmbedBuilder()
+                .setTitle(`Now Active: ${pick.name}`)
+                .setDescription(`**${pick.name}** has been auto-selected and activated for **${tournamentRow.name}**.`)
+                .setColor(color)
+                .setFooter({ text: tournamentRow.name })
+                .setTimestamp();
+            await sendChannelEmbed(channelId, embed);
+        }
+
+        emitGameRotated({
+            tournamentName: tournamentRow.name,
+            oldGame: completedGame.name,
+            newGame: pick.name,
+        });
     }
 
     /**

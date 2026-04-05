@@ -31,16 +31,20 @@ export class TournamentService {
         max_active_games?: number;
         cleanup_rule?: any;
         game_room_id?: string;
+        winner_picks?: boolean;
+        auto_pick?: boolean;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             data.id, data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
             data.is_active ? 1 : 0, data.display_order ?? 0, data.max_active_games ?? 1,
             JSON.stringify(data.cleanup_rule || { mode: 'retain', count: 0 }),
-            data.game_room_id || null
+            data.game_room_id || null,
+            (data.winner_picks ?? true) ? 1 : 0,
+            (data.auto_pick ?? true) ? 1 : 0
         );
     }
 
@@ -61,16 +65,21 @@ export class TournamentService {
         max_active_games?: number;
         cleanup_rule?: any;
         game_room_id?: string;
+        winner_picks?: boolean;
+        auto_pick?: boolean;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ? WHERE id = ?',
+            'UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ? WHERE id = ?',
             data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
             data.is_active ? 1 : 0, data.display_order ?? 0, data.max_active_games ?? 1,
             JSON.stringify(data.cleanup_rule || { mode: 'retain', count: 0 }),
-            data.game_room_id || null, id
+            data.game_room_id || null,
+            (data.winner_picks ?? true) ? 1 : 0,
+            (data.auto_pick ?? true) ? 1 : 0,
+            id
         );
     }
 

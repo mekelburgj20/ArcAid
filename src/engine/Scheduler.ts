@@ -37,7 +37,9 @@ export class Scheduler {
                 cadence: JSON.parse(row.cadence || '{}'),
                 discordChannelId: row.discord_channel_id,
                 discordRoleId: row.discord_role_id,
-                isActive: row.is_active === 1
+                isActive: row.is_active === 1,
+                winnerPicks: row.winner_picks !== 0,
+                autoPick: row.auto_pick !== 0,
             };
 
             this.scheduleTournament(tournament);

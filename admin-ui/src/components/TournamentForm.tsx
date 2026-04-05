@@ -24,6 +24,8 @@ export interface TournamentFormState {
   channel: string;
   displayOrder: number;
   maxActiveGames: number;
+  winnerPicks: boolean;
+  autoPick: boolean;
   platformRules: PlatformRules;
   cleanupRule: CleanupRule;
   schedule: { cron: string; timezone: string };
@@ -41,6 +43,8 @@ export const defaultFormState: TournamentFormState = {
   channel: '',
   displayOrder: 0,
   maxActiveGames: 1,
+  winnerPicks: true,
+  autoPick: true,
   platformRules: { ...defaultPlatformRules },
   cleanupRule: { ...defaultCleanupRule },
   schedule: { cron: '0 0 * * *', timezone: 'America/Chicago' },
@@ -288,6 +292,29 @@ export default function TournamentFormFields({ state, set, platforms, onAddPlatf
             Active Slots <InfoTip text="How many games can be active simultaneously. Each slot rotates independently with its own winner picking the next game." />
           </label>
           <NumberStepper value={state.maxActiveGames} onChange={v => set('maxActiveGames', v)} min={1} />
+        </div>
+      </div>
+      <div className="mb-4">
+        <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
+          Game Rotation <InfoTip text="Controls how games are selected after a game completes." />
+        </label>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={state.winnerPicks} onChange={e => set('winnerPicks', e.target.checked)} className="accent-neon-cyan" />
+            <span className="text-sm text-muted">Winner picks next game</span>
+            <InfoTip text="When enabled, the winner of a completed game gets a pick window to choose the next game. Runner-up gets a window if the winner doesn't pick." />
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={state.autoPick} onChange={e => set('autoPick', e.target.checked)} className="accent-neon-cyan" />
+            <span className="text-sm text-muted">Auto-pick if no selection</span>
+            <InfoTip text="When enabled, the system automatically picks and activates a random eligible game if no one picks. If winner picks is disabled, auto-pick happens immediately after rotation." />
+          </label>
+          {!state.winnerPicks && state.autoPick && (
+            <p className="text-xs text-neon-amber ml-6">Games will be auto-picked immediately after completion.</p>
+          )}
+          {!state.winnerPicks && !state.autoPick && (
+            <p className="text-xs text-neon-magenta ml-6">An admin must manually activate games after completion.</p>
+          )}
         </div>
       </div>
       <div className="mb-4">

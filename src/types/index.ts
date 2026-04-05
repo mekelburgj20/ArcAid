@@ -31,6 +31,8 @@ export interface Tournament {
     discordRoleId?: string;
     isActive: boolean;
     maxActiveGames?: number;
+    winnerPicks: boolean;
+    autoPick: boolean;
 }
 
 export type GameStatus = 'QUEUED' | 'ACTIVE' | 'COMPLETED' | 'HIDDEN';

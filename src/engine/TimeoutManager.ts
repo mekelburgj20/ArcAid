@@ -252,6 +252,28 @@ export class TimeoutManager {
                 return;
             }
 
+            // Check if auto_pick is disabled
+            if (tournament.auto_pick === 0) {
+                logInfo(`Auto-pick disabled for ${tournament.name}. Clearing picker slot without auto-selecting.`);
+                await db.run(
+                    'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL WHERE id = ?',
+                    game.id
+                );
+                const channelId = await this.getChannelId(game.tournamentId);
+                if (channelId) {
+                    const term = getTerminology(tournament.mode);
+                    const color = getTournamentColor(tournament.type);
+                    const embed = new EmbedBuilder()
+                        .setTitle(`No ${term.game} Selected`)
+                        .setDescription(`All pickers timed out and auto-pick is disabled for **${tournament.name}**. A moderator must use \`/pick-game\`.`)
+                        .setColor(color)
+                        .setFooter({ text: tournament.name })
+                        .setTimestamp();
+                    await sendChannelEmbed(channelId, embed);
+                }
+                return;
+            }
+
             const term = getTerminology(tournament.mode);
 
             // Parse platform rules
@@ -347,22 +369,22 @@ export class TimeoutManager {
                 }
             }
 
-            // Update the QUEUED slot with the selected game details
+            // Update the QUEUED slot with the selected game — activate immediately
             await db.run(
                 `UPDATE games
-                 SET name = ?, style_id = ?, iscored_id = ?,
+                 SET name = ?, style_id = ?, iscored_id = ?, status = 'ACTIVE', start_date = ?,
                      picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL, reminder_count = 0
                  WHERE id = ?`,
-                pick.name, pick.style_id || null, iscoredId, game.id
+                pick.name, pick.style_id || null, iscoredId, new Date().toISOString(), game.id
             );
-            logInfo(`   -> Updated QUEUED slot ${game.id} with: ${pick.name}`);
+            logInfo(`   -> Auto-selected and activated: ${pick.name}`);
 
             const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {
                 const color = getTournamentColor(tournament.type);
                 const embed = new EmbedBuilder()
-                    .setTitle(`Auto-Selected: ${pick.name}`)
-                    .setDescription(`All pickers timed out! **${pick.name}** has been auto-selected as the next ${term.game} for **${tournament.name}**.`)
+                    .setTitle(`Now Active: ${pick.name}`)
+                    .setDescription(`All pickers timed out! **${pick.name}** has been auto-selected and activated for **${tournament.name}**.`)
                     .setColor(color)
                     .setFooter({ text: tournament.name })
                     .setTimestamp();
