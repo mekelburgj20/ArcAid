@@ -214,26 +214,35 @@ function stepBallPhysics(
 
     // --- Lane phase ---
     if (inLane) {
-      // Lane walls
+      // Curved rail at top of lane — strong deflection from upward to leftward
+      if (pos.y < 120) {
+        const curveFactor = Math.max(0, (120 - pos.y) / 40);
+        vel.x -= curveFactor * 3.0 * dt;
+        if (vel.y < -2) vel.y *= 0.93;
+      }
+
+      // Top wall while in lane — convert upward momentum to leftward (curved rail)
+      if (pos.y - BALL_R < FRAME) {
+        pos.y = FRAME + BALL_R;
+        vel.x = Math.min(vel.x, -Math.abs(vel.y) * 0.6);
+        vel.y = Math.abs(vel.y) * 0.15;
+      }
+
+      // Lane left wall — exit onto playfield when near top
       if (pos.x - BALL_R < LANE_X) {
-        if (pos.y < 100) {
-          // Near top — exit lane onto playfield
+        if (pos.y < 130) {
           inLane = false;
-          vel.x -= (Math.random() * 0.5 + 0.5); // nudge left onto field
+          pos.x = LANE_X - BALL_R - 1;
+          if (vel.y < 0.5) vel.y = 0.5;
         } else {
           pos.x = LANE_X + BALL_R;
           vel.x = Math.abs(vel.x) * PHYSICS_WALL_RESTITUTION;
         }
       }
+      // Lane right wall
       if (pos.x + BALL_R > PF_RIGHT) {
         pos.x = PF_RIGHT - BALL_R;
         vel.x = -Math.abs(vel.x) * PHYSICS_WALL_RESTITUTION;
-      }
-      // Curved rail at top of lane — progressive leftward force
-      if (pos.y < 90) {
-        const curveFactor = Math.max(0, (90 - pos.y) / 60);
-        vel.x -= curveFactor * 0.5 * dt;
-        if (vel.y < -4) vel.y *= 0.97; // bleed upward speed through the curve
       }
     } else {
       // --- Playfield walls ---
@@ -245,12 +254,12 @@ function stepBallPhysics(
         pos.x = LANE_X - BALL_R;
         vel.x = -Math.abs(vel.x) * PHYSICS_WALL_RESTITUTION;
       }
-    }
 
-    // Top wall
-    if (pos.y - BALL_R < FRAME) {
-      pos.y = FRAME + BALL_R;
-      vel.y = Math.abs(vel.y) * PHYSICS_WALL_RESTITUTION;
+      // Top wall (playfield)
+      if (pos.y - BALL_R < FRAME) {
+        pos.y = FRAME + BALL_R;
+        vel.y = Math.abs(vel.y) * PHYSICS_WALL_RESTITUTION;
+      }
     }
 
     // Drain guide walls (angled)
