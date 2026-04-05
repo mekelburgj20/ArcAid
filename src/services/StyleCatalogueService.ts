@@ -268,6 +268,11 @@ export class StyleCatalogueService {
         if (imageType === 'background' || imageType === 'both') {
             await db.run('UPDATE games SET bg_style_id = ? WHERE id = ?', styleId, gameId);
         }
+        // Clear legacy catalogue_style_id when using independent image assignments
+        // to prevent its header/background from bleeding through via fallback resolution
+        if (imageType !== 'both') {
+            await db.run('UPDATE games SET catalogue_style_id = NULL WHERE id = ?', gameId);
+        }
         return { ok: true };
     }
 
@@ -305,6 +310,10 @@ export class StyleCatalogueService {
         }
         if (imageType === 'background' || imageType === 'both') {
             await db.run('UPDATE game_room_game_library SET bg_style_id = ? WHERE game_room_id = ? AND game_name = ?', styleId, gameRoomId, gameName);
+        }
+        // Clear legacy catalogue_style_id when using independent image assignments
+        if (imageType !== 'both') {
+            await db.run('UPDATE game_room_game_library SET catalogue_style_id = NULL WHERE game_room_id = ? AND game_name = ?', gameRoomId, gameName);
         }
         return { ok: true };
     }

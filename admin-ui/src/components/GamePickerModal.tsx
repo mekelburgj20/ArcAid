@@ -143,7 +143,7 @@ export default function GamePickerModal({ styleName, styleId, onClose, onApplied
                     imageType === t ? 'bg-neon-cyan/20 text-neon-cyan' : 'bg-surface text-muted hover:text-primary'
                   }`}
                 >
-                  {t === 'both' ? 'Both' : t === 'background' ? 'Background' : 'Logo'}
+                  {t === 'both' ? 'Both' : t === 'background' ? 'Background' : 'Identifier'}
                 </button>
               ))}
             </div>
