@@ -143,41 +143,187 @@ function interpolatePath(path: Waypoint[], t: number): { x: number; y: number } 
   };
 }
 
-// Ball path from plunger to scoop — gentle arcs with many waypoints for smooth motion
-function generatePlungePath(): Waypoint[] {
-  const jx = () => (Math.random() - 0.5) * 10;
-  const jy = () => (Math.random() - 0.5) * 5;
-  return [
-    // Launch up the plunger lane
-    { x: LANE_CX, y: DRAIN_Y - 20, t: 0 },
-    { x: LANE_CX, y: DRAIN_Y - 80, t: 0.04 },
-    { x: LANE_CX, y: 380, t: 0.08 },
-    { x: LANE_CX, y: 250, t: 0.13 },
-    { x: LANE_CX, y: 150, t: 0.18 },
-    { x: LANE_CX, y: 90, t: 0.22 },
-    // Curve around the top (smooth arc)
-    { x: LANE_CX - 15, y: 65, t: 0.25 },
-    { x: LANE_CX - 50, y: 55, t: 0.28 },
-    { x: PF_CX + 70, y: 60 + jy(), t: 0.31 },
-    { x: PF_CX + 40, y: 75 + jy(), t: 0.34 },
-    { x: PF_CX + 10, y: 95 + jy(), t: 0.37 },
-    // Drift down through upper field
-    { x: PF_CX - 15 + jx(), y: 130 + jy(), t: 0.41 },
-    { x: PF_CX - 35 + jx(), y: 165 + jy(), t: 0.45 },
-    { x: PF_CX - 25 + jx(), y: 200 + jy(), t: 0.49 },
-    // Gentle S-curve through mid field
-    { x: PF_CX + 5 + jx(), y: 230 + jy(), t: 0.53 },
-    { x: PF_CX + 30 + jx(), y: 255 + jy(), t: 0.57 },
-    { x: PF_CX + 20 + jx(), y: 278 + jy(), t: 0.61 },
-    { x: PF_CX - 5 + jx(), y: 298 + jy(), t: 0.66 },
-    // Approach scoop — gentle funnel
-    { x: PF_CX - 15 + jx(), y: 315 + jy(), t: 0.71 },
-    { x: PF_CX - 8, y: 328, t: 0.76 },
-    { x: PF_CX + 2, y: SCOOP_Y - 18, t: 0.83 },
-    { x: PF_CX + 1, y: SCOOP_Y - 8, t: 0.90 },
-    { x: PF_CX, y: SCOOP_Y - 2, t: 0.96 },
-    { x: PF_CX, y: SCOOP_Y, t: 1.0 },
-  ];
+// --- Physics Engine ---
+const PHYSICS_GRAVITY = 0.15;
+const PHYSICS_AIR_FRICTION = 0.9985;
+const PHYSICS_PEG_RESTITUTION = 0.55;
+const PHYSICS_WALL_RESTITUTION = 0.4;
+const PHYSICS_LAUNCH_SPEED = 13;
+const PHYSICS_SUBSTEPS = 4;
+const PHYSICS_MAX_SPEED = 18;
+const PHYSICS_MAX_MS = 10000;
+
+// Wall segment bounce helper
+function reflectOffWall(
+  pos: { x: number; y: number }, vel: { x: number; y: number },
+  x1: number, y1: number, x2: number, y2: number,
+  flipNormal: boolean
+) {
+  const ex = x2 - x1, ey = y2 - y1;
+  const len = Math.sqrt(ex * ex + ey * ey);
+  if (len < 0.01) return;
+  // Right-hand normal (CW in screen coords)
+  let nx = ey / len, ny = -ex / len;
+  if (flipNormal) { nx = -nx; ny = -ny; }
+  const dx = pos.x - x1, dy = pos.y - y1;
+  const dist = dx * nx + dy * ny;
+  const proj = (dx * ex + dy * ey) / len;
+  if (dist < BALL_R && dist > -2 && proj >= -BALL_R && proj <= len + BALL_R) {
+    pos.x += nx * (BALL_R - dist + 0.5);
+    pos.y += ny * (BALL_R - dist + 0.5);
+    const vDot = vel.x * nx + vel.y * ny;
+    if (vDot < 0) {
+      vel.x -= (1 + PHYSICS_WALL_RESTITUTION) * vDot * nx;
+      vel.y -= (1 + PHYSICS_WALL_RESTITUTION) * vDot * ny;
+    }
+  }
+}
+
+function stepBallPhysics(
+  pos: { x: number; y: number },
+  vel: { x: number; y: number },
+  inLane: boolean,
+  frame: number,
+  pegHits: Map<number, number>,
+): { captured: boolean; inLane: boolean } {
+  for (let sub = 0; sub < PHYSICS_SUBSTEPS; sub++) {
+    const dt = 1 / PHYSICS_SUBSTEPS;
+
+    // Gravity
+    vel.y += PHYSICS_GRAVITY * dt;
+
+    // Air friction
+    vel.x *= PHYSICS_AIR_FRICTION;
+    vel.y *= PHYSICS_AIR_FRICTION;
+
+    // Scoop attractor (subtle, grows over time to guarantee capture)
+    if (pos.y > 150 && !inLane) {
+      const toX = PF_CX - pos.x;
+      const toY = SCOOP_Y - pos.y;
+      const toDist = Math.sqrt(toX * toX + toY * toY);
+      if (toDist > 1) {
+        const strength = Math.min(0.06, 0.002 + frame * 0.00004);
+        vel.x += (toX / toDist) * strength * dt;
+        vel.y += (toY / toDist) * strength * dt;
+      }
+    }
+
+    // Move
+    pos.x += vel.x * dt;
+    pos.y += vel.y * dt;
+
+    // --- Lane phase ---
+    if (inLane) {
+      // Lane walls
+      if (pos.x - BALL_R < LANE_X) {
+        if (pos.y < 100) {
+          // Near top — exit lane onto playfield
+          inLane = false;
+          vel.x -= (Math.random() * 0.5 + 0.5); // nudge left onto field
+        } else {
+          pos.x = LANE_X + BALL_R;
+          vel.x = Math.abs(vel.x) * PHYSICS_WALL_RESTITUTION;
+        }
+      }
+      if (pos.x + BALL_R > PF_RIGHT) {
+        pos.x = PF_RIGHT - BALL_R;
+        vel.x = -Math.abs(vel.x) * PHYSICS_WALL_RESTITUTION;
+      }
+      // Curved rail at top of lane — progressive leftward force
+      if (pos.y < 90) {
+        const curveFactor = Math.max(0, (90 - pos.y) / 60);
+        vel.x -= curveFactor * 0.5 * dt;
+        if (vel.y < -4) vel.y *= 0.97; // bleed upward speed through the curve
+      }
+    } else {
+      // --- Playfield walls ---
+      if (pos.x - BALL_R < PF_LEFT) {
+        pos.x = PF_LEFT + BALL_R;
+        vel.x = Math.abs(vel.x) * PHYSICS_WALL_RESTITUTION;
+      }
+      if (pos.x + BALL_R > LANE_X) {
+        pos.x = LANE_X - BALL_R;
+        vel.x = -Math.abs(vel.x) * PHYSICS_WALL_RESTITUTION;
+      }
+    }
+
+    // Top wall
+    if (pos.y - BALL_R < FRAME) {
+      pos.y = FRAME + BALL_R;
+      vel.y = Math.abs(vel.y) * PHYSICS_WALL_RESTITUTION;
+    }
+
+    // Drain guide walls (angled)
+    if (pos.y > FLIPPER_Y - 30 && !inLane) {
+      // Left guide: (PF_LEFT, FLIPPER_Y-20) → (PF_CX-40, DRAIN_Y+5), normal points right (into field)
+      reflectOffWall(pos, vel, PF_LEFT, FLIPPER_Y - 20, PF_CX - 40, DRAIN_Y + 5, false);
+      // Right guide: (LANE_X, FLIPPER_Y-20) → (PF_CX+40, DRAIN_Y+5), flip normal to point left (into field)
+      reflectOffWall(pos, vel, LANE_X, FLIPPER_Y - 20, PF_CX + 40, DRAIN_Y + 5, true);
+    }
+
+    // --- Peg collisions ---
+    for (let i = 0; i < PEG_POSITIONS.length; i++) {
+      const [px, py] = PEG_POSITIONS[i]!;
+      const dx = pos.x - px, dy = pos.y - py;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const minDist = BALL_R + PEG_R;
+      if (dist < minDist && dist > 0.01) {
+        const nx = dx / dist, ny = dy / dist;
+        pos.x = px + nx * (minDist + 0.5);
+        pos.y = py + ny * (minDist + 0.5);
+        const dot = vel.x * nx + vel.y * ny;
+        if (dot < 0) {
+          vel.x -= (1 + PHYSICS_PEG_RESTITUTION) * dot * nx;
+          vel.y -= (1 + PHYSICS_PEG_RESTITUTION) * dot * ny;
+          vel.x += (Math.random() - 0.5) * 0.4;
+          vel.y += (Math.random() - 0.5) * 0.2;
+        }
+        pegHits.set(i, 8);
+      }
+    }
+
+    // Scoop ring pegs
+    for (const [px, py] of SCOOP_RING_PEGS) {
+      const dx = pos.x - px, dy = pos.y - py;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const minDist = BALL_R + 2.5;
+      if (dist < minDist && dist > 0.01) {
+        const nx = dx / dist, ny = dy / dist;
+        pos.x = px + nx * (minDist + 0.5);
+        pos.y = py + ny * (minDist + 0.5);
+        const dot = vel.x * nx + vel.y * ny;
+        if (dot < 0) {
+          vel.x -= (1 + PHYSICS_PEG_RESTITUTION) * dot * nx;
+          vel.y -= (1 + PHYSICS_PEG_RESTITUTION) * dot * ny;
+        }
+      }
+    }
+
+    // Speed clamp
+    const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
+    if (speed > PHYSICS_MAX_SPEED) {
+      vel.x = (vel.x / speed) * PHYSICS_MAX_SPEED;
+      vel.y = (vel.y / speed) * PHYSICS_MAX_SPEED;
+    }
+
+    // Scoop capture
+    const scoopDx = pos.x - PF_CX, scoopDy = pos.y - SCOOP_Y;
+    if (Math.sqrt(scoopDx * scoopDx + scoopDy * scoopDy) < SCOOP_R - 2) {
+      pos.x = PF_CX;
+      pos.y = SCOOP_Y;
+      return { captured: true, inLane };
+    }
+
+    // Failsafe: ball escaped bottom
+    if (pos.y > H + 30) {
+      pos.y = 200;
+      pos.x = PF_CX + (Math.random() - 0.5) * 80;
+      vel.y = 1;
+      vel.x = (Math.random() - 0.5) * 3;
+    }
+  }
+
+  return { captured: false, inLane };
 }
 
 // Ball eject path — smooth arc out and down
@@ -517,12 +663,13 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     ballPos: { x: LANE_CX, y: DRAIN_Y - 20 },
     ballVisible: true,
     ballTrail: [] as { x: number; y: number }[],
+    ballVel: { x: 0, y: 0 },
+    inLane: true,
+    physicsFrame: 0,
     pulling: false,
     pullStart: 0,
     pullAmount: 0,
-    plungePath: [] as Waypoint[],
     plungeStart: 0,
-    plungeDuration: 2500,
     cycleSequence: [] as { name: string; delay: number }[],
     cycleIndex: 0,
     cycleNextAt: 0,
@@ -558,11 +705,13 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     playPlungeSound();
     const winner = pickWinner();
     s.winner = winner;
-    s.plungePath = generatePlungePath();
     s.plungeStart = performance.now();
     s.ballVisible = true;
     s.ballTrail = [];
     s.ballPos = { x: LANE_CX, y: DRAIN_Y - 20 };
+    s.ballVel = { x: 0, y: -PHYSICS_LAUNCH_SPEED };
+    s.inLane = true;
+    s.physicsFrame = 0;
     s.cycleSequence = buildCycleSequence(availableGames, winner);
     s.cycleIndex = 0;
     s.currentName = '';
@@ -609,6 +758,9 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
     const s = state.current;
     s.phase = 'idle';
     s.ballPos = { x: LANE_CX, y: DRAIN_Y - 20 };
+    s.ballVel = { x: 0, y: 0 };
+    s.inLane = true;
+    s.physicsFrame = 0;
     s.ballVisible = true;
     s.ballTrail = [];
     s.pullAmount = 0;
@@ -712,27 +864,24 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
         ctx.fillRect(bX, bY + bH - fH, 6, fH);
       }
 
-      // --- Plunge animation ---
+      // --- Plunge animation (physics) ---
       if (s.phase === 'plunging') {
         const elapsed = now - s.plungeStart;
-        const t = Math.min(1, elapsed / s.plungeDuration);
-        const pos = interpolatePath(s.plungePath, t);
-        s.ballPos = pos;
 
-        // Flash nearby pegs
-        for (let i = 0; i < PEG_POSITIONS.length; i++) {
-          const pp = PEG_POSITIONS[i]!;
-          const dx = pos.x - pp[0];
-          const dy = pos.y - pp[1];
-          if (Math.sqrt(dx * dx + dy * dy) < 22) {
-            s.pegHits.set(i, 8);
-          }
-        }
+        // Step physics simulation
+        const result = stepBallPhysics(
+          s.ballPos, s.ballVel, s.inLane, s.physicsFrame, s.pegHits,
+        );
+        s.inLane = result.inLane;
+        s.physicsFrame++;
 
-        s.ballTrail.push({ ...pos });
+        // Trail
+        s.ballTrail.push({ ...s.ballPos });
         if (s.ballTrail.length > 12) s.ballTrail.shift();
 
-        if (t >= 1) {
+        // Captured by scoop or failsafe timeout
+        if (result.captured || elapsed > PHYSICS_MAX_MS) {
+          s.ballPos = { x: PF_CX, y: SCOOP_Y };
           playScoopCapture();
           s.ballVisible = false;
           s.phase = 'cycling';
