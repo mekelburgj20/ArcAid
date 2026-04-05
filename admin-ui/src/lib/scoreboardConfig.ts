@@ -40,7 +40,7 @@ export interface CardDisplayProps {
  * Used by both Scoreboard.tsx and ScoreboardPreview.tsx.
  */
 export function deriveCardProps(config: Record<string, string>, roomName?: string): CardDisplayProps {
-  const rawLayout = config.SCOREBOARD_CARD_LAYOUT || config.SCOREBOARD_CARD_HEADER_STYLE || 'banner';
+  const rawLayout = config.SCOREBOARD_CARD_LAYOUT || 'banner';
   const headerStyle = rawLayout === 'fullart' ? 'banner' : rawLayout;
   const bgFill = rawLayout === 'fullart' ? 'fill' : (config.SCOREBOARD_BG_FILL || 'off');
   const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';

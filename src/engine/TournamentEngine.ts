@@ -52,6 +52,9 @@ export class TournamentEngine {
             isActive: true,
             winnerPicks: true,
             autoPick: true,
+            eligibilityDays: 120,
+            winnerPickWindowMin: 60,
+            runnerupPickWindowMin: 30,
         };
 
         logInfo(`Creating new ${getTerminology(mode).tournament}: ${name} (${type})`);
@@ -246,13 +249,16 @@ export class TournamentEngine {
      * Checks if a game is eligible to be played based on a rolling lookback period.
      * Lookback days defaults to the GAME_ELIGIBILITY_DAYS setting (default 120).
      */
-    public async isGameEligible(tournamentId: string, gameName: string, lookbackDays?: number): Promise<boolean> {
+    public async isGameEligible(tournamentId: string, gameName: string, lookbackDaysParam?: number): Promise<boolean> {
         const db = await getDatabase();
 
-        // Read from configurable setting, fallback to parameter, then hardcoded default
-        if (lookbackDays === undefined) {
-            const setting = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
-            lookbackDays = parseInt(setting?.value ?? '120', 10);
+        // Read from tournament column, fallback to parameter, then hardcoded default
+        let lookbackDays: number;
+        if (lookbackDaysParam !== undefined) {
+            lookbackDays = lookbackDaysParam;
+        } else {
+            const tournament = await db.get('SELECT eligibility_days FROM tournaments WHERE id = ?', tournamentId);
+            lookbackDays = tournament?.eligibility_days ?? 120;
         }
 
         const lookbackDate = new Date();
@@ -719,7 +725,7 @@ export class TournamentEngine {
             } else if (winnerPicks && winnerId) {
                 // Current behavior: give winner a pick window
                 logInfo(`   -> No ${term.game} queued for this slot. Creating picker slot for timeout tracking.`);
-                const winnerPickWindowMin = parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60', 10);
+                const winnerPickWindowMin = tournamentRow.winner_pick_window_min ?? 60;
                 const slotId = uuidv4();
                 await db.run(
                     `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id)
@@ -743,7 +749,7 @@ export class TournamentEngine {
                 emitPickerAssigned({
                     tournamentName: tournamentRow.name,
                     pickerName: winnerIscoredName || 'Unknown',
-                    deadline: new Date(Date.now() + parseInt(process.env.WINNER_PICK_WINDOW_MIN || '60') * 60000).toISOString(),
+                    deadline: new Date(Date.now() + (tournamentRow.winner_pick_window_min ?? 60) * 60000).toISOString(),
                 });
             } else if (!winnerPicks && !autoPick) {
                 // Manual only — no pick windows, no auto-select
@@ -797,8 +803,7 @@ export class TournamentEngine {
         let platformRules = { required: [] as string[], excluded: [] as string[] };
         try { platformRules = { ...platformRules, ...JSON.parse(tournamentRow.platform_rules || '{}') }; } catch {}
 
-        const eligibilityRow = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
-        const eligibilityDays = parseInt(eligibilityRow?.value ?? '120', 10);
+        const eligibilityDays = tournamentRow.eligibility_days ?? 120;
 
         // Get room-curated library if room-scoped, otherwise global library
         let libraryGames: any[];

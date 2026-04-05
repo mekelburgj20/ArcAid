@@ -26,6 +26,9 @@ export interface TournamentFormState {
   maxActiveGames: number;
   winnerPicks: boolean;
   autoPick: boolean;
+  eligibilityDays: number;
+  winnerPickWindowMin: number;
+  runnerupPickWindowMin: number;
   platformRules: PlatformRules;
   cleanupRule: CleanupRule;
   schedule: { cron: string; timezone: string };
@@ -45,6 +48,9 @@ export const defaultFormState: TournamentFormState = {
   maxActiveGames: 1,
   winnerPicks: true,
   autoPick: true,
+  eligibilityDays: 120,
+  winnerPickWindowMin: 60,
+  runnerupPickWindowMin: 30,
   platformRules: { ...defaultPlatformRules },
   cleanupRule: { ...defaultCleanupRule },
   schedule: { cron: '0 0 * * *', timezone: 'America/Chicago' },
@@ -315,6 +321,30 @@ export default function TournamentFormFields({ state, set, platforms, onAddPlatf
           {!state.winnerPicks && !state.autoPick && (
             <p className="text-xs text-neon-magenta ml-6">An admin must manually activate games after completion.</p>
           )}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+            <div>
+              <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                Cooldown Days <InfoTip text="How many days before a game can be picked again for this tournament." />
+              </label>
+              <NumberStepper value={state.eligibilityDays} onChange={v => set('eligibilityDays', v)} min={1} />
+            </div>
+            {state.winnerPicks && (
+              <>
+                <div>
+                  <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                    Winner Window (min) <InfoTip text="Minutes the winner has to pick the next game before it passes to runner-up." />
+                  </label>
+                  <NumberStepper value={state.winnerPickWindowMin} onChange={v => set('winnerPickWindowMin', v)} min={1} />
+                </div>
+                <div>
+                  <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
+                    Runner-up Window (min) <InfoTip text="Minutes the runner-up has to pick after the winner times out." />
+                  </label>
+                  <NumberStepper value={state.runnerupPickWindowMin} onChange={v => set('runnerupPickWindowMin', v)} min={1} />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
       <div className="mb-4">

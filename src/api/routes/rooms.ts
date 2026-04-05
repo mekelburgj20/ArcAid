@@ -263,18 +263,13 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
 
         // Verify tournament belongs to this room
         const tournament = await db.get(
-            'SELECT id, name, type, mode, platform_rules FROM tournaments WHERE id = ? AND game_room_id = ?',
+            'SELECT id, name, type, mode, platform_rules, eligibility_days FROM tournaments WHERE id = ? AND game_room_id = ?',
             tournamentId, roomId
         );
         if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-        // Get eligibility window
-        const roomSetting = await db.get(
-            "SELECT value FROM game_room_settings WHERE game_room_id = ? AND key = 'GAME_ELIGIBILITY_DAYS'",
-            roomId
-        );
-        const globalSetting = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
-        const eligibilityDays = parseInt(roomSetting?.value ?? globalSetting?.value ?? '120', 10);
+        // Get eligibility window from tournament
+        const eligibilityDays = tournament.eligibility_days ?? 120;
 
         const lookbackDate = new Date();
         lookbackDate.setDate(lookbackDate.getDate() - eligibilityDays);
@@ -470,7 +465,7 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
 
         // 1. Verify tournament belongs to this room and is active
         const tournament = await db.get(
-            'SELECT id, name, type, mode, max_active_games, platform_rules, game_room_id FROM tournaments WHERE id = ? AND game_room_id = ? AND is_active = 1',
+            'SELECT id, name, type, mode, max_active_games, platform_rules, game_room_id, eligibility_days FROM tournaments WHERE id = ? AND game_room_id = ? AND is_active = 1',
             tournamentId, roomId
         );
         if (!tournament) return res.status(404).json({ error: 'Tournament not found or inactive' });
@@ -506,12 +501,7 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
         const isEligible = await engine.isGameEligible(tournamentId, gameLibEntry.name);
         if (!isEligible) {
             // Calculate remaining cooldown days for the error message
-            const roomSetting = await db.get(
-                "SELECT value FROM game_room_settings WHERE game_room_id = ? AND key = 'GAME_ELIGIBILITY_DAYS'",
-                roomId
-            );
-            const globalSetting = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
-            const eligibilityDays = parseInt(roomSetting?.value ?? globalSetting?.value ?? '120', 10);
+            const eligibilityDays = tournament.eligibility_days ?? 120;
 
             const lastPlayed = await db.get(
                 `SELECT start_date FROM games WHERE tournament_id = ? AND name = ? COLLATE NOCASE AND status != 'QUEUED' ORDER BY start_date DESC LIMIT 1`,

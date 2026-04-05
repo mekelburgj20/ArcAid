@@ -38,13 +38,16 @@ export class TimeoutManager {
 
             if (pendingGames.length === 0) return;
 
-            // Pre-load timeout settings once (avoid N+1)
-            const winnerWindowRow = await db.get("SELECT value FROM settings WHERE key = 'WINNER_PICK_WINDOW_MIN'");
-            const runnerUpWindowRow = await db.get("SELECT value FROM settings WHERE key = 'RUNNERUP_PICK_WINDOW_MIN'");
-            const timeoutSettings = {
-                winnerWindowMin: parseInt(winnerWindowRow?.value ?? '60', 10),
-                runnerUpWindowMin: parseInt(runnerUpWindowRow?.value ?? '30', 10),
-            };
+            // Load per-tournament timeout settings
+            const tournamentIds = [...new Set(pendingGames.map((g: any) => g.tournament_id).filter(Boolean))];
+            const tournamentSettings = new Map<string, { winnerWindowMin: number; runnerUpWindowMin: number }>();
+            for (const tid of tournamentIds) {
+                const t = await db.get('SELECT winner_pick_window_min, runnerup_pick_window_min FROM tournaments WHERE id = ?', tid);
+                tournamentSettings.set(tid, {
+                    winnerWindowMin: t?.winner_pick_window_min ?? 60,
+                    runnerUpWindowMin: t?.runnerup_pick_window_min ?? 30,
+                });
+            }
 
             for (const row of pendingGames) {
                 const game: Game = {
@@ -59,7 +62,8 @@ export class TimeoutManager {
                     wonGameId: row.won_game_id
                 };
 
-                await this.handleTieredTimeout(game, timeoutSettings);
+                const settings = tournamentSettings.get(row.tournament_id) ?? { winnerWindowMin: 60, runnerUpWindowMin: 30 };
+                await this.handleTieredTimeout(game, settings);
             }
         } catch (error) {
             logError('Error checking picker timeouts:', error);
@@ -202,9 +206,8 @@ export class TimeoutManager {
             logInfo(`   -> Pivoting to runner-up: <@${runnerUpId}> (${runnerUpRow.iscored_username})`);
 
             // Reassign the QUEUED slot to the runner-up
-            const runnerUpWindowMin = parseInt(
-                (await db.get("SELECT value FROM settings WHERE key = 'RUNNERUP_PICK_WINDOW_MIN'"))?.value ?? '30', 10
-            );
+            const tournamentRow = await db.get('SELECT runnerup_pick_window_min FROM tournaments WHERE id = ?', game.tournamentId);
+            const runnerUpWindowMin = tournamentRow?.runnerup_pick_window_min ?? 30;
 
             await db.run(
                 `UPDATE games
@@ -280,8 +283,7 @@ export class TimeoutManager {
             let platformRules = { required: [] as string[], excluded: [] as string[] };
             try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
 
-            const eligibilityRow = await db.get("SELECT value FROM settings WHERE key = 'GAME_ELIGIBILITY_DAYS'");
-            const eligibilityDays = parseInt(eligibilityRow?.value ?? '120', 10);
+            const eligibilityDays = tournament.eligibility_days ?? 120;
 
             // Get games matching tournament mode + platform rules
             const libraryGames = await db.all('SELECT name, style_id, mode, platforms FROM game_library');

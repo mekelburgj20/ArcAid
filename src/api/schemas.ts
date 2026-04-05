@@ -35,6 +35,9 @@ export const CreateTournamentSchema = z.object({
     max_active_games: z.number().int().min(1).max(10).default(1),
     winner_picks: z.boolean().default(true),
     auto_pick: z.boolean().default(true),
+    eligibility_days: z.number().int().min(1).max(365).default(120),
+    winner_pick_window_min: z.number().int().min(1).max(1440).default(60),
+    runnerup_pick_window_min: z.number().int().min(1).max(1440).default(30),
     cleanup_rule: z.discriminatedUnion('mode', [
         z.object({ mode: z.literal('immediate') }),
         z.object({ mode: z.literal('retain'), count: z.number().int().min(0).max(50) }),

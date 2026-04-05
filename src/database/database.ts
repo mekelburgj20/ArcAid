@@ -405,6 +405,9 @@ export async function initDatabase(): Promise<Database> {
         { name: '027_game_library_display_name', sql: `ALTER TABLE game_library ADD COLUMN display_name TEXT` },
         { name: '028_tournaments_winner_picks', sql: `ALTER TABLE tournaments ADD COLUMN winner_picks INTEGER DEFAULT 1` },
         { name: '029_tournaments_auto_pick', sql: `ALTER TABLE tournaments ADD COLUMN auto_pick INTEGER DEFAULT 1` },
+        { name: '030_tournaments_eligibility_days', sql: `ALTER TABLE tournaments ADD COLUMN eligibility_days INTEGER DEFAULT 120` },
+        { name: '031_tournaments_winner_pick_window_min', sql: `ALTER TABLE tournaments ADD COLUMN winner_pick_window_min INTEGER DEFAULT 60` },
+        { name: '032_tournaments_runnerup_pick_window_min', sql: `ALTER TABLE tournaments ADD COLUMN runnerup_pick_window_min INTEGER DEFAULT 30` },
     ];
 
     for (const migration of migrations) {

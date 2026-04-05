@@ -470,7 +470,7 @@ export default function Settings() {
   };
 
   const handlePresetSelect = (preset: PresetDefinition) => {
-    setSettings(prev => ({ ...prev, ...preset.settings, SCOREBOARD_PRESET: preset.key }));
+    setSettings(prev => ({ ...prev, ...preset.settings }));
   };
 
   const handleBrandingCropConfirm = async (blob: Blob) => {

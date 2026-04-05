@@ -33,6 +33,9 @@ export interface Tournament {
     maxActiveGames?: number;
     winnerPicks: boolean;
     autoPick: boolean;
+    eligibilityDays: number;
+    winnerPickWindowMin: number;
+    runnerupPickWindowMin: number;
 }
 
 export type GameStatus = 'QUEUED' | 'ACTIVE' | 'COMPLETED' | 'HIDDEN';

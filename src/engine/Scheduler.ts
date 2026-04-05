@@ -40,6 +40,9 @@ export class Scheduler {
                 isActive: row.is_active === 1,
                 winnerPicks: row.winner_picks !== 0,
                 autoPick: row.auto_pick !== 0,
+                eligibilityDays: row.eligibility_days ?? 120,
+                winnerPickWindowMin: row.winner_pick_window_min ?? 60,
+                runnerupPickWindowMin: row.runnerup_pick_window_min ?? 30,
             };
 
             this.scheduleTournament(tournament);

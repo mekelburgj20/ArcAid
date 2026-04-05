@@ -33,10 +33,14 @@ export class TournamentService {
         game_room_id?: string;
         winner_picks?: boolean;
         auto_pick?: boolean;
+        eligibility_days?: number;
+        winner_pick_window_min?: number;
+        runnerup_pick_window_min?: number;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             data.id, data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
@@ -44,7 +48,10 @@ export class TournamentService {
             JSON.stringify(data.cleanup_rule || { mode: 'retain', count: 0 }),
             data.game_room_id || null,
             (data.winner_picks ?? true) ? 1 : 0,
-            (data.auto_pick ?? true) ? 1 : 0
+            (data.auto_pick ?? true) ? 1 : 0,
+            data.eligibility_days ?? 120,
+            data.winner_pick_window_min ?? 60,
+            data.runnerup_pick_window_min ?? 30
         );
     }
 
@@ -67,10 +74,14 @@ export class TournamentService {
         game_room_id?: string;
         winner_picks?: boolean;
         auto_pick?: boolean;
+        eligibility_days?: number;
+        winner_pick_window_min?: number;
+        runnerup_pick_window_min?: number;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            'UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ? WHERE id = ?',
+            `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?
+             WHERE id = ?`,
             data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
@@ -79,6 +90,9 @@ export class TournamentService {
             data.game_room_id || null,
             (data.winner_picks ?? true) ? 1 : 0,
             (data.auto_pick ?? true) ? 1 : 0,
+            data.eligibility_days ?? 120,
+            data.winner_pick_window_min ?? 60,
+            data.runnerup_pick_window_min ?? 30,
             id
         );
     }
