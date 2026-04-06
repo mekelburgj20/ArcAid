@@ -1272,8 +1272,19 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         }
 
         const db = await getDatabase();
-        const tournament = await db.get('SELECT id, name, type, mode, discord_channel_id, game_room_id FROM tournaments WHERE id = ?', tournamentId);
+        const tournament = await db.get('SELECT id, name, type, mode, discord_channel_id, game_room_id, platform_rules FROM tournaments WHERE id = ?', tournamentId);
         if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+
+        // Enforce platform rules
+        let platformRules = { required: [] as string[], excluded: [] as string[] };
+        try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
+        if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
+            const gameLibRow = await db.get('SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
+            const gamePlatforms: string[] = gameLibRow?.platforms ? JSON.parse(gameLibRow.platforms) : [];
+            if (!passesplatformRules(gamePlatforms, platformRules)) {
+                return res.status(400).json({ error: `Game "${gameName}" does not meet this tournament's platform requirements` });
+            }
+        }
 
         const { TournamentEngine } = await import('../../engine/TournamentEngine.js');
         const engine = TournamentEngine.getInstance();

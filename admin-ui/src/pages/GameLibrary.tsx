@@ -863,6 +863,8 @@ export default function GameLibrary() {
           currentStyleId={styleTarget.catalogue_style_id}
           headerDisabled={styleTarget.style_header_disabled === 1}
           showImageTypeSelector
+          uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
+          gameName={styleTarget.name}
           onClose={() => setStyleTarget(null)}
           onSelect={async (styleId, headerDisabled, _setAsDefault, imageType) => {
             try {

@@ -232,6 +232,8 @@ export default function Leaderboard() {
           headerDisabled={styleTarget.styleHeaderDisabled}
           showDefaultOption
           showImageTypeSelector
+          uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
+          gameName={styleTarget.gameName}
           libraryHasDefault={libraryHasDefault}
           onClose={() => setStyleTarget(null)}
           onSelect={async (styleId, headerDisabled, setAsDefault, imageType) => {

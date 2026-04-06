@@ -390,6 +390,8 @@ export default function Tournaments() {
           headerDisabled={styleTarget.style_header_disabled === 1}
           showDefaultOption
           libraryHasDefault={libraryHasDefault}
+          uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
+          gameName={styleTarget.name}
           onClose={() => setStyleTarget(null)}
           onSelect={async (styleId, headerDisabled, setAsDefault) => {
             try {

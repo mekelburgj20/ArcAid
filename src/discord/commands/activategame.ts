@@ -6,6 +6,7 @@ import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
 import { getTournamentColor } from '../../utils/discord.js';
+import { passesplatformRules } from '../../utils/platformRules.js';
 
 export const activategame: Command = {
     data: new SlashCommandBuilder()
@@ -54,11 +55,23 @@ export const activategame: Command = {
 
         try {
             const db = await getDatabase();
-            const tournament = await db.get('SELECT id, type, mode FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
+            const tournament = await db.get('SELECT id, type, mode, platform_rules FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
 
             if (!tournament) {
                 await interaction.editReply(`Could not find a tournament named '${tournamentName}'.`);
                 return;
+            }
+
+            // Enforce platform rules
+            let platformRules = { required: [] as string[], excluded: [] as string[] };
+            try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
+            if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
+                const gameLibRow = await db.get('SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
+                const gamePlatforms: string[] = gameLibRow?.platforms ? JSON.parse(gameLibRow.platforms) : [];
+                if (!passesplatformRules(gamePlatforms, platformRules)) {
+                    await interaction.editReply(`**${gameName}** does not meet the platform requirements for **${tournamentName}**.`);
+                    return;
+                }
             }
 
             const term = getTerminology(tournament.mode);
