@@ -170,6 +170,11 @@ export default function StylePicker({ currentStyleId, headerDisabled = false, on
                           <Image size={16} />
                         </div>
                       )}
+                      {/* Image type badges */}
+                      <div className="absolute bottom-1 left-1 flex gap-0.5">
+                        {style.has_background ? <span className="px-1 py-0.5 text-[8px] font-bold rounded bg-black/60 text-neon-green">BG</span> : null}
+                        {style.has_header ? <span className="px-1 py-0.5 text-[8px] font-bold rounded bg-black/60 text-neon-amber">HDR</span> : null}
+                      </div>
                     </div>
                     <div className="bg-surface p-1.5">
                       <div className="text-xs text-primary truncate">{style.name}</div>

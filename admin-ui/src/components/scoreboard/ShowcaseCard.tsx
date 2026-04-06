@@ -143,7 +143,7 @@ export default function ShowcaseCard({
         )}
 
         {/* Content area */}
-        <div style={{ position: 'relative', zIndex: 4 }}>
+        <div style={{ position: 'relative', zIndex: 4, ...(cardBgFill ? { textShadow: '0 1px 6px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7)' } : {}) }}>
           {/* Title area */}
           <div style={{
             textAlign: 'center',
@@ -180,13 +180,16 @@ export default function ShowcaseCard({
               <span style={{
                 padding: '3px 10px',
                 borderRadius: tBadge ? 4 : (theme.badgeBorder ? 4 : 6),
-                background: tBadge?.bg ?? theme.badgeBg,
+                background: cardBgFill
+                  ? (tBadge ? tBadge.bg.replace('0.15', '0.4') : 'rgba(0,0,0,0.5)')
+                  : (tBadge?.bg ?? theme.badgeBg),
                 border: tBadge ? `1px solid ${tBadge.border}` : (theme.badgeBorder || 'none'),
                 color: tBadge?.text ?? theme.badgeColor,
                 fontSize: 8,
                 letterSpacing: 3,
                 textTransform: 'uppercase' as const,
-                fontWeight: 500,
+                fontWeight: cardBgFill ? 600 : 500,
+                textShadow: cardBgFill ? 'none' : undefined,
               }}>
                 {lb.tournamentType === 'DG' ? 'Daily Grind' :
                  lb.tournamentType === 'WG-VPXS' ? 'Weekly Grind' :
@@ -199,7 +202,7 @@ export default function ShowcaseCard({
               {showTimer && countdown && (
                 <span style={{
                   fontSize: 9,
-                  color: theme.timerColor,
+                  color: cardBgFill ? 'rgba(255,255,255,0.7)' : theme.timerColor,
                   fontFamily: theme.monoFontFamily,
                   letterSpacing: 1,
                 }}>
@@ -254,17 +257,18 @@ export default function ShowcaseCard({
 
           {/* Footer */}
           <div style={{
-            borderTop: `1px solid ${theme.footerBorder}`,
+            borderTop: `1px solid ${cardBgFill ? 'rgba(255,255,255,0.15)' : theme.footerBorder}`,
             padding: '10px 24px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            ...(cardBgFill ? { background: 'rgba(0,0,0,0.3)' } : {}),
           }}>
             <a
               href={`/${slug}`}
               style={{
                 fontSize: 12,
-                color: theme.linkColor,
+                color: cardBgFill ? 'rgba(255,255,255,0.7)' : theme.linkColor,
                 fontWeight: 500,
                 textDecoration: 'none',
                 letterSpacing: theme.linkLetterSpacing ? parseFloat(theme.linkLetterSpacing) : undefined,
@@ -273,7 +277,7 @@ export default function ShowcaseCard({
             >
               Full Leaderboard &rarr;
             </a>
-            <span style={{ fontSize: 11, color: theme.metaColor }}>
+            <span style={{ fontSize: 11, color: cardBgFill ? 'rgba(255,255,255,0.5)' : theme.metaColor }}>
               {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
             </span>
           </div>

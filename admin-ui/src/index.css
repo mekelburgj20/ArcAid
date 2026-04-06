@@ -533,6 +533,63 @@ body {
   letter-spacing: 0.2em;
 }
 
+.title-neon-magenta {
+  text-shadow: 0 0 8px var(--color-neon-magenta), 0 0 20px var(--color-neon-magenta), 0 0 40px rgba(236, 72, 153, 0.4);
+  color: var(--color-neon-magenta);
+}
+
+.title-chrome {
+  background: linear-gradient(180deg, #fff 0%, #a8a8a8 40%, #fff 50%, #8a8a8a 60%, #d4d4d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+}
+
+.title-fire {
+  background: linear-gradient(180deg, #ff0 0%, #ff8c00 40%, #ff4500 70%, #8b0000 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 8px rgba(255, 69, 0, 0.5));
+}
+
+.title-plasma {
+  background: linear-gradient(90deg, #a855f7, #06b6d4, #ec4899, #a855f7);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: plasma-shift 4s ease-in-out infinite;
+}
+@keyframes plasma-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.title-backglass {
+  color: #fbbf24;
+  text-shadow: 0 0 4px #fbbf24, 0 0 12px rgba(251, 191, 36, 0.5), 3px 3px 0 #7c2d12;
+  letter-spacing: 0.1em;
+}
+
+.title-marquee {
+  color: #fff;
+  text-shadow: 0 0 6px #fff, 0 0 12px var(--color-neon-cyan), 2px 2px 0 var(--color-deep);
+  letter-spacing: 0.08em;
+}
+
+.title-shadow {
+  color: var(--color-primary);
+  text-shadow: 3px 3px 6px rgba(0,0,0,0.8), 0 0 2px rgba(0,0,0,0.5);
+}
+
+.title-outlined {
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--color-neon-cyan);
+  text-shadow: 0 0 20px var(--color-neon-cyan);
+}
+
 /* Soften glow on light theme */
 .theme-light .glow-cyan,
 .theme-light .glow-green,

@@ -402,17 +402,24 @@ export default function Tournaments() {
           currentStyleId={styleTarget.catalogue_style_id}
           headerDisabled={styleTarget.style_header_disabled === 1}
           showDefaultOption
+          showImageTypeSelector
           libraryHasDefault={libraryHasDefault}
           uploadPath={`/rooms/${room.roomId}/admin/styles/upload`}
           gameName={styleTarget.name}
           onClose={() => setStyleTarget(null)}
-          onSelect={async (styleId, headerDisabled, setAsDefault) => {
+          onSelect={async (styleId, headerDisabled, setAsDefault, imageType) => {
             try {
               if (styleId) {
-                await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`, {
-                  catalogueStyleId: styleId,
-                  headerDisabled,
-                });
+                if (imageType && imageType !== 'both') {
+                  await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/image`, {
+                    styleId, imageType,
+                  });
+                } else {
+                  await api.put(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`, {
+                    catalogueStyleId: styleId,
+                    headerDisabled,
+                  });
+                }
                 toast('Style applied', 'success');
               } else {
                 await api.delete(`/rooms/${room.roomId}/admin/games/${styleTarget.id}/style`);
@@ -422,10 +429,16 @@ export default function Tournaments() {
               if (setAsDefault) {
                 try {
                   if (styleId) {
-                    await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
-                      catalogueStyleId: styleId,
-                      headerDisabled,
-                    });
+                    if (imageType && imageType !== 'both') {
+                      await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/image`, {
+                        styleId, imageType,
+                      });
+                    } else {
+                      await api.put(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`, {
+                        catalogueStyleId: styleId,
+                        headerDisabled,
+                      });
+                    }
                     toast('Default style updated in library', 'success');
                   } else {
                     await api.delete(`/rooms/${room.roomId}/game_library/${encodeURIComponent(styleTarget.name)}/style`);

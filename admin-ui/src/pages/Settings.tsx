@@ -14,6 +14,7 @@ import type { PresetDefinition } from '../components/PresetSelector';
 import StyleThemePicker from '../components/scoreboard/StyleThemePicker';
 import ScoreboardPreview from '../components/ScoreboardPreview';
 import ImageCropper from '../components/ImageCropper';
+import { getTitleStyleClass, getTitleSizeClass } from '../components/ScoreboardComponents';
 
 interface LocalAdmin {
   id: string;
@@ -155,9 +156,17 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
 const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
   SCOREBOARD_TITLE_STYLE: [
     { value: 'default', label: 'Default' },
-    { value: 'glow', label: 'Glow (Neon)' },
-    { value: 'retro', label: 'Retro (Pixel Font)' },
-    { value: 'pixel', label: 'Pixel (Amber)' },
+    { value: 'glow', label: 'Neon Cyan' },
+    { value: 'neon-magenta', label: 'Neon Magenta' },
+    { value: 'chrome', label: 'Chrome' },
+    { value: 'fire', label: 'Fire' },
+    { value: 'plasma', label: 'Plasma' },
+    { value: 'backglass', label: 'Backglass' },
+    { value: 'marquee', label: 'Marquee' },
+    { value: 'retro', label: 'Retro' },
+    { value: 'pixel', label: 'Pixel' },
+    { value: 'shadow', label: 'Shadow' },
+    { value: 'outlined', label: 'Outlined' },
   ],
   SCOREBOARD_TITLE_SIZE: [
     { value: 'xs', label: 'Extra Small' },
@@ -1334,31 +1343,58 @@ export default function Settings() {
                     className={inputClass}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                  <div>
-                    <label className="text-xs text-faint block mb-1">Title Style</label>
-                    <select
-                      value={settings.SCOREBOARD_TITLE_STYLE || 'default'}
-                      onChange={e => handleChange('SCOREBOARD_TITLE_STYLE', e.target.value)}
-                      className={inputClass}
-                    >
-                      {SELECT_OPTIONS.SCOREBOARD_TITLE_STYLE.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                {/* Live title preview */}
+                <div className="mt-3 p-3 bg-surface rounded border border-border/50">
+                  <div className={`flex items-center justify-center gap-3 py-2 ${
+                    (settings.LOGO_POSITION || 'left') === 'above' || (settings.LOGO_POSITION || 'left') === 'below' ? 'flex-col' : 'flex-row'
+                  }`}>
+                    {settings.LOGO_URL && ((settings.LOGO_POSITION || 'left') === 'left' || (settings.LOGO_POSITION || 'left') === 'above') && (
+                      <img src={settings.LOGO_URL} alt="" style={{ maxHeight: Number(settings.LOGO_MAX_HEIGHT || 64), objectFit: 'contain' }} />
+                    )}
+                    <p className={`font-display text-muted ${getTitleSizeClass(settings.SCOREBOARD_TITLE_SIZE || 'sm')} uppercase tracking-widest ${getTitleStyleClass(settings.SCOREBOARD_TITLE_STYLE || 'default')}`}>
+                      {settings.SCOREBOARD_TITLE || room.roomName || 'Scoreboard Title'}
+                    </p>
+                    {settings.LOGO_URL && ((settings.LOGO_POSITION || 'left') === 'right' || (settings.LOGO_POSITION || 'left') === 'below') && (
+                      <img src={settings.LOGO_URL} alt="" style={{ maxHeight: Number(settings.LOGO_MAX_HEIGHT || 64), objectFit: 'contain' }} />
+                    )}
                   </div>
-                  <div>
-                    <label className="text-xs text-faint block mb-1">Title Size</label>
-                    <select
-                      value={settings.SCOREBOARD_TITLE_SIZE || 'sm'}
-                      onChange={e => handleChange('SCOREBOARD_TITLE_SIZE', e.target.value)}
-                      className={inputClass}
-                    >
-                      {SELECT_OPTIONS.SCOREBOARD_TITLE_SIZE.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                </div>
+
+                {/* Title Style picker */}
+                <div className="mt-3">
+                  <label className="text-xs text-faint block mb-1.5">Title Style</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {SELECT_OPTIONS.SCOREBOARD_TITLE_STYLE.map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => handleChange('SCOREBOARD_TITLE_STYLE', opt.value)}
+                        className={`p-2 rounded border text-center transition-colors ${
+                          (settings.SCOREBOARD_TITLE_STYLE || 'default') === opt.value
+                            ? 'border-neon-cyan bg-neon-cyan/10'
+                            : 'border-border/50 bg-raised hover:border-border'
+                        }`}
+                      >
+                        <span className={`font-display text-sm uppercase tracking-wider block ${getTitleStyleClass(opt.value)}`}>
+                          {opt.label}
+                        </span>
+                      </button>
+                    ))}
                   </div>
+                </div>
+
+                {/* Title Size */}
+                <div className="mt-3">
+                  <label className="text-xs text-faint block mb-1">Title Size</label>
+                  <select
+                    value={settings.SCOREBOARD_TITLE_SIZE || 'sm'}
+                    onChange={e => handleChange('SCOREBOARD_TITLE_SIZE', e.target.value)}
+                    className={inputClass}
+                  >
+                    {SELECT_OPTIONS.SCOREBOARD_TITLE_SIZE.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>

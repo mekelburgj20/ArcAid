@@ -96,6 +96,14 @@ export function getTitleStyleClass(style: string): string {
     case 'glow': return 'title-glow';
     case 'retro': return 'title-retro';
     case 'pixel': return 'title-pixel';
+    case 'neon-magenta': return 'title-neon-magenta';
+    case 'chrome': return 'title-chrome';
+    case 'fire': return 'title-fire';
+    case 'plasma': return 'title-plasma';
+    case 'backglass': return 'title-backglass';
+    case 'marquee': return 'title-marquee';
+    case 'shadow': return 'title-shadow';
+    case 'outlined': return 'title-outlined';
     default: return '';
   }
 }
@@ -894,8 +902,10 @@ interface RankingsProps {
 }
 
 export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky }: RankingsProps) {
+  // Match Showcase card paddingTop so Rankings aligns with card frames, not identifier images
+  const topPad = scoreboardStyle === 'showcase' ? 42 : 0;
   return (
-    <div className={`w-full lg:w-80 flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : 'lg:sticky lg:top-6'}`}>
+    <div className={`w-full lg:w-80 flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : 'lg:sticky lg:top-6'}`} style={topPad ? { paddingTop: topPad } : undefined}>
       <div className="flex flex-col gap-5">
         {rankingGroups.map(({ group, rankings }) => (
           <RankingGroupCard key={group.id} group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} />

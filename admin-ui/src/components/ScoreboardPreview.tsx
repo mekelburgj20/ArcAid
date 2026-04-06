@@ -108,7 +108,7 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
     observer.observe(container);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [effectiveLayout, gameColumns, cardWidth, headerStyle, useNewCards, newConfig.style]);
+  }, [effectiveLayout, gameColumns, cardWidth, headerStyle, useNewCards, newConfig.style, newConfig.cardSpacing, newConfig.minScores, newConfig.cardBgFill, newConfig.titleFontSize]);
 
   const wheelPad = !useNewCards && headerStyle === 'wheel' ? '2.5rem' : undefined;
 
@@ -135,8 +135,11 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
         >
           {effectiveLayout === 'grid' ? (
             <div
-              className={`grid gap-3 ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
-              style={useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(${Math.round(cardWidth * 0.7)}px, 1fr))` } : undefined}
+              className={`grid ${useNewCards ? '' : 'gap-3'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
+              style={{
+                ...(useNewCards ? { gap: newConfig.cardSpacing } : {}),
+                ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(${Math.round(cardWidth * 0.7)}px, 1fr))` } : {}),
+              }}
             >
               {MOCK_LEADERBOARDS.map(lb => (
                 <div key={lb.gameId} className="grid" style={wheelPad ? { paddingTop: wheelPad } : undefined}>
@@ -176,7 +179,7 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <div className="flex gap-3">
+              <div className={`flex ${useNewCards ? '' : 'gap-3'}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {MOCK_LEADERBOARDS.map(lb => (
                   <div
                     key={lb.gameId}

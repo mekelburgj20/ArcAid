@@ -56,7 +56,8 @@ export default function BannerCard({
 }: BannerCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
-  const hasIdentifierImage = !!styleHeaderUrl;
+  // When cardBgFill is on, the separate image area is hidden so identifier isn't visible — always show title
+  const hasIdentifierImage = !!styleHeaderUrl && !cardBgFill;
   const borderColor = TOURNAMENT_BORDER_COLORS[lb.tournamentType?.toUpperCase()] ?? 'border-border';
 
   const [countdown, setCountdown] = useState<string | null>(
@@ -165,7 +166,7 @@ export default function BannerCard({
             <p className="text-sm text-faint">No scores yet</p>
           </div>
         ) : (
-          <div className="divide-y divide-border/20">
+          <div className="space-y-1 py-1 px-2">
             {visibleEntries.map((entry) => {
               const isViewerRow = viewerUsername && entry.iscored_username.toLowerCase() === viewerUsername.toLowerCase();
               const rankColor = entry.rank === 1 ? 'text-neon-amber' :
@@ -176,26 +177,32 @@ export default function BannerCard({
               return (
                 <div
                   key={`${entry.rank}-${entry.iscored_username}`}
-                  className={`flex items-center gap-2 px-3 py-1.5 ${isViewerRow ? 'bg-neon-cyan/10' : ''}`}
+                  className="flex items-center gap-1.5"
                 >
-                  <span className={`w-6 text-right text-xs font-bold tabular-nums ${rankColor}`}>
+                  <span className={`w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>
                     {entry.rank}
                   </span>
-                  <PlayerAvatar
-                    username={entry.iscored_username}
-                    discordUserId={entry.discord_user_id}
-                    avatarHash={entry.avatar_hash}
-                    size={20}
-                  />
-                  <span className="flex-1 text-xs truncate text-secondary">
-                    {entry.iscored_username}
-                  </span>
-                  <span
-                    className={`text-xs font-bold tabular-nums whitespace-nowrap ${scoreColor}`}
-                    title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
-                  >
-                    {formatScore(entry.score)}
-                  </span>
+                  <div className={`flex-1 rounded-full px-3 py-1 ${
+                    isViewerRow ? 'bg-neon-cyan/15' : 'bg-white/8'
+                  }`}>
+                    <div className="flex items-center gap-1.5">
+                      <PlayerAvatar
+                        username={entry.iscored_username}
+                        discordUserId={entry.discord_user_id}
+                        avatarHash={entry.avatar_hash}
+                        size={16}
+                      />
+                      <span className="text-[11px] truncate text-secondary flex-1">
+                        {entry.iscored_username}
+                      </span>
+                    </div>
+                    <span
+                      className={`text-xs font-bold tabular-nums block text-center ${scoreColor}`}
+                      title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                    >
+                      {formatScore(entry.score)}
+                    </span>
+                  </div>
                 </div>
               );
             })}
