@@ -23,7 +23,7 @@ export class LeaderboardService {
         // Left join user_mappings to get avatar_hash for Discord-linked players.
         const entries = await db.all(`
             SELECT
-                combined.discord_user_id,
+                COALESCE(um.discord_user_id, combined.discord_user_id) as discord_user_id,
                 combined.iscored_username,
                 combined.score,
                 um.avatar_hash
@@ -47,7 +47,11 @@ export class LeaderboardService {
                 ) raw
                 GROUP BY LOWER(iscored_username)
             ) combined
-            LEFT JOIN user_mappings um ON um.discord_user_id = combined.discord_user_id
+            LEFT JOIN user_mappings um ON (
+                um.discord_user_id = combined.discord_user_id
+                OR (combined.discord_user_id IN ('SYSTEM','COMMUNITY','ANON')
+                    AND LOWER(um.iscored_username) = LOWER(combined.iscored_username))
+            )
             ORDER BY combined.score DESC
         `, gameId, gameId, gameId);
 
