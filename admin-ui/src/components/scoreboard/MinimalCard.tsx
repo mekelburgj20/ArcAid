@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown } from '../ScoreboardComponents';
 import GameInfoPopup from './GameInfoPopup';
@@ -8,10 +9,13 @@ interface MinimalCardProps {
   slug: string;
   roomId?: string;
   maxScores: number;
+  minScores?: number;
   showTimer?: boolean;
   viewerUsername?: string;
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
+  cardBgFill?: boolean;
+  titleFontSize?: number;
   onSubmitScore?: (lb: GameLeaderboard) => void;
 }
 
@@ -24,9 +28,12 @@ export default function MinimalCard({
   lb,
   slug,
   maxScores,
+  minScores = 20,
   showTimer = true,
   viewerUsername,
   viewerEntry,
+  cardBgFill = false,
+  titleFontSize,
 }: MinimalCardProps) {
   const displayName = lb.displayName || lb.gameName;
 
@@ -55,14 +62,43 @@ export default function MinimalCard({
     }
   }
 
+  // Minimum height for score area (~30px per row)
+  const scoreAreaMinHeight = minScores * 30;
+
+  // Resolve background image for bg fill mode
+  const bgImageUrl = (() => {
+    if (!cardBgFill) return null;
+    const effectiveBgId = (lb.bgStyleId && lb.bgHasBg !== 0) ? lb.bgStyleId
+      : (lb.catalogueStyleId && lb.catHasBg !== 0) ? lb.catalogueStyleId : null;
+    return effectiveBgId ? `/api/styles/images/backgrounds/${effectiveBgId}.png` : lb.imageUrl || null;
+  })();
+
   return (
     <div
-      className="bg-surface border border-border/40 rounded-lg overflow-hidden flex flex-col h-full"
+      className="bg-surface border border-border/40 rounded-lg overflow-hidden flex flex-col h-full relative"
       style={{ maxWidth: 380 }}
     >
+      {/* Card background fill */}
+      {bgImageUrl && (
+        <>
+          <div
+            className="absolute inset-0 z-0"
+            style={{
+              backgroundImage: `url(${bgImageUrl})`,
+              backgroundSize: 'cover', backgroundPosition: 'center',
+            }}
+          />
+          <div className="absolute inset-0 z-0 bg-black/55" />
+        </>
+      )}
       {/* Title area */}
-      <div className="px-5 pt-4 pb-3">
-        <h3 className="font-display font-bold text-base leading-tight truncate text-primary flex items-center gap-1">
+      <div className="px-5 pt-4 pb-3 relative z-[1]">
+        {lb.gameStatus === 'COMPLETED' && (
+          <span title="Completed" className="absolute right-4 top-4">
+            <Lock size={14} className="text-neon-amber" />
+          </span>
+        )}
+        <h3 className="font-display font-bold leading-tight truncate text-primary flex items-center gap-1 pr-5" style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem' }}>
           {displayName}
           <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
         </h3>
@@ -77,10 +113,10 @@ export default function MinimalCard({
       </div>
 
       {/* Divider */}
-      <div className="h-px mx-5 bg-border/30" />
+      <div className="h-px mx-5 bg-border/30 relative z-[1]" />
 
       {/* Score list */}
-      <div className="flex-1 px-2 py-2">
+      <div className="flex-1 px-2 py-2 relative z-[1]" style={{ minHeight: scoreAreaMinHeight }}>
         {lb.rankings.length === 0 ? (
           <div className="py-8 text-center">
             <p className="text-sm text-faint">No scores yet</p>
@@ -126,7 +162,7 @@ export default function MinimalCard({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border/30 px-5 py-2.5 flex justify-between items-center">
+      <div className="border-t border-border/30 px-5 py-2.5 flex justify-between items-center relative z-[1]">
         <a href={`/${slug}`} className="text-xs text-accent hover:text-accent/80 transition-colors">
           Full Leaderboard &rarr;
         </a>

@@ -475,7 +475,7 @@ export default function GameLibrary() {
 
       {showAddForm && (
         <NeonCard glowColor="cyan" className="mb-6 border-l-2 border-l-neon-cyan" title="Add New Game">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
             <div ref={nameInputRef} className="relative">
               <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Game Name *</label>
               <input
@@ -807,7 +807,7 @@ export default function GameLibrary() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="font-display text-lg font-bold mb-4">Edit Game</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
               <div>
                 <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Game Name *</label>
                 <input type="text" value={editGame.name} onChange={e => setEditGame({...editGame, name: e.target.value})} className={inputClass} />

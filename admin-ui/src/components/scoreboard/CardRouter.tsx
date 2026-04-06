@@ -12,10 +12,14 @@ export interface CardRouterProps {
   style: ScoreboardStyle;
   theme?: string;
   maxScores: number;
+  minScores?: number;
   showTimer?: boolean;
   viewerUsername?: string;
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
+  cardBgFill?: boolean;
+  cardSpacing?: number;
+  titleFontSize?: number;
   onSubmitScore?: (lb: GameLeaderboard) => void;
 }
 
@@ -26,10 +30,13 @@ export default function CardRouter({
   style,
   theme,
   maxScores,
+  minScores = 20,
   showTimer = true,
   viewerUsername,
   viewerEntry,
   qrMode = 'disabled',
+  cardBgFill = false,
+  titleFontSize,
   onSubmitScore,
 }: CardRouterProps) {
   switch (style) {
@@ -42,10 +49,13 @@ export default function CardRouter({
           roomId={roomId}
           theme={themeConfig}
           maxScores={maxScores}
+          minScores={minScores}
           showTimer={showTimer}
           viewerUsername={viewerUsername}
           viewerEntry={viewerEntry}
           qrMode={qrMode}
+          cardBgFill={cardBgFill}
+          titleFontSize={titleFontSize}
           onSubmitScore={onSubmitScore}
         />
       );
@@ -57,10 +67,13 @@ export default function CardRouter({
           slug={slug}
           roomId={roomId}
           maxScores={maxScores}
+          minScores={minScores}
           showTimer={showTimer}
           viewerUsername={viewerUsername}
           viewerEntry={viewerEntry}
           qrMode={qrMode}
+          cardBgFill={cardBgFill}
+          titleFontSize={titleFontSize}
           onSubmitScore={onSubmitScore}
         />
       );
@@ -72,10 +85,13 @@ export default function CardRouter({
           slug={slug}
           roomId={roomId}
           maxScores={maxScores}
+          minScores={minScores}
           showTimer={showTimer}
           viewerUsername={viewerUsername}
           viewerEntry={viewerEntry}
           qrMode={qrMode}
+          cardBgFill={cardBgFill}
+          titleFontSize={titleFontSize}
           onSubmitScore={onSubmitScore}
         />
       );

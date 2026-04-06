@@ -61,6 +61,14 @@ const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; d
     label: 'Enhance Game Title Visibility',
     description: 'When enabled, adds a dark backdrop behind game title text for readability on busy backgrounds.',
   },
+  'SCOREBOARD_CARD_BG_FILL': {
+    label: 'Card Background Fill',
+    description: 'When enabled, game background images fill the entire card behind scores for an immersive look.',
+  },
+  'SCOREBOARD_RANKINGS_STICKY': {
+    label: 'Always Visible Rankings',
+    description: 'When enabled, the Overall Rankings card stays pinned on screen and does not scroll away.',
+  },
   'REQUIRE_SCORE_PHOTO': {
     label: 'Require Photo with Score Submission',
     description: 'When enabled, players must include a photo when submitting scores from the scoreboard.',
@@ -564,6 +572,11 @@ export default function Settings() {
     'UI_THEME',
     // Platforms (managed in Platforms card)
     'PLATFORMS',
+    // New style system advanced settings
+    'SCOREBOARD_MIN_SCORES', 'SCOREBOARD_CARD_BG_FILL', 'SCOREBOARD_CARD_SPACING',
+    'SCOREBOARD_TITLE_FONT_SIZE', 'SCOREBOARD_RANKINGS_STICKY',
+    // New style system core keys
+    'SCOREBOARD_STYLE', 'SCOREBOARD_THEME', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_SHOW_TIMER',
     // Legacy/removed — no longer surfaced
     'SCOREBOARD_CARDS_PER_ROW',
   ]);
@@ -859,6 +872,30 @@ export default function Settings() {
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Advanced numeric settings */}
+                  <div className="pt-3 mt-3 border-t border-border/30 space-y-3">
+                    <p className="text-xs font-display uppercase tracking-wider text-muted">Advanced</p>
+                    {[
+                      { key: 'SCOREBOARD_MAX_SCORES', label: 'Scores Per Card', defaultVal: '5', description: 'Maximum visible scores per game card' },
+                      { key: 'SCOREBOARD_MIN_SCORES', label: 'Min Card Height (scores)', defaultVal: '20', description: 'Minimum card height expressed as score rows' },
+                      { key: 'SCOREBOARD_CARD_SPACING', label: 'Card Spacing (px)', defaultVal: '24', description: 'Gap between game cards in pixels' },
+                      { key: 'SCOREBOARD_TITLE_FONT_SIZE', label: 'Title Font Size (px)', defaultVal: '0', description: '0 = style default. Override game title font size.' },
+                    ].map(({ key, label, defaultVal, description }) => (
+                      <div key={key} className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-primary">{label}</p>
+                          <p className="text-xs text-muted">{description}</p>
+                        </div>
+                        <input
+                          type="number"
+                          value={settings[key] ?? defaultVal}
+                          onChange={e => handleChange(key, e.target.value)}
+                          className="w-20 text-sm text-center rounded border border-border bg-raised px-2 py-1 text-primary"
+                        />
+                      </div>
+                    ))}
                   </div>
 
                   {/* Switch back to legacy */}

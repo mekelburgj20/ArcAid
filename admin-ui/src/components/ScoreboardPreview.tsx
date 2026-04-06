@@ -147,7 +147,10 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
                       style={newConfig.style}
                       theme={newConfig.theme}
                       maxScores={newConfig.maxScores}
+                      minScores={newConfig.minScores}
                       showTimer={newConfig.showTimer}
+                      cardBgFill={newConfig.cardBgFill}
+                      titleFontSize={newConfig.titleFontSize || undefined}
                     />
                   ) : (
                     <GameCard

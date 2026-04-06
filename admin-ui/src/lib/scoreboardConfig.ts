@@ -12,7 +12,11 @@ export interface ScoreboardConfig {
   style: ScoreboardStyle;
   theme: string;                // only used when style === 'showcase'
   maxScores: number;
+  minScores: number;
   showTimer: boolean;
+  cardBgFill: boolean;
+  cardSpacing: number;
+  titleFontSize: number;
 
   // Page-level settings (retained from old system)
   layout: string;               // 'scroll' | 'grid'
@@ -28,6 +32,7 @@ export interface ScoreboardConfig {
   titleStyle: string;
   titleSize: string;
   rankingsPosition: string;
+  rankingsSticky: boolean;
   hideEmpty: boolean;
   requirePhoto: boolean;
   qrMode: string;
@@ -67,7 +72,11 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     style,
     theme,
     maxScores: parseInt(config.SCOREBOARD_MAX_SCORES || '5', 10) || 5,
+    minScores: parseInt(config.SCOREBOARD_MIN_SCORES || '20', 10) || 20,
     showTimer: config.SCOREBOARD_SHOW_TIMER !== 'false',
+    cardBgFill: config.SCOREBOARD_CARD_BG_FILL === 'true',
+    cardSpacing: parseInt(config.SCOREBOARD_CARD_SPACING || '24', 10) || 24,
+    titleFontSize: parseInt(config.SCOREBOARD_TITLE_FONT_SIZE || '0', 10) || 0,
 
     layout: config.SCOREBOARD_LAYOUT || 'scroll',
     zoom: parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100,
@@ -82,6 +91,7 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     titleStyle: config.SCOREBOARD_TITLE_STYLE || 'default',
     titleSize: config.SCOREBOARD_TITLE_SIZE || 'sm',
     rankingsPosition: config.SCOREBOARD_RANKINGS_POSITION || 'left',
+    rankingsSticky: config.SCOREBOARD_RANKINGS_STICKY === 'true',
     hideEmpty: config.SCOREBOARD_HIDE_EMPTY === 'true',
     requirePhoto: config.REQUIRE_SCORE_PHOTO === 'true',
     qrMode: config.SCOREBOARD_QR_MODE || 'disabled',

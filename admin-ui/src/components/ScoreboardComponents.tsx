@@ -4,6 +4,8 @@ import { Lock, Plus, Minus, Camera, Upload } from 'lucide-react';
 import QRCode from 'qrcode';
 import ScorePhotoModal from './ScorePhotoModal';
 import GameInfoPopup from './scoreboard/GameInfoPopup';
+import type { ShowcaseThemeConfig } from '../lib/scoreboardThemes';
+import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
 
 // --- Shared interfaces ---
 
@@ -66,6 +68,13 @@ export const TOURNAMENT_COLORS: Record<string, string> = {
 };
 
 export const RANKINGS_TOP_N = 10;
+
+export const TOURNAMENT_BADGE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  DG:       { bg: 'rgba(236,72,153,0.15)', text: '#ec4899', border: 'rgba(236,72,153,0.3)' },
+  'WG-VPXS': { bg: 'rgba(59,130,246,0.15)', text: '#3b82f6', border: 'rgba(59,130,246,0.3)' },
+  'WG-VR':  { bg: 'rgba(168,85,247,0.15)', text: '#a855f7', border: 'rgba(168,85,247,0.3)' },
+  MG:       { bg: 'rgba(251,146,60,0.15)', text: '#fb923c', border: 'rgba(251,146,60,0.3)' },
+};
 
 export const METHOD_LABELS: Record<string, { label: string; scoreLabel: string }> = {
   max_10: { label: 'Max 10', scoreLabel: 'Points' },
@@ -703,22 +712,126 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   );
 }
 
-export function RankingGroupCard({ group, rankings, cardOpacity }: { group: RankingGroupData['group']; rankings: RankingGroupData['rankings']; cardOpacity?: number }) {
-  const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
+// Style-aware color scheme for rankings cards
+function getRankingsColors(scoreboardStyle?: string, showcaseTheme?: ShowcaseThemeConfig) {
+  if (scoreboardStyle === 'showcase' && showcaseTheme) {
+    // Match the showcase theme's color scheme
+    const border = showcaseTheme.cardBorder.replace(/1px solid /, '');
+    return {
+      border: showcaseTheme.cardBorder,
+      bg: showcaseTheme.cardBg,
+      headerBg: `${border}22`,
+      headerBorder: `${border}33`,
+      rowBorder: `${border}22`,
+      fontFamily: showcaseTheme.fontFamily,
+      borderRadius: showcaseTheme.cardBorderRadius,
+      shadow: showcaseTheme.cardShadow,
+    };
+  }
+  if (scoreboardStyle === 'minimal') {
+    return {
+      border: '1px solid rgba(var(--border-rgb, 128,128,128), 0.4)',
+      bg: 'var(--color-surface, #1a1a2e)',
+      headerBg: 'rgba(var(--border-rgb, 128,128,128), 0.05)',
+      headerBorder: 'rgba(var(--border-rgb, 128,128,128), 0.1)',
+      rowBorder: 'rgba(var(--border-rgb, 128,128,128), 0.1)',
+      fontFamily: undefined,
+      borderRadius: '0.5rem',
+      shadow: undefined,
+    };
+  }
+  // Default / banner — keep existing neon-purple style
+  return null;
+}
 
+export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle, showcaseThemeName }: {
+  group: RankingGroupData['group'];
+  rankings: RankingGroupData['rankings'];
+  cardOpacity?: number;
+  scoreboardStyle?: string;
+  showcaseThemeName?: string;
+}) {
+  const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
+  const showcaseTheme = scoreboardStyle === 'showcase'
+    ? SHOWCASE_THEMES[showcaseThemeName || DEFAULT_SHOWCASE_THEME] ?? SHOWCASE_THEMES[DEFAULT_SHOWCASE_THEME]
+    : undefined;
+  const themed = getRankingsColors(scoreboardStyle, showcaseTheme);
+
+  // When themed (showcase/minimal), use inline styles; otherwise use Tailwind neon-purple classes
+  if (themed) {
+    return (
+      <div className="relative overflow-hidden" style={{ border: themed.border, borderRadius: themed.borderRadius, background: themed.bg, boxShadow: themed.shadow, fontFamily: themed.fontFamily }}>
+        {cardOpacity != null && cardOpacity < 1 && (
+          <div className="absolute inset-0" style={{ background: themed.headerBg, opacity: cardOpacity }} />
+        )}
+        {/* Header */}
+        <div className="px-4 py-3 relative text-center" style={{ borderBottom: `1px solid ${themed.headerBorder}`, background: themed.headerBg }}>
+          <h3 className="font-display font-bold text-lg uppercase tracking-wider text-primary">Overall Rankings</h3>
+          <p className="text-sm text-muted mt-0.5">{group.name}</p>
+        </div>
+
+        {/* Rankings */}
+        {rankings.length === 0 ? (
+          <div className="py-8 text-center relative">
+            <p className="text-faint text-sm">No qualified players yet</p>
+          </div>
+        ) : (
+          <div className="relative">
+            <div className="flex items-center justify-between px-4 py-2 text-[10px] text-faint uppercase tracking-wider" style={{ borderBottom: `1px solid ${themed.rowBorder}` }}>
+              <span>Player</span>
+              <div className="flex gap-6">
+                <span className="w-12 text-right">Games</span>
+                <span className="w-16 text-right">{methodInfo.scoreLabel}</span>
+              </div>
+            </div>
+            {rankings.slice(0, RANKINGS_TOP_N).map((entry) => (
+              <div
+                key={entry.iscored_username}
+                className={`flex items-center justify-between px-4 py-2.5 last:border-0 ${
+                  entry.rank === 1 ? 'bg-neon-amber/8' : ''
+                }`}
+                style={{ borderBottom: `1px solid ${themed.rowBorder}` }}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
+                    entry.rank === 1 ? 'text-neon-amber' :
+                    entry.rank === 2 ? 'text-neon-cyan' :
+                    entry.rank === 3 ? 'text-neon-green' :
+                    'text-faint'
+                  }`}>
+                    {entry.rank}
+                  </span>
+                  <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
+                  <span className="text-sm truncate">{entry.iscored_username}</span>
+                </div>
+                <div className="flex gap-6">
+                  <span className="text-sm text-muted w-12 text-right">{entry.games_played}</span>
+                  <span className={`font-display font-bold text-sm w-16 text-right ${
+                    entry.rank === 1 ? 'text-neon-amber' : 'text-primary'
+                  }`}>
+                    {group.rank_method === 'average_rank'
+                      ? entry.total_points.toFixed(2)
+                      : entry.total_points.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Default (banner / legacy): neon-purple Tailwind classes
   return (
     <div className="relative border border-neon-purple/20 rounded-lg overflow-hidden">
-      {/* Background layer — opacity controlled independently */}
-      <div className="absolute inset-0 bg-neon-purple/5" style={cardOpacity != null && cardOpacity < 1 ? { opacity: cardOpacity } : undefined} />
+      {cardOpacity != null && cardOpacity < 1 && (
+        <div className="absolute inset-0 bg-neon-purple/5" style={{ opacity: cardOpacity }} />
+      )}
       {/* Header */}
-      <div className="px-4 py-3 border-b border-neon-purple/15 bg-neon-purple/10 relative">
-        <h3 className="font-display font-bold text-base text-primary">{group.name}</h3>
-        <div className="flex items-center gap-3 mt-1">
-          <span className="text-[11px] text-muted uppercase tracking-wider">{methodInfo.label}</span>
-          {group.description && (
-            <span className="text-[11px] text-faint">{group.description}</span>
-          )}
-        </div>
+      <div className="px-4 py-3 border-b border-neon-purple/15 bg-neon-purple/10 relative text-center">
+        <h3 className="font-display font-bold text-lg uppercase tracking-wider text-primary">Overall Rankings</h3>
+        <p className="text-sm text-muted mt-0.5">{group.name}</p>
       </div>
 
       {/* Rankings */}
@@ -772,27 +885,33 @@ export function RankingGroupCard({ group, rankings, cardOpacity }: { group: Rank
   );
 }
 
-export function RankingsColumn({ rankingGroups, cardOpacity }: { rankingGroups: RankingGroupData[]; cardOpacity?: number }) {
+interface RankingsProps {
+  rankingGroups: RankingGroupData[];
+  cardOpacity?: number;
+  scoreboardStyle?: string;
+  showcaseThemeName?: string;
+  sticky?: boolean;
+}
+
+export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky }: RankingsProps) {
   return (
-    <div className="w-full lg:w-80 flex-shrink-0 lg:sticky lg:top-6">
-      <p className="font-display text-muted text-sm uppercase tracking-widest mb-4">Overall Rankings</p>
+    <div className={`w-full lg:w-80 flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : 'lg:sticky lg:top-6'}`}>
       <div className="flex flex-col gap-5">
         {rankingGroups.map(({ group, rankings }) => (
-          <RankingGroupCard key={group.id} group={group} rankings={rankings} cardOpacity={cardOpacity} />
+          <RankingGroupCard key={group.id} group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} />
         ))}
       </div>
     </div>
   );
 }
 
-export function RankingsRow({ rankingGroups, cardOpacity }: { rankingGroups: RankingGroupData[]; cardOpacity?: number }) {
+export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName }: RankingsProps) {
   return (
     <div className="mb-6">
-      <p className="font-display text-muted text-sm uppercase tracking-widest mb-4">Overall Rankings</p>
       <div className="flex gap-5 overflow-x-auto pb-2">
         {rankingGroups.map(({ group, rankings }) => (
           <div key={group.id} className="w-80 flex-shrink-0">
-            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} />
+            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} />
           </div>
         ))}
       </div>

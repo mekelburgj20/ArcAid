@@ -139,7 +139,7 @@ export default function KioskScoreboard() {
 
         {/* Rankings: top position */}
         {rankingsPosition === 'top' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
+          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
         )}
 
         {/* Main content area */}
@@ -147,7 +147,7 @@ export default function KioskScoreboard() {
 
           {/* Rankings: left position */}
           {rankingsPosition === 'left' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
+            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
           )}
 
           {/* Game leaderboards */}
@@ -158,8 +158,11 @@ export default function KioskScoreboard() {
           ) : layout === 'grid' ? (
             <div className="flex-1 min-w-0">
               <div
-                className={`grid gap-3 sm:gap-5 ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
-                style={useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : undefined}
+                className={`grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
+                style={{
+                  ...(useNewCards ? { gap: newConfig.cardSpacing } : {}),
+                  ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : {}),
+                }}
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="grid" style={!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>
@@ -167,7 +170,10 @@ export default function KioskScoreboard() {
                       <CardRouter
                         lb={lb} slug={slug || ''} roomId={roomId}
                         style={newConfig.style} theme={newConfig.theme}
-                        maxScores={newConfig.maxScores} showTimer={newConfig.showTimer}
+                        maxScores={newConfig.maxScores} minScores={newConfig.minScores}
+                        showTimer={newConfig.showTimer}
+                        cardBgFill={newConfig.cardBgFill}
+                        titleFontSize={newConfig.titleFontSize || undefined}
                         qrMode="disabled"
                       />
                     ) : (
@@ -180,14 +186,17 @@ export default function KioskScoreboard() {
           ) : (
             <div className="flex-1 min-w-0">
               <div className="-mx-4 sm:-mx-6 overflow-x-auto">
-                <div className="flex gap-3 sm:gap-5 pb-2 px-4 sm:px-6">
+                <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                   {visibleLeaderboards.map(lb => (
                     <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
                       {useNewCards ? (
                         <CardRouter
                           lb={lb} slug={slug || ''} roomId={roomId}
                           style={newConfig.style} theme={newConfig.theme}
-                          maxScores={newConfig.maxScores} showTimer={newConfig.showTimer}
+                          maxScores={newConfig.maxScores} minScores={newConfig.minScores}
+                          showTimer={newConfig.showTimer}
+                          cardBgFill={newConfig.cardBgFill}
+                          titleFontSize={newConfig.titleFontSize || undefined}
                           qrMode="disabled"
                         />
                       ) : (
@@ -202,13 +211,13 @@ export default function KioskScoreboard() {
 
           {/* Rankings: right position */}
           {rankingsPosition === 'right' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
+            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
           )}
         </div>
 
         {/* Rankings: bottom position */}
         {rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} />
+          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
         )}
       </div>
 

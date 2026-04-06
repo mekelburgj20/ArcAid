@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
-import { formatCountdown } from '../ScoreboardComponents';
+import { formatCountdown, TOURNAMENT_BADGE_COLORS } from '../ScoreboardComponents';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import ShowcasePodium from './ShowcasePodium';
 import ScoreList from './ScoreList';
@@ -13,10 +14,13 @@ interface ShowcaseCardProps {
   roomId?: string;
   theme: ShowcaseThemeConfig;
   maxScores: number;
+  minScores?: number;
   showTimer?: boolean;
   viewerUsername?: string;
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
+  cardBgFill?: boolean;
+  titleFontSize?: number;
   onSubmitScore?: (lb: GameLeaderboard) => void;
 }
 
@@ -35,9 +39,12 @@ export default function ShowcaseCard({
   slug,
   theme,
   maxScores,
+  minScores = 20,
   showTimer = true,
+  cardBgFill = false,
+  titleFontSize,
 }: ShowcaseCardProps) {
-  const { styleHeaderUrl } = resolveImages(lb);
+  const { styleBgUrl, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
 
   const [countdown, setCountdown] = useState<string | null>(
@@ -57,9 +64,14 @@ export default function ShowcaseCard({
   const listEntries = lb.rankings.slice(3, maxScores);
   const isChipPodium = theme.podiumVariant === 'chip';
 
-  // Image float top padding — gives space for floating identifier image
+  // Minimum height: podium (~180px) + remaining score rows (~32px each)
+  const minListRows = Math.max(0, minScores - 3);
+  const contentMinHeight = 180 + minListRows * 32;
+
+  // Uniform top padding — all Showcase cards reserve space for identifier images
+  // so card frames align even when some cards have identifiers and others don't
   const hasFloatImage = !!styleHeaderUrl;
-  const floatPadTop = hasFloatImage ? 42 : 0;
+  const floatPadTop = 42;
 
   return (
     <div style={{ position: 'relative', paddingTop: floatPadTop }}>
@@ -95,7 +107,19 @@ export default function ShowcaseCard({
         boxShadow: theme.cardShadow,
         backdropFilter: theme.backdropFilter,
         fontFamily: theme.fontFamily,
+        minHeight: contentMinHeight,
       }}>
+        {/* Card background fill */}
+        {cardBgFill && styleBgUrl && (
+          <>
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 0,
+              backgroundImage: `url(${styleBgUrl})`,
+              backgroundSize: 'cover', backgroundPosition: 'center',
+            }} />
+            <div style={{ position: 'absolute', inset: 0, zIndex: 0, background: 'rgba(0,0,0,0.55)' }} />
+          </>
+        )}
         {/* Background decoration (circuit board for neon-circuit) */}
         {theme.BackgroundDecoration ? <theme.BackgroundDecoration /> : null}
         {isChipPodium && <CircuitBoardBackground />}
@@ -124,9 +148,15 @@ export default function ShowcaseCard({
           <div style={{
             textAlign: 'center',
             padding: hasFloatImage ? '90px 24px 4px' : '20px 24px 4px',
+            position: 'relative',
           }}>
+            {lb.gameStatus === 'COMPLETED' && (
+              <span title="Completed" style={{ position: 'absolute', right: 16, top: hasFloatImage ? 94 : 20 }}>
+                <Lock size={14} style={{ color: theme.badgeColor }} />
+              </span>
+            )}
             <h2 style={{
-              fontSize: 18,
+              fontSize: titleFontSize || 18,
               fontWeight: 700 as const,
               color: theme.titleColor,
               textShadow: theme.titleTextShadow,
@@ -144,12 +174,15 @@ export default function ShowcaseCard({
 
             {/* Meta: badge + timer */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+              {(() => {
+                const tBadge = lb.tournamentType ? TOURNAMENT_BADGE_COLORS[lb.tournamentType.toUpperCase()] : null;
+                return (
               <span style={{
                 padding: '3px 10px',
-                borderRadius: theme.badgeBorder ? 4 : 6,
-                background: theme.badgeBg,
-                border: theme.badgeBorder || 'none',
-                color: theme.badgeColor,
+                borderRadius: tBadge ? 4 : (theme.badgeBorder ? 4 : 6),
+                background: tBadge?.bg ?? theme.badgeBg,
+                border: tBadge ? `1px solid ${tBadge.border}` : (theme.badgeBorder || 'none'),
+                color: tBadge?.text ?? theme.badgeColor,
                 fontSize: 8,
                 letterSpacing: 3,
                 textTransform: 'uppercase' as const,
@@ -161,6 +194,8 @@ export default function ShowcaseCard({
                  lb.tournamentType === 'MG' ? 'Monthly Grind' :
                  lb.tournamentName}
               </span>
+                );
+              })()}
               {showTimer && countdown && (
                 <span style={{
                   fontSize: 9,

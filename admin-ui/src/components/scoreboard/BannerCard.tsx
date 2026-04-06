@@ -9,10 +9,13 @@ interface BannerCardProps {
   slug: string;
   roomId?: string;
   maxScores: number;
+  minScores?: number;
   showTimer?: boolean;
   viewerUsername?: string;
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
+  cardBgFill?: boolean;
+  titleFontSize?: number;
   onSubmitScore?: (lb: GameLeaderboard) => void;
 }
 
@@ -43,9 +46,12 @@ export default function BannerCard({
   lb,
   slug,
   maxScores,
+  minScores = 20,
   showTimer = true,
   viewerUsername,
   viewerEntry,
+  cardBgFill = false,
+  titleFontSize,
   onSubmitScore,
 }: BannerCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
@@ -78,6 +84,9 @@ export default function BannerCard({
     }
   }
 
+  // Minimum height for score area based on minScores setting (~30px per row)
+  const scoreAreaMinHeight = minScores * 30;
+
   return (
     <div
       className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col h-full`}
@@ -86,13 +95,29 @@ export default function BannerCard({
       {/* Background layer */}
       <div className="absolute inset-0 bg-surface" />
 
+      {/* Card background fill */}
+      {cardBgFill && bgImage && (
+        <div
+          className="absolute inset-0 z-[0]"
+          style={{
+            backgroundImage: `url(${bgImage})`,
+            backgroundSize: 'cover',
+            backgroundRepeat: 'no-repeat',
+            backgroundPosition: 'center',
+          }}
+        />
+      )}
+      {cardBgFill && bgImage && (
+        <div className="absolute inset-0 z-[0] bg-black/50" />
+      )}
+
       {/* Title area */}
       <div
         className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
         onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
       >
         {!hasIdentifierImage && (
-          <h3 className="font-display font-bold leading-tight truncate px-5 flex items-center justify-center gap-1" style={{ fontSize: '0.875rem' }}>
+          <h3 className="font-display font-bold leading-tight truncate px-5 flex items-center justify-center gap-1" style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem' }}>
             {displayName}
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
           </h3>
@@ -115,8 +140,8 @@ export default function BannerCard({
         )}
       </div>
 
-      {/* Background image area */}
-      {bgImage && (
+      {/* Background image area (hidden when bg fill is on since image covers whole card) */}
+      {bgImage && !cardBgFill && (
         <div className="relative h-28 bg-raised">
           <div
             className="absolute inset-0"
@@ -134,7 +159,7 @@ export default function BannerCard({
       )}
 
       {/* Scores */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative" style={{ minHeight: scoreAreaMinHeight }}>
         {lb.rankings.length === 0 ? (
           <div className="py-8 text-center">
             <p className="text-sm text-faint">No scores yet</p>
