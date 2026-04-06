@@ -303,8 +303,6 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   const glassPanel = `backdrop-blur-sm border border-white/10 rounded-lg`;
   const glassStyle = { backgroundColor: `rgba(0,0,0,${glassOpacity / 100})` };
 
-  // Game title: auto-hide when identifier image exists; fallback to displayName → gameName
-  const hasIdentifierImage = !!styleHeaderUrl;
   const displayText = (lb as GameLeaderboard & { displayName?: string | null }).displayName || lb.gameName;
 
   // Game title style CSS
@@ -360,12 +358,12 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             <img src={iconImage} alt="" className="w-full h-full object-contain" />
           </div>
           <div className="min-w-0 flex-1">
-            {!hasIdentifierImage && (
+            {(
               <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
                 {displayText}
               </h3>
             )}
-            <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
+            <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
           </div>
           {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="flex-shrink-0"><Lock size={14} className="text-neon-amber" /></span>}
           {onSubmitScore && (
@@ -391,7 +389,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             )}
             {/* Title + tournament below the wheel */}
             <div className="w-full text-center px-4 pb-2 pt-1 relative">
-              {!hasIdentifierImage && (
+              {(
                 <h3
                   className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass}`}
                   style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
@@ -399,7 +397,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                   {displayText}
                 </h3>
               )}
-              <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
+              <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
               {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-1"><Lock size={14} className="text-neon-amber" /></span>}
               {onSubmitScore && (
                 <span className="absolute left-3 top-1"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
@@ -425,7 +423,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           )}
           {/* Title + tournament on the right */}
           <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
-            {!hasIdentifierImage && (
+            {(
               <h3
                 className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass}`}
                 style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
@@ -433,7 +431,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                 {displayText}
               </h3>
             )}
-            <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
+            <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
           </div>
           {/* Status icons */}
           <div className="flex items-center gap-1.5 pr-3 flex-shrink-0">
@@ -449,7 +447,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             style={isFill ? glassStyle : undefined}
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
-            {!hasIdentifierImage && (
+            {(
               <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
                 {displayText}
               </h3>
@@ -458,7 +456,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             {onSubmitScore && (
               <span className="absolute left-3 top-3"><Upload size={14} className="text-faint group-hover:text-neon-cyan transition-colors" /></span>
             )}
-            <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
+            <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
           </div>
 
           {/* Background image area — only shown in non-fill mode (fill mode uses the full card) */}
