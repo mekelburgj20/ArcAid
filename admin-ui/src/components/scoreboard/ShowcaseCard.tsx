@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
-import { formatCountdown, TOURNAMENT_BADGE_COLORS } from '../ScoreboardComponents';
+import { formatCountdown, TOURNAMENT_BADGE_COLORS, GameQRCode } from '../ScoreboardComponents';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import ShowcasePodium from './ShowcasePodium';
 import ScoreList from './ScoreList';
@@ -43,6 +43,7 @@ export default function ShowcaseCard({
   showTimer = true,
   cardBgFill = false,
   titleFontSize,
+  qrMode = 'disabled',
   onSubmitScore,
 }: ShowcaseCardProps) {
   const { styleBgUrl, styleHeaderUrl } = resolveImages(lb);
@@ -283,9 +284,14 @@ export default function ShowcaseCard({
             >
               Full Leaderboard &rarr;
             </a>
-            <span style={{ fontSize: 11, color: cardBgFill ? 'rgba(255,255,255,0.5)' : theme.metaColor }}>
-              {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, color: cardBgFill ? 'rgba(255,255,255,0.5)' : theme.metaColor }}>
+                {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
+              </span>
+              {qrMode !== 'disabled' && (
+                <GameQRCode slug={slug} gameId={lb.gameId} size={32} />
+              )}
+            </div>
           </div>
         </div>
       </div>

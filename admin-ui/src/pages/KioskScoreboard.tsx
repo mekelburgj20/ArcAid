@@ -185,12 +185,30 @@ export default function KioskScoreboard() {
                 ))}
               </div>
             </div>
+          ) : isShowcase ? (
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-col items-center" style={{ gap: newConfig.cardSpacing }}>
+                {visibleLeaderboards.map(lb => (
+                  <div key={lb.gameId} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
+                    <CardRouter
+                      lb={lb} slug={slug || ''} roomId={roomId}
+                      style={newConfig.style} theme={newConfig.theme}
+                      maxScores={newConfig.maxScores} minScores={newConfig.minScores}
+                      showTimer={newConfig.showTimer}
+                      cardBgFill={newConfig.cardBgFill}
+                      titleFontSize={newConfig.titleFontSize || undefined}
+                      qrMode="disabled"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : (
             <div className="flex-1 min-w-0">
-              <div className={`-mx-4 sm:-mx-6 ${isShowcase ? '' : 'overflow-x-auto'}`}>
-                <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''} ${isShowcase ? 'scoreboard-showcase-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
+              <div className="-mx-4 sm:-mx-6 overflow-x-auto">
+                <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                   {visibleLeaderboards.map(lb => (
-                    <div key={lb.gameId} className={`flex-shrink-0 scoreboard-card-item ${isShowcase ? 'max-w-full' : ''}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
+                    <div key={lb.gameId} className="flex-shrink-0 scoreboard-card-item" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
                       {useNewCards ? (
                         <CardRouter
                           lb={lb} slug={slug || ''} roomId={roomId}
@@ -226,15 +244,6 @@ export default function KioskScoreboard() {
       <style>{`
         @media (max-width: 640px) {
           .scoreboard-banner-scroll { zoom: 0.6; }
-          .scoreboard-showcase-scroll {
-            flex-direction: column !important;
-            align-items: center !important;
-            overflow-x: hidden !important;
-          }
-          .scoreboard-showcase-scroll .scoreboard-card-item {
-            width: 100% !important;
-            flex-shrink: 1 !important;
-          }
         }
       `}</style>
       {/* Scanline overlay */}

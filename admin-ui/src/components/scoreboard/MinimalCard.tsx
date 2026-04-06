@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
-import { PlayerAvatar, formatCountdown } from '../ScoreboardComponents';
+import { PlayerAvatar, formatCountdown, GameQRCode } from '../ScoreboardComponents';
 import GameInfoPopup from './GameInfoPopup';
 
 interface MinimalCardProps {
@@ -32,6 +32,7 @@ export default function MinimalCard({
   showTimer = true,
   viewerUsername,
   viewerEntry,
+  qrMode = 'disabled',
   cardBgFill = false,
   titleFontSize,
 }: MinimalCardProps) {
@@ -166,9 +167,14 @@ export default function MinimalCard({
         <a href={`/${slug}`} className="text-xs text-accent hover:text-accent/80 transition-colors">
           Full Leaderboard &rarr;
         </a>
-        <span className="text-[11px] text-faint">
-          {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-faint">
+            {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
+          </span>
+          {qrMode !== 'disabled' && (
+            <GameQRCode slug={slug} gameId={lb.gameId} size={28} />
+          )}
+        </div>
       </div>
     </div>
   );

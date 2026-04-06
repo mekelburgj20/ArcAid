@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
-import { PlayerAvatar, formatCountdown } from '../ScoreboardComponents';
+import { PlayerAvatar, formatCountdown, GameQRCode } from '../ScoreboardComponents';
 import GameInfoPopup from './GameInfoPopup';
 
 interface BannerCardProps {
@@ -50,6 +50,7 @@ export default function BannerCard({
   showTimer = true,
   viewerUsername,
   viewerEntry,
+  qrMode = 'disabled',
   cardBgFill = false,
   titleFontSize,
   onSubmitScore,
@@ -217,7 +218,12 @@ export default function BannerCard({
         <a href={`/${slug}`} className="text-neon-cyan/60 hover:text-neon-cyan transition-colors">
           Full Leaderboard &rarr;
         </a>
-        <span>{lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}</span>
+        <div className="flex items-center gap-2">
+          <span>{lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}</span>
+          {qrMode !== 'disabled' && (
+            <GameQRCode slug={slug} gameId={lb.gameId} size={28} />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -199,7 +199,7 @@ export function formatCountdown(targetDate: string): string | null {
 
 // --- QR Code Component ---
 
-function GameQRCode({ slug, gameId, size = 48 }: { slug: string; gameId: string; size?: number }) {
+export function GameQRCode({ slug, gameId, size = 48 }: { slug: string; gameId: string; size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
