@@ -491,49 +491,47 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
     <div className={`bg-surface border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col`}>
       {/* Title area */}
       <div className="px-3 py-2.5 text-center border-b border-border/30">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="font-display font-bold text-sm leading-tight truncate flex items-center gap-1.5">
-            {lb.displayName || lb.gameName}
-            {lb.displayName && <span className="text-faint font-normal text-[10px]">({lb.gameName})</span>}
-            {lb.gameStatus === 'COMPLETED' && <span title="Completed"><Lock size={14} className="text-faint flex-shrink-0" /></span>}
-          </h3>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <NeonButton
-              variant="ghost"
-              onClick={() => onEditDisplayName(lb)}
-              className="text-[10px] px-1 py-0.5"
-              title="Edit display name"
-            >
-              <Pencil size={12} />
-            </NeonButton>
-            <NeonButton
-              variant={lb.notes ? 'secondary' : 'ghost'}
-              onClick={() => onEditNotes(lb)}
-              className="text-[10px] px-1 py-0.5"
-              title="Edit notes"
-            >
-              <StickyNote size={12} />
-            </NeonButton>
-            <NeonButton
-              variant={lb.catalogueStyleId ? 'secondary' : 'ghost'}
-              onClick={() => onStyleClick(lb)}
-              className="text-[10px] px-1.5 py-0.5"
-            >
-              Style
-            </NeonButton>
-            <NeonButton
-              variant="ghost"
-              onClick={() => onDeleteGame(lb)}
-              className="text-[10px] px-1 py-0.5 text-red-400/60 hover:text-red-400"
-              title="Remove game"
-            >
-              <Trash2 size={12} />
-            </NeonButton>
-          </div>
-        </div>
+        <h3 className="font-display font-bold text-sm leading-tight truncate flex items-center justify-center gap-1.5">
+          {lb.displayName || lb.gameName}
+          {lb.displayName && <span className="text-faint font-normal text-[10px]">({lb.gameName})</span>}
+          {lb.gameStatus === 'COMPLETED' && <span title="Completed"><Lock size={14} className="text-faint flex-shrink-0" /></span>}
+        </h3>
         <div className="flex items-center justify-center gap-2 mt-0.5">
           <TournamentBadge type={lb.tournamentType || lb.tournamentName} />
           <p className="text-[11px] text-muted uppercase tracking-wider">{lb.tournamentName}</p>
+        </div>
+        <div className="flex items-center justify-center gap-1 mt-1.5">
+          <NeonButton
+            variant="ghost"
+            onClick={() => onEditDisplayName(lb)}
+            className="text-[10px] px-1.5 py-0.5"
+            title="Edit display name"
+          >
+            <Pencil size={11} /> Name
+          </NeonButton>
+          <NeonButton
+            variant={lb.notes ? 'secondary' : 'ghost'}
+            onClick={() => onEditNotes(lb)}
+            className="text-[10px] px-1.5 py-0.5"
+            title="Edit notes"
+          >
+            <StickyNote size={11} /> Notes
+          </NeonButton>
+          <NeonButton
+            variant={lb.catalogueStyleId ? 'secondary' : 'ghost'}
+            onClick={() => onStyleClick(lb)}
+            className="text-[10px] px-1.5 py-0.5"
+          >
+            Style
+          </NeonButton>
+          <NeonButton
+            variant="ghost"
+            onClick={() => onDeleteGame(lb)}
+            className="text-[10px] px-1.5 py-0.5 text-red-400/60 hover:text-red-400"
+            title="Remove game"
+          >
+            <Trash2 size={11} />
+          </NeonButton>
         </div>
       </div>
 

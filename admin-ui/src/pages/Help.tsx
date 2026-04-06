@@ -13,6 +13,8 @@ const SECTIONS = [
   { id: 'history', label: 'History' },
   { id: 'discord-commands', label: 'Discord Commands' },
   { id: 'public-pages', label: 'Public Pages' },
+  { id: 'styles', label: 'Style Catalogue' },
+  { id: 'game-states', label: 'Game States' },
   { id: 'setup-checklist', label: 'Setup Checklist' },
 ];
 
@@ -325,6 +327,45 @@ export default function Help() {
           </p>
         </NeonCard>
 
+        {/* Scoreboard Display */}
+        <NeonCard title="Scoreboard Display" className="mb-4">
+          <p className="text-primary text-sm mb-3">
+            Controls the appearance of your public scoreboard. Uses a 2-level selection system.
+          </p>
+          <div className={tableWrapClass}>
+            <table className={tableClass}>
+              <thead><tr><Th className="w-1/3">Setting</Th><Th>What It Does</Th></tr></thead>
+              <tbody>
+                <tr><Td><strong>Card Style</strong></Td><Td>Choose a card layout: <strong>Banner</strong> (280px, iScored-compatible), <strong>Showcase</strong> (380px, art-forward with podium), or <strong>Minimal</strong> (typography-only)</Td></tr>
+                <tr><Td><strong>Theme</strong></Td><Td>Visual skin for Showcase cards: <strong>Glass Deck</strong> (dark glass, pyramid podium) or <strong>Neon Circuit</strong> (circuit board background, animated glow). Only applies to Showcase style</Td></tr>
+                <tr><Td><strong>Scores Per Card</strong></Td><Td>How many scores to show per game card (5, 10, 15, or 20)</Td></tr>
+                <tr><Td><strong>Show Timer</strong></Td><Td>Display countdown to next scheduled rotation on each card</Td></tr>
+                <tr><Td><strong>Layout</strong></Td><Td>Grid (auto-filling columns) or Scroll (horizontal scrolling row)</Td></tr>
+                <tr><Td><strong>Hide Empty Games</strong></Td><Td>When enabled, games with no scores yet are hidden from the public scoreboard</Td></tr>
+              </tbody>
+            </table>
+          </div>
+          <Tip>
+            Rooms without a card style set will see legacy layout options. Click <strong>Upgrade to new card system</strong> in Settings to switch.
+          </Tip>
+        </NeonCard>
+
+        {/* Branding */}
+        <NeonCard title="Branding" className="mb-4">
+          <div className={tableWrapClass}>
+            <table className={tableClass}>
+              <thead><tr><Th className="w-1/3">Setting</Th><Th>What It Does</Th></tr></thead>
+              <tbody>
+                <tr><Td><strong>Scoreboard Title</strong></Td><Td>Text shown above the scoreboard (defaults to room name). Can be hidden</Td></tr>
+                <tr><Td><strong>Background Image</strong></Td><Td>Full-page background for the scoreboard (uploaded or URL)</Td></tr>
+                <tr><Td><strong>Logo</strong></Td><Td>Logo image with configurable position (left, right, above, below title) and max height</Td></tr>
+                <tr><Td><strong>QR Code Mode</strong></Td><Td>Show QR codes for score submission on cards: <strong>Disabled</strong>, <strong>Kiosk Only</strong>, or <strong>All</strong></Td></tr>
+                <tr><Td><strong>Zoom</strong></Td><Td>Scale the entire scoreboard (50%–200%) for TV/kiosk displays</Td></tr>
+              </tbody>
+            </table>
+          </div>
+        </NeonCard>
+
         {/* Platforms */}
         <NeonCard title="Platforms" className="mb-4">
           <p className="text-primary text-sm mb-3">
@@ -523,13 +564,23 @@ export default function Help() {
             Below the tournament list, the <strong className="text-primary">Active Games</strong> section shows all
             currently running games with their tournament, start date, and iScored link status.
           </p>
+          <p className="text-muted text-sm mb-2">Each active game has these actions:</p>
+          <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-3">
+            <li><strong>Edit</strong> &mdash; Change the game's display name (shown on scoreboard instead of the raw library name)</li>
+            <li><strong>Style</strong> &mdash; Choose or upload art for the game card (background and/or identifier images)</li>
+            <li><strong>Deactivate</strong> &mdash; Mark the game as completed (see below)</li>
+          </ul>
           <p className="text-muted text-sm mb-2">
-            <strong className="text-primary">Deactivate</strong> &mdash; Stop an active game with two options:
+            <strong className="text-primary">Deactivate</strong> marks the game as COMPLETED and locks it on iScored.
+            The game remains visible on iScored (locked) and in score history. Two options:
           </p>
           <ul className="list-disc list-inside text-sm text-primary space-y-1">
             <li><strong>Deactivate + Lock on iScored</strong> &mdash; Marks complete in ArcAid and locks the game on iScored</li>
             <li><strong>DB Only</strong> &mdash; Only updates ArcAid's database (does not touch iScored)</li>
           </ul>
+          <Tip>
+            To fully remove a deactivated game from iScored and the leaderboard, use the <strong>Delete</strong> button on the Leaderboard page.
+          </Tip>
         </NeonCard>
 
         {/* ------------------------------------------------------------------ */}
@@ -543,8 +594,26 @@ export default function Help() {
 
           <SubHeading>Game Cards</SubHeading>
           <p className="text-muted text-sm mb-3">
-            One card per active game showing the top 10 scores. Click any score row to expand and see all
-            submissions for that player, sorted by score.
+            One card per active game showing the top scores. Click any score row to expand and see all
+            submissions for that player, sorted by score. Each card includes admin action buttons:
+          </p>
+          <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
+            <li><strong>Name</strong> (pencil icon) &mdash; Edit the display name shown on the public scoreboard</li>
+            <li><strong>Notes</strong> (sticky note icon) &mdash; Add notes shown to players via the info icon (e.g., table version, special rules). Highlighted when notes exist</li>
+            <li><strong>Style</strong> &mdash; Choose or upload background/identifier art for the card. Highlighted when a style is applied</li>
+            <li><strong>Delete</strong> (trash icon) &mdash; Remove the game from the leaderboard and iScored entirely. Player scores and history are retained for stats. Use this for games that were accidentally created or should no longer appear</li>
+          </ul>
+
+          <SubHeading>Score Management</SubHeading>
+          <p className="text-muted text-sm mb-3">
+            Click any score row to expand it. Each submission shows the score value and date. Hover over a submission to reveal a delete button for removing individual scores.
+          </p>
+
+          <SubHeading>Game Info Icon</SubHeading>
+          <p className="text-muted text-sm mb-3">
+            On the public scoreboard, games with external URLs or admin notes show an info icon (&#x24D8;) next to
+            the title. Clicking it reveals a popup with the notes and a clickable link to the game's source
+            (VPS page for VPX games, GitHub for VPXS games).
           </p>
 
           <SubHeading>Ranking Cards</SubHeading>
@@ -767,6 +836,9 @@ export default function Help() {
                 <tr><Td><strong>Player Detail</strong></Td><Td><Code>/your_slug/players/Name</Code></Td><Td>Individual player stats, win rate, history</Td></tr>
                 <tr><Td><strong>Game Detail</strong></Td><Td><Code>/your_slug/games/GameName</Code></Td><Td>Game-specific stats, records, community rating</Td></tr>
                 <tr><Td><strong>Game Availability</strong></Td><Td><Code>/your_slug/games</Code></Td><Td>Which games are available vs. on cooldown, with a random picker</Td></tr>
+                <tr><Td><strong>Kiosk Scoreboard</strong></Td><Td><Code>/your_slug/kiosk</Code></Td><Td>Full-screen auto-scrolling scoreboard for TV displays</Td></tr>
+                <tr><Td><strong>Score Submit</strong></Td><Td><Code>/your_slug/submit/:gameId</Code></Td><Td>Standalone score submission page (linked from QR codes on cards)</Td></tr>
+                <tr><Td><strong>Public Stats</strong></Td><Td><Code>/your_slug/stats</Code></Td><Td>Community statistics and leaderboards</Td></tr>
               </tbody>
             </table>
           </div>
@@ -778,9 +850,74 @@ export default function Help() {
         </NeonCard>
 
         {/* ------------------------------------------------------------------ */}
-        {/* 12. SETUP CHECKLIST */}
+        {/* 12. STYLE CATALOGUE */}
         {/* ------------------------------------------------------------------ */}
-        <SectionHeading id="setup-checklist">12. Setup Checklist</SectionHeading>
+        <SectionHeading id="styles">12. Style Catalogue</SectionHeading>
+        <NeonCard className="mb-4">
+          <p className="text-primary text-sm mb-4">
+            Navigate to <strong>Style Catalogue</strong> in the sidebar to browse and manage game card art.
+          </p>
+
+          <SubHeading>Browsing Styles</SubHeading>
+          <p className="text-muted text-sm mb-3">
+            The catalogue shows all available art packs. Each style can have a <strong>background</strong> image
+            (fills the card behind scores) and/or an <strong>identifier/header</strong> image (logo/marquee overlaid
+            on the background). Search by name to find specific styles.
+          </p>
+
+          <SubHeading>Uploading Custom Art</SubHeading>
+          <p className="text-muted text-sm mb-2">Upload your own art with these guidelines:</p>
+          <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
+            <li>Supported formats: PNG, APNG (animated), JPEG, WebP</li>
+            <li>Max file size: 30MB</li>
+            <li>Background images: landscape orientation recommended</li>
+            <li>Identifier images: transparent PNG recommended for best overlay effect</li>
+            <li>At least one image (background or identifier) is required</li>
+          </ul>
+
+          <SubHeading>Applying Styles</SubHeading>
+          <p className="text-muted text-sm mb-3">
+            Click the <strong>Style</strong> button on any game card (Leaderboard, Tournaments, or Game Library pages)
+            to open the style picker. You can browse existing styles, upload new ones, or apply background and
+            identifier images independently from different styles.
+          </p>
+          <Tip>
+            Use <strong>Set as Library Default</strong> when applying a style to automatically use it for future
+            activations of that game.
+          </Tip>
+        </NeonCard>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* 13. GAME STATES */}
+        {/* ------------------------------------------------------------------ */}
+        <SectionHeading id="game-states">13. Game States</SectionHeading>
+        <NeonCard className="mb-4">
+          <p className="text-primary text-sm mb-4">
+            Navigate to <strong>Game States</strong> in the sidebar for an advanced escape hatch to manage individual
+            game entries directly.
+          </p>
+          <p className="text-muted text-sm mb-3">
+            This page is for troubleshooting and fixing edge cases. Most normal game management should be done through
+            Tournaments and Leaderboard pages.
+          </p>
+          <SubHeading>Available Actions</SubHeading>
+          <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
+            <li><strong>Force Status</strong> &mdash; Change a game's status (Active, Completed, Queued, Hidden) with optional iScored sync</li>
+            <li><strong>Clear Picker</strong> &mdash; Cancel a pending picker timeout assignment</li>
+            <li><strong>iScored Sync</strong> &mdash; Granular iScored operations (lock, unlock, hide, unhide, delete, create)</li>
+            <li><strong>Force Maintenance</strong> &mdash; Trigger a full maintenance cycle for a specific tournament</li>
+            <li><strong>Delete</strong> &mdash; Remove a game entry entirely (use for phantom/orphaned entries)</li>
+          </ul>
+          <Tip>
+            All game state actions are logged to the Activity Log. Use with caution &mdash; these bypass normal
+            tournament flow safeguards.
+          </Tip>
+        </NeonCard>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* 14. SETUP CHECKLIST */}
+        {/* ------------------------------------------------------------------ */}
+        <SectionHeading id="setup-checklist">14. Setup Checklist</SectionHeading>
         <NeonCard glowColor="green" className="mb-8">
           <p className="text-primary text-sm mb-4">
             Quick reference when setting up a new room from scratch:
