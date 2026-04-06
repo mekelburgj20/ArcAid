@@ -43,6 +43,7 @@ export default function ShowcaseCard({
   showTimer = true,
   cardBgFill = false,
   titleFontSize,
+  onSubmitScore,
 }: ShowcaseCardProps) {
   const { styleBgUrl, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
@@ -145,11 +146,15 @@ export default function ShowcaseCard({
         {/* Content area */}
         <div style={{ position: 'relative', zIndex: 4, ...(cardBgFill ? { textShadow: '0 1px 6px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7)' } : {}) }}>
           {/* Title area */}
-          <div style={{
-            textAlign: 'center',
-            padding: hasFloatImage ? '90px 24px 4px' : '20px 24px 4px',
-            position: 'relative',
-          }}>
+          <div
+            style={{
+              textAlign: 'center',
+              padding: hasFloatImage ? '90px 24px 4px' : '20px 24px 4px',
+              position: 'relative',
+              ...(onSubmitScore ? { cursor: 'pointer' } : {}),
+            }}
+            onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+          >
             {lb.gameStatus === 'COMPLETED' && (
               <span title="Completed" style={{ position: 'absolute', right: 16, top: hasFloatImage ? 94 : 20 }}>
                 <Lock size={14} style={{ color: theme.badgeColor }} />
