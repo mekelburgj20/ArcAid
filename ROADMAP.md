@@ -253,6 +253,21 @@
 
 ---
 
+## Scoreboard Card Redesign (COMPLETE)
+
+- [x] Style+Theme 2-level card system: Banner (280px), Showcase (380px), Minimal (typography-only)
+- [x] Showcase themes: Glass Deck (dark glass, pyramid podium) and Neon Circuit (circuit SVGs, chip podium, animated glow)
+- [x] Theme registry pattern (scoreboardThemes.ts) — adding themes = adding a config object
+- [x] CardRouter dispatcher + per-style card components (BannerCard, ShowcaseCard, MinimalCard)
+- [x] Shared sub-components: ShowcasePodium (pyramid + chip variants), ScoreList (rank 4-N rows)
+- [x] Neon Circuit inline SVG assets (circuit board bg, glow nodes, scanlines, chip podium)
+- [x] StyleThemePicker settings UI (style → theme → Advanced toggle)
+- [x] Dual-path backward compat: legacy GameCard preserved, new system opt-in via SCOREBOARD_STYLE key
+- [x] Legacy migration heuristics in deriveScoreboardConfig()
+- [x] Settings upgrade/downgrade UX (upgrade banner for legacy, switch-back link for new)
+
+---
+
 ## Future
 
 ### Multi-Room

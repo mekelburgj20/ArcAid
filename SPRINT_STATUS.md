@@ -13,6 +13,18 @@
 **Player Engagement Features** — COMPLETE (deployed to production)
 **Leaderboard UX Redesign** — COMPLETE (deployed to production)
 
+### Scoreboard Card Redesign (2026-04-05)
+- [x] Style+Theme 2-level card system: Banner (280px, iScored-compatible), Showcase (380px, premium art-forward with podium), Minimal (typography-only)
+- [x] Showcase themes: Glass Deck (DM Sans/Mono, dark glass, pyramid podium) and Neon Circuit (Orbitron/Share Tech Mono, circuit SVGs, chip podium, animated glow)
+- [x] Theme registry (scoreboardThemes.ts) — adding themes = adding config objects, no layout code changes
+- [x] CardRouter dispatcher + BannerCard + ShowcaseCard + MinimalCard + ShowcasePodium + ScoreList components
+- [x] Neon Circuit inline SVG assets (circuit board background, glow nodes, scanline overlay, chip podium)
+- [x] StyleThemePicker settings component (style selector → theme selector → Advanced toggle)
+- [x] Dual-path backward compat: new system activates only when SCOREBOARD_STYLE is explicitly set; legacy GameCard preserved
+- [x] Settings.tsx: upgrade banner for legacy rooms, switch-back link for new-style rooms
+- [x] deriveScoreboardConfig() with legacy migration heuristics (fullart/banner+fill → showcase, wheel → showcase, else → banner)
+- [x] ScoreboardPreview, Scoreboard, KioskScoreboard all updated with dual-path CardRouter/GameCard rendering
+
 ### Scoreboard Settings UX & Card Rendering Fixes (2026-04-02)
 - [x] Multi-card preview in Settings — 3 real game cards with distinct background and identifier images from style catalogue
 - [x] Scale-transform preview — cards render at full size and scale down to fit sidebar, preserving pixel-accurate layout
@@ -167,12 +179,13 @@
 - Feature: iScored API Integration (REST API client, score sync poller, wheel icons) — COMPLETE
 - Feature: Scoreboard UX Overhaul (presets, preview, auto-sizing, image cropper, sidebar/fill layouts) — COMPLETE
 - Feature: Scoreboard Preview & UX Fixes (multi-card preview, compact stacked scores, sticky save, display names, glass opacity, title styles) — COMPLETE
+- Feature: Scoreboard Card Redesign (Style+Theme 2-level system, Banner/Showcase/Minimal cards, Glass Deck/Neon Circuit themes) — COMPLETE
 
 ## Last Session
 
-**Date:** 2026-04-02
-**What happened:** Completed Settings UX & Card Rendering overhaul: widened preview (50/50 layout), 2×3 preset grid with always-visible Custom cell, renamed "Hide Game Room Title", footer/QR separation, glass panel opacity slider, game title auto-hide when identifier image exists, display_name field on game_library (DB migration + API + admin UI), game title style dropdown (glow/shadow/outlined/backlit), title visibility enhancement toggle.
-**Next:** Deploy to production. Visual verification of card size in preview, wheel icon scale, and Image 2 rendering scenario.
+**Date:** 2026-04-05
+**What happened:** Completed Scoreboard Card Redesign — Style+Theme 2-level system replacing ~30 granular settings. Three card styles (Banner/Showcase/Minimal), two Showcase themes (Glass Deck/Neon Circuit). Dual-path backward compat preserves legacy GameCard for rooms that haven't opted in. Merged feature/scoreboard-redesign branch to main, deployed to production.
+**Next:** Visual verification of new card styles on production. Consider additional Showcase themes.
 
 ## Blockers
 
