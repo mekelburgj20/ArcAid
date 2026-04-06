@@ -182,26 +182,28 @@ export default function BannerCard({
                   <span className={`w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>
                     {entry.rank}
                   </span>
-                  <div className={`flex-1 rounded-full px-3 py-1 ${
+                  <div className={`flex-1 rounded-full px-3 py-1 relative ${
                     isViewerRow ? 'bg-neon-cyan/15' : 'bg-white/8'
                   }`}>
-                    <div className="flex items-center justify-center gap-1.5">
+                    <div className="absolute left-2 top-1/2 -translate-y-1/2">
                       <PlayerAvatar
                         username={entry.iscored_username}
                         discordUserId={entry.discord_user_id}
                         avatarHash={entry.avatar_hash}
                         size={16}
                       />
-                      <span className="text-[11px] truncate text-secondary">
+                    </div>
+                    <div className="text-center">
+                      <span className="text-[11px] truncate text-secondary block">
                         {entry.iscored_username}
                       </span>
+                      <span
+                        className={`text-xs font-bold tabular-nums block ${scoreColor}`}
+                        title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                      >
+                        {formatScore(entry.score)}
+                      </span>
                     </div>
-                    <span
-                      className={`text-xs font-bold tabular-nums block text-center ${scoreColor}`}
-                      title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
-                    >
-                      {formatScore(entry.score)}
-                    </span>
                   </div>
                 </div>
               );
