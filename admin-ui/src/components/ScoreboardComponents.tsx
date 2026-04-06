@@ -905,7 +905,7 @@ export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, sh
   // Match Showcase card paddingTop so Rankings aligns with card frames, not identifier images
   const topPad = scoreboardStyle === 'showcase' ? 42 : 0;
   return (
-    <div className={`w-full lg:w-80 flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : 'lg:sticky lg:top-6'}`} style={topPad ? { paddingTop: topPad } : undefined}>
+    <div className={`w-full lg:w-80 flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : ''}`} style={topPad ? { paddingTop: topPad } : undefined}>
       <div className="flex flex-col gap-5">
         {rankingGroups.map(({ group, rankings }) => (
           <RankingGroupCard key={group.id} group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} />

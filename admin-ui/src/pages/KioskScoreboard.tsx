@@ -77,6 +77,8 @@ export default function KioskScoreboard() {
   const layout = useNewCards ? newConfig.layout : legacyLayout;
 
   const cardWidth = useNewCards ? getCardWidth(newConfig.style) : legacyCardWidth;
+  const isBanner = useNewCards && newConfig.style === 'banner';
+  const isShowcase = useNewCards && newConfig.style === 'showcase';
   const visibleLeaderboards = (useNewCards ? newConfig.hideEmpty : hideEmpty) ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
 
   // Guard: wait for config to load, then check if kiosk is enabled
@@ -158,7 +160,7 @@ export default function KioskScoreboard() {
           ) : layout === 'grid' ? (
             <div className="flex-1 min-w-0">
               <div
-                className={`grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
+                className={`grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''} ${isBanner ? 'scoreboard-banner-scroll' : ''}`}
                 style={{
                   ...(useNewCards ? { gap: newConfig.cardSpacing } : {}),
                   ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : {}),
@@ -185,10 +187,10 @@ export default function KioskScoreboard() {
             </div>
           ) : (
             <div className="flex-1 min-w-0">
-              <div className="-mx-4 sm:-mx-6 overflow-x-auto">
-                <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
+              <div className={`-mx-4 sm:-mx-6 ${isShowcase ? '' : 'overflow-x-auto'}`}>
+                <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''} ${isShowcase ? 'scoreboard-showcase-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                   {visibleLeaderboards.map(lb => (
-                    <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
+                    <div key={lb.gameId} className={`flex-shrink-0 scoreboard-card-item ${isShowcase ? 'max-w-full' : ''}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
                       {useNewCards ? (
                         <CardRouter
                           lb={lb} slug={slug || ''} roomId={roomId}
@@ -221,6 +223,20 @@ export default function KioskScoreboard() {
         )}
       </div>
 
+      <style>{`
+        @media (max-width: 640px) {
+          .scoreboard-banner-scroll { zoom: 0.6; }
+          .scoreboard-showcase-scroll {
+            flex-direction: column !important;
+            align-items: center !important;
+            overflow-x: hidden !important;
+          }
+          .scoreboard-showcase-scroll .scoreboard-card-item {
+            width: 100% !important;
+            flex-shrink: 1 !important;
+          }
+        }
+      `}</style>
       {/* Scanline overlay */}
       <div className="fixed inset-0 pointer-events-none z-50 scanlines" />
     </div>

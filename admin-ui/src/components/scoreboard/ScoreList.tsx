@@ -62,7 +62,7 @@ export default function ScoreList({
           {/* Rank */}
           <span style={{
             fontFamily: monoFontFamily,
-            fontSize: '10px',
+            fontSize: '11px',
             fontWeight: 600,
             width: '20px',
             textAlign: 'right',
@@ -93,7 +93,7 @@ export default function ScoreList({
           {/* Name */}
           <span style={{
             flex: 1,
-            fontSize: '12px',
+            fontSize: '13px',
             color: nameColor,
             fontFamily: fontFamily || monoFontFamily,
             overflow: 'hidden',
@@ -106,7 +106,7 @@ export default function ScoreList({
           {/* Score */}
           <span
             style={{
-              fontSize: '10px',
+              fontSize: '12px',
               color: scoreColor,
               fontFamily: monoFontFamily,
               fontWeight: 700,

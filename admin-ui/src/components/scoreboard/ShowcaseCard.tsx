@@ -75,7 +75,7 @@ export default function ShowcaseCard({
   const floatPadTop = 42;
 
   return (
-    <div style={{ position: 'relative', paddingTop: floatPadTop }}>
+    <div style={{ position: 'relative', paddingTop: floatPadTop, maxWidth: '100%' }}>
       {/* Google Fonts */}
       <link rel="stylesheet" href={theme.googleFontsUrl} />
 
@@ -100,6 +100,7 @@ export default function ShowcaseCard({
       {/* Card shell */}
       <div style={{
         width: 380,
+        maxWidth: '100%',
         position: 'relative',
         overflow: 'hidden',
         borderRadius: theme.cardBorderRadius,
@@ -183,18 +184,18 @@ export default function ShowcaseCard({
                 const tBadge = lb.tournamentType ? TOURNAMENT_BADGE_COLORS[lb.tournamentType.toUpperCase()] : null;
                 return (
               <span style={{
-                padding: '3px 10px',
+                padding: '4px 12px',
                 borderRadius: tBadge ? 4 : (theme.badgeBorder ? 4 : 6),
                 background: cardBgFill
-                  ? (tBadge ? tBadge.bg.replace('0.15', '0.4') : 'rgba(0,0,0,0.5)')
+                  ? (tBadge ? tBadge.bg.replace('0.15', '0.5') : 'rgba(0,0,0,0.6)')
                   : (tBadge?.bg ?? theme.badgeBg),
                 border: tBadge ? `1px solid ${tBadge.border}` : (theme.badgeBorder || 'none'),
                 color: tBadge?.text ?? theme.badgeColor,
-                fontSize: 8,
-                letterSpacing: 3,
+                fontSize: 10,
+                letterSpacing: 2,
                 textTransform: 'uppercase' as const,
-                fontWeight: cardBgFill ? 600 : 500,
-                textShadow: cardBgFill ? 'none' : undefined,
+                fontWeight: 600,
+                textShadow: cardBgFill ? '0 1px 4px rgba(0,0,0,0.8)' : undefined,
               }}>
                 {lb.tournamentType === 'DG' ? 'Daily Grind' :
                  lb.tournamentType === 'WG-VPXS' ? 'Weekly Grind' :
