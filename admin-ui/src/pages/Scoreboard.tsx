@@ -109,7 +109,10 @@ export default function Scoreboard() {
   const cardWidth = useNewCards ? getCardWidth(newConfig.style) : legacyCardWidth;
   const viewerUsername = discordUser?.username || undefined;
   const isBanner = useNewCards && newConfig.style === 'banner';
-  const isShowcase = useNewCards && newConfig.style === 'showcase';
+
+  // Effective layout: Banner always horizontal scroll; others respect setting
+  // Mobile always forces vertical via CSS
+  const effectiveLayout = isBanner ? 'scroll' : layout;
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
 
@@ -155,10 +158,23 @@ export default function Scoreboard() {
         .animate-slideDown {
           animation: slideDown 0.3s ease-out forwards;
         }
-        /* Banner cards: scale down on mobile via zoom */
+        /* Mobile: Banner scales down, horizontal scroll converts to vertical */
         @media (max-width: 640px) {
-          .scoreboard-banner-scroll {
-            zoom: 0.6;
+          .scoreboard-banner-scroll { zoom: 0.6; }
+          .scoreboard-hscroll-layout {
+            overflow-x: hidden !important;
+          }
+          .scoreboard-hscroll-layout > div {
+            flex-direction: column !important;
+            align-items: center !important;
+          }
+          .scoreboard-hscroll-layout > div > div {
+            flex-shrink: 1 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+          .scoreboard-grid-layout {
+            grid-template-columns: 1fr !important;
           }
         }
       `}</style>
@@ -216,10 +232,11 @@ export default function Scoreboard() {
           <div className="flex-1 text-center py-24">
             <p className="text-muted font-display">Waiting for active games...</p>
           </div>
-        ) : layout === 'grid' ? (
+        ) : effectiveLayout === 'grid' ? (
+          /* Grid layout — responsive rows, mobile forces single column via CSS */
           <div className="flex-1 min-w-0">
             <div
-              className={`grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''} ${isBanner ? 'scoreboard-banner-scroll' : ''}`}
+              className={`scoreboard-grid-layout grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
               style={{
                 ...(useNewCards ? { gap: newConfig.cardSpacing } : {}),
                 ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : {}),
@@ -246,33 +263,38 @@ export default function Scoreboard() {
               ))}
             </div>
           </div>
-        ) : isShowcase ? (
-          /* Showcase: always vertical single-column */
+        ) : effectiveLayout === 'vertical' ? (
+          /* Vertical scroll — single column centered */
           <div className="flex-1 min-w-0">
-            <div className="flex flex-col items-center" style={{ gap: newConfig.cardSpacing }}>
+            <div className="flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
-                  <CardRouter
-                    lb={lb} slug={slug || ''} roomId={roomId}
-                    style={newConfig.style} theme={newConfig.theme}
-                    maxScores={newConfig.maxScores} minScores={newConfig.minScores}
-                    showTimer={newConfig.showTimer}
-                    cardBgFill={newConfig.cardBgFill}
-                    titleFontSize={newConfig.titleFontSize || undefined}
-                    viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
-                    qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
-                    onSubmitScore={(lb) => setSelectedGame(lb)}
-                  />
+                  {useNewCards ? (
+                    <CardRouter
+                      lb={lb} slug={slug || ''} roomId={roomId}
+                      style={newConfig.style} theme={newConfig.theme}
+                      maxScores={newConfig.maxScores} minScores={newConfig.minScores}
+                      showTimer={newConfig.showTimer}
+                      cardBgFill={newConfig.cardBgFill}
+                      titleFontSize={newConfig.titleFontSize || undefined}
+                      viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
+                      qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
+                      onSubmitScore={(lb) => setSelectedGame(lb)}
+                    />
+                  ) : (
+                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
+                  )}
                 </div>
               ))}
             </div>
           </div>
         ) : (
+          /* Horizontal scroll (default for Banner, also available for others) */
           <div className="flex-1 min-w-0">
-            <div className="-mx-4 sm:-mx-6 overflow-x-auto">
+            <div className="-mx-4 sm:-mx-6 overflow-x-auto scoreboard-hscroll-layout">
               <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0 scoreboard-card-item" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
+                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
                     {useNewCards ? (
                       <CardRouter
                         lb={lb} slug={slug || ''} roomId={roomId}

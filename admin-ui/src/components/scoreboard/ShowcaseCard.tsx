@@ -289,7 +289,7 @@ export default function ShowcaseCard({
                 {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
               </span>
               {qrMode !== 'disabled' && (
-                <GameQRCode slug={slug} gameId={lb.gameId} size={32} />
+                <GameQRCode slug={slug} gameId={lb.gameId} size={22} />
               )}
             </div>
           </div>

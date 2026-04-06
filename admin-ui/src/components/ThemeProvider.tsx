@@ -78,7 +78,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyThemeClass(theme);
   }, [theme]);
 
-  // Hydrate from API on mount
+  // Hydrate from API on mount and when slug changes
   useEffect(() => {
     const hydrate = async () => {
       try {
@@ -89,7 +89,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         if (portalRes?.ok) {
           const portal = await portalRes.json();
           const serverPublicTheme = portal.public_theme || portal.ui_theme;
-          if (serverPublicTheme && serverPublicTheme !== publicThemeState) {
+          if (serverPublicTheme) {
             setPublicThemeState(serverPublicTheme);
             localStorage.setItem(STORAGE_PUBLIC_KEY, serverPublicTheme);
           }
@@ -113,6 +113,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setPublicTheme = (newTheme: ThemeId) => {
     setPublicThemeState(newTheme);
+    // Store per-slug so changing one room's theme doesn't affect others
+    const pathSlug = window.location.pathname.split('/').filter(Boolean)[0] || '';
+    if (pathSlug && pathSlug !== 'admin') {
+      localStorage.setItem(`arcaid-theme-public-${pathSlug}`, newTheme);
+    }
     localStorage.setItem(STORAGE_PUBLIC_KEY, newTheme);
     localStorage.setItem(STORAGE_GLOBAL_KEY, newTheme);
   };

@@ -221,7 +221,7 @@ export default function BannerCard({
         <div className="flex items-center gap-2">
           <span>{lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}</span>
           {qrMode !== 'disabled' && (
-            <GameQRCode slug={slug} gameId={lb.gameId} size={28} />
+            <GameQRCode slug={slug} gameId={lb.gameId} size={20} />
           )}
         </div>
       </div>

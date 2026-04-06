@@ -180,6 +180,7 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
   ],
   SCOREBOARD_LAYOUT: [
     { value: 'scroll', label: 'Horizontal Scroll' },
+    { value: 'vertical', label: 'Vertical Scroll' },
     { value: 'grid', label: 'Grid' },
   ],
   SCOREBOARD_CARD_SIZE: [

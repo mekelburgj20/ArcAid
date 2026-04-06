@@ -78,7 +78,7 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     cardSpacing: parseInt(config.SCOREBOARD_CARD_SPACING || '24', 10) || 24,
     titleFontSize: parseInt(config.SCOREBOARD_TITLE_FONT_SIZE || '0', 10) || 0,
 
-    layout: config.SCOREBOARD_LAYOUT || 'scroll',
+    layout: config.SCOREBOARD_LAYOUT || (style === 'showcase' || style === 'minimal' ? 'vertical' : 'scroll'),
     zoom: parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100,
     bgUrl: config.SCOREBOARD_BG_URL || '',
     bgMode: config.SCOREBOARD_BG_MODE || 'cover',
