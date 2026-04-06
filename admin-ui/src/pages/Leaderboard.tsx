@@ -43,6 +43,10 @@ interface GameLeaderboard {
   catalogueStyleId: string | null;
   logoStyleId: string | null;
   bgStyleId: string | null;
+  bgHasBg: number | null;
+  logoHasHeader: number | null;
+  catHasBg: number | null;
+  catHasHeader: number | null;
   styleHeaderDisabled: boolean;
   externalUrl: string | null;
   notes: string | null;
@@ -481,8 +485,10 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
       .filter(s => s.iscored_username.toLowerCase() === username.toLowerCase())
       .sort((a, b) => b.score - a.score);
 
-  const effectiveBgId = lb.bgStyleId || lb.catalogueStyleId;
-  const effectiveLogoId = lb.logoStyleId || lb.catalogueStyleId;
+  const effectiveBgId = (lb.bgStyleId && lb.bgHasBg !== 0) ? lb.bgStyleId
+    : (lb.catalogueStyleId && lb.catHasBg !== 0) ? lb.catalogueStyleId : null;
+  const effectiveLogoId = (lb.logoStyleId && lb.logoHasHeader !== 0) ? lb.logoStyleId
+    : (lb.catalogueStyleId && lb.catHasHeader !== 0) ? lb.catalogueStyleId : null;
   const styleBgUrl = effectiveBgId ? `/api/styles/images/backgrounds/${effectiveBgId}.png` : null;
   const styleHeaderUrl = effectiveLogoId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${effectiveLogoId}.png` : null;
   const bgImage = styleBgUrl || null;
