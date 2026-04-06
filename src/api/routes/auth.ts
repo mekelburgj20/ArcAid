@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { AdminService } from '../../services/AdminService.js';
+import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { getDatabase } from '../../database/database.js';
 
 const router = Router();
@@ -147,10 +148,23 @@ router.post('/discord/callback', async (req, res) => {
         // Store avatar hash in user_mappings if the user has a mapping
         if (user.avatar) {
             const db = await getDatabase();
-            await db.run(
-                'UPDATE user_mappings SET avatar_hash = ? WHERE discord_user_id = ?',
-                user.avatar, user.id
+            const existing = await db.get(
+                'SELECT avatar_hash FROM user_mappings WHERE discord_user_id = ?', user.id
             );
+            if (existing && existing.avatar_hash !== user.avatar) {
+                await db.run(
+                    'UPDATE user_mappings SET avatar_hash = ? WHERE discord_user_id = ?',
+                    user.avatar, user.id
+                );
+                // Avatar changed — invalidate leaderboard cache so cards pick up new avatar
+                await LeaderboardService.invalidateAll();
+            } else if (existing && !existing.avatar_hash) {
+                await db.run(
+                    'UPDATE user_mappings SET avatar_hash = ? WHERE discord_user_id = ?',
+                    user.avatar, user.id
+                );
+                await LeaderboardService.invalidateAll();
+            }
         }
 
         // 1. Check super_admins table
