@@ -65,6 +65,7 @@ function ordinal(n: number): string {
 interface ActiveGame {
   id: string;
   name: string;
+  display_name: string | null;
   tournament_id: string;
   tournament_name: string;
   tournament_type: string;
@@ -133,6 +134,9 @@ export default function Tournaments() {
   const [editSaving, setEditSaving] = useState(false);
   const [styleTarget, setStyleTarget] = useState<ActiveGame | null>(null);
   const [libraryHasDefault, setLibraryHasDefault] = useState(false);
+  const [displayNameTarget, setDisplayNameTarget] = useState<ActiveGame | null>(null);
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [displayNameSaving, setDisplayNameSaving] = useState(false);
 
   const createForm = useTournamentForm();
   const editForm = useTournamentForm();
@@ -300,7 +304,12 @@ export default function Tournaments() {
       <NeonCard title="Active Games" className="mb-6">
         <DataTable<ActiveGame>
           columns={[
-            { key: 'name', header: 'Game', render: g => <span className="font-medium">{g.name}</span> },
+            { key: 'name', header: 'Game', render: g => (
+              <div>
+                <span className="font-medium">{g.display_name || g.name}</span>
+                {g.display_name && <span className="text-xs text-faint ml-1">({g.name})</span>}
+              </div>
+            )},
             { key: 'tournament_name', header: 'Tournament', render: g => (
               <div className="flex items-center gap-2">
                 <TournamentBadge type={g.tournament_type} />
@@ -320,6 +329,10 @@ export default function Tournaments() {
             )},
             { key: 'actions', header: '', render: g => (
               <div className="flex justify-end gap-1">
+                <NeonButton variant="ghost" onClick={() => {
+                  setDisplayNameTarget(g);
+                  setDisplayNameInput(g.display_name || '');
+                }} className="text-xs px-2 py-1">Edit</NeonButton>
                 <NeonButton variant="secondary" onClick={async () => {
                   try {
                     const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(g.name)}/style`);
@@ -428,6 +441,47 @@ export default function Tournaments() {
             setStyleTarget(null);
           }}
         />
+      )}
+
+      {/* Display Name Edit Modal */}
+      {displayNameTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setDisplayNameTarget(null)}>
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h2 className="font-display text-lg font-bold mb-1">Edit Display Name</h2>
+            <p className="text-xs text-muted mb-4">Game: {displayNameTarget.name}</p>
+            <div className="mb-4">
+              <label className="text-xs text-muted block mb-1">Display Name (leave empty to use game name)</label>
+              <input
+                type="text"
+                value={displayNameInput}
+                onChange={e => setDisplayNameInput(e.target.value)}
+                placeholder={displayNameTarget.name}
+                className="w-full px-3 py-2 bg-raised border border-border rounded text-sm text-primary focus:outline-none focus:border-neon-cyan/50"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <NeonButton variant="ghost" onClick={() => setDisplayNameTarget(null)} disabled={displayNameSaving}>Cancel</NeonButton>
+              <NeonButton disabled={displayNameSaving} onClick={async () => {
+                setDisplayNameSaving(true);
+                try {
+                  await api.patch(`/rooms/${room.roomId}/admin/games/${displayNameTarget.id}/display-name`, {
+                    displayName: displayNameInput.trim() || null,
+                  });
+                  toast(displayNameInput.trim() ? 'Display name updated' : 'Display name cleared', 'success');
+                  fetchActiveGames();
+                  setDisplayNameTarget(null);
+                } catch (err: any) {
+                  toast(err.message, 'error');
+                } finally {
+                  setDisplayNameSaving(false);
+                }
+              }}>
+                {displayNameSaving ? 'Saving...' : 'Save'}
+              </NeonButton>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Edit Modal */}

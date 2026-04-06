@@ -1371,7 +1371,7 @@ router.get('/:roomId/games/active', async (req, res) => {
     try {
         const db = await getDatabase();
         const rows = await db.all(
-            `SELECT g.id, g.name, g.tournament_id, g.iscored_id, g.start_date,
+            `SELECT g.id, g.name, g.display_name, g.tournament_id, g.iscored_id, g.start_date,
                     g.catalogue_style_id, g.style_header_disabled,
                     t.name as tournament_name, t.type as tournament_type
              FROM games g JOIN tournaments t ON g.tournament_id = t.id
@@ -1382,6 +1382,40 @@ router.get('/:roomId/games/active', async (req, res) => {
         res.json(rows);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/games/active):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Update game display name
+router.patch('/:roomId/admin/games/:gameId/display-name', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const gameId = req.params.gameId as string;
+        const roomId = req.params.roomId as string;
+        const { displayName } = req.body;
+        if (displayName !== null && displayName !== undefined && typeof displayName !== 'string') {
+            return res.status(400).json({ error: 'displayName must be a string or null' });
+        }
+        const db = await getDatabase();
+        // Verify game belongs to this room
+        const game = await db.get(
+            `SELECT g.id, g.name FROM games g JOIN tournaments t ON g.tournament_id = t.id WHERE g.id = ? AND t.game_room_id = ?`,
+            gameId, roomId
+        );
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        const value = displayName?.trim() || null;
+        await db.run('UPDATE games SET display_name = ? WHERE id = ?', value, gameId);
+
+        // Also update the game library entry if it exists
+        await db.run('UPDATE game_library SET display_name = ? WHERE name = ? COLLATE NOCASE', value, game.name);
+
+        // Invalidate leaderboard cache
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        await LeaderboardService.invalidate(gameId);
+
+        res.json({ success: true, displayName: value });
+    } catch (error) {
+        logError('API Error (PATCH rooms/:roomId/admin/games/:gameId/display-name):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
