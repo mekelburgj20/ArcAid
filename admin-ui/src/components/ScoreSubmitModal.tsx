@@ -24,6 +24,7 @@ export default function ScoreSubmitModal({ gameName, roomId, gameStatus, require
   const fileInputRef = useRef<HTMLInputElement>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const scoreRef = useRef<HTMLInputElement>(null);
+  const backdropMouseDown = useRef(false);
 
   const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
@@ -114,7 +115,7 @@ export default function ScoreSubmitModal({ gameName, roomId, gameStatus, require
     && (!requirePhoto || !!photoFile) && !submitting;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-deep/80 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-deep/80 backdrop-blur-sm" onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }} onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); }}>
       <div
         className="bg-surface border border-border rounded-t-xl sm:rounded-lg shadow-2xl w-full sm:max-w-md overflow-hidden flex flex-col max-h-[90vh]"
         onClick={e => e.stopPropagation()}

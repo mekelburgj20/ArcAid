@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { Search, X } from 'lucide-react';
 import NeonButton from './NeonButton';
 import { api } from '../lib/api';
@@ -105,9 +105,13 @@ export default function GamePickerModal({ styleName, styleId, onClose, onApplied
     }
   };
 
+  const backdropMouseDown = useRef(false);
+  const handleBackdropMouseDown = (e: React.MouseEvent) => { backdropMouseDown.current = e.target === e.currentTarget; };
+  const handleBackdropClick = (e: React.MouseEvent) => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); };
+
   if (!roomId) {
     return (
-      <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={handleBackdropClick}>
         <div className="bg-surface border border-border rounded-lg p-6 max-w-sm" onClick={e => e.stopPropagation()}>
           <p className="text-muted text-sm">Apply to Game is only available from a room admin context.</p>
           <NeonButton variant="ghost" onClick={onClose} className="mt-4">Close</NeonButton>
@@ -117,7 +121,7 @@ export default function GamePickerModal({ styleName, styleId, onClose, onApplied
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={handleBackdropClick}>
       <div className="bg-surface border border-border rounded-lg w-full max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border shrink-0">

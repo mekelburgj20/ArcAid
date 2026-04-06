@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useContext } from 'react';
+import { useState, useEffect, useCallback, useContext, useRef } from 'react';
 import { Search, Upload, Trash2, Image, X, ChevronLeft, ChevronRight, Gamepad2 } from 'lucide-react';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
@@ -272,9 +272,10 @@ function StyleCard({ style, onClick, onDelete, onApply }: { style: Style; onClic
 function StylePreviewModal({ style, onClose, onApply }: { style: Style; onClose: () => void; onApply?: () => void }) {
   const bgUrl = style.has_background ? `/api/styles/images/backgrounds/${style.id}.png` : null;
   const headerUrl = style.has_header ? `/api/styles/images/headers/${style.id}.png` : null;
+  const backdropMouseDown = useRef(false);
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }} onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); }}>
       <div className="bg-surface border border-border rounded-lg max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h3 className="font-display text-sm font-bold text-primary">{style.name}</h3>
@@ -353,6 +354,7 @@ function StylePreviewModal({ style, onClose, onApply }: { style: Style; onClose:
 
 function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; onClose: () => void; onUploaded: () => void }) {
   const { toast } = useToast();
+  const backdropMouseDown = useRef(false);
   const [name, setName] = useState('');
   const [author, setAuthor] = useState('');
   const [notes, setNotes] = useState('');
@@ -438,7 +440,7 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }} onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); }}>
       <div className="bg-surface border border-border rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h3 className="font-display text-sm font-bold text-primary">Upload Art Pack</h3>
