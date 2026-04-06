@@ -8,22 +8,16 @@ import TournamentBadge from '../components/TournamentBadge';
 import LoadingState from '../components/LoadingState';
 import StylePicker from '../components/StylePicker';
 import NeonButton from '../components/NeonButton';
+import CardRouter from '../components/scoreboard/CardRouter';
+import { deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
 import {
   RankingsColumn,
   RankingsRow,
   getTitleStyleClass,
   getTitleSizeClass,
   getTournamentBorderColor,
-  cardWidthMap,
 } from '../components/ScoreboardComponents';
-import type { RankingGroupData } from '../components/ScoreboardComponents';
-
-interface RankedEntry {
-  rank: number;
-  discord_user_id: string;
-  iscored_username: string;
-  score: number;
-}
+import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
 
 interface Submission {
   id: string;
@@ -31,26 +25,6 @@ interface Submission {
   score: number;
   timestamp: string;
   photo_url: string | null;
-}
-
-interface GameLeaderboard {
-  gameId: string;
-  gameName: string;
-  displayName: string | null;
-  tournamentName: string;
-  tournamentType: string;
-  gameStatus: string;
-  catalogueStyleId: string | null;
-  logoStyleId: string | null;
-  bgStyleId: string | null;
-  bgHasBg: number | null;
-  logoHasHeader: number | null;
-  catHasBg: number | null;
-  catHasHeader: number | null;
-  styleHeaderDisabled: boolean;
-  externalUrl: string | null;
-  notes: string | null;
-  rankings: RankedEntry[];
 }
 
 export default function Leaderboard() {
@@ -120,13 +94,32 @@ export default function Leaderboard() {
   const logoUrl = config.LOGO_URL || '';
   const logoPosition = config.LOGO_POSITION || 'left';
   const logoMaxHeight = parseInt(config.LOGO_MAX_HEIGHT || '64', 10) || 64;
-  const layout = config.SCOREBOARD_LAYOUT || 'scroll';
-  const cardSize = config.SCOREBOARD_CARD_SIZE || 'medium';
   const rankingsPosition = config.SCOREBOARD_RANKINGS_POSITION || 'left';
+
+  // New style/theme config (matching public scoreboard)
+  const newConfig = deriveScoreboardConfig(config, room.roomName);
+  const useNewCards = !!config.SCOREBOARD_STYLE;
+  const layout = useNewCards ? newConfig.layout : (config.SCOREBOARD_LAYOUT || 'scroll');
+  const cardWidth = useNewCards ? getCardWidth(newConfig.style) : 288;
   const gameColumns = config.SCOREBOARD_GAME_COLUMNS || 'auto';
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
-  const cardWidth = cardWidthMap[cardSize] || 288;
+
+  const handleStyleClick = async (target: GameLeaderboard) => {
+    try {
+      const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
+      setLibraryHasDefault(!!libStyle.catalogueStyleId);
+    } catch { setLibraryHasDefault(false); }
+    setStyleTarget(target);
+  };
+  const handleEditDisplayName = (target: GameLeaderboard) => {
+    setDisplayNameInput(target.displayName || '');
+    setDisplayNameTarget(target);
+  };
+  const handleEditNotes = (target: GameLeaderboard) => {
+    setNotesInput(target.notes || '');
+    setNotesTarget(target);
+  };
 
   return (
     <div>
@@ -183,57 +176,58 @@ export default function Leaderboard() {
           )}
 
           {/* Game leaderboards */}
-          {visibleLeaderboards.length === 0 && rankingGroups.length === 0 ? (
-            <div className="flex-1 text-center py-16">
-              <p className="text-muted font-display">No active games with scores yet.</p>
-            </div>
-          ) : visibleLeaderboards.length === 0 ? (
+          {visibleLeaderboards.length === 0 ? (
             <div className="flex-1 text-center py-16">
               <p className="text-muted font-display">No active games with scores yet.</p>
             </div>
           ) : layout === 'grid' ? (
             <div className="flex-1 min-w-0">
               <div
-                className={`grid gap-3 sm:gap-5 ${gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
-                style={gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${cardWidth}px, 100%), 1fr))` } : undefined}
+                className={`grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
+                style={{
+                  ...(useNewCards ? { gap: newConfig.cardSpacing } : {}),
+                  ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : {}),
+                }}
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="grid">
-                    <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onScoreDeleted={() => { loadData(); loadRankings(); }} onStyleClick={async (target) => {
-                      try {
-                        const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
-                        setLibraryHasDefault(!!libStyle.catalogueStyleId);
-                      } catch { setLibraryHasDefault(false); }
-                      setStyleTarget(target);
-                    }} onEditDisplayName={(target) => {
-                      setDisplayNameInput(target.displayName || '');
-                      setDisplayNameTarget(target);
-                    }} onDeleteGame={setDeleteTarget} onEditNotes={(target) => {
-                      setNotesInput(target.notes || '');
-                      setNotesTarget(target);
-                    }} />
+                    <AdminCardWrapper lb={lb} onStyleClick={handleStyleClick} onEditDisplayName={handleEditDisplayName} onDeleteGame={setDeleteTarget} onEditNotes={handleEditNotes}>
+                      {useNewCards ? (
+                        <CardRouter
+                          lb={lb} slug={room.roomSlug || ''}
+                          style={newConfig.style} theme={newConfig.theme}
+                          maxScores={newConfig.maxScores} minScores={newConfig.minScores}
+                          showTimer={newConfig.showTimer}
+                          cardBgFill={newConfig.cardBgFill}
+                          titleFontSize={newConfig.titleFontSize || undefined}
+                        />
+                      ) : (
+                        <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onScoreDeleted={() => { loadData(); loadRankings(); }} onStyleClick={handleStyleClick} onEditDisplayName={handleEditDisplayName} onDeleteGame={setDeleteTarget} onEditNotes={handleEditNotes} />
+                      )}
+                    </AdminCardWrapper>
                   </div>
                 ))}
               </div>
             </div>
           ) : (
             <div className="flex-1 min-w-0 overflow-x-auto">
-              <div className="flex gap-3 sm:gap-5 pb-2">
+              <div className={`flex pb-2 ${useNewCards ? '' : 'gap-3 sm:gap-5'}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
-                    <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onScoreDeleted={() => { loadData(); loadRankings(); }} onStyleClick={async (target) => {
-                      try {
-                        const libStyle = await api.get<{ catalogueStyleId: string | null }>(`/rooms/${room.roomId}/game_library/${encodeURIComponent(target.gameName)}/style`);
-                        setLibraryHasDefault(!!libStyle.catalogueStyleId);
-                      } catch { setLibraryHasDefault(false); }
-                      setStyleTarget(target);
-                    }} onEditDisplayName={(target) => {
-                      setDisplayNameInput(target.displayName || '');
-                      setDisplayNameTarget(target);
-                    }} onDeleteGame={setDeleteTarget} onEditNotes={(target) => {
-                      setNotesInput(target.notes || '');
-                      setNotesTarget(target);
-                    }} />
+                    <AdminCardWrapper lb={lb} onStyleClick={handleStyleClick} onEditDisplayName={handleEditDisplayName} onDeleteGame={setDeleteTarget} onEditNotes={handleEditNotes}>
+                      {useNewCards ? (
+                        <CardRouter
+                          lb={lb} slug={room.roomSlug || ''}
+                          style={newConfig.style} theme={newConfig.theme}
+                          maxScores={newConfig.maxScores} minScores={newConfig.minScores}
+                          showTimer={newConfig.showTimer}
+                          cardBgFill={newConfig.cardBgFill}
+                          titleFontSize={newConfig.titleFontSize || undefined}
+                        />
+                      ) : (
+                        <AdminGameCard lb={lb} roomId={room.roomId} maxScores={maxScores} onScoreDeleted={() => { loadData(); loadRankings(); }} onStyleClick={handleStyleClick} onEditDisplayName={handleEditDisplayName} onDeleteGame={setDeleteTarget} onEditNotes={handleEditNotes} />
+                      )}
+                    </AdminCardWrapper>
                   </div>
                 ))}
               </div>
@@ -425,6 +419,38 @@ export default function Leaderboard() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+function AdminCardWrapper({ lb, children, onStyleClick, onEditDisplayName, onDeleteGame, onEditNotes }: {
+  lb: GameLeaderboard;
+  children: React.ReactNode;
+  onStyleClick: (lb: GameLeaderboard) => void;
+  onEditDisplayName: (lb: GameLeaderboard) => void;
+  onDeleteGame: (lb: GameLeaderboard) => void;
+  onEditNotes: (lb: GameLeaderboard) => void;
+}) {
+  return (
+    <div className="relative group">
+      {children}
+      {/* Admin overlay — visible on hover */}
+      <div className="absolute top-0 left-0 right-0 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center justify-center gap-1 p-1.5 bg-black/70 backdrop-blur-sm rounded-t-lg">
+          <NeonButton variant="ghost" onClick={() => onEditDisplayName(lb)} className="text-[10px] px-1.5 py-0.5">
+            <Pencil size={11} /> Name
+          </NeonButton>
+          <NeonButton variant={lb.notes ? 'secondary' : 'ghost'} onClick={() => onEditNotes(lb)} className="text-[10px] px-1.5 py-0.5">
+            <StickyNote size={11} /> Notes
+          </NeonButton>
+          <NeonButton variant={lb.catalogueStyleId ? 'secondary' : 'ghost'} onClick={() => onStyleClick(lb)} className="text-[10px] px-1.5 py-0.5">
+            Style
+          </NeonButton>
+          <NeonButton variant="ghost" onClick={() => onDeleteGame(lb)} className="text-[10px] px-1.5 py-0.5 text-red-400/60 hover:text-red-400">
+            <Trash2 size={11} />
+          </NeonButton>
+        </div>
+      </div>
     </div>
   );
 }
