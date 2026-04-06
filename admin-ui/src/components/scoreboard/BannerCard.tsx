@@ -185,14 +185,14 @@ export default function BannerCard({
                   <div className={`flex-1 rounded-full px-3 py-1 ${
                     isViewerRow ? 'bg-neon-cyan/15' : 'bg-white/8'
                   }`}>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5">
                       <PlayerAvatar
                         username={entry.iscored_username}
                         discordUserId={entry.discord_user_id}
                         avatarHash={entry.avatar_hash}
                         size={16}
                       />
-                      <span className="text-[11px] truncate text-secondary flex-1">
+                      <span className="text-[11px] truncate text-secondary">
                         {entry.iscored_username}
                       </span>
                     </div>
