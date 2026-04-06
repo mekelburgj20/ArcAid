@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown } from '../ScoreboardComponents';
+import GameInfoPopup from './GameInfoPopup';
 
 interface BannerCardProps {
   lb: GameLeaderboard;
@@ -91,9 +92,15 @@ export default function BannerCard({
         onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
       >
         {!hasIdentifierImage && (
-          <h3 className="font-display font-bold leading-tight truncate px-5" style={{ fontSize: '0.875rem' }}>
+          <h3 className="font-display font-bold leading-tight truncate px-5 flex items-center justify-center gap-1" style={{ fontSize: '0.875rem' }}>
             {displayName}
+            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
           </h3>
+        )}
+        {hasIdentifierImage && (lb.externalUrl || lb.notes) && (
+          <div className="absolute left-3 top-3 z-[2]">
+            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
+          </div>
         )}
         {lb.gameStatus === 'COMPLETED' && (
           <span title="Completed" className="absolute right-3 top-3">

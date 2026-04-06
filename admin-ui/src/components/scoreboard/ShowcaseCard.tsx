@@ -4,6 +4,7 @@ import { formatCountdown } from '../ScoreboardComponents';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import ShowcasePodium from './ShowcasePodium';
 import ScoreList from './ScoreList';
+import GameInfoPopup from './GameInfoPopup';
 import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } from './neonCircuitAssets';
 
 interface ShowcaseCardProps {
@@ -132,8 +133,13 @@ export default function ShowcaseCard({
               lineHeight: 1.2,
               marginBottom: 6,
               fontFamily: theme.fontFamily,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
             }}>
               {displayName}
+              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
             </h2>
 
             {/* Meta: badge + timer */}

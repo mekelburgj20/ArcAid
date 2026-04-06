@@ -3,14 +3,21 @@ import { logInfo, logError } from '../utils/logger.js';
 
 const README_URL = 'https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/main/README.md';
 
+const GITHUB_BASE = 'https://github.com/LegendsUnchained/vpx-standalone-alp4k';
+
+interface WizardTable {
+    name: string;
+    path: string | null;
+}
+
 /**
- * Parses the "Wizard Tables" section from the GitHub README and extracts table names.
+ * Parses the "Wizard Tables" section from the GitHub README and extracts table names and paths.
  * Each row's Table column contains a markdown link like: [Table Name (Manufacturer Year)](path)
  */
-function parseWizardTables(markdown: string): string[] {
+function parseWizardTables(markdown: string): WizardTable[] {
     const lines = markdown.split('\n');
     let inWizardSection = false;
-    const names: string[] = [];
+    const tables: WizardTable[] = [];
 
     for (const line of lines) {
         // Detect the Wizard Tables heading
@@ -30,14 +37,17 @@ function parseWizardTables(markdown: string): string[] {
         if (!line.startsWith('|') || line.includes('---')) continue;
         if (/\|\s*Table\s*\|/i.test(line)) continue;
 
-        // Extract the link text from the first column: | [Name](url) | ...
-        const match = line.match(/\|\s*\[([^\]]+)\]/);
+        // Extract the link text and path from the first column: | [Name](url) | ...
+        const match = line.match(/\|\s*\[([^\]]+)\]\(([^)]*)\)/);
         if (match?.[1]) {
-            names.push(match[1].trim());
+            tables.push({
+                name: match[1].trim(),
+                path: match[2]?.trim() || null,
+            });
         }
     }
 
-    return names;
+    return tables;
 }
 
 export class WizardImportService {
@@ -51,24 +61,26 @@ export class WizardImportService {
         if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
         const markdown = await resp.text();
 
-        const tableNames = parseWizardTables(markdown);
-        logInfo(`Wizard Import: found ${tableNames.length} Wizard Tables`);
+        const tables = parseWizardTables(markdown);
+        logInfo(`Wizard Import: found ${tables.length} Wizard Tables`);
 
-        if (tableNames.length === 0) {
+        if (tables.length === 0) {
             throw new Error('No Wizard Tables found in README — format may have changed');
         }
 
-        const games = tableNames.map(name => ({
-            name,
+        const games = tables.map(t => ({
+            name: t.name,
             aliases: '',
             style_id: '',
             mode: 'pinball' as const,
             css_title: '', css_initials: '', css_scores: '', css_box: '', bg_color: '',
             platforms: JSON.stringify(['VPXS']),
+            external_url: t.path ? `${GITHUB_BASE}/tree/main/${t.path.replace(/^\.\//, '')}` : null,
         }));
 
         const result = await GameLibraryService.importGames(games);
+        const names = tables.map(t => t.name);
         logInfo(`Wizard Import: imported ${result.imported} games, auto-merged ${result.autoMerged.length}`);
-        return { imported: result.imported, total: tableNames.length, names: tableNames, autoMerged: result.autoMerged };
+        return { imported: result.imported, total: tables.length, names, autoMerged: result.autoMerged };
     }
 }

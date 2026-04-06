@@ -1420,6 +1420,34 @@ router.patch('/:roomId/admin/games/:gameId/display-name', requireAuth, requireRo
     }
 });
 
+// Update game notes
+router.patch('/:roomId/admin/games/:gameId/notes', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const gameId = req.params.gameId as string;
+        const roomId = req.params.roomId as string;
+        const { notes } = req.body;
+        const db = await getDatabase();
+
+        const game = await db.get(`
+            SELECT g.*, t.game_room_id
+            FROM games g JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.id = ? AND t.game_room_id = ?
+        `, gameId, roomId);
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        const value = typeof notes === 'string' ? notes.trim() || null : null;
+        await db.run('UPDATE games SET notes = ? WHERE id = ?', value, gameId);
+
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        await LeaderboardService.invalidate(gameId);
+
+        res.json({ success: true, notes: value });
+    } catch (error) {
+        logError('API Error (PATCH rooms/:roomId/admin/games/:gameId/notes):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Game library import (room-scoped)
 router.post('/:roomId/game_library/import', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {

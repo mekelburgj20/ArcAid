@@ -72,6 +72,7 @@ export class VpsImportService {
             mode: 'pinball' as const,
             css_title: '', css_initials: '', css_scores: '', css_box: '', bg_color: '',
             platforms: JSON.stringify(extractPlatforms(t)),
+            external_url: `https://virtual-pinball-spreadsheet.com/game/${t.id}`,
         }));
 
         const result = await GameLibraryService.importGames(games);

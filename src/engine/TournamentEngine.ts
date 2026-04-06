@@ -114,16 +114,17 @@ export class TournamentEngine {
                     libraryEntry.catalogue_style_id, libraryEntry.logo_style_id, libraryEntry.bg_style_id, libraryEntry.style_header_disabled, game.id
                 );
             }
-            // Apply display_name from global library (exact match first, then prefix match for names with manufacturer suffix)
+            // Apply display_name and external_url from global library (exact match first, then prefix match for names with manufacturer suffix)
             const libGame = await db.get(
-                'SELECT display_name FROM game_library WHERE name = ? COLLATE NOCASE',
+                'SELECT display_name, external_url FROM game_library WHERE name = ? COLLATE NOCASE',
                 gameName
             ) || await db.get(
-                'SELECT display_name FROM game_library WHERE ? LIKE name || \'%\' COLLATE NOCASE ORDER BY LENGTH(name) DESC LIMIT 1',
+                'SELECT display_name, external_url FROM game_library WHERE ? LIKE name || \'%\' COLLATE NOCASE ORDER BY LENGTH(name) DESC LIMIT 1',
                 gameName
             );
-            if (libGame?.display_name) {
-                await db.run('UPDATE games SET display_name = ? WHERE id = ?', libGame.display_name, game.id);
+            if (libGame?.display_name || libGame?.external_url) {
+                await db.run('UPDATE games SET display_name = COALESCE(?, display_name), external_url = COALESCE(?, external_url) WHERE id = ?',
+                    libGame.display_name || null, libGame.external_url || null, game.id);
             }
         }
 

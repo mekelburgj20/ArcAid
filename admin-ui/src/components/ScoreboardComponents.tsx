@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus, Camera, Upload } from 'lucide-react';
 import QRCode from 'qrcode';
 import ScorePhotoModal from './ScorePhotoModal';
+import GameInfoPopup from './scoreboard/GameInfoPopup';
 
 // --- Shared interfaces ---
 
@@ -30,6 +31,8 @@ export interface GameLeaderboard {
   logoHasHeader?: number | null;
   catHasBg?: number | null;
   catHasHeader?: number | null;
+  externalUrl?: string | null;
+  notes?: string | null;
   rankings: RankedEntry[];
   nextMaintenanceAt?: string | null;
 }
@@ -359,8 +362,9 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           </div>
           <div className="min-w-0 flex-1">
             {(
-              <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
+              <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass} flex items-center gap-1`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
                 {displayText}
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
               </h3>
             )}
             <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
@@ -391,10 +395,11 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             <div className="w-full text-center px-4 pb-2 pt-1 relative">
               {(
                 <h3
-                  className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass}`}
+                  className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass} flex items-center justify-center gap-1`}
                   style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
                 >
                   {displayText}
+                  <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
                 </h3>
               )}
               <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
@@ -425,10 +430,11 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
             {(
               <h3
-                className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass}`}
+                className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass} flex items-center gap-1`}
                 style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
               >
                 {displayText}
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
               </h3>
             )}
             <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>
@@ -448,8 +454,9 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
             {(
-              <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass}`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
+              <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass} flex items-center justify-center gap-1`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
                 {displayText}
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
               </h3>
             )}
             {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-3"><Lock size={14} className="text-neon-amber" /></span>}

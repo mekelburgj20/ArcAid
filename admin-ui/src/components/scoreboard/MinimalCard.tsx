@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown } from '../ScoreboardComponents';
+import GameInfoPopup from './GameInfoPopup';
 
 interface MinimalCardProps {
   lb: GameLeaderboard;
@@ -61,8 +62,9 @@ export default function MinimalCard({
     >
       {/* Title area */}
       <div className="px-5 pt-4 pb-3">
-        <h3 className="font-display font-bold text-base leading-tight truncate text-primary">
+        <h3 className="font-display font-bold text-base leading-tight truncate text-primary flex items-center gap-1">
           {displayName}
+          <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
         </h3>
         <div className="flex items-center gap-3 mt-1">
           <span className="text-[11px] uppercase tracking-wider text-muted">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Lock, Trash2, Pencil } from 'lucide-react';
+import { Lock, Trash2, Pencil, StickyNote } from 'lucide-react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
@@ -44,6 +44,8 @@ interface GameLeaderboard {
   logoStyleId: string | null;
   bgStyleId: string | null;
   styleHeaderDisabled: boolean;
+  externalUrl: string | null;
+  notes: string | null;
   rankings: RankedEntry[];
 }
 
@@ -61,6 +63,9 @@ export default function Leaderboard() {
   const [displayNameSaving, setDisplayNameSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<GameLeaderboard | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [notesTarget, setNotesTarget] = useState<GameLeaderboard | null>(null);
+  const [notesInput, setNotesInput] = useState('');
+  const [notesSaving, setNotesSaving] = useState(false);
 
   const loadData = () => {
     api.get<GameLeaderboard[]>(`/rooms/${room.roomId}/leaderboard`)
@@ -199,7 +204,10 @@ export default function Leaderboard() {
                     }} onEditDisplayName={(target) => {
                       setDisplayNameInput(target.displayName || '');
                       setDisplayNameTarget(target);
-                    }} onDeleteGame={setDeleteTarget} />
+                    }} onDeleteGame={setDeleteTarget} onEditNotes={(target) => {
+                      setNotesInput(target.notes || '');
+                      setNotesTarget(target);
+                    }} />
                   </div>
                 ))}
               </div>
@@ -218,7 +226,10 @@ export default function Leaderboard() {
                     }} onEditDisplayName={(target) => {
                       setDisplayNameInput(target.displayName || '');
                       setDisplayNameTarget(target);
-                    }} onDeleteGame={setDeleteTarget} />
+                    }} onDeleteGame={setDeleteTarget} onEditNotes={(target) => {
+                      setNotesInput(target.notes || '');
+                      setNotesTarget(target);
+                    }} />
                   </div>
                 ))}
               </div>
@@ -312,6 +323,46 @@ export default function Leaderboard() {
         </div>
       )}
 
+      {/* Notes Edit Modal */}
+      {notesTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setNotesTarget(null)}>
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h2 className="font-display text-lg font-bold mb-1">Edit Game Notes</h2>
+            <p className="text-xs text-muted mb-4">Game: {notesTarget.displayName || notesTarget.gameName}</p>
+            <div className="mb-4">
+              <label className="text-xs text-muted block mb-1">Notes (shown to players via info icon)</label>
+              <textarea
+                value={notesInput}
+                onChange={e => setNotesInput(e.target.value)}
+                placeholder="e.g., VPW v1.2, Use cabinet mode..."
+                className="w-full px-3 py-2 bg-raised border border-border rounded text-sm text-primary focus:outline-none focus:border-neon-cyan/50 min-h-[80px] resize-y"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <NeonButton variant="ghost" onClick={() => setNotesTarget(null)} disabled={notesSaving}>Cancel</NeonButton>
+              <NeonButton disabled={notesSaving} onClick={async () => {
+                setNotesSaving(true);
+                try {
+                  await api.patch(`/rooms/${room.roomId}/admin/games/${notesTarget.gameId}/notes`, {
+                    notes: notesInput.trim() || null,
+                  });
+                  toast(notesInput.trim() ? 'Notes updated' : 'Notes cleared', 'success');
+                  loadData();
+                  setNotesTarget(null);
+                } catch (err: any) {
+                  toast(err.message, 'error');
+                } finally {
+                  setNotesSaving(false);
+                }
+              }}>
+                {notesSaving ? 'Saving...' : 'Save'}
+              </NeonButton>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Style Picker for leaderboard games */}
       {styleTarget && (
         <StylePicker
@@ -374,7 +425,7 @@ export default function Leaderboard() {
   );
 }
 
-function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, onEditDisplayName, onDeleteGame }: {
+function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, onEditDisplayName, onDeleteGame, onEditNotes }: {
   lb: GameLeaderboard;
   roomId: string;
   maxScores: number;
@@ -382,6 +433,7 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
   onScoreDeleted: () => void;
   onEditDisplayName: (lb: GameLeaderboard) => void;
   onDeleteGame: (lb: GameLeaderboard) => void;
+  onEditNotes: (lb: GameLeaderboard) => void;
 }) {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -453,6 +505,14 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
               title="Edit display name"
             >
               <Pencil size={12} />
+            </NeonButton>
+            <NeonButton
+              variant={lb.notes ? 'secondary' : 'ghost'}
+              onClick={() => onEditNotes(lb)}
+              className="text-[10px] px-1 py-0.5"
+              title="Edit notes"
+            >
+              <StickyNote size={12} />
             </NeonButton>
             <NeonButton
               variant={lb.catalogueStyleId ? 'secondary' : 'ghost'}

@@ -13,6 +13,7 @@ interface GameData {
     css_box?: string;
     bg_color?: string;
     platforms?: string;
+    external_url?: string | null;
 }
 
 export class GameLibraryService {
@@ -41,12 +42,13 @@ export class GameLibraryService {
     static async updateGame(originalName: string, game: GameData): Promise<boolean> {
         const db = await getDatabase();
         const result = await db.run(
-            `UPDATE game_library SET name = ?, display_name = ?, aliases = ?, style_id = ?, mode = ?, css_title = ?, css_initials = ?, css_scores = ?, css_box = ?, bg_color = ?, platforms = ? WHERE name = ?`,
+            `UPDATE game_library SET name = ?, display_name = ?, aliases = ?, style_id = ?, mode = ?, css_title = ?, css_initials = ?, css_scores = ?, css_box = ?, bg_color = ?, platforms = ?, external_url = ? WHERE name = ?`,
             game.name, game.display_name || null, game.aliases || '', game.style_id || '',
             game.mode || 'pinball',
             game.css_title || '', game.css_initials || '',
             game.css_scores || '', game.css_box || '',
             game.bg_color || '', game.platforms || '[]',
+            game.external_url || null,
             originalName
         );
         return (result.changes ?? 0) > 0;
@@ -169,7 +171,8 @@ export class GameLibraryService {
                             css_scores = CASE WHEN ? != '' THEN ? ELSE css_scores END,
                             css_box = CASE WHEN ? != '' THEN ? ELSE css_box END,
                             bg_color = CASE WHEN ? != '' THEN ? ELSE bg_color END,
-                            platforms = ?
+                            platforms = ?,
+                            external_url = CASE WHEN ? IS NOT NULL THEN ? ELSE external_url END
                         WHERE name = ? COLLATE NOCASE`,
                         game.aliases || '', game.aliases || '',
                         game.style_id || '', game.style_id || '',
@@ -180,6 +183,7 @@ export class GameLibraryService {
                         game.css_box || '', game.css_box || '',
                         game.bg_color || '', game.bg_color || '',
                         mergedPlatforms,
+                        game.external_url ?? null, game.external_url ?? null,
                         game.name
                     );
                 } else if (mergeTarget) {
@@ -204,7 +208,8 @@ export class GameLibraryService {
                             css_scores = CASE WHEN ? != '' THEN ? ELSE css_scores END,
                             css_box = CASE WHEN ? != '' THEN ? ELSE css_box END,
                             bg_color = CASE WHEN ? != '' THEN ? ELSE bg_color END,
-                            platforms = ?
+                            platforms = ?,
+                            external_url = CASE WHEN ? IS NOT NULL THEN ? ELSE external_url END
                         WHERE name = ?`,
                         aliasList.join(', '),
                         game.style_id || '', game.style_id || '',
@@ -215,6 +220,7 @@ export class GameLibraryService {
                         game.css_box || '', game.css_box || '',
                         game.bg_color || '', game.bg_color || '',
                         mergedPlatforms,
+                        game.external_url ?? null, game.external_url ?? null,
                         mergeTarget.name
                     );
 
@@ -228,13 +234,14 @@ export class GameLibraryService {
                     // Insert new game
                     await db.run(
                         `INSERT INTO game_library
-                        (name, aliases, style_id, mode, css_title, css_initials, css_scores, css_box, bg_color, platforms)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        (name, aliases, style_id, mode, css_title, css_initials, css_scores, css_box, bg_color, platforms, external_url)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         game.name, game.aliases || '', game.style_id || '',
                         game.mode || 'pinball',
                         game.css_title || '', game.css_initials || '',
                         game.css_scores || '', game.css_box || '',
-                        game.bg_color || '', mergedPlatforms
+                        game.bg_color || '', mergedPlatforms,
+                        game.external_url || null
                     );
                     // Add to normalized map for subsequent games in this batch
                     normalizedMap.set(this.normalizeName(game.name), { name: game.name, platforms: mergedPlatforms });

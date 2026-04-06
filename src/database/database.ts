@@ -408,6 +408,9 @@ export async function initDatabase(): Promise<Database> {
         { name: '030_tournaments_eligibility_days', sql: `ALTER TABLE tournaments ADD COLUMN eligibility_days INTEGER DEFAULT 120` },
         { name: '031_tournaments_winner_pick_window_min', sql: `ALTER TABLE tournaments ADD COLUMN winner_pick_window_min INTEGER DEFAULT 60` },
         { name: '032_tournaments_runnerup_pick_window_min', sql: `ALTER TABLE tournaments ADD COLUMN runnerup_pick_window_min INTEGER DEFAULT 30` },
+        { name: '033_game_library_external_url', sql: `ALTER TABLE game_library ADD COLUMN external_url TEXT` },
+        { name: '034_games_external_url', sql: `ALTER TABLE games ADD COLUMN external_url TEXT` },
+        { name: '035_games_notes', sql: `ALTER TABLE games ADD COLUMN notes TEXT` },
     ];
 
     for (const migration of migrations) {
