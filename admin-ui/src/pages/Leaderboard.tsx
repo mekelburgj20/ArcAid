@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Lock, Trash2 } from 'lucide-react';
+import { Lock, Trash2, Pencil } from 'lucide-react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
@@ -36,6 +36,7 @@ interface Submission {
 interface GameLeaderboard {
   gameId: string;
   gameName: string;
+  displayName: string | null;
   tournamentName: string;
   tournamentType: string;
   gameStatus: string;
@@ -55,6 +56,11 @@ export default function Leaderboard() {
   const [config, setConfig] = useState<Record<string, string>>({});
   const [styleTarget, setStyleTarget] = useState<GameLeaderboard | null>(null);
   const [libraryHasDefault, setLibraryHasDefault] = useState(false);
+  const [displayNameTarget, setDisplayNameTarget] = useState<GameLeaderboard | null>(null);
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [displayNameSaving, setDisplayNameSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<GameLeaderboard | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadData = () => {
     api.get<GameLeaderboard[]>(`/rooms/${room.roomId}/leaderboard`)
@@ -190,7 +196,10 @@ export default function Leaderboard() {
                         setLibraryHasDefault(!!libStyle.catalogueStyleId);
                       } catch { setLibraryHasDefault(false); }
                       setStyleTarget(target);
-                    }} />
+                    }} onEditDisplayName={(target) => {
+                      setDisplayNameInput(target.displayName || '');
+                      setDisplayNameTarget(target);
+                    }} onDeleteGame={setDeleteTarget} />
                   </div>
                 ))}
               </div>
@@ -206,7 +215,10 @@ export default function Leaderboard() {
                         setLibraryHasDefault(!!libStyle.catalogueStyleId);
                       } catch { setLibraryHasDefault(false); }
                       setStyleTarget(target);
-                    }} />
+                    }} onEditDisplayName={(target) => {
+                      setDisplayNameInput(target.displayName || '');
+                      setDisplayNameTarget(target);
+                    }} onDeleteGame={setDeleteTarget} />
                   </div>
                 ))}
               </div>
@@ -224,6 +236,81 @@ export default function Leaderboard() {
           <RankingsRow rankingGroups={rankingGroups} />
         )}
       </div>
+
+      {/* Display Name Edit Modal */}
+      {displayNameTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setDisplayNameTarget(null)}>
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h2 className="font-display text-lg font-bold mb-1">Edit Display Name</h2>
+            <p className="text-xs text-muted mb-4">Game: {displayNameTarget.gameName}</p>
+            <div className="mb-4">
+              <label className="text-xs text-muted block mb-1">Display Name (leave empty to use game name)</label>
+              <input
+                type="text"
+                value={displayNameInput}
+                onChange={e => setDisplayNameInput(e.target.value)}
+                placeholder={displayNameTarget.gameName}
+                className="w-full px-3 py-2 bg-raised border border-border rounded text-sm text-primary focus:outline-none focus:border-neon-cyan/50"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <NeonButton variant="ghost" onClick={() => setDisplayNameTarget(null)} disabled={displayNameSaving}>Cancel</NeonButton>
+              <NeonButton disabled={displayNameSaving} onClick={async () => {
+                setDisplayNameSaving(true);
+                try {
+                  await api.patch(`/rooms/${room.roomId}/admin/games/${displayNameTarget.gameId}/display-name`, {
+                    displayName: displayNameInput.trim() || null,
+                  });
+                  toast(displayNameInput.trim() ? 'Display name updated' : 'Display name cleared', 'success');
+                  loadData();
+                  setDisplayNameTarget(null);
+                } catch (err: any) {
+                  toast(err.message, 'error');
+                } finally {
+                  setDisplayNameSaving(false);
+                }
+              }}>
+                {displayNameSaving ? 'Saving...' : 'Save'}
+              </NeonButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Game Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h2 className="font-display text-lg font-bold mb-1 text-red-400">Remove Game</h2>
+            <p className="text-sm text-muted mb-2">
+              Are you sure you want to remove <strong className="text-primary">{deleteTarget.displayName || deleteTarget.gameName}</strong> from the leaderboard?
+            </p>
+            <p className="text-xs text-muted mb-4">
+              This will delete the game entry and remove it from iScored. Player scores and history will be retained.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <NeonButton variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</NeonButton>
+              <NeonButton variant="danger" disabled={deleting} onClick={async () => {
+                setDeleting(true);
+                try {
+                  await api.delete(`/rooms/${room.roomId}/admin/games/${deleteTarget.gameId}`);
+                  toast(`Removed: ${deleteTarget.displayName || deleteTarget.gameName}`, 'success');
+                  loadData();
+                  loadRankings();
+                  setDeleteTarget(null);
+                } catch (err: any) {
+                  toast(err.message || 'Failed to remove game', 'error');
+                } finally {
+                  setDeleting(false);
+                }
+              }}>
+                {deleting ? 'Removing...' : 'Remove Game'}
+              </NeonButton>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Style Picker for leaderboard games */}
       {styleTarget && (
@@ -287,12 +374,14 @@ export default function Leaderboard() {
   );
 }
 
-function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted }: {
+function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, onEditDisplayName, onDeleteGame }: {
   lb: GameLeaderboard;
   roomId: string;
   maxScores: number;
   onStyleClick: (lb: GameLeaderboard) => void;
   onScoreDeleted: () => void;
+  onEditDisplayName: (lb: GameLeaderboard) => void;
+  onDeleteGame: (lb: GameLeaderboard) => void;
 }) {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -352,16 +441,35 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted }: 
       <div className="px-3 py-2.5 text-center border-b border-border/30">
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-display font-bold text-sm leading-tight truncate flex items-center gap-1.5">
-            {lb.gameName}
+            {lb.displayName || lb.gameName}
+            {lb.displayName && <span className="text-faint font-normal text-[10px]">({lb.gameName})</span>}
             {lb.gameStatus === 'COMPLETED' && <span title="Completed"><Lock size={14} className="text-faint flex-shrink-0" /></span>}
           </h3>
-          <NeonButton
-            variant={lb.catalogueStyleId ? 'secondary' : 'ghost'}
-            onClick={() => onStyleClick(lb)}
-            className="text-[10px] px-1.5 py-0.5 flex-shrink-0"
-          >
-            Style
-          </NeonButton>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <NeonButton
+              variant="ghost"
+              onClick={() => onEditDisplayName(lb)}
+              className="text-[10px] px-1 py-0.5"
+              title="Edit display name"
+            >
+              <Pencil size={12} />
+            </NeonButton>
+            <NeonButton
+              variant={lb.catalogueStyleId ? 'secondary' : 'ghost'}
+              onClick={() => onStyleClick(lb)}
+              className="text-[10px] px-1.5 py-0.5"
+            >
+              Style
+            </NeonButton>
+            <NeonButton
+              variant="ghost"
+              onClick={() => onDeleteGame(lb)}
+              className="text-[10px] px-1 py-0.5 text-red-400/60 hover:text-red-400"
+              title="Remove game"
+            >
+              <Trash2 size={12} />
+            </NeonButton>
+          </div>
         </div>
         <div className="flex items-center justify-center gap-2 mt-0.5">
           <TournamentBadge type={lb.tournamentType || lb.tournamentName} />

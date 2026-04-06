@@ -2393,6 +2393,58 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
     }
 });
 
+// Remove a game from leaderboard (retains scores/history for player records)
+router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const db = await getDatabase();
+
+        const game = await db.get(`
+            SELECT g.*, t.game_room_id
+            FROM games g JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.id = ? AND t.game_room_id = ?
+        `, gameId, roomId);
+        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+
+        // Clean up on iScored if the game has an iScored ID
+        if (game.iscored_id) {
+            const client = new IScoredClient();
+            try {
+                await client.connect();
+                await client.deleteGame(game.iscored_id);
+                logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
+            } catch (err) {
+                logError(`Failed to delete game ${gameId} from iScored:`, err);
+                // Continue with local deletion even if iScored fails
+            } finally {
+                await client.disconnect();
+            }
+        }
+
+        // Delete leaderboard cache only — retain submissions and score_history
+        await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', gameId);
+        await db.run('DELETE FROM games WHERE id = ?', gameId);
+
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        await LeaderboardService.invalidate(gameId);
+
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        await RoomEventService.log(roomId, 'game_removed', {
+            gameName: game.name,
+            status: game.status,
+            hadIScored: !!game.iscored_id,
+            scoresRetained: true,
+        });
+
+        logInfo(`Admin removed game from leaderboard: ${game.name} (status: ${game.status}, room: ${roomId}, scores retained)`);
+        res.json({ success: true });
+    } catch (error: any) {
+        logError('API Error (DELETE admin/games/:gameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Sync a single game to iScored (granular operations)
 router.post('/:roomId/admin/game-states/:gameId/sync-iscored', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
