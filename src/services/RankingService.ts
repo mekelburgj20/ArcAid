@@ -243,8 +243,9 @@ export class RankingService {
                     });
                 }
                 const player = playerData.get(key)!;
-                // Prefer real discord ID
-                if (player.discord_user_id === 'SYSTEM' && entry.discord_user_id !== 'SYSTEM') {
+                // Prefer real discord ID over synthetic ones (SYSTEM, COMMUNITY)
+                const isSynthetic = (id: string) => id === 'SYSTEM' || id === 'COMMUNITY';
+                if (isSynthetic(player.discord_user_id) && !isSynthetic(entry.discord_user_id)) {
                     player.discord_user_id = entry.discord_user_id;
                 }
 
@@ -258,12 +259,13 @@ export class RankingService {
         }
 
         // Batch-load avatar hashes for all known discord user IDs
+        const isSyntheticId = (id: string) => !id || id === 'SYSTEM' || id === 'COMMUNITY';
         const discordIds = [...new Set(
             [...playerData.values()]
                 .map(p => p.discord_user_id)
-                .filter(id => id && id !== 'SYSTEM')
+                .filter(id => !isSyntheticId(id))
         )];
-        const avatarMap = new Map<string, string>();
+        const avatarMap = new Map<string, string>(); // keyed by discord_user_id
         if (discordIds.length > 0) {
             const ph = discordIds.map(() => '?').join(',');
             const avatarRows = await db.all(
@@ -276,11 +278,36 @@ export class RankingService {
                 }
             }
         }
+        // Fallback: for players with synthetic IDs, look up by username
+        const usernamesFallback = [...playerData.values()]
+            .filter(p => isSyntheticId(p.discord_user_id) || !avatarMap.has(p.discord_user_id))
+            .map(p => p.iscored_username.toLowerCase());
+        const userAvatarMap = new Map<string, { discord_user_id: string; avatar_hash: string }>();
+        if (usernamesFallback.length > 0) {
+            const ph2 = usernamesFallback.map(() => '?').join(',');
+            const rows2 = await db.all(
+                `SELECT iscored_username, discord_user_id, avatar_hash FROM user_mappings WHERE LOWER(iscored_username) IN (${ph2}) AND avatar_hash IS NOT NULL`,
+                ...usernamesFallback
+            );
+            for (const row of rows2) {
+                userAvatarMap.set(row.iscored_username.toLowerCase(), { discord_user_id: row.discord_user_id, avatar_hash: row.avatar_hash });
+            }
+        }
 
         // Now compute total scores
         const results: OverallRanking[] = [];
         for (const [, player] of playerData) {
             const gamesPlayed = player.games.length;
+            // Resolve avatar: try discord_user_id first, then username fallback
+            let resolvedDiscordId = player.discord_user_id;
+            let resolvedAvatar: string | null = avatarMap.get(player.discord_user_id) || null;
+            if (!resolvedAvatar) {
+                const fb = userAvatarMap.get(player.iscored_username.toLowerCase());
+                if (fb) {
+                    resolvedAvatar = fb.avatar_hash;
+                    if (isSyntheticId(resolvedDiscordId)) resolvedDiscordId = fb.discord_user_id;
+                }
+            }
 
             if (group.rank_method === 'average_rank') {
                 // Average rank: need min_games to qualify
@@ -292,10 +319,10 @@ export class RankingService {
                 results.push({
                     rank: 0, // assigned after sorting
                     iscored_username: player.iscored_username,
-                    discord_user_id: player.discord_user_id,
+                    discord_user_id: resolvedDiscordId,
                     total_points: Math.round(avgRank * 100) / 100, // 2 decimal places
                     games_played: gamesPlayed,
-                    avatar_hash: avatarMap.get(player.discord_user_id) || null,
+                    avatar_hash: resolvedAvatar,
                     breakdown: bestGames,
                 });
             } else {
@@ -306,10 +333,10 @@ export class RankingService {
                 results.push({
                     rank: 0,
                     iscored_username: player.iscored_username,
-                    discord_user_id: player.discord_user_id,
+                    discord_user_id: resolvedDiscordId,
                     total_points: totalPoints,
                     games_played: gamesPlayed,
-                    avatar_hash: avatarMap.get(player.discord_user_id) || null,
+                    avatar_hash: resolvedAvatar,
                     breakdown: bestGames,
                 });
             }
