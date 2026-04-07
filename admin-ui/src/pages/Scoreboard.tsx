@@ -119,6 +119,9 @@ export default function Scoreboard() {
 
   // When sticky is off (default), rankings render inline with game cards
   const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
+  // QR codes above game cards add extra height — rankings card needs matching top margin
+  const hasQrTop = useNewCards && (newConfig.qrMode === 'all') && newConfig.qrPosition !== 'bottom-right';
+  const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
 
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
@@ -269,7 +272,7 @@ export default function Scoreboard() {
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                 <div key={`rank-${group.id}`} style={{ overflow: 'visible', minWidth: 0 }}>
-                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
                 </div>
               ))}
             </div>
@@ -301,7 +304,7 @@ export default function Scoreboard() {
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                 <div key={`rank-${group.id}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
-                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
                 </div>
               ))}
             </div>
@@ -333,7 +336,7 @@ export default function Scoreboard() {
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                   <div key={`rank-${group.id}`} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
-                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
                   </div>
                 ))}
               </div>

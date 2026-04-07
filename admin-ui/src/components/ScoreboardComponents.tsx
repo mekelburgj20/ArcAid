@@ -720,12 +720,13 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   );
 }
 
-export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle, showcaseThemeName }: {
+export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle, showcaseThemeName, qrTopPad = 0 }: {
   group: RankingGroupData['group'];
   rankings: RankingGroupData['rankings'];
   cardOpacity?: number;
   scoreboardStyle?: string;
   showcaseThemeName?: string;
+  qrTopPad?: number; // extra top margin to align with game cards that have QR above them
 }) {
   const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
   const showcaseTheme = scoreboardStyle === 'showcase'
@@ -748,20 +749,20 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
         {rankings.slice(0, RANKINGS_TOP_N).map((entry) => (
           <div
             key={entry.iscored_username}
-            className={`flex items-center gap-2 px-3 py-1.5 ${entry.rank === 1 ? 'bg-neon-amber/8' : ''}`}
+            className={`flex items-center gap-2.5 px-3 py-2 ${entry.rank === 1 ? 'bg-neon-amber/8' : ''}`}
             style={{ borderBottom: borderStyle }}
           >
-            <span className={`font-display font-bold text-xs w-5 text-right flex-shrink-0 tabular-nums ${rankColor(entry.rank)}`}>
+            <span className={`font-display font-bold text-sm w-5 text-left flex-shrink-0 tabular-nums ${rankColor(entry.rank)}`}>
               {entry.rank}
             </span>
-            <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={18} />
+            <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={24} />
             <div className="flex-1 min-w-0">
-              <div className="text-[11px] text-secondary truncate">{entry.iscored_username}</div>
+              <div className="text-sm text-secondary truncate">{entry.iscored_username}</div>
               <div className="flex items-center gap-2">
-                <span className={`text-xs font-bold tabular-nums ${entry.rank === 1 ? 'text-neon-amber' : 'text-primary'}`}>
+                <span className={`text-sm font-bold tabular-nums ${entry.rank === 1 ? 'text-neon-amber' : 'text-primary'}`}>
                   {scoreDisplay(entry)}
                 </span>
-                <span className="text-[10px] text-faint">Games: {entry.games_played}</span>
+                <span className="text-xs text-faint">Games: {entry.games_played}</span>
               </div>
             </div>
           </div>
@@ -774,7 +775,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
   if (scoreboardStyle === 'showcase' && showcaseTheme) {
     const border = showcaseTheme.cardBorder.replace(/1px solid /, '');
     return (
-      <div style={{ position: 'relative', paddingTop: 42, maxWidth: '100%' }}>
+      <div style={{ position: 'relative', paddingTop: 42, marginTop: qrTopPad, maxWidth: '100%' }}>
         <link rel="stylesheet" href={showcaseTheme.googleFontsUrl} />
         <div style={{
           width: 380,
@@ -822,7 +823,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
   // ── Minimal style ──
   if (scoreboardStyle === 'minimal') {
     return (
-      <div style={{ position: 'relative', maxWidth: '100%' }}>
+      <div style={{ position: 'relative', marginTop: qrTopPad || undefined, maxWidth: '100%' }}>
         <div style={{
           width: 380,
           maxWidth: '100%',
@@ -855,7 +856,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
 
   // ── Banner style (default) ──
   return (
-    <div style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%', marginTop: qrTopPad || undefined }}>
       <div className="relative border-2 border-border rounded-lg overflow-hidden flex flex-col flex-1">
         <div className="absolute inset-0 bg-surface" />
         <div className="px-4 py-3 text-center border-b border-border/30 relative">

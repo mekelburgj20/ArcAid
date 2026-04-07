@@ -82,6 +82,8 @@ export default function KioskScoreboard() {
   const effectiveLayout = isBanner ? 'scroll' : layout;
   const visibleLeaderboards = (useNewCards ? newConfig.hideEmpty : hideEmpty) ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
+  const hasQrTop = useNewCards && (newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all') && newConfig.qrPosition !== 'bottom-right';
+  const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
 
   // Guard: wait for config to load, then check if kiosk is enabled
   if (!configLoaded) {
@@ -179,7 +181,7 @@ export default function KioskScoreboard() {
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                   <div key={`rank-${group.id}`} style={{ overflow: 'visible', minWidth: 0 }}>
-                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
                   </div>
                 ))}
               </div>
@@ -198,7 +200,7 @@ export default function KioskScoreboard() {
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                   <div key={`rank-${group.id}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
-                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
                   </div>
                 ))}
               </div>
@@ -218,7 +220,7 @@ export default function KioskScoreboard() {
                   ))}
                   {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                     <div key={`rank-${group.id}`} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
-                      <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                      <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
                     </div>
                   ))}
                 </div>
