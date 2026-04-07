@@ -191,8 +191,11 @@ export default function Scoreboard() {
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
         style={zoom !== 100 ? { zoom: `${zoom}%` } : undefined}
       >
-      {/* Header */}
-      <div className="px-4 sm:px-6 pt-6">
+      {/* Header — solid background by default, transparent when bgBehindTitle is on */}
+      <div
+        className="px-4 sm:px-6 pt-6 relative z-[1]"
+        style={bgUrl && !(useNewCards ? newConfig.bgBehindTitle : false) ? { background: 'var(--color-deep)' } : undefined}
+      >
       {!titleHidden && (
         <div className="text-center mb-4 overflow-hidden">
           <div className={`inline-flex items-center gap-4 max-w-full ${

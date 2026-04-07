@@ -119,7 +119,11 @@ export default function KioskScoreboard() {
           minHeight: '100vh',
         }}
       >
-        {/* Title */}
+        {/* Title — solid background by default when bg image is set */}
+        <div
+          className="relative z-[1]"
+          style={bgUrl && !(useNewCards ? newConfig.bgBehindTitle : false) ? { background: 'var(--color-deep)', margin: '-24px -16px 0', padding: '24px 16px 0' } : undefined}
+        >
         {!titleHidden && (
           <div className="text-center mb-8 overflow-hidden">
             <div className={`inline-flex items-center gap-4 max-w-full ${
@@ -142,6 +146,7 @@ export default function KioskScoreboard() {
             <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto" />
           </div>
         )}
+        </div>
 
         {/* Rankings: top position (only when sticky/separate) */}
         {!inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
