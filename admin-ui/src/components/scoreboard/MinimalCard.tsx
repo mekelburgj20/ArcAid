@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
-import { PlayerAvatar, formatCountdown, GameQRCode } from '../ScoreboardComponents';
+import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass } from '../ScoreboardComponents';
 import GameInfoPopup from './GameInfoPopup';
 
 interface MinimalCardProps {
@@ -18,6 +18,7 @@ interface MinimalCardProps {
   qrPosition?: string;
   cardBgFill?: boolean;
   titleFontSize?: number;
+  gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
 }
 
@@ -39,6 +40,7 @@ export default function MinimalCard({
   qrPosition = 'top-right',
   cardBgFill = false,
   titleFontSize,
+  gameTitleStyle = 'default',
 }: MinimalCardProps) {
   const displayName = lb.displayName || lb.gameName;
 
@@ -106,7 +108,7 @@ export default function MinimalCard({
       )}
       {/* Title area */}
       <div className="px-5 pt-4 pb-3 relative z-[1]">
-        <h3 className="font-display font-bold leading-tight truncate text-primary flex items-center gap-1" style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem' }}>
+        <h3 className={`font-display font-bold leading-tight truncate text-primary flex items-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem' }}>
           {displayName}
           <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
         </h3>

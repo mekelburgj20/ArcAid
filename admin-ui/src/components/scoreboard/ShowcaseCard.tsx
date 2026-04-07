@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
-import { formatCountdown, TOURNAMENT_BADGE_COLORS, GameQRCode } from '../ScoreboardComponents';
+import { formatCountdown, TOURNAMENT_BADGE_COLORS, GameQRCode, getTitleStyleClass } from '../ScoreboardComponents';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import ShowcasePodium from './ShowcasePodium';
 import ScoreList from './ScoreList';
@@ -23,6 +23,7 @@ interface ShowcaseCardProps {
   qrPosition?: string;
   cardBgFill?: boolean;
   titleFontSize?: number;
+  gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
 }
 
@@ -45,6 +46,7 @@ export default function ShowcaseCard({
   showTimer = true,
   cardBgFill = false,
   titleFontSize,
+  gameTitleStyle = 'default',
   qrMode = 'disabled',
   qrSize = 24,
   qrPosition = 'top-right',
@@ -161,11 +163,10 @@ export default function ShowcaseCard({
             }}
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
-            <h2 style={{
+            <h2 className={getTitleStyleClass(gameTitleStyle)} style={{
               fontSize: titleFontSize || 18,
               fontWeight: 700 as const,
-              color: theme.titleColor,
-              textShadow: theme.titleTextShadow,
+              ...(gameTitleStyle === 'default' ? { color: theme.titleColor, textShadow: theme.titleTextShadow } : {}),
               lineHeight: 1.2,
               marginBottom: 6,
               fontFamily: theme.fontFamily,

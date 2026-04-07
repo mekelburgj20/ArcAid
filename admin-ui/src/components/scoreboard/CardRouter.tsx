@@ -22,6 +22,7 @@ export interface CardRouterProps {
   cardBgFill?: boolean;
   cardSpacing?: number;
   titleFontSize?: number;
+  gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
 }
 
@@ -41,6 +42,7 @@ export default function CardRouter({
   qrPosition = 'top-right',
   cardBgFill = false,
   titleFontSize,
+  gameTitleStyle,
   onSubmitScore,
 }: CardRouterProps) {
   switch (style) {
@@ -62,6 +64,7 @@ export default function CardRouter({
           qrPosition={qrPosition}
           cardBgFill={cardBgFill}
           titleFontSize={titleFontSize}
+          gameTitleStyle={gameTitleStyle}
           onSubmitScore={onSubmitScore}
         />
       );
@@ -82,6 +85,7 @@ export default function CardRouter({
           qrPosition={qrPosition}
           cardBgFill={cardBgFill}
           titleFontSize={titleFontSize}
+          gameTitleStyle={gameTitleStyle}
           onSubmitScore={onSubmitScore}
         />
       );
@@ -102,6 +106,7 @@ export default function CardRouter({
           qrPosition={qrPosition}
           cardBgFill={cardBgFill}
           titleFontSize={titleFontSize}
+          gameTitleStyle={gameTitleStyle}
           onSubmitScore={onSubmitScore}
         />
       );

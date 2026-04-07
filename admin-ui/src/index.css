@@ -536,6 +536,14 @@ body {
 .title-neon-magenta {
   text-shadow: 0 0 8px var(--color-neon-magenta), 0 0 20px var(--color-neon-magenta), 0 0 40px rgba(236, 72, 153, 0.4);
   color: var(--color-neon-magenta);
+  animation: neon-magenta-flicker 6s infinite;
+}
+@keyframes neon-magenta-flicker {
+  0%, 18%, 22%, 100% { opacity: 1; text-shadow: 0 0 8px var(--color-neon-magenta), 0 0 20px var(--color-neon-magenta), 0 0 40px rgba(236, 72, 153, 0.4); }
+  19% { opacity: 0.4; text-shadow: none; }
+  21% { opacity: 0.7; text-shadow: 0 0 4px var(--color-neon-magenta); }
+  60%, 60.5% { opacity: 1; text-shadow: 0 0 8px var(--color-neon-magenta), 0 0 20px var(--color-neon-magenta), 0 0 40px rgba(236, 72, 153, 0.4); }
+  60.2% { opacity: 0.6; text-shadow: 0 0 2px var(--color-neon-magenta); }
 }
 
 .title-chrome {
@@ -547,11 +555,17 @@ body {
 }
 
 .title-fire {
-  background: linear-gradient(180deg, #ff0 0%, #ff8c00 40%, #ff4500 70%, #8b0000 100%);
+  background: linear-gradient(90deg, #ff0, #ff8c00, #ff4500, #ff0, #ff8c00, #ff4500, #ff0);
+  background-size: 300% 100%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   filter: drop-shadow(0 0 8px rgba(255, 69, 0, 0.5));
+  animation: fire-shift 1.5s linear infinite;
+}
+@keyframes fire-shift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
 }
 
 .title-plasma {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
-import { PlayerAvatar, formatCountdown, GameQRCode } from '../ScoreboardComponents';
+import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass } from '../ScoreboardComponents';
 import GameInfoPopup from './GameInfoPopup';
 
 interface BannerCardProps {
@@ -18,6 +18,7 @@ interface BannerCardProps {
   qrPosition?: string;
   cardBgFill?: boolean;
   titleFontSize?: number;
+  gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
 }
 
@@ -57,6 +58,7 @@ export default function BannerCard({
   qrPosition = 'top-right',
   cardBgFill = false,
   titleFontSize,
+  gameTitleStyle = 'default',
   onSubmitScore,
 }: BannerCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
@@ -131,7 +133,7 @@ export default function BannerCard({
         onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
       >
         {!hasIdentifierImage && (
-          <h3 className="font-display font-bold leading-tight truncate px-5 flex items-center justify-center gap-1" style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem' }}>
+          <h3 className={`font-display font-bold leading-tight truncate px-5 flex items-center justify-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem' }}>
             {displayName}
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
           </h3>
