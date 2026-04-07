@@ -96,9 +96,10 @@ export default function BannerCard({
   const scoreAreaMinHeight = minScores * 30;
 
   const showQr = qrMode !== 'disabled';
+  const qrBottomOverhang = showQr && qrPosition === 'bottom-center' ? qrSize * 0.8 : 0;
 
   return (
-    <div style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%', marginBottom: qrBottomOverhang || undefined }}>
       {/* QR code — top-right, above the card */}
       {showQr && qrPosition === 'top-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
@@ -242,7 +243,7 @@ export default function BannerCard({
       )}
       {/* QR code — bottom-center with 15% overhang */}
       {showQr && qrPosition === 'bottom-center' && (
-        <div style={{ position: 'absolute', bottom: -(qrSize * 0.85), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
+        <div style={{ position: 'absolute', bottom: -(qrSize * 0.80), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}

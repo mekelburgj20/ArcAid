@@ -81,8 +81,11 @@ export default function ShowcaseCard({
   const hasFloatImage = !!styleHeaderUrl;
   const floatPadTop = 42;
 
+  // Bottom-center QR needs extra bottom margin so next card isn't overlapped
+  const qrBottomOverhang = qrMode !== 'disabled' && qrPosition === 'bottom-center' ? qrSize * 0.8 : 0;
+
   return (
-    <div style={{ position: 'relative', paddingTop: floatPadTop, maxWidth: '100%' }}>
+    <div style={{ position: 'relative', paddingTop: floatPadTop, maxWidth: '100%', marginBottom: qrBottomOverhang || undefined }}>
       {/* Google Fonts */}
       <link rel="stylesheet" href={theme.googleFontsUrl} />
 
@@ -154,7 +157,7 @@ export default function ShowcaseCard({
         )}
 
         {/* Content area */}
-        <div style={{ position: 'relative', zIndex: 4, display: 'flex', flexDirection: 'column', minHeight: '100%', ...(cardBgFill ? { textShadow: '0 1px 6px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7)' } : {}) }}>
+        <div style={{ position: 'relative', zIndex: 4, display: 'flex', flexDirection: 'column', flex: 1, ...(cardBgFill ? { textShadow: '0 1px 6px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7)' } : {}) }}>
           {/* Title area */}
           <div
             style={{
@@ -307,7 +310,7 @@ export default function ShowcaseCard({
       {/* QR code — outside the card shell, above or below */}
       {qrMode !== 'disabled' && (
         qrPosition === 'bottom-center' ? (
-          <div style={{ position: 'absolute', bottom: -(qrSize * 0.85), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
+          <div style={{ position: 'absolute', bottom: -(qrSize * 0.80), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
             <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
           </div>
         ) : qrPosition === 'bottom-right' ? (
