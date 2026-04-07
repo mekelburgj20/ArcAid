@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
 import {
@@ -85,6 +85,20 @@ export default function KioskScoreboard() {
   const hasQrTop = useNewCards && (newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all') && newConfig.qrPosition === 'top-right';
   const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
 
+  // Measure header height so bg image can start below it
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setHeaderHeight(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const bgBehindTitle = useNewCards ? newConfig.bgBehindTitle : false;
+  const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
+
   // Guard: wait for config to load, then check if kiosk is enabled
   if (!configLoaded) {
     return <div className="min-h-screen bg-deep" />;
@@ -99,15 +113,19 @@ export default function KioskScoreboard() {
 
   return (
     <div className="min-h-screen bg-deep text-primary relative">
-      {/* Background image layer with opacity control */}
+      {/* Background image layer — offset below header unless fill-entire */}
       {bgUrl && (
         <div
-          className="fixed inset-0 pointer-events-none"
+          className="fixed pointer-events-none"
           style={{
+            top: bgBehindTitle ? 0 : headerHeight,
+            left: 0,
+            right: 0,
+            bottom: 0,
             backgroundImage: `url(${bgUrl})`,
-            backgroundSize: bgMode === 'repeat' ? 'auto' : bgMode,
+            backgroundSize: effectiveBgSize,
             backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
-            backgroundPosition: 'center',
+            backgroundPosition: 'center top',
             opacity: bgOpacity,
           }}
         />
@@ -121,8 +139,8 @@ export default function KioskScoreboard() {
       >
         {/* Title — solid background by default when bg image is set */}
         <div
+          ref={headerRef}
           className="relative z-[1]"
-          style={bgUrl && !(useNewCards ? newConfig.bgBehindTitle : false) ? { background: 'var(--color-deep)', margin: '-24px -16px 0', padding: '24px 16px 0' } : undefined}
         >
         {!titleHidden && (
           <div className="text-center mb-8 overflow-hidden">

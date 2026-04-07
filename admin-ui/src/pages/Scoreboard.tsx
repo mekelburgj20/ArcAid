@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
@@ -123,17 +123,35 @@ export default function Scoreboard() {
   const hasQrTop = useNewCards && (newConfig.qrMode === 'all') && newConfig.qrPosition === 'top-right';
   const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
 
+  // Measure header height so bg image can start below it
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setHeaderHeight(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const bgBehindTitle = useNewCards ? newConfig.bgBehindTitle : false;
+  const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
+
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
-      {/* Background image layer with opacity control */}
+      {/* Background image layer with opacity control — offset below header unless fill-entire */}
       {bgUrl && (
         <div
-          className="absolute inset-0 pointer-events-none"
+          className="absolute pointer-events-none"
           style={{
+            top: bgBehindTitle ? 0 : headerHeight,
+            left: 0,
+            right: 0,
+            bottom: 0,
             backgroundImage: `url(${bgUrl})`,
-            backgroundSize: bgMode === 'repeat' ? 'auto' : bgMode,
+            backgroundSize: effectiveBgSize,
             backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
-            backgroundPosition: 'center',
+            backgroundPosition: 'center top',
             opacity: bgOpacity,
           }}
         />
@@ -191,10 +209,10 @@ export default function Scoreboard() {
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
         style={zoom !== 100 ? { zoom: `${zoom}%` } : undefined}
       >
-      {/* Header — solid background by default, transparent when bgBehindTitle is on */}
+      {/* Header zone — bg image starts below this unless fill-entire mode */}
       <div
+        ref={headerRef}
         className="px-4 sm:px-6 pt-6 relative z-[1]"
-        style={bgUrl && !(useNewCards ? newConfig.bgBehindTitle : false) ? { background: 'var(--color-deep)' } : undefined}
       >
       {!titleHidden && (
         <div className="text-center mb-4 overflow-hidden">

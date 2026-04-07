@@ -62,10 +62,6 @@ const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; d
     label: 'Enhance Game Title Visibility',
     description: 'When enabled, adds a dark backdrop behind game title text for readability on busy backgrounds.',
   },
-  'SCOREBOARD_BG_BEHIND_TITLE': {
-    label: 'Background Behind Title (Fill Entire)',
-    description: 'When enabled, the page background image extends behind the scoreboard title. When off, the title area has a solid dark background.',
-  },
   'SCOREBOARD_CARD_BG_FILL': {
     label: 'Card Background Fill',
     description: 'When enabled, game background images fill the entire card behind scores for an immersive look.',
@@ -1277,6 +1273,7 @@ export default function Settings() {
                     <option value="contain">Contain (fit)</option>
                     <option value="repeat">Repeat (tile)</option>
                     <option value="center">Center</option>
+                    <option value="fill-entire">Fill Entire (behind title)</option>
                   </select>
                 </div>
                 <div className="mt-3">

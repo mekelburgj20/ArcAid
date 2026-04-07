@@ -39,7 +39,7 @@ export interface ScoreboardConfig {
   qrSize: number;
   qrPosition: string;            // 'top-right' | 'bottom-right' | 'bottom-center'
   gameTitleStyle: string;         // same options as titleStyle (glow, fire, plasma, etc.)
-  bgBehindTitle: boolean;         // when true, bg image fills behind title header ("Fill Entire")
+  bgBehindTitle: boolean;         // true when bgMode is 'fill-entire' — bg image extends behind title
 }
 
 /**
@@ -102,7 +102,7 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     qrSize: parseInt(config.SCOREBOARD_QR_SIZE || '24', 10) || 24,
     qrPosition: config.SCOREBOARD_QR_POSITION || 'top-right',
     gameTitleStyle: config.SCOREBOARD_GAME_TITLE_STYLE || 'default',
-    bgBehindTitle: config.SCOREBOARD_BG_BEHIND_TITLE === 'true',
+    bgBehindTitle: (config.SCOREBOARD_BG_MODE || 'cover') === 'fill-entire',
   };
 }
 
