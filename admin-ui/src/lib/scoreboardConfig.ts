@@ -37,7 +37,7 @@ export interface ScoreboardConfig {
   requirePhoto: boolean;
   qrMode: string;
   qrSize: number;
-  qrPosition: string;            // 'top-right' | 'bottom-right'
+  qrPosition: string;            // 'top-right' | 'bottom-right' | 'bottom-center'
   gameTitleStyle: string;         // same options as titleStyle (glow, fire, plasma, etc.)
 }
 

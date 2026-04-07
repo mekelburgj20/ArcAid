@@ -13,6 +13,19 @@
 **Player Engagement Features** — COMPLETE (deployed to production)
 **Leaderboard UX Redesign** — COMPLETE (deployed to production)
 
+### Scoreboard UX Fixes (2026-04-06)
+- [x] Inline rankings mode — when `rankingsSticky` is off (default), RankingGroupCards render inline with game cards in all 3 layouts (grid/vertical/scroll)
+- [x] Rankings card style-matching — RankingGroupCard redesigned with 3 rendering paths matching Banner (280px), Showcase (380px, theme-matched), and Minimal (380px) card styles
+- [x] Rankings card layout: rank + avatar + username row, points + "Games: X" below, no column headings, "OVERALL RANKINGS" title on card
+- [x] QR code alignment — rankings cards add `marginTop` equal to QR code height + 4px gap (`qrTopPad`) to align with game card borders
+- [x] Game title styles expanded from 5 to 12 options (matching scoreboard title styles): default, glow, neon-magenta, chrome, fire, plasma, backglass, marquee, retro, pixel, shadow, outlined
+- [x] Fire title style animation — rapidly shifting gradient (background-position animation at 1.5s)
+- [x] Neon Magenta title style animation — infrequent neon flicker effect (6s cycle)
+- [x] Horizontal scrollbar fix — `items-start` only applied for left/right rankings positions (flex-row), not top/bottom (flex-col)
+- [x] Discord avatar fallback on rankings cards — username-based avatar lookup for players with synthetic discord_user_id (SYSTEM/COMMUNITY)
+- [x] RankingService: treat "COMMUNITY" discord_user_id same as "SYSTEM" (synthetic ID handling)
+- [x] Service worker cache bumped to v5
+
 ### Scoreboard Card Redesign (2026-04-05)
 - [x] Style+Theme 2-level card system: Banner (280px, iScored-compatible), Showcase (380px, premium art-forward with podium), Minimal (typography-only)
 - [x] Showcase themes: Glass Deck (DM Sans/Mono, dark glass, pyramid podium) and Neon Circuit (Orbitron/Share Tech Mono, circuit SVGs, chip podium, animated glow)
@@ -180,12 +193,13 @@
 - Feature: Scoreboard UX Overhaul (presets, preview, auto-sizing, image cropper, sidebar/fill layouts) — COMPLETE
 - Feature: Scoreboard Preview & UX Fixes (multi-card preview, compact stacked scores, sticky save, display names, glass opacity, title styles) — COMPLETE
 - Feature: Scoreboard Card Redesign (Style+Theme 2-level system, Banner/Showcase/Minimal cards, Glass Deck/Neon Circuit themes) — COMPLETE
+- Feature: Scoreboard UX Fixes (inline rankings, style-matched ranking cards, 12 game title styles, avatar fallback) — COMPLETE
 
 ## Last Session
 
-**Date:** 2026-04-05
-**What happened:** Completed Scoreboard Card Redesign — Style+Theme 2-level system replacing ~30 granular settings. Three card styles (Banner/Showcase/Minimal), two Showcase themes (Glass Deck/Neon Circuit). Dual-path backward compat preserves legacy GameCard for rooms that haven't opted in. Merged feature/scoreboard-redesign branch to main, deployed to production.
-**Next:** Visual verification of new card styles on production. Consider additional Showcase themes.
+**Date:** 2026-04-06
+**What happened:** Scoreboard UX fixes session — inline rankings rendering across all 3 layouts (grid/vertical/scroll), rankings card redesigned to match active card style (Banner/Showcase/Minimal), game title styles expanded from 5 to 12 with animated fire and neon-magenta effects, horizontal scrollbar fix, QR code alignment for ranking cards, Discord avatar fallback for community score players in RankingService. Service worker cache bumped to v5. Deployed to production.
+**Next:** QR code blank white page issue (suspected browser cache, unresolved). Consider additional Showcase themes. Per-tournament eligibility/pick window settings.
 
 ## Blockers
 

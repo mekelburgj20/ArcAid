@@ -593,7 +593,7 @@ export default function Settings() {
     // New style system advanced settings
     'SCOREBOARD_MIN_SCORES', 'SCOREBOARD_CARD_BG_FILL', 'SCOREBOARD_CARD_SPACING',
     'SCOREBOARD_TITLE_FONT_SIZE', 'SCOREBOARD_RANKINGS_STICKY',
-    'SCOREBOARD_QR_SIZE', 'SCOREBOARD_QR_POSITION',
+    'SCOREBOARD_QR_SIZE', 'SCOREBOARD_QR_POSITION', 'SCOREBOARD_GAME_TITLE_STYLE',
     // New style system core keys
     'SCOREBOARD_STYLE', 'SCOREBOARD_THEME', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_SHOW_TIMER',
     // Legacy/removed — no longer surfaced
@@ -930,6 +930,24 @@ export default function Settings() {
                       >
                         <option value="top-right">Top Right</option>
                         <option value="bottom-right">Bottom Right</option>
+                        <option value="bottom-center">Bottom Center (Overhang)</option>
+                      </select>
+                    </div>
+
+                    {/* Game Title Style dropdown */}
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-primary">Game Title Style</p>
+                        <p className="text-xs text-muted">Visual style for game name text on score cards</p>
+                      </div>
+                      <select
+                        value={settings.SCOREBOARD_GAME_TITLE_STYLE || 'default'}
+                        onChange={e => handleChange('SCOREBOARD_GAME_TITLE_STYLE', e.target.value)}
+                        className="text-sm rounded border border-border bg-raised px-2 py-1 text-primary"
+                      >
+                        {SELECT_OPTIONS.SCOREBOARD_GAME_TITLE_STYLE.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
                       </select>
                     </div>
                   </div>

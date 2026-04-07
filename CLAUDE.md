@@ -88,6 +88,7 @@ Two sub-applications in one process:
 - **Viewer auth context:** `ViewerAuthContext.tsx` provides `discordUser`, `playerToken`, `loginWithDiscord`, `logoutPlayer`, `usePlayerHeaders` — wraps public routes via `ViewerAuthProvider` in App.tsx
 - **Scoreboard config:** `admin-ui/src/lib/scoreboardConfig.ts` exports `deriveCardProps(settings)` (legacy) and `deriveScoreboardConfig(settings)` (new style/theme system) — shared config derivation used by Scoreboard, KioskScoreboard, and ScoreboardPreview
 - **Scoreboard card system:** Style+Theme 2-level selection (`SCOREBOARD_STYLE` + `SCOREBOARD_THEME`). Three styles: Banner (280px, iScored-compatible), Showcase (380px, art-forward with podium), Minimal (typography-only). Two Showcase themes: Glass Deck, Neon Circuit. `CardRouter.tsx` dispatches to `BannerCard`/`ShowcaseCard`/`MinimalCard`. Theme registry in `scoreboardThemes.ts`. Dual-path: new cards render when `SCOREBOARD_STYLE` is set, legacy `GameCard` otherwise.
+- **Inline rankings:** `RankingGroupCard` renders inline with game cards when `rankingsSticky` is off (default). Style-matched: 3 rendering paths for Banner/Showcase/Minimal. `qrTopPad` aligns ranking card tops with game card borders when QR codes are above cards.
 - **Scoreboard theme registry:** `admin-ui/src/lib/scoreboardThemes.ts` — `ShowcaseThemeConfig` interface (~40 properties), `SHOWCASE_THEMES` record, `STYLE_WIDTHS`, `STYLE_LABELS`. Adding a theme = adding a config object.
 - **Scoreboard preview:** `admin-ui/src/components/ScoreboardPreview.tsx` — multi-card scaled preview in Settings using real catalogue images, scale-transform for sidebar fit
 - **Layout presets:** `admin-ui/src/components/PresetSelector.tsx` — 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) with auto-detection of custom settings
@@ -157,7 +158,7 @@ Two sub-applications in one process:
 - Login pages auto-redirect to dashboard if valid JWT exists in localStorage (24h expiry)
 - **Game queue:** Explicit `queue_order` column (FIFO), max 5 per user per tournament, cooldown revalidation at activation time. Ineligible queued games auto-removed during maintenance.
 - **QR code submission:** `SCOREBOARD_QR_MODE` setting (disabled/kiosk-only/all) controls QR codes on score cards; standalone submit page at `/:slug/submit/:gameId` (`ScoreSubmit.tsx`)
-- **Discord avatars:** `avatar_hash` column on `user_mappings`, displayed via `PlayerAvatar` component on scoreboards and player pages
+- **Discord avatars:** `avatar_hash` column on `user_mappings`, displayed via `PlayerAvatar` component on scoreboards and player pages. Rankings cards use username-based fallback avatar lookup for players with synthetic `discord_user_id` (SYSTEM/COMMUNITY).
 - **Countdown timers:** Game cards show time until next maintenance using `cronUtils.ts` (`cron-parser` package)
 - **Activity log:** `room_events` table, `RoomEventService` logs admin actions (tournament changes, settings updates, etc.), viewable at `/:slug/admin/activity`
 - **Scoreboard layout:** `SCOREBOARD_SCORE_COLUMNS` setting enables two-column score layout; viewer rank highlight (cyan row) for logged-in players
@@ -168,7 +169,7 @@ Two sub-applications in one process:
 - **Game columns:** `SCOREBOARD_GAME_COLUMNS` setting (`auto`/`2`); auto fills based on card size, `2` forces two game cards per row on desktop (single column on mobile)
 - **Score entry style:** `SCOREBOARD_SCORE_STYLE` setting (`glass`/`shadow`/`outlined`/`glow`); glass uses frosted panels behind scores, other styles remove panels and apply text-shadow effects so background images show through
 - **Glass panel opacity:** `SCOREBOARD_GLASS_OPACITY` setting (0-100, default 60); controls `bg-black/XX` on glass panels in fill mode
-- **Game title style:** `SCOREBOARD_GAME_TITLE_STYLE` setting (`default`/`glow`/`shadow`/`outlined`/`backlit`); applies CSS text effects to game name `<h3>` on cards
+- **Game title style:** `SCOREBOARD_GAME_TITLE_STYLE` setting (12 options matching scoreboard title styles: `default`/`glow`/`neon-magenta`/`chrome`/`fire`/`plasma`/`backglass`/`marquee`/`retro`/`pixel`/`shadow`/`outlined`); fire and neon-magenta include CSS animations. Applied to game name on all card styles via `getTitleStyleClass()` + `gameTitleStyle` prop chain.
 - **Game title enhance:** `SCOREBOARD_GAME_TITLE_ENHANCE` toggle; adds dark semi-transparent backdrop behind game title text for readability on busy backgrounds
 - **Game title auto-hide:** When a card has an identifier (header) image (`styleHeaderUrl`), the game name `<h3>` text is hidden — the identifier serves as the name
 - **Game display name:** `game_library.display_name` (nullable) — optional override shown on scoreboard cards; falls back to `game_library.name`. Propagated to `games.display_name` on activation.

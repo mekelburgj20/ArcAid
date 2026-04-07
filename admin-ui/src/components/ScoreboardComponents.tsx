@@ -108,17 +108,38 @@ export function getTitleStyleClass(style: string): string {
   }
 }
 
+/**
+ * Returns an inline fontSize value for scoreboard title sizes.
+ * These are deliberately larger than Tailwind defaults for impact on scoreboards.
+ */
+const TITLE_SIZE_PX: Record<string, string> = {
+  xs: '16px',
+  sm: '20px',
+  base: '28px',
+  lg: '36px',
+  xl: '44px',
+  '2xl': '56px',
+  '3xl': '68px',
+  '4xl': '80px',
+};
+
+export function getTitleSizeStyle(size: string): string {
+  return TITLE_SIZE_PX[size] || TITLE_SIZE_PX.sm;
+}
+
+/** @deprecated Use getTitleSizeStyle() for inline fontSize instead */
 export function getTitleSizeClass(size: string): string {
+  // Keep backward compat but map to custom sizes via CSS custom properties
   switch (size) {
-    case 'xs': return 'text-xs';
-    case 'sm': return 'text-sm';
-    case 'base': return 'text-base';
-    case 'lg': return 'text-lg';
-    case 'xl': return 'text-xl';
-    case '2xl': return 'text-2xl';
-    case '3xl': return 'text-3xl';
-    case '4xl': return 'text-4xl';
-    default: return 'text-sm';
+    case 'xs': return 'text-[16px]';
+    case 'sm': return 'text-[20px]';
+    case 'base': return 'text-[28px]';
+    case 'lg': return 'text-[36px]';
+    case 'xl': return 'text-[44px]';
+    case '2xl': return 'text-[56px]';
+    case '3xl': return 'text-[68px]';
+    case '4xl': return 'text-[80px]';
+    default: return 'text-[20px]';
   }
 }
 

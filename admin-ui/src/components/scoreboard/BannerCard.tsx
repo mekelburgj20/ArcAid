@@ -100,7 +100,7 @@ export default function BannerCard({
   return (
     <div style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* QR code — top-right, above the card */}
-      {showQr && qrPosition !== 'bottom-right' && (
+      {showQr && qrPosition === 'top-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
@@ -133,7 +133,7 @@ export default function BannerCard({
         onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
       >
         {!hasIdentifierImage && (
-          <h3 className={`font-display font-bold leading-tight truncate px-5 flex items-center justify-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem' }}>
+          <h3 className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
             {displayName}
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
           </h3>
@@ -227,7 +227,7 @@ export default function BannerCard({
 
       {/* Footer */}
       <div className="border-t border-border/30 px-3 py-2 flex justify-between items-center text-[10px] text-faint">
-        <a href={`/${slug}`} className="text-neon-cyan/60 hover:text-neon-cyan transition-colors">
+        <a href={`/${slug}/games/${encodeURIComponent(lb.gameName)}`} className="text-neon-cyan/60 hover:text-neon-cyan transition-colors">
           Full Leaderboard &rarr;
         </a>
         <span>{lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}</span>
@@ -237,6 +237,12 @@ export default function BannerCard({
       {/* QR code — bottom-right, below the card */}
       {showQr && qrPosition === 'bottom-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+          <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
+        </div>
+      )}
+      {/* QR code — bottom-center with 15% overhang */}
+      {showQr && qrPosition === 'bottom-center' && (
+        <div style={{ position: 'absolute', bottom: -(qrSize * 0.15), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}

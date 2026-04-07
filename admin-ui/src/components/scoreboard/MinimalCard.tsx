@@ -85,7 +85,7 @@ export default function MinimalCard({
   return (
     <div style={{ position: 'relative', maxWidth: 380 }}>
       {/* QR code — top-right, above the card */}
-      {showQr && qrPosition !== 'bottom-right' && (
+      {showQr && qrPosition === 'top-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
@@ -108,7 +108,7 @@ export default function MinimalCard({
       )}
       {/* Title area */}
       <div className="px-5 pt-4 pb-3 relative z-[1]">
-        <h3 className={`font-display font-bold leading-tight truncate text-primary flex items-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem' }}>
+        <h3 className={`font-display font-bold leading-tight text-primary flex items-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
           {displayName}
           <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
         </h3>
@@ -176,7 +176,7 @@ export default function MinimalCard({
 
       {/* Footer */}
       <div className="border-t border-border/30 px-5 py-2.5 flex justify-between items-center relative z-[1]">
-        <a href={`/${slug}`} className="text-xs text-accent hover:text-accent/80 transition-colors">
+        <a href={`/${slug}/games/${encodeURIComponent(lb.gameName)}`} className="text-xs text-accent hover:text-accent/80 transition-colors">
           Full Leaderboard &rarr;
         </a>
         <span className="text-[11px] text-faint">
@@ -188,6 +188,12 @@ export default function MinimalCard({
       {/* QR code — bottom-right, below the card */}
       {showQr && qrPosition === 'bottom-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+          <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
+        </div>
+      )}
+      {/* QR code — bottom-center with 15% overhang */}
+      {showQr && qrPosition === 'bottom-center' && (
+        <div style={{ position: 'absolute', bottom: -(qrSize * 0.15), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}

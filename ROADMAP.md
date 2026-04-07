@@ -268,6 +268,21 @@
 
 ---
 
+## Scoreboard UX Fixes (COMPLETE)
+
+- [x] Inline rankings mode — RankingGroupCards render inline with game cards when `rankingsSticky` is off (default), across grid/vertical/scroll layouts
+- [x] Rankings card style-matching — 3 rendering paths matching Banner, Showcase (theme-matched), and Minimal card styles
+- [x] Rankings card layout redesign — rank + avatar + username row, points + "Games: X" below, "OVERALL RANKINGS" title on card, no column headings
+- [x] QR code alignment — ranking cards add `qrTopPad` marginTop to align with game card borders (not QR code tops)
+- [x] Game title styles expanded to 12 options (matching scoreboard title styles): default, glow, neon-magenta, chrome, fire, plasma, backglass, marquee, retro, pixel, shadow, outlined
+- [x] Fire title animation — rapidly shifting gradient (1.5s background-position cycle)
+- [x] Neon Magenta flicker animation — infrequent neon flicker effect (6s cycle)
+- [x] Horizontal scrollbar fix — `items-start` conditional on left/right rankings positions only
+- [x] Discord avatar fallback — username-based avatar lookup in RankingService for community score players with synthetic discord_user_id
+- [x] Service worker cache versioning (v5)
+
+---
+
 ## Future
 
 ### Multi-Room

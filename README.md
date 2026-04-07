@@ -28,12 +28,15 @@
 - **Scoreboard branding** — Custom logos, background images, and title styles per room
 - **Progressive Web App (PWA)** — Installable on Android/iOS with standalone display, offline caching, and home screen icon
 - **Global card style overrides** — Room-wide color customization for game card titles, scores, borders, and backgrounds via color pickers
-- **4 card header styles** — Banner (full-width artwork), Compact (thumbnail + title bar, stacked score entries), Wheel (pinball wheel icons above card border, configurable scale), Sidebar (image left of title)
+- **3 scoreboard card styles** — Banner (280px, iScored-compatible), Showcase (380px, art-forward with podium top-3), Minimal (typography-only). Style+Theme 2-level selection with two Showcase themes (Glass Deck, Neon Circuit)
+- **Style-matched rankings cards** — Overall rankings cards automatically match the active card style (Banner/Showcase/Minimal) with theme-appropriate colors and layout
+- **Inline rankings** — Rankings cards render inline with game cards (default) or as sticky side columns. Configurable position (top/bottom/left/right)
+- **12 game title styles** — Default, Glow, Neon Magenta (animated flicker), Chrome, Fire (animated shifting gradient), Plasma, Backglass, Marquee, Retro, Pixel, Shadow, Outlined
+- **QR code score submission** — Configurable QR codes on game cards (disabled/kiosk-only/all) with size and position options (top-right/bottom-right)
 - **Card background fill** — Background image fills entire card behind layout with glass-panel overlay (adjustable opacity)
 - **Layout presets** — 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) with auto-detection of custom settings
 - **Live preview** — Settings page shows multi-card scaled preview with real game art, updating instantly on changes
 - **Game display names** — Optional display name override per game (falls back to game name on scoreboard cards)
-- **Game title styles** — 5 title rendering options (default, glow, shadow, outlined, backlit) plus visibility enhancement toggle
 - **Smart title auto-hide** — Game name text automatically hidden when an identifier image exists on the card
 - **Image cropper** — Locked aspect ratio cropping for branding uploads and style catalogue images
 - **Per-game art assignment** — Independent logo and background images from different style catalogue entries
@@ -164,7 +167,7 @@ npm run dev            # Vite dev server with HMR
 | Kiosk Refresh Interval | Auto-refresh interval (seconds) for kiosk display |
 | Hide Empty Games | Toggle to suppress games with no scores from public views |
 | Discord @Mentions | Toggle Discord role/user @mentions in tournament announcements |
-| Card Layout | Banner (full-width artwork), Compact (thumbnail + stacked scores), Wheel (pinball wheel icon above card), or Sidebar (image left of title) |
+| Scoreboard Style | Card style: Banner (280px), Showcase (380px, art-forward with podium), or Minimal (typography-only). Theme selection for Showcase (Glass Deck, Neon Circuit). Legacy card layouts also available (Compact, Wheel, Sidebar). |
 | Card Background Fill | Off or Fill — fill mode shows background image behind entire card with glass overlay |
 | Card Background Size | Cover, Contain, or Tile — controls how background images are sized |
 | Game Columns | Auto (fill based on card size) or 2 (force two cards per row on desktop) |

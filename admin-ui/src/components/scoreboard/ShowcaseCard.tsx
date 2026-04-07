@@ -117,6 +117,8 @@ export default function ShowcaseCard({
         backdropFilter: theme.backdropFilter,
         fontFamily: theme.fontFamily,
         minHeight: contentMinHeight,
+        display: 'flex',
+        flexDirection: 'column',
       }}>
         {/* Card background fill */}
         {cardBgFill && styleBgUrl && (
@@ -152,7 +154,7 @@ export default function ShowcaseCard({
         )}
 
         {/* Content area */}
-        <div style={{ position: 'relative', zIndex: 4, ...(cardBgFill ? { textShadow: '0 1px 6px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7)' } : {}) }}>
+        <div style={{ position: 'relative', zIndex: 4, display: 'flex', flexDirection: 'column', minHeight: '100%', ...(cardBgFill ? { textShadow: '0 1px 6px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7)' } : {}) }}>
           {/* Title area */}
           <div
             style={{
@@ -173,7 +175,11 @@ export default function ShowcaseCard({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              flexWrap: 'wrap',
               gap: 4,
+              overflowWrap: 'break-word',
+              wordBreak: 'break-word',
+              textAlign: 'center',
             }}>
               {displayName}
               <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
@@ -265,6 +271,9 @@ export default function ShowcaseCard({
             avatarColor={theme.avatarColor}
           />
 
+          {/* Spacer pushes footer to card bottom */}
+          <div style={{ flex: 1 }} />
+
           {/* Footer */}
           <div style={{
             borderTop: `1px solid ${cardBgFill ? 'rgba(255,255,255,0.15)' : theme.footerBorder}`,
@@ -275,7 +284,7 @@ export default function ShowcaseCard({
             ...(cardBgFill ? { background: 'rgba(0,0,0,0.3)' } : {}),
           }}>
             <a
-              href={`/${slug}`}
+              href={`/${slug}/games/${encodeURIComponent(lb.gameName)}`}
               style={{
                 fontSize: 12,
                 color: cardBgFill ? 'rgba(255,255,255,0.7)' : theme.linkColor,
@@ -297,7 +306,11 @@ export default function ShowcaseCard({
 
       {/* QR code — outside the card shell, above or below */}
       {qrMode !== 'disabled' && (
-        qrPosition === 'bottom-right' ? (
+        qrPosition === 'bottom-center' ? (
+          <div style={{ position: 'absolute', bottom: -(qrSize * 0.15), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
+            <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
+          </div>
+        ) : qrPosition === 'bottom-right' ? (
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
             <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
           </div>
