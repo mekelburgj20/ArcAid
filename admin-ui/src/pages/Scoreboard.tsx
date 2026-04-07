@@ -307,6 +307,7 @@ export default function Scoreboard() {
                         titleFontSize={newConfig.titleFontSize || undefined}
                         viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
                         qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
+                        qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition}
                         onSubmitScore={(lb) => setSelectedGame(lb)}
                       />
                     ) : (
