@@ -96,7 +96,7 @@ export default function BannerCard({
   const showQr = qrMode !== 'disabled';
 
   return (
-    <div style={{ position: 'relative', width: 280 }}>
+    <div style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* QR code — top-right, above the card */}
       {showQr && qrPosition !== 'bottom-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
@@ -104,7 +104,7 @@ export default function BannerCard({
         </div>
       )}
     <div
-      className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col h-full`}
+      className={`relative border-2 ${borderColor} rounded-lg overflow-hidden flex flex-col flex-1`}
     >
       {/* Background layer */}
       <div className="absolute inset-0 bg-surface" />
@@ -141,13 +141,11 @@ export default function BannerCard({
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
           </div>
         )}
-        {lb.gameStatus === 'COMPLETED' && (
-          <span title="Completed" className="absolute right-3 top-3">
-            <Lock size={14} className="text-neon-amber" />
-          </span>
-        )}
-        <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted`}>
+        <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted flex items-center justify-center gap-1`}>
           {lb.tournamentName}
+          {lb.gameStatus === 'COMPLETED' && (
+            <Lock size={11} className="text-neon-amber flex-shrink-0" />
+          )}
         </p>
         {showTimer && countdown && (
           <p className="text-[10px] text-faint mt-0.5">{countdown}</p>

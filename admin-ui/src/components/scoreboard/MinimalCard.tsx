@@ -106,12 +106,7 @@ export default function MinimalCard({
       )}
       {/* Title area */}
       <div className="px-5 pt-4 pb-3 relative z-[1]">
-        {lb.gameStatus === 'COMPLETED' && (
-          <span title="Completed" className="absolute right-4 top-4">
-            <Lock size={14} className="text-neon-amber" />
-          </span>
-        )}
-        <h3 className="font-display font-bold leading-tight truncate text-primary flex items-center gap-1 pr-5" style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem' }}>
+        <h3 className="font-display font-bold leading-tight truncate text-primary flex items-center gap-1" style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem' }}>
           {displayName}
           <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
         </h3>
@@ -119,6 +114,9 @@ export default function MinimalCard({
           <span className="text-[11px] uppercase tracking-wider text-muted">
             {lb.tournamentName}
           </span>
+          {lb.gameStatus === 'COMPLETED' && (
+            <Lock size={11} className="text-neon-amber flex-shrink-0" />
+          )}
           {showTimer && countdown && (
             <span className="text-[10px] text-faint">{countdown}</span>
           )}

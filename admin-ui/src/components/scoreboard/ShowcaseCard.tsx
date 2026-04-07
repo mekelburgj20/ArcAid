@@ -161,11 +161,6 @@ export default function ShowcaseCard({
             }}
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
-            {lb.gameStatus === 'COMPLETED' && (
-              <span title="Completed" style={{ position: 'absolute', right: 16, top: hasFloatImage ? 94 : 20 }}>
-                <Lock size={14} style={{ color: theme.badgeColor }} />
-              </span>
-            )}
             <h2 style={{
               fontSize: titleFontSize || 18,
               fontWeight: 700 as const,
@@ -210,6 +205,9 @@ export default function ShowcaseCard({
               </span>
                 );
               })()}
+              {lb.gameStatus === 'COMPLETED' && (
+                <Lock size={12} style={{ color: theme.badgeColor, flexShrink: 0 }} />
+              )}
               {showTimer && countdown && (
                 <span style={{
                   fontSize: 9,

@@ -62,7 +62,7 @@ export default function LandingPage() {
             <p className="text-muted">No game rooms available yet.</p>
           </div>
         ) : (
-          <div className="flex flex-wrap justify-center gap-8">
+          <div className="flex flex-wrap justify-center gap-8 items-stretch">
             {rooms.map(room => (
               <RoomCard key={room.id} room={room} />
             ))}
@@ -91,6 +91,9 @@ function RoomCard({ room }: { room: Room }) {
         background: 'rgba(18,18,24,0.9)',
         boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
         backdropFilter: 'blur(24px)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
       }}>
         {/* Accent bar */}
         <div style={{
@@ -99,7 +102,7 @@ function RoomCard({ room }: { room: Room }) {
         }} />
 
         {/* Logo + Title area */}
-        <div style={{ textAlign: 'center', padding: '28px 24px 16px' }}>
+        <div style={{ textAlign: 'center', padding: '28px 24px 16px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           {room.logo_url && (
             <img
               src={room.logo_url}
