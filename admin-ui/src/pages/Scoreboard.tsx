@@ -5,6 +5,7 @@ import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
 import type { GameLeaderboard, RankingGroupData, RankedEntry } from '../components/ScoreboardComponents';
 import {
   GameCard,
+  RankingGroupCard,
   RankingsColumn,
   RankingsRow,
   getTitleStyleClass,
@@ -116,6 +117,9 @@ export default function Scoreboard() {
 
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
 
+  // When sticky is off (default), rankings render inline with game cards
+  const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
+
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
       {/* Background image layer with opacity control */}
@@ -214,16 +218,16 @@ export default function Scoreboard() {
       {/* Game cards */}
       <div className="px-4 sm:px-6 pb-6">
 
-      {/* Rankings: top position */}
-      {rankingsPosition === 'top' && rankingGroups.length > 0 && (
+      {/* Rankings: top position (only when sticky/separate) */}
+      {!inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
         <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
       )}
 
       {/* Main content area */}
       <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row' : 'flex-col'} gap-6 items-stretch lg:items-start`}>
 
-        {/* Rankings: left position */}
-        {rankingsPosition === 'left' && rankingGroups.length > 0 && (
+        {/* Rankings: left position (only when sticky/separate) */}
+        {!inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
           <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
         )}
 
@@ -262,6 +266,11 @@ export default function Scoreboard() {
                   )}
                 </div>
               ))}
+              {inlineRankings && rankingGroups.map(({ group, rankings }) => (
+                <div key={`rank-${group.id}`} style={{ overflow: 'visible', minWidth: 0 }}>
+                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                </div>
+              ))}
             </div>
           </div>
         ) : effectiveLayout === 'vertical' ? (
@@ -286,6 +295,11 @@ export default function Scoreboard() {
                   ) : (
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
                   )}
+                </div>
+              ))}
+              {inlineRankings && rankingGroups.map(({ group, rankings }) => (
+                <div key={`rank-${group.id}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
+                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
                 </div>
               ))}
             </div>
@@ -315,19 +329,24 @@ export default function Scoreboard() {
                     )}
                   </div>
                 ))}
+                {inlineRankings && rankingGroups.map(({ group, rankings }) => (
+                  <div key={`rank-${group.id}`} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
+                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                  </div>
+                ))}
               </div>
             </div>
           </div>
         )}
 
-        {/* Rankings: right position */}
-        {rankingsPosition === 'right' && rankingGroups.length > 0 && (
+        {/* Rankings: right position (only when sticky/separate) */}
+        {!inlineRankings && rankingsPosition === 'right' && rankingGroups.length > 0 && (
           <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
         )}
       </div>
 
-      {/* Rankings: bottom position */}
-      {rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
+      {/* Rankings: bottom position (only when sticky/separate) */}
+      {!inlineRankings && rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
         <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
       )}
 
