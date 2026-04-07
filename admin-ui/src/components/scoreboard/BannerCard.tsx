@@ -197,7 +197,7 @@ export default function BannerCard({
                     {entry.rank}
                   </span>
                   <div className={`flex-1 rounded-full px-3 py-1 relative ${
-                    isViewerRow ? 'bg-neon-cyan/15' : 'bg-white/8'
+                    isViewerRow ? 'bg-neon-cyan/25' : 'bg-white/18'
                   }`}>
                     <div className="absolute left-2 top-1/2 -translate-y-1/2">
                       <PlayerAvatar

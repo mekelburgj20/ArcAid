@@ -517,6 +517,14 @@ body {
 .title-glow {
   text-shadow: 0 0 10px var(--color-neon-cyan), 0 0 20px var(--color-neon-cyan), 0 0 40px var(--color-neon-cyan);
   color: var(--color-neon-cyan);
+  animation: neon-cyan-flicker 6s infinite;
+}
+@keyframes neon-cyan-flicker {
+  0%, 18%, 22%, 100% { opacity: 1; text-shadow: 0 0 10px var(--color-neon-cyan), 0 0 20px var(--color-neon-cyan), 0 0 40px var(--color-neon-cyan); }
+  19% { opacity: 0.4; text-shadow: none; }
+  21% { opacity: 0.7; text-shadow: 0 0 4px var(--color-neon-cyan); }
+  60%, 60.5% { opacity: 1; text-shadow: 0 0 10px var(--color-neon-cyan), 0 0 20px var(--color-neon-cyan), 0 0 40px var(--color-neon-cyan); }
+  60.2% { opacity: 0.6; text-shadow: 0 0 2px var(--color-neon-cyan); }
 }
 
 .title-retro {
