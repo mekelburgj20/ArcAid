@@ -147,7 +147,7 @@ export default function KioskScoreboard() {
         )}
 
         {/* Main content area */}
-        <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row' : 'flex-col'} gap-6 items-stretch lg:items-start`}>
+        <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row gap-6 items-stretch lg:items-start' : 'flex-col gap-6'}`}>
 
           {/* Rankings: left position (only when sticky/separate) */}
           {!inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
