@@ -195,16 +195,19 @@ router.get('/rooms', async (req, res) => {
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
 
         const enriched = await Promise.all(rooms.map(async (room) => {
-            // Count active games
+            // Count active games (games → tournaments → room)
             const activeGames = await db.get(
-                `SELECT COUNT(*) as count FROM games WHERE game_room_id = ? AND status = 'ACTIVE'`,
+                `SELECT COUNT(*) as count FROM games g
+                 JOIN tournaments t ON g.tournament_id = t.id
+                 WHERE t.game_room_id = ? AND g.status = 'ACTIVE'`,
                 room.id
             );
-            // Count unique active players (submitted scores in last 30 days)
+            // Count unique players
             const activePlayers = await db.get(
-                `SELECT COUNT(DISTINCT LOWER(iscored_username)) as count FROM submissions s
+                `SELECT COUNT(DISTINCT LOWER(s.iscored_username)) as count FROM submissions s
                  JOIN games g ON s.game_id = g.id
-                 WHERE g.game_room_id = ?`,
+                 JOIN tournaments t ON g.tournament_id = t.id
+                 WHERE t.game_room_id = ?`,
                 room.id
             );
             const discordInvite = await GameRoomSettingsService.get(room.id, 'DISCORD_INVITE_URL');
