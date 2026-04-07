@@ -169,7 +169,7 @@ export default function KioskScoreboard() {
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="grid" style={!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>
                     {useNewCards ? (
-                      <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode="disabled" />
+                      <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} />
                     ) : (
                       <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
                     )}
@@ -183,7 +183,7 @@ export default function KioskScoreboard() {
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
                     {useNewCards ? (
-                      <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode="disabled" />
+                      <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} />
                     ) : (
                       <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
                     )}
@@ -198,7 +198,7 @@ export default function KioskScoreboard() {
                   {visibleLeaderboards.map(lb => (
                     <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
                       {useNewCards ? (
-                        <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode="disabled" />
+                        <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} />
                       ) : (
                         <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
                       )}

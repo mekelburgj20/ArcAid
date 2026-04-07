@@ -17,6 +17,8 @@ export interface CardRouterProps {
   viewerUsername?: string;
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
+  qrSize?: number;
+  qrPosition?: string;
   cardBgFill?: boolean;
   cardSpacing?: number;
   titleFontSize?: number;
@@ -35,6 +37,8 @@ export default function CardRouter({
   viewerUsername,
   viewerEntry,
   qrMode = 'disabled',
+  qrSize = 24,
+  qrPosition = 'top-right',
   cardBgFill = false,
   titleFontSize,
   onSubmitScore,
@@ -54,6 +58,8 @@ export default function CardRouter({
           viewerUsername={viewerUsername}
           viewerEntry={viewerEntry}
           qrMode={qrMode}
+          qrSize={qrSize}
+          qrPosition={qrPosition}
           cardBgFill={cardBgFill}
           titleFontSize={titleFontSize}
           onSubmitScore={onSubmitScore}
@@ -72,6 +78,8 @@ export default function CardRouter({
           viewerUsername={viewerUsername}
           viewerEntry={viewerEntry}
           qrMode={qrMode}
+          qrSize={qrSize}
+          qrPosition={qrPosition}
           cardBgFill={cardBgFill}
           titleFontSize={titleFontSize}
           onSubmitScore={onSubmitScore}
@@ -90,6 +98,8 @@ export default function CardRouter({
           viewerUsername={viewerUsername}
           viewerEntry={viewerEntry}
           qrMode={qrMode}
+          qrSize={qrSize}
+          qrPosition={qrPosition}
           cardBgFill={cardBgFill}
           titleFontSize={titleFontSize}
           onSubmitScore={onSubmitScore}

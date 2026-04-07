@@ -36,6 +36,8 @@ export interface ScoreboardConfig {
   hideEmpty: boolean;
   requirePhoto: boolean;
   qrMode: string;
+  qrSize: number;
+  qrPosition: string;            // 'top-right' | 'bottom-right'
 }
 
 /**
@@ -95,6 +97,8 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     hideEmpty: config.SCOREBOARD_HIDE_EMPTY === 'true',
     requirePhoto: config.REQUIRE_SCORE_PHOTO === 'true',
     qrMode: config.SCOREBOARD_QR_MODE || 'disabled',
+    qrSize: parseInt(config.SCOREBOARD_QR_SIZE || '24', 10) || 24,
+    qrPosition: config.SCOREBOARD_QR_POSITION || 'top-right',
   };
 }
 

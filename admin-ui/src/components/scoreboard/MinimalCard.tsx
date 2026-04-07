@@ -14,6 +14,8 @@ interface MinimalCardProps {
   viewerUsername?: string;
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
+  qrSize?: number;
+  qrPosition?: string;
   cardBgFill?: boolean;
   titleFontSize?: number;
   onSubmitScore?: (lb: GameLeaderboard) => void;
@@ -33,6 +35,8 @@ export default function MinimalCard({
   viewerUsername,
   viewerEntry,
   qrMode = 'disabled',
+  qrSize = 24,
+  qrPosition = 'top-right',
   cardBgFill = false,
   titleFontSize,
 }: MinimalCardProps) {
@@ -167,15 +171,22 @@ export default function MinimalCard({
         <a href={`/${slug}`} className="text-xs text-accent hover:text-accent/80 transition-colors">
           Full Leaderboard &rarr;
         </a>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-faint">
-            {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
-          </span>
-          {qrMode !== 'disabled' && (
-            <GameQRCode slug={slug} gameId={lb.gameId} size={20} />
-          )}
-        </div>
+        <span className="text-[11px] text-faint">
+          {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
+        </span>
       </div>
+
+      {/* QR code overlay */}
+      {qrMode !== 'disabled' && (
+        <div className="absolute z-[5] pointer-events-auto" style={{
+          [qrPosition === 'bottom-right' ? 'bottom' : 'top']: 8,
+          right: 8,
+        }}>
+          <div className="bg-black/50 rounded p-1">
+            <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

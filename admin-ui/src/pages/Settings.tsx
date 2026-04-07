@@ -585,6 +585,7 @@ export default function Settings() {
     // New style system advanced settings
     'SCOREBOARD_MIN_SCORES', 'SCOREBOARD_CARD_BG_FILL', 'SCOREBOARD_CARD_SPACING',
     'SCOREBOARD_TITLE_FONT_SIZE', 'SCOREBOARD_RANKINGS_STICKY',
+    'SCOREBOARD_QR_SIZE', 'SCOREBOARD_QR_POSITION',
     // New style system core keys
     'SCOREBOARD_STYLE', 'SCOREBOARD_THEME', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_SHOW_TIMER',
     // Legacy/removed — no longer surfaced
@@ -892,6 +893,7 @@ export default function Settings() {
                       { key: 'SCOREBOARD_MIN_SCORES', label: 'Min Card Height (scores)', defaultVal: '20', description: 'Minimum card height expressed as score rows' },
                       { key: 'SCOREBOARD_CARD_SPACING', label: 'Card Spacing (px)', defaultVal: '24', description: 'Gap between game cards in pixels' },
                       { key: 'SCOREBOARD_TITLE_FONT_SIZE', label: 'Title Font Size (px)', defaultVal: '0', description: '0 = style default. Override game title font size.' },
+                      { key: 'SCOREBOARD_QR_SIZE', label: 'QR Code Size (px)', defaultVal: '24', description: 'Size of QR codes on game cards. Default: 24.' },
                     ].map(({ key, label, defaultVal, description }) => (
                       <div key={key} className="flex items-center justify-between gap-4">
                         <div>
@@ -906,6 +908,22 @@ export default function Settings() {
                         />
                       </div>
                     ))}
+
+                    {/* QR Position dropdown */}
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-primary">QR Code Position</p>
+                        <p className="text-xs text-muted">Where QR codes appear on game cards</p>
+                      </div>
+                      <select
+                        value={settings.SCOREBOARD_QR_POSITION || 'top-right'}
+                        onChange={e => handleChange('SCOREBOARD_QR_POSITION', e.target.value)}
+                        className="text-sm rounded border border-border bg-raised px-2 py-1 text-primary"
+                      >
+                        <option value="top-right">Top Right</option>
+                        <option value="bottom-right">Bottom Right</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Switch back to legacy */}

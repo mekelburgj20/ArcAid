@@ -19,6 +19,8 @@ interface ShowcaseCardProps {
   viewerUsername?: string;
   viewerEntry?: RankedEntry | null;
   qrMode?: string;
+  qrSize?: number;
+  qrPosition?: string;
   cardBgFill?: boolean;
   titleFontSize?: number;
   onSubmitScore?: (lb: GameLeaderboard) => void;
@@ -44,6 +46,8 @@ export default function ShowcaseCard({
   cardBgFill = false,
   titleFontSize,
   qrMode = 'disabled',
+  qrSize = 24,
+  qrPosition = 'top-right',
   onSubmitScore,
 }: ShowcaseCardProps) {
   const { styleBgUrl, styleHeaderUrl } = resolveImages(lb);
@@ -284,16 +288,25 @@ export default function ShowcaseCard({
             >
               Full Leaderboard &rarr;
             </a>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, color: cardBgFill ? 'rgba(255,255,255,0.5)' : theme.metaColor }}>
-                {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
-              </span>
-              {qrMode !== 'disabled' && (
-                <GameQRCode slug={slug} gameId={lb.gameId} size={22} />
-              )}
-            </div>
+            <span style={{ fontSize: 11, color: cardBgFill ? 'rgba(255,255,255,0.5)' : theme.metaColor }}>
+              {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
+            </span>
           </div>
         </div>
+
+        {/* QR code overlay */}
+        {qrMode !== 'disabled' && (
+          <div style={{
+            position: 'absolute',
+            zIndex: 10,
+            [qrPosition === 'bottom-right' ? 'bottom' : 'top']: 8,
+            right: 8,
+          }}>
+            <div style={{ background: 'rgba(0,0,0,0.5)', borderRadius: 4, padding: 4 }}>
+              <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
