@@ -167,10 +167,10 @@ function ChipPodium({ entries, theme }: ShowcasePodiumProps) {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,215,0,0.02))',
-          border: '1px solid rgba(255,215,0,0.2)',
+          background: 'linear-gradient(135deg, rgba(255,215,0,0.22), rgba(255,215,0,0.08))',
+          border: '1px solid rgba(255,215,0,0.35)',
           borderRadius: '6px',
-          boxShadow: '0 0 20px rgba(255,215,0,0.08), inset 0 0 15px rgba(255,215,0,0.03)',
+          boxShadow: '0 0 20px rgba(255,215,0,0.15), inset 0 0 15px rgba(255,215,0,0.06)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
             <span style={{ fontSize: '12px' }}>{'\u{1F3C6}'}</span>
@@ -233,10 +233,10 @@ function ChipPodium({ entries, theme }: ShowcasePodiumProps) {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(135deg, rgba(192,192,192,0.06), rgba(192,192,192,0.02))',
-          border: '1px solid rgba(192,192,192,0.15)',
+          background: 'linear-gradient(135deg, rgba(192,192,192,0.18), rgba(192,192,192,0.06))',
+          border: '1px solid rgba(192,192,192,0.30)',
           borderRadius: '4px',
-          boxShadow: '0 0 15px rgba(192,192,192,0.05)',
+          boxShadow: '0 0 15px rgba(192,192,192,0.12)',
           zIndex: 2,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
@@ -281,10 +281,10 @@ function ChipPodium({ entries, theme }: ShowcasePodiumProps) {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'linear-gradient(135deg, rgba(205,127,50,0.06), rgba(205,127,50,0.02))',
-          border: '1px solid rgba(205,127,50,0.12)',
+          background: 'linear-gradient(135deg, rgba(205,127,50,0.18), rgba(205,127,50,0.06))',
+          border: '1px solid rgba(205,127,50,0.28)',
           borderRadius: '3px',
-          boxShadow: '0 0 10px rgba(205,127,50,0.04)',
+          boxShadow: '0 0 10px rgba(205,127,50,0.10)',
           zIndex: 2,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
