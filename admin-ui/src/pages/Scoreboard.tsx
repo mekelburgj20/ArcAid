@@ -243,7 +243,7 @@ export default function Scoreboard() {
               }}
             >
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="grid" style={!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>
+                <div key={lb.gameId} style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0 }}>
                   {useNewCards ? (
                     <CardRouter
                       lb={lb} slug={slug || ''} roomId={roomId}

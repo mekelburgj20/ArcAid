@@ -167,7 +167,7 @@ export default function KioskScoreboard() {
                 }}
               >
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="grid" style={!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : undefined}>
+                  <div key={lb.gameId} style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0 }}>
                     {useNewCards ? (
                       <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} />
                     ) : (

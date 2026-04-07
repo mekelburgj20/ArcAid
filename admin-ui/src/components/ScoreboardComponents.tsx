@@ -904,8 +904,11 @@ interface RankingsProps {
 export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky }: RankingsProps) {
   // Match Showcase card paddingTop so Rankings aligns with card frames, not identifier images
   const topPad = scoreboardStyle === 'showcase' ? 42 : 0;
+  // Match width to the current card style
+  const colWidth = scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
+    : scoreboardStyle === 'banner' ? 280 : 320;
   return (
-    <div className={`w-full lg:w-80 flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : ''}`} style={topPad ? { paddingTop: topPad } : undefined}>
+    <div className={`w-full flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : ''}`} style={{ ...(topPad ? { paddingTop: topPad } : {}), maxWidth: colWidth }}>
       <div className="flex flex-col gap-5">
         {rankingGroups.map(({ group, rankings }) => (
           <RankingGroupCard key={group.id} group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} />
@@ -916,11 +919,13 @@ export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, sh
 }
 
 export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName }: RankingsProps) {
+  const cardW = scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
+    : scoreboardStyle === 'banner' ? 280 : 320;
   return (
     <div className="mb-6">
       <div className="flex gap-5 overflow-x-auto pb-2">
         {rankingGroups.map(({ group, rankings }) => (
-          <div key={group.id} className="w-80 flex-shrink-0">
+          <div key={group.id} className="flex-shrink-0" style={{ width: cardW }}>
             <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} />
           </div>
         ))}
