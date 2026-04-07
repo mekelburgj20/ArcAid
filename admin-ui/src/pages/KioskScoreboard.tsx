@@ -82,7 +82,7 @@ export default function KioskScoreboard() {
   const effectiveLayout = isBanner ? 'scroll' : layout;
   const visibleLeaderboards = (useNewCards ? newConfig.hideEmpty : hideEmpty) ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
   const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
-  const hasQrTop = useNewCards && (newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all') && newConfig.qrPosition !== 'bottom-right';
+  const hasQrTop = useNewCards && (newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all') && newConfig.qrPosition === 'top-right';
   const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
 
   // Guard: wait for config to load, then check if kiosk is enabled

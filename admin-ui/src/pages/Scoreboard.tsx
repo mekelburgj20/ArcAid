@@ -120,7 +120,7 @@ export default function Scoreboard() {
   // When sticky is off (default), rankings render inline with game cards
   const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
   // QR codes above game cards add extra height — rankings card needs matching top margin
-  const hasQrTop = useNewCards && (newConfig.qrMode === 'all') && newConfig.qrPosition !== 'bottom-right';
+  const hasQrTop = useNewCards && (newConfig.qrMode === 'all') && newConfig.qrPosition === 'top-right';
   const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
 
   return (
