@@ -108,7 +108,7 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
     observer.observe(container);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [effectiveLayout, gameColumns, cardWidth, headerStyle, useNewCards, newConfig.style, newConfig.cardSpacing, newConfig.minScores, newConfig.cardBgFill, newConfig.titleFontSize]);
+  }, [effectiveLayout, gameColumns, cardWidth, headerStyle, useNewCards, newConfig.style, newConfig.cardSpacing, newConfig.minScores, newConfig.cardBgFill, newConfig.titleFontSize, newConfig.qrMode, newConfig.qrSize, newConfig.qrPosition, newConfig.gameTitleStyle]);
 
   const wheelPad = !useNewCards && headerStyle === 'wheel' ? '2.5rem' : undefined;
 
@@ -154,6 +154,10 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
                       showTimer={newConfig.showTimer}
                       cardBgFill={newConfig.cardBgFill}
                       titleFontSize={newConfig.titleFontSize || undefined}
+                      qrMode={newConfig.qrMode !== 'disabled' ? 'all' : 'disabled'}
+                      qrSize={newConfig.qrSize}
+                      qrPosition={newConfig.qrPosition}
+                      gameTitleStyle={newConfig.gameTitleStyle}
                     />
                   ) : (
                     <GameCard
@@ -193,7 +197,14 @@ export default function ScoreboardPreview({ settings }: ScoreboardPreviewProps) 
                         style={newConfig.style}
                         theme={newConfig.theme}
                         maxScores={newConfig.maxScores}
+                        minScores={newConfig.minScores}
                         showTimer={newConfig.showTimer}
+                        cardBgFill={newConfig.cardBgFill}
+                        titleFontSize={newConfig.titleFontSize || undefined}
+                        qrMode={newConfig.qrMode !== 'disabled' ? 'all' : 'disabled'}
+                        qrSize={newConfig.qrSize}
+                        qrPosition={newConfig.qrPosition}
+                        gameTitleStyle={newConfig.gameTitleStyle}
                       />
                     ) : (
                       <GameCard

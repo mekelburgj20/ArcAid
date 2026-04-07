@@ -307,7 +307,7 @@ export default function ShowcaseCard({
       {/* QR code — outside the card shell, above or below */}
       {qrMode !== 'disabled' && (
         qrPosition === 'bottom-center' ? (
-          <div style={{ position: 'absolute', bottom: -(qrSize * 0.15), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
+          <div style={{ position: 'absolute', bottom: -(qrSize * 0.85), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
             <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
           </div>
         ) : qrPosition === 'bottom-right' ? (
