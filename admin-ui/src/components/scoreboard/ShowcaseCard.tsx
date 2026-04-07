@@ -280,10 +280,10 @@ export default function ShowcaseCard({
           {/* Footer */}
           <div style={{
             borderTop: `1px solid ${cardBgFill ? 'rgba(255,255,255,0.15)' : theme.footerBorder}`,
-            padding: '10px 24px',
+            padding: `10px 24px ${qrMode !== 'disabled' && qrPosition === 'bottom-center' ? Math.round(qrSize * 0.25) + 10 : 10}px 24px`,
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             ...(cardBgFill ? { background: 'rgba(0,0,0,0.3)' } : {}),
           }}>
             <a

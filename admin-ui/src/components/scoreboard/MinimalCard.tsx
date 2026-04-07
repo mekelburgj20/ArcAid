@@ -176,7 +176,7 @@ export default function MinimalCard({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border/30 px-5 py-2.5 flex justify-between items-center relative z-[1]">
+      <div className="border-t border-border/30 px-5 flex justify-between items-start relative z-[1]" style={{ paddingTop: 10, paddingBottom: showQr && qrPosition === 'bottom-center' ? Math.round(qrSize * 0.25) + 10 : 10 }}>
         <a href={`/${slug}/games/${encodeURIComponent(lb.gameName)}`} className="text-xs text-accent hover:text-accent/80 transition-colors">
           Full Leaderboard &rarr;
         </a>

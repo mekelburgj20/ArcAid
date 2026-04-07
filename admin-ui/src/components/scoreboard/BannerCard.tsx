@@ -227,7 +227,7 @@ export default function BannerCard({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border/30 px-3 py-2 flex justify-between items-center text-[10px] text-faint">
+      <div className="border-t border-border/30 px-3 flex justify-between items-start text-[10px] text-faint" style={{ paddingTop: 8, paddingBottom: showQr && qrPosition === 'bottom-center' ? Math.round(qrSize * 0.25) + 8 : 8 }}>
         <a href={`/${slug}/games/${encodeURIComponent(lb.gameName)}`} className="text-neon-cyan/60 hover:text-neon-cyan transition-colors">
           Full Leaderboard &rarr;
         </a>
