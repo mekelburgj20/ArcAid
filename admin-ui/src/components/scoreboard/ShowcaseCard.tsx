@@ -294,20 +294,20 @@ export default function ShowcaseCard({
           </div>
         </div>
 
-        {/* QR code overlay */}
-        {qrMode !== 'disabled' && (
-          <div style={{
-            position: 'absolute',
-            zIndex: 10,
-            [qrPosition === 'bottom-right' ? 'bottom' : 'top']: 8,
-            right: 8,
-          }}>
-            <div style={{ background: 'rgba(0,0,0,0.5)', borderRadius: 4, padding: 4 }}>
-              <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* QR code — outside the card shell, above or below */}
+      {qrMode !== 'disabled' && (
+        qrPosition === 'bottom-right' ? (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+            <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
+          </div>
+        ) : (
+          <div style={{ position: 'absolute', top: Math.max(0, floatPadTop - qrSize - 6), right: 0, zIndex: 5 }}>
+            <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
+          </div>
+        )
+      )}
     </div>
   );
 }

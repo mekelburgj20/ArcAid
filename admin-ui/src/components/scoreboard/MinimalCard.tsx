@@ -78,10 +78,18 @@ export default function MinimalCard({
     return effectiveBgId ? `/api/styles/images/backgrounds/${effectiveBgId}.png` : lb.imageUrl || null;
   })();
 
+  const showQr = qrMode !== 'disabled';
+
   return (
+    <div style={{ position: 'relative', maxWidth: 380 }}>
+      {/* QR code — top-right, above the card */}
+      {showQr && qrPosition !== 'bottom-right' && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+          <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
+        </div>
+      )}
     <div
       className="bg-surface border border-border/40 rounded-lg overflow-hidden flex flex-col h-full relative"
-      style={{ maxWidth: 380 }}
     >
       {/* Card background fill */}
       {bgImageUrl && (
@@ -176,15 +184,11 @@ export default function MinimalCard({
         </span>
       </div>
 
-      {/* QR code overlay */}
-      {qrMode !== 'disabled' && (
-        <div className="absolute z-[5] pointer-events-auto" style={{
-          [qrPosition === 'bottom-right' ? 'bottom' : 'top']: 8,
-          right: 8,
-        }}>
-          <div className="bg-black/50 rounded p-1">
-            <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
-          </div>
+    </div>
+      {/* QR code — bottom-right, below the card */}
+      {showQr && qrPosition === 'bottom-right' && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+          <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}
     </div>

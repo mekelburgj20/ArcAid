@@ -187,11 +187,39 @@ router.get('/portal', async (req, res) => {
     }
 });
 
-// Public room listing
+// Public room listing with stats
 router.get('/rooms', async (req, res) => {
     try {
         const rooms = await GameRoomService.getPublic();
-        res.json(rooms);
+        const db = await getDatabase();
+        const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+
+        const enriched = await Promise.all(rooms.map(async (room) => {
+            // Count active games
+            const activeGames = await db.get(
+                `SELECT COUNT(*) as count FROM games WHERE game_room_id = ? AND status = 'ACTIVE'`,
+                room.id
+            );
+            // Count unique active players (submitted scores in last 30 days)
+            const activePlayers = await db.get(
+                `SELECT COUNT(DISTINCT LOWER(iscored_username)) as count FROM submissions s
+                 JOIN games g ON s.game_id = g.id
+                 WHERE g.game_room_id = ?`,
+                room.id
+            );
+            const discordInvite = await GameRoomSettingsService.get(room.id, 'DISCORD_INVITE_URL');
+            const logoUrl = room.logo_url || null;
+
+            return {
+                ...room,
+                logo_url: logoUrl,
+                activeGames: activeGames?.count || 0,
+                activePlayers: activePlayers?.count || 0,
+                discordInviteUrl: discordInvite || null,
+            };
+        }));
+
+        res.json(enriched);
     } catch (error) {
         logError('API Error (GET /api/rooms):', error);
         res.status(500).json({ error: 'Internal Server Error' });
