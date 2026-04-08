@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, Plus, Minus } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass } from '../ScoreboardComponents';
 import GameInfoPopup from './GameInfoPopup';
+import { useScoreExpand } from './useScoreExpand';
 
 interface BannerCardProps {
   lb: GameLeaderboard;
@@ -48,6 +49,7 @@ const TOURNAMENT_BORDER_COLORS: Record<string, string> = {
 export default function BannerCard({
   lb,
   slug,
+  roomId,
   maxScores,
   minScores = 20,
   showTimer = true,
@@ -79,6 +81,8 @@ export default function BannerCard({
     }, 60000);
     return () => clearInterval(interval);
   }, [lb.nextMaintenanceAt]);
+
+  const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
 
   // Build visible entries with viewer injection
   let visibleEntries = lb.rankings.slice(0, maxScores);
@@ -187,38 +191,65 @@ export default function BannerCard({
                 entry.rank === 2 ? 'text-neon-cyan' :
                 entry.rank === 3 ? 'text-neon-green' : 'text-faint';
               const scoreColor = entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : 'text-primary';
+              const canExpand = hasMultiple(entry.iscored_username);
+              const isExpanded = expandedPlayer === entry.iscored_username;
 
               return (
-                <div
-                  key={`${entry.rank}-${entry.iscored_username}`}
-                  className="flex items-center gap-1.5"
-                >
-                  <span className={`w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>
-                    {entry.rank}
-                  </span>
-                  <div className={`flex-1 rounded-full px-3 py-1 relative ${
-                    isViewerRow ? 'bg-neon-cyan/25' : 'bg-white/18'
-                  }`}>
-                    <div className="absolute left-2 top-1/2 -translate-y-1/2">
-                      <PlayerAvatar
-                        username={entry.iscored_username}
-                        discordUserId={entry.discord_user_id}
-                        avatarHash={entry.avatar_hash}
-                        size={16}
-                      />
+                <div key={`${entry.rank}-${entry.iscored_username}`}>
+                  <div
+                    className={`flex items-center gap-1.5 ${canExpand ? 'cursor-pointer' : ''}`}
+                    onClick={canExpand ? () => togglePlayer(entry.iscored_username) : undefined}
+                  >
+                    <span className={`w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>
+                      {entry.rank}
+                    </span>
+                    <div className={`flex-1 rounded-full px-3 py-1 relative ${
+                      isViewerRow ? 'bg-neon-cyan/25' : 'bg-white/18'
+                    }`}>
+                      <div className="absolute left-2 top-1/2 -translate-y-1/2">
+                        <PlayerAvatar
+                          username={entry.iscored_username}
+                          discordUserId={entry.discord_user_id}
+                          avatarHash={entry.avatar_hash}
+                          size={16}
+                        />
+                      </div>
+                      <div className="text-center">
+                        <span className="text-[11px] truncate text-secondary block">
+                          {entry.iscored_username}
+                        </span>
+                        <span
+                          className={`text-xs font-bold tabular-nums block ${scoreColor}`}
+                          title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                        >
+                          {formatScore(entry.score)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-center">
-                      <span className="text-[11px] truncate text-secondary block">
-                        {entry.iscored_username}
-                      </span>
-                      <span
-                        className={`text-xs font-bold tabular-nums block ${scoreColor}`}
-                        title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
-                      >
-                        {formatScore(entry.score)}
-                      </span>
-                    </div>
+                    {canExpand && (
+                      isExpanded
+                        ? <Minus size={10} className="text-neon-cyan flex-shrink-0" />
+                        : <Plus size={10} className="text-faint flex-shrink-0" />
+                    )}
                   </div>
+                  {isExpanded && (
+                    <div className="ml-8 mr-2 mt-0.5 mb-1 bg-deep/50 rounded px-2 py-1">
+                      {historyLoading ? (
+                        <p className="text-faint text-[10px] py-0.5">Loading...</p>
+                      ) : playerHistory.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {playerHistory.map(h => (
+                            <div key={h.id} className="flex items-center justify-between text-[10px]">
+                              <span className="text-muted">{h.score.toLocaleString()}</span>
+                              <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-faint text-[10px] py-0.5">No additional scores.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

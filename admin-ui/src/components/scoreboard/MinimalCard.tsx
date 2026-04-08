@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, Plus, Minus } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass } from '../ScoreboardComponents';
 import GameInfoPopup from './GameInfoPopup';
+import { useScoreExpand } from './useScoreExpand';
 
 interface MinimalCardProps {
   lb: GameLeaderboard;
@@ -30,6 +31,7 @@ function formatScore(score: number): string {
 export default function MinimalCard({
   lb,
   slug,
+  roomId,
   maxScores,
   minScores = 20,
   showTimer = true,
@@ -43,6 +45,7 @@ export default function MinimalCard({
   gameTitleStyle = 'default',
 }: MinimalCardProps) {
   const displayName = lb.displayName || lb.gameName;
+  const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
 
   const [countdown, setCountdown] = useState<string | null>(
     lb.nextMaintenanceAt ? formatCountdown(lb.nextMaintenanceAt) : null
@@ -142,32 +145,59 @@ export default function MinimalCard({
               const rankColor = entry.rank === 1 ? 'text-neon-amber' :
                 entry.rank === 2 ? 'text-neon-cyan' :
                 entry.rank === 3 ? 'text-neon-green' : 'text-faint';
+              const canExpand = hasMultiple(entry.iscored_username);
+              const isExpanded = expandedPlayer === entry.iscored_username;
 
               return (
-                <div
-                  key={`${entry.rank}-${entry.iscored_username}`}
-                  className={`flex items-center gap-2.5 px-3 py-1.5 rounded ${
-                    isViewerRow ? 'bg-neon-cyan/10' : ''
-                  }`}
-                >
-                  <span className={`w-5 text-right text-[11px] font-semibold tabular-nums ${rankColor}`}>
-                    {entry.rank}
-                  </span>
-                  <PlayerAvatar
-                    username={entry.iscored_username}
-                    discordUserId={entry.discord_user_id}
-                    avatarHash={entry.avatar_hash}
-                    size={22}
-                  />
-                  <span className="flex-1 text-sm truncate text-secondary">
-                    {entry.iscored_username}
-                  </span>
-                  <span
-                    className={`text-sm font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
-                    title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                <div key={`${entry.rank}-${entry.iscored_username}`}>
+                  <div
+                    className={`flex items-center gap-2.5 px-3 py-1.5 rounded ${
+                      isViewerRow ? 'bg-neon-cyan/10' : ''
+                    } ${canExpand ? 'cursor-pointer hover:bg-raised/30 transition-colors' : ''}`}
+                    onClick={canExpand ? () => togglePlayer(entry.iscored_username) : undefined}
                   >
-                    {formatScore(entry.score)}
-                  </span>
+                    <span className={`w-5 text-right text-[11px] font-semibold tabular-nums ${rankColor}`}>
+                      {entry.rank}
+                    </span>
+                    <PlayerAvatar
+                      username={entry.iscored_username}
+                      discordUserId={entry.discord_user_id}
+                      avatarHash={entry.avatar_hash}
+                      size={22}
+                    />
+                    <span className="flex-1 text-sm truncate text-secondary">
+                      {entry.iscored_username}
+                    </span>
+                    <span
+                      className={`text-sm font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
+                      title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                    >
+                      {formatScore(entry.score)}
+                    </span>
+                    {canExpand && (
+                      isExpanded
+                        ? <Minus size={12} className="text-neon-cyan flex-shrink-0" />
+                        : <Plus size={12} className="text-faint flex-shrink-0" />
+                    )}
+                  </div>
+                  {isExpanded && (
+                    <div className="ml-10 mr-3 mt-0.5 mb-1 bg-deep/50 rounded px-3 py-1.5">
+                      {historyLoading ? (
+                        <p className="text-faint text-[10px] py-0.5">Loading...</p>
+                      ) : playerHistory.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {playerHistory.map(h => (
+                            <div key={h.id} className="flex items-center justify-between text-[11px]">
+                              <span className="text-muted">{h.score.toLocaleString()}</span>
+                              <span className="text-faint">{new Date(h.created_at).toLocaleDateString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-faint text-[10px] py-0.5">No additional scores.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -6,6 +6,7 @@ import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import ShowcasePodium from './ShowcasePodium';
 import ScoreList from './ScoreList';
 import GameInfoPopup from './GameInfoPopup';
+import { useScoreExpand } from './useScoreExpand';
 import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } from './neonCircuitAssets';
 
 interface ShowcaseCardProps {
@@ -40,6 +41,7 @@ function resolveImages(lb: GameLeaderboard) {
 export default function ShowcaseCard({
   lb,
   slug,
+  roomId,
   theme,
   maxScores,
   minScores = 20,
@@ -54,6 +56,7 @@ export default function ShowcaseCard({
 }: ShowcaseCardProps) {
   const { styleBgUrl, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
+  const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
 
   const [countdown, setCountdown] = useState<string | null>(
     lb.nextMaintenanceAt ? formatCountdown(lb.nextMaintenanceAt) : null
@@ -272,6 +275,11 @@ export default function ShowcaseCard({
             avatarBg={theme.avatarBg}
             avatarBorder={theme.avatarBorder}
             avatarColor={theme.avatarColor}
+            hasMultiple={hasMultiple}
+            expandedPlayer={expandedPlayer}
+            playerHistory={playerHistory}
+            historyLoading={historyLoading}
+            onTogglePlayer={togglePlayer}
           />
 
           {/* Spacer pushes footer to card bottom */}

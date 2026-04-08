@@ -977,9 +977,9 @@ export default function GameDetail() {
 
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="bg-surface border border-border rounded-lg p-4 text-center">
+    <div className="bg-surface border border-border rounded-lg p-4 text-center overflow-hidden">
       <p className="text-faint text-xs uppercase tracking-wider mb-1">{label}</p>
-      <p className={`font-display font-bold text-2xl ${color}`}>{value}</p>
+      <p className={`font-display font-bold text-2xl ${color} truncate`} title={value}>{value}</p>
     </div>
   );
 }
