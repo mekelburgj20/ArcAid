@@ -112,7 +112,7 @@ export default function KioskScoreboard() {
   }
 
   return (
-    <div className="min-h-screen bg-deep text-primary relative">
+    <div className={`min-h-screen bg-deep text-primary relative ${newConfig.mobileVertical ? 'scoreboard-mobile-vertical' : ''}`}>
       {/* Background image layer — offset below header unless fill-entire */}
       {bgUrl && (
         <div
@@ -265,11 +265,12 @@ export default function KioskScoreboard() {
 
       <style>{`
         @media (max-width: 640px) {
-          .scoreboard-banner-scroll { zoom: 0.6; }
-          .scoreboard-hscroll-layout { overflow-x: hidden !important; }
-          .scoreboard-hscroll-layout > div { flex-direction: column !important; align-items: center !important; }
-          .scoreboard-hscroll-layout > div > div { flex-shrink: 1 !important; width: 100% !important; max-width: 100% !important; }
-          .scoreboard-grid-layout { grid-template-columns: 1fr !important; }
+          .scoreboard-mobile-vertical .scoreboard-banner-scroll { zoom: 0.6; }
+          .scoreboard-mobile-vertical .scoreboard-hscroll-layout { overflow-x: hidden !important; }
+          .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div { flex-direction: column !important; align-items: center !important; }
+          .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div > div { flex-shrink: 1 !important; max-width: 100% !important; }
+          .scoreboard-mobile-vertical .scoreboard-grid-layout { grid-template-columns: 1fr !important; justify-items: center; }
+          .scoreboard-mobile-vertical .scoreboard-grid-layout > div { max-width: 100%; }
         }
       `}</style>
       {/* Scanline overlay */}

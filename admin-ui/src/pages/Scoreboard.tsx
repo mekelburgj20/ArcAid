@@ -138,7 +138,7 @@ export default function Scoreboard() {
   const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden relative">
+    <div className={`h-full flex flex-col overflow-hidden relative ${newConfig.mobileVertical ? 'scoreboard-mobile-vertical' : ''}`}>
       {/* Background image layer with opacity control — offset below header unless fill-entire */}
       {bgUrl && (
         <div
@@ -183,23 +183,26 @@ export default function Scoreboard() {
         .animate-slideDown {
           animation: slideDown 0.3s ease-out forwards;
         }
-        /* Mobile: Banner scales down, horizontal scroll converts to vertical */
+        /* Mobile: vertical mode converts scroll to centered vertical stack */
         @media (max-width: 640px) {
-          .scoreboard-banner-scroll { zoom: 0.6; }
-          .scoreboard-hscroll-layout {
+          .scoreboard-mobile-vertical .scoreboard-banner-scroll { zoom: 0.6; }
+          .scoreboard-mobile-vertical .scoreboard-hscroll-layout {
             overflow-x: hidden !important;
           }
-          .scoreboard-hscroll-layout > div {
+          .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div {
             flex-direction: column !important;
             align-items: center !important;
           }
-          .scoreboard-hscroll-layout > div > div {
+          .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div > div {
             flex-shrink: 1 !important;
-            width: 100% !important;
             max-width: 100% !important;
           }
-          .scoreboard-grid-layout {
+          .scoreboard-mobile-vertical .scoreboard-grid-layout {
             grid-template-columns: 1fr !important;
+            justify-items: center;
+          }
+          .scoreboard-mobile-vertical .scoreboard-grid-layout > div {
+            max-width: 100%;
           }
         }
       `}</style>

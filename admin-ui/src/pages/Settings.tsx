@@ -594,6 +594,7 @@ export default function Settings() {
     'SCOREBOARD_MIN_SCORES', 'SCOREBOARD_CARD_BG_FILL', 'SCOREBOARD_CARD_SPACING',
     'SCOREBOARD_TITLE_FONT_SIZE', 'SCOREBOARD_RANKINGS_STICKY',
     'SCOREBOARD_QR_SIZE', 'SCOREBOARD_QR_POSITION', 'SCOREBOARD_GAME_TITLE_STYLE',
+    'SCOREBOARD_MOBILE_VERTICAL',
     // New style system core keys
     'SCOREBOARD_STYLE', 'SCOREBOARD_THEME', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_SHOW_TIMER',
     // Legacy/removed — no longer surfaced
@@ -949,6 +950,20 @@ export default function Settings() {
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
                         ))}
                       </select>
+                    </div>
+
+                    {/* Mobile Vertical Scroll toggle */}
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-primary">Mobile Vertical Scroll</p>
+                        <p className="text-xs text-muted">When on, cards stack vertically on mobile. When off, mobile uses the same layout as desktop.</p>
+                      </div>
+                      <button
+                        onClick={() => handleChange('SCOREBOARD_MOBILE_VERTICAL', settings.SCOREBOARD_MOBILE_VERTICAL === 'false' ? 'true' : 'false')}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${settings.SCOREBOARD_MOBILE_VERTICAL === 'false' ? 'bg-raised' : 'bg-neon-cyan'}`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.SCOREBOARD_MOBILE_VERTICAL === 'false' ? 'translate-x-1' : 'translate-x-6'}`} />
+                      </button>
                     </div>
                   </div>
 

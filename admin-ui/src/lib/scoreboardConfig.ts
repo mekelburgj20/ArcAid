@@ -40,6 +40,7 @@ export interface ScoreboardConfig {
   qrPosition: string;            // 'top-right' | 'bottom-right' | 'bottom-center'
   gameTitleStyle: string;         // same options as titleStyle (glow, fire, plasma, etc.)
   bgBehindTitle: boolean;         // true when bgMode is 'fill-entire' — bg image extends behind title
+  mobileVertical: boolean;        // true = force vertical scroll on mobile (default), false = keep desktop layout
 }
 
 /**
@@ -103,6 +104,7 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     qrPosition: config.SCOREBOARD_QR_POSITION || 'top-right',
     gameTitleStyle: config.SCOREBOARD_GAME_TITLE_STYLE || 'default',
     bgBehindTitle: (config.SCOREBOARD_BG_MODE || 'cover') === 'fill-entire',
+    mobileVertical: config.SCOREBOARD_MOBILE_VERTICAL !== 'false',
   };
 }
 
