@@ -241,16 +241,14 @@ export default function ShowcaseCard({
             background: theme.dividerBg,
           }} />
 
-          {/* Podium (top 3) */}
-          {podiumEntries.length > 0 && (
-            isChipPodium ? (
-              <div style={{ position: 'relative', height: 280, margin: '0 20px' }}>
-                <PodiumBackground />
-                <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
-              </div>
-            ) : (
+          {/* Podium (top 3) — always rendered, blank slots when no entries */}
+          {isChipPodium ? (
+            <div style={{ position: 'relative' }}>
+              <PodiumBackground />
               <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
-            )
+            </div>
+          ) : (
+            <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
           )}
 
           {/* Divider before list */}
