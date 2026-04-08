@@ -1629,13 +1629,13 @@ router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomI
         );
 
         // Merge community_scores
-        await db.run(
+        const communityResult = await db.run(
             'UPDATE community_scores SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
             toUsername, fromUsername
         );
 
         // Merge score_history
-        await db.run(
+        const historyResult = await db.run(
             'UPDATE score_history SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
             toUsername, fromUsername
         );
@@ -1650,13 +1650,13 @@ router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomI
         const { RankingService } = await import('../../services/RankingService.js');
         await RankingService.invalidateAll();
 
-        const totalUpdated = (subResult.changes || 0) + (scoreResult.changes || 0);
-        logInfo(`Merged player '${fromUsername}' -> '${toUsername}': ${totalUpdated} records updated`);
+        const totalUpdated = (subResult.changes || 0) + (scoreResult.changes || 0) + (communityResult.changes || 0) + (historyResult.changes || 0);
+        logInfo(`Merged player '${fromUsername}' -> '${toUsername}': ${totalUpdated} records updated (submissions: ${subResult.changes || 0}, scores: ${scoreResult.changes || 0}, community: ${communityResult.changes || 0}, history: ${historyResult.changes || 0})`);
 
         res.json({
             success: true,
             submissionsUpdated: subResult.changes || 0,
-            scoresUpdated: scoreResult.changes || 0,
+            scoresUpdated: (scoreResult.changes || 0) + (communityResult.changes || 0),
         });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admin/merge-player):', error);
