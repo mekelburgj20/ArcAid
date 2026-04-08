@@ -976,10 +976,12 @@ export default function GameDetail() {
 }
 
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
+  // Auto-shrink font for long values to fit within card width
+  const fontSize = value.length > 13 ? 'text-sm' : value.length > 10 ? 'text-base' : value.length > 7 ? 'text-xl' : 'text-2xl';
   return (
-    <div className="bg-surface border border-border rounded-lg p-4 text-center overflow-hidden">
+    <div className="bg-surface border border-border rounded-lg p-4 text-center">
       <p className="text-faint text-xs uppercase tracking-wider mb-1">{label}</p>
-      <p className={`font-display font-bold text-2xl ${color} truncate`} title={value}>{value}</p>
+      <p className={`font-display font-bold ${fontSize} ${color}`}>{value}</p>
     </div>
   );
 }
