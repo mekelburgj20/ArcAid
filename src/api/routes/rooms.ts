@@ -1628,6 +1628,18 @@ router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomI
             toUsername, fromUsername
         );
 
+        // Merge community_scores
+        await db.run(
+            'UPDATE community_scores SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
+            toUsername, fromUsername
+        );
+
+        // Merge score_history
+        await db.run(
+            'UPDATE score_history SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
+            toUsername, fromUsername
+        );
+
         await db.run(
             'UPDATE user_mappings SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
             toUsername, fromUsername

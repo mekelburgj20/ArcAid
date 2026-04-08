@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { X, Camera, Trash2, Keyboard } from 'lucide-react';
 import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface ScoreSubmitModalProps {
   gameName: string;
@@ -13,7 +14,10 @@ interface ScoreSubmitModalProps {
 }
 
 export default function ScoreSubmitModal({ gameName, roomId, gameStatus, requirePhoto, onClose, onSubmitted }: ScoreSubmitModalProps) {
-  const [username, setUsername] = useState(localStorage.getItem('arcaid-player-name') || '');
+  const { discordUser } = useViewerAuth();
+  const [username, setUsername] = useState(
+    discordUser?.username || localStorage.getItem('arcaid-player-name') || ''
+  );
   const [score, setScore] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
