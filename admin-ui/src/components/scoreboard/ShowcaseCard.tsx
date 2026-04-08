@@ -272,9 +272,6 @@ export default function ShowcaseCard({
             rankColor={theme.rankColor}
             nameColor={theme.nameColor}
             scoreColor={theme.scoreColor}
-            avatarBg={theme.avatarBg}
-            avatarBorder={theme.avatarBorder}
-            avatarColor={theme.avatarColor}
             hasMultiple={hasMultiple}
             expandedPlayer={expandedPlayer}
             playerHistory={playerHistory}

@@ -85,13 +85,18 @@ export class ScoreHistoryService {
      */
     static async getPlayerScoreCounts(gameRoomId: string, gameId: string): Promise<Record<string, number>> {
         const db = await getDatabase();
+        // Look up game name so we can match score_history entries that have game_id=NULL
+        // (e.g. community scores logged without a game_id)
+        const game = await db.get('SELECT name FROM games WHERE id = ?', gameId);
+        const gameName = game?.name;
+
         const rows = await db.all(`
             SELECT LOWER(iscored_username) as player_key, COUNT(*) as cnt
             FROM score_history
-            WHERE game_room_id = ? AND game_id = ?
+            WHERE game_room_id = ? AND (game_id = ? ${gameName ? 'OR (game_id IS NULL AND LOWER(game_name) = LOWER(?))' : ''})
             GROUP BY LOWER(iscored_username)
             HAVING cnt > 1
-        `, gameRoomId, gameId);
+        `, ...(gameName ? [gameRoomId, gameId, gameName] : [gameRoomId, gameId]));
         const map: Record<string, number> = {};
         for (const row of rows) {
             map[(row as any).player_key] = (row as any).cnt;

@@ -1,5 +1,6 @@
 import { Plus, Minus } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
+import { PlayerAvatar } from '../ScoreboardComponents';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 
 interface ScoreListProps {
@@ -11,21 +12,12 @@ interface ScoreListProps {
   rankColor?: string;
   nameColor?: string;
   scoreColor?: string;
-  avatarBg?: string;
-  avatarBorder?: string;
-  avatarColor?: string;
   // Score expand
   hasMultiple?: (username: string) => boolean;
   expandedPlayer?: string | null;
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
-}
-
-function initials(name: string): string {
-  const parts = name.replace(/[^a-zA-Z0-9 ]/g, '').trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-  return name.slice(0, 2).toUpperCase();
 }
 
 function formatScore(score: number): string {
@@ -42,9 +34,6 @@ export default function ScoreList({
   rankColor = 'rgba(255,255,255,0.18)',
   nameColor = 'rgba(255,255,255,0.45)',
   scoreColor = 'rgba(255,255,255,0.2)',
-  avatarBg = 'rgba(255,255,255,0.04)',
-  avatarBorder,
-  avatarColor = 'rgba(255,255,255,0.2)',
   hasMultiple,
   expandedPlayer,
   playerHistory,
@@ -91,23 +80,12 @@ export default function ScoreList({
               </span>
 
               {/* Avatar */}
-              <div style={{
-                width: '20px',
-                height: '20px',
-                borderRadius: '50%',
-                background: avatarBg,
-                border: avatarBorder || 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '7px',
-                color: avatarColor,
-                fontWeight: 600,
-                flexShrink: 0,
-                fontFamily: monoFontFamily,
-              }}>
-                {initials(entry.iscored_username)}
-              </div>
+              <PlayerAvatar
+                username={entry.iscored_username}
+                discordUserId={entry.discord_user_id}
+                avatarHash={entry.avatar_hash}
+                size={20}
+              />
 
               {/* Name */}
               <span style={{

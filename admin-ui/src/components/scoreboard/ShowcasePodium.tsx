@@ -1,15 +1,10 @@
 import type { RankedEntry } from '../ScoreboardComponents';
+import { PlayerAvatar } from '../ScoreboardComponents';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 
 interface ShowcasePodiumProps {
   entries: RankedEntry[];  // top 3 (or fewer)
   theme: ShowcaseThemeConfig;
-}
-
-function initials(name: string): string {
-  const parts = name.replace(/[^a-zA-Z0-9 ]/g, '').trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-  return name.slice(0, 2).toUpperCase();
 }
 
 function formatScore(score: number): string {
@@ -42,20 +37,8 @@ function PyramidPodium({ entries, theme }: ShowcasePodiumProps) {
               <span style={{ fontSize: '14px', lineHeight: 1 }}>{'\u{1F3C6}'}</span>
               <span style={{ fontSize: '11px', fontWeight: 700, color: configs[0]!.pod.rankColor }}>1st</span>
             </div>
-            <div style={{
-              borderRadius: '50%',
-              margin: '0 auto 5px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 700,
-              background: 'linear-gradient(135deg, #ffd700, #f7a800)',
-              color: '#1a1a24',
-              width: 36,
-              height: 36,
-              fontSize: 11,
-            }}>
-              {initials(first.iscored_username)}
+            <div style={{ margin: '0 auto 5px' }}>
+              <PlayerAvatar username={first.iscored_username} discordUserId={first.discord_user_id} avatarHash={first.avatar_hash} size={36} />
             </div>
             <div style={{
               fontWeight: 600,
@@ -88,9 +71,6 @@ function PyramidPodium({ entries, theme }: ShowcasePodiumProps) {
           {[second, third].map((entry, i) => {
             if (!entry) return <div key={i} style={{ flex: 1 }} />;
             const cfg = configs[i + 1]!;
-            const avatarGrad = i === 0
-              ? 'linear-gradient(135deg, #c0c0c0, #a0a8b0)'
-              : 'linear-gradient(135deg, #cd7f32, #a0622e)';
             return (
               <div key={i} style={{
                 flex: 1,
@@ -103,20 +83,8 @@ function PyramidPodium({ entries, theme }: ShowcasePodiumProps) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', marginBottom: '6px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: cfg.pod.rankColor }}>{cfg.label}</span>
                 </div>
-                <div style={{
-                  borderRadius: '50%',
-                  margin: '0 auto 5px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 700,
-                  background: avatarGrad,
-                  color: '#1a1a24',
-                  width: 26,
-                  height: 26,
-                  fontSize: 8,
-                }}>
-                  {initials(entry.iscored_username)}
+                <div style={{ margin: '0 auto 5px' }}>
+                  <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={26} />
                 </div>
                 <div style={{
                   fontWeight: 600,
