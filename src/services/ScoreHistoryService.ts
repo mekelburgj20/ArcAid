@@ -15,6 +15,16 @@ export class ScoreHistoryService {
         source: 'tournament' | 'community' | 'sync';
     }) {
         const db = await getDatabase();
+
+        // Dedup: skip if an identical (game, player, score, room) entry already exists
+        const existing = await db.get(
+            `SELECT id FROM score_history
+             WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?) AND LOWER(iscored_username) = LOWER(?) AND score = ?
+             LIMIT 1`,
+            params.gameRoomId, params.gameName, params.username, params.score
+        );
+        if (existing) return;
+
         await db.run(
             `INSERT INTO score_history (game_name, game_room_id, game_id, iscored_username, discord_user_id, score, photo_url, source)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
