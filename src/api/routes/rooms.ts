@@ -1662,7 +1662,23 @@ router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomI
             toUsername, fromUsername
         );
 
-        // 7. Record alias so ScoreSyncPoller maps this username going forward
+        // 7. Fix discord_user_id on merged submissions — resolve target's real Discord ID
+        const targetMapping = await db.get(
+            'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
+            toUsername
+        );
+        if (targetMapping?.discord_user_id) {
+            await db.run(
+                `UPDATE submissions SET discord_user_id = ? WHERE LOWER(iscored_username) = LOWER(?) AND (discord_user_id LIKE 'iscored:%' OR discord_user_id IN ('COMMUNITY', 'ANON'))`,
+                targetMapping.discord_user_id, toUsername
+            );
+            await db.run(
+                `UPDATE community_scores SET discord_user_id = ? WHERE LOWER(iscored_username) = LOWER(?) AND (discord_user_id LIKE 'iscored:%' OR discord_user_id IN ('COMMUNITY', 'ANON'))`,
+                targetMapping.discord_user_id, toUsername
+            );
+        }
+
+        // 8. Record alias so ScoreSyncPoller maps this username going forward
         await db.run(
             'INSERT OR REPLACE INTO player_aliases (old_username, new_username) VALUES (?, ?)',
             fromUsername.toLowerCase(), toUsername

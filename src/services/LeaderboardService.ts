@@ -29,8 +29,8 @@ export class LeaderboardService {
                 um.avatar_hash
             FROM (
                 SELECT
-                    CASE WHEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') THEN discord_user_id END) IS NOT NULL
-                         THEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') THEN discord_user_id END)
+                    CASE WHEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') AND discord_user_id NOT LIKE 'iscored:%' THEN discord_user_id END) IS NOT NULL
+                         THEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') AND discord_user_id NOT LIKE 'iscored:%' THEN discord_user_id END)
                          ELSE MAX(discord_user_id)
                     END as discord_user_id,
                     iscored_username,
@@ -49,7 +49,7 @@ export class LeaderboardService {
             ) combined
             LEFT JOIN user_mappings um ON (
                 um.discord_user_id = combined.discord_user_id
-                OR (combined.discord_user_id IN ('SYSTEM','COMMUNITY','ANON')
+                OR ((combined.discord_user_id IN ('SYSTEM','COMMUNITY','ANON') OR combined.discord_user_id LIKE 'iscored:%')
                     AND LOWER(um.iscored_username) = LOWER(combined.iscored_username))
             )
             ORDER BY combined.score DESC
