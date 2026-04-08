@@ -411,6 +411,12 @@ export async function initDatabase(): Promise<Database> {
         { name: '033_game_library_external_url', sql: `ALTER TABLE game_library ADD COLUMN external_url TEXT` },
         { name: '034_games_external_url', sql: `ALTER TABLE games ADD COLUMN external_url TEXT` },
         { name: '035_games_notes', sql: `ALTER TABLE games ADD COLUMN notes TEXT` },
+        { name: '036_player_aliases', sql: `CREATE TABLE IF NOT EXISTS player_aliases (
+            old_username TEXT NOT NULL,
+            new_username TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (old_username)
+        )` },
     ];
 
     for (const migration of migrations) {

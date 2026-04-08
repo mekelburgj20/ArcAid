@@ -1603,46 +1603,69 @@ router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomI
         }
 
         const db = await getDatabase();
+        let mergedCount = 0;
 
+        // 1. Handle submissions: rename IDs and keep higher score on conflicts
         const syncRows = await db.all(
-            `SELECT id, game_id FROM submissions WHERE LOWER(iscored_username) = LOWER(?) AND id LIKE '%' || '-' || ?`,
+            `SELECT id, game_id, score FROM submissions WHERE LOWER(iscored_username) = LOWER(?) AND id LIKE '%' || '-' || ?`,
             fromUsername, fromUsername.toLowerCase()
         );
         for (const row of syncRows) {
             const newId = `${row.game_id}-${toUsername.toLowerCase()}`;
-            const existing = await db.get('SELECT id FROM submissions WHERE id = ?', newId);
+            const existing = await db.get('SELECT id, score FROM submissions WHERE id = ?', newId);
             if (existing) {
-                await db.run('DELETE FROM submissions WHERE id = ?', row.id);
+                if (row.score > existing.score) {
+                    // Source has higher score — replace target
+                    await db.run('DELETE FROM submissions WHERE id = ?', existing.id);
+                    await db.run('UPDATE submissions SET id = ?, iscored_username = ? WHERE id = ?', newId, toUsername, row.id);
+                } else {
+                    // Target has higher or equal score — delete source
+                    await db.run('DELETE FROM submissions WHERE id = ?', row.id);
+                }
             } else {
-                await db.run('UPDATE submissions SET id = ? WHERE id = ?', newId, row.id);
+                await db.run('UPDATE submissions SET id = ?, iscored_username = ? WHERE id = ?', newId, toUsername, row.id);
             }
+            mergedCount++;
         }
 
+        // 2. Catch any remaining submissions not matched by ID pattern
         const subResult = await db.run(
             'UPDATE submissions SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
             toUsername, fromUsername
         );
+        mergedCount += subResult.changes || 0;
 
+        // 3. Scores table
         const scoreResult = await db.run(
             'UPDATE scores SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
             toUsername, fromUsername
         );
+        mergedCount += scoreResult.changes || 0;
 
-        // Merge community_scores
+        // 4. Community scores
         const communityResult = await db.run(
             'UPDATE community_scores SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
             toUsername, fromUsername
         );
+        mergedCount += communityResult.changes || 0;
 
-        // Merge score_history
+        // 5. Score history
         const historyResult = await db.run(
             'UPDATE score_history SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
             toUsername, fromUsername
         );
+        mergedCount += historyResult.changes || 0;
 
+        // 6. User mappings
         await db.run(
             'UPDATE user_mappings SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
             toUsername, fromUsername
+        );
+
+        // 7. Record alias so ScoreSyncPoller maps this username going forward
+        await db.run(
+            'INSERT OR REPLACE INTO player_aliases (old_username, new_username) VALUES (?, ?)',
+            fromUsername.toLowerCase(), toUsername
         );
 
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
@@ -1650,13 +1673,12 @@ router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomI
         const { RankingService } = await import('../../services/RankingService.js');
         await RankingService.invalidateAll();
 
-        const totalUpdated = (subResult.changes || 0) + (scoreResult.changes || 0) + (communityResult.changes || 0) + (historyResult.changes || 0);
-        logInfo(`Merged player '${fromUsername}' -> '${toUsername}': ${totalUpdated} records updated (submissions: ${subResult.changes || 0}, scores: ${scoreResult.changes || 0}, community: ${communityResult.changes || 0}, history: ${historyResult.changes || 0})`);
+        logInfo(`Merged player '${fromUsername}' -> '${toUsername}': ${mergedCount} records updated`);
 
         res.json({
             success: true,
-            submissionsUpdated: subResult.changes || 0,
-            scoresUpdated: (scoreResult.changes || 0) + (communityResult.changes || 0),
+            submissionsUpdated: syncRows.length + (subResult.changes || 0),
+            scoresUpdated: (scoreResult.changes || 0) + (communityResult.changes || 0) + (historyResult.changes || 0),
         });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admin/merge-player):', error);

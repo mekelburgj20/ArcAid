@@ -95,6 +95,13 @@ export class ScoreSyncPoller {
                 mappingMap.set(m.iscored_username.toLowerCase(), m.discord_user_id);
             }
 
+            // Pre-load player aliases (from merge operations)
+            const aliasRows = await db.all('SELECT old_username, new_username FROM player_aliases');
+            const aliasMap = new Map<string, string>();
+            for (const a of aliasRows) {
+                aliasMap.set(a.old_username.toLowerCase(), a.new_username);
+            }
+
             const changedGameIds = new Set<string>();
 
             for (const gameData of allScores) {
@@ -121,12 +128,14 @@ export class ScoreSyncPoller {
                     const scoreValue = parseInt(String(score.score).replace(/[^0-9-]/g, ''), 10);
                     if (isNaN(scoreValue)) continue;
 
-                    const syncId = `${localGame.id}-${score.name.toLowerCase()}`;
+                    // Apply player alias (from merge operations)
+                    const resolvedName = aliasMap.get(score.name.toLowerCase()) || score.name;
+                    const syncId = `${localGame.id}-${resolvedName.toLowerCase()}`;
                     const existing = existingMap.get(syncId);
 
                     // Only update if new or higher score
                     if (!existing || scoreValue > existing.score) {
-                        const discordUserId = mappingMap.get(score.name.toLowerCase()) || `iscored:${score.name}`;
+                        const discordUserId = mappingMap.get(resolvedName.toLowerCase()) || mappingMap.get(score.name.toLowerCase()) || `iscored:${resolvedName}`;
 
                         await db.run(`
                             INSERT INTO submissions (id, game_id, iscored_username, score, timestamp, discord_user_id)
@@ -135,10 +144,10 @@ export class ScoreSyncPoller {
                                 score = excluded.score,
                                 discord_user_id = excluded.discord_user_id,
                                 iscored_username = excluded.iscored_username
-                        `, syncId, localGame.id, score.name, scoreValue, new Date().toISOString(), discordUserId);
+                        `, syncId, localGame.id, resolvedName, scoreValue, new Date().toISOString(), discordUserId);
 
                         changedGameIds.add(localGame.id);
-                        logDebug(`ScoreSyncPoller: ${existing ? 'updated' : 'new'} score for ${score.name} on "${gameData.gameName}": ${scoreValue.toLocaleString()}`);
+                        logDebug(`ScoreSyncPoller: ${existing ? 'updated' : 'new'} score for ${resolvedName}${resolvedName !== score.name ? ` (alias of ${score.name})` : ''} on "${gameData.gameName}": ${scoreValue.toLocaleString()}`);
 
                         // Log to score history for new/higher scores
                         if (localGame.tournament_id) {
@@ -150,7 +159,7 @@ export class ScoreSyncPoller {
                                         gameName: localGame.name,
                                         gameRoomId: tournament.game_room_id,
                                         gameId: localGame.id,
-                                        username: score.name,
+                                        username: resolvedName,
                                         discordUserId,
                                         score: scoreValue,
                                         source: 'sync',
