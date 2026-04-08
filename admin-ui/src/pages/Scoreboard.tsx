@@ -183,9 +183,9 @@ export default function Scoreboard() {
         .animate-slideDown {
           animation: slideDown 0.3s ease-out forwards;
         }
-        /* Mobile: vertical mode converts scroll to centered vertical stack */
+        /* Mobile: scale + vertical mode */
         @media (max-width: 640px) {
-          .scoreboard-mobile-vertical .scoreboard-banner-scroll { zoom: 0.6; }
+          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.6); }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout {
             overflow-x: hidden !important;
           }
@@ -243,7 +243,7 @@ export default function Scoreboard() {
       </div>
 
       {/* Game cards */}
-      <div className="px-4 sm:px-6 pb-6">
+      <div className="px-4 sm:px-6 pb-6 scoreboard-mobile-scale" style={{ '--mobile-scale': newConfig.mobileScale } as React.CSSProperties}>
 
       {/* Rankings: top position (only when sticky/separate) */}
       {!inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (

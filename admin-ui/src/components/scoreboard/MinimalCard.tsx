@@ -43,6 +43,7 @@ export default function MinimalCard({
   cardBgFill = false,
   titleFontSize,
   gameTitleStyle = 'default',
+  onSubmitScore,
 }: MinimalCardProps) {
   const displayName = lb.displayName || lb.gameName;
   const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
@@ -111,7 +112,10 @@ export default function MinimalCard({
         </>
       )}
       {/* Title area */}
-      <div className="px-5 pt-4 pb-3 relative z-[1]">
+      <div
+        className={`px-5 pt-4 pb-3 relative z-[1] ${onSubmitScore ? 'cursor-pointer hover:bg-raised/30 transition-colors' : ''}`}
+        onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
+      >
         <h3 className={`font-display font-bold leading-tight text-primary flex items-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
           {displayName}
           <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />

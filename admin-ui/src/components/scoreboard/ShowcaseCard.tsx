@@ -246,10 +246,10 @@ export default function ShowcaseCard({
             isChipPodium ? (
               <div style={{ position: 'relative', height: 280, margin: '0 20px' }}>
                 <PodiumBackground />
-                <ShowcasePodium entries={podiumEntries} theme={theme} />
+                <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
               </div>
             ) : (
-              <ShowcasePodium entries={podiumEntries} theme={theme} />
+              <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
             )
           )}
 

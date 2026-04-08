@@ -172,7 +172,7 @@ export default function KioskScoreboard() {
         )}
 
         {/* Main content area */}
-        <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row gap-6 items-stretch lg:items-start' : 'flex-col gap-6'}`}>
+        <div className={`flex scoreboard-mobile-scale ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row gap-6 items-stretch lg:items-start' : 'flex-col gap-6'}`} style={{ '--mobile-scale': newConfig.mobileScale } as React.CSSProperties}>
 
           {/* Rankings: left position (only when sticky/separate) */}
           {!inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
@@ -265,7 +265,7 @@ export default function KioskScoreboard() {
 
       <style>{`
         @media (max-width: 640px) {
-          .scoreboard-mobile-vertical .scoreboard-banner-scroll { zoom: 0.6; }
+          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.6); }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout { overflow-x: hidden !important; }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div { flex-direction: column !important; align-items: center !important; }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div > div { flex-shrink: 1 !important; max-width: 100% !important; }
