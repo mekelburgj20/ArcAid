@@ -7,7 +7,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
-import { passesplatformRules } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export const pickgame: Command = {
@@ -70,8 +70,7 @@ export const pickgame: Command = {
 
             // Filter by platform rules
             choices = choices.filter(r => {
-                let gamePlatforms: string[] = [];
-                try { gamePlatforms = JSON.parse(r.platforms || '[]'); } catch {}
+                const gamePlatforms = parsePlatformsList(r.platforms || '');
                 return passesplatformRules(gamePlatforms, platformRules);
             });
 

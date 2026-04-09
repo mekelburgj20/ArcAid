@@ -7,6 +7,7 @@ import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMen
 import { TournamentEngine } from './TournamentEngine.js';
 import { IScoredClient } from './IScoredClient.js';
 import { v4 as uuidv4 } from 'uuid';
+import { parsePlatformsList } from '../utils/platformRules.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -292,8 +293,7 @@ export class TimeoutManager {
                 if (g.mode !== tournament.mode) return false;
 
                 // Parse game platforms
-                let gamePlatforms: string[] = [];
-                try { gamePlatforms = JSON.parse(g.platforms || '[]'); } catch {}
+                const gamePlatforms = parsePlatformsList(g.platforms || '');
                 const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
 
                 // Required: game must have at least one required platform

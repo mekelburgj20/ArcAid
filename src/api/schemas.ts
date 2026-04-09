@@ -50,7 +50,17 @@ export const UpdateTournamentSchema = CreateTournamentSchema.omit({ id: true });
 const platformsField = z.union([
     z.array(z.string()),
     z.string(),
-]).transform((v: string[] | string) => Array.isArray(v) ? JSON.stringify(v) : v).optional().default('[]');
+]).transform((v: string[] | string) => {
+    if (Array.isArray(v)) return JSON.stringify(v);
+    // Already a valid JSON array string — normalize and pass through
+    try {
+        const parsed = JSON.parse(v);
+        if (Array.isArray(parsed)) return JSON.stringify(parsed);
+    } catch {}
+    // Comma-separated string → JSON array
+    const list = v.split(',').map(s => s.trim()).filter(Boolean);
+    return JSON.stringify(list);
+}).optional().default('[]');
 
 const gameFields = {
     name: z.string().min(1).max(200),

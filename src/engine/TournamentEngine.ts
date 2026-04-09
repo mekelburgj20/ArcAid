@@ -12,6 +12,7 @@ import { GameLibraryService } from '../services/GameLibraryService.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { RoomEventService } from '../services/RoomEventService.js';
+import { parsePlatformsList } from '../utils/platformRules.js';
 
 export class TournamentEngine {
     private static instance: TournamentEngine;
@@ -825,8 +826,7 @@ export class TournamentEngine {
         // Filter by mode + platform rules
         const eligible = libraryGames.filter(g => {
             if (g.mode !== tournamentRow.mode) return false;
-            let gamePlatforms: string[] = [];
-            try { gamePlatforms = JSON.parse(g.platforms || '[]'); } catch {}
+            const gamePlatforms = parsePlatformsList(g.platforms || '');
             const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
             if (platformRules.required.length > 0) {
                 if (!platformRules.required.some((rp: string) => upperPlatforms.includes(rp.toUpperCase()))) return false;

@@ -6,7 +6,7 @@ import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
 import { getTournamentColor } from '../../utils/discord.js';
-import { passesplatformRules } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
 
 export const activategame: Command = {
     data: new SlashCommandBuilder()
@@ -67,7 +67,7 @@ export const activategame: Command = {
             try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
             if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
                 const gameLibRow = await db.get('SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
-                const gamePlatforms: string[] = gameLibRow?.platforms ? JSON.parse(gameLibRow.platforms) : [];
+                const gamePlatforms = parsePlatformsList(gameLibRow?.platforms || '');
                 if (!passesplatformRules(gamePlatforms, platformRules)) {
                     await interaction.editReply(`**${gameName}** does not meet the platform requirements for **${tournamentName}**.`);
                     return;

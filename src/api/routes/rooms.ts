@@ -27,7 +27,7 @@ import {
 import { writeLimiter, pickLimiter } from '../rateLimit.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
-import { passesplatformRules } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
 import { GameRoomSettingsService } from '../../services/GameRoomSettingsService.js';
@@ -486,8 +486,7 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
         let platformRules = { required: [] as string[], excluded: [] as string[] };
         try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
 
-        let gamePlatforms: string[] = [];
-        try { gamePlatforms = JSON.parse(gameLibEntry.platforms || '[]'); } catch {}
+        const gamePlatforms = parsePlatformsList(gameLibEntry.platforms || '');
 
         if (!passesplatformRules(gamePlatforms, platformRules)) {
             const restrictedText = (JSON.parse(tournament.platform_rules || '{}') as any).restrictedText;
@@ -1280,7 +1279,7 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
         if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
             const gameLibRow = await db.get('SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
-            const gamePlatforms: string[] = gameLibRow?.platforms ? JSON.parse(gameLibRow.platforms) : [];
+            const gamePlatforms = parsePlatformsList(gameLibRow?.platforms || '');
             if (!passesplatformRules(gamePlatforms, platformRules)) {
                 return res.status(400).json({ error: `Game "${gameName}" does not meet this tournament's platform requirements` });
             }
