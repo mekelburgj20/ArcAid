@@ -1,0 +1,436 @@
+import { useEffect, useState, useCallback } from 'react';
+import { api } from '../lib/api';
+import NeonCard from '../components/NeonCard';
+import NeonButton from '../components/NeonButton';
+import LoadingState from '../components/LoadingState';
+import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink } from 'lucide-react';
+
+interface GlobalGame {
+  id: string;
+  name: string;
+  display_name: string | null;
+  manufacturer: string | null;
+  year: number | null;
+  type: string;
+  subtype: string | null;
+  platforms: string;
+  themes: string;
+  features: string;
+  status: string;
+  imported_from: string | null;
+  opdb_id: string | null;
+  vps_id: string | null;
+  igdb_id: number | null;
+  external_url: string | null;
+  local_image_path: string | null;
+  created_at: string;
+}
+
+interface SyncLog {
+  id: string;
+  source: string;
+  status: string;
+  records_imported: number;
+  records_updated: number;
+  records_skipped: number;
+  errors: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+interface CatalogueCounts {
+  total: number;
+  approved: number;
+  pending: number;
+  rejected: number;
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  vps: 'VPS',
+  opdb: 'OPDB',
+  igdb: 'IGDB',
+  wizard: 'Wizard',
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  success: 'text-neon-green',
+  error: 'text-red-400',
+  partial: 'text-yellow-400',
+};
+
+export default function GlobalCatalogue() {
+  const [games, setGames] = useState<GlobalGame[]>([]);
+  const [counts, setCounts] = useState<CatalogueCounts>({ total: 0, approved: 0, pending: 0, rejected: 0 });
+  const [syncStatus, setSyncStatus] = useState<SyncLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterSource, setFilterSource] = useState('');
+  const [expandedGame, setExpandedGame] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<{ source: string; message: string } | null>(null);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [gamesRes, countsRes, syncRes] = await Promise.all([
+        api.get<{ data: GlobalGame[]; hasMore: boolean }>('/admin/catalogue/games' +
+          buildQuery({ search, type: filterType, status: filterStatus, source: filterSource })),
+        api.get<CatalogueCounts>('/admin/catalogue/counts'),
+        api.get<SyncLog[]>('/admin/catalogue/sync-status'),
+      ]);
+      setGames(gamesRes.data);
+      setCounts(countsRes);
+      setSyncStatus(syncRes);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, [search, filterType, filterStatus, filterSource]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleSync = async (source: string) => {
+    setSyncing(source);
+    setSyncResult(null);
+    try {
+      // Kick off background sync. Backend returns 202 immediately.
+      await api.post<{ success: boolean; started: boolean; source: string }>(
+        `/admin/catalogue/sync-${source}`, {}
+      );
+
+      setSyncResult({
+        source,
+        message: `${SOURCE_LABELS[source]} sync started in background. Polling for completion...`,
+      });
+
+      // Poll sync-status every 2s until this source's log has a completed_at
+      const startedAt = Date.now();
+      const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes safety cap
+
+      while (Date.now() - startedAt < TIMEOUT_MS) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const logs = await api.get<SyncLog[]>('/admin/catalogue/sync-status');
+          setSyncStatus(logs);
+          const latest = logs.find(l => l.source === source);
+          if (latest && latest.completed_at) {
+            const imported = latest.records_imported || 0;
+            const updated = latest.records_updated || 0;
+            const skipped = latest.records_skipped || 0;
+            if (latest.status === 'error') {
+              setSyncResult({
+                source,
+                message: `${SOURCE_LABELS[source]} sync failed. Check logs for details.`,
+              });
+            } else {
+              setSyncResult({
+                source,
+                message: `${SOURCE_LABELS[source]}: ${imported} imported, ${updated} updated` +
+                  (skipped ? `, ${skipped} skipped` : '') +
+                  (latest.status === 'partial' ? ' (partial — some errors)' : ''),
+              });
+            }
+            await loadData();
+            return;
+          }
+        } catch {
+          // Transient poll failure — keep trying
+        }
+      }
+
+      setSyncResult({
+        source,
+        message: `${SOURCE_LABELS[source]} sync is still running after 15 minutes. Check the sync health dashboard.`,
+      });
+      await loadData();
+    } catch (err) {
+      setSyncResult({ source, message: `${SOURCE_LABELS[source]} sync failed to start: ${err}` });
+    } finally {
+      setSyncing(null);
+    }
+  };
+
+  const handleStatusChange = async (gameId: string, newStatus: string) => {
+    try {
+      await api.patch(`/admin/catalogue/games/${gameId}/status`, { status: newStatus });
+      await loadData();
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleDelete = async (gameId: string) => {
+    if (!confirm('Delete this game from the global catalogue?')) return;
+    try {
+      await api.delete(`/admin/catalogue/games/${gameId}`);
+      await loadData();
+    } catch {
+      // ignore
+    }
+  };
+
+  if (loading) return <LoadingState message="Loading catalogue..." />;
+
+  return (
+    <div>
+      <h1 className="font-display text-2xl font-bold mb-6">Global Game Catalogue</h1>
+
+      {/* Overview counts */}
+      <NeonCard glowColor="cyan" className="mb-6" title="Catalogue Overview">
+        <div className="flex gap-8 flex-wrap">
+          <Stat label="Total Games" value={counts.total} color="cyan" />
+          <Stat label="Approved" value={counts.approved} color="green" />
+          <Stat label="Pending Review" value={counts.pending} color="yellow" />
+          <Stat label="Rejected" value={counts.rejected} color="red" />
+        </div>
+      </NeonCard>
+
+      {/* Sync controls + health */}
+      <NeonCard glowColor="magenta" className="mb-6" title="Catalogue Sync">
+        <div className="flex flex-wrap gap-3 mb-4">
+          {['vps', 'wizard', 'opdb', 'igdb'].map(source => (
+            <NeonButton
+              key={source}
+              variant="secondary"
+              onClick={() => handleSync(source)}
+              disabled={syncing !== null}
+              className="flex items-center gap-2"
+            >
+              <RefreshCw size={14} className={syncing === source ? 'animate-spin' : ''} />
+              Sync {SOURCE_LABELS[source]}
+            </NeonButton>
+          ))}
+        </div>
+
+        {syncResult && (
+          <div className={`text-sm mb-4 p-2 rounded ${syncResult.message.includes('failed') ? 'bg-red-900/30 text-red-300' : 'bg-green-900/30 text-green-300'}`}>
+            {syncResult.message}
+          </div>
+        )}
+
+        {/* Last sync status per source */}
+        {syncStatus.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {syncStatus.map(log => (
+              <div key={log.id} className="bg-surface-alt rounded p-3 text-sm">
+                <div className="font-bold text-xs uppercase tracking-wider text-muted mb-1">
+                  {SOURCE_LABELS[log.source] || log.source}
+                </div>
+                <div className={STATUS_COLORS[log.status] || 'text-muted'}>
+                  {log.status}
+                </div>
+                <div className="text-muted text-xs mt-1">
+                  {log.records_imported} new, {log.records_updated} updated
+                </div>
+                <div className="text-muted text-xs">
+                  {formatDate(log.completed_at || log.started_at)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </NeonCard>
+
+      {/* Search + filters */}
+      <NeonCard className="mb-6" title="Browse Games">
+        <div className="flex flex-wrap gap-3 mb-4">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              type="text"
+              placeholder="Search games..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full bg-surface-alt border border-border rounded pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-neon-cyan"
+            />
+          </div>
+          <select
+            value={filterType}
+            onChange={e => setFilterType(e.target.value)}
+            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-white"
+            style={{ colorScheme: 'dark' }}
+          >
+            <option value="" className="bg-surface-alt text-white">All Types</option>
+            <option value="pinball" className="bg-surface-alt text-white">Pinball</option>
+            <option value="arcade" className="bg-surface-alt text-white">Arcade</option>
+            <option value="video_game" className="bg-surface-alt text-white">Video Game</option>
+          </select>
+          <select
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-white"
+            style={{ colorScheme: 'dark' }}
+          >
+            <option value="" className="bg-surface-alt text-white">All Status</option>
+            <option value="approved" className="bg-surface-alt text-white">Approved</option>
+            <option value="pending_review" className="bg-surface-alt text-white">Pending Review</option>
+            <option value="rejected" className="bg-surface-alt text-white">Rejected</option>
+          </select>
+          <select
+            value={filterSource}
+            onChange={e => setFilterSource(e.target.value)}
+            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-white"
+            style={{ colorScheme: 'dark' }}
+          >
+            <option value="" className="bg-surface-alt text-white">All Sources</option>
+            <option value="vps" className="bg-surface-alt text-white">VPS</option>
+            <option value="opdb" className="bg-surface-alt text-white">OPDB</option>
+            <option value="igdb" className="bg-surface-alt text-white">IGDB</option>
+            <option value="wizard" className="bg-surface-alt text-white">Wizard</option>
+            <option value="manual" className="bg-surface-alt text-white">Manual</option>
+          </select>
+        </div>
+
+        {/* Game list */}
+        <div className="text-sm text-muted mb-2">{games.length} games shown</div>
+        <div className="space-y-1">
+          {games.map(game => (
+            <GameRow
+              key={game.id}
+              game={game}
+              expanded={expandedGame === game.id}
+              onToggle={() => setExpandedGame(expandedGame === game.id ? null : game.id)}
+              onStatusChange={handleStatusChange}
+              onDelete={handleDelete}
+            />
+          ))}
+          {games.length === 0 && (
+            <div className="text-muted text-center py-8">
+              No games found. Try adjusting your filters or sync a source.
+            </div>
+          )}
+        </div>
+      </NeonCard>
+    </div>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  const colorClass = {
+    cyan: 'text-neon-cyan',
+    green: 'text-neon-green',
+    yellow: 'text-yellow-400',
+    red: 'text-red-400',
+  }[color] || 'text-white';
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-muted text-sm">{label}:</span>
+      <span className={`font-display font-bold text-lg ${colorClass}`}>{(value ?? 0).toLocaleString()}</span>
+    </div>
+  );
+}
+
+function GameRow({
+  game,
+  expanded,
+  onToggle,
+  onStatusChange,
+  onDelete,
+}: {
+  game: GlobalGame;
+  expanded: boolean;
+  onToggle: () => void;
+  onStatusChange: (id: string, status: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const platforms: string[] = JSON.parse(game.platforms || '[]');
+  const statusBadge = {
+    approved: 'bg-green-900/40 text-green-300',
+    pending_review: 'bg-yellow-900/40 text-yellow-300',
+    rejected: 'bg-red-900/40 text-red-300',
+  }[game.status] || 'bg-gray-800 text-gray-400';
+
+  return (
+    <div className="bg-surface-alt rounded border border-border overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/5 transition-colors"
+      >
+        {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        <span className="flex-1 font-medium truncate">{game.name}</span>
+        {game.manufacturer && (
+          <span className="text-muted text-xs hidden md:inline">
+            {game.manufacturer}{game.year ? `, ${game.year}` : ''}
+          </span>
+        )}
+        <span className="text-xs px-2 py-0.5 rounded bg-surface capitalize">
+          {game.type.replace('_', ' ')}
+        </span>
+        <span className={`text-xs px-2 py-0.5 rounded ${statusBadge}`}>
+          {game.status.replace('_', ' ')}
+        </span>
+        {game.imported_from && (
+          <span className="text-xs text-muted uppercase">
+            {game.imported_from}
+          </span>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border px-4 py-3 space-y-3 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Detail label="Platforms" value={platforms.join(', ') || 'None'} />
+            <Detail label="Subtype" value={game.subtype || '-'} />
+            <Detail label="OPDB ID" value={game.opdb_id || '-'} />
+            <Detail label="VPS ID" value={game.vps_id || '-'} />
+            <Detail label="IGDB ID" value={game.igdb_id?.toString() || '-'} />
+            <Detail label="Source" value={game.imported_from || 'manual'} />
+          </div>
+
+          {game.external_url && (
+            <a
+              href={game.external_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-neon-cyan hover:underline text-xs"
+            >
+              <ExternalLink size={12} /> View Source
+            </a>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            {game.status !== 'approved' && (
+              <NeonButton variant="primary" onClick={() => onStatusChange(game.id, 'approved')} className="text-xs py-1 px-3 flex items-center gap-1">
+                <Check size={12} /> Approve
+              </NeonButton>
+            )}
+            {game.status !== 'rejected' && (
+              <NeonButton variant="secondary" onClick={() => onStatusChange(game.id, 'rejected')} className="text-xs py-1 px-3 flex items-center gap-1">
+                <X size={12} /> Reject
+              </NeonButton>
+            )}
+            <NeonButton variant="danger" onClick={() => onDelete(game.id)} className="text-xs py-1 px-3 flex items-center gap-1">
+              <Trash2 size={12} /> Delete
+            </NeonButton>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-muted text-xs uppercase tracking-wider">{label}</div>
+      <div className="truncate">{value}</div>
+    </div>
+  );
+}
+
+function buildQuery(params: Record<string, string>): string {
+  const entries = Object.entries(params).filter(([, v]) => v);
+  if (entries.length === 0) return '';
+  return '?' + entries.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}

@@ -358,6 +358,14 @@ body {
   background-color: var(--color-deep);
   color: var(--color-primary);
   min-height: 100vh;
+  /* Force dark-mode rendering for native form controls (dropdowns, date pickers, etc.) */
+  color-scheme: dark;
+}
+
+/* Force dropdown options to render with dark background even on stubborn browsers */
+select option {
+  background-color: var(--color-deep);
+  color: var(--color-primary);
 }
 
 /* CRT Scanline overlay (subtle) — hidden on light theme */

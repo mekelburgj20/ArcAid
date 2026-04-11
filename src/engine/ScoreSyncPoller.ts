@@ -164,6 +164,29 @@ export class ScoreSyncPoller {
                                         score: scoreValue,
                                         source: 'sync',
                                     });
+
+                                    // Fan-out to global scoreboard (best-effort)
+                                    const { GlobalScoreService } = await import('../services/GlobalScoreService.js');
+                                    const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({
+                                        gameRoomId: tournament.game_room_id,
+                                        gameName: localGame.name,
+                                        gameId: localGame.id,
+                                        playerId: discordUserId,
+                                        iscoredUsername: resolvedName,
+                                        score: scoreValue,
+                                    });
+                                    if (fanOut) {
+                                        const { emitScoreNewGlobal } = await import('../api/websocket.js');
+                                        const room = await db.get('SELECT name, slug FROM game_rooms WHERE id = ?', tournament.game_room_id);
+                                        emitScoreNewGlobal({
+                                            globalGameId: fanOut.globalGameId,
+                                            gameName: fanOut.gameName,
+                                            playerName: resolvedName,
+                                            score: scoreValue,
+                                            originRoomSlug: room?.slug || null,
+                                            originRoomName: room?.name || null,
+                                        });
+                                    }
                                 }
                             } catch {}
                         }

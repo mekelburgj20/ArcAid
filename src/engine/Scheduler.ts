@@ -5,6 +5,7 @@ import { Tournament, CadenceConfig, CleanupRule } from '../types/index.js';
 import { TournamentEngine } from './TournamentEngine.js';
 import { TimeoutManager } from './TimeoutManager.js';
 import { RoomEventService } from '../services/RoomEventService.js';
+import { VpsImportService } from '../services/VpsImportService.js';
 
 export class Scheduler {
     private static instance: Scheduler;
@@ -60,6 +61,9 @@ export class Scheduler {
 
         // Daily cleanup of old room events (3 AM)
         this.startRoomEventCleanup();
+
+        // Weekly VPS catalogue sync (Wednesday 2 AM Pacific)
+        this.startVpsCatalogueSync();
     }
 
     /**
@@ -95,6 +99,24 @@ export class Scheduler {
 
         this.tasks.set('__room_event_cleanup__', task);
         logInfo('Room event cleanup scheduled (daily at 3 AM).');
+    }
+
+    /**
+     * Schedules a weekly VPS catalogue sync every Wednesday at 2 AM Pacific.
+     */
+    private startVpsCatalogueSync(): void {
+        const task = cron.schedule('0 2 * * 3', async () => {
+            logInfo('Running scheduled VPS catalogue sync...');
+            try {
+                const result = await VpsImportService.importFromVps();
+                logInfo(`VPS catalogue sync complete: ${result.imported} imported, ${result.updated} updated, ${result.skipped} skipped (${result.total} total).`);
+            } catch (error) {
+                logError('VPS catalogue sync error:', error);
+            }
+        }, { timezone: 'America/Los_Angeles' });
+
+        this.tasks.set('__vps_catalogue_sync__', task);
+        logInfo('VPS catalogue sync scheduled (Wednesday 2 AM Pacific).');
     }
 
     /**

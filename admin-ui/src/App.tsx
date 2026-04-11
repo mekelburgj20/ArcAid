@@ -18,6 +18,7 @@ import GlobalSettings from './pages/GlobalSettings';
 import Backups from './pages/Backups';
 import Logs from './pages/Logs';
 import StyleCatalogue from './pages/StyleCatalogue';
+import GlobalCatalogue from './pages/GlobalCatalogue';
 
 // Pages — Room Admin (reused existing)
 import Dashboard from './pages/Dashboard';
@@ -45,6 +46,10 @@ import KioskScoreboard from './pages/KioskScoreboard';
 
 // Pages — Standalone
 import ScoreSubmit from './pages/ScoreSubmit';
+
+// Pages — Global (non-room-scoped)
+import GlobalScoreboard from './pages/GlobalScoreboard';
+import GlobalGameDetail from './pages/GlobalGameDetail';
 
 // Pages — Auth
 import RoomLogin from './pages/RoomLogin';
@@ -81,6 +86,7 @@ function App() {
           <Route path="rooms" element={<GameRoomManager />} />
           <Route path="library" element={<GameLibrary />} />
           <Route path="styles" element={<StyleCatalogue />} />
+          <Route path="catalogue" element={<GlobalCatalogue />} />
           <Route path="backups" element={<Backups />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<GlobalSettings />} />
@@ -108,6 +114,10 @@ function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
         </Route>
+
+        {/* Global scoreboard (cross-room aggregate, public) */}
+        <Route path="/scoreboard" element={<ViewerAuthProvider><GlobalScoreboard /></ViewerAuthProvider>} />
+        <Route path="/games/:globalGameId" element={<ViewerAuthProvider><GlobalGameDetail /></ViewerAuthProvider>} />
 
         {/* Kiosk mode (standalone, no layout wrapper) */}
         <Route path="/:slug/kiosk" element={<KioskScoreboard />} />

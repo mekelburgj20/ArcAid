@@ -1,9 +1,13 @@
 import { getDatabase } from '../database/database.js';
 import { ScoreHistoryService } from './ScoreHistoryService.js';
+import { GlobalScoreService } from './GlobalScoreService.js';
+import { emitScoreNewGlobal } from '../api/websocket.js';
 
 export class CommunityScoreService {
     /**
      * Submit a community score for a game.
+     * Also fans out to the global scoreboard if the game is linked to the catalogue
+     * and the room has GLOBAL_SCOREBOARD_ENABLED != 'false'.
      */
     static async submitScore(
         gameRoomId: string,
@@ -11,7 +15,8 @@ export class CommunityScoreService {
         username: string,
         score: number,
         discordUserId?: string,
-        photoUrl?: string
+        photoUrl?: string,
+        options?: { excludeFromGlobal?: boolean }
     ) {
         const db = await getDatabase();
         const result = await db.run(
@@ -26,6 +31,30 @@ export class CommunityScoreService {
             discordUserId, score, photoUrl,
             source: 'community',
         });
+
+        // Fan-out to global scoreboard (best-effort, never throws)
+        const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({
+            gameRoomId,
+            gameName,
+            playerId: discordUserId || 'COMMUNITY',
+            iscoredUsername: username,
+            score,
+            photoUrl,
+            excludeFromGlobal: options?.excludeFromGlobal,
+        });
+
+        if (fanOut && !options?.excludeFromGlobal) {
+            // Fetch room name for the WS payload
+            const room = await db.get('SELECT name, slug FROM game_rooms WHERE id = ?', gameRoomId);
+            emitScoreNewGlobal({
+                globalGameId: fanOut.globalGameId,
+                gameName: fanOut.gameName,
+                playerName: username,
+                score,
+                originRoomSlug: room?.slug || null,
+                originRoomName: room?.name || null,
+            });
+        }
 
         return { id: result.lastID };
     }

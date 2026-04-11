@@ -1,13 +1,29 @@
 import { Router } from 'express';
-import { logError } from '../../utils/logger.js';
-import { requireAuth } from '../middleware.js';
+import multer from 'multer';
+import { logError, logInfo } from '../../utils/logger.js';
+import { requireAuth, requireDiscordUser } from '../middleware.js';
+import { writeLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
 import { UpdatePreferencesSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
+import { GlobalGameService } from '../../services/GlobalGameService.js';
+import { GlobalScoreService } from '../../services/GlobalScoreService.js';
+import { GlobalLeaderboardService } from '../../services/GlobalLeaderboardService.js';
+import { emitScoreNewGlobal } from '../websocket.js';
 import { getDatabase } from '../../database/database.js';
 
 const router = Router();
+
+const globalScoreUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 30 * 1024 * 1024 }, // 30MB — matches room submission cap
+    fileFilter: (_req, file, cb) => {
+        const ok = ['image/png', 'image/apng', 'image/jpeg', 'image/webp'].includes(file.mimetype);
+        if (ok) return cb(null, true);
+        cb(new Error('Only PNG, APNG, JPEG, or WebP images allowed.'));
+    },
+});
 
 // System status — comprehensive health check
 router.get('/status', async (req, res) => {
@@ -225,6 +241,234 @@ router.get('/rooms', async (req, res) => {
         res.json(enriched);
     } catch (error) {
         logError('API Error (GET /api/rooms):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ============================================================================
+// Global Scoreboard + Catalogue (public, no auth needed for reads)
+// ============================================================================
+
+/**
+ * GET /api/global/games — search/browse the global catalogue.
+ * Cursor-based pagination, 20 per page.
+ * Query params: ?search=&type=&platforms=vpx,vpxs&status=approved&cursor=xxx&limit=20
+ */
+router.get('/global/games', async (req, res) => {
+    try {
+        const search = (req.query.search as string) || '';
+        const type = (req.query.type as string) || undefined;
+        const platformsRaw = (req.query.platforms as string) || '';
+        const status = (req.query.status as string) || 'approved';
+        const cursor = (req.query.cursor as string) || undefined;
+        const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+
+        const platforms = platformsRaw
+            ? platformsRaw.split(',').map(p => p.trim()).filter(Boolean)
+            : undefined;
+
+        const result = await GlobalGameService.search(search, {
+            type,
+            platforms,
+            status,
+            limit,
+            cursor,
+        });
+
+        res.json(result);
+    } catch (error) {
+        logError('API Error (GET /api/global/games):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * GET /api/global/games/:id — single game detail (full metadata).
+ */
+router.get('/global/games/:id', async (req, res) => {
+    try {
+        const game = await GlobalGameService.getById(req.params.id as string);
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        if (game.status !== 'approved') {
+            return res.status(404).json({ error: 'Game not found' });
+        }
+
+        // Parse JSON fields so clients don't have to
+        const parsed = {
+            ...game,
+            platforms: JSON.parse(game.platforms || '[]'),
+            themes: JSON.parse(game.themes || '[]'),
+            designers: JSON.parse(game.designers || '[]'),
+            features: JSON.parse(game.features || '[]'),
+            table_authors: JSON.parse(game.table_authors || '[]'),
+            table_download_urls: game.table_download_urls ? JSON.parse(game.table_download_urls) : [],
+            tutorial_urls: game.tutorial_urls ? JSON.parse(game.tutorial_urls) : [],
+            rules_urls: game.rules_urls ? JSON.parse(game.rules_urls) : [],
+        };
+
+        res.json(parsed);
+    } catch (error) {
+        logError('API Error (GET /api/global/games/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * GET /api/global/scoreboard — top games by aggregate score activity.
+ * Query params: ?sort=most_scores|highest_score|most_recent&scope=global|<roomId>&limit=20
+ */
+router.get('/global/scoreboard', async (req, res) => {
+    try {
+        const sort = (req.query.sort as 'most_scores' | 'highest_score' | 'most_recent') || 'most_scores';
+        const scope = (req.query.scope as string) || 'global';
+        const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+
+        const games = await GlobalLeaderboardService.getTopGames({ sort, scope, limit });
+        res.json({ data: games });
+    } catch (error) {
+        logError('API Error (GET /api/global/scoreboard):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * GET /api/global/scoreboard/:globalGameId — full leaderboard for a single game.
+ * Query params: ?scope=global|<roomId>&offset=0&limit=50
+ */
+router.get('/global/scoreboard/:globalGameId', async (req, res) => {
+    try {
+        const globalGameId = req.params.globalGameId as string;
+        const scope = (req.query.scope as string) || 'global';
+        const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+        const offset = parseInt(req.query.offset as string) || 0;
+
+        const game = await GlobalGameService.getById(globalGameId);
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+
+        const rankings = await GlobalLeaderboardService.getForGame(globalGameId, scope);
+        const paged = rankings.slice(offset, offset + limit);
+
+        res.json({
+            game: {
+                id: game.id,
+                name: game.display_name || game.name,
+                manufacturer: game.manufacturer,
+                year: game.year,
+                type: game.type,
+                image_url: game.local_image_path || game.image_url,
+            },
+            data: paged,
+            total: rankings.length,
+            hasMore: offset + limit < rankings.length,
+        });
+    } catch (error) {
+        logError('API Error (GET /api/global/scoreboard/:globalGameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/global/scores — direct global score submission.
+ * Requires Discord login, photo, and a valid approved global_game_id.
+ * Body: multipart/form-data with { globalGameId, score, excludeFromGlobal?, photo }
+ */
+router.post('/global/scores', writeLimiter, requireDiscordUser, globalScoreUpload.single('photo'), async (req, res) => {
+    try {
+        const globalGameId = req.body.globalGameId;
+        const scoreRaw = req.body.score;
+        const excludeFromGlobal = req.body.excludeFromGlobal === 'true' || req.body.excludeFromGlobal === true;
+
+        if (!globalGameId || typeof globalGameId !== 'string') {
+            return res.status(400).json({ error: 'globalGameId is required' });
+        }
+        const score = parseInt(scoreRaw, 10);
+        if (!Number.isFinite(score) || score < 0) {
+            return res.status(400).json({ error: 'A valid non-negative score is required' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'A photo is required with global score submissions.' });
+        }
+
+        const game = await GlobalGameService.getById(globalGameId);
+        if (!game || game.status !== 'approved') {
+            return res.status(404).json({ error: 'Game not found' });
+        }
+
+        // Resolve the iscored username / display name for the logged-in Discord user
+        const db = await getDatabase();
+        const mapping = await db.get(
+            'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?',
+            req.user!.discordId
+        );
+        const iscoredUsername = mapping?.iscored_username || req.user!.discordId || 'Unknown';
+
+        try {
+            const saved = await GlobalScoreService.submit({
+                globalGameId,
+                playerId: req.user!.discordId!,
+                iscoredUsername,
+                score,
+                photoBuffer: req.file.buffer,
+                photoMimeType: req.file.mimetype,
+                originType: 'global',
+                excludeFromGlobal,
+            });
+
+            emitScoreNewGlobal({
+                globalGameId,
+                gameName: game.display_name || game.name,
+                playerName: iscoredUsername,
+                score,
+            });
+
+            res.status(201).json(saved);
+        } catch (err: any) {
+            if (err?.message === 'BANNED') {
+                return res.status(403).json({ error: 'Your account is banned from submitting global scores.' });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST /api/global/scores):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/global/scores/:scoreId/report — flag a score.
+ * Rate-limited via writeLimiter, requires Discord login.
+ */
+router.post('/global/scores/:scoreId/report', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const scoreId = req.params.scoreId as string;
+        const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 500) : null;
+
+        const db = await getDatabase();
+        const score = await db.get('SELECT id FROM global_scores WHERE id = ? AND deleted_at IS NULL', scoreId);
+        if (!score) return res.status(404).json({ error: 'Score not found' });
+
+        // Don't let a user report the same score twice while a prior report is open
+        const existing = await db.get(
+            `SELECT id FROM score_reports
+             WHERE score_id = ? AND reporter_discord_id = ? AND resolved_at IS NULL`,
+            scoreId, req.user!.discordId
+        );
+        if (existing) {
+            return res.status(409).json({ error: 'You have already reported this score.' });
+        }
+
+        const crypto = await import('crypto');
+        const reportId = crypto.randomUUID();
+        await db.run(
+            `INSERT INTO score_reports (id, score_id, reporter_discord_id, reason)
+             VALUES (?, ?, ?, ?)`,
+            reportId, scoreId, req.user!.discordId, reason
+        );
+
+        logInfo(`Score ${scoreId} reported by ${req.user!.discordId}`);
+        res.status(201).json({ id: reportId });
+    } catch (error) {
+        logError('API Error (POST /api/global/scores/:scoreId/report):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

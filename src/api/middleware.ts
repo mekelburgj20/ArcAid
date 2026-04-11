@@ -64,6 +64,46 @@ export function requireRoomAccess(paramName: string = 'roomId') {
 }
 
 /**
+ * Conditional Discord login: only enforced when the room's
+ * REQUIRE_DISCORD_LOGIN setting is 'true'. Otherwise passes through
+ * untouched (submissions remain anonymous-friendly).
+ *
+ * When enforced, attaches req.user with discordId present.
+ * Falls back to open access on setting-lookup errors (fail-open on infra
+ * failure, not auth failure).
+ */
+export function conditionalRequireDiscordUser(roomIdParam = 'roomId') {
+    return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        const roomId = (req.params as any)[roomIdParam];
+        if (!roomId) return next();
+
+        try {
+            const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+            const required = await GameRoomSettingsService.get(roomId, 'REQUIRE_DISCORD_LOGIN');
+            if (required !== 'true') return next();
+        } catch {
+            // Setting lookup failed — fail-open rather than block submissions
+            return next();
+        }
+
+        // Gate is on — require Discord identity
+        const authHeader = req.headers['authorization'];
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) {
+            res.status(401).json({ error: 'Discord login required for this room' });
+            return;
+        }
+        const payload = verifyToken(token);
+        if (!payload || !payload.discordId) {
+            res.status(401).json({ error: 'Discord login required for this room' });
+            return;
+        }
+        req.user = payload;
+        next();
+    };
+}
+
+/**
  * Validates JWT and confirms the user has a Discord identity (any role).
  * Used for public features that require Discord login (e.g. game picking).
  */

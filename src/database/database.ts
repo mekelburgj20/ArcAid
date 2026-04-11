@@ -24,6 +24,9 @@ export async function initDatabase(): Promise<Database> {
         driver: sqlite3.Database
     });
 
+    // Enable WAL mode for concurrent read/write support
+    await db.exec('PRAGMA journal_mode=WAL');
+
     // --- Schema Definition ---
 
     // 1. Tournaments (The overall competition, e.g., "Daily Grind")
@@ -332,6 +335,154 @@ export async function initDatabase(): Promise<Database> {
         CREATE INDEX IF NOT EXISTS idx_room_events_created ON room_events(created_at)
     `);
 
+    // 12. Global game catalogue
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS global_games (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            display_name TEXT,
+            manufacturer TEXT,
+            year INTEGER,
+            type TEXT NOT NULL DEFAULT 'pinball',
+            subtype TEXT,
+            platforms TEXT DEFAULT '[]',
+            themes TEXT DEFAULT '[]',
+            designers TEXT DEFAULT '[]',
+            players INTEGER,
+            image_url TEXT,
+            local_image_path TEXT,
+            wheel_image_path TEXT,
+            opdb_id TEXT,
+            vps_id TEXT,
+            igdb_id INTEGER,
+            ipdb_url TEXT,
+            external_url TEXT,
+            table_authors TEXT DEFAULT '[]',
+            table_download_urls TEXT,
+            tutorial_urls TEXT,
+            rules_urls TEXT,
+            description TEXT,
+            source_rating REAL,
+            features TEXT DEFAULT '[]',
+            status TEXT DEFAULT 'approved',
+            submitted_by TEXT,
+            reviewed_by TEXT,
+            global_leaderboard INTEGER DEFAULT 1,
+            imported_from TEXT,
+            imported_at TEXT,
+            source_updated_at TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_global_games_opdb ON global_games(opdb_id);
+        CREATE INDEX IF NOT EXISTS idx_global_games_vps ON global_games(vps_id);
+        CREATE INDEX IF NOT EXISTS idx_global_games_igdb ON global_games(igdb_id);
+        CREATE INDEX IF NOT EXISTS idx_global_games_name ON global_games(LOWER(name));
+        CREATE INDEX IF NOT EXISTS idx_global_games_type ON global_games(type);
+        CREATE INDEX IF NOT EXISTS idx_global_games_status ON global_games(status)
+    `);
+
+    // 13. Global scores
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS global_scores (
+            id TEXT PRIMARY KEY,
+            global_game_id TEXT NOT NULL,
+            player_id TEXT NOT NULL,
+            iscored_username TEXT,
+            score INTEGER NOT NULL,
+            photo_url TEXT,
+            photo_hash TEXT,
+            origin_type TEXT NOT NULL,
+            origin_game_room_id TEXT,
+            origin_game_id TEXT,
+            exclude_from_global INTEGER DEFAULT 0,
+            deleted_at TEXT,
+            deleted_by TEXT,
+            submitted_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (global_game_id) REFERENCES global_games(id),
+            FOREIGN KEY (origin_game_room_id) REFERENCES game_rooms(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_global_scores_game ON global_scores(global_game_id);
+        CREATE INDEX IF NOT EXISTS idx_global_scores_player ON global_scores(player_id);
+        CREATE INDEX IF NOT EXISTS idx_global_scores_room ON global_scores(origin_game_room_id);
+        CREATE INDEX IF NOT EXISTS idx_global_scores_submitted ON global_scores(submitted_at)
+    `);
+
+    // 14. Global leaderboard cache
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS global_leaderboard_cache (
+            global_game_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            rankings TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            PRIMARY KEY (global_game_id, scope)
+        )
+    `);
+
+    // 15. Sync logs
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS sync_logs (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            records_imported INTEGER DEFAULT 0,
+            records_updated INTEGER DEFAULT 0,
+            records_skipped INTEGER DEFAULT 0,
+            errors TEXT,
+            started_at TEXT NOT NULL,
+            completed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_logs_source ON sync_logs(source);
+        CREATE INDEX IF NOT EXISTS idx_sync_logs_started ON sync_logs(started_at)
+    `);
+
+    // 16. Score reports
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS score_reports (
+            id TEXT PRIMARY KEY,
+            score_id TEXT NOT NULL,
+            reporter_discord_id TEXT NOT NULL,
+            reason TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            resolved_at TEXT,
+            resolved_by TEXT,
+            resolution TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_score_reports_score ON score_reports(score_id);
+        CREATE INDEX IF NOT EXISTS idx_score_reports_unresolved ON score_reports(resolved_at)
+    `);
+
+    // 17. User bans
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS user_bans (
+            id TEXT PRIMARY KEY,
+            discord_user_id TEXT NOT NULL,
+            reason TEXT,
+            banned_by TEXT NOT NULL,
+            banned_at TEXT DEFAULT (datetime('now')),
+            expires_at TEXT,
+            lifted_at TEXT,
+            lifted_by TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_bans_user ON user_bans(discord_user_id)
+    `);
+
+    // 18. Sessions (refresh tokens)
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            discord_user_id TEXT NOT NULL,
+            refresh_token TEXT NOT NULL,
+            access_token_hash TEXT,
+            expires_at TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            last_used_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(discord_user_id);
+        CREATE INDEX IF NOT EXISTS idx_sessions_refresh ON sessions(refresh_token)
+    `);
+
     // --- Indexes for performance ---
     await db.exec(`
         CREATE INDEX IF NOT EXISTS idx_games_tournament_id ON games(tournament_id);
@@ -417,6 +568,9 @@ export async function initDatabase(): Promise<Database> {
             created_at TEXT DEFAULT (datetime('now')),
             PRIMARY KEY (old_username)
         )` },
+        { name: '037_room_library_global_game_id', sql: `ALTER TABLE game_room_game_library ADD COLUMN global_game_id TEXT` },
+        { name: '038_games_global_game_id', sql: `ALTER TABLE games ADD COLUMN global_game_id TEXT` },
+        { name: '039_game_library_global_game_id', sql: `ALTER TABLE game_library ADD COLUMN global_game_id TEXT` },
     ];
 
     for (const migration of migrations) {
@@ -479,6 +633,7 @@ export async function initDatabase(): Promise<Database> {
         ['MAX_LOG_LINES', '500'],
         ['BACKUP_RETENTION_DAYS', '30'],
         ['PLATFORMS', JSON.stringify(['AtGames', 'VPXS', 'VR', 'IRL'])],
+        ['SYNC_ALERT_CHANNEL_ID', '1467561374040461527'],
     ];
     for (const [key, value] of defaultSettings) {
         await db.run(

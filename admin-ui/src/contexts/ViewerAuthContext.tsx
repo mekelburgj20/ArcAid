@@ -12,8 +12,14 @@ interface ViewerAuth {
   /** Discord player session */
   discordUser: DiscordUser | null;
   playerToken: string | null;
-  /** Initiate Discord OAuth login from a public page */
-  loginWithDiscord: (returnSlug: string) => void;
+  /**
+   * Initiate Discord OAuth login from a public page.
+   *
+   * `returnSlug` is the room slug to return to (for room pages), or
+   * `__global__` for non-room pages like /scoreboard. Pass `returnPath`
+   * to override the default return URL after the OAuth round trip.
+   */
+  loginWithDiscord: (returnSlug: string, returnPath?: string) => void;
   /** Log out the player session */
   logoutPlayer: () => void;
 }
@@ -91,9 +97,11 @@ export function ViewerAuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('arcaid_player_login', handler);
   }, []);
 
-  const loginWithDiscord = useCallback(async (returnSlug: string) => {
-    // Store return path so DiscordCallback knows where to send the user back
-    localStorage.setItem('arcaid_player_return', `/${returnSlug}/games`);
+  const loginWithDiscord = useCallback(async (returnSlug: string, returnPath?: string) => {
+    // Store return path so DiscordCallback knows where to send the user back.
+    // Default for room pages: /:slug/games. Global pages pass returnPath explicitly.
+    const path = returnPath || `/${returnSlug}/games`;
+    localStorage.setItem('arcaid_player_return', path);
 
     try {
       const res = await fetch('/api/auth/discord');

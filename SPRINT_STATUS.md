@@ -13,6 +13,27 @@
 **Player Engagement Features** — COMPLETE (deployed to production)
 **Leaderboard UX Redesign** — COMPLETE (deployed to production)
 
+### Global Scoreboard — Phase 1: Database & Catalogue Foundation (2026-04-08)
+- [x] `catalogueUtils.ts` — normalizeGameName() algorithm for dedup matching
+- [x] `platformMapping.ts` — canonical platform IDs, IGDB/VPS mappings, platform groups
+- [x] Database: WAL mode enabled
+- [x] Database: `global_games` table with UUID PKs, all enrichment fields, indexes
+- [x] Database: `global_scores` table with soft-delete, photo hash, origin tracking
+- [x] Database: `global_leaderboard_cache`, `sync_logs`, `score_reports`, `user_bans`, `sessions` tables
+- [x] Database: migrations 037-038 (global_game_id on game_room_game_library + games)
+- [x] Database: SYNC_ALERT_CHANNEL_ID default setting
+- [x] `GlobalGameService.ts` — catalogue CRUD, upsert with dedup, search, merge cascade
+- [x] `GlobalGameService.upsert()` — cross-type Frankenstein fix (4-step dedup: external ID → cross-type guard → IPDB URL cross-ref → strict name match). Pending local verification (see `continue.md`).
+- [x] `SyncLogService.ts` — sync log CRUD, Discord alert on failure
+- [x] `VpsImportService.ts` — updated: rich metadata extraction (themes, designers, download URLs, wheel art, tutorials, rules, features), writes to global_games
+- [x] `WizardImportService.ts` — updated: parses BOTH Wizard + Manual Install sections (~1125 tables), extracts table metadata
+- [x] `OPDBImportService.ts` — new: bulk import from OPDB API, local image download
+- [x] `IGDBImportService.ts` — new: Twitch OAuth token management, bulk seed arcade/console games, on-demand search
+- [x] Admin API routes: `/admin/catalogue/sync-*`, catalogue CRUD, sync dashboard endpoints
+- [x] Build verification: backend + frontend compile clean
+- [ ] Catalogue admin UI page (frontend — GlobalCatalogue.tsx)
+- [ ] VPS auto-sync cron job (Wednesday 2am Pacific via Scheduler)
+
 ### Scoreboard UX Fixes (2026-04-06)
 - [x] Inline rankings mode — when `rankingsSticky` is off (default), RankingGroupCards render inline with game cards in all 3 layouts (grid/vertical/scroll)
 - [x] Rankings card style-matching — RankingGroupCard redesigned with 3 rendering paths matching Banner (280px), Showcase (380px, theme-matched), and Minimal (380px) card styles
@@ -197,10 +218,11 @@
 
 ## Last Session
 
-**Date:** 2026-04-06
-**What happened:** Scoreboard UX fixes session — inline rankings rendering across all 3 layouts (grid/vertical/scroll), rankings card redesigned to match active card style (Banner/Showcase/Minimal), game title styles expanded from 5 to 12 with animated fire and neon-magenta effects, horizontal scrollbar fix, QR code alignment for ranking cards, Discord avatar fallback for community score players in RankingService. Service worker cache bumped to v5. Deployed to production.
-**Next:** QR code blank white page issue (suspected browser cache, unresolved). Consider additional Showcase themes. Per-tournament eligibility/pick window settings.
+**Date:** 2026-04-10
+**What happened:** Diagnosed and fixed a cross-type merge bug in `GlobalGameService.upsert()`. The old name-only fallback was silently collapsing ~473 pinball rows with unrelated IGDB video-game entries ("Frankenstein rows" — canonical: Alice in Wonderland merged the VPS VPX table, OPDB real machine, and a Disney Wii video game into one row). Rewrote `upsert()` with a 4-step hierarchy: external ID → cross-type guard → IPDB URL cross-reference (pinball only, machine ID extracted via regex to handle http/https scheme mismatch) → strict normalized-name match with manufacturer/year confirmation. Added helpers `extractIpdbMachineId()`, `hasExternalIdConflict()`, `manufacturerYearAgree()`. Build passes clean. Created `scripts/analyze-catalogue.ts` (generates `docs/catalogue-analysis.md` + CSV) and `scripts/reimport-catalogue.ts` (greenfield nuke + reimport). Ran full reimport to validate — VPS/OPDB/Wizard completed cleanly in ~2min (OPDB updated 944 rows via IPDB cross-match, confirming the fix works), but IGDB went well past the expected 62k rows and was still importing at offset 150000 after ~5 hours. Killed the process, which corrupted the local dev DB file (`SQLITE_CORRUPT` on any read; `data/arcaid.db.bak-uat` is a stale 108K snapshot from 2026-03-09, not recoverable). Production DB is unaffected (separate Docker container on Hetzner).
+
+**Next:** See `continue.md` for the full resume prompt. Short version: nuke the local DB, recreate empty, run `scripts/reimport-catalogue.ts --skip-igdb` (fast, ~2min), verify zero Frankensteins via `scripts/analyze-catalogue.ts`, commit the fix. Leave full IGDB sync for a detached run later.
 
 ## Blockers
 
-None.
+- Local `data/arcaid.db` is corrupt (intentional — killed mid-reimport). Needs to be deleted and recreated. See `continue.md`.

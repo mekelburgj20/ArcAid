@@ -39,6 +39,11 @@ export const submitscore: Command = {
             option.setName('username')
                 .setDescription('Your iScored username (if different from mapping)')
                 .setRequired(false)
+        )
+        .addBooleanOption(option =>
+            option.setName('exclude_global')
+                .setDescription('Don\'t post this score to the global ArcAid scoreboard')
+                .setRequired(false)
         ) as SlashCommandBuilder,
 
     async autocomplete(interaction) {
@@ -83,6 +88,7 @@ export const submitscore: Command = {
         const score = interaction.options.getInteger('score', true);
         const photo = interaction.options.getAttachment('photo', true);
         let username = interaction.options.getString('username');
+        const excludeGlobal = interaction.options.getBoolean('exclude_global') || false;
 
         // Validate score is a positive integer
         if (score <= 0) {
@@ -168,6 +174,35 @@ export const submitscore: Command = {
                 await RankingService.invalidateAll();
 
                 logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
+
+                // Fan-out to global scoreboard (best-effort — never blocks the room submission)
+                try {
+                    const { GlobalScoreService } = await import('../../services/GlobalScoreService.js');
+                    const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({
+                        gameRoomId: game.game_room_id,
+                        gameName,
+                        gameId: game.id,
+                        playerId: interaction.user.id,
+                        iscoredUsername: username!,
+                        score,
+                        photoUrl: photo.url,
+                        excludeFromGlobal: excludeGlobal,
+                    });
+                    if (fanOut && !excludeGlobal) {
+                        const { emitScoreNewGlobal } = await import('../../api/websocket.js');
+                        const room = await db.get('SELECT name, slug FROM game_rooms WHERE id = ?', game.game_room_id);
+                        emitScoreNewGlobal({
+                            globalGameId: fanOut.globalGameId,
+                            gameName: fanOut.gameName,
+                            playerName: username!,
+                            score,
+                            originRoomSlug: room?.slug || null,
+                            originRoomName: room?.name || null,
+                        });
+                    }
+                } catch (err) {
+                    logError('Global fan-out from /submit-score failed (non-fatal):', err);
+                }
 
                 // Build web UI tip with room slug
                 let webTip = '';

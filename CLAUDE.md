@@ -75,8 +75,9 @@ Two sub-applications in one process:
 - `src/services/` — Business logic layer:
   - **Global:** `SettingsService`, `AdminService`, `GameRoomService`, `GameRoomSettingsService`, `PreferencesService`, `LogService`, `BackupService`, `DashboardService`, `AuditService`
   - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `CommentService`, `CommunityScoreService`, `ScoreHistoryService`, `StyleCatalogueService`, `RoomEventService` (activity event logging)
-  - **Import:** `VpsImportService` (VPS database JSON), `WizardImportService` (VPXS Wizard Tables from GitHub)
-- `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`, `platformRules.ts` (shared platform eligibility check for API + Discord), `cronUtils.ts` (getNextRunTime via cron-parser for countdown timers)
+  - **Import:** `VpsImportService` (VPS database JSON + global catalogue), `WizardImportService` (VPXS Wizard + Manual Install tables from GitHub), `OPDBImportService` (OPDB bulk pinball machine import), `IGDBImportService` (IGDB arcade/console games via Twitch OAuth)
+  - **Global Catalogue:** `GlobalGameService` (catalogue CRUD, upsert with dedup, search, merge cascade), `SyncLogService` (sync log tracking + Discord alerts on failure)
+- `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`, `platformRules.ts` (shared platform eligibility check for API + Discord), `cronUtils.ts` (getNextRunTime via cron-parser for countdown timers), `catalogueUtils.ts` (normalizeGameName for dedup matching), `platformMapping.ts` (canonical platform IDs, IGDB/VPS/OPDB normalization, PLATFORM_GROUPS)
 
 **Admin UI (`admin-ui/src/`):**
 - All API calls through `admin-ui/src/lib/api.ts` (relative `/api/` paths — NEVER hardcode localhost)

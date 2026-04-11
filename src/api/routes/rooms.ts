@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
-import { requireAuth, requireRoomAccess, requireDiscordUser } from '../middleware.js';
+import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser } from '../middleware.js';
 import { validate } from '../validate.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema,
@@ -60,6 +60,7 @@ router.get('/:roomId/portal', async (req, res) => {
         if (!room) return res.status(404).json({ error: 'Room not found' });
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
+        const requireDiscordLogin = await GameRoomSettingsService.get(room.id, 'REQUIRE_DISCORD_LOGIN');
         res.json({
             slug: room.slug,
             name: room.name,
@@ -67,6 +68,7 @@ router.get('/:roomId/portal', async (req, res) => {
             logo_url: room.logo_url || null,
             ui_theme: uiTheme || 'dark',
             admin_theme: adminTheme || 'dark',
+            require_discord_login: requireDiscordLogin === 'true',
         });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/portal):', error);
@@ -852,7 +854,7 @@ router.get('/:roomId/community-scores/:gameName', async (req, res) => {
     }
 });
 
-router.post('/:roomId/community-scores/:gameName', async (req, res) => {
+router.post('/:roomId/community-scores/:gameName', conditionalRequireDiscordUser('roomId'), async (req, res) => {
     try {
         const validationResult = validate(CommunityScoreSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -869,7 +871,8 @@ router.post('/:roomId/community-scores/:gameName', async (req, res) => {
 });
 
 // Score submission with photo upload (public, rate-limited)
-router.post('/:roomId/submit-score/:gameName', writeLimiter, roomAssetUpload.single('photo'), async (req, res) => {
+// Discord login conditionally enforced via REQUIRE_DISCORD_LOGIN room setting.
+router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireDiscordUser('roomId'), roomAssetUpload.single('photo'), async (req, res) => {
     try {
         const validationResult = validate(ScoreSubmissionSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -981,6 +984,80 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, roomAssetUpload.sin
         res.status(201).json(result);
     } catch (error) {
         logError('API Error (POST rooms/:roomId/submit-score/:gameName):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /:roomId/freeplay-score — submit a freeplay score for any game in the
+ * global catalogue, attributed to this room. The game does NOT need to be an
+ * active tournament game in the room. Photo required.
+ *
+ * Saves to community_scores + score_history (room-scoped views) and fans out
+ * to global_scores (subject to room GLOBAL_SCOREBOARD_ENABLED and user exclude_global).
+ */
+router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUser('roomId'), roomAssetUpload.single('photo'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { globalGameId, username, score: scoreRaw, excludeGlobal: excludeRaw } = req.body || {};
+        if (!globalGameId || !username) {
+            return res.status(400).json({ error: 'globalGameId and username are required' });
+        }
+        const score = typeof scoreRaw === 'string' ? parseInt(scoreRaw, 10) : scoreRaw;
+        if (!Number.isInteger(score) || score < 0) {
+            return res.status(400).json({ error: 'Valid positive score required' });
+        }
+        const excludeFromGlobal = excludeRaw === 'true' || excludeRaw === true;
+
+        // Photo is required for freeplay (no tournament cross-check, so evidence matters)
+        if (!req.file) {
+            return res.status(400).json({ error: 'A photo is required for freeplay score submissions.' });
+        }
+
+        // Resolve the game from the global catalogue
+        const db = await getDatabase();
+        const globalGame = await db.get(
+            'SELECT id, name FROM global_games WHERE id = ? AND status = \'approved\'',
+            globalGameId
+        );
+        if (!globalGame) {
+            return res.status(404).json({ error: 'Game not found in the global catalogue' });
+        }
+
+        // Persist photo
+        const ext = (req.file.mimetype === 'image/png' || req.file.mimetype === 'image/apng') ? 'png' : req.file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+        const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const dir = path.join(process.cwd(), 'data', 'score-photos', roomId);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, filename), req.file.buffer);
+        const photoUrl = `/api/score-photos/${roomId}/${filename}`;
+
+        // Save to community_scores (room-scoped) — uses the global_games.name for
+        // consistent cross-referencing. CommunityScoreService will also fan-out to
+        // global_scores via GlobalScoreService, respecting exclude_from_global.
+        const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
+        const result = await CommunityScoreService.submitScore(
+            roomId,
+            globalGame.name,
+            username,
+            score,
+            req.user?.discordId,
+            photoUrl,
+            { excludeFromGlobal }
+        );
+
+        // Log activity
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        RoomEventService.log(roomId, 'freeplay_score_submission', {
+            globalGameId,
+            gameName: globalGame.name,
+            username,
+            score,
+        }).catch(() => {});
+
+        res.status(201).json({ id: result.id, gameName: globalGame.name });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/freeplay-score):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

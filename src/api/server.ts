@@ -88,6 +88,10 @@ export function startApiServer(port: number = 3001) {
     const scorePhotosPath = path.join(process.cwd(), 'data', 'score-photos');
     app.use('/api/score-photos', express.static(scorePhotosPath, { maxAge: '7d' }));
 
+    // --- Serve Catalogue Images (cover art from OPDB/VPS/IGDB/Wizard imports) ---
+    const catalogueImagesPath = path.join(process.cwd(), 'data', 'catalogue-images');
+    app.use('/api/catalogue-images', express.static(catalogueImagesPath, { maxAge: '30d' }));
+
     // --- Rate Limiting ---
     app.use('/api/', generalLimiter);
     app.use('/api/auth', authLimiter);

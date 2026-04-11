@@ -58,6 +58,23 @@ export function emitScoreNew(data: { gameId: string; gameName: string; playerNam
 }
 
 /**
+ * Emit a score:new:global event to all clients watching the global scoreboard.
+ * The global scoreboard page subscribes via `io.on('score:new:global', ...)` —
+ * no room join needed, all connected clients receive it.
+ */
+export function emitScoreNewGlobal(data: {
+    globalGameId: string;
+    gameName: string;
+    playerName: string;
+    score: number;
+    originRoomSlug?: string | null;
+    originRoomName?: string | null;
+}) {
+    if (!io) return;
+    io.emit('score:new:global', data);
+}
+
+/**
  * Emit a game:rotated event.
  */
 export function emitGameRotated(data: { tournamentName: string; oldGame: string; newGame: string }) {

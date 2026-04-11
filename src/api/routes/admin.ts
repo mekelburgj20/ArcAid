@@ -22,6 +22,12 @@ import { AuditService } from '../../services/AuditService.js';
 import { StyleCatalogueService } from '../../services/StyleCatalogueService.js';
 import { StyleUploadSchema } from '../schemas.js';
 import multer from 'multer';
+import { GlobalGameService } from '../../services/GlobalGameService.js';
+import { OPDBImportService } from '../../services/OPDBImportService.js';
+import { IGDBImportService } from '../../services/IGDBImportService.js';
+import { SyncLogService } from '../../services/SyncLogService.js';
+import { ScoreReportService } from '../../services/ScoreReportService.js';
+import { GlobalScoreService } from '../../services/GlobalScoreService.js';
 
 const router = Router();
 
@@ -511,6 +517,362 @@ router.get('/audit-log', async (req, res) => {
         res.json(entries);
     } catch (error) {
         logError('API Error (GET /api/admin/audit-log):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Global Catalogue ---
+
+// Sync endpoints
+// These kick off long-running imports in the background and return 202 immediately.
+// Frontend polls /admin/catalogue/sync-status to observe progress via sync_logs table.
+
+router.post('/catalogue/sync-vps', async (req, res) => {
+    const roomId = req.body?.roomId;
+    // Fire-and-forget: don't await the import
+    void (async () => {
+        try {
+            const result = await VpsImportService.importFromVps();
+            if (roomId) {
+                const roomNames = [...result.names];
+                for (const m of result.autoMerged) roomNames.push(m.existing);
+                await GameLibraryService.addToRoom(roomId, roomNames);
+            }
+        } catch (error) {
+            logError('Background VPS sync error:', error);
+        }
+    })();
+    res.status(202).json({ success: true, started: true, source: 'vps' });
+});
+
+router.post('/catalogue/sync-wizard', async (req, res) => {
+    const roomId = req.body?.roomId;
+    void (async () => {
+        try {
+            const result = await WizardImportService.importFromWizard();
+            if (roomId) {
+                const roomNames = [...result.names];
+                for (const m of result.autoMerged) roomNames.push(m.existing);
+                await GameLibraryService.addToRoom(roomId, roomNames);
+            }
+        } catch (error) {
+            logError('Background Wizard sync error:', error);
+        }
+    })();
+    res.status(202).json({ success: true, started: true, source: 'wizard' });
+});
+
+router.post('/catalogue/sync-opdb', async (_req, res) => {
+    void (async () => {
+        try {
+            await OPDBImportService.importFromOPDB();
+        } catch (error) {
+            logError('Background OPDB sync error:', error);
+        }
+    })();
+    res.status(202).json({ success: true, started: true, source: 'opdb' });
+});
+
+router.post('/catalogue/sync-igdb', async (_req, res) => {
+    void (async () => {
+        try {
+            await IGDBImportService.importFromIGDB();
+        } catch (error) {
+            logError('Background IGDB sync error:', error);
+        }
+    })();
+    res.status(202).json({ success: true, started: true, source: 'igdb' });
+});
+
+// Catalogue browse & management
+router.get('/catalogue/games', async (req, res) => {
+    try {
+        const { search, type, status, source, cursor, limit } = req.query;
+        if (search) {
+            const result = await GlobalGameService.search(search as string, {
+                type: type as string,
+                status: status as string,
+                limit: limit ? parseInt(limit as string) : undefined,
+                cursor: cursor as string,
+            });
+            res.json(result);
+        } else {
+            const games = await GlobalGameService.getAll({
+                status: status as string,
+                type: type as string,
+                source: source as string,
+            });
+            res.json({ data: games, hasMore: false });
+        }
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/games):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/catalogue/games/:id', async (req, res) => {
+    try {
+        const game = await GlobalGameService.getById(req.params.id as string);
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        res.json(game);
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/games/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.put('/catalogue/games/:id', async (req, res) => {
+    try {
+        const updated = await GlobalGameService.update(req.params.id as string, req.body);
+        if (!updated) return res.status(404).json({ error: 'Game not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT /api/admin/catalogue/games/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.patch('/catalogue/games/:id/status', async (req, res) => {
+    try {
+        const { status } = req.body;
+        if (!['approved', 'pending_review', 'rejected'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status' });
+        }
+        const discordId = (req as any).user?.discordId;
+        const updated = await GlobalGameService.updateStatus(req.params.id as string, status, discordId);
+        if (!updated) return res.status(404).json({ error: 'Game not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PATCH /api/admin/catalogue/games/:id/status):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/catalogue/games/merge', async (req, res) => {
+    try {
+        const { targetId, sourceId } = req.body;
+        if (!targetId || !sourceId) return res.status(400).json({ error: 'targetId and sourceId required' });
+        const result = await GlobalGameService.merge(targetId, sourceId);
+        res.json({ success: true, scoresMoved: result.scoresMoved });
+    } catch (error) {
+        logError('API Error (POST /api/admin/catalogue/games/merge):', error);
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Merge failed' });
+    }
+});
+
+router.delete('/catalogue/games/:id', async (req, res) => {
+    try {
+        const deleted = await GlobalGameService.delete(req.params.id as string);
+        if (!deleted) return res.status(404).json({ error: 'Game not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/admin/catalogue/games/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Catalogue counts
+router.get('/catalogue/counts', async (req, res) => {
+    try {
+        const counts = await GlobalGameService.getCounts();
+        res.json(counts);
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/counts):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Sync health dashboard
+router.get('/catalogue/sync-logs', async (req, res) => {
+    try {
+        const { source } = req.query;
+        if (source) {
+            const logs = await SyncLogService.getBySource(source as string);
+            res.json(logs);
+        } else {
+            const logs = await SyncLogService.getRecent();
+            res.json(logs);
+        }
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/sync-logs):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/catalogue/sync-status', async (req, res) => {
+    try {
+        const latest = await SyncLogService.getLatestPerSource();
+        res.json(latest);
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/sync-status):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Score Reports (admin moderation queue) ---
+
+/** GET /api/admin/score-reports — list pending reports with full context */
+router.get('/score-reports', async (req, res) => {
+    try {
+        const status = (req.query.status as string) || 'pending';
+        const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+        const offset = parseInt(req.query.offset as string) || 0;
+        const reports = status === 'resolved'
+            ? await ScoreReportService.listResolved(limit, offset)
+            : await ScoreReportService.listPending(limit, offset);
+        res.json(reports);
+    } catch (error) {
+        logError('API Error (GET /api/admin/score-reports):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/score-reports/:reportId/dismiss */
+router.post('/score-reports/:reportId/dismiss', async (req, res) => {
+    try {
+        const ok = await ScoreReportService.dismiss(req.params.reportId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/score-reports/:reportId/dismiss):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/score-reports/:reportId/soft-delete */
+router.post('/score-reports/:reportId/soft-delete', async (req, res) => {
+    try {
+        const ok = await ScoreReportService.softDeleteScore(req.params.reportId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        if (!ok) return res.status(404).json({ error: 'Report not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/score-reports/:reportId/soft-delete):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/score-reports/:reportId/hard-delete */
+router.post('/score-reports/:reportId/hard-delete', async (req, res) => {
+    try {
+        const ok = await ScoreReportService.hardDeleteScore(req.params.reportId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        if (!ok) return res.status(404).json({ error: 'Report not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/score-reports/:reportId/hard-delete):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/score-reports/:reportId/ban — body: { durationDays?: number|null, reason?: string } */
+router.post('/score-reports/:reportId/ban', async (req, res) => {
+    try {
+        const durationDays = req.body?.durationDays ?? null;
+        const reason = req.body?.reason;
+        const ok = await ScoreReportService.banUser(
+            req.params.reportId as string,
+            (req.user!.discordId || req.user!.username || 'admin'),
+            durationDays,
+            reason
+        );
+        if (!ok) return res.status(404).json({ error: 'Report not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/score-reports/:reportId/ban):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- User Bans ---
+
+/** GET /api/admin/bans?active=1 */
+router.get('/bans', async (req, res) => {
+    try {
+        const activeOnly = req.query.active === '1' || req.query.active === 'true';
+        const bans = await ScoreReportService.listBans(activeOnly);
+        res.json(bans);
+    } catch (error) {
+        logError('API Error (GET /api/admin/bans):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/bans — body: { discordUserId, durationDays?, reason? } */
+router.post('/bans', async (req, res) => {
+    try {
+        const { discordUserId, durationDays, reason } = req.body || {};
+        if (!discordUserId) return res.status(400).json({ error: 'discordUserId is required' });
+        const ban = await ScoreReportService.ban(
+            discordUserId,
+            (req.user!.discordId || req.user!.username || 'admin'),
+            durationDays ?? null,
+            reason
+        );
+        res.status(201).json(ban);
+    } catch (error) {
+        logError('API Error (POST /api/admin/bans):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/bans/:banId/lift */
+router.post('/bans/:banId/lift', async (req, res) => {
+    try {
+        const ok = await ScoreReportService.lift(req.params.banId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        if (!ok) return res.status(404).json({ error: 'Ban not found or already lifted' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/bans/:banId/lift):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Global Scores (admin visibility into deleted scores, restore, hard-delete) ---
+
+/** GET /api/admin/global-scores/deleted */
+router.get('/global-scores/deleted', async (req, res) => {
+    try {
+        const { getDatabase } = await import('../../database/database.js');
+        const db = await getDatabase();
+        const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+        const rows = await db.all(
+            `SELECT s.*, gg.name as game_name
+             FROM global_scores s
+             LEFT JOIN global_games gg ON gg.id = s.global_game_id
+             WHERE s.deleted_at IS NOT NULL
+             ORDER BY s.deleted_at DESC
+             LIMIT ?`,
+            limit
+        );
+        res.json(rows);
+    } catch (error) {
+        logError('API Error (GET /api/admin/global-scores/deleted):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/global-scores/:scoreId/restore */
+router.post('/global-scores/:scoreId/restore', async (req, res) => {
+    try {
+        const ok = await GlobalScoreService.restore(req.params.scoreId as string);
+        if (!ok) return res.status(404).json({ error: 'Score not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/global-scores/:scoreId/restore):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** DELETE /api/admin/global-scores/:scoreId?hard=true */
+router.delete('/global-scores/:scoreId', async (req, res) => {
+    try {
+        const hard = req.query.hard === 'true' || req.query.hard === '1';
+        const ok = hard
+            ? await GlobalScoreService.hardDelete(req.params.scoreId as string)
+            : await GlobalScoreService.softDelete(req.params.scoreId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        if (!ok) return res.status(404).json({ error: 'Score not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/admin/global-scores/:scoreId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

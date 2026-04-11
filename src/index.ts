@@ -53,23 +53,27 @@ async function bootstrap() {
             process.exit(0); // Docker/PM2 will restart
         });
 
-        // 3. Initialize Discord Client (if configured)
+        // 3. Initialize Discord Client (if configured) — non-fatal; API stays up on failure
         if (canStartBot) {
-            const discord = new DiscordClient();
+            try {
+                const discord = new DiscordClient();
 
-            // 4. Deploy Commands (Guild-specific for beta testing)
-            const guildId = process.env.DISCORD_GUILD_ID;
-            if (guildId) {
-                await discord.deployCommands(guildId);
-            } else {
-                logError('DISCORD_GUILD_ID not found in DB or .env. Skipping guild-specific command deployment.');
+                // 4. Deploy Commands (Guild-specific for beta testing)
+                const guildId = process.env.DISCORD_GUILD_ID;
+                if (guildId) {
+                    await discord.deployCommands(guildId);
+                } else {
+                    logError('DISCORD_GUILD_ID not found in DB or .env. Skipping guild-specific command deployment.');
+                }
+
+                // 5. Connect to Discord
+                await discord.connect();
+
+                // 6. Start Scheduler (cron maintenance + timeout checker)
+                await Scheduler.getInstance().start();
+            } catch (discordErr) {
+                logError('Discord initialization failed — API will run without Discord. Check DISCORD_BOT_TOKEN.', discordErr);
             }
-
-            // 5. Connect to Discord
-            await discord.connect();
-
-            // 6. Start Scheduler (cron maintenance + timeout checker)
-            await Scheduler.getInstance().start();
         }
 
         // 7. Start iScored API score poller (if enabled)
