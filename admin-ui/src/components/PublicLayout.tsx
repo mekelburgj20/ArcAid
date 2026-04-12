@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams } from 'react-router-dom';
-import { Users, Monitor, Gamepad2, BarChart3, LogOut } from 'lucide-react';
+import { Users, Monitor, Gamepad2, BarChart3, LogOut, Joystick } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface PublicLayoutProps {
@@ -27,6 +27,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const navItems = [
     { path: `/${slug}`, label: 'Scoreboard', icon: <Monitor size={16} />, end: true },
     { path: `/${slug}/games`, label: 'Games', icon: <Gamepad2 size={16} /> },
+    { path: `/${slug}/freeplay`, label: 'Freeplay', icon: <Joystick size={16} /> },
     { path: `/${slug}/players`, label: 'Players', icon: <Users size={16} /> },
     { path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> },
   ];

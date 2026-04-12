@@ -35,8 +35,78 @@
 - [x] `IGDBImportService.ts` — new: Twitch OAuth token management, bulk seed arcade/console games, on-demand search
 - [x] Admin API routes: `/admin/catalogue/sync-*`, catalogue CRUD, sync dashboard endpoints
 - [x] Build verification: backend + frontend compile clean
-- [ ] Catalogue admin UI page (frontend — GlobalCatalogue.tsx)
-- [ ] VPS auto-sync cron job (Wednesday 2am Pacific via Scheduler)
+- [x] Catalogue admin UI page (`admin-ui/src/pages/GlobalCatalogue.tsx`, 495 lines) — overview stats, sync controls with 2s polling, search/filter/pagination (PAGE_SIZE=200), expandable rows with approve/reject/delete
+- [x] VPS auto-sync cron job — `Scheduler.startVpsCatalogueSync()` runs `0 2 * * 3` in `America/Los_Angeles`, calls `VpsImportService.importFromVps()`, wired from `Scheduler.start()`
+
+**Phase 1 status: functionally complete.** Catalogue foundation (schema + services + imports + admin UI + auto-sync) is in place and verified live.
+
+### Global Scoreboard — Phase 2: Score Model (2026-04-11)
+- [x] `global_scores` schema with origin tracking, soft-delete, ban check, exclude_from_global flag
+- [x] `GlobalScoreService` — submit / fan-out / soft+hard delete / list / `isBanned()`
+- [x] `GlobalScoreService.fanOutFromRoomSubmission()` — room → global with dedup, opt-in check, room+game resolution hierarchy
+- [x] Fan-out wired into all 4 room submission paths: `CommunityScoreService.submitScore()`, `ScoreSyncPoller` (iScored sync), Discord `/submit-score`, web `POST /:roomId/freeplay-score`
+- [x] `POST /api/global/scores` — direct global submission (Discord login + photo + ban check + display name conflict resolution + opt-out)
+- [x] `GlobalScoreSubmitModal.tsx` frontend with display-name pre-fill and exclude-from-global checkbox
+- [x] Discord `/submit-score` `exclude_global` boolean parameter
+- [x] `GET /api/global/scoreboard` (paginated catalogue with aggregates) + per-game leaderboard endpoint
+- [x] `GET /api/global/games` + `GET /api/global/games/:id` (catalogue browse)
+- [x] WebSocket `emitScoreNewGlobal()` — live score toasts on the global scoreboard channel
+- [x] `POST /api/global/scores/:scoreId/report` — flag scores for moderation (one open report per user per score)
+- [x] Room admin Settings: `GLOBAL_SCOREBOARD_ENABLED` (default on) and `REQUIRE_DISCORD_LOGIN` (default off) toggles in the Integrations card
+- [x] Room `ScoreSubmitModal` per-score "Don't post to global" checkbox + wired through `POST /:roomId/submit-score/:gameName` to `CommunityScoreService` `excludeFromGlobal` option
+- [x] `DELETE /api/me/global-scores/:scoreId` — user can soft-delete their own global scores (ownership verified by `player_id === req.user.discordId`)
+- [x] `globalSubmitLimiter` (10/hour per Discord user) on `POST /api/global/scores`, replacing the shared 30/min IP-based `writeLimiter`
+- [x] Build verification: backend + frontend compile clean
+
+**Phase 2 status: complete.**
+
+### Global Scoreboard — Phase 5: Global Scoreboard Page (already implemented)
+- [x] `GlobalScoreboard.tsx` (400 lines) — paginated game grid with search, sort (popular/most_scores/highest_score/most_recent/name_asc), platform group chips (Physical/Virtual Pinball/Arcade & Video), scope filter (global + per-room dropdown)
+- [x] WebSocket `score:new:global` → live toast notifications with optimistic card stat update
+- [x] Submit button → Discord login gate → `GlobalScoreSubmitModal` (photo + display name + opt-out)
+- [x] "Load More" pagination (PAGE_SIZE=30, infinite load)
+- [x] Catalogue image resolution (local path → `/api/catalogue-images/` mount)
+- [x] Route wired in App.tsx: `/scoreboard` → `<ViewerAuthProvider><GlobalScoreboard /></ViewerAuthProvider>`
+
+### Global Scoreboard — Phase 7: Game Detail Page (already implemented)
+- [x] `GlobalGameDetail.tsx` (553 lines) — full game detail page at `/games/:globalGameId`
+- [x] Hero: cover art + wheel overlay + title + manufacturer/year/subtype/players + description + platform badges + theme tags
+- [x] Designers card, Table Authors card, References card (IPDB/VPS/OPDB/IGDB links)
+- [x] Downloads section — per-format download links from VPS (vpuniverse, vpforums, etc.)
+- [x] Tutorials section — embedded YouTube iframes from VPS/IGDB
+- [x] Rules section — linked rules documents from VPS
+- [x] Leaderboard table with avatar, score, room origin, date, photo proof link, report button
+- [x] Scope filter (All rooms / per-room) on the leaderboard
+- [x] Score report flow with prompt and 409 duplicate check
+- [x] Submit button → Discord login gate → `GlobalScoreSubmitModal` → refresh rankings
+- [x] Route wired in App.tsx: `/games/:globalGameId` → `<ViewerAuthProvider><GlobalGameDetail /></ViewerAuthProvider>`
+
+### Global Scoreboard — Phase 6: Game Room Enhancements (complete)
+- [x] Backend: `POST /:roomId/freeplay-score` endpoint (photo required, global catalogue lookup, fan-out to global_scores)
+- [x] Backend: scope filter on global leaderboard (origin_game_room_id)
+- [x] `REQUIRE_DISCORD_LOGIN` room setting + `conditionalRequireDiscordUser` middleware
+- [x] `REQUIRE_SCORE_PHOTO` room setting
+- [x] `Freeplay.tsx` — room-scoped freeplay page at `/:slug/freeplay` with catalogue search/filter, game grid, photo-required submit modal, opt-out checkbox. Nav link (Joystick icon) in PublicLayout.
+
+### Global Scoreboard — Phase 3: User Preference System (2026-04-11) — COMPLETE
+- [x] `PreferencesService` exists (admin theme only)
+- [x] `user_preferences` table exists
+- [x] Migration 040: `scoreboard_prefs` TEXT column on `user_preferences`
+- [x] `PreferencesService.getScoreboardPrefs()` / `setScoreboardPrefs()` — JSON blob merge semantics (null/empty deletes key)
+- [x] `GET/POST /api/me/scoreboard-preferences` endpoints (requireDiscordUser)
+- [x] Scoreboard.tsx merges user prefs on top of room config when playerToken present
+- [x] Preference hierarchy: user preference → room admin default (via config merge)
+
+### Global Scoreboard — Phase 4: JWT Refresh Tokens (2026-04-11) — COMPLETE
+- [x] `sessions` table exists in schema
+- [x] `auth.ts`: `generateRefreshToken()`, `createSession()`, `refreshAccessToken()`, `cleanExpiredSessions()`
+- [x] Refresh rotates both access + refresh tokens, re-derives role from DB (picks up permission changes)
+- [x] Discord OAuth callback issues refresh token on all paths (super_admin, room_admin, player)
+- [x] `POST /api/auth/refresh` endpoint
+- [x] DiscordCallback.tsx stores refresh tokens (player: `arcaid_player_refresh_token`, admin: `arcaid_admin_refresh_token`)
+- [x] ViewerAuthContext auto-refresh: checks every 60s, refreshes within 5min of expiry, restores expired sessions on mount
+- [x] api.ts: admin 401 handler tries refresh before redirecting to login
+- [x] Logout clears refresh tokens
 
 ### Scoreboard UX Fixes (2026-04-06)
 - [x] Inline rankings mode — when `rankingsSticky` is off (default), RankingGroupCards render inline with game cards in all 3 layouts (grid/vertical/scroll)
@@ -225,7 +295,9 @@
 **Date:** 2026-04-11
 **What happened:** Resumed Phase 1 Global Scoreboard verification on `feature/global-scoreboard-phase1`. Local DB turned out **not** to be corrupt — `PRAGMA integrity_check` returned ok and the catalogue had 4188 clean rows from the prior VPS+OPDB+Wizard reimport (zero Frankensteins). Decided against burning hours on a full IGDB run; instead added `options.limit` to `IGDBImportService.importFromIGDB()` and `--igdb-limit N` + `--no-truncate` flags to `scripts/reimport-catalogue.ts` so we can do additive sampled imports for dev. Ran a 500-row IGDB sample in 17s — cleanly inserted 500 video-game rows (446 pc, 53 console, 1 arcade), zero collisions with existing pinball rows, dedup hierarchy held. Catalogue is now 4688 rows and verified clean. Also: established `docs/decisions/` ADR convention (README + 0000 template), added ROADMAP pointer, updated `/update-docs` skill with a decision-doc freshness check.
 
-**Next:** Phase 1 polish remaining items — confirm GlobalCatalogue.tsx admin page is finished, add the VPS auto-sync Wednesday 2am Pacific cron in `Scheduler.ts`. Then move to Phase 2 (Score Model — submission paths and fan-out from rooms to global). Pattern 3 identity ADR (`0001-identity-site-handles.md`) stays parked until anonymous flow details are decided.
+**Next:** Phase 1 was already complete in the working tree (admin catalogue page + VPS Wednesday cron). Surveyed Phase 2 — discovered ~85% was also already built (schema, fan-out helper wired into all 4 submission paths, direct global submit endpoint, opt-out checkbox on the global submit modal, Discord `/submit-score` `exclude_global` parameter). Closed the four real gaps in one batch: room admin opt-out toggles (`GLOBAL_SCOREBOARD_ENABLED` + `REQUIRE_DISCORD_LOGIN`), room `ScoreSubmitModal` opt-out checkbox + route wiring, `DELETE /api/me/global-scores/:scoreId` user delete-own endpoint, `globalSubmitLimiter` (10/hr per Discord user) replacing the generic write limiter on direct global submissions. Backend + frontend builds clean.
+
+**Status:** All 7 phases complete. Pattern 3 identity ADR (`0001-identity-site-handles.md`) still parked until anonymous flow details are decided.
 
 ## Blockers
 

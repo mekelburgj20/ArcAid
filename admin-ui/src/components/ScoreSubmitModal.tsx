@@ -21,6 +21,7 @@ export default function ScoreSubmitModal({ gameName, roomId, gameStatus, require
   const [score, setScore] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [excludeFromGlobal, setExcludeFromGlobal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [activeField, setActiveField] = useState<'username' | 'score' | null>(null);
@@ -65,6 +66,7 @@ export default function ScoreSubmitModal({ gameName, roomId, gameStatus, require
       const formData = new FormData();
       formData.append('username', trimmedName);
       formData.append('score', String(scoreNum));
+      if (excludeFromGlobal) formData.append('excludeGlobal', 'true');
       if (photoFile) formData.append('photo', photoFile);
 
       const headers: Record<string, string> = {};
@@ -233,6 +235,17 @@ export default function ScoreSubmitModal({ gameName, roomId, gameStatus, require
               <p className="text-xs text-neon-amber mt-1">A photo is required to submit your score.</p>
             )}
           </div>
+
+          {/* Global opt-out */}
+          <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
+            <input
+              type="checkbox"
+              checked={excludeFromGlobal}
+              onChange={e => setExcludeFromGlobal(e.target.checked)}
+              className="rounded border-border"
+            />
+            Don't post this score to the global ArcAid scoreboard
+          </label>
 
           {/* Message */}
           {message && (

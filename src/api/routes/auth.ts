@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { hashPassword, verifyPassword, signToken, getAdminPasswordHash, setAdminPasswordHash } from '../auth.js';
+import { hashPassword, verifyPassword, signToken, getAdminPasswordHash, setAdminPasswordHash, generateRefreshToken, createSession, refreshAccessToken } from '../auth.js';
 import { requireAuth } from '../middleware.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
@@ -177,8 +177,10 @@ router.post('/discord/callback', async (req, res) => {
                 username: displayName,
                 avatar: avatarUrl || undefined,
             });
+            const refreshToken = generateRefreshToken();
+            await createSession(user.id, refreshToken, token);
             logInfo(`Discord OAuth login (super_admin): ${displayName} (${user.id})`);
-            return res.json({ token, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
+            return res.json({ token, refreshToken, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
         }
 
         // 2. Check game_room_admins table
@@ -191,8 +193,10 @@ router.post('/discord/callback', async (req, res) => {
                 username: displayName,
                 avatar: avatarUrl || undefined,
             });
+            const refreshToken = generateRefreshToken();
+            await createSession(user.id, refreshToken, token);
             logInfo(`Discord OAuth login (room_admin): ${displayName} (${user.id}) for rooms: ${roomIds.join(', ')}`);
-            return res.json({ token, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
+            return res.json({ token, refreshToken, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
         }
 
         // 3. Not an admin — issue a player token (for public features like game picking)
@@ -203,10 +207,32 @@ router.post('/discord/callback', async (req, res) => {
             username: displayName,
             avatar: avatarUrl || undefined,
         });
+        const refreshToken = generateRefreshToken();
+        await createSession(user.id, refreshToken, token);
         logInfo(`Discord OAuth login (player): ${displayName} (${user.id})`);
-        return res.json({ token, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
+        return res.json({ token, refreshToken, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
     } catch (error) {
         logError('API Error (POST /api/auth/discord/callback):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Refresh access token
+router.post('/refresh', async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+        if (!refreshToken || typeof refreshToken !== 'string') {
+            return res.status(400).json({ error: 'refreshToken required' });
+        }
+
+        const result = await refreshAccessToken(refreshToken);
+        if (!result) {
+            return res.status(401).json({ error: 'Invalid or expired refresh token' });
+        }
+
+        res.json({ token: result.token, refreshToken: result.refreshToken });
+    } catch (error) {
+        logError('API Error (POST /api/auth/refresh):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

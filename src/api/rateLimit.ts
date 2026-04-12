@@ -40,3 +40,20 @@ export const generalLimiter = rateLimit({
     legacyHeaders: false,
     message: { error: 'Too many requests. Please try again later.' },
 });
+
+/**
+ * Direct global score submission: 10 per hour per Discord user.
+ *
+ * Keys on `req.user.discordId` so legitimate cross-room writes from the same
+ * IP (e.g. a kiosk used by multiple players) aren't lumped together. Falls
+ * back to IP if requireDiscordUser hasn't run yet — this limiter must be
+ * mounted AFTER requireDiscordUser to take effect per-user.
+ */
+export const globalSubmitLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => req.user?.discordId || req.ip,
+    message: { error: 'Global submission limit reached (10 per hour). Please try again later.' },
+});

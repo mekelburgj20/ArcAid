@@ -38,6 +38,25 @@ export function getSlugFromPath(): string | null {
   return match ? match[1] : null;
 }
 
+async function tryRefreshAdminToken(): Promise<string | null> {
+  const refreshToken = localStorage.getItem('arcaid_admin_refresh_token');
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    setToken(data.token);
+    localStorage.setItem('arcaid_admin_refresh_token', data.refreshToken);
+    return data.token;
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string> || {}),
@@ -56,13 +75,21 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    // Token expired or invalid — clear and redirect based on context
+    const newToken = await tryRefreshAdminToken();
+    if (newToken) {
+      headers['Authorization'] = `Bearer ${newToken}`;
+      const retryRes = await fetch(`${BASE}${path}`, { ...options, headers });
+      if (!retryRes.ok) {
+        const error = await retryRes.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(error.error || `HTTP ${retryRes.status}`);
+      }
+      return retryRes.json();
+    }
     setToken(null);
+    localStorage.removeItem('arcaid_admin_refresh_token');
     const slug = getSlugFromPath();
     if (slug) {
       window.location.href = `/${slug}/login`;
-    } else if (window.location.pathname.startsWith('/admin')) {
-      window.location.href = '/login';
     } else {
       window.location.href = '/login';
     }

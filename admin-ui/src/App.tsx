@@ -39,6 +39,7 @@ import Players from './pages/Players';
 import PlayerDetail from './pages/PlayerDetail';
 import GameDetail from './pages/GameDetail';
 import GameAvailability from './pages/GameAvailability';
+import Freeplay from './pages/Freeplay';
 import PublicStats from './pages/PublicStats';
 
 // Pages — Kiosk
@@ -132,6 +133,7 @@ function App() {
           <Route path="players/:id" element={<PlayerDetail />} />
           <Route path="games" element={<GameAvailability />} />
           <Route path="games/:name" element={<GameDetail />} />
+          <Route path="freeplay" element={<Freeplay />} />
           <Route path="stats" element={<PublicStats />} />
         </Route>
       </Routes>

@@ -571,6 +571,7 @@ export async function initDatabase(): Promise<Database> {
         { name: '037_room_library_global_game_id', sql: `ALTER TABLE game_room_game_library ADD COLUMN global_game_id TEXT` },
         { name: '038_games_global_game_id', sql: `ALTER TABLE games ADD COLUMN global_game_id TEXT` },
         { name: '039_game_library_global_game_id', sql: `ALTER TABLE game_library ADD COLUMN global_game_id TEXT` },
+        { name: '040_user_preferences_scoreboard_prefs', sql: `ALTER TABLE user_preferences ADD COLUMN scoreboard_prefs TEXT` },
     ];
 
     for (const migration of migrations) {

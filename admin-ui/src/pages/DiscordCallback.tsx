@@ -60,6 +60,7 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
         if (isPlayerFlow || role === 'player') {
           // Store player token separately — don't overwrite admin session
           localStorage.setItem('arcaid_player_token', data.token);
+          if (data.refreshToken) localStorage.setItem('arcaid_player_refresh_token', data.refreshToken);
           if (data.user) {
             localStorage.setItem('arcaid_player_user', JSON.stringify(data.user));
           }
@@ -82,6 +83,7 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
 
         // Admin login flow — store as admin token
         setToken(data.token);
+        if (data.refreshToken) localStorage.setItem('arcaid_admin_refresh_token', data.refreshToken);
         onLogin();
 
         if (payload) {

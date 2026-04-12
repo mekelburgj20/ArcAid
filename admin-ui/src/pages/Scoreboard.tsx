@@ -32,22 +32,36 @@ export default function Scoreboard() {
   const [roomId, setRoomId] = useState('');
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   const viewerHeaders = useViewerHeaders();
-  const { discordUser } = useViewerAuth();
+  const { discordUser, playerToken } = useViewerAuth();
 
-  // Resolve room and fetch scoreboard config
+  // Resolve room and fetch scoreboard config (merged with user prefs if logged in)
   useEffect(() => {
     if (!slug) return;
-    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then((portal: { id: string; name: string }) => {
+    (async () => {
+      try {
+        const portalRes = await fetch(`/api/portal?slug=${encodeURIComponent(slug)}`);
+        if (!portalRes.ok) return;
+        const portal: { id: string; name: string } = await portalRes.json();
         setRoomName(portal.name);
         setRoomId(portal.id);
-        return fetch(`/api/rooms/${portal.id}/scoreboard-config`, { headers: viewerHeaders });
-      })
-      .then(r => r.ok ? r.json() : {})
-      .then(cfg => setConfig(cfg || {}))
-      .catch(() => {});
-  }, [slug]);
+        const cfgRes = await fetch(`/api/rooms/${portal.id}/scoreboard-config`, { headers: viewerHeaders });
+        const cfg = cfgRes.ok ? await cfgRes.json() : {};
+        if (playerToken) {
+          try {
+            const prefsRes = await fetch('/api/me/scoreboard-preferences', {
+              headers: { Authorization: `Bearer ${playerToken}` },
+            });
+            if (prefsRes.ok) {
+              const prefs = await prefsRes.json();
+              setConfig({ ...(cfg || {}), ...prefs });
+              return;
+            }
+          } catch { /* fall through to room defaults */ }
+        }
+        setConfig(cfg || {});
+      } catch { /* ignore */ }
+    })();
+  }, [slug, playerToken]);
 
   const loadData = async () => {
     if (!roomId) return;

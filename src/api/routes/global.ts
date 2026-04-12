@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser } from '../middleware.js';
-import { writeLimiter } from '../rateLimit.js';
+import { writeLimiter, globalSubmitLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
 import { UpdatePreferencesSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
@@ -91,6 +91,32 @@ router.post('/me/preferences', requireAuth, async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/me/preferences):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Scoreboard display preferences (per-user overrides for room defaults)
+router.get('/me/scoreboard-preferences', requireDiscordUser, async (req, res) => {
+    try {
+        const { PreferencesService } = await import('../../services/PreferencesService.js');
+        const prefs = await PreferencesService.getScoreboardPrefs(req.user!.discordId!);
+        res.json(prefs);
+    } catch (error) {
+        logError('API Error (GET /api/me/scoreboard-preferences):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/me/scoreboard-preferences', requireDiscordUser, async (req, res) => {
+    try {
+        if (!req.body || typeof req.body !== 'object') {
+            return res.status(400).json({ error: 'Body must be a JSON object of preference keys' });
+        }
+        const { PreferencesService } = await import('../../services/PreferencesService.js');
+        const merged = await PreferencesService.setScoreboardPrefs(req.user!.discordId!, req.body);
+        res.json(merged);
+    } catch (error) {
+        logError('API Error (POST /api/me/scoreboard-preferences):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -409,7 +435,7 @@ router.get('/global/me/display-name', requireDiscordUser, async (req, res) => {
  * through user_mappings → Discord username → discordId. When provided, it is
  * persisted to user_mappings so future submissions default to it.
  */
-router.post('/global/scores', writeLimiter, requireDiscordUser, globalScoreUpload.single('photo'), async (req, res) => {
+router.post('/global/scores', requireDiscordUser, globalSubmitLimiter, globalScoreUpload.single('photo'), async (req, res) => {
     try {
         const globalGameId = req.body.globalGameId;
         const scoreRaw = req.body.score;
@@ -497,6 +523,30 @@ router.post('/global/scores', writeLimiter, requireDiscordUser, globalScoreUploa
         }
     } catch (error) {
         logError('API Error (POST /api/global/scores):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * DELETE /api/me/global-scores/:scoreId — user deletes one of their own scores.
+ * Soft-delete only; the row stays for audit/restore. Verifies the authenticated
+ * Discord user owns the score before delegating to GlobalScoreService.softDelete.
+ */
+router.delete('/me/global-scores/:scoreId', requireDiscordUser, async (req, res) => {
+    try {
+        const scoreId = req.params.scoreId as string;
+        const score = await GlobalScoreService.getById(scoreId);
+        if (!score || score.deleted_at) {
+            return res.status(404).json({ error: 'Score not found' });
+        }
+        if (score.player_id !== req.user!.discordId) {
+            return res.status(403).json({ error: 'You can only delete your own scores' });
+        }
+        const ok = await GlobalScoreService.softDelete(scoreId, req.user!.discordId!);
+        if (!ok) return res.status(404).json({ error: 'Score not found' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/me/global-scores/:scoreId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

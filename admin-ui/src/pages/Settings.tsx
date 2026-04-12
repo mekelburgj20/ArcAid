@@ -93,7 +93,7 @@ const GLOBAL_CARD_TOGGLES: Record<string, { label: string; description: string; 
   },
 };
 
-// Remaining feature toggles (Discord/iScored)
+// Remaining feature toggles (Discord/iScored/submissions)
 const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
   'ISCORED_ENABLED': {
     label: 'iScored Integration',
@@ -108,6 +108,15 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
   'ENABLE_CALLOUTS': {
     label: 'Callouts (Easter Egg)',
     description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',
+  },
+  'GLOBAL_SCOREBOARD_ENABLED': {
+    label: 'Post Scores to Global Scoreboard',
+    description: 'When enabled, scores submitted in this room are also fanned out to the global ArcAid scoreboard at arcaid.app/scoreboard. Players can still opt out per-score.',
+    defaultOn: true,
+  },
+  'REQUIRE_DISCORD_LOGIN': {
+    label: 'Require Discord Login for Score Submission',
+    description: 'When enabled, players must log in with Discord before submitting scores from the public scoreboard. Useful for kiosks where you want to track who submitted what.',
   },
 };
 

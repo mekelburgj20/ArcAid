@@ -879,6 +879,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
         const roomId = req.params.roomId as string;
         const gameName = decodeURIComponent(req.params.gameName as string);
         const { username, score } = validationResult.data;
+        const excludeFromGlobal = req.body.excludeGlobal === 'true' || req.body.excludeGlobal === true;
 
         // Check if photo is required
         const requirePhoto = await GameRoomSettingsService.get(roomId, 'REQUIRE_SCORE_PHOTO');
@@ -899,9 +900,12 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
             photoUrl = `/api/score-photos/${roomId}/${filename}`;
         }
 
-        // Save to community_scores + score_history
+        // Save to community_scores + score_history. Fan-out to global_scores
+        // is handled inside CommunityScoreService.submitScore (best-effort).
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
-        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, undefined, photoUrl);
+        const result = await CommunityScoreService.submitScore(
+            roomId, gameName, username, score, req.user?.discordId, photoUrl, { excludeFromGlobal }
+        );
 
         // Log activity event
         const { RoomEventService } = await import('../../services/RoomEventService.js');
