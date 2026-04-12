@@ -325,6 +325,14 @@ export default function GlobalGameDetail() {
             Global Scoreboard
           </Link>
           <div className="flex items-center gap-3">
+            <Link to="/" className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
+              Rooms
+            </Link>
+            {localStorage.getItem('arcaid_token') && (
+              <Link to="/admin" className="text-xs text-muted hover:text-neon-amber no-underline hidden sm:inline">
+                Admin
+              </Link>
+            )}
             {discordUser ? (
               <div className="flex items-center gap-2">
                 {discordUser.avatar ? (

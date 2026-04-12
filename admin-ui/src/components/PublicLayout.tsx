@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams } from 'react-router-dom';
-import { Users, Monitor, Gamepad2, BarChart3, LogOut, Joystick } from 'lucide-react';
+import { Users, Monitor, Gamepad2, BarChart3, LogOut, Joystick, Trophy, Settings } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface PublicLayoutProps {
@@ -24,12 +24,15 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       .catch(() => {});
   }, [slug, gameRoomName]);
 
+  const hasAdminToken = !!localStorage.getItem('arcaid_token');
+
   const navItems = [
     { path: `/${slug}`, label: 'Scoreboard', icon: <Monitor size={16} />, end: true },
     { path: `/${slug}/games`, label: 'Games', icon: <Gamepad2 size={16} /> },
     { path: `/${slug}/freeplay`, label: 'Freeplay', icon: <Joystick size={16} /> },
     { path: `/${slug}/players`, label: 'Players', icon: <Users size={16} /> },
     { path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> },
+    { path: '/scoreboard', label: 'Global', icon: <Trophy size={16} /> },
   ];
 
   return (
@@ -52,6 +55,18 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 <span className="hidden sm:inline">{item.label}</span>
               </Link>
             ))}
+
+            {/* Admin link (visible only when admin token exists) */}
+            {hasAdminToken && (
+              <Link
+                to={`/${slug}/admin`}
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-2 text-xs sm:text-sm text-muted hover:text-neon-amber rounded transition-colors no-underline"
+                title="Room Admin"
+              >
+                <Settings size={16} />
+                <span className="hidden lg:inline">Admin</span>
+              </Link>
+            )}
 
             {/* Discord login / user avatar */}
             {discordUser ? (

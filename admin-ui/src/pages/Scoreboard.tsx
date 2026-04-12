@@ -197,6 +197,21 @@ export default function Scoreboard() {
         .animate-slideDown {
           animation: slideDown 0.3s ease-out forwards;
         }
+        /* Scrollbar styling for horizontal scroll layout */
+        .scoreboard-hscroll-layout {
+          scrollbar-width: thin;
+          scrollbar-color: var(--color-border) transparent;
+        }
+        .scoreboard-hscroll-layout::-webkit-scrollbar {
+          height: 6px;
+        }
+        .scoreboard-hscroll-layout::-webkit-scrollbar-thumb {
+          background: var(--color-border);
+          border-radius: 3px;
+        }
+        .scoreboard-hscroll-layout::-webkit-scrollbar-thumb:hover {
+          background: var(--color-muted);
+        }
         /* Mobile: scale + vertical mode */
         @media (max-width: 640px) {
           .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.6); }
@@ -249,8 +264,8 @@ export default function Scoreboard() {
         </div>
       )}
       {titleHidden && logoUrl && (
-        <div className="text-center mb-4">
-          <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto" />
+        <div className="text-center mb-4 overflow-hidden">
+          <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto max-w-full" />
         </div>
       )}
 
