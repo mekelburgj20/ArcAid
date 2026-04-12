@@ -408,6 +408,100 @@ export default function GlobalGameDetail() {
           </div>
         </div>
 
+        {/* Leaderboard */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <h2 className="font-display text-lg font-semibold flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-neon-cyan" /> Leaderboard
+            </h2>
+            <select
+              value={scope}
+              onChange={e => setScope(e.target.value)}
+              className="px-3 py-1.5 rounded border border-border bg-surface text-primary text-sm"
+            >
+              <option value="global">All rooms (global)</option>
+              {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
+
+          {reportMessage && (
+            <div className={`mb-3 text-sm ${reportMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              {reportMessage.text}
+            </div>
+          )}
+
+          {rankingsLoading ? (
+            <LoadingState message="Loading scores..." />
+          ) : rankings.length === 0 ? (
+            <div className="text-center py-10 text-muted border border-border rounded-lg">
+              No scores yet. Be the first to submit!
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border bg-surface overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-deep border-b border-border">
+                  <tr className="text-left text-xs text-muted uppercase tracking-wide">
+                    <th className="px-3 py-2 w-12">#</th>
+                    <th className="px-3 py-2">Player</th>
+                    <th className="px-3 py-2 text-right">Score</th>
+                    <th className="px-3 py-2 hidden sm:table-cell">Room</th>
+                    <th className="px-3 py-2 hidden md:table-cell">Date</th>
+                    <th className="px-3 py-2 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankings.map(entry => (
+                    <tr key={entry.score_id} className="border-b border-border/50 last:border-0 hover:bg-deep/30">
+                      <td className="px-3 py-2 font-mono text-muted">{entry.rank}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <PlayerAvatar
+                            username={entry.iscored_username}
+                            discordUserId={entry.discord_user_id}
+                            avatarHash={entry.avatar_hash}
+                            size={24}
+                          />
+                          <span className="truncate">{entry.iscored_username}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono font-semibold text-neon-cyan" title={entry.score.toLocaleString()}>
+                        {formatScore(entry.score)}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted hidden sm:table-cell truncate">
+                        {entry.origin_type === 'global' ? 'Global' : (entry.origin_room_name || '—')}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted hidden md:table-cell">
+                        {formatDate(entry.submitted_at)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {entry.photo_url && (
+                          <a
+                            href={entry.photo_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted hover:text-neon-cyan text-xs inline-block mr-2"
+                            title="View proof"
+                          >
+                            proof
+                          </a>
+                        )}
+                        <button
+                          onClick={() => handleReport(entry.score_id)}
+                          disabled={reportingId === entry.score_id}
+                          className="text-muted hover:text-red-400 disabled:opacity-50"
+                          title="Report this score"
+                        >
+                          <Flag className="w-3.5 h-3.5 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {/* External references + designers + authors */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           {game.designers.length > 0 && (
@@ -547,100 +641,6 @@ export default function GlobalGameDetail() {
             </div>
           </div>
         )}
-
-        {/* Leaderboard */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-            <h2 className="font-display text-lg font-semibold flex items-center gap-2">
-              <Trophy className="w-4 h-4 text-neon-cyan" /> Leaderboard
-            </h2>
-            <select
-              value={scope}
-              onChange={e => setScope(e.target.value)}
-              className="px-3 py-1.5 rounded border border-border bg-surface text-primary text-sm"
-            >
-              <option value="global">All rooms (global)</option>
-              {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </div>
-
-          {reportMessage && (
-            <div className={`mb-3 text-sm ${reportMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-              {reportMessage.text}
-            </div>
-          )}
-
-          {rankingsLoading ? (
-            <LoadingState message="Loading scores..." />
-          ) : rankings.length === 0 ? (
-            <div className="text-center py-10 text-muted border border-border rounded-lg">
-              No scores yet. Be the first to submit!
-            </div>
-          ) : (
-            <div className="rounded-lg border border-border bg-surface overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-deep border-b border-border">
-                  <tr className="text-left text-xs text-muted uppercase tracking-wide">
-                    <th className="px-3 py-2 w-12">#</th>
-                    <th className="px-3 py-2">Player</th>
-                    <th className="px-3 py-2 text-right">Score</th>
-                    <th className="px-3 py-2 hidden sm:table-cell">Room</th>
-                    <th className="px-3 py-2 hidden md:table-cell">Date</th>
-                    <th className="px-3 py-2 w-10"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rankings.map(entry => (
-                    <tr key={entry.score_id} className="border-b border-border/50 last:border-0 hover:bg-deep/30">
-                      <td className="px-3 py-2 font-mono text-muted">{entry.rank}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <PlayerAvatar
-                            username={entry.iscored_username}
-                            discordUserId={entry.discord_user_id}
-                            avatarHash={entry.avatar_hash}
-                            size={24}
-                          />
-                          <span className="truncate">{entry.iscored_username}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono font-semibold text-neon-cyan" title={entry.score.toLocaleString()}>
-                        {formatScore(entry.score)}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted hidden sm:table-cell truncate">
-                        {entry.origin_type === 'global' ? 'Global' : (entry.origin_room_name || '—')}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted hidden md:table-cell">
-                        {formatDate(entry.submitted_at)}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {entry.photo_url && (
-                          <a
-                            href={entry.photo_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-muted hover:text-neon-cyan text-xs inline-block mr-2"
-                            title="View proof"
-                          >
-                            proof
-                          </a>
-                        )}
-                        <button
-                          onClick={() => handleReport(entry.score_id)}
-                          disabled={reportingId === entry.score_id}
-                          className="text-muted hover:text-red-400 disabled:opacity-50"
-                          title="Report this score"
-                        >
-                          <Flag className="w-3.5 h-3.5 inline" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
 
         {/* Tips & Comments */}
         <div className="mb-8">

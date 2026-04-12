@@ -309,6 +309,19 @@ All 7 phases implemented and deployed to production (2026-04-12).
 ### UX Polish
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
 
+### Score Photo Persistence
+Score proof photos submitted via room scoreboards and global scoreboard are stored locally on disk (`data/score-photos/`). Current issues:
+- Photos from iScored-synced scores are not downloaded — `photo_url` in DB points to iScored CDN which may expire
+- Room-originated photos referenced by global scores may 404 if the file wasn't persisted (e.g., community scores with external URLs)
+- No backup/replication strategy for photo files (DB is backed up, photos are not)
+
+Options to evaluate:
+- [ ] Download and persist iScored CDN photos during sync (ScoreSyncPoller)
+- [ ] Copy/symlink room photos to global photo dir during fan-out
+- [ ] S3/object storage for all score photos (persistent, CDN-backed)
+- [ ] Serve missing photos gracefully (placeholder image instead of 404)
+- [ ] Include `data/score-photos/` in backup volume
+
 ### Ops / Infrastructure
 - [x] CI/CD pipeline (GitHub Actions: build + push to GHCR + deploy to Hetzner on push to main)
 - [ ] Automated backup schedule (configurable via admin UI)
