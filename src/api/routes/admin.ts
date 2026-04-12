@@ -883,4 +883,123 @@ router.delete('/global-scores/:scoreId', async (req, res) => {
     }
 });
 
+// ─── Global Score Backfill (one-time) ───────────────────────────────────
+// Migrates historical room scores (submissions + community_scores) into
+// global_scores. Idempotent — skips rows that already exist (dedup on
+// player+game+score+room). Also backfills games.global_game_id for existing
+// tournament games by name matching against the global catalogue.
+router.post('/global-backfill', requireAuth, requireSuperAdmin, async (_req, res) => {
+    try {
+        const db = (await import('../../database/database.js')).getDatabase;
+        const dbConn = await db();
+        const { normalizeGameName } = await import('../../utils/catalogueUtils.js');
+
+        const stats = { gamesLinked: 0, submissionsBackfilled: 0, communityBackfilled: 0, skippedNoMatch: 0, skippedDupes: 0 };
+
+        // Step 1: Build a lookup of normalized global_game names → id
+        const globalGames = await dbConn.all(
+            `SELECT id, name, display_name FROM global_games WHERE status = 'approved' AND global_leaderboard = 1`
+        );
+        const normalizedMap = new Map<string, string>();
+        for (const gg of globalGames) {
+            normalizedMap.set(normalizeGameName(gg.name), gg.id);
+            if (gg.display_name) normalizedMap.set(normalizeGameName(gg.display_name), gg.id);
+        }
+
+        // Step 2: Backfill games.global_game_id where missing
+        const unlinkedGames = await dbConn.all(
+            `SELECT id, name FROM games WHERE global_game_id IS NULL`
+        );
+        for (const g of unlinkedGames) {
+            const norm = normalizeGameName(g.name);
+            const match = normalizedMap.get(norm);
+            if (match) {
+                await dbConn.run('UPDATE games SET global_game_id = ? WHERE id = ?', match, g.id);
+                stats.gamesLinked++;
+            }
+        }
+
+        // Step 3: Backfill submissions → global_scores
+        const submissions = await dbConn.all(`
+            SELECT s.id, s.iscored_username, s.score, s.photo_url, s.timestamp,
+                   g.global_game_id, g.name as game_name, t.game_room_id,
+                   COALESCE(um.discord_user_id, 'SYSTEM') as discord_user_id
+            FROM submissions s
+            JOIN games g ON g.id = s.game_id
+            JOIN tournaments t ON t.id = g.tournament_id
+            LEFT JOIN user_mappings um ON LOWER(um.iscored_username) = LOWER(s.iscored_username)
+            WHERE g.global_game_id IS NOT NULL
+        `);
+
+        for (const s of submissions) {
+            // Dedup check
+            const exists = await dbConn.get(
+                `SELECT id FROM global_scores
+                 WHERE global_game_id = ? AND origin_game_room_id = ?
+                   AND LOWER(iscored_username) = LOWER(?) AND score = ?`,
+                s.global_game_id, s.game_room_id, s.iscored_username, s.score
+            );
+            if (exists) { stats.skippedDupes++; continue; }
+
+            const id = (await import('crypto')).randomUUID();
+            await dbConn.run(
+                `INSERT INTO global_scores (
+                    id, global_game_id, player_id, iscored_username, score,
+                    photo_url, origin_type, origin_game_room_id,
+                    exclude_from_global, submitted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?)`,
+                id, s.global_game_id, s.discord_user_id, s.iscored_username,
+                s.score, s.photo_url || null, s.game_room_id,
+                s.timestamp || new Date().toISOString()
+            );
+            stats.submissionsBackfilled++;
+        }
+
+        // Step 4: Backfill community_scores → global_scores
+        const communityScores = await dbConn.all(`
+            SELECT cs.id, cs.game_name, cs.game_room_id, cs.iscored_username,
+                   cs.discord_user_id, cs.score, cs.photo_url, cs.created_at
+            FROM community_scores cs
+        `);
+
+        for (const cs of communityScores) {
+            // Resolve global_game_id by name
+            const norm = normalizeGameName(cs.game_name);
+            const globalGameId = normalizedMap.get(norm);
+            if (!globalGameId) { stats.skippedNoMatch++; continue; }
+
+            const exists = await dbConn.get(
+                `SELECT id FROM global_scores
+                 WHERE global_game_id = ? AND origin_game_room_id = ?
+                   AND LOWER(iscored_username) = LOWER(?) AND score = ?`,
+                globalGameId, cs.game_room_id, cs.iscored_username, cs.score
+            );
+            if (exists) { stats.skippedDupes++; continue; }
+
+            const id = (await import('crypto')).randomUUID();
+            await dbConn.run(
+                `INSERT INTO global_scores (
+                    id, global_game_id, player_id, iscored_username, score,
+                    photo_url, origin_type, origin_game_room_id,
+                    exclude_from_global, submitted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?)`,
+                id, globalGameId, cs.discord_user_id || 'COMMUNITY',
+                cs.iscored_username, cs.score, cs.photo_url || null,
+                cs.game_room_id, cs.created_at || new Date().toISOString()
+            );
+            stats.communityBackfilled++;
+        }
+
+        // Step 5: Invalidate all leaderboard caches
+        const { GlobalLeaderboardService } = await import('../../services/GlobalLeaderboardService.js');
+        await GlobalLeaderboardService.invalidateAll();
+
+        logInfo(`Global backfill complete: ${JSON.stringify(stats)}`);
+        res.json({ success: true, stats });
+    } catch (error) {
+        logError('API Error (POST /api/admin/global-backfill):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 export default router;
