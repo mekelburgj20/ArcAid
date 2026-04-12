@@ -64,7 +64,7 @@ export class GlobalLeaderboardService {
                     gs.origin_type,
                     gs.origin_game_room_id,
                     ROW_NUMBER() OVER (
-                        PARTITION BY LOWER(COALESCE(gs.iscored_username, gs.player_id))
+                        PARTITION BY LOWER(COALESCE(gs.iscored_username, gs.discord_user_id))
                         ORDER BY gs.score DESC, gs.submitted_at ASC
                     ) as rn
                 FROM (
