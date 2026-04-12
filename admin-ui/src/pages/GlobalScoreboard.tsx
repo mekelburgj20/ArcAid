@@ -219,6 +219,13 @@ export default function GlobalScoreboard() {
             </Link>
             {discordUser ? (
               <div className="flex items-center gap-2">
+                {discordUser.avatar ? (
+                  <img src={discordUser.avatar} alt="" className="w-6 h-6 rounded-full border border-border" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-neon-cyan/20 border border-border flex items-center justify-center text-[10px] font-bold text-neon-cyan">
+                    {discordUser.username.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <span className="text-xs text-muted hidden sm:inline">{discordUser.username}</span>
                 <button
                   onClick={logoutPlayer}

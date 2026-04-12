@@ -32,5 +32,12 @@ admin-ui/.eslintcache
 admin-ui/dist-ssr
 admin-ui/*.local
 
+# Temporary / scratch files
+tmp/
+
+# Planning / session state (not code docs)
+ROADMAP.md
+SPRINT_STATUS.md
+
 # Claude Files
 .claude/

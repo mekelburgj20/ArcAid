@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { Search, Upload, Camera, Trash2, X, Filter } from 'lucide-react';
-import { useRoom } from '../contexts/RoomContext';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
@@ -42,8 +42,18 @@ function imageFor(game: CatalogueGame): string | null {
 }
 
 export default function Freeplay() {
-  const { roomId, roomSlug } = useRoom();
+  const { slug } = useParams<{ slug: string }>();
   const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
+  const [roomId, setRoomId] = useState<string | null>(null);
+
+  // Resolve roomId from slug via portal endpoint (same pattern as Scoreboard)
+  useEffect(() => {
+    if (!slug) return;
+    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.roomId) setRoomId(data.roomId); })
+      .catch(() => {});
+  }, [slug]);
   const [games, setGames] = useState<CatalogueGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
@@ -94,7 +104,7 @@ export default function Freeplay() {
 
   const handleSubmitClick = (game: CatalogueGame) => {
     if (!playerToken) {
-      loginWithDiscord(roomSlug, `/${roomSlug}/freeplay`);
+      loginWithDiscord(slug || '', `/${slug}/freeplay`);
       return;
     }
     setSubmitGame(game);
@@ -185,7 +195,7 @@ export default function Freeplay() {
         </>
       )}
 
-      {submitGame && playerToken && (
+      {submitGame && playerToken && roomId && (
         <FreeplaySubmitModal
           game={submitGame}
           roomId={roomId}

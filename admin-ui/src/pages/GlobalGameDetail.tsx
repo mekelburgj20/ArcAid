@@ -273,6 +273,17 @@ export default function GlobalGameDetail() {
     }
   };
 
+  const handleDeleteScore = async (scoreId: string) => {
+    if (!playerToken || !confirm('Delete your score?')) return;
+    try {
+      const res = await fetch(`/api/me/global-scores/${scoreId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (res.ok) refreshRankings();
+    } catch { /* silent */ }
+  };
+
   const refreshRankings = () => {
     if (!globalGameId) return;
     setRankingsLoading(true);
@@ -312,6 +323,13 @@ export default function GlobalGameDetail() {
           <div className="flex items-center gap-3">
             {discordUser ? (
               <div className="flex items-center gap-2">
+                {discordUser.avatar ? (
+                  <img src={discordUser.avatar} alt="" className="w-6 h-6 rounded-full border border-border" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-neon-cyan/20 border border-border flex items-center justify-center text-[10px] font-bold text-neon-cyan">
+                    {discordUser.username.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <span className="text-xs text-muted hidden sm:inline">{discordUser.username}</span>
                 <button
                   onClick={logoutPlayer}
@@ -473,7 +491,7 @@ export default function GlobalGameDetail() {
                       <td className="px-3 py-2 text-xs text-muted hidden md:table-cell">
                         {formatDate(entry.submitted_at)}
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
                         {entry.photo_url && (
                           <a
                             href={entry.photo_url}
@@ -484,6 +502,15 @@ export default function GlobalGameDetail() {
                           >
                             proof
                           </a>
+                        )}
+                        {discordUser?.discordId === entry.discord_user_id && (
+                          <button
+                            onClick={() => handleDeleteScore(entry.score_id)}
+                            className="text-muted hover:text-red-400 mr-1"
+                            title="Delete your score"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 inline" />
+                          </button>
                         )}
                         <button
                           onClick={() => handleReport(entry.score_id)}
