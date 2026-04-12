@@ -5,6 +5,7 @@ import { getSocket } from '../lib/websocket';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoadingState from '../components/LoadingState';
 import GlobalScoreSubmitModal from '../components/GlobalScoreSubmitModal';
+import StarRating from '../components/StarRating';
 
 interface TopGame {
   global_game_id: string;
@@ -20,6 +21,8 @@ interface TopGame {
   score_count: number;
   top_score: number | null;
   last_submitted_at: string | null;
+  avg_rating: number;
+  rating_count: number;
 }
 
 interface Room {
@@ -29,7 +32,7 @@ interface Room {
   is_public: boolean;
 }
 
-type SortMode = 'popular' | 'most_scores' | 'highest_score' | 'most_recent' | 'name_asc';
+type SortMode = 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc';
 
 const PAGE_SIZE = 30;
 
@@ -78,6 +81,7 @@ export default function GlobalScoreboard() {
   const [submitGame, setSubmitGame] = useState<TopGame | null>(null);
   const [toast, setToast] = useState<{ player: string; game: string; score: number } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const [userRatings, setUserRatings] = useState<Record<string, number>>({});
 
   // Debounce search input (300ms) so we don't hammer the backend on every keystroke
   useEffect(() => {
@@ -85,13 +89,43 @@ export default function GlobalScoreboard() {
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
-  // Load rooms for the scope filter
+  // Load rooms for the scope filter, and bulk user ratings
   useEffect(() => {
     fetch('/api/rooms')
       .then(r => r.ok ? r.json() : [])
       .then((data: Room[]) => setRooms((data || []).filter(r => r.is_public)))
       .catch(() => {});
   }, []);
+
+  // Fetch user's own ratings (needs token)
+  useEffect(() => {
+    const headers: HeadersInit = {};
+    if (playerToken) headers['Authorization'] = `Bearer ${playerToken}`;
+    fetch('/api/global/ratings', { headers })
+      .then(r => r.ok ? r.json() : { userRatings: {} })
+      .then(data => setUserRatings(data.userRatings || {}))
+      .catch(() => {});
+  }, [playerToken]);
+
+  const handleRate = async (gameId: string, rating: number) => {
+    if (!playerToken) return;
+    try {
+      const res = await fetch(`/api/global/games/${gameId}/rating`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
+        body: JSON.stringify({ rating }),
+      });
+      if (res.ok) {
+        const info = await res.json();
+        setUserRatings(prev => ({ ...prev, [gameId]: rating }));
+        setGames(prev => prev.map(g =>
+          g.global_game_id === gameId
+            ? { ...g, avg_rating: info.avg_rating, rating_count: info.rating_count }
+            : g
+        ));
+      }
+    } catch { /* silent */ }
+  };
 
   const buildQuery = useCallback((offset: number): string => {
     const params = new URLSearchParams({
@@ -236,7 +270,7 @@ export default function GlobalScoreboard() {
           >
             <option value="popular">Popular</option>
             <option value="most_scores">Most scores</option>
-            <option value="highest_score">Highest scores</option>
+            <option value="highest_rated">Highest rated</option>
             <option value="most_recent">Most recent</option>
             <option value="name_asc">Name (A–Z)</option>
           </select>
@@ -289,6 +323,9 @@ export default function GlobalScoreboard() {
                 <GameCard
                   key={game.global_game_id}
                   game={game}
+                  userRating={userRatings[game.global_game_id] || 0}
+                  loggedIn={!!playerToken}
+                  onRate={(r) => handleRate(game.global_game_id, r)}
                   onSubmit={() => handleSubmitClick(game)}
                 />
               ))}
@@ -343,7 +380,13 @@ export default function GlobalScoreboard() {
   );
 }
 
-function GameCard({ game, onSubmit }: { game: TopGame; onSubmit: () => void }) {
+function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
+  game: TopGame;
+  userRating: number;
+  loggedIn: boolean;
+  onRate: (rating: number) => void;
+  onSubmit: () => void;
+}) {
   const img = imageFor(game);
   const displayName = game.display_name || game.name;
   const hasScores = game.score_count > 0;
@@ -361,7 +404,7 @@ function GameCard({ game, onSubmit }: { game: TopGame; onSubmit: () => void }) {
           <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/60 to-transparent" />
         </div>
         {/* Title + meta */}
-        <div className="p-3">
+        <div className="p-3 pb-1">
           <h3 className="font-display font-semibold text-base text-primary truncate">{displayName}</h3>
           <div className="text-xs text-muted mt-0.5 truncate">
             {game.manufacturer || 'Unknown'}
@@ -369,6 +412,20 @@ function GameCard({ game, onSubmit }: { game: TopGame; onSubmit: () => void }) {
           </div>
         </div>
       </Link>
+
+      {/* Star rating row */}
+      <div className="px-3 pb-2 flex items-center gap-2">
+        <StarRating
+          rating={userRating || Math.round(game.avg_rating)}
+          onRate={loggedIn ? onRate : undefined}
+          size="sm"
+        />
+        {game.rating_count > 0 && (
+          <span className="text-xs text-muted">
+            {game.avg_rating.toFixed(1)} ({game.rating_count})
+          </span>
+        )}
+      </div>
 
       {/* Stats + CTA */}
       <div className="px-3 pb-3 flex items-center justify-between gap-2">

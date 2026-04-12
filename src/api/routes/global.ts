@@ -10,6 +10,8 @@ import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
 import { GlobalScoreService } from '../../services/GlobalScoreService.js';
 import { GlobalLeaderboardService } from '../../services/GlobalLeaderboardService.js';
+import { GlobalRatingService } from '../../services/GlobalRatingService.js';
+import { GlobalCommentService } from '../../services/GlobalCommentService.js';
 import { emitScoreNewGlobal } from '../websocket.js';
 import { getDatabase } from '../../database/database.js';
 
@@ -340,17 +342,59 @@ router.get('/global/games/:id', async (req, res) => {
 });
 
 /**
+ * GET /api/global/recent-scores — lightweight feed of recent global scores
+ * with game name + image for the landing page ticker. No auth required.
+ * Returns up to 20 entries.
+ */
+router.get('/global/recent-scores', async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+        const rows = await db.all(`
+            SELECT
+                gs.id,
+                gs.score,
+                gs.iscored_username,
+                gs.submitted_at,
+                gs.player_id as discord_user_id,
+                gg.id as global_game_id,
+                gg.name as game_name,
+                gg.display_name,
+                gg.local_image_path,
+                gg.wheel_image_path,
+                gg.image_url,
+                um.avatar_hash
+            FROM global_scores gs
+            JOIN global_games gg ON gg.id = gs.global_game_id
+            LEFT JOIN user_mappings um ON (
+                um.discord_user_id = gs.player_id
+                OR LOWER(um.iscored_username) = LOWER(gs.iscored_username)
+            )
+            WHERE gs.deleted_at IS NULL
+              AND gs.exclude_from_global = 0
+            GROUP BY gs.id
+            ORDER BY gs.submitted_at DESC
+            LIMIT ?
+        `, limit);
+        res.json(rows);
+    } catch (error) {
+        logError('API Error (GET /api/global/recent-scores):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
  * GET /api/global/scoreboard — paginated catalogue + per-game score aggregates.
  * All catalogue games appear, even with zero scores. Default sort is `popular`
  * (recency-weighted score count). Query params:
- *   ?sort=popular|most_scores|highest_score|most_recent|name_asc
+ *   ?sort=popular|most_scores|highest_rated|most_recent|name_asc
  *   &scope=global|<roomId>
  *   &limit=30&offset=0
  *   &search=&type=&platforms=vpx,real,...
  */
 router.get('/global/scoreboard', async (req, res) => {
     try {
-        const sort = (req.query.sort as 'popular' | 'most_scores' | 'highest_score' | 'most_recent' | 'name_asc') || 'popular';
+        const sort = (req.query.sort as 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc') || 'popular';
         const scope = (req.query.scope as string) || 'global';
         const limit = Math.min(parseInt(req.query.limit as string) || 30, 200);
         const offset = parseInt(req.query.offset as string) || 0;
@@ -586,6 +630,137 @@ router.post('/global/scores/:scoreId/report', writeLimiter, requireDiscordUser, 
         res.status(201).json({ id: reportId });
     } catch (error) {
         logError('API Error (POST /api/global/scores/:scoreId/report):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ─── Global Game Ratings ───
+
+/**
+ * GET /api/global/games/:id/rating — get avg rating + optional user rating
+ */
+router.get('/global/games/:id/rating', async (req, res) => {
+    try {
+        const globalGameId = req.params.id as string;
+        // Optionally accept a Discord user via Authorization header
+        let discordUserId: string | undefined;
+        const authHeader = req.headers.authorization;
+        if (authHeader?.startsWith('Bearer ')) {
+            try {
+                const { verifyToken } = await import('../auth.js');
+                const payload = verifyToken(authHeader.slice(7));
+                if (payload?.discordId) discordUserId = payload.discordId;
+            } catch { /* no valid token — fine, just skip user rating */ }
+        }
+        const info = await GlobalRatingService.getGameRating(globalGameId, discordUserId);
+        res.json(info);
+    } catch (error) {
+        logError('API Error (GET /api/global/games/:id/rating):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/global/games/:id/rating — set user's rating (1-5). Requires Discord login.
+ */
+router.post('/global/games/:id/rating', requireDiscordUser, async (req, res) => {
+    try {
+        const globalGameId = req.params.id as string;
+        const rating = parseInt(req.body.rating, 10);
+        if (!rating || rating < 1 || rating > 5) {
+            return res.status(400).json({ error: 'Rating must be 1-5' });
+        }
+        await GlobalRatingService.setRating(globalGameId, req.user!.discordId!, rating);
+        const info = await GlobalRatingService.getGameRating(globalGameId, req.user!.discordId!);
+        res.json(info);
+    } catch (error) {
+        logError('API Error (POST /api/global/games/:id/rating):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * GET /api/global/ratings — bulk ratings for scoreboard page.
+ * Optionally includes user ratings if Bearer token provided.
+ */
+router.get('/global/ratings', async (req, res) => {
+    try {
+        let discordUserId: string | undefined;
+        const authHeader = req.headers.authorization;
+        if (authHeader?.startsWith('Bearer ')) {
+            try {
+                const { verifyToken } = await import('../auth.js');
+                const payload = verifyToken(authHeader.slice(7));
+                if (payload?.discordId) discordUserId = payload.discordId;
+            } catch { /* skip user ratings */ }
+        }
+        const result = await GlobalRatingService.getBulkRatings(discordUserId);
+        res.json(result);
+    } catch (error) {
+        logError('API Error (GET /api/global/ratings):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ─── Global Game Comments ───
+
+/**
+ * GET /api/global/games/:id/comments — get comments/tips for a global game.
+ * Query params: ?type=comment|tip
+ */
+router.get('/global/games/:id/comments', async (req, res) => {
+    try {
+        const globalGameId = req.params.id as string;
+        const type = req.query.type as 'comment' | 'tip' | undefined;
+        const comments = await GlobalCommentService.getComments(globalGameId, type);
+        res.json(comments);
+    } catch (error) {
+        logError('API Error (GET /api/global/games/:id/comments):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/global/games/:id/comments — add a comment or tip. Requires Discord login.
+ */
+router.post('/global/games/:id/comments', requireDiscordUser, writeLimiter, async (req, res) => {
+    try {
+        const globalGameId = req.params.id as string;
+        const { type, body, display_name } = req.body;
+        if (!type || !['comment', 'tip'].includes(type)) {
+            return res.status(400).json({ error: 'type must be "comment" or "tip"' });
+        }
+        if (!body || typeof body !== 'string' || body.length < 1 || body.length > 500) {
+            return res.status(400).json({ error: 'body must be 1-500 characters' });
+        }
+        if (!display_name || typeof display_name !== 'string' || display_name.length < 1 || display_name.length > 50) {
+            return res.status(400).json({ error: 'display_name must be 1-50 characters' });
+        }
+        const comment = await GlobalCommentService.addComment(
+            globalGameId, req.user!.discordId!, display_name, type, body
+        );
+        res.status(201).json(comment);
+    } catch (error) {
+        logError('API Error (POST /api/global/games/:id/comments):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * DELETE /api/global/games/:id/comments/:commentId — delete own comment. Requires Discord login.
+ */
+router.delete('/global/games/:id/comments/:commentId', requireDiscordUser, async (req, res) => {
+    try {
+        const commentId = parseInt(req.params.commentId as string, 10);
+        const comment = await GlobalCommentService.getCommentById(commentId);
+        if (!comment) return res.status(404).json({ error: 'Comment not found' });
+        if (comment.discord_user_id !== req.user!.discordId) {
+            return res.status(403).json({ error: 'Not authorized' });
+        }
+        await GlobalCommentService.deleteComment(commentId);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/global/games/:id/comments/:commentId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

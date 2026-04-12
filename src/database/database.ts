@@ -572,6 +572,30 @@ export async function initDatabase(): Promise<Database> {
         { name: '038_games_global_game_id', sql: `ALTER TABLE games ADD COLUMN global_game_id TEXT` },
         { name: '039_game_library_global_game_id', sql: `ALTER TABLE game_library ADD COLUMN global_game_id TEXT` },
         { name: '040_user_preferences_scoreboard_prefs', sql: `ALTER TABLE user_preferences ADD COLUMN scoreboard_prefs TEXT` },
+        { name: '041_global_game_ratings', sql: `
+            CREATE TABLE IF NOT EXISTS global_game_ratings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                global_game_id TEXT NOT NULL,
+                discord_user_id TEXT NOT NULL,
+                rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(global_game_id, discord_user_id),
+                FOREIGN KEY (global_game_id) REFERENCES global_games (id) ON DELETE CASCADE
+            )
+        ` },
+        { name: '042_global_game_comments', sql: `
+            CREATE TABLE IF NOT EXISTS global_game_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                global_game_id TEXT NOT NULL,
+                discord_user_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'comment' CHECK(type IN ('comment', 'tip')),
+                body TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (global_game_id) REFERENCES global_games (id) ON DELETE CASCADE
+            )
+        ` },
     ];
 
     for (const migration of migrations) {

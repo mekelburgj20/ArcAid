@@ -154,7 +154,7 @@ export class GlobalLeaderboardService {
      */
     static async getTopGames(options: {
         scope?: string;
-        sort?: 'popular' | 'most_scores' | 'highest_score' | 'most_recent' | 'name_asc';
+        sort?: 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc';
         limit?: number;
         offset?: number;
         search?: string;
@@ -176,6 +176,8 @@ export class GlobalLeaderboardService {
             top_score: number | null;
             last_submitted_at: string | null;
             popularity: number;
+            avg_rating: number;
+            rating_count: number;
         }>;
         total: number;
         hasMore: boolean;
@@ -234,15 +236,36 @@ export class GlobalLeaderboardService {
         const orderBy =
             options.sort === 'most_scores' ? 'score_count DESC, gg.name COLLATE NOCASE ASC' :
             options.sort === 'most_recent' ? 'last_submitted_at DESC NULLS LAST, gg.name COLLATE NOCASE ASC' :
-            options.sort === 'highest_score' ? 'top_score DESC NULLS LAST, gg.name COLLATE NOCASE ASC' :
+            options.sort === 'highest_rated' ? 'avg_rating DESC, rating_count DESC, gg.name COLLATE NOCASE ASC' :
             options.sort === 'name_asc' ? 'gg.name COLLATE NOCASE ASC' :
             'popularity DESC, gg.name COLLATE NOCASE ASC'; // default: popular
 
-        const countRow = await db.get(
-            `SELECT COUNT(*) as c FROM global_games gg WHERE ${whereClause}`,
-            ...whereParams
-        );
-        const total = countRow?.c ?? 0;
+        // When scoped to a room, only show games that have scores from that room.
+        const havingClause = isGlobal ? '' : 'HAVING COUNT(gs.id) > 0';
+
+        // Count query: for global scope, count all catalogue games; for room scope,
+        // only count games with at least one score from the room.
+        let total: number;
+        if (isGlobal) {
+            const countRow = await db.get(
+                `SELECT COUNT(*) as c FROM global_games gg WHERE ${whereClause}`,
+                ...whereParams
+            );
+            total = countRow?.c ?? 0;
+        } else {
+            const countRow = await db.get(
+                `SELECT COUNT(*) as c FROM (
+                    SELECT gg.id
+                    FROM global_games gg
+                    JOIN global_scores gs ON ${joinClause}
+                    WHERE ${whereClause}
+                    GROUP BY gg.id
+                    HAVING COUNT(gs.id) > 0
+                )`,
+                ...joinParams, ...whereParams
+            );
+            total = countRow?.c ?? 0;
+        }
 
         const data = await db.all(
             `SELECT
@@ -259,11 +282,21 @@ export class GlobalLeaderboardService {
                 COUNT(gs.id) as score_count,
                 MAX(gs.score) as top_score,
                 MAX(gs.submitted_at) as last_submitted_at,
-                ${popularityExpr} as popularity
+                ${popularityExpr} as popularity,
+                COALESCE(gr.avg_rating, 0) as avg_rating,
+                COALESCE(gr.rating_count, 0) as rating_count
             FROM global_games gg
             LEFT JOIN global_scores gs ON ${joinClause}
+            LEFT JOIN (
+                SELECT global_game_id,
+                       AVG(rating) as avg_rating,
+                       COUNT(*) as rating_count
+                FROM global_game_ratings
+                GROUP BY global_game_id
+            ) gr ON gr.global_game_id = gg.id
             WHERE ${whereClause}
             GROUP BY gg.id
+            ${havingClause}
             ORDER BY ${orderBy}
             LIMIT ? OFFSET ?`,
             ...joinParams, ...whereParams, limit, offset
