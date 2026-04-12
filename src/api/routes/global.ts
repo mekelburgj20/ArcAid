@@ -596,6 +596,36 @@ router.delete('/me/global-scores/:scoreId', requireDiscordUser, async (req, res)
 });
 
 /**
+ * DELETE /api/me/global-scores/game/:globalGameId — delete ALL of the
+ * authenticated user's scores for a specific game (soft-delete).
+ */
+router.delete('/me/global-scores/game/:globalGameId', requireDiscordUser, async (req, res) => {
+    try {
+        const globalGameId = req.params.globalGameId as string;
+        const discordId = req.user!.discordId!;
+        const db = (await import('../../database/database.js')).getDatabase;
+        const dbConn = await db();
+
+        const scores = await dbConn.all(
+            `SELECT id FROM global_scores WHERE global_game_id = ? AND player_id = ? AND deleted_at IS NULL`,
+            globalGameId, discordId
+        );
+        if (scores.length === 0) {
+            return res.status(404).json({ error: 'No scores found' });
+        }
+
+        for (const s of scores) {
+            await GlobalScoreService.softDelete(s.id, discordId);
+        }
+
+        res.json({ success: true, deleted: scores.length });
+    } catch (error) {
+        logError('API Error (DELETE /api/me/global-scores/game/:globalGameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
  * POST /api/global/scores/:scoreId/report — flag a score.
  * Rate-limited via writeLimiter, requires Discord login.
  */

@@ -273,10 +273,10 @@ export default function GlobalGameDetail() {
     }
   };
 
-  const handleDeleteScore = async (scoreId: string) => {
-    if (!playerToken || !confirm('Delete your score?')) return;
+  const handleDeleteScore = async () => {
+    if (!playerToken || !globalGameId || !confirm('Delete all your scores for this game?')) return;
     try {
-      const res = await fetch(`/api/me/global-scores/${scoreId}`, {
+      const res = await fetch(`/api/me/global-scores/game/${globalGameId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${playerToken}` },
       });
@@ -505,9 +505,9 @@ export default function GlobalGameDetail() {
                         )}
                         {discordUser?.discordId === entry.discord_user_id && (
                           <button
-                            onClick={() => handleDeleteScore(entry.score_id)}
+                            onClick={() => handleDeleteScore()}
                             className="text-muted hover:text-red-400 mr-1"
-                            title="Delete your score"
+                            title="Delete all your scores for this game"
                           >
                             <Trash2 className="w-3.5 h-3.5 inline" />
                           </button>
