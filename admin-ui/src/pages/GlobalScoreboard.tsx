@@ -339,7 +339,7 @@ export default function GlobalScoreboard() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-5">
               {games.map(game => (
                 <GameCard
                   key={game.global_game_id}
@@ -402,37 +402,41 @@ export default function GlobalScoreboard() {
 }
 
 /* ── Podium rank colors (Tailwind classes) ── */
-const RANK_STYLES: Record<number, { bg: string; border: string; rank: string; score: string }> = {
-  1: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', rank: 'text-yellow-400', score: 'text-yellow-300' },
-  2: { bg: 'bg-gray-300/10', border: 'border-gray-400/30', rank: 'text-gray-300', score: 'text-gray-200' },
-  3: { bg: 'bg-amber-700/10', border: 'border-amber-600/30', rank: 'text-amber-500', score: 'text-amber-400' },
+const RANK_STYLES: Record<number, { bg: string; border: string; rank: string; score: string; label: string }> = {
+  1: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', rank: 'text-yellow-400', score: 'text-yellow-300', label: '\u{1F3C6} 1st' },
+  2: { bg: 'bg-gray-300/10', border: 'border-gray-400/30', rank: 'text-gray-300', score: 'text-gray-200', label: '2nd' },
+  3: { bg: 'bg-amber-700/10', border: 'border-amber-600/30', rank: 'text-amber-500', score: 'text-amber-400', label: '3rd' },
 };
 
-function PodiumEntry({ entry, rank, large }: { entry: TopScoreEntry; rank: number; large?: boolean }) {
+function PodiumSlot({ entry, rank, large }: { entry?: TopScoreEntry; rank: number; large?: boolean }) {
   const s = RANK_STYLES[rank] || RANK_STYLES[3];
-  const avatarSize = large ? 28 : 22;
+  const avatarSize = large ? 26 : 20;
   return (
-    <div className={`flex-1 min-w-0 rounded-lg border ${s.border} ${s.bg} flex flex-col items-center justify-center gap-1 ${large ? 'py-3 px-2' : 'py-2 px-1.5'}`}>
-      <span className={`text-[10px] font-bold ${s.rank}`}>
-        {rank === 1 ? '\u{1F3C6} 1st' : rank === 2 ? '2nd' : '3rd'}
-      </span>
-      <div className="flex items-center gap-1.5 max-w-full">
-        <PlayerAvatar
-          username={entry.iscored_username}
-          discordUserId={entry.discord_user_id}
-          avatarHash={entry.avatar_hash}
-          size={avatarSize}
-        />
-        <span className={`font-semibold truncate ${large ? 'text-sm' : 'text-xs'}`}>
-          {entry.iscored_username}
-        </span>
-      </div>
-      <span
-        className={`font-mono font-bold ${s.score} ${large ? 'text-sm' : 'text-xs'}`}
-        title={entry.score >= 1e12 ? entry.score.toLocaleString() : undefined}
-      >
-        {formatScore(entry.score)}
-      </span>
+    <div className={`flex-1 min-w-0 rounded-lg border ${s.border} ${s.bg} flex flex-col items-center justify-center gap-0.5 ${large ? 'py-2.5 px-1.5' : 'py-1.5 px-1'}`}>
+      <span className={`text-[10px] font-bold ${s.rank}`}>{s.label}</span>
+      {entry ? (
+        <>
+          <div className="flex items-center gap-1 max-w-full">
+            <PlayerAvatar
+              username={entry.iscored_username}
+              discordUserId={entry.discord_user_id}
+              avatarHash={entry.avatar_hash}
+              size={avatarSize}
+            />
+            <span className={`font-semibold truncate ${large ? 'text-xs' : 'text-[11px]'}`}>
+              {entry.iscored_username}
+            </span>
+          </div>
+          <span
+            className={`font-mono font-bold ${s.score} ${large ? 'text-xs' : 'text-[11px]'}`}
+            title={entry.score >= 1e12 ? entry.score.toLocaleString() : undefined}
+          >
+            {formatScore(entry.score)}
+          </span>
+        </>
+      ) : (
+        <span className="text-[11px] text-muted/30 italic">—</span>
+      )}
     </div>
   );
 }
@@ -447,23 +451,23 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
   const img = imageFor(game);
   const displayName = game.display_name || game.name;
   const scores = game.top_scores || [];
-  const [first, second, third, ...rest] = scores;
+  const podium = [scores[0], scores[1], scores[2]]; // always 3 slots
+  const list = scores.slice(3, 10); // 4th–10th
 
   return (
-    <div className="group relative rounded-xl border border-border bg-surface overflow-hidden hover:border-neon-cyan/60 transition-colors">
+    <div className="group relative rounded-xl border border-border bg-surface overflow-hidden hover:border-neon-cyan/60 transition-colors flex flex-col">
       {/* Game image banner */}
       <Link to={`/games/${game.global_game_id}`} className="block no-underline">
-        <div className="relative h-44 bg-deep">
+        <div className="relative h-36 bg-deep">
           {img ? (
             <img src={img} alt={displayName} className="absolute inset-0 w-full h-full object-cover opacity-70" />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-muted text-xs">No image</div>
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/50 to-transparent" />
-          {/* Title overlay at bottom of image */}
-          <div className="absolute bottom-0 left-0 right-0 p-4">
-            <h3 className="font-display font-bold text-lg text-primary drop-shadow-lg truncate">{displayName}</h3>
-            <div className="text-xs text-muted/80 truncate">
+          <div className="absolute bottom-0 left-0 right-0 p-3">
+            <h3 className="font-display font-bold text-sm text-primary drop-shadow-lg truncate">{displayName}</h3>
+            <div className="text-[11px] text-muted/80 truncate">
               {game.manufacturer || 'Unknown'}
               {game.year ? ` · ${game.year}` : ''}
               {game.score_count > 0 && ` · ${game.score_count} score${game.score_count !== 1 ? 's' : ''}`}
@@ -472,58 +476,49 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
         </div>
       </Link>
 
-      {/* Podium + scores section */}
-      <div className="p-4 pt-3">
-        {first ? (
-          <>
-            {/* Podium: 1st centered, 2nd/3rd side by side */}
-            <div className="mb-2">
-              <div className="flex justify-center mb-2">
-                <div className={second ? 'w-[60%] min-w-[140px]' : 'w-full'}>
-                  <PodiumEntry entry={first} rank={1} large />
-                </div>
-              </div>
-              {second && (
-                <div className="flex gap-2">
-                  <PodiumEntry entry={second} rank={2} />
-                  {third ? (
-                    <PodiumEntry entry={third} rank={3} />
-                  ) : (
-                    <div className="flex-1" /> /* spacer if only 2 scores */
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* 4th/5th in a simple list */}
-            {rest.length > 0 && (
-              <div className="border-t border-border/50 pt-2 mt-2 space-y-1">
-                {rest.map((e, i) => (
-                  <div key={e.discord_user_id + e.iscored_username} className="flex items-center gap-2 text-xs">
-                    <span className="text-muted w-5 text-right font-mono">{i + 4}.</span>
-                    <PlayerAvatar
-                      username={e.iscored_username}
-                      discordUserId={e.discord_user_id}
-                      avatarHash={e.avatar_hash}
-                      size={18}
-                    />
-                    <span className="truncate flex-1">{e.iscored_username}</span>
-                    <span className="font-mono text-muted">{formatScore(e.score)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="text-center py-4 text-muted text-sm italic">
-            No scores yet — be the first!
+      {/* Podium — always shows all 3 slots */}
+      <div className="px-3 pt-2 pb-1">
+        <div className="flex justify-center mb-1.5">
+          <div className="w-[60%] min-w-[100px]">
+            <PodiumSlot entry={podium[0]} rank={1} large />
           </div>
+        </div>
+        <div className="flex gap-1.5">
+          <PodiumSlot entry={podium[1]} rank={2} />
+          <PodiumSlot entry={podium[2]} rank={3} />
+        </div>
+      </div>
+
+      {/* 4th–10th in a list */}
+      <div className="px-3 pt-1 pb-1 flex-1">
+        {list.length > 0 ? (
+          <div className="border-t border-border/40 pt-1.5 space-y-0.5">
+            {list.map((e, i) => (
+              <div key={e.discord_user_id + e.iscored_username} className="flex items-center gap-1.5 text-[11px]">
+                <span className="text-muted w-4 text-right font-mono">{i + 4}.</span>
+                <PlayerAvatar
+                  username={e.iscored_username}
+                  discordUserId={e.discord_user_id}
+                  avatarHash={e.avatar_hash}
+                  size={16}
+                />
+                <span className="truncate flex-1">{e.iscored_username}</span>
+                <span className="font-mono text-muted">{formatScore(e.score)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          !podium[0] && (
+            <div className="text-center py-2 text-muted text-[11px] italic">
+              No scores yet
+            </div>
+          )
         )}
       </div>
 
-      {/* Footer: rating + submit */}
-      <div className="px-4 pb-3 flex items-center justify-between gap-2 border-t border-border/30 pt-2">
-        <div className="flex items-center gap-2">
+      {/* Footer: rating (left) + submit (right) — pinned to bottom */}
+      <div className="px-3 pb-2.5 pt-1.5 flex items-center justify-between gap-2 border-t border-border/30 mt-auto">
+        <div className="flex items-center gap-1.5">
           <StarRating
             rating={userRating || Math.round(game.avg_rating)}
             onRate={loggedIn ? onRate : undefined}
@@ -537,10 +532,10 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
         </div>
         <button
           onClick={(e) => { e.preventDefault(); onSubmit(); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-lg border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 transition-colors"
           title="Submit your score"
         >
-          <Upload className="w-3.5 h-3.5" />
+          <Upload className="w-3 h-3" />
           Submit
         </button>
       </div>

@@ -409,9 +409,9 @@ router.get('/global/scoreboard', async (req, res) => {
             sort, scope, limit, offset, search, type, platforms,
         });
 
-        // Enrich each game with top 5 leaderboard entries for card previews
+        // Enrich each game with top 10 leaderboard entries for card previews
         const gameIds = result.data.map((g: any) => g.global_game_id);
-        const topScores = await GlobalLeaderboardService.getTopScoresForGames(gameIds, 5, scope);
+        const topScores = await GlobalLeaderboardService.getTopScoresForGames(gameIds, 10, scope);
         const enriched = result.data.map((g: any) => ({
             ...g,
             top_scores: topScores[g.global_game_id] || [],
