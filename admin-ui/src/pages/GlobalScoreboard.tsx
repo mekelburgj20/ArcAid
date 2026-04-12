@@ -217,7 +217,7 @@ export default function GlobalScoreboard() {
     <div className="min-h-screen bg-deep text-primary">
       {/* Header */}
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-3">
+        <div className="px-4 sm:px-6 lg:px-10 py-4 flex items-center justify-between gap-3">
           <Link to="/" className="flex items-center gap-3 no-underline">
             <img src="/arcaid-logo.png" alt="ArcAid" className="w-10 h-10" />
             <span className="font-pixel text-neon-cyan text-sm tracking-wider">ARCAID</span>
@@ -262,8 +262,8 @@ export default function GlobalScoreboard() {
         </div>
       </div>
 
-      {/* Hero */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      {/* Content */}
+      <div className="px-4 sm:px-6 lg:px-10 py-10">
         <div className="flex items-center gap-3 mb-2">
           <Trophy className="w-6 h-6 text-neon-cyan" />
           <h1 className="font-display text-3xl font-bold">Global Scoreboard</h1>
@@ -339,7 +339,7 @@ export default function GlobalScoreboard() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
               {games.map(game => (
                 <GameCard
                   key={game.global_game_id}
