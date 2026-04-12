@@ -217,7 +217,7 @@ export default function GlobalScoreboard() {
     <div className="min-h-screen bg-deep text-primary">
       {/* Header */}
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-3">
           <Link to="/" className="flex items-center gap-3 no-underline">
             <img src="/arcaid-logo.png" alt="ArcAid" className="w-10 h-10" />
             <span className="font-pixel text-neon-cyan text-sm tracking-wider">ARCAID</span>
@@ -263,7 +263,7 @@ export default function GlobalScoreboard() {
       </div>
 
       {/* Hero */}
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <div className="flex items-center gap-3 mb-2">
           <Trophy className="w-6 h-6 text-neon-cyan" />
           <h1 className="font-display text-3xl font-bold">Global Scoreboard</h1>
