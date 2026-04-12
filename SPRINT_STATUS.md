@@ -292,12 +292,25 @@
 
 ## Last Session
 
-**Date:** 2026-04-11
-**What happened:** Resumed Phase 1 Global Scoreboard verification on `feature/global-scoreboard-phase1`. Local DB turned out **not** to be corrupt — `PRAGMA integrity_check` returned ok and the catalogue had 4188 clean rows from the prior VPS+OPDB+Wizard reimport (zero Frankensteins). Decided against burning hours on a full IGDB run; instead added `options.limit` to `IGDBImportService.importFromIGDB()` and `--igdb-limit N` + `--no-truncate` flags to `scripts/reimport-catalogue.ts` so we can do additive sampled imports for dev. Ran a 500-row IGDB sample in 17s — cleanly inserted 500 video-game rows (446 pc, 53 console, 1 arcade), zero collisions with existing pinball rows, dedup hierarchy held. Catalogue is now 4688 rows and verified clean. Also: established `docs/decisions/` ADR convention (README + 0000 template), added ROADMAP pointer, updated `/update-docs` skill with a decision-doc freshness check.
+**Date:** 2026-04-12
+**What happened:** Completed all remaining Global Scoreboard phases, committed, merged, and deployed to production.
 
-**Next:** Phase 1 was already complete in the working tree (admin catalogue page + VPS Wednesday cron). Surveyed Phase 2 — discovered ~85% was also already built (schema, fan-out helper wired into all 4 submission paths, direct global submit endpoint, opt-out checkbox on the global submit modal, Discord `/submit-score` `exclude_global` parameter). Closed the four real gaps in one batch: room admin opt-out toggles (`GLOBAL_SCOREBOARD_ENABLED` + `REQUIRE_DISCORD_LOGIN`), room `ScoreSubmitModal` opt-out checkbox + route wiring, `DELETE /api/me/global-scores/:scoreId` user delete-own endpoint, `globalSubmitLimiter` (10/hr per Discord user) replacing the generic write limiter on direct global submissions. Backend + frontend builds clean.
+**Work done this session:**
+- Phase 2 gaps closed: room admin opt-out toggles, ScoreSubmitModal opt-out checkbox, user delete-own endpoint, per-user global rate limiter (10/hr)
+- Phase 3 (User Preferences): migration 040 (scoreboard_prefs column), PreferencesService rewritten with JSON blob merge, GET/POST /api/me/scoreboard-preferences endpoints, Scoreboard.tsx merges user prefs on top of room config when logged in
+- Phase 4 (JWT Refresh Tokens): auth.ts gains generateRefreshToken/createSession/refreshAccessToken/cleanExpiredSessions, Discord OAuth issues refresh tokens (30-day, rotated on use, role re-derived from DB), POST /api/auth/refresh endpoint, ViewerAuthContext auto-refresh (60s poll, 5min pre-expiry threshold, restores expired sessions on mount), api.ts admin 401 retry via refresh before redirect
+- Phase 6 frontend: Freeplay.tsx (catalogue browse + score submit for any game)
+- Committed as 3 commits on `feature/global-scoreboard-phase1`, fast-forward merged to main
+- CLAUDE.md updated with all new services, pages, tables, endpoints, auth patterns
+- Deployed via CI/CD to Hetzner (run 24301112235, 1m17s), verified: API 200, scoreboard 200, container healthy
 
-**Status:** All 7 phases complete. Pattern 3 identity ADR (`0001-identity-site-handles.md`) still parked until anonymous flow details are decided.
+**Git state:** On `main`, clean working tree (no modified source files). Two stale local branches (`feature/global-scoreboard-phase1`, `feature/scoreboard-redesign`) — both fully merged, safe to delete.
+
+**Untracked non-source files** (intentionally not committed): planning docs (`Global Scoreboard *.md`, `continue.md`, `random_table_prompt.md`, `ui_fixes.md`, `ux-scoreboard-redesign-prompt.md`, `video_tutorial_prompt.md`), design HTML files (`docs/arcaid-*.html`), `.vscode/settings.json`, asset files (`assets/`), data directories (`data/catalogue-images/`, `data/iscored-styles/`, `data/styles/`).
+
+**Production notes:** Discord bot token is invalid on prod (pre-existing, unrelated) — API runs without Discord. ScoreSyncPoller active.
+
+**Status:** All 7 Global Scoreboard phases complete and deployed. Identity ADR (`0001-identity-site-handles.md`) still parked until anonymous flow details are decided.
 
 ## Blockers
 

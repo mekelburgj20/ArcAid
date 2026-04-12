@@ -287,6 +287,18 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 - [x] Discord avatar fallback — username-based avatar lookup in RankingService for community score players with synthetic discord_user_id
 - [x] Service worker cache versioning (v5)
 
+## Global Scoreboard (COMPLETE)
+
+All 7 phases implemented and deployed to production (2026-04-12).
+
+- [x] Phase 1: Database & Catalogue Foundation — `global_games`/`global_scores` tables, `GlobalGameService` with cross-source dedup, VPS/OPDB/Wizard/IGDB importers, `GlobalCatalogue` admin page
+- [x] Phase 2: Score Model — `GlobalScoreService` with fan-out from all 4 room submission paths, per-score global opt-out, user delete-own, `globalSubmitLimiter` (10/hr per user), room admin `GLOBAL_SCOREBOARD_ENABLED` toggle
+- [x] Phase 3: User Preference System — `scoreboard_prefs` JSON blob on `user_preferences`, merge semantics, GET/POST endpoints, Scoreboard.tsx merges user prefs on top of room config
+- [x] Phase 4: JWT Refresh Tokens — 30-day refresh tokens via `sessions` table, token rotation with role re-derivation, auto-refresh in ViewerAuthContext, admin 401 retry in api.ts
+- [x] Phase 5: Global Scoreboard Page — `/scoreboard` with cross-room leaderboard, `GlobalLeaderboardService` with caching and popularity ranking
+- [x] Phase 6: Game Room Enhancements — Freeplay page (`/:slug/freeplay`), catalogue browse + score submit for any game
+- [x] Phase 7: Game Detail Page — `/games/:id` with per-game global scores, metadata, and score submission
+
 ---
 
 ## Future
@@ -298,7 +310,7 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 - [ ] Notification preferences (opt-in/out for reminders, announcements)
 
 ### Ops / Infrastructure
-- [ ] CI/CD pipeline (build + test on push)
+- [x] CI/CD pipeline (GitHub Actions: build + push to GHCR + deploy to Hetzner on push to main)
 - [ ] Automated backup schedule (configurable via admin UI)
 - [ ] Monitoring / alerting (health check dashboard, error rate tracking)
 - [ ] Super-admin dashboard server metrics (CPU, memory, I/O, container stats)
