@@ -67,9 +67,9 @@ Two sub-applications in one process:
 - `src/api/routes/auth.ts` — Login (super-admin password, room local admin, Discord OAuth), change password, /me
 - `src/api/routes/rooms.ts` — All room-scoped endpoints (public + admin): leaderboard, tournaments, settings, stats, etc.
 - `src/api/routes/admin.ts` — Super-admin endpoints: room CRUD, super-admin management, backups, logs, global settings, master library, VPS/Wizard imports
-- `src/api/routes/global.ts` — Non-scoped: /status, /me/preferences, /rooms (public listing), invite accept
+- `src/api/routes/global.ts` — Non-scoped: /status, /me/preferences, /rooms, invite accept, global scoreboard/catalogue/scores, scoreboard preferences
 - `src/api/middleware.ts` — `requireAuth`, `requireRoomAccess(paramName)`, `requireSuperAdmin`, `requireDiscordUser`
-- `src/api/rateLimit.ts` — Rate limiters: `authLimiter` (5/min), `writeLimiter` (30/min), `pickLimiter` (5/min), `generalLimiter` (100/min)
+- `src/api/rateLimit.ts` — Rate limiters: `authLimiter` (5/min), `writeLimiter` (30/min), `pickLimiter` (5/min), `generalLimiter` (100/min), `globalSubmitLimiter` (10/hr per user)
 - `src/api/correlationId.ts` — Assigns UUID per request, sets `X-Correlation-ID` header
 - `src/api/auditMiddleware.ts` — Auto-logs admin write operations to `audit_log` table
 - `src/services/` — Business logic layer:
@@ -77,6 +77,7 @@ Two sub-applications in one process:
   - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `CommentService`, `CommunityScoreService`, `ScoreHistoryService`, `StyleCatalogueService`, `RoomEventService` (activity event logging)
   - **Import:** `VpsImportService` (VPS database JSON + global catalogue), `WizardImportService` (VPXS Wizard + Manual Install tables from GitHub), `OPDBImportService` (OPDB bulk pinball machine import), `IGDBImportService` (IGDB arcade/console games via Twitch OAuth)
   - **Global Catalogue:** `GlobalGameService` (catalogue CRUD, upsert with dedup, search, merge cascade), `SyncLogService` (sync log tracking + Discord alerts on failure)
+  - **Global Scoreboard:** `GlobalScoreService` (score submissions, fan-out from room scores, soft/hard delete, bans), `GlobalLeaderboardService` (caching, recalculate, top games by popularity), `ScoreReportService` (score reporting and moderation)
 - `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`, `platformRules.ts` (shared platform eligibility check for API + Discord), `cronUtils.ts` (getNextRunTime via cron-parser for countdown timers), `catalogueUtils.ts` (normalizeGameName for dedup matching), `platformMapping.ts` (canonical platform IDs, IGDB/VPS/OPDB normalization, PLATFORM_GROUPS)
 
 **Admin UI (`admin-ui/src/`):**
@@ -85,8 +86,9 @@ Two sub-applications in one process:
 - **Room context:** `admin-ui/src/contexts/RoomContext.tsx` provides `roomId`, `roomSlug`, `roomName` to room pages
 - **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings, StyleCatalogue (+ shared: Logs, Backups, MasterGameLibrary)
 - **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, GameStates (game state management escape hatch), StyleCatalogue (upload to global catalogue), Settings (includes Users section), ActivityLog
-- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard, ScoreSubmit (standalone QR code score submission)
-- **Viewer auth context:** `ViewerAuthContext.tsx` provides `discordUser`, `playerToken`, `loginWithDiscord`, `logoutPlayer`, `usePlayerHeaders` — wraps public routes via `ViewerAuthProvider` in App.tsx
+- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard, ScoreSubmit, Freeplay (catalogue browse + score submit)
+- **Global pages:** GlobalScoreboard (`/scoreboard`), GlobalCatalogue (`/catalogue`), GlobalGameDetail (`/games/:id`)
+- **Viewer auth context:** `ViewerAuthContext.tsx` provides `discordUser`, `playerToken`, `loginWithDiscord`, `logoutPlayer`, `usePlayerHeaders` — wraps public routes via `ViewerAuthProvider` in App.tsx. Auto-refreshes player tokens via refresh token (60s check, 5min pre-expiry threshold).
 - **Scoreboard config:** `admin-ui/src/lib/scoreboardConfig.ts` exports `deriveCardProps(settings)` (legacy) and `deriveScoreboardConfig(settings)` (new style/theme system) — shared config derivation used by Scoreboard, KioskScoreboard, and ScoreboardPreview
 - **Scoreboard card system:** Style+Theme 2-level selection (`SCOREBOARD_STYLE` + `SCOREBOARD_THEME`). Three styles: Banner (280px, iScored-compatible), Showcase (380px, art-forward with podium), Minimal (typography-only). Two Showcase themes: Glass Deck, Neon Circuit. `CardRouter.tsx` dispatches to `BannerCard`/`ShowcaseCard`/`MinimalCard`. Theme registry in `scoreboardThemes.ts`. Dual-path: new cards render when `SCOREBOARD_STYLE` is set, legacy `GameCard` otherwise.
 - **Inline rankings:** `RankingGroupCard` renders inline with game cards when `rankingsSticky` is off (default). Style-matched: 3 rendering paths for Banner/Showcase/Minimal. `qrTopPad` aligns ranking card tops with game card borders when QR codes are above cards.
@@ -114,6 +116,7 @@ Two sub-applications in one process:
 - **Discord OAuth** — Available on super-admin, room login, and public pages. Checks `super_admins` → `game_room_admins` → issues `player` token. State param: `__super__` for super-admin, `player:<slug>` for public page login, or bare slug for room admin
 - **Player auth** — Non-admin Discord users get `role: 'player'` tokens for public features (game picking, queue management). Stored separately from admin tokens in `arcaid_player_token` localStorage key.
 - **Admin invites** — One-time invite links (48h expiry) for onboarding room admins without sharing passwords. Optional Discord DM delivery.
+- **JWT refresh tokens** — Discord OAuth logins issue a refresh token (30-day expiry, stored in `sessions` table). `POST /api/auth/refresh` rotates both tokens and re-derives role from DB. Frontend auto-refreshes within 5min of expiry; api.ts retries on 401 before redirecting to login.
 - Middleware: `requireAuth` (JWT), `requireRoomAccess('roomId')` (checks scope), `requireSuperAdmin` (role check), `requireDiscordUser` (any Discord-authenticated user)
 
 ### API Structure
@@ -136,6 +139,12 @@ Two sub-applications in one process:
 - `POST /api/rooms/:roomId/admin/game-states/force-maintenance` — trigger maintenance for a tournament (requireAuth + requireRoomAccess)
 - `POST /api/rooms/:roomId/admin/styles/upload` — room admins upload custom styles to global catalogue (requireAuth + requireRoomAccess)
 - `GET /api/admin/*` — super-admin endpoints (requireSuperAdmin)
+- `POST /api/auth/refresh` — exchange refresh token for new access + refresh tokens
+- `GET/POST /api/me/scoreboard-preferences` — user scoreboard display preferences (requireDiscordUser)
+- `DELETE /api/me/global-scores/:scoreId` — user delete-own global score (requireDiscordUser)
+- `GET /api/global/scoreboard` — global leaderboard (public)
+- `GET /api/global/catalogue` — searchable global game catalogue (public)
+- `POST /api/global/scores` — submit score to global scoreboard (requireDiscordUser + globalSubmitLimiter)
 - `GET /api/*` — global endpoints (status, preferences, public room listing)
 - **Legacy aliases:** `/api/leaderboard`, `/api/tournaments`, etc. redirect to default room for backward compat with Discord commands
 
@@ -189,6 +198,9 @@ Two sub-applications in one process:
 - **Style catalogue:** Global catalogue shared across all rooms. Super-admins can import from iScored, upload custom styles, and delete. Room admins can browse, upload custom styles, and apply styles to games via "Apply to Game" modal (`GamePickerModal`). Upload limit 30MB, supports PNG/APNG/JPEG/WebP (background and header both optional, at least one required). APNG files animate natively in `<img>` tags on scorecards.
 - **Per-game images:** Games have independent `logo_style_id` and `bg_style_id` columns (on both `games` and `game_room_game_library`). Resolution: `effectiveBgId = bgStyleId || catalogueStyleId`, `effectiveLogoId = logoStyleId || catalogueStyleId`. Allows mixing backgrounds and logos from different styles. Image type selector (`both`/`background`/`logo`) available in StylePicker and GamePickerModal.
 - **Upload limits:** All image uploads (styles, room assets, score photos) accept up to 30MB. Supported formats: PNG, APNG, JPEG, WebP.
+- **Global Scoreboard:** Cross-room leaderboard at `/scoreboard`. Scores fan out from room submissions via `GlobalScoreService.fanOutFromRoomSubmission()` — wired into all 4 submission paths (CommunityScoreService, ScoreSyncPoller, Discord `/submit-score`, web submit). Room admins can opt out via `GLOBAL_SCOREBOARD_ENABLED` setting. Users can opt out per-score with `excludeFromGlobal` flag. `globalSubmitLimiter` (10/hr per Discord user) on direct global submissions.
+- **Freeplay:** `/:slug/freeplay` page lets players browse the global catalogue and submit scores to any game, not just active tournament games. Posts to `POST /api/rooms/:roomId/freeplay-score`.
+- **Scoreboard user preferences:** `user_preferences.scoreboard_prefs` JSON blob stores per-user display overrides. Scoreboard.tsx merges user prefs on top of room config when player is logged in. Preference hierarchy: user pref → room admin default.
 
 ## Community Features
 
@@ -230,6 +242,8 @@ SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Idem
 **Community tables:** `community_scores` (non-tournament score submissions), `score_history` (all score events with source tracking), `game_comments` (player tips and comments per game)
 
 **Style tables:** `style_catalogue` (iScored style catalog entries)
+
+**Global tables:** `global_games` (cross-room game catalogue with UUID PKs), `global_scores` (global scoreboard submissions with soft-delete), `global_leaderboard_cache`, `sync_logs` (catalogue import tracking), `score_reports` (moderation), `user_bans`, `sessions` (JWT refresh tokens, 30-day expiry)
 
 ## Deployment
 
