@@ -273,14 +273,18 @@ export default function GlobalGameDetail() {
     }
   };
 
-  const handleDeleteScore = async () => {
-    if (!playerToken || !globalGameId || !confirm('Delete all your scores for this game?')) return;
+  const handleDeleteScore = async (scoreId: string) => {
+    if (!playerToken || !confirm('Delete this score? If you have other scores for this game, your next best will show instead.')) return;
     try {
-      const res = await fetch(`/api/me/global-scores/game/${globalGameId}`, {
+      const res = await fetch(`/api/me/global-scores/${scoreId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${playerToken}` },
       });
-      if (res.ok) refreshRankings();
+      if (res.ok) {
+        setReportMessage({ text: 'Score deleted.', type: 'success' });
+        setTimeout(() => setReportMessage(null), 3000);
+        refreshRankings();
+      }
     } catch { /* silent */ }
   };
 
@@ -505,9 +509,9 @@ export default function GlobalGameDetail() {
                         )}
                         {discordUser?.discordId === entry.discord_user_id && (
                           <button
-                            onClick={() => handleDeleteScore()}
+                            onClick={() => handleDeleteScore(entry.score_id)}
                             className="text-muted hover:text-red-400 mr-1"
-                            title="Delete all your scores for this game"
+                            title="Delete this score"
                           >
                             <Trash2 className="w-3.5 h-3.5 inline" />
                           </button>
