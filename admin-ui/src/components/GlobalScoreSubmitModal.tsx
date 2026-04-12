@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Camera, Trash2 } from 'lucide-react';
 import NeonButton from './NeonButton';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface Game {
   global_game_id: string;
@@ -20,9 +21,11 @@ interface Props {
 /**
  * Direct global score submission modal. Requires Discord login (playerToken is
  * expected to be present by the caller). Posts to /api/global/scores with a
- * multipart photo, score, and optional exclude-from-global flag.
+ * multipart photo, score, display name, and optional exclude-from-global flag.
  */
 export default function GlobalScoreSubmitModal({ game, playerToken, onClose, onSubmitted }: Props) {
+  const { discordUser } = useViewerAuth();
+  const [displayName, setDisplayName] = useState('');
   const [score, setScore] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -38,7 +41,28 @@ export default function GlobalScoreSubmitModal({ game, playerToken, onClose, onS
     };
   }, [photoPreview]);
 
-  const displayName = game.display_name || game.name;
+  // Prefill the display name from the server's saved mapping, falling back to
+  // the Discord username from the player session. Fetch failure is non-fatal —
+  // the user can just type one in.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/global/me/display-name', {
+          headers: { Authorization: `Bearer ${playerToken}` },
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (cancelled) return;
+        setDisplayName(data.displayName || discordUser?.username || '');
+      } catch {
+        if (!cancelled) setDisplayName(discordUser?.username || '');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [playerToken, discordUser?.username]);
+
+  const gameDisplayName = game.display_name || game.name;
 
   const handleFilePick = (file: File | null) => {
     if (photoPreview) URL.revokeObjectURL(photoPreview);
@@ -53,6 +77,15 @@ export default function GlobalScoreSubmitModal({ game, playerToken, onClose, onS
 
   const handleSubmit = async () => {
     setMessage(null);
+    const trimmedName = displayName.trim();
+    if (!trimmedName) {
+      setMessage({ text: 'Enter a display name.', type: 'error' });
+      return;
+    }
+    if (trimmedName.length > 50) {
+      setMessage({ text: 'Display name must be 50 characters or fewer.', type: 'error' });
+      return;
+    }
     const scoreNum = parseInt(score.replace(/[^0-9]/g, ''), 10);
     if (!Number.isFinite(scoreNum) || scoreNum <= 0) {
       setMessage({ text: 'Enter a valid score.', type: 'error' });
@@ -68,6 +101,7 @@ export default function GlobalScoreSubmitModal({ game, playerToken, onClose, onS
       const formData = new FormData();
       formData.append('globalGameId', game.global_game_id);
       formData.append('score', String(scoreNum));
+      formData.append('displayName', trimmedName);
       formData.append('excludeFromGlobal', excludeFromGlobal ? 'true' : 'false');
       formData.append('photo', photoFile);
 
@@ -108,12 +142,24 @@ export default function GlobalScoreSubmitModal({ game, playerToken, onClose, onS
 
         <h2 className="font-display text-xl font-bold mb-1 pr-8">Submit Score</h2>
         <div className="text-sm text-muted mb-4">
-          {displayName}
+          {gameDisplayName}
           {game.manufacturer ? ` · ${game.manufacturer}` : ''}
           {game.year ? ` · ${game.year}` : ''}
         </div>
 
         <div className="space-y-4">
+          <div>
+            <label className="block text-xs text-muted mb-1">Display name (shown on scoreboard)</label>
+            <input
+              type="text"
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              maxLength={50}
+              placeholder="Your name"
+              className="w-full px-3 py-2 rounded border border-border bg-deep text-primary focus:outline-none focus:border-neon-cyan"
+            />
+          </div>
+
           <div>
             <label className="block text-xs text-muted mb-1">Score</label>
             <input

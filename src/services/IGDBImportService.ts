@@ -187,13 +187,18 @@ export class IGDBImportService {
     /**
      * Bulk seeds the global catalogue from IGDB for arcade + retro console platforms.
      * Batched in pages of 500, rate-limited to 4 req/sec.
+     *
+     * @param options.limit Cap total rows fetched (for sampled dev imports).
+     *                      Loop exits as soon as totalFetched >= limit; the final
+     *                      batch is shrunk so we don't overfetch.
      */
-    static async importFromIGDB(): Promise<{
+    static async importFromIGDB(options?: { limit?: number }): Promise<{
         imported: number;
         updated: number;
         skipped: number;
         total: number;
     }> {
+        const limit = options?.limit;
         const syncLogId = await SyncLogService.start('igdb');
         const errors: string[] = [];
 
@@ -213,6 +218,11 @@ export class IGDBImportService {
             let totalFetched = 0;
 
             while (true) {
+                // Shrink the final batch when a sample limit is set so we never overfetch.
+                const remaining = limit ? Math.max(0, limit - totalFetched) : BATCH_SIZE;
+                if (limit && remaining === 0) break;
+                const batchSize = limit ? Math.min(BATCH_SIZE, remaining) : BATCH_SIZE;
+
                 // Apicalypse operators on array fields (verified via live API testing):
                 //   `platforms = (x,y,z)` means "contains ANY of x, y, z" (what we want)
                 //   `platforms = [x,y,z]` means "contains ALL of x AND y AND z" (impossible)
@@ -229,7 +239,7 @@ export class IGDBImportService {
                     where platforms = (${platformIds})
                         & game_type = 0;
                     sort id asc;
-                    limit ${BATCH_SIZE};
+                    limit ${batchSize};
                     offset ${offset};
                 `;
 
@@ -338,9 +348,11 @@ export class IGDBImportService {
                     }
                 }
 
-                offset += BATCH_SIZE;
+                offset += games.length;
 
-                // Safety: if we got fewer than BATCH_SIZE, we've reached the end
+                // Stop conditions: hit the sample cap, or IGDB returned a short page
+                // (which means we've reached the end of the result set).
+                if (limit && totalFetched >= limit) break;
                 if (games.length < BATCH_SIZE) break;
             }
 

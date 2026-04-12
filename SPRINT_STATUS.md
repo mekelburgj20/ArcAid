@@ -23,7 +23,11 @@
 - [x] Database: migrations 037-038 (global_game_id on game_room_game_library + games)
 - [x] Database: SYNC_ALERT_CHANNEL_ID default setting
 - [x] `GlobalGameService.ts` — catalogue CRUD, upsert with dedup, search, merge cascade
-- [x] `GlobalGameService.upsert()` — cross-type Frankenstein fix (4-step dedup: external ID → cross-type guard → IPDB URL cross-ref → strict name match). Pending local verification (see `continue.md`).
+- [x] `GlobalGameService.upsert()` — cross-type Frankenstein fix (4-step dedup: external ID → cross-type guard → IPDB URL cross-ref → strict name match). **Verified live** (2026-04-11) with sampled IGDB import — 4688 catalogue rows, 0 Frankensteins, 0 pinball-with-video-subtype contamination.
+- [x] `IGDBImportService.importFromIGDB({ limit })` + `scripts/reimport-catalogue.ts --igdb-limit N --no-truncate` — sampled additive dev imports (avoids the multi-hour full IGDB run while still exercising the dedup hierarchy)
+- [x] `scripts/backfill-vps-images.ts` (1075 rows patched) + `scripts/backfill-wizard-images.ts` (342 rows patched) — one-shot image backfills against the source GitHub repos
+- [x] Global score submit modal: display name field with prefill from `/api/global/me/display-name`, 409 conflict on case-insensitive username collision against other Discord users
+- [x] `docs/decisions/` ADR scaffold (README + 0000-template) + ROADMAP pointer + `/update-docs` skill check for decision freshness
 - [x] `SyncLogService.ts` — sync log CRUD, Discord alert on failure
 - [x] `VpsImportService.ts` — updated: rich metadata extraction (themes, designers, download URLs, wheel art, tutorials, rules, features), writes to global_games
 - [x] `WizardImportService.ts` — updated: parses BOTH Wizard + Manual Install sections (~1125 tables), extracts table metadata
@@ -218,11 +222,11 @@
 
 ## Last Session
 
-**Date:** 2026-04-10
-**What happened:** Diagnosed and fixed a cross-type merge bug in `GlobalGameService.upsert()`. The old name-only fallback was silently collapsing ~473 pinball rows with unrelated IGDB video-game entries ("Frankenstein rows" — canonical: Alice in Wonderland merged the VPS VPX table, OPDB real machine, and a Disney Wii video game into one row). Rewrote `upsert()` with a 4-step hierarchy: external ID → cross-type guard → IPDB URL cross-reference (pinball only, machine ID extracted via regex to handle http/https scheme mismatch) → strict normalized-name match with manufacturer/year confirmation. Added helpers `extractIpdbMachineId()`, `hasExternalIdConflict()`, `manufacturerYearAgree()`. Build passes clean. Created `scripts/analyze-catalogue.ts` (generates `docs/catalogue-analysis.md` + CSV) and `scripts/reimport-catalogue.ts` (greenfield nuke + reimport). Ran full reimport to validate — VPS/OPDB/Wizard completed cleanly in ~2min (OPDB updated 944 rows via IPDB cross-match, confirming the fix works), but IGDB went well past the expected 62k rows and was still importing at offset 150000 after ~5 hours. Killed the process, which corrupted the local dev DB file (`SQLITE_CORRUPT` on any read; `data/arcaid.db.bak-uat` is a stale 108K snapshot from 2026-03-09, not recoverable). Production DB is unaffected (separate Docker container on Hetzner).
+**Date:** 2026-04-11
+**What happened:** Resumed Phase 1 Global Scoreboard verification on `feature/global-scoreboard-phase1`. Local DB turned out **not** to be corrupt — `PRAGMA integrity_check` returned ok and the catalogue had 4188 clean rows from the prior VPS+OPDB+Wizard reimport (zero Frankensteins). Decided against burning hours on a full IGDB run; instead added `options.limit` to `IGDBImportService.importFromIGDB()` and `--igdb-limit N` + `--no-truncate` flags to `scripts/reimport-catalogue.ts` so we can do additive sampled imports for dev. Ran a 500-row IGDB sample in 17s — cleanly inserted 500 video-game rows (446 pc, 53 console, 1 arcade), zero collisions with existing pinball rows, dedup hierarchy held. Catalogue is now 4688 rows and verified clean. Also: established `docs/decisions/` ADR convention (README + 0000 template), added ROADMAP pointer, updated `/update-docs` skill with a decision-doc freshness check.
 
-**Next:** See `continue.md` for the full resume prompt. Short version: nuke the local DB, recreate empty, run `scripts/reimport-catalogue.ts --skip-igdb` (fast, ~2min), verify zero Frankensteins via `scripts/analyze-catalogue.ts`, commit the fix. Leave full IGDB sync for a detached run later.
+**Next:** Phase 1 polish remaining items — confirm GlobalCatalogue.tsx admin page is finished, add the VPS auto-sync Wednesday 2am Pacific cron in `Scheduler.ts`. Then move to Phase 2 (Score Model — submission paths and fan-out from rooms to global). Pattern 3 identity ADR (`0001-identity-site-handles.md`) stays parked until anonymous flow details are decided.
 
 ## Blockers
 
-- Local `data/arcaid.db` is corrupt (intentional — killed mid-reimport). Needs to be deleted and recreated. See `continue.md`.
+(none)

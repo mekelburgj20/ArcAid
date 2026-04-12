@@ -4,6 +4,12 @@
 
 ---
 
+## Architecture Decisions
+
+Load-bearing technical and product decisions are tracked in [`docs/decisions/`](docs/decisions/README.md). Each ADR captures the context, the choice, and the alternatives considered. Write a new ADR when a decision locks in a data shape, auth pattern, or external integration that future code will assume.
+
+---
+
 ## Multi-Game-Room Architecture (COMPLETE)
 
 ### Phase 1: Database Foundation

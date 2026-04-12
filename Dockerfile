@@ -50,5 +50,8 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:3001/api/status || exit 1
 
-# Fix ownership of mounted volumes at startup, then drop to non-root user
-CMD ["/bin/bash", "-c", "chown -R arcaid:arcaid /app/data /app/backups 2>/dev/null; exec su -s /bin/bash arcaid -c 'npm start'"]
+# Fix ownership of mounted volumes at startup, then drop to non-root user.
+# Only chowns the top-level data/backups dirs (not recursively) to avoid slow
+# walks over large directories like catalogue-images on bind-mounted volumes.
+# Writable subdirs are created by the app on demand.
+CMD ["/bin/bash", "-c", "chown arcaid:arcaid /app/data /app/backups 2>/dev/null; exec su -s /bin/bash arcaid -c 'npm start'"]

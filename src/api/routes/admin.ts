@@ -106,19 +106,23 @@ router.post('/super-admins', async (req, res) => {
 
         // Resolve username to ID if needed
         const { resolveDiscordUserId } = await import('../../utils/discord.js');
-        // Try resolving against all rooms' guild IDs
         let resolvedId: string | null = null;
         if (/^\d{17,20}$/.test(input.trim())) {
             resolvedId = input.trim();
         } else {
+            // Gather candidate guild IDs: all rooms' configured guilds plus the env-level DISCORD_GUILD_ID fallback
+            const guildIds = new Set<string>();
             const rooms = await GameRoomService.getAll();
             const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
             for (const room of rooms) {
                 const guildId = await GameRoomSettingsService.get(room.id, 'DISCORD_GUILD_ID');
-                if (guildId) {
-                    resolvedId = await resolveDiscordUserId(input.trim(), guildId);
-                    if (resolvedId) break;
-                }
+                if (guildId) guildIds.add(guildId);
+            }
+            if (process.env.DISCORD_GUILD_ID) guildIds.add(process.env.DISCORD_GUILD_ID);
+
+            for (const guildId of guildIds) {
+                resolvedId = await resolveDiscordUserId(input.trim(), guildId);
+                if (resolvedId) break;
             }
         }
 
@@ -587,7 +591,7 @@ router.post('/catalogue/sync-igdb', async (_req, res) => {
 // Catalogue browse & management
 router.get('/catalogue/games', async (req, res) => {
     try {
-        const { search, type, status, source, cursor, limit } = req.query;
+        const { search, type, status, source, cursor, limit, offset } = req.query;
         if (search) {
             const result = await GlobalGameService.search(search as string, {
                 type: type as string,
@@ -597,12 +601,14 @@ router.get('/catalogue/games', async (req, res) => {
             });
             res.json(result);
         } else {
-            const games = await GlobalGameService.getAll({
+            const result = await GlobalGameService.getAll({
                 status: status as string,
                 type: type as string,
                 source: source as string,
+                limit: limit ? parseInt(limit as string) : undefined,
+                offset: offset ? parseInt(offset as string) : undefined,
             });
-            res.json({ data: games, hasMore: false });
+            res.json(result);
         }
     } catch (error) {
         logError('API Error (GET /api/admin/catalogue/games):', error);

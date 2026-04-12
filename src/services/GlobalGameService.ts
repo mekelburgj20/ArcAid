@@ -408,9 +408,15 @@ export class GlobalGameService {
     }
 
     /**
-     * Returns all games (admin view, no pagination).
+     * Returns paginated games (admin view).
      */
-    static async getAll(options?: { status?: string; type?: string; source?: string }): Promise<GlobalGame[]> {
+    static async getAll(options?: {
+        status?: string;
+        type?: string;
+        source?: string;
+        limit?: number;
+        offset?: number;
+    }): Promise<{ data: GlobalGame[]; total: number; hasMore: boolean }> {
         const db = await getDatabase();
         const conditions: string[] = ['1=1'];
         const params: any[] = [];
@@ -450,10 +456,22 @@ export class GlobalGameService {
             }
         }
 
-        return db.all(
-            `SELECT * FROM global_games WHERE ${conditions.join(' AND ')} ORDER BY name COLLATE NOCASE`,
+        const whereClause = conditions.join(' AND ');
+        const limit = Math.min(Math.max(options?.limit ?? 200, 1), 1000);
+        const offset = Math.max(options?.offset ?? 0, 0);
+
+        const countRow = await db.get(
+            `SELECT COUNT(*) as c FROM global_games WHERE ${whereClause}`,
             ...params
         );
+        const total = countRow?.c ?? 0;
+
+        const data = await db.all(
+            `SELECT * FROM global_games WHERE ${whereClause} ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?`,
+            ...params, limit, offset
+        );
+
+        return { data, total, hasMore: offset + data.length < total };
     }
 
     /**
@@ -563,6 +581,41 @@ export class GlobalGameService {
         params.push(externalId);
         const result = await db.run(
             `UPDATE global_games SET ${sets.join(', ')} WHERE ${col} = ?`,
+            ...params
+        );
+        return (result.changes ?? 0) > 0;
+    }
+
+    /**
+     * Updates image fields on a game identified by its external_url. Used by the
+     * Wizard importer, which has no external ID column — the GitHub folder URL
+     * is the stable identifier.
+     */
+    static async updateBySourceUrl(
+        externalUrl: string,
+        fields: { image_url?: string; local_image_path?: string; wheel_image_path?: string }
+    ): Promise<boolean> {
+        const db = await getDatabase();
+        const sets: string[] = [];
+        const params: any[] = [];
+
+        if (fields.image_url !== undefined) {
+            sets.push('image_url = COALESCE(image_url, ?)');
+            params.push(fields.image_url);
+        }
+        if (fields.local_image_path !== undefined) {
+            sets.push('local_image_path = ?');
+            params.push(fields.local_image_path);
+        }
+        if (fields.wheel_image_path !== undefined) {
+            sets.push('wheel_image_path = ?');
+            params.push(fields.wheel_image_path);
+        }
+        if (sets.length === 0) return false;
+
+        params.push(externalUrl);
+        const result = await db.run(
+            `UPDATE global_games SET ${sets.join(', ')} WHERE external_url = ?`,
             ...params
         );
         return (result.changes ?? 0) > 0;

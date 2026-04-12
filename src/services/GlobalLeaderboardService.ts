@@ -145,43 +145,107 @@ export class GlobalLeaderboardService {
     }
 
     /**
-     * Top N scores across all games for a scope. Used by the global scoreboard
-     * page for the "most scores" / "highest score" summary views.
+     * Paginated catalogue view with per-game score aggregates. All catalogue games
+     * appear (LEFT JOIN), including ones with zero scores. Sort defaults to `popular`
+     * — a recency-weighted score count that emphasizes games with recent activity.
+     *
+     * Popularity formula: SUM(1 / (1 + age_in_days / 14)). 14-day half-life means a
+     * score today is worth ~1, 14 days ago ~0.5, 90 days ago ~0.135.
      */
     static async getTopGames(options: {
         scope?: string;
-        sort?: 'most_scores' | 'highest_score' | 'most_recent';
+        sort?: 'popular' | 'most_scores' | 'highest_score' | 'most_recent' | 'name_asc';
         limit?: number;
-    } = {}): Promise<Array<{
-        global_game_id: string;
-        name: string;
-        display_name: string | null;
-        manufacturer: string | null;
-        year: number | null;
-        type: string;
-        image_url: string | null;
-        local_image_path: string | null;
-        wheel_image_path: string | null;
-        platforms: string;
-        score_count: number;
-        top_score: number | null;
-        last_submitted_at: string | null;
-    }>> {
+        offset?: number;
+        search?: string;
+        type?: string;
+        platforms?: string[];
+    } = {}): Promise<{
+        data: Array<{
+            global_game_id: string;
+            name: string;
+            display_name: string | null;
+            manufacturer: string | null;
+            year: number | null;
+            type: string;
+            image_url: string | null;
+            local_image_path: string | null;
+            wheel_image_path: string | null;
+            platforms: string;
+            score_count: number;
+            top_score: number | null;
+            last_submitted_at: string | null;
+            popularity: number;
+        }>;
+        total: number;
+        hasMore: boolean;
+    }> {
         const db = await getDatabase();
-        const limit = options.limit || 20;
+        const limit = Math.min(Math.max(options.limit ?? 30, 1), 200);
+        const offset = Math.max(options.offset ?? 0, 0);
         const scope = options.scope || 'global';
         const isGlobal = scope === 'global';
-        const excludeFilter = isGlobal ? 'AND gs.exclude_from_global = 0' : '';
-        const roomFilter = isGlobal ? '' : 'AND gs.origin_game_room_id = ?';
-        const roomParams = isGlobal ? [] : [scope];
+
+        // Score-level filters go in the LEFT JOIN predicate so games with zero
+        // matching scores still appear with score_count = 0.
+        const joinConditions: string[] = ['gs.global_game_id = gg.id', 'gs.deleted_at IS NULL'];
+        const joinParams: any[] = [];
+        if (isGlobal) {
+            joinConditions.push('gs.exclude_from_global = 0');
+        } else {
+            joinConditions.push('gs.origin_game_room_id = ?');
+            joinParams.push(scope);
+        }
+
+        // Game-level filters go in WHERE so non-matching games are excluded entirely.
+        const whereConditions: string[] = [
+            `gg.status = 'approved'`,
+            `gg.global_leaderboard = 1`,
+        ];
+        const whereParams: any[] = [];
+
+        if (options.type) {
+            whereConditions.push('gg.type = ?');
+            whereParams.push(options.type);
+        }
+        if (options.search && options.search.trim()) {
+            const needle = `%${options.search.trim().toLowerCase()}%`;
+            whereConditions.push(
+                `(LOWER(gg.name) LIKE ? OR LOWER(COALESCE(gg.display_name, '')) LIKE ? OR LOWER(COALESCE(gg.manufacturer, '')) LIKE ?)`
+            );
+            whereParams.push(needle, needle, needle);
+        }
+        if (options.platforms && options.platforms.length > 0) {
+            const clauses = options.platforms.map(() => `gg.platforms LIKE ?`);
+            whereConditions.push(`(${clauses.join(' OR ')})`);
+            for (const p of options.platforms) {
+                whereParams.push(`%"${p}"%`);
+            }
+        }
+
+        const whereClause = whereConditions.join(' AND ');
+        const joinClause = joinConditions.join(' AND ');
+
+        // Popularity: recency-weighted score count, 14-day half-life.
+        // julianday('now') - julianday(submitted_at) = age in days.
+        const popularityExpr =
+            `COALESCE(SUM(1.0 / (1.0 + (julianday('now') - julianday(gs.submitted_at)) / 14.0)), 0)`;
 
         const orderBy =
-            options.sort === 'most_scores' ? 'score_count DESC' :
-            options.sort === 'most_recent' ? 'last_submitted_at DESC' :
-            'top_score DESC';
+            options.sort === 'most_scores' ? 'score_count DESC, gg.name COLLATE NOCASE ASC' :
+            options.sort === 'most_recent' ? 'last_submitted_at DESC NULLS LAST, gg.name COLLATE NOCASE ASC' :
+            options.sort === 'highest_score' ? 'top_score DESC NULLS LAST, gg.name COLLATE NOCASE ASC' :
+            options.sort === 'name_asc' ? 'gg.name COLLATE NOCASE ASC' :
+            'popularity DESC, gg.name COLLATE NOCASE ASC'; // default: popular
 
-        return db.all(`
-            SELECT
+        const countRow = await db.get(
+            `SELECT COUNT(*) as c FROM global_games gg WHERE ${whereClause}`,
+            ...whereParams
+        );
+        const total = countRow?.c ?? 0;
+
+        const data = await db.all(
+            `SELECT
                 gg.id as global_game_id,
                 gg.name,
                 gg.display_name,
@@ -194,17 +258,17 @@ export class GlobalLeaderboardService {
                 gg.platforms,
                 COUNT(gs.id) as score_count,
                 MAX(gs.score) as top_score,
-                MAX(gs.submitted_at) as last_submitted_at
+                MAX(gs.submitted_at) as last_submitted_at,
+                ${popularityExpr} as popularity
             FROM global_games gg
-            JOIN global_scores gs ON gs.global_game_id = gg.id
-            WHERE gg.status = 'approved'
-              AND gg.global_leaderboard = 1
-              AND gs.deleted_at IS NULL
-              ${excludeFilter}
-              ${roomFilter}
+            LEFT JOIN global_scores gs ON ${joinClause}
+            WHERE ${whereClause}
             GROUP BY gg.id
             ORDER BY ${orderBy}
-            LIMIT ?
-        `, ...roomParams, limit);
+            LIMIT ? OFFSET ?`,
+            ...joinParams, ...whereParams, limit, offset
+        );
+
+        return { data, total, hasMore: offset + data.length < total };
     }
 }

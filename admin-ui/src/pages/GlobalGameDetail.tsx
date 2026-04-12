@@ -69,15 +69,24 @@ function formatDate(iso: string): string {
   }
 }
 
+function toCatalogueUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  // DB stores filesystem paths like "data/catalogue-images/opdb/foo.jpg".
+  // The server mounts the catalogue-images directory at /api/catalogue-images/.
+  const m = path.match(/^\/?data\/catalogue-images\/(.+)$/);
+  if (m) return `/api/catalogue-images/${m[1]}`;
+  return path.startsWith('/') ? path : `/${path}`;
+}
+
 function resolveImage(game: GlobalGame): string | null {
-  if (game.local_image_path) return game.local_image_path.startsWith('/') ? game.local_image_path : `/${game.local_image_path}`;
+  if (game.local_image_path) return toCatalogueUrl(game.local_image_path);
   if (game.image_url) return game.image_url;
   return null;
 }
 
 function resolveWheel(game: GlobalGame): string | null {
   if (!game.wheel_image_path) return null;
-  return game.wheel_image_path.startsWith('/') ? game.wheel_image_path : `/${game.wheel_image_path}`;
+  return toCatalogueUrl(game.wheel_image_path);
 }
 
 export default function GlobalGameDetail() {

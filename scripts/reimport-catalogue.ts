@@ -2,18 +2,24 @@
  * Reimport Catalogue Script
  *
  * Greenfield reset for the global_games catalogue:
- *   1. Truncates global_games and all tables that reference it
+ *   1. Truncates global_games and all tables that reference it (unless --no-truncate)
  *   2. Re-runs VPS, OPDB, IGDB, Wizard imports in sequence using the fixed upsert
  *   3. Prints before/after row counts
  *
  * Usage:
- *   npx tsx scripts/reimport-catalogue.ts           # run all sources
- *   npx tsx scripts/reimport-catalogue.ts --skip-opdb   # skip OPDB (rate limit: 1/hr)
- *   npx tsx scripts/reimport-catalogue.ts --skip-igdb   # skip IGDB (slow)
- *   npx tsx scripts/reimport-catalogue.ts --dry-run     # show what would be deleted, do nothing
+ *   npx tsx scripts/reimport-catalogue.ts                 # run all sources, full truncate
+ *   npx tsx scripts/reimport-catalogue.ts --skip-opdb     # skip OPDB (rate limit: 1/hr)
+ *   npx tsx scripts/reimport-catalogue.ts --skip-igdb     # skip IGDB (slow — full run takes hours)
+ *   npx tsx scripts/reimport-catalogue.ts --igdb-limit 500  # cap IGDB at N rows for sampled dev imports
+ *   npx tsx scripts/reimport-catalogue.ts --no-truncate   # add to existing catalogue without wiping
+ *   npx tsx scripts/reimport-catalogue.ts --dry-run       # show what would be deleted, do nothing
  *
  * The truncate step also nulls out global_game_id references on games and
  * game_room_game_library so there are no dangling foreign keys.
+ *
+ * Sampled IGDB workflow (e.g. local dev top-up after the Frankenstein fix):
+ *   npx tsx scripts/reimport-catalogue.ts \
+ *     --skip-vps --skip-opdb --skip-wizard --no-truncate --igdb-limit 500
  */
 
 import dotenv from 'dotenv';
@@ -40,6 +46,18 @@ const SKIP_VPS = args.includes('--skip-vps');
 const SKIP_OPDB = args.includes('--skip-opdb');
 const SKIP_IGDB = args.includes('--skip-igdb');
 const SKIP_WIZARD = args.includes('--skip-wizard');
+const NO_TRUNCATE = args.includes('--no-truncate');
+
+function parseFlagValue(flag: string): number | undefined {
+    const idx = args.indexOf(flag);
+    if (idx === -1) return undefined;
+    const raw = args[idx + 1];
+    if (!raw) return undefined;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+const IGDB_LIMIT = parseFlagValue('--igdb-limit');
 
 async function countRows(): Promise<{
     global_games: number;
@@ -107,6 +125,8 @@ async function main() {
     console.log('==================');
     if (DRY_RUN) console.log('** DRY RUN — no changes will be made **');
     console.log(`Skip flags: vps=${SKIP_VPS} opdb=${SKIP_OPDB} igdb=${SKIP_IGDB} wizard=${SKIP_WIZARD}`);
+    console.log(`Truncate: ${NO_TRUNCATE ? 'NO (additive)' : 'yes'}`);
+    if (IGDB_LIMIT) console.log(`IGDB sample limit: ${IGDB_LIMIT}`);
 
     await initDatabase();
     await loadSettingsIntoEnv();
@@ -120,8 +140,12 @@ async function main() {
         process.exit(0);
     }
 
-    // Truncate
-    await withTimer('Truncating global catalogue', truncateCatalogue);
+    // Truncate (skip when --no-truncate so we can additively top up an existing catalogue)
+    if (!NO_TRUNCATE) {
+        await withTimer('Truncating global catalogue', truncateCatalogue);
+    } else {
+        console.log('\n⊘ Skipping truncate — existing rows will be preserved');
+    }
 
     // Run imports in the order that lets cross-refs build up naturally
     const results: Record<string, any> = {};
@@ -152,7 +176,8 @@ async function main() {
 
     if (!SKIP_IGDB) {
         try {
-            results.igdb = await withTimer('IGDB import', () => IGDBImportService.importFromIGDB());
+            const label = IGDB_LIMIT ? `IGDB import (sampled, limit=${IGDB_LIMIT})` : 'IGDB import';
+            results.igdb = await withTimer(label, () => IGDBImportService.importFromIGDB(IGDB_LIMIT ? { limit: IGDB_LIMIT } : undefined));
         } catch (err) {
             console.warn('IGDB import failed (continuing):', (err as Error).message);
             results.igdb = { error: (err as Error).message };

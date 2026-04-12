@@ -194,6 +194,25 @@ function getWheelArtUrl(table: VpsTable): string | undefined {
 }
 
 /**
+ * Resolves the best available primary image URL for a VPS table.
+ * Many VPS entries (~60%) lack a top-level `imgUrl` but still have a usable
+ * image on one of their tableFiles or b2sFiles. Fall back through them so
+ * the catalogue shows art wherever VPS has any image at all.
+ */
+function getPrimaryImageUrl(table: VpsTable): string | undefined {
+    if (table.imgUrl) return table.imgUrl;
+    if (table.tableFiles?.length) {
+        const tf = table.tableFiles.find(f => f.imgUrl);
+        if (tf?.imgUrl) return tf.imgUrl;
+    }
+    if (table.b2sFiles?.length) {
+        const bf = table.b2sFiles.find(f => f.imgUrl);
+        if (bf?.imgUrl) return bf.imgUrl;
+    }
+    return undefined;
+}
+
+/**
  * Downloads an image to local disk. Returns local path or undefined on failure.
  * Skips download if the file already exists (idempotent re-runs).
  */
@@ -235,8 +254,9 @@ async function downloadImagesInBackground(tables: VpsTable[]): Promise<void> {
         try {
             const updates: { local_image_path?: string; wheel_image_path?: string } = {};
 
-            if (table.imgUrl) {
-                const localPath = await downloadImage(table.imgUrl, 'vps', table.id);
+            const primaryImgUrl = getPrimaryImageUrl(table);
+            if (primaryImgUrl) {
+                const localPath = await downloadImage(primaryImgUrl, 'vps', table.id);
                 if (localPath) updates.local_image_path = localPath;
             }
 
@@ -337,7 +357,7 @@ export class VpsImportService {
                         vps_id: table.id,
                         ipdb_url: table.ipdbUrl,
                         external_url: `https://virtualpinballspreadsheet.github.io/games?game=${table.id}`,
-                        image_url: table.imgUrl,
+                        image_url: getPrimaryImageUrl(table),
                         table_authors: extractAuthors(table),
                         table_download_urls: extractDownloadUrls(table),
                         tutorial_urls: extractTutorials(table),

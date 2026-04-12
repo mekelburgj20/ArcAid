@@ -58,11 +58,17 @@ const STATUS_COLORS: Record<string, string> = {
   partial: 'text-yellow-400',
 };
 
+const PAGE_SIZE = 200;
+
 export default function GlobalCatalogue() {
   const [games, setGames] = useState<GlobalGame[]>([]);
+  const [totalMatching, setTotalMatching] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [counts, setCounts] = useState<CatalogueCounts>({ total: 0, approved: 0, pending: 0, rejected: 0 });
   const [syncStatus, setSyncStatus] = useState<SyncLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('');
@@ -72,22 +78,46 @@ export default function GlobalCatalogue() {
   const [syncResult, setSyncResult] = useState<{ source: string; message: string } | null>(null);
 
   const loadData = useCallback(async () => {
+    setLoadError(null);
     try {
       const [gamesRes, countsRes, syncRes] = await Promise.all([
-        api.get<{ data: GlobalGame[]; hasMore: boolean }>('/admin/catalogue/games' +
-          buildQuery({ search, type: filterType, status: filterStatus, source: filterSource })),
+        api.get<{ data: GlobalGame[]; total?: number; hasMore: boolean }>('/admin/catalogue/games' +
+          buildQuery({ search, type: filterType, status: filterStatus, source: filterSource, limit: String(PAGE_SIZE) })),
         api.get<CatalogueCounts>('/admin/catalogue/counts'),
         api.get<SyncLog[]>('/admin/catalogue/sync-status'),
       ]);
-      setGames(gamesRes.data);
+      setGames(gamesRes.data || []);
+      setTotalMatching(gamesRes.total ?? gamesRes.data?.length ?? 0);
+      setHasMore(Boolean(gamesRes.hasMore));
       setCounts(countsRes);
-      setSyncStatus(syncRes);
-    } catch {
-      // ignore
+      setSyncStatus(syncRes || []);
+    } catch (err) {
+      console.error('Failed to load global catalogue:', err);
+      setLoadError(err instanceof Error ? err.message : 'Failed to load catalogue data');
+      setGames([]);
     } finally {
       setLoading(false);
     }
   }, [search, filterType, filterStatus, filterSource]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await api.get<{ data: GlobalGame[]; total?: number; hasMore: boolean }>(
+        '/admin/catalogue/games' + buildQuery({
+          search, type: filterType, status: filterStatus, source: filterSource,
+          limit: String(PAGE_SIZE), offset: String(games.length),
+        })
+      );
+      setGames(prev => [...prev, ...(res.data || [])]);
+      setHasMore(Boolean(res.hasMore));
+    } catch (err) {
+      console.error('Failed to load more games:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [games.length, hasMore, loadingMore, search, filterType, filterStatus, filterSource]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -156,8 +186,9 @@ export default function GlobalCatalogue() {
     try {
       await api.patch(`/admin/catalogue/games/${gameId}/status`, { status: newStatus });
       await loadData();
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('Failed to update game status:', err);
+      setLoadError(err instanceof Error ? err.message : 'Failed to update game status');
     }
   };
 
@@ -166,8 +197,9 @@ export default function GlobalCatalogue() {
     try {
       await api.delete(`/admin/catalogue/games/${gameId}`);
       await loadData();
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('Failed to delete game:', err);
+      setLoadError(err instanceof Error ? err.message : 'Failed to delete game');
     }
   };
 
@@ -283,8 +315,23 @@ export default function GlobalCatalogue() {
           </select>
         </div>
 
+        {/* Error banner */}
+        {loadError && (
+          <div className="mb-3 p-3 rounded bg-red-900/30 border border-red-700 text-red-300 text-sm">
+            <strong>Error:</strong> {loadError}
+            <button
+              onClick={() => { setLoading(true); loadData(); }}
+              className="ml-3 underline hover:text-red-200"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Game list */}
-        <div className="text-sm text-muted mb-2">{games.length} games shown</div>
+        <div className="text-sm text-muted mb-2">
+          {games.length} of {totalMatching.toLocaleString()} games shown
+        </div>
         <div className="space-y-1">
           {games.map(game => (
             <GameRow
@@ -296,12 +343,24 @@ export default function GlobalCatalogue() {
               onDelete={handleDelete}
             />
           ))}
-          {games.length === 0 && (
+          {games.length === 0 && !loadError && (
             <div className="text-muted text-center py-8">
               No games found. Try adjusting your filters or sync a source.
             </div>
           )}
         </div>
+        {hasMore && (
+          <div className="mt-4 flex justify-center">
+            <NeonButton
+              variant="secondary"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="flex items-center gap-2"
+            >
+              {loadingMore ? 'Loading...' : `Load More (${(totalMatching - games.length).toLocaleString()} remaining)`}
+            </NeonButton>
+          </div>
+        )}
       </NeonCard>
     </div>
   );

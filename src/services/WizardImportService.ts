@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { GameLibraryService } from './GameLibraryService.js';
 import { GlobalGameService, GlobalGameInput } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
@@ -6,6 +8,8 @@ import { logInfo, logError } from '../utils/logger.js';
 const README_URL = 'https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/main/README.md';
 
 const GITHUB_BASE = 'https://github.com/LegendsUnchained/vpx-standalone-alp4k';
+const RAW_BASE = 'https://raw.githubusercontent.com/LegendsUnchained/vpx-standalone-alp4k/main';
+const IMAGES_API = 'https://api.github.com/repos/LegendsUnchained/vpx-standalone-alp4k/contents/images';
 
 interface WizardTable {
     name: string;
@@ -101,6 +105,138 @@ function buildFeatures(table: WizardTable): string[] {
 }
 
 /**
+ * Fetches the images/ folder listing from GitHub and builds a slug→filename map.
+ * Matches both `{slug}.{ext}` and `{slug}-preview.{ext}` patterns found in the repo.
+ * Returns an empty map on failure so the importer still runs (image_url stays null).
+ */
+async function fetchWizardImageMap(): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    try {
+        const resp = await fetch(IMAGES_API);
+        if (!resp.ok) {
+            logError(`Wizard image listing failed: HTTP ${resp.status}`);
+            return map;
+        }
+        const files: Array<{ name: string }> = await resp.json();
+        for (const f of files) {
+            const m = f.name.match(/^(.+?)(-preview)?\.(webp|png|jpg|jpeg)$/i);
+            if (!m?.[1]) continue;
+            // Prefer non-preview over preview when both exist.
+            const slug = m[1];
+            const existing = map.get(slug);
+            if (!existing || !m[2]) map.set(slug, f.name);
+        }
+        logInfo(`Wizard image map: ${map.size} unique slugs from ${files.length} files`);
+    } catch (err) {
+        logError('Wizard image listing error:', err);
+    }
+    return map;
+}
+
+/**
+ * Derives the slug (leaf folder name) from a README table path like `external/vpx-samba`.
+ */
+function extractWizardSlug(tablePath: string | null): string | null {
+    if (!tablePath) return null;
+    const clean = tablePath.replace(/^\.\//, '').replace(/\/+$/, '');
+    const parts = clean.split('/');
+    return parts[parts.length - 1] || null;
+}
+
+/**
+ * Resolves the image URL for a wizard table, trying two sources in order:
+ *   1. /images/{slug}.{ext} or /images/{slug}-preview.{ext} — from the images folder listing
+ *   2. /external/{slug}/launcher.png — per-table fallback (existence not verified here)
+ * Returns the URL candidate or undefined if nothing can be constructed.
+ */
+function resolveWizardImageUrl(
+    tablePath: string | null,
+    imageMap: Map<string, string>
+): string | undefined {
+    const slug = extractWizardSlug(tablePath);
+    if (!slug) return undefined;
+    const mapped = imageMap.get(slug);
+    if (mapped) return `${RAW_BASE}/images/${mapped}`;
+    // Fallback: every vpx-* folder tends to have a launcher.png
+    return `${RAW_BASE}/external/${slug}/launcher.png`;
+}
+
+/**
+ * Downloads a wizard image to local disk. Skips if already present. Returns the
+ * relative DB path, or undefined on HTTP failure (including 404 for the launcher
+ * fallback on tables that don't ship one).
+ */
+async function downloadWizardImage(url: string, slug: string): Promise<string | undefined> {
+    try {
+        const dir = path.join(process.cwd(), 'data', 'catalogue-images', 'wizard');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+        const ext = path.extname(url.split('?')[0] || '') || '.png';
+        const safe = slug.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+        const filePath = path.join(dir, `${safe}${ext}`);
+        const relPath = `data/catalogue-images/wizard/${safe}${ext}`;
+
+        if (fs.existsSync(filePath)) return relPath;
+
+        const resp = await fetch(url);
+        if (!resp.ok) return undefined;
+        const buffer = Buffer.from(await resp.arrayBuffer());
+        fs.writeFileSync(filePath, buffer);
+        return relPath;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Background image download pass for wizard tables. Mirrors the VPS importer's
+ * pattern — runs after the metadata import returns so API responses stay fast.
+ */
+async function downloadWizardImagesInBackground(
+    tables: WizardTable[],
+    imageMap: Map<string, string>
+): Promise<void> {
+    const CONCURRENCY = 8;
+    let processed = 0;
+    let successes = 0;
+
+    const tasks = tables.map(t => async () => {
+        try {
+            const slug = extractWizardSlug(t.path);
+            if (!slug) return;
+            const url = resolveWizardImageUrl(t.path, imageMap);
+            if (!url) return;
+            const localPath = await downloadWizardImage(url, slug);
+            if (!localPath) return;
+            await GlobalGameService.updateBySourceUrl(
+                `${GITHUB_BASE}/tree/main/${(t.path || '').replace(/^\.\//, '')}`,
+                { image_url: url, local_image_path: localPath }
+            );
+            successes++;
+        } catch (err) {
+            logError(`Wizard image download failed for "${t.name}":`, err);
+        } finally {
+            processed++;
+            if (processed % 100 === 0) {
+                logInfo(`Wizard image downloads: ${processed}/${tables.length} processed (${successes} successful)`);
+            }
+        }
+    });
+
+    const running: Set<Promise<void>> = new Set();
+    for (const task of tasks) {
+        const p = task().then(() => { running.delete(p); });
+        running.add(p);
+        if (running.size >= CONCURRENCY) {
+            await Promise.race(running);
+        }
+    }
+    await Promise.all(running);
+
+    logInfo(`Wizard image downloads: complete — ${processed} processed, ${successes} successful.`);
+}
+
+/**
  * Parses manufacturer and year from a name like "Table Name (Manufacturer Year)".
  */
 function parseNameParts(name: string): { baseName: string; manufacturer?: string; year?: number } {
@@ -144,6 +280,9 @@ export class WizardImportService {
             if (!resp.ok) throw new Error(`GitHub returned ${resp.status}`);
             const markdown = await resp.text();
 
+            // Build the image filename map up-front — one API call, used for every row.
+            const imageMap = await fetchWizardImageMap();
+
             const tables = parseAllSections(markdown);
             const wizardCount = tables.filter(t => t.section === 'wizard_auto').length;
             const manualCount = tables.filter(t => t.section === 'wizard_manual').length;
@@ -173,6 +312,7 @@ export class WizardImportService {
             for (const table of tables) {
                 try {
                     const { baseName, manufacturer, year } = parseNameParts(table.name);
+                    const imageUrl = resolveWizardImageUrl(table.path, imageMap);
                     const input: GlobalGameInput = {
                         name: baseName,
                         manufacturer,
@@ -180,6 +320,7 @@ export class WizardImportService {
                         type: 'pinball',
                         platforms: ['vpxs'],
                         features: buildFeatures(table),
+                        image_url: imageUrl,
                         external_url: table.path
                             ? `${GITHUB_BASE}/tree/main/${table.path.replace(/^\.\//, '')}`
                             : undefined,
@@ -197,6 +338,11 @@ export class WizardImportService {
                     skipped++;
                 }
             }
+
+            logInfo(`Wizard Import: metadata pass complete. Starting background image downloads...`);
+
+            // Background image download pass — same non-blocking pattern as VPS.
+            void downloadWizardImagesInBackground(tables, imageMap);
 
             const names = tables.map(t => t.name);
             logInfo(`Wizard Import: global catalogue — inserted ${inserted}, updated ${updated}, skipped ${skipped}`);

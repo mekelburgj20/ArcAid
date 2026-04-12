@@ -314,17 +314,31 @@ router.get('/global/games/:id', async (req, res) => {
 });
 
 /**
- * GET /api/global/scoreboard — top games by aggregate score activity.
- * Query params: ?sort=most_scores|highest_score|most_recent&scope=global|<roomId>&limit=20
+ * GET /api/global/scoreboard — paginated catalogue + per-game score aggregates.
+ * All catalogue games appear, even with zero scores. Default sort is `popular`
+ * (recency-weighted score count). Query params:
+ *   ?sort=popular|most_scores|highest_score|most_recent|name_asc
+ *   &scope=global|<roomId>
+ *   &limit=30&offset=0
+ *   &search=&type=&platforms=vpx,real,...
  */
 router.get('/global/scoreboard', async (req, res) => {
     try {
-        const sort = (req.query.sort as 'most_scores' | 'highest_score' | 'most_recent') || 'most_scores';
+        const sort = (req.query.sort as 'popular' | 'most_scores' | 'highest_score' | 'most_recent' | 'name_asc') || 'popular';
         const scope = (req.query.scope as string) || 'global';
-        const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+        const limit = Math.min(parseInt(req.query.limit as string) || 30, 200);
+        const offset = parseInt(req.query.offset as string) || 0;
+        const search = (req.query.search as string) || undefined;
+        const type = (req.query.type as string) || undefined;
+        const platformsRaw = (req.query.platforms as string) || '';
+        const platforms = platformsRaw
+            ? platformsRaw.split(',').map(p => p.trim()).filter(Boolean)
+            : undefined;
 
-        const games = await GlobalLeaderboardService.getTopGames({ sort, scope, limit });
-        res.json({ data: games });
+        const result = await GlobalLeaderboardService.getTopGames({
+            sort, scope, limit, offset, search, type, platforms,
+        });
+        res.json(result);
     } catch (error) {
         logError('API Error (GET /api/global/scoreboard):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -368,15 +382,39 @@ router.get('/global/scoreboard/:globalGameId', async (req, res) => {
 });
 
 /**
+ * GET /api/global/me/display-name — returns the Discord user's saved display
+ * name (iscored_username in user_mappings), or null if they've never set one.
+ * Used by the submit modal to pre-fill the display-name field.
+ */
+router.get('/global/me/display-name', requireDiscordUser, async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const mapping = await db.get(
+            'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?',
+            req.user!.discordId
+        );
+        res.json({ displayName: mapping?.iscored_username || null });
+    } catch (error) {
+        logError('API Error (GET /api/global/me/display-name):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
  * POST /api/global/scores — direct global score submission.
  * Requires Discord login, photo, and a valid approved global_game_id.
- * Body: multipart/form-data with { globalGameId, score, excludeFromGlobal?, photo }
+ * Body: multipart/form-data with { globalGameId, score, displayName, excludeFromGlobal?, photo }
+ *
+ * `displayName` is the name shown on the scoreboard. If omitted, falls back
+ * through user_mappings → Discord username → discordId. When provided, it is
+ * persisted to user_mappings so future submissions default to it.
  */
 router.post('/global/scores', writeLimiter, requireDiscordUser, globalScoreUpload.single('photo'), async (req, res) => {
     try {
         const globalGameId = req.body.globalGameId;
         const scoreRaw = req.body.score;
         const excludeFromGlobal = req.body.excludeFromGlobal === 'true' || req.body.excludeFromGlobal === true;
+        const displayNameRaw = typeof req.body.displayName === 'string' ? req.body.displayName.trim() : '';
 
         if (!globalGameId || typeof globalGameId !== 'string') {
             return res.status(400).json({ error: 'globalGameId is required' });
@@ -388,19 +426,48 @@ router.post('/global/scores', writeLimiter, requireDiscordUser, globalScoreUploa
         if (!req.file) {
             return res.status(400).json({ error: 'A photo is required with global score submissions.' });
         }
+        if (displayNameRaw.length > 50) {
+            return res.status(400).json({ error: 'Display name must be 50 characters or fewer.' });
+        }
 
         const game = await GlobalGameService.getById(globalGameId);
         if (!game || game.status !== 'approved') {
             return res.status(404).json({ error: 'Game not found' });
         }
 
-        // Resolve the iscored username / display name for the logged-in Discord user
+        // Resolve the iscored username / display name for the logged-in Discord user.
+        // Precedence: explicit form field > existing user_mappings row > Discord
+        // username from the JWT > raw discordId (legacy fallback).
         const db = await getDatabase();
-        const mapping = await db.get(
-            'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?',
-            req.user!.discordId
-        );
-        const iscoredUsername = mapping?.iscored_username || req.user!.discordId || 'Unknown';
+        let iscoredUsername = displayNameRaw;
+        if (!iscoredUsername) {
+            const mapping = await db.get(
+                'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?',
+                req.user!.discordId
+            );
+            iscoredUsername = mapping?.iscored_username || req.user!.username || req.user!.discordId || 'Unknown';
+        }
+
+        // Persist the display name so future submissions pre-fill with it.
+        // `user_mappings.iscored_username` has a UNIQUE index — if this name is
+        // already taken by a different Discord user, reject before the INSERT
+        // would fail, returning a clear 409 instead of a cryptic DB error.
+        if (displayNameRaw && req.user!.discordId) {
+            const clash = await db.get<{ discord_user_id: string }>(
+                `SELECT discord_user_id FROM user_mappings
+                 WHERE LOWER(iscored_username) = LOWER(?) AND discord_user_id != ?`,
+                displayNameRaw, req.user!.discordId
+            );
+            if (clash) {
+                return res.status(409).json({ error: 'That display name is already taken. Pick another.' });
+            }
+            await db.run(
+                `INSERT INTO user_mappings (discord_user_id, iscored_username)
+                 VALUES (?, ?)
+                 ON CONFLICT(discord_user_id) DO UPDATE SET iscored_username = excluded.iscored_username`,
+                req.user!.discordId, displayNameRaw
+            );
+        }
 
         try {
             const saved = await GlobalScoreService.submit({

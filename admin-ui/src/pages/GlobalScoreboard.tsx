@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search, Trophy, Upload, LogIn, LogOut, Filter } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
@@ -29,7 +29,9 @@ interface Room {
   is_public: boolean;
 }
 
-type SortMode = 'most_scores' | 'highest_score' | 'most_recent';
+type SortMode = 'popular' | 'most_scores' | 'highest_score' | 'most_recent' | 'name_asc';
+
+const PAGE_SIZE = 30;
 
 const PLATFORM_GROUPS: Record<string, { label: string; platforms: string[] }> = {
   physical: { label: 'Physical', platforms: ['real'] },
@@ -43,9 +45,19 @@ function formatScore(n: number | null): string {
   return n.toLocaleString();
 }
 
+function toCatalogueUrl(path: string): string {
+  // Absolute URLs pass through unchanged
+  if (/^https?:\/\//i.test(path)) return path;
+  // DB stores filesystem paths like "data/catalogue-images/opdb/foo.jpg".
+  // The server mounts the catalogue-images directory at /api/catalogue-images/.
+  const m = path.match(/^\/?data\/catalogue-images\/(.+)$/);
+  if (m) return `/api/catalogue-images/${m[1]}`;
+  return path.startsWith('/') ? path : `/${path}`;
+}
+
 function imageFor(game: TopGame): string | null {
-  if (game.local_image_path) return game.local_image_path.startsWith('/') ? game.local_image_path : `/${game.local_image_path}`;
-  if (game.wheel_image_path) return game.wheel_image_path.startsWith('/') ? game.wheel_image_path : `/${game.wheel_image_path}`;
+  if (game.local_image_path) return toCatalogueUrl(game.local_image_path);
+  if (game.wheel_image_path) return toCatalogueUrl(game.wheel_image_path);
   if (game.image_url) return game.image_url;
   return null;
 }
@@ -53,15 +65,25 @@ function imageFor(game: TopGame): string | null {
 export default function GlobalScoreboard() {
   const { discordUser, playerToken, loginWithDiscord, logoutPlayer } = useViewerAuth();
   const [games, setGames] = useState<TopGame[]>([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [sort, setSort] = useState<SortMode>('most_scores');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [sort, setSort] = useState<SortMode>('popular');
   const [scope, setScope] = useState<string>('global'); // 'global' or a roomId
   const [platformGroup, setPlatformGroup] = useState<string>('all');
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState(''); // debounced value actually sent to API
   const [rooms, setRooms] = useState<Room[]>([]);
   const [submitGame, setSubmitGame] = useState<TopGame | null>(null);
   const [toast, setToast] = useState<{ player: string; game: string; score: number } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+
+  // Debounce search input (300ms) so we don't hammer the backend on every keystroke
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
 
   // Load rooms for the scope filter
   useEffect(() => {
@@ -71,18 +93,53 @@ export default function GlobalScoreboard() {
       .catch(() => {});
   }, []);
 
-  // Load scoreboard whenever filters change
+  const buildQuery = useCallback((offset: number): string => {
+    const params = new URLSearchParams({
+      sort,
+      scope,
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+    });
+    if (search) params.set('search', search);
+    if (platformGroup !== 'all') {
+      const plats = PLATFORM_GROUPS[platformGroup]?.platforms || [];
+      if (plats.length > 0) params.set('platforms', plats.join(','));
+    }
+    return params.toString();
+  }, [sort, scope, search, platformGroup]);
+
+  // Load first page whenever filters change
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams({ sort, scope, limit: '60' });
-    fetch(`/api/global/scoreboard?${params}`)
-      .then(r => r.ok ? r.json() : { data: [] })
-      .then(payload => setGames(payload.data || []))
-      .catch(() => setGames([]))
+    fetch(`/api/global/scoreboard?${buildQuery(0)}`)
+      .then(r => r.ok ? r.json() : { data: [], total: 0, hasMore: false })
+      .then(payload => {
+        setGames(payload.data || []);
+        setTotal(payload.total || 0);
+        setHasMore(Boolean(payload.hasMore));
+      })
+      .catch(() => {
+        setGames([]);
+        setTotal(0);
+        setHasMore(false);
+      })
       .finally(() => setLoading(false));
-  }, [sort, scope]);
+  }, [buildQuery]);
 
-  // WebSocket — show a toast and refresh the game row on new global scores
+  const loadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    fetch(`/api/global/scoreboard?${buildQuery(games.length)}`)
+      .then(r => r.ok ? r.json() : { data: [], hasMore: false })
+      .then(payload => {
+        setGames(prev => [...prev, ...(payload.data || [])]);
+        setHasMore(Boolean(payload.hasMore));
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  }, [buildQuery, games.length, hasMore, loadingMore]);
+
+  // WebSocket — show a toast and bump the matching card's stats optimistically
   useEffect(() => {
     const socket = getSocket();
     const handler = (data: { globalGameId: string; gameName: string; playerName: string; score: number }) => {
@@ -90,7 +147,6 @@ export default function GlobalScoreboard() {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
       toastTimerRef.current = window.setTimeout(() => setToast(null), 5000);
 
-      // Bump the row's count/top_score optimistically so the card re-sorts on next fetch
       setGames(prev => prev.map(g => g.global_game_id === data.globalGameId
         ? { ...g, score_count: g.score_count + 1, top_score: Math.max(g.top_score || 0, data.score), last_submitted_at: new Date().toISOString() }
         : g));
@@ -102,32 +158,12 @@ export default function GlobalScoreboard() {
     };
   }, []);
 
-  // Client-side platform + search filtering (catalogue search is separate; this filters the loaded top list)
-  const filteredGames = useMemo(() => {
-    return games.filter(g => {
-      if (search) {
-        const needle = search.toLowerCase();
-        const hay = `${g.name} ${g.display_name || ''} ${g.manufacturer || ''}`.toLowerCase();
-        if (!hay.includes(needle)) return false;
-      }
-      if (platformGroup !== 'all') {
-        const allowed = PLATFORM_GROUPS[platformGroup]?.platforms || [];
-        try {
-          const plats: string[] = JSON.parse(g.platforms || '[]');
-          if (!plats.some(p => allowed.includes(p))) return false;
-        } catch { /* malformed platforms — skip */ }
-      }
-      return true;
-    });
-  }, [games, search, platformGroup]);
-
   const handleLogin = () => {
     loginWithDiscord('__global__', '/scoreboard');
   };
 
   const handleSubmitClick = (game: TopGame) => {
     if (!playerToken) {
-      // Must be logged in
       handleLogin();
       return;
     }
@@ -188,8 +224,8 @@ export default function GlobalScoreboard() {
             <input
               type="text"
               placeholder="Search games..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
               className="w-full pl-10 pr-3 py-2 rounded border border-border bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan"
             />
           </div>
@@ -198,9 +234,11 @@ export default function GlobalScoreboard() {
             onChange={e => setSort(e.target.value as SortMode)}
             className="px-3 py-2 rounded border border-border bg-surface text-primary text-sm"
           >
-            <option value="most_scores">Most active</option>
+            <option value="popular">Popular</option>
+            <option value="most_scores">Most scores</option>
             <option value="highest_score">Highest scores</option>
             <option value="most_recent">Most recent</option>
+            <option value="name_asc">Name (A–Z)</option>
           </select>
           <select
             value={scope}
@@ -230,23 +268,43 @@ export default function GlobalScoreboard() {
           ))}
         </div>
 
+        {/* Results summary */}
+        {!loading && (
+          <div className="text-xs text-muted mb-4">
+            Showing {games.length.toLocaleString()} of {total.toLocaleString()} games
+          </div>
+        )}
+
         {/* Game grid */}
         {loading ? (
           <LoadingState message="Loading global scoreboard..." />
-        ) : filteredGames.length === 0 ? (
+        ) : games.length === 0 ? (
           <div className="text-center py-16 text-muted">
-            No scores found yet. Be the first to submit!
+            No games found. Try adjusting your filters.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredGames.map(game => (
-              <GameCard
-                key={game.global_game_id}
-                game={game}
-                onSubmit={() => handleSubmitClick(game)}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {games.map(game => (
+                <GameCard
+                  key={game.global_game_id}
+                  game={game}
+                  onSubmit={() => handleSubmitClick(game)}
+                />
+              ))}
+            </div>
+            {hasMore && (
+              <div className="mt-6 flex justify-center">
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="px-5 py-2 rounded border border-neon-cyan/40 text-sm text-neon-cyan hover:bg-neon-cyan/10 disabled:opacity-50"
+                >
+                  {loadingMore ? 'Loading...' : `Load More (${(total - games.length).toLocaleString()} remaining)`}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -288,6 +346,7 @@ export default function GlobalScoreboard() {
 function GameCard({ game, onSubmit }: { game: TopGame; onSubmit: () => void }) {
   const img = imageFor(game);
   const displayName = game.display_name || game.name;
+  const hasScores = game.score_count > 0;
 
   return (
     <div className="group relative rounded-lg border border-border bg-surface overflow-hidden hover:border-neon-cyan/60 transition-colors">
@@ -313,14 +372,20 @@ function GameCard({ game, onSubmit }: { game: TopGame; onSubmit: () => void }) {
 
       {/* Stats + CTA */}
       <div className="px-3 pb-3 flex items-center justify-between gap-2">
-        <div className="text-xs">
-          <div className="text-muted">Top score</div>
-          <div className="font-mono font-semibold text-neon-cyan">{formatScore(game.top_score)}</div>
-        </div>
-        <div className="text-xs">
-          <div className="text-muted">Entries</div>
-          <div className="font-mono font-semibold">{game.score_count}</div>
-        </div>
+        {hasScores ? (
+          <>
+            <div className="text-xs">
+              <div className="text-muted">Top score</div>
+              <div className="font-mono font-semibold text-neon-cyan">{formatScore(game.top_score)}</div>
+            </div>
+            <div className="text-xs">
+              <div className="text-muted">Entries</div>
+              <div className="font-mono font-semibold">{game.score_count}</div>
+            </div>
+          </>
+        ) : (
+          <div className="text-xs text-muted italic flex-1">Be the first to score!</div>
+        )}
         <button
           onClick={(e) => { e.preventDefault(); onSubmit(); }}
           className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10"
