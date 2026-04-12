@@ -304,4 +304,81 @@ export class GlobalLeaderboardService {
 
         return { data, total, hasMore: offset + data.length < total };
     }
+
+    /**
+     * Fetch top N leaderboard entries for a batch of global game IDs.
+     * Returns a map of globalGameId → ranked entries (best per player, top N).
+     * Used to enrich catalogue cards with inline score previews.
+     */
+    static async getTopScoresForGames(
+        gameIds: string[],
+        topN: number = 5,
+        scope: string = 'global'
+    ): Promise<Record<string, Array<{
+        iscored_username: string;
+        score: number;
+        avatar_hash: string | null;
+        discord_user_id: string;
+    }>>> {
+        if (gameIds.length === 0) return {};
+        const db = await getDatabase();
+        const isGlobal = scope === 'global';
+        const excludeFilter = isGlobal ? 'AND gs.exclude_from_global = 0' : '';
+        const roomFilter = isGlobal ? '' : 'AND gs.origin_game_room_id = ?';
+        const roomParams = isGlobal ? [] : [scope];
+
+        const placeholders = gameIds.map(() => '?').join(',');
+
+        const rows = await db.all(`
+            SELECT
+                ranked.global_game_id,
+                ranked.discord_user_id,
+                ranked.iscored_username,
+                ranked.score,
+                um.avatar_hash
+            FROM (
+                SELECT
+                    gs.global_game_id,
+                    gs.player_id as discord_user_id,
+                    gs.iscored_username,
+                    gs.score,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY gs.global_game_id, LOWER(COALESCE(gs.iscored_username, gs.player_id))
+                        ORDER BY gs.score DESC
+                    ) as player_rn
+                FROM global_scores gs
+                WHERE gs.global_game_id IN (${placeholders})
+                  AND gs.deleted_at IS NULL
+                  ${excludeFilter}
+                  ${roomFilter}
+            ) ranked
+            LEFT JOIN user_mappings um ON (
+                um.discord_user_id = ranked.discord_user_id
+                OR LOWER(um.iscored_username) = LOWER(ranked.iscored_username)
+            )
+            WHERE ranked.player_rn = 1
+            ORDER BY ranked.global_game_id, ranked.score DESC
+        `, ...gameIds, ...roomParams);
+
+        // Group by game and take top N per game
+        const result: Record<string, Array<{
+            iscored_username: string;
+            score: number;
+            avatar_hash: string | null;
+            discord_user_id: string;
+        }>> = {};
+        for (const row of rows) {
+            const gid = row.global_game_id;
+            if (!result[gid]) result[gid] = [];
+            if (result[gid].length < topN) {
+                result[gid].push({
+                    iscored_username: row.iscored_username || 'Unknown',
+                    score: row.score,
+                    avatar_hash: row.avatar_hash || null,
+                    discord_user_id: row.discord_user_id,
+                });
+            }
+        }
+        return result;
+    }
 }

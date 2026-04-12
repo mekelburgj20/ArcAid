@@ -408,7 +408,16 @@ router.get('/global/scoreboard', async (req, res) => {
         const result = await GlobalLeaderboardService.getTopGames({
             sort, scope, limit, offset, search, type, platforms,
         });
-        res.json(result);
+
+        // Enrich each game with top 5 leaderboard entries for card previews
+        const gameIds = result.data.map((g: any) => g.global_game_id);
+        const topScores = await GlobalLeaderboardService.getTopScoresForGames(gameIds, 5, scope);
+        const enriched = result.data.map((g: any) => ({
+            ...g,
+            top_scores: topScores[g.global_game_id] || [],
+        }));
+
+        res.json({ ...result, data: enriched });
     } catch (error) {
         logError('API Error (GET /api/global/scoreboard):', error);
         res.status(500).json({ error: 'Internal Server Error' });
