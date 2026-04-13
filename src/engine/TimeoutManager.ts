@@ -86,6 +86,11 @@ export class TimeoutManager {
     private async handleTieredTimeout(game: Game, settings: { winnerWindowMin: number; runnerUpWindowMin: number }): Promise<void> {
         if (!game.pickerDesignatedAt) return;
 
+        // Re-verify the slot still exists (it may have been consumed by a pick between query and handler)
+        const db = await getDatabase();
+        const stillExists = await db.get('SELECT id FROM games WHERE id = ? AND status = ?', game.id, 'QUEUED');
+        if (!stillExists) return;
+
         const now = new Date();
         const elapsedMins = (now.getTime() - game.pickerDesignatedAt.getTime()) / (1000 * 60);
 
@@ -253,6 +258,16 @@ export class TimeoutManager {
             const tournament = await db.get('SELECT * FROM tournaments WHERE id = ?', game.tournamentId);
             if (!tournament) {
                 logError(`Cannot auto-select: tournament ${game.tournamentId} not found.`);
+                return;
+            }
+
+            // Guard: if tournament already has max active games, the winner likely
+            // already picked. Remove the orphaned picker slot instead of auto-selecting.
+            const maxSlots = tournament.max_active_games ?? 1;
+            const currentActive = await engine.getActiveGames(game.tournamentId);
+            if (currentActive.length >= maxSlots) {
+                logInfo(`Auto-select skipped: ${tournament.name} already at max active games (${currentActive.length}/${maxSlots}). Removing orphaned picker slot.`);
+                await db.run('DELETE FROM games WHERE id = ?', game.id);
                 return;
             }
 

@@ -723,6 +723,28 @@ export class TournamentEngine {
             const winnerPicks = tournamentRow.winner_picks !== 0;
             const autoPick = tournamentRow.auto_pick !== 0;
 
+            // Guard: if tournament already has max active games, skip slot fill entirely.
+            // This prevents duplicate picker slots / auto-picks when maintenance re-runs
+            // after a winner has already picked and activated a game.
+            const maxSlots = tournamentRow.max_active_games ?? 1;
+            const currentActiveGames = await this.getActiveGames(tournamentId);
+            if (currentActiveGames.length >= maxSlots) {
+                logInfo(`   -> Tournament already at max active games (${currentActiveGames.length}/${maxSlots}). Skipping slot fill.`);
+                return;
+            }
+
+            // Guard: if this winner already has a pending pick slot, don't create another
+            if (winnerId) {
+                const existingPickerSlot = await db.get(
+                    `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND picker_discord_id = ?`,
+                    tournamentId, winnerId
+                );
+                if (existingPickerSlot) {
+                    logInfo(`   -> Winner <@${winnerId}> already has a pending pick slot. Skipping duplicate.`);
+                    return;
+                }
+            }
+
             if (!winnerPicks && autoPick) {
                 // Skip pick windows — immediately auto-select and activate
                 logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=on — auto-selecting immediately.`);
@@ -804,6 +826,14 @@ export class TournamentEngine {
         term: ReturnType<typeof getTerminology>,
         channelId: string | undefined,
     ): Promise<void> {
+        // Guard: if tournament already has max active games, skip auto-pick
+        const maxSlots = tournamentRow.max_active_games ?? 1;
+        const currentActiveGames = await this.getActiveGames(tournamentId);
+        if (currentActiveGames.length >= maxSlots) {
+            logInfo(`   -> Auto-pick skipped: tournament already at max active games (${currentActiveGames.length}/${maxSlots}).`);
+            return;
+        }
+
         // Parse platform rules
         let platformRules = { required: [] as string[], excluded: [] as string[] };
         try { platformRules = { ...platformRules, ...JSON.parse(tournamentRow.platform_rules || '{}') }; } catch {}
