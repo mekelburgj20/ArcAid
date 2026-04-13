@@ -73,7 +73,7 @@ Two sub-applications in one process:
 - `src/api/correlationId.ts` — Assigns UUID per request, sets `X-Correlation-ID` header
 - `src/api/auditMiddleware.ts` — Auto-logs admin write operations to `audit_log` table
 - `src/services/` — Business logic layer:
-  - **Global:** `SettingsService`, `AdminService`, `GameRoomService`, `GameRoomSettingsService`, `PreferencesService`, `LogService`, `BackupService`, `DashboardService`, `AuditService`
+  - **Global:** `SettingsService`, `AdminService`, `GameRoomService`, `GameRoomSettingsService`, `PreferencesService` (device-keyed scoreboard prefs), `LogService`, `BackupService`, `DashboardService`, `AuditService`
   - **Room-scoped:** `TournamentService`, `GameLibraryService`, `LeaderboardService`, `StatsService`, `RankingService`, `RatingService`, `CommentService`, `CommunityScoreService`, `ScoreHistoryService`, `StyleCatalogueService`, `RoomEventService` (activity event logging)
   - **Import:** `VpsImportService` (VPS database JSON + global catalogue), `WizardImportService` (VPXS Wizard + Manual Install tables from GitHub), `OPDBImportService` (OPDB bulk pinball machine import), `IGDBImportService` (IGDB arcade/console games via Twitch OAuth)
   - **Global Catalogue:** `GlobalGameService` (catalogue CRUD, upsert with dedup, search, merge cascade), `SyncLogService` (sync log tracking + Discord alerts on failure)
@@ -96,7 +96,7 @@ Two sub-applications in one process:
 - **Scoreboard preview:** `admin-ui/src/components/ScoreboardPreview.tsx` — multi-card scaled preview in Settings using real catalogue images, scale-transform for sidebar fit
 - **Layout presets:** `admin-ui/src/components/PresetSelector.tsx` — 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) with auto-detection of custom settings
 - **Image cropper:** `admin-ui/src/components/ImageCropper.tsx` — react-easy-crop wrapper for branding/style uploads with locked aspect ratios
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, `GamePickerModal`, `StylePicker`, `PlayerAvatar`, `PresetSelector`, `ScoreboardPreview`, `ImageCropper`, etc.
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, `GamePickerModal`, `StylePicker`, `PlayerAvatar`, `PresetSelector`, `ScoreboardPreview`, `ScoreboardPreferencesModal`, `ImageCropper`, etc.
 - Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
 
 ## Multi-Room Architecture
@@ -140,7 +140,7 @@ Two sub-applications in one process:
 - `POST /api/rooms/:roomId/admin/styles/upload` — room admins upload custom styles to global catalogue (requireAuth + requireRoomAccess)
 - `GET /api/admin/*` — super-admin endpoints (requireSuperAdmin)
 - `POST /api/auth/refresh` — exchange refresh token for new access + refresh tokens
-- `GET/POST /api/me/scoreboard-preferences` — user scoreboard display preferences (requireDiscordUser)
+- `GET/POST /api/me/scoreboard-preferences?device=desktop|mobile` — user scoreboard display preferences, device-specific (requireDiscordUser)
 - `DELETE /api/me/global-scores/:scoreId` — user delete-own global score (requireDiscordUser)
 - `GET /api/global/scoreboard` — global leaderboard (public)
 - `GET /api/global/catalogue` — searchable global game catalogue (public)
@@ -200,7 +200,9 @@ Two sub-applications in one process:
 - **Upload limits:** All image uploads (styles, room assets, score photos) accept up to 30MB. Supported formats: PNG, APNG, JPEG, WebP.
 - **Global Scoreboard:** Cross-room leaderboard at `/scoreboard`. Scores fan out from room submissions via `GlobalScoreService.fanOutFromRoomSubmission()` — wired into all 4 submission paths (CommunityScoreService, ScoreSyncPoller, Discord `/submit-score`, web submit). Room admins can opt out via `GLOBAL_SCOREBOARD_ENABLED` setting. Users can opt out per-score with `excludeFromGlobal` flag. `globalSubmitLimiter` (10/hr per Discord user) on direct global submissions.
 - **Freeplay:** `/:slug/freeplay` page lets players browse the global catalogue and submit scores to any game, not just active tournament games. Posts to `POST /api/rooms/:roomId/freeplay-score`.
-- **Scoreboard user preferences:** `user_preferences.scoreboard_prefs` JSON blob stores per-user display overrides. Scoreboard.tsx merges user prefs on top of room config when player is logged in. Preference hierarchy: user pref → room admin default.
+- **Scoreboard user preferences:** `user_preferences.scoreboard_prefs` stores per-user display overrides in device-keyed JSON: `{ desktop: {...}, mobile: {...} }`. Auto-migrates from old flat format. `GET/POST /api/me/scoreboard-preferences?device=desktop|mobile` accepts device type. Scoreboard.tsx detects device (`window.innerWidth <= 640`), fetches device-specific prefs, merges on top of room config. `ScoreboardPreferencesModal` (~20 settings with Desktop/Mobile toggle) triggered via `open-scoreboard-prefs` DOM event from PublicLayout gear icon. Preference hierarchy: user pref → room admin default.
+- **Cross-component communication:** PublicLayout (nav bar) and Scoreboard (renders via `<Outlet />`) communicate via DOM custom events: `window.dispatchEvent(new Event('open-scoreboard-prefs'))` from nav gear button, `window.addEventListener` in Scoreboard.tsx. Used because React Router Outlet doesn't support direct prop passing.
+- **Tournament rotation guards:** `TournamentEngine.processSlotMaintenance()` checks `max_active_games` before creating picker slots and checks for duplicate `[Pending Pick]` entries before creating new ones. `autoPickAndActivate()` also validates `max_active_games`. `TimeoutManager.fallbackToAutoSelection()` includes `max_active_games` guard and orphaned slot cleanup. `handleTieredTimeout()` verifies game still exists and is QUEUED before acting.
 
 ## Community Features
 

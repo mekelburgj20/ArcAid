@@ -32,4 +32,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 
 | # | Title | Status | Date |
 |---|---|---|---|
-| _none yet_ | | | |
+| 0001 | [Device-specific scoreboard preferences](0001-device-specific-preferences.md) | accepted | 2026-04-12 |

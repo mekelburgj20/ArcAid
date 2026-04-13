@@ -29,17 +29,18 @@ Relevant Documentation:
 - `SPRINT_STATUS.md` — Live progress tracker, last session notes, blockers
 - `CLAUDE.md` (ArcAid root) — Architecture tables, key patterns, database schema, session checklist
 - `../CLAUDE.md` (parent repo root) — Repository overview, architecture tables shared across projects
+- `docs/decisions/` — Architecture Decision Records (ADRs). One file per load-bearing decision.
 
 **Reference (update occasionally):**
-- `VIDEO_TUTORIAL_GUIDE.md` — Video tutorial scripts, episode list, B-roll checklist, production standards
-- `DISCORD_SETUP.md` — Discord bot setup and configuration guide
-- `PolyForm Noncommercial License 1.0.0.md` — Project license terms
 - `.claude/commands/deploy.md` — Production deployment checklist slash command
 - `.claude/commands/update-docs.md` — Documentation update slash command
+- `.claude/commands/review-orchestrator.md` — Multi-pass review orchestrator
+- `.claude/commands/review-ux.md` — UX review agent
+- `.claude/commands/review-design-fidelity.md` — Design fidelity review agent
+- `.claude/commands/review-code-quality.md` — Code quality review agent
 
-**Archival (all items implemented, keep for historical context):**
-- `UX_Leaderboard_Plan.md` — UX design plan with priority matrix (all items P0-P3 complete)
-- `Leaderboard_RoomSettings_Redesign.md` — Original redesign requirements from user (all implemented)
-- `followup.md` — Deferred items with user answers (all implemented)
+**Local-only (gitignored, `tmp/` folder):**
+- `tmp/various_bug_fixes.md` — Current bug/fix tracking list
+- Other temp files (planning docs, screenshots, bug images) — not tracked in git
 
 Remember, your goal is to enhance Claude's performance and consistency while maintaining the core functionality and purpose of the AI assistant. Be thorough in your analysis, clear in your explanations, and precise in your implementations.

@@ -127,7 +127,7 @@ export default function Leaderboard() {
 
       {/* Scoreboard Preview — matches public layout */}
       <div
-        className="rounded-lg overflow-hidden border border-border/50 px-4 sm:px-6 py-6"
+        className="rounded-lg border border-border/50 px-4 sm:px-6 py-6"
         style={{
           ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
           ...(bgUrl ? {
