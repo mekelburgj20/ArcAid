@@ -198,7 +198,6 @@ export default function GlobalScoreSubmitModal({ game, playerToken, onClose, onS
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              capture="environment"
               className="hidden"
               onChange={e => handleFilePick(e.target.files?.[0] || null)}
             />
