@@ -181,7 +181,7 @@ export default function Leaderboard() {
               <p className="text-muted font-display">No active games with scores yet.</p>
             </div>
           ) : layout === 'grid' ? (
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 w-full">
               <div
                 className={`grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
                 style={{
@@ -210,7 +210,7 @@ export default function Leaderboard() {
               </div>
             </div>
           ) : (
-            <div className="flex-1 min-w-0 overflow-x-auto">
+            <div className="flex-1 min-w-0 w-full overflow-x-auto">
               <div className={`flex pb-2 ${useNewCards ? '' : 'gap-3 sm:gap-5'}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
