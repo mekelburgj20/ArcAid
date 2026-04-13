@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Settings2 } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
 import { useTheme } from '../components/ThemeProvider';
@@ -81,6 +80,13 @@ export default function Scoreboard() {
       } catch { /* ignore */ }
     })();
   }, [slug, playerToken]);
+
+  // Listen for prefs-open event from PublicLayout nav gear button
+  useEffect(() => {
+    const handler = () => setPrefsOpen(true);
+    window.addEventListener('open-scoreboard-prefs', handler);
+    return () => window.removeEventListener('open-scoreboard-prefs', handler);
+  }, []);
 
   const loadData = async () => {
     if (!roomId) return;
@@ -270,16 +276,6 @@ export default function Scoreboard() {
         ref={headerRef}
         className="px-4 sm:px-6 pt-6 relative z-[1]"
       >
-      {/* Player preferences gear — only when logged in */}
-      {discordUser && playerToken && (
-        <button
-          onClick={() => setPrefsOpen(true)}
-          className="absolute top-4 right-4 sm:right-6 p-2 rounded-full bg-surface/60 hover:bg-surface border border-border/50 text-muted hover:text-neon-cyan transition-colors cursor-pointer z-10"
-          title="Display preferences"
-        >
-          <Settings2 size={16} />
-        </button>
-      )}
       {!titleHidden && (
         <div className="text-center mb-4 overflow-hidden">
           <div className={`inline-flex items-center gap-4 max-w-full ${

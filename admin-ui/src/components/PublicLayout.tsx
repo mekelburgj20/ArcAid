@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, Outlet, useParams } from 'react-router-dom';
-import { Users, Monitor, Gamepad2, BarChart3, LogOut, Joystick, Trophy, Settings } from 'lucide-react';
+import { Link, Outlet, useParams, useLocation } from 'react-router-dom';
+import { Users, Monitor, Gamepad2, BarChart3, LogOut, Joystick, Trophy, Settings, Settings2 } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface PublicLayoutProps {
@@ -9,8 +9,13 @@ interface PublicLayoutProps {
 
 export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const { slug } = useParams<{ slug: string }>();
+  const location = useLocation();
   const [roomName, setRoomName] = useState(gameRoomName || 'ARCAID');
   const { discordUser, loginWithDiscord, logoutPlayer } = useViewerAuth();
+
+  // Show prefs gear only on scoreboard page (/:slug with no extra segments)
+  const pathParts = location.pathname.split('/').filter(Boolean);
+  const isScoreboard = pathParts.length === 1 && !!slug;
 
   useEffect(() => {
     if (gameRoomName) { setRoomName(gameRoomName); return; }
@@ -83,6 +88,15 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                   </div>
                 )}
                 <span className="hidden lg:inline text-xs text-muted truncate max-w-[80px]">{discordUser.username}</span>
+                {isScoreboard && (
+                  <button
+                    onClick={() => window.dispatchEvent(new Event('open-scoreboard-prefs'))}
+                    className="p-1 text-muted hover:text-neon-cyan transition-colors cursor-pointer"
+                    title="Display preferences"
+                  >
+                    <Settings2 size={14} />
+                  </button>
+                )}
                 <button
                   onClick={logoutPlayer}
                   className="p-1 text-muted hover:text-neon-magenta transition-colors cursor-pointer"
