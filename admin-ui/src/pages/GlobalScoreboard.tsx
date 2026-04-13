@@ -539,24 +539,9 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
         )}
       </div>
 
-      {/* Platform tags — bottom center */}
-      {(() => {
-        const plats = parsePlatforms(game.platforms);
-        if (plats.length === 0) return null;
-        return (
-          <div className="px-3 pb-1 flex flex-wrap justify-center gap-1 mt-auto">
-            {plats.map(p => (
-              <span key={p} className="px-1.5 py-0.5 text-[9px] rounded bg-border/30 text-muted/80">
-                {PLATFORM_LABELS[p] || p}
-              </span>
-            ))}
-          </div>
-        );
-      })()}
-
-      {/* Footer: rating (left) + submit (right) — pinned to bottom */}
-      <div className={`px-3 pb-2.5 pt-1.5 flex items-center justify-between gap-2 border-t border-border/30 ${parsePlatforms(game.platforms).length === 0 ? 'mt-auto' : ''}`}>
-        <div className="flex items-center gap-1.5">
+      {/* Footer: rating (left) + platforms (center) + submit (right) — pinned to bottom */}
+      <div className="px-3 pb-2.5 pt-1.5 flex items-center justify-between gap-2 border-t border-border/30 mt-auto">
+        <div className="flex items-center gap-1.5 shrink-0">
           <StarRating
             rating={userRating || Math.round(game.avg_rating)}
             onRate={loggedIn ? onRate : undefined}
@@ -568,9 +553,16 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
             </span>
           )}
         </div>
+        <div className="flex flex-wrap justify-center gap-1 min-w-0">
+          {parsePlatforms(game.platforms).map(p => (
+            <span key={p} className="px-1.5 py-0.5 text-[9px] rounded bg-border/30 text-muted/80">
+              {PLATFORM_LABELS[p] || p}
+            </span>
+          ))}
+        </div>
         <button
           onClick={(e) => { e.preventDefault(); onSubmit(); }}
-          className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-lg border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-lg border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 transition-colors shrink-0"
           title="Submit your score"
         >
           <Upload className="w-3 h-3" />
