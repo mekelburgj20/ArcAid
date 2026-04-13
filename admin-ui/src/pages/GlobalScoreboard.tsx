@@ -456,23 +456,27 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
 
   return (
     <div className="group relative rounded-xl border border-border bg-surface overflow-hidden hover:border-neon-cyan/60 transition-colors flex flex-col">
-      {/* Game image banner */}
+      {/* Game title — top of card, centered */}
       <Link to={`/games/${game.global_game_id}`} className="block no-underline">
-        <div className="relative h-36 bg-deep">
+        <div className="px-3 pt-3 pb-1 text-center">
+          <h3 className="font-display font-bold text-xl leading-tight text-primary line-clamp-2">{displayName}</h3>
+          <div className="text-sm text-muted/80 mt-0.5">
+            {game.manufacturer || 'Unknown'}
+            {game.year ? ` · ${game.year}` : ''}
+            {game.score_count > 0 && ` · ${game.score_count} score${game.score_count !== 1 ? 's' : ''}`}
+          </div>
+        </div>
+      </Link>
+
+      {/* Game image */}
+      <Link to={`/games/${game.global_game_id}`} className="block no-underline">
+        <div className="relative h-28 bg-deep mx-3 rounded-lg overflow-hidden">
           {img ? (
             <img src={img} alt={displayName} className="absolute inset-0 w-full h-full object-cover opacity-70" />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-muted text-xs">No image</div>
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/50 to-transparent" />
-          <div className="absolute bottom-0 left-0 right-0 p-3">
-            <h3 className="font-display font-bold text-sm text-primary drop-shadow-lg truncate">{displayName}</h3>
-            <div className="text-[11px] text-muted/80 truncate">
-              {game.manufacturer || 'Unknown'}
-              {game.year ? ` · ${game.year}` : ''}
-              {game.score_count > 0 && ` · ${game.score_count} score${game.score_count !== 1 ? 's' : ''}`}
-            </div>
-          </div>
+          <div className="absolute inset-0 bg-gradient-to-t from-surface/40 to-transparent" />
         </div>
       </Link>
 
