@@ -10,6 +10,11 @@ export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'suns
  */
 export type ScoreboardPrefs = Record<string, string>;
 
+export type DeviceType = 'desktop' | 'mobile';
+
+/** Stored format: { desktop: {...}, mobile: {...} } */
+type DevicePrefs = { desktop: ScoreboardPrefs; mobile: ScoreboardPrefs };
+
 export class PreferencesService {
     static async getTheme(discordUserId: string): Promise<ThemeId | null> {
         const db = await getDatabase();
@@ -41,30 +46,62 @@ export class PreferencesService {
     }
 
     /**
-     * Get the user's scoreboard display preferences. Returns an empty object
-     * if nothing is saved — the frontend merges these on top of room defaults.
+     * Parse the stored JSON into device-keyed format.
+     * Handles migration from old flat format → nested { desktop, mobile }.
      */
-    static async getScoreboardPrefs(discordUserId: string): Promise<ScoreboardPrefs> {
+    private static parseDevicePrefs(raw: string | null | undefined): DevicePrefs {
+        if (!raw) return { desktop: {}, mobile: {} };
+        try {
+            const parsed = JSON.parse(raw);
+            // New format: { desktop: {...}, mobile: {...} }
+            if (parsed && typeof parsed === 'object' && ('desktop' in parsed || 'mobile' in parsed)) {
+                return {
+                    desktop: parsed.desktop || {},
+                    mobile: parsed.mobile || {},
+                };
+            }
+            // Old flat format: treat as desktop prefs, migrate
+            if (parsed && typeof parsed === 'object') {
+                return { desktop: parsed, mobile: {} };
+            }
+        } catch { /* fall through */ }
+        return { desktop: {}, mobile: {} };
+    }
+
+    /**
+     * Get the user's scoreboard display preferences for a specific device type.
+     * Returns an empty object if nothing is saved — the frontend merges these
+     * on top of room defaults.
+     */
+    static async getScoreboardPrefs(discordUserId: string, device?: DeviceType): Promise<ScoreboardPrefs> {
         const db = await getDatabase();
         const row = await db.get(
             'SELECT scoreboard_prefs FROM user_preferences WHERE discord_user_id = ?',
             discordUserId
         );
-        if (!row?.scoreboard_prefs) return {};
-        try {
-            return JSON.parse(row.scoreboard_prefs);
-        } catch {
-            return {};
+        const devicePrefs = this.parseDevicePrefs(row?.scoreboard_prefs);
+        if (!device) {
+            // No device specified: return desktop for backward compat
+            return devicePrefs.desktop;
         }
+        return devicePrefs[device] || {};
     }
 
     /**
-     * Save scoreboard display preferences. Merges with existing — pass only
-     * the keys you want to change. Pass `null` for a key to delete it (revert
-     * to room default for that setting).
+     * Save scoreboard display preferences for a specific device type.
+     * Merges with existing — pass only the keys you want to change.
+     * Pass `null` for a key to delete it (revert to room default).
      */
-    static async setScoreboardPrefs(discordUserId: string, prefs: ScoreboardPrefs): Promise<ScoreboardPrefs> {
-        const existing = await this.getScoreboardPrefs(discordUserId);
+    static async setScoreboardPrefs(discordUserId: string, prefs: ScoreboardPrefs, device?: DeviceType): Promise<ScoreboardPrefs> {
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT scoreboard_prefs FROM user_preferences WHERE discord_user_id = ?',
+            discordUserId
+        );
+        const devicePrefs = this.parseDevicePrefs(row?.scoreboard_prefs);
+        const target = device || 'desktop';
+        const existing = devicePrefs[target] || {};
+
         const merged = { ...existing };
         for (const [k, v] of Object.entries(prefs)) {
             if (v === null || v === undefined || v === '') {
@@ -73,8 +110,9 @@ export class PreferencesService {
                 merged[k] = v;
             }
         }
-        const json = JSON.stringify(merged);
-        const db = await getDatabase();
+        devicePrefs[target] = merged;
+
+        const json = JSON.stringify(devicePrefs);
         await db.run(
             `INSERT INTO user_preferences (discord_user_id, scoreboard_prefs) VALUES (?, ?)
              ON CONFLICT(discord_user_id) DO UPDATE SET scoreboard_prefs = excluded.scoreboard_prefs`,

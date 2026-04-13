@@ -98,10 +98,12 @@ router.post('/me/preferences', requireAuth, async (req, res) => {
 });
 
 // Scoreboard display preferences (per-user overrides for room defaults)
+// ?device=mobile|desktop  (optional — defaults to desktop)
 router.get('/me/scoreboard-preferences', requireDiscordUser, async (req, res) => {
     try {
         const { PreferencesService } = await import('../../services/PreferencesService.js');
-        const prefs = await PreferencesService.getScoreboardPrefs(req.user!.discordId!);
+        const device = (req.query.device as string) === 'mobile' ? 'mobile' as const : 'desktop' as const;
+        const prefs = await PreferencesService.getScoreboardPrefs(req.user!.discordId!, device);
         res.json(prefs);
     } catch (error) {
         logError('API Error (GET /api/me/scoreboard-preferences):', error);
@@ -115,7 +117,8 @@ router.post('/me/scoreboard-preferences', requireDiscordUser, async (req, res) =
             return res.status(400).json({ error: 'Body must be a JSON object of preference keys' });
         }
         const { PreferencesService } = await import('../../services/PreferencesService.js');
-        const merged = await PreferencesService.setScoreboardPrefs(req.user!.discordId!, req.body);
+        const device = (req.query.device as string) === 'mobile' ? 'mobile' as const : 'desktop' as const;
+        const merged = await PreferencesService.setScoreboardPrefs(req.user!.discordId!, req.body, device);
         res.json(merged);
     } catch (error) {
         logError('API Error (POST /api/me/scoreboard-preferences):', error);

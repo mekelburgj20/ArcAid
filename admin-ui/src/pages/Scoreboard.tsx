@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import { Settings2 } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
+import { useTheme } from '../components/ThemeProvider';
+import type { ThemeId } from '../components/ThemeProvider';
 import type { GameLeaderboard, RankingGroupData, RankedEntry } from '../components/ScoreboardComponents';
 import {
   GameCard,
@@ -37,6 +39,27 @@ export default function Scoreboard() {
   const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
   const viewerHeaders = useViewerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
+  const { setPublicTheme } = useTheme();
+
+  const deviceType = window.innerWidth <= 640 ? 'mobile' : 'desktop';
+
+  /** Fetch user prefs for current device, merge with room config, apply theme */
+  const applyUserPrefs = async (cfg: Record<string, string>, token: string) => {
+    try {
+      const prefsRes = await fetch(`/api/me/scoreboard-preferences?device=${deviceType}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (prefsRes.ok) {
+        const prefs = await prefsRes.json();
+        if (prefs.UI_THEME) {
+          setPublicTheme(prefs.UI_THEME as ThemeId);
+        }
+        setConfig({ ...cfg, ...prefs });
+        return true;
+      }
+    } catch { /* fall through */ }
+    return false;
+  };
 
   // Resolve room and fetch scoreboard config (merged with user prefs if logged in)
   useEffect(() => {
@@ -52,16 +75,7 @@ export default function Scoreboard() {
         const cfg = cfgRes.ok ? await cfgRes.json() : {};
         setRoomConfig(cfg || {});
         if (playerToken) {
-          try {
-            const prefsRes = await fetch('/api/me/scoreboard-preferences', {
-              headers: { Authorization: `Bearer ${playerToken}` },
-            });
-            if (prefsRes.ok) {
-              const prefs = await prefsRes.json();
-              setConfig({ ...(cfg || {}), ...prefs });
-              return;
-            }
-          } catch { /* fall through to room defaults */ }
+          if (await applyUserPrefs(cfg || {}, playerToken)) return;
         }
         setConfig(cfg || {});
       } catch { /* ignore */ }
@@ -458,17 +472,9 @@ export default function Scoreboard() {
               const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
               const cfg = cfgRes.ok ? await cfgRes.json() : {};
               setRoomConfig(cfg || {});
-              try {
-                const prefsRes = await fetch('/api/me/scoreboard-preferences', {
-                  headers: { Authorization: `Bearer ${playerToken}` },
-                });
-                if (prefsRes.ok) {
-                  const prefs = await prefsRes.json();
-                  setConfig({ ...(cfg || {}), ...prefs });
-                  return;
-                }
-              } catch { /* fall through */ }
-              setConfig(cfg || {});
+              if (!(await applyUserPrefs(cfg || {}, playerToken))) {
+                setConfig(cfg || {});
+              }
             })();
           }}
         />
