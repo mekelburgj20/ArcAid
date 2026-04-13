@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { Settings2 } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
 import type { GameLeaderboard, RankingGroupData, RankedEntry } from '../components/ScoreboardComponents';
@@ -13,6 +14,7 @@ import {
 } from '../components/ScoreboardComponents';
 import CardRouter from '../components/scoreboard/CardRouter';
 import ScoreSubmitModal from '../components/ScoreSubmitModal';
+import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
 import { deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
 
@@ -31,6 +33,8 @@ export default function Scoreboard() {
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
   const viewerHeaders = useViewerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
 
@@ -46,6 +50,7 @@ export default function Scoreboard() {
         setRoomId(portal.id);
         const cfgRes = await fetch(`/api/rooms/${portal.id}/scoreboard-config`, { headers: viewerHeaders });
         const cfg = cfgRes.ok ? await cfgRes.json() : {};
+        setRoomConfig(cfg || {});
         if (playerToken) {
           try {
             const prefsRes = await fetch('/api/me/scoreboard-preferences', {
@@ -201,13 +206,18 @@ export default function Scoreboard() {
         .scoreboard-hscroll-layout {
           scrollbar-width: thin;
           scrollbar-color: var(--color-border) transparent;
+          overscroll-behavior-x: contain;
         }
         .scoreboard-hscroll-layout::-webkit-scrollbar {
-          height: 6px;
+          height: 8px;
+        }
+        .scoreboard-hscroll-layout::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.05);
+          border-radius: 4px;
         }
         .scoreboard-hscroll-layout::-webkit-scrollbar-thumb {
           background: var(--color-border);
-          border-radius: 3px;
+          border-radius: 4px;
         }
         .scoreboard-hscroll-layout::-webkit-scrollbar-thumb:hover {
           background: var(--color-muted);
@@ -246,6 +256,16 @@ export default function Scoreboard() {
         ref={headerRef}
         className="px-4 sm:px-6 pt-6 relative z-[1]"
       >
+      {/* Player preferences gear — only when logged in */}
+      {discordUser && playerToken && (
+        <button
+          onClick={() => setPrefsOpen(true)}
+          className="absolute top-4 right-4 sm:right-6 p-2 rounded-full bg-surface/60 hover:bg-surface border border-border/50 text-muted hover:text-neon-cyan transition-colors cursor-pointer z-10"
+          title="Display preferences"
+        >
+          <Settings2 size={16} />
+        </button>
+      )}
       {!titleHidden && (
         <div className="text-center mb-4 overflow-hidden">
           <div className={`inline-flex items-center gap-4 max-w-full ${
@@ -421,6 +441,36 @@ export default function Scoreboard() {
           requirePhoto={requirePhoto}
           onClose={() => setSelectedGame(null)}
           onSubmitted={() => { loadData(); loadRankings(); }}
+        />
+      )}
+
+      {/* Player display preferences modal */}
+      {playerToken && (
+        <ScoreboardPreferencesModal
+          open={prefsOpen}
+          onClose={() => setPrefsOpen(false)}
+          playerToken={playerToken}
+          roomConfig={roomConfig}
+          onSaved={() => {
+            // Re-fetch config with updated prefs
+            if (!roomId) return;
+            (async () => {
+              const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
+              const cfg = cfgRes.ok ? await cfgRes.json() : {};
+              setRoomConfig(cfg || {});
+              try {
+                const prefsRes = await fetch('/api/me/scoreboard-preferences', {
+                  headers: { Authorization: `Bearer ${playerToken}` },
+                });
+                if (prefsRes.ok) {
+                  const prefs = await prefsRes.json();
+                  setConfig({ ...(cfg || {}), ...prefs });
+                  return;
+                }
+              } catch { /* fall through */ }
+              setConfig(cfg || {});
+            })();
+          }}
         />
       )}
     </div>

@@ -264,6 +264,15 @@ export default function KioskScoreboard() {
       </div>
 
       <style>{`
+        .scoreboard-hscroll-layout {
+          scrollbar-width: thin;
+          scrollbar-color: var(--color-border) transparent;
+          overscroll-behavior-x: contain;
+        }
+        .scoreboard-hscroll-layout::-webkit-scrollbar { height: 8px; }
+        .scoreboard-hscroll-layout::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 4px; }
+        .scoreboard-hscroll-layout::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
+        .scoreboard-hscroll-layout::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
         @media (max-width: 640px) {
           .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.6); }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout { overflow-x: hidden !important; }

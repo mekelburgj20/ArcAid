@@ -16,6 +16,7 @@ const GLOBAL_KEYS = [
   'BACKUP_RETENTION_DAYS',
   'ISCORED_API_ENABLED',
   'ISCORED_API_POLL_INTERVAL',
+  'GLOBAL_PAGE_THEME',
 ];
 
 const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'JWT_SECRET'];
@@ -164,24 +165,39 @@ export default function GlobalSettings() {
       </NeonCard>
 
       <NeonCard title="Theme" className="mb-4">
-        <div>
-          <label className="text-xs text-faint block mb-1">Admin Theme</label>
-          <select
-            value={adminTheme}
-            onChange={e => {
-              const newTheme = e.target.value as ThemeId;
-              setAdminTheme(newTheme);
-              api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
-                toast('Failed to save theme preference', 'error');
-              });
-            }}
-            className={inputClass}
-          >
-            {Object.entries(THEMES).map(([id, { label, description }]) => (
-              <option key={id} value={id}>{label} — {description}</option>
-            ))}
-          </select>
-          <p className="text-xs text-muted mt-1">Your admin theme. Only affects your session — other admins see their own preference.</p>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-faint block mb-1">Global Pages Theme</label>
+            <select
+              value={settings.GLOBAL_PAGE_THEME || 'dark'}
+              onChange={e => handleChange('GLOBAL_PAGE_THEME', e.target.value)}
+              className={inputClass}
+            >
+              {Object.entries(THEMES).map(([id, { label, description }]) => (
+                <option key={id} value={id}>{label} — {description}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted mt-1">Theme for the Global Scoreboard, Catalogue, Game Detail pages, and the landing page. Applies to all visitors.</p>
+          </div>
+          <div>
+            <label className="text-xs text-faint block mb-1">Admin Theme</label>
+            <select
+              value={adminTheme}
+              onChange={e => {
+                const newTheme = e.target.value as ThemeId;
+                setAdminTheme(newTheme);
+                api.post('/me/preferences', { ui_theme: newTheme }).catch(() => {
+                  toast('Failed to save theme preference', 'error');
+                });
+              }}
+              className={inputClass}
+            >
+              {Object.entries(THEMES).map(([id, { label, description }]) => (
+                <option key={id} value={id}>{label} — {description}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted mt-1">Your admin theme. Only affects your session — other admins see their own preference.</p>
+          </div>
         </div>
       </NeonCard>
 

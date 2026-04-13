@@ -231,6 +231,19 @@ router.get('/portal', async (req, res) => {
     }
 });
 
+// Global page config (public — theme for /scoreboard, /catalogue, /games/*, landing page)
+router.get('/global/config', async (_req, res) => {
+    try {
+        const theme = await SettingsService.get('GLOBAL_PAGE_THEME');
+        res.json({
+            theme: theme || 'dark',
+        });
+    } catch (error) {
+        logError('API Error (GET /api/global/config):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Public room listing with stats
 router.get('/rooms', async (req, res) => {
     try {

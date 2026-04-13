@@ -47,6 +47,13 @@ function isAdminRoute(): boolean {
   return parts[0] === 'admin' || parts[1] === 'admin';
 }
 
+const GLOBAL_PAGE_PREFIXES = ['/scoreboard', '/catalogue', '/games/'];
+
+function isGlobalPage(): boolean {
+  const path = window.location.pathname;
+  return path === '/' || GLOBAL_PAGE_PREFIXES.some(prefix => path.startsWith(prefix));
+}
+
 const ALL_THEME_CLASSES = ['theme-light', 'theme-retro', 'theme-cyberpunk', 'theme-ocean', 'theme-sunset', 'theme-minimal', 'theme-invaders', 'theme-coffee', 'theme-backglass', 'theme-crt-green', 'theme-plasma', 'theme-cabinet', 'theme-silverball', 'theme-wizard', 'theme-playfield', 'theme-marquee'];
 
 function applyThemeClass(theme: ThemeId) {
@@ -82,16 +89,31 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const hydrate = async () => {
       try {
-        const pathSlug = window.location.pathname.split('/').filter(Boolean)[0] || '';
-        const portalRes = pathSlug && pathSlug !== 'admin'
-          ? await fetch(`/api/portal?slug=${encodeURIComponent(pathSlug)}`)
-          : null;
-        if (portalRes?.ok) {
-          const portal = await portalRes.json();
-          const serverPublicTheme = portal.public_theme || portal.ui_theme;
-          if (serverPublicTheme) {
-            setPublicThemeState(serverPublicTheme);
-            localStorage.setItem(STORAGE_PUBLIC_KEY, serverPublicTheme);
+        // Global pages (/, /scoreboard, /catalogue, /games/*) use global page theme
+        if (isGlobalPage()) {
+          try {
+            const configRes = await fetch('/api/global/config');
+            if (configRes.ok) {
+              const config = await configRes.json();
+              if (config.theme) {
+                setPublicThemeState(config.theme);
+                localStorage.setItem(STORAGE_PUBLIC_KEY, config.theme);
+              }
+            }
+          } catch { /* fall through to room theme */ }
+        } else {
+          // Room pages use room-specific theme
+          const pathSlug = window.location.pathname.split('/').filter(Boolean)[0] || '';
+          const portalRes = pathSlug && pathSlug !== 'admin'
+            ? await fetch(`/api/portal?slug=${encodeURIComponent(pathSlug)}`)
+            : null;
+          if (portalRes?.ok) {
+            const portal = await portalRes.json();
+            const serverPublicTheme = portal.public_theme || portal.ui_theme;
+            if (serverPublicTheme) {
+              setPublicThemeState(serverPublicTheme);
+              localStorage.setItem(STORAGE_PUBLIC_KEY, serverPublicTheme);
+            }
           }
         }
 

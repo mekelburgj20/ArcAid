@@ -25,6 +25,10 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
     if (style === 'showcase' && !settings.SCOREBOARD_THEME) {
       onChange('SCOREBOARD_THEME', DEFAULT_SHOWCASE_THEME);
     }
+    // Set style-appropriate default layout when switching if not explicitly set
+    if (!settings.SCOREBOARD_LAYOUT) {
+      onChange('SCOREBOARD_LAYOUT', style === 'showcase' || style === 'minimal' ? 'vertical' : 'scroll');
+    }
   };
 
   const handleThemeSelect = (themeId: string) => {
@@ -141,15 +145,16 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
             </button>
           </div>
 
-          {/* Layout (grid/scroll) */}
+          {/* Layout (grid/scroll/vertical) */}
           <div className="flex items-center gap-3">
             <label className="w-48 shrink-0 text-sm text-muted">Card layout</label>
             <select
-              value={settings.SCOREBOARD_LAYOUT || 'scroll'}
+              value={settings.SCOREBOARD_LAYOUT || (currentStyle === 'showcase' || currentStyle === 'minimal' ? 'vertical' : 'scroll')}
               onChange={e => onChange('SCOREBOARD_LAYOUT', e.target.value)}
               className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
             >
               <option value="scroll">Horizontal scroll</option>
+              <option value="vertical">Vertical scroll</option>
               <option value="grid">Grid</option>
             </select>
           </div>
