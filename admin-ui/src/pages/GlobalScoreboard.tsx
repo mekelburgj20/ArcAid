@@ -51,6 +51,25 @@ const PLATFORM_GROUPS: Record<string, { label: string; platforms: string[] }> = 
   video: { label: 'Arcade & Video', platforms: ['arcade', 'nes', 'snes', 'genesis', 'saturn', 'n64', 'ps1', 'ps2', 'dreamcast', 'gba', 'gb', 'gbc', 'sms', 'sega_cd', 'game_gear', 'tg16', 'atari_2600', 'atari_7800', 'jaguar', '3do', 'switch', 'wii', 'pc'] },
 };
 
+/* Short display labels for platform IDs */
+const PLATFORM_LABELS: Record<string, string> = {
+  real: 'Real', atgames: 'AtGames', atgames_hd: 'AtGames HD', atgames_4k: 'AtGames 4K',
+  vpx: 'VPX', vp9: 'VP9', vpxs: 'VPXS', fp: 'Future Pinball', bam: 'BAM',
+  pinball_fx: 'Pinball FX', pinball_fx3: 'Pinball FX3', vr: 'VR',
+  arcade: 'Arcade', nes: 'NES', snes: 'SNES', genesis: 'Genesis', saturn: 'Saturn',
+  n64: 'N64', ps1: 'PS1', ps2: 'PS2', dreamcast: 'Dreamcast',
+  gba: 'GBA', gb: 'Game Boy', gbc: 'GBC', sms: 'SMS', sega_cd: 'Sega CD',
+  game_gear: 'Game Gear', tg16: 'TG-16', atari_2600: 'Atari 2600', atari_7800: 'Atari 7800',
+  jaguar: 'Jaguar', '3do': '3DO', switch: 'Switch', wii: 'Wii', pc: 'PC',
+};
+
+function parsePlatforms(raw: string): string[] {
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+
 function formatScore(n: number | null): string {
   if (n === null || n === undefined) return '—';
   if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
@@ -520,8 +539,23 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
         )}
       </div>
 
+      {/* Platform tags — bottom center */}
+      {(() => {
+        const plats = parsePlatforms(game.platforms);
+        if (plats.length === 0) return null;
+        return (
+          <div className="px-3 pb-1 flex flex-wrap justify-center gap-1 mt-auto">
+            {plats.map(p => (
+              <span key={p} className="px-1.5 py-0.5 text-[9px] rounded bg-border/30 text-muted/80">
+                {PLATFORM_LABELS[p] || p}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Footer: rating (left) + submit (right) — pinned to bottom */}
-      <div className="px-3 pb-2.5 pt-1.5 flex items-center justify-between gap-2 border-t border-border/30 mt-auto">
+      <div className={`px-3 pb-2.5 pt-1.5 flex items-center justify-between gap-2 border-t border-border/30 ${parsePlatforms(game.platforms).length === 0 ? 'mt-auto' : ''}`}>
         <div className="flex items-center gap-1.5">
           <StarRating
             rating={userRating || Math.round(game.avg_rating)}
