@@ -11,6 +11,7 @@ import NeonButton from '../components/NeonButton';
 import CardRouter from '../components/scoreboard/CardRouter';
 import { deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
 import {
+  RankingGroupCard,
   RankingsColumn,
   RankingsRow,
   getTitleStyleClass,
@@ -103,6 +104,9 @@ export default function Leaderboard() {
   const cardWidth = useNewCards ? getCardWidth(newConfig.style) : 288;
   const gameColumns = config.SCOREBOARD_GAME_COLUMNS || 'auto';
 
+  // When sticky is off (default), rankings render inline with game cards (matching public scoreboard)
+  const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
+
   const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
 
   const handleStyleClick = async (target: GameLeaderboard) => {
@@ -162,17 +166,17 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Rankings: top position */}
-        {rankingsPosition === 'top' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} />
+        {/* Rankings: top position (only when sticky/separate) */}
+        {!inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
+          <RankingsRow rankingGroups={rankingGroups} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
         )}
 
         {/* Main content area */}
-        <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row' : 'flex-col'} gap-6 items-start`}>
+        <div className={`flex ${!inlineRankings && (rankingsPosition === 'left' || rankingsPosition === 'right') ? 'flex-col lg:flex-row' : 'flex-col'} gap-6 items-start`}>
 
-          {/* Rankings: left position */}
-          {rankingsPosition === 'left' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} />
+          {/* Rankings: left position (only when sticky/separate) */}
+          {!inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
+            <RankingsColumn rankingGroups={rankingGroups} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
           )}
 
           {/* Game leaderboards */}
@@ -207,6 +211,11 @@ export default function Leaderboard() {
                     </AdminCardWrapper>
                   </div>
                 ))}
+                {inlineRankings && rankingGroups.map(({ group, rankings }) => (
+                  <div key={`rank-${group.id}`} style={{ overflow: 'visible', minWidth: 0 }}>
+                    <RankingGroupCard group={group} rankings={rankings} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                  </div>
+                ))}
               </div>
             </div>
           ) : (
@@ -230,19 +239,24 @@ export default function Leaderboard() {
                     </AdminCardWrapper>
                   </div>
                 ))}
+                {inlineRankings && rankingGroups.map(({ group, rankings }) => (
+                  <div key={`rank-${group.id}`} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
+                    <RankingGroupCard group={group} rankings={rankings} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} />
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Rankings: right position */}
-          {rankingsPosition === 'right' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} />
+          {/* Rankings: right position (only when sticky/separate) */}
+          {!inlineRankings && rankingsPosition === 'right' && rankingGroups.length > 0 && (
+            <RankingsColumn rankingGroups={rankingGroups} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
           )}
         </div>
 
-        {/* Rankings: bottom position */}
-        {rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} />
+        {/* Rankings: bottom position (only when sticky/separate) */}
+        {!inlineRankings && rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
+          <RankingsRow rankingGroups={rankingGroups} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
         )}
       </div>
 
