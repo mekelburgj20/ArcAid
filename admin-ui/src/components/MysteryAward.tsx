@@ -13,10 +13,10 @@ interface MysteryAwardProps {
 type Phase = 'idle' | 'cycling' | 'landed';
 
 // --- DMD Constants ---
-const COLS = 128;
-const ROWS = 32;
-const DOT = 5;
-const GAP = 2;
+const COLS = 192;
+const ROWS = 48;
+const DOT = 4;
+const GAP = 1;
 const CELL = DOT + GAP;
 const CVS_W = COLS * CELL;
 const CVS_H = ROWS * CELL;
@@ -27,7 +27,7 @@ const SPIN_DURATION_MS = 4200;
 // --- Performance: reusable offscreen canvas for text rasterization ---
 let _offscreen: HTMLCanvasElement | null = null;
 function getOffscreen(): HTMLCanvasElement {
-  if (!_offscreen) {
+  if (!_offscreen || _offscreen.width !== COLS || _offscreen.height !== ROWS) {
     _offscreen = document.createElement('canvas');
     _offscreen.width = COLS;
     _offscreen.height = ROWS;
@@ -168,22 +168,22 @@ function renderDots(ctx: CanvasRenderingContext2D, buf: Float32Array): void {
 function composeIdle(buf: Float32Array, time: number): void {
   clearBuffer(buf);
   const t = time / 1000;
-  rasterizeText(buf, '? MYSTERY ?', COLS / 2, 8, 10, COLS - 8);
+  rasterizeText(buf, '? MYSTERY ?', COLS / 2, 12, 15, COLS - 12);
   // Horizontal sweep line
   const sweep = Math.floor((t * 30) % (COLS + 20)) - 10;
   for (let x = 8; x < COLS - 8; x++) {
     const d = Math.abs(x - sweep);
-    setPixel(buf, x, 14, d < 6 ? 0.8 - d * 0.1 : 0.15);
+    setPixel(buf, x, 22, d < 8 ? 0.8 - d * 0.08 : 0.15);
   }
   // Slow sine pulse (0.5 Hz) instead of jarring binary blink
   const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI);
-  if (pulse > 0.4) rasterizeText(buf, 'HIT MYSTERY', COLS / 2, 24, 9, COLS - 8);
+  if (pulse > 0.4) rasterizeText(buf, 'HIT MYSTERY', COLS / 2, 36, 13, COLS - 12);
 }
 
 function composeCycling(buf: Float32Array, game: string): void {
   clearBuffer(buf);
   // Reuse rasterizeText instead of duplicating canvas code
-  rasterizeText(buf, game, COLS / 2, ROWS / 2 + 2, 16, COLS - 12);
+  rasterizeText(buf, game, COLS / 2, ROWS / 2 + 2, 24, COLS - 16);
   drawHLine(buf, 0, COLS - 1, 0, 0.3);
   drawHLine(buf, 0, COLS - 1, ROWS - 1, 0.3);
 }
@@ -206,16 +206,16 @@ function composeLanded(buf: Float32Array, game: string, elapsed: number): void {
     drawRect(buf, 0, 0, COLS - 1, ROWS - 1, 0.6);
     drawRect(buf, 2, 2, COLS - 3, ROWS - 3, 0.4);
   }
-  rasterizeText(buf, game, COLS / 2, ROWS / 2 + 1, 16, COLS - 16);
+  rasterizeText(buf, game, COLS / 2, ROWS / 2 + 1, 24, COLS - 20);
   // Diamond decorations (authentic Williams touch)
   if (t > 1.5) {
     const ds = Math.floor((t - 1.5) * 8) % 16;
     const db = 0.2 + Math.sin(t * 3) * 0.1;
-    drawDiamond(buf, 8, ROWS / 2, Math.min(ds, 6), db);
-    drawDiamond(buf, COLS - 9, ROWS / 2, Math.min(ds, 6), db);
+    drawDiamond(buf, 10, ROWS / 2, Math.min(ds, 8), db);
+    drawDiamond(buf, COLS - 11, ROWS / 2, Math.min(ds, 8), db);
   }
   if (t > 2.5 && Math.floor(t * 2) % 2 === 0)
-    rasterizeText(buf, 'WINNER!', COLS / 2, ROWS - 4, 7, COLS - 20);
+    rasterizeText(buf, 'WINNER!', COLS / 2, ROWS - 6, 10, COLS - 30);
 }
 
 
@@ -646,7 +646,7 @@ export default function MysteryAward({
                 <img
                   src={backglassUrl}
                   alt={displayName}
-                  className="absolute inset-0 w-full h-full object-cover"
+                  className="absolute inset-0 w-full h-full object-contain p-4"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                 />
               ) : (
