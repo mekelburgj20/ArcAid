@@ -593,7 +593,7 @@ export default function Settings() {
     ...Object.keys(TOGGLE_SETTINGS),
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
-    'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT',
+    'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
     'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE',
     // Theme (managed in Theme card)
     'UI_THEME',
@@ -1336,6 +1336,23 @@ export default function Settings() {
               {/* Logo Image */}
               <div>
                 <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Logo</p>
+                {logoUrl && (
+                  <div className="flex items-center justify-between gap-4 mb-3">
+                    <div>
+                      <p className="text-sm text-primary">Show on Scoreboard</p>
+                      <p className="text-xs text-faint">Toggle off to hide the logo on the scoreboard while keeping it for Mystery Award.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={settings.SCOREBOARD_LOGO_ENABLED !== 'false'}
+                      onClick={() => handleChange('SCOREBOARD_LOGO_ENABLED', settings.SCOREBOARD_LOGO_ENABLED === 'false' ? 'true' : 'false')}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${settings.SCOREBOARD_LOGO_ENABLED === 'false' ? 'bg-border' : 'bg-neon-cyan/60'}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.SCOREBOARD_LOGO_ENABLED === 'false' ? 'translate-x-1' : 'translate-x-6'}`} />
+                    </button>
+                  </div>
+                )}
                 {logoUrl && (
                   <div className="mb-3">
                     <img src={logoUrl} alt="Logo preview" className="max-h-16 rounded border border-border object-contain" />
