@@ -93,8 +93,7 @@ function rasterizeText(
   for (let y = 0; y < ROWS; y++)
     for (let x = 0; x < COLS; x++) {
       const a = img.data[(y * COLS + x) * 4 + 3];
-      // Sharp threshold + contrast curve to reduce anti-alias haze
-      if (a > 90) setPixel(buf, x, y, Math.min(1, (a / 255) * 1.4));
+      if (a > 30) setPixel(buf, x, y, a / 255);
     }
 }
 
@@ -133,21 +132,21 @@ function renderDots(ctx: CanvasRenderingContext2D, buf: Float32Array): void {
         // Warm orange-amber (real plasma DMD color)
         const r = 255;
         const g = Math.floor(80 + br * 80);
-        // Subtle glow halo (tight, not washy)
+        // Outer glow halo
         ctx.beginPath();
-        ctx.arc(px, py, DOT * 0.9, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,120,0,${br * 0.15})`;
+        ctx.arc(px, py, DOT * 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,120,0,${br * 0.2})`;
         ctx.fill();
         // Main dot
         ctx.beginPath();
         ctx.arc(px, py, DOT / 2, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${r},${g},0,${0.5 + br * 0.5})`;
+        ctx.fillStyle = `rgba(${r},${g},0,${0.3 + br * 0.7})`;
         ctx.fill();
         // Hot center highlight
-        if (br > 0.7) {
+        if (br > 0.6) {
           ctx.beginPath();
-          ctx.arc(px, py, DOT / 3, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(255,220,${Math.floor(100 * br)},${br * 0.5})`;
+          ctx.arc(px, py, DOT / 4, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,200,${Math.floor(80 * br)},${br * 0.3})`;
           ctx.fill();
         }
       } else {
