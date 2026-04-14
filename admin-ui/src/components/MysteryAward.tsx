@@ -750,7 +750,7 @@ export default function MysteryAward({
                     width={CVS_W}
                     height={CVS_H}
                     className="w-full block rounded-[3px]"
-                    style={{ aspectRatio: `${CVS_W} / ${CVS_H}`, imageRendering: 'pixelated' }}
+                    style={{ aspectRatio: `${CVS_W} / ${CVS_H}` }}
                     role="img"
                     aria-label={
                       phase === 'landed' && result
