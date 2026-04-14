@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Sparkles, Star, Crosshair, X } from 'lucide-react';
-import PinballPicker from '../components/PinballPicker';
+import MysteryAward from '../components/MysteryAward';
 import PickGameModal from '../components/PickGameModal';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useToast } from '../components/Toast';
@@ -512,7 +512,7 @@ export default function GameAvailability() {
       )}
 
       {showPicker && data && (
-        <PinballPicker
+        <MysteryAward
           availableGames={data.games.filter(g => g.available).map(g => g.name)}
           onClose={() => setShowPicker(false)}
           roomName={roomName}
