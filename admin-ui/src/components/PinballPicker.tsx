@@ -4,6 +4,9 @@ import NeonButton from './NeonButton';
 interface PinballPickerProps {
   availableGames: string[];
   onClose: () => void;
+  roomName?: string;
+  backglassUrl?: string;
+  onPickGame?: (gameName: string) => void;
 }
 
 type Phase = 'idle' | 'pulling' | 'plunging' | 'cycling' | 'revealed';
@@ -267,7 +270,7 @@ function buildCycleSequence(items: string[], winner: string): { name: string; de
 }
 
 // --- Background Renderer ---
-function renderBackground(logoImg: HTMLImageElement | null): HTMLCanvasElement {
+function renderBackground(logoImg: HTMLImageElement | null, roomName?: string): HTMLCanvasElement {
   const bg = document.createElement('canvas');
   bg.width = W;
   bg.height = H;
@@ -340,21 +343,28 @@ function renderBackground(logoImg: HTMLImageElement | null): HTMLCanvasElement {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Title "MYSTERY SCOOP"
+  // Title — room name or fallback
   ctx.save();
   ctx.shadowColor = C.cyan;
   ctx.shadowBlur = 14;
   ctx.fillStyle = C.cyan;
-  ctx.font = 'bold 18px "Courier New", monospace';
+  const titleText = roomName || 'MYSTERY AWARD';
+  // Auto-size title to fit
+  let titleFontSize = 18;
+  ctx.font = `bold ${titleFontSize}px "Courier New", monospace`;
+  while (ctx.measureText(titleText).width > (LANE_X - PF_LEFT - 20) && titleFontSize > 10) {
+    titleFontSize--;
+    ctx.font = `bold ${titleFontSize}px "Courier New", monospace`;
+  }
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('MYSTERY SCOOP', PF_CX, TITLE_Y);
+  ctx.fillText(titleText, PF_CX, TITLE_Y);
   ctx.restore();
   // Subtitle
   ctx.fillStyle = C.cyanDim;
   ctx.font = '9px "Courier New", monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('— RANDOM TABLE SELECTOR —', PF_CX, TITLE_Y + 16);
+  ctx.fillText('— MYSTERY AWARD —', PF_CX, TITLE_Y + 16);
 
   // RTX Logo
   if (logoImg) {
@@ -531,7 +541,7 @@ function renderBackground(logoImg: HTMLImageElement | null): HTMLCanvasElement {
 }
 
 // --- Main Component ---
-export default function PinballPicker({ availableGames, onClose }: PinballPickerProps) {
+export default function PinballPicker({ availableGames, onClose, roomName, backglassUrl, onPickGame }: PinballPickerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bgRef = useRef<HTMLCanvasElement | null>(null);
   const logoRef = useRef<HTMLImageElement | null>(null);
@@ -565,14 +575,23 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
 
   // Load logo
   useEffect(() => {
+    const src = backglassUrl || '/arcaid-logo.png';
     const img = new Image();
     img.onload = () => {
       logoRef.current = img;
       bgRef.current = null;
       setLogoLoaded(true);
     };
-    img.src = '/rtx-logo.webp';
-  }, []);
+    img.onerror = () => {
+      // Fallback to default logo on load failure
+      if (src !== '/arcaid-logo.png') {
+        const fallback = new Image();
+        fallback.onload = () => { logoRef.current = fallback; bgRef.current = null; setLogoLoaded(true); };
+        fallback.src = '/arcaid-logo.png';
+      }
+    };
+    img.src = src;
+  }, [backglassUrl]);
 
   const pickWinner = useCallback(() => {
     return shuffle(availableGames)[0] || 'No games available';
@@ -659,7 +678,7 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
 
       // Cached background
       if (!bgRef.current) {
-        bgRef.current = renderBackground(logoRef.current);
+        bgRef.current = renderBackground(logoRef.current, roomName);
       }
       ctx.drawImage(bgRef.current, 0, 0);
 
@@ -1003,15 +1022,39 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
-        <canvas
-          ref={canvasRef}
-          width={W}
-          height={H}
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          className="rounded-lg cursor-pointer max-w-[92vw] max-h-[72vh] touch-none"
-          style={{ imageRendering: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.7), 0 0 60px rgba(0,200,255,0.08)' }}
-        />
+        {/* Canvas container with glass/GI overlays */}
+        <div className="relative rounded-lg overflow-hidden max-w-[92vw] max-h-[72vh]" style={{ aspectRatio: `${W}/${H}` }}>
+          <canvas
+            ref={canvasRef}
+            width={W}
+            height={H}
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            className="w-full h-full cursor-pointer touch-none"
+            style={{ imageRendering: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.7), 0 0 60px rgba(0,200,255,0.08)' }}
+          />
+          {/* Glass reflection overlay */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'linear-gradient(135deg, transparent 30%, rgba(255,255,255,0.04) 45%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.04) 55%, transparent 70%)',
+            }}
+          />
+          {/* GI lighting pulse — warm amber wash */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              top: 0, left: 0, right: 0, height: '35%',
+              background: 'radial-gradient(ellipse at 50% 30%, rgba(255,136,0,0.08) 0%, transparent 70%)',
+              animation: 'pinball-gi-pulse 4s ease-in-out infinite',
+            }}
+          />
+          {/* Vignette */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ boxShadow: 'inset 0 0 60px rgba(0,0,0,0.4), inset 0 0 120px rgba(0,0,0,0.2)' }}
+          />
+        </div>
         {phase === 'revealed' && result && (
           <div className="text-center">
             <p className="text-xs text-neon-cyan uppercase tracking-wider mb-1">Mystery Award</p>
@@ -1024,8 +1067,13 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
               Auto-Plunge
             </NeonButton>
           )}
+          {phase === 'revealed' && onPickGame && result && (
+            <NeonButton variant="primary" onClick={() => onPickGame(result)}>
+              Add to Queue?
+            </NeonButton>
+          )}
           {phase === 'revealed' && (
-            <NeonButton variant="primary" onClick={handlePlayAgain}>
+            <NeonButton variant="ghost" onClick={handlePlayAgain}>
               Play Again
             </NeonButton>
           )}
@@ -1034,6 +1082,12 @@ export default function PinballPicker({ availableGames, onClose }: PinballPicker
           </NeonButton>
         </div>
       </div>
+      <style>{`
+        @keyframes pinball-gi-pulse {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }

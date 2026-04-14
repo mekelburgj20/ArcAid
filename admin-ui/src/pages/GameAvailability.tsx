@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Shuffle, Star, Crosshair, X } from 'lucide-react';
+import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Sparkles, Star, Crosshair, X } from 'lucide-react';
 import PinballPicker from '../components/PinballPicker';
 import PickGameModal from '../components/PickGameModal';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
@@ -68,6 +68,8 @@ export default function GameAvailability() {
   const [data, setData] = useState<AvailabilityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [roomName, setRoomName] = useState<string>('');
+  const [roomLogoUrl, setRoomLogoUrl] = useState<string>('');
   const [filter, setFilter] = useState<'all' | 'available' | 'cooldown'>('all');
   const [search, setSearch] = useState('');
   const [showPicker, setShowPicker] = useState(false);
@@ -83,9 +85,13 @@ export default function GameAvailability() {
     if (!slug) return;
     fetch('/api/rooms')
       .then(r => r.json())
-      .then((rooms: Array<{ id: string; slug: string }>) => {
+      .then((rooms: Array<{ id: string; slug: string; name: string; logo_url: string | null }>) => {
         const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
-        if (found) setRoomId(found.id);
+        if (found) {
+          setRoomId(found.id);
+          setRoomName(found.name);
+          if (found.logo_url) setRoomLogoUrl(found.logo_url);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -212,17 +218,18 @@ export default function GameAvailability() {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-3 mb-6">
         <div className="flex items-center gap-3">
-          <h1 className="font-display text-xl font-bold text-primary">Game Availability</h1>
+          <h1 className="font-display text-xl font-bold text-primary">Game Picks</h1>
           {availableCount >= 2 && (
             <button
               onClick={() => setShowPicker(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neon-green/40 bg-neon-green/10 text-neon-green text-xs font-medium hover:bg-neon-green/20 hover:border-neon-green/60 transition-colors cursor-pointer"
             >
-              <Shuffle size={14} />
-              Pick Random
+              <Sparkles size={14} />
+              Mystery Award
             </button>
           )}
         </div>
+        <p className="text-muted text-xs -mt-4 mb-4">Browse available tables, check cooldown timers, queue your next pick, or spin the Mystery Award.</p>
 
         {tournaments.length > 1 && (
           <div className="relative">
@@ -508,6 +515,9 @@ export default function GameAvailability() {
         <PinballPicker
           availableGames={data.games.filter(g => g.available).map(g => g.name)}
           onClose={() => setShowPicker(false)}
+          roomName={roomName}
+          backglassUrl={roomLogoUrl}
+          onPickGame={discordUser ? (name) => { setShowPicker(false); setPickTarget(name); } : undefined}
         />
       )}
 

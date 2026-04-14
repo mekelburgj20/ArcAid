@@ -33,7 +33,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
 
   const navItems = [
     { path: `/${slug}`, label: 'Scoreboard', icon: <Monitor size={16} />, end: true },
-    { path: `/${slug}/games`, label: 'Games', icon: <Gamepad2 size={16} /> },
+    { path: `/${slug}/games`, label: 'Game Picks', icon: <Gamepad2 size={16} /> },
     { path: `/${slug}/freeplay`, label: 'Freeplay', icon: <Joystick size={16} /> },
     { path: `/${slug}/players`, label: 'Players', icon: <Users size={16} /> },
     { path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> },
