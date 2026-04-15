@@ -1184,7 +1184,7 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
 
             // Try to find catalogue image
             const catalogueGame = await db.get(
-                "SELECT id, cover_art_url, wheel_art_url FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1",
+                "SELECT id, local_image_path, wheel_image_path, image_url FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1",
                 game.game_name
             );
 
@@ -1195,7 +1195,7 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
                 lastPlayed: game.last_played,
                 topScores,
                 globalGameId: catalogueGame?.id || null,
-                imageUrl: catalogueGame?.cover_art_url || catalogueGame?.wheel_art_url || null,
+                imageUrl: catalogueGame?.local_image_path || catalogueGame?.wheel_image_path || catalogueGame?.image_url || null,
             };
         }));
 
