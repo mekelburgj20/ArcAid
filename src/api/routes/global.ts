@@ -298,6 +298,7 @@ router.get('/portal', async (req, res) => {
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
         res.json({
             id: room.id,
+            roomId: room.id,
             slug: room.slug,
             name: room.name,
             description: room.description || '',
