@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom';
 import { Trophy, Clock, Users } from 'lucide-react';
 
 interface GameLeaderboardSummary {
-  game_name: string;
-  display_name: string | null;
-  total_scores: number;
-  unique_players: number;
-  last_played: string;
-  catalogue_image: string | null;
-  top_scores: Array<{
+  gameName: string;
+  playerCount: number;
+  totalScores: number;
+  lastPlayed: string;
+  globalGameId: string | null;
+  imageUrl: string | null;
+  topScores: Array<{
     iscored_username: string;
     best_score: number;
   }>;
@@ -128,16 +128,16 @@ export default function AllGamesView({ roomId, slug }: AllGamesViewProps) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {games.map(game => (
           <Link
-            key={game.game_name}
-            to={`/${slug}/games/${encodeURIComponent(game.game_name)}`}
+            key={game.gameName}
+            to={`/${slug}/games/${encodeURIComponent(game.gameName)}`}
             className="no-underline block"
           >
             <div className="bg-surface border border-border/50 rounded-lg overflow-hidden hover:border-neon-cyan/30 transition-colors group">
               {/* Image header */}
-              {game.catalogue_image ? (
+              {game.imageUrl ? (
                 <div className="h-24 bg-deep overflow-hidden">
                   <img
-                    src={toCatalogueUrl(game.catalogue_image)}
+                    src={toCatalogueUrl(game.imageUrl)}
                     alt=""
                     className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                   />
@@ -149,26 +149,26 @@ export default function AllGamesView({ roomId, slug }: AllGamesViewProps) {
               {/* Content */}
               <div className="px-3 py-2.5">
                 <h3 className="text-sm font-semibold text-primary truncate">
-                  {game.display_name || game.game_name}
+                  {game.gameName}
                 </h3>
 
                 {/* Stats row */}
                 <div className="flex items-center gap-3 mt-1.5 text-[10px] text-faint">
                   <span className="flex items-center gap-1">
                     <Users size={10} />
-                    {game.unique_players}
+                    {game.playerCount}
                   </span>
                   <span className="flex items-center gap-1">
                     <Trophy size={10} />
-                    {game.total_scores} scores
+                    {game.totalScores} scores
                   </span>
-                  <span>{relativeTime(game.last_played)}</span>
+                  <span>{relativeTime(game.lastPlayed)}</span>
                 </div>
 
                 {/* Top scores */}
-                {game.top_scores.length > 0 && (
+                {game.topScores.length > 0 && (
                   <div className="mt-2 space-y-0.5">
-                    {game.top_scores.slice(0, 3).map((s, i) => (
+                    {game.topScores.slice(0, 3).map((s, i) => (
                       <div key={s.iscored_username} className="flex items-center justify-between text-[11px]">
                         <span className="text-muted truncate">
                           <span className={i === 0 ? 'text-neon-cyan' : 'text-faint'}>
