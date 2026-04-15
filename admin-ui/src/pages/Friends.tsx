@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { UserPlus, Trash2, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { UserPlus, Trash2, Users, ArrowLeft, Home } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface Friend {
@@ -85,6 +86,23 @@ export default function Friends() {
 
   return (
     <div className="min-h-screen bg-deep text-primary">
+      {/* Navigation header */}
+      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm">
+        <div className="max-w-xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+          <button
+            onClick={() => window.history.back()}
+            className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors cursor-pointer bg-transparent border-0 p-0"
+          >
+            <ArrowLeft size={16} />
+            Back
+          </button>
+          <Link to="/" className="flex items-center gap-1.5 text-sm text-muted hover:text-neon-cyan transition-colors no-underline">
+            <Home size={16} />
+            Home
+          </Link>
+        </div>
+      </nav>
+
       <div className="max-w-xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex items-center gap-2 mb-6">
           <Users size={20} className="text-neon-cyan" />
