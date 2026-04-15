@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Trophy, Upload, LogIn, Download, BookOpen, Play, ExternalLink, Flag, MessageSquare, Lightbulb, Trash2 } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
@@ -102,6 +102,8 @@ function resolveWheel(game: GlobalGame): string | null {
 
 export default function GlobalGameDetail() {
   const { globalGameId } = useParams<{ globalGameId: string }>();
+  const [searchParams] = useSearchParams();
+  const fromSlug = searchParams.get('from');
   const { discordUser, playerToken, loginWithDiscord, logoutPlayer } = useViewerAuth();
   const [game, setGame] = useState<GlobalGame | null>(null);
   const [loading, setLoading] = useState(true);
@@ -234,7 +236,8 @@ export default function GlobalGameDetail() {
   const wheelSrc = useMemo(() => game ? resolveWheel(game) : null, [game]);
 
   const handleLogin = () => {
-    loginWithDiscord('__global__', `/games/${globalGameId}`);
+    const returnPath = fromSlug ? `/games/${globalGameId}?from=${encodeURIComponent(fromSlug)}` : `/games/${globalGameId}`;
+    loginWithDiscord('__global__', returnPath);
   };
 
   const handleSubmitClick = () => {
@@ -310,7 +313,9 @@ export default function GlobalGameDetail() {
     return (
       <div className="min-h-screen bg-deep text-primary flex flex-col items-center justify-center gap-4 p-6">
         <div className="text-muted">Game not found.</div>
-        <Link to="/scoreboard" className="text-neon-cyan hover:underline">← Back to global scoreboard</Link>
+        <Link to={fromSlug ? `/${fromSlug}` : '/scoreboard'} className="text-neon-cyan hover:underline">
+          ← {fromSlug ? `Back to ${fromSlug}` : 'Back to global scoreboard'}
+        </Link>
       </div>
     );
   }
@@ -320,11 +325,19 @@ export default function GlobalGameDetail() {
       {/* Header */}
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
-          <Link to="/scoreboard" className="flex items-center gap-2 text-xs text-muted hover:text-neon-cyan no-underline">
+          <Link
+            to={fromSlug ? `/${fromSlug}` : '/scoreboard'}
+            className="flex items-center gap-2 text-xs text-muted hover:text-neon-cyan no-underline"
+          >
             <ArrowLeft className="w-4 h-4" />
-            Global Scoreboard
+            {fromSlug ? `Back to ${fromSlug}` : 'Global Scoreboard'}
           </Link>
           <div className="flex items-center gap-3">
+            {fromSlug && (
+              <Link to={`/${fromSlug}`} className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
+                Scoreboard
+              </Link>
+            )}
             <Link to="/" className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
               Rooms
             </Link>

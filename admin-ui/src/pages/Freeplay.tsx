@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { Search, Upload, Camera, Trash2, X, Filter } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
+import { Search, Upload, Camera, Trash2, X, Filter, Trophy, Users } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
@@ -16,6 +16,19 @@ interface CatalogueGame {
   wheel_image_path: string | null;
   image_url: string | null;
   platforms: string;
+}
+
+interface CommunityGame {
+  gameName: string;
+  playerCount: number;
+  totalScores: number;
+  lastPlayed: string;
+  globalGameId: string | null;
+  imageUrl: string | null;
+  topScores: Array<{
+    iscored_username: string;
+    best_score: number;
+  }>;
 }
 
 const PAGE_SIZE = 24;
@@ -41,12 +54,25 @@ function imageFor(game: CatalogueGame): string | null {
   return null;
 }
 
+function relativeTime(iso: string): string {
+  const now = Date.now();
+  const then = new Date(iso).getTime();
+  const diff = now - then;
+  const hours = Math.floor(diff / 3600000);
+  if (hours < 1) return 'just now';
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export default function Freeplay() {
   const { slug } = useParams<{ slug: string }>();
   const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
   const [roomId, setRoomId] = useState<string | null>(null);
 
-  // Resolve roomId from slug via portal endpoint (same pattern as Scoreboard)
+  // Resolve roomId from slug via portal endpoint
   useEffect(() => {
     if (!slug) return;
     fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
@@ -54,8 +80,25 @@ export default function Freeplay() {
       .then(data => { if (data?.roomId) setRoomId(data.roomId); })
       .catch(() => {});
   }, [slug]);
+
+  // Community games with scores (recently played in this room)
+  const [communityGames, setCommunityGames] = useState<CommunityGame[]>([]);
+  const [communityLoading, setCommunityLoading] = useState(true);
+
+  useEffect(() => {
+    if (!roomId) return;
+    setCommunityLoading(true);
+    fetch(`/api/rooms/${roomId}/community-leaderboards?sort=recent&limit=20`)
+      .then(r => r.ok ? r.json() : [])
+      .then((data: CommunityGame[]) => setCommunityGames(data))
+      .catch(() => {})
+      .finally(() => setCommunityLoading(false));
+  }, [roomId]);
+
+  // Catalogue search state
+  const [showCatalogue, setShowCatalogue] = useState(false);
   const [games, setGames] = useState<CatalogueGame[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [catalogueLoading, setCatalogueLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchInput, setSearchInput] = useState('');
@@ -77,7 +120,8 @@ export default function Freeplay() {
   }, [search, type]);
 
   useEffect(() => {
-    setLoading(true);
+    if (!showCatalogue) return;
+    setCatalogueLoading(true);
     fetch(`/api/global/games?${buildQuery()}`)
       .then(r => r.ok ? r.json() : { data: [], hasMore: false })
       .then(payload => {
@@ -85,8 +129,8 @@ export default function Freeplay() {
         setHasMore(Boolean(payload.hasMore));
       })
       .catch(() => { setGames([]); setHasMore(false); })
-      .finally(() => setLoading(false));
-  }, [buildQuery]);
+      .finally(() => setCatalogueLoading(false));
+  }, [buildQuery, showCatalogue]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore || games.length === 0) return;
@@ -114,85 +158,185 @@ export default function Freeplay() {
     <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
       <h2 className="font-display text-xl font-bold mb-1">Freeplay</h2>
       <p className="text-sm text-muted mb-4">
-        Submit a score for any game in the catalogue — no active tournament required.
+        Submit a score for any game — no active tournament required.
       </p>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="flex-1 relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <input
-            type="text"
-            placeholder="Search games..."
-            value={searchInput}
-            onChange={e => setSearchInput(e.target.value)}
-            className="w-full pl-10 pr-3 py-2 rounded border border-border bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan text-sm"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-muted flex-shrink-0" />
-          <select
-            value={type}
-            onChange={e => setType(e.target.value)}
-            className="px-3 py-2 rounded border border-border bg-surface text-primary text-sm"
-          >
-            {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-      </div>
-
-      {loading ? (
-        <LoadingState message="Loading catalogue..." />
-      ) : games.length === 0 ? (
-        <div className="text-center py-16 text-muted">
-          No games found. Try a different search.
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {games.map(game => {
-              const img = imageFor(game);
-              const name = game.display_name || game.name;
-              return (
-                <div key={game.id} className="rounded-lg border border-border bg-surface overflow-hidden hover:border-neon-cyan/60 transition-colors flex flex-col">
-                  <div className="relative h-24 bg-deep border-b border-border">
-                    {img ? (
-                      <img src={img} alt={name} className="absolute inset-0 w-full h-full object-cover opacity-80" loading="lazy" />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center text-muted text-[10px]">No image</div>
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/50 to-transparent" />
-                  </div>
-                  <div className="p-2 flex-1 flex flex-col justify-between gap-1">
-                    <div>
-                      <div className="font-display font-semibold text-sm text-primary truncate">{name}</div>
-                      <div className="text-[10px] text-muted truncate">
-                        {game.manufacturer || 'Unknown'}{game.year ? ` · ${game.year}` : ''}
-                      </div>
+      {/* Recently played games with scores */}
+      {communityLoading ? (
+        <LoadingState message="Loading games..." />
+      ) : communityGames.length > 0 ? (
+        <div className="mb-8">
+          <h3 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Recently Played</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {communityGames.map(game => (
+              <Link
+                key={game.gameName}
+                to={game.globalGameId
+                  ? `/games/${game.globalGameId}?from=${encodeURIComponent(slug || '')}`
+                  : `/${slug}/games/${encodeURIComponent(game.gameName)}`}
+                className="no-underline block"
+              >
+                <div className="bg-surface border border-border/50 rounded-lg overflow-hidden hover:border-neon-cyan/30 transition-colors group">
+                  {game.imageUrl ? (
+                    <div className="h-24 bg-deep overflow-hidden">
+                      <img
+                        src={toCatalogueUrl(game.imageUrl)}
+                        alt=""
+                        className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                      />
                     </div>
-                    <button
-                      onClick={() => handleSubmitClick(game)}
-                      className="mt-1 flex items-center justify-center gap-1 w-full py-1.5 text-xs rounded border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10"
-                    >
-                      <Upload className="w-3 h-3" />
-                      Submit Score
-                    </button>
+                  ) : (
+                    <div className="h-12 bg-gradient-to-r from-neon-cyan/5 to-neon-magenta/5" />
+                  )}
+                  <div className="px-3 py-2.5">
+                    <h4 className="text-sm font-semibold text-primary truncate">{game.gameName}</h4>
+                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-faint">
+                      <span className="flex items-center gap-1">
+                        <Users size={10} />
+                        {game.playerCount}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Trophy size={10} />
+                        {game.totalScores} scores
+                      </span>
+                      <span>{relativeTime(game.lastPlayed)}</span>
+                    </div>
+                    {game.topScores.length > 0 && (
+                      <div className="mt-2 space-y-0.5">
+                        {game.topScores.slice(0, 3).map((s, i) => (
+                          <div key={s.iscored_username} className="flex items-center justify-between text-[11px]">
+                            <span className="text-muted truncate">
+                              <span className={i === 0 ? 'text-neon-cyan' : 'text-faint'}>
+                                #{i + 1}
+                              </span>
+                              {' '}{s.iscored_username}
+                            </span>
+                            <span className="text-primary font-mono ml-2">
+                              {s.best_score.toLocaleString()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
-              );
-            })}
+              </Link>
+            ))}
           </div>
-          {hasMore && (
-            <div className="mt-4 flex justify-center">
-              <button
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="px-5 py-2 rounded border border-neon-cyan/40 text-sm text-neon-cyan hover:bg-neon-cyan/10 disabled:opacity-50"
-              >
-                {loadingMore ? 'Loading...' : 'Load More'}
-              </button>
+        </div>
+      ) : null}
+
+      {/* Submit new game toggle */}
+      <div className="mb-4">
+        <button
+          onClick={() => setShowCatalogue(!showCatalogue)}
+          className={`flex items-center gap-2 px-4 py-2 text-sm rounded-lg border transition-colors cursor-pointer ${
+            showCatalogue
+              ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
+              : 'border-border/50 text-muted hover:text-primary hover:border-border'
+          }`}
+        >
+          <Search size={14} />
+          {showCatalogue ? 'Hide Catalogue' : 'Browse Catalogue to Submit Score'}
+        </button>
+      </div>
+
+      {/* Catalogue search & submit */}
+      {showCatalogue && (
+        <>
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
+            <div className="flex-1 relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                type="text"
+                placeholder="Search games..."
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                className="w-full pl-10 pr-3 py-2 rounded border border-border bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan text-sm"
+              />
             </div>
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-muted flex-shrink-0" />
+              <select
+                value={type}
+                onChange={e => setType(e.target.value)}
+                className="px-3 py-2 rounded border border-border bg-surface text-primary text-sm"
+              >
+                {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {catalogueLoading ? (
+            <LoadingState message="Loading catalogue..." />
+          ) : games.length === 0 ? (
+            <div className="text-center py-16 text-muted">
+              No games found. Try a different search.
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {games.map(game => {
+                  const img = imageFor(game);
+                  const name = game.display_name || game.name;
+                  return (
+                    <div key={game.id} className="rounded-lg border border-border bg-surface overflow-hidden hover:border-neon-cyan/60 transition-colors flex flex-col">
+                      <Link
+                        to={`/games/${game.id}?from=${encodeURIComponent(slug || '')}`}
+                        className="no-underline block"
+                      >
+                        <div className="relative h-24 bg-deep border-b border-border">
+                          {img ? (
+                            <img src={img} alt={name} className="absolute inset-0 w-full h-full object-cover opacity-80" loading="lazy" />
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center text-muted text-[10px]">No image</div>
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/50 to-transparent" />
+                        </div>
+                        <div className="p-2">
+                          <div className="font-display font-semibold text-sm text-primary truncate">{name}</div>
+                          <div className="text-[10px] text-muted truncate">
+                            {game.manufacturer || 'Unknown'}{game.year ? ` · ${game.year}` : ''}
+                          </div>
+                        </div>
+                      </Link>
+                      <div className="px-2 pb-2 mt-auto">
+                        <button
+                          onClick={() => handleSubmitClick(game)}
+                          className="flex items-center justify-center gap-1 w-full py-1.5 text-xs rounded border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 cursor-pointer"
+                        >
+                          <Upload className="w-3 h-3" />
+                          Submit Score
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {hasMore && (
+                <div className="mt-4 flex justify-center">
+                  <button
+                    onClick={loadMore}
+                    disabled={loadingMore}
+                    className="px-5 py-2 rounded border border-neon-cyan/40 text-sm text-neon-cyan hover:bg-neon-cyan/10 disabled:opacity-50 cursor-pointer"
+                  >
+                    {loadingMore ? 'Loading...' : 'Load More'}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
+      )}
+
+      {/* No community games and catalogue hidden — show a hint */}
+      {communityGames.length === 0 && !communityLoading && !showCatalogue && (
+        <div className="text-center py-16">
+          <p className="text-muted">No scores have been submitted yet.</p>
+          <p className="text-xs text-faint mt-1">
+            Browse the catalogue to submit the first score!
+          </p>
+        </div>
       )}
 
       {submitGame && playerToken && roomId && (
@@ -202,7 +346,16 @@ export default function Freeplay() {
           playerToken={playerToken}
           discordUsername={discordUser?.username}
           onClose={() => setSubmitGame(null)}
-          onSubmitted={() => setSubmitGame(null)}
+          onSubmitted={() => {
+            setSubmitGame(null);
+            // Refresh community games
+            if (roomId) {
+              fetch(`/api/rooms/${roomId}/community-leaderboards?sort=recent&limit=20`)
+                .then(r => r.ok ? r.json() : [])
+                .then((data: CommunityGame[]) => setCommunityGames(data))
+                .catch(() => {});
+            }
+          }}
         />
       )}
     </div>
@@ -353,7 +506,7 @@ function FreeplaySubmitModal({ game, roomId, playerToken, discordUsername, onClo
             ) : (
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2 py-8 rounded border border-dashed border-border text-muted hover:border-neon-cyan hover:text-neon-cyan"
+                className="w-full flex items-center justify-center gap-2 py-8 rounded border border-dashed border-border text-muted hover:border-neon-cyan hover:text-neon-cyan cursor-pointer"
               >
                 <Camera className="w-5 h-5" />
                 Upload or take photo

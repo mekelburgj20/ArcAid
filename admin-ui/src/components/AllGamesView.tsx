@@ -130,7 +130,7 @@ export default function AllGamesView({ roomId, slug }: AllGamesViewProps) {
           <Link
             key={game.gameName}
             to={game.globalGameId
-              ? `/games/${game.globalGameId}`
+              ? `/games/${game.globalGameId}?from=${encodeURIComponent(slug)}`
               : `/${slug}/games/${encodeURIComponent(game.gameName)}`}
             className="no-underline block"
           >
