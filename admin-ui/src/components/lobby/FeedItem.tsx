@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { Flame, TrendingUp, Target, Trophy, Gamepad2, Crown, Users, Megaphone, Star, Zap } from 'lucide-react';
 
 interface FeedEvent {
   id: number;
@@ -9,6 +10,19 @@ interface FeedEvent {
   game_name: string | null;
   created_at: string;
 }
+
+const TYPE_ICONS: Record<string, { icon: typeof Flame; color: string }> = {
+  new_high_score:    { icon: Flame,      color: 'text-neon-amber' },
+  rank_change:       { icon: TrendingUp, color: 'text-neon-cyan' },
+  score_posted:      { icon: Target,     color: 'text-muted' },
+  tournament_results:{ icon: Trophy,     color: 'text-neon-amber' },
+  tournament_active: { icon: Gamepad2,   color: 'text-neon-cyan' },
+  player_milestone:  { icon: Star,       color: 'text-neon-amber' },
+  friend_score:      { icon: Users,      color: 'text-[#5865F2]' },
+  admin_message:     { icon: Megaphone,  color: 'text-neon-magenta' },
+  admin_shoutout:    { icon: Zap,        color: 'text-neon-magenta' },
+  staleness_challenge:{ icon: Crown,     color: 'text-muted' },
+};
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -31,12 +45,12 @@ interface FeedItemProps {
 
 export default function FeedItem({ event, slug }: FeedItemProps) {
   const link = event.game_name ? `/${slug}/games/${encodeURIComponent(event.game_name)}` : null;
+  const typeInfo = TYPE_ICONS[event.type] || { icon: Target, color: 'text-muted' };
+  const Icon = typeInfo.icon;
 
   const content = (
     <div className="flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-surface/60 transition-colors group">
-      <span className="text-lg flex-shrink-0 mt-0.5 w-7 text-center">
-        {event.icon || '\u{1F4DD}'}
-      </span>
+      <Icon size={16} className={`flex-shrink-0 mt-0.5 ${typeInfo.color}`} />
       <div className="flex-1 min-w-0">
         <p className="text-sm text-primary leading-snug">{event.title}</p>
         {event.subtitle && (

@@ -607,7 +607,7 @@ export class TournamentEngine {
                 LobbyFeedService.emit({
                     gameRoomId: tournamentRow.game_room_id,
                     type: 'tournament_results',
-                    icon: '\u{1F947}',
+                    icon: undefined,
                     title: `${tournamentRow.name} complete — ${winnerIscoredName || 'Unknown'} takes 1st!`,
                     subtitle: activeGame.name,
                     tournamentId: tournamentRow.id,
@@ -711,7 +711,7 @@ export class TournamentEngine {
                     LobbyFeedService.emit({
                         gameRoomId: tournamentRow.game_room_id,
                         type: 'tournament_active',
-                        icon: '\u{1F3C6}',
+                        icon: undefined,
                         title: `Now active in ${tournamentRow.name}: ${queuedRow.name}`,
                         gameName: queuedRow.name,
                         tournamentId: tournamentRow.id,

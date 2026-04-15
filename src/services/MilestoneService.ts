@@ -34,7 +34,7 @@ export class MilestoneService {
             await LobbyFeedService.emit({
                 gameRoomId,
                 type: 'player_milestone',
-                icon: '\u{1F3AF}',
+                icon: undefined,
                 title: `${username} submitted their ${totalScores}${ordinal(totalScores)} score!`,
                 playerId: discordUserId,
                 metadata: { milestone: 'scores_submitted', count: totalScores },
@@ -60,7 +60,7 @@ export class MilestoneService {
             await LobbyFeedService.emit({
                 gameRoomId,
                 type: 'player_milestone',
-                icon: '\u{1F3AE}',
+                icon: undefined,
                 title: `${username} has played ${uniqueGames} different games!`,
                 playerId: discordUserId,
                 metadata: { milestone: 'unique_games', count: uniqueGames },
@@ -91,7 +91,7 @@ export class MilestoneService {
             await LobbyFeedService.emit({
                 gameRoomId,
                 type: 'player_milestone',
-                icon: '\u{1F451}',
+                icon: undefined,
                 title: `${username} holds #1 on ${numOnes} game${numOnes > 1 ? 's' : ''}!`,
                 playerId: discordUserId,
                 metadata: { milestone: 'number_ones', count: numOnes },

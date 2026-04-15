@@ -50,7 +50,7 @@ interface ShelfItem {
 
 export default function Lobby() {
   const { slug } = useParams<{ slug: string }>();
-  const { playerToken } = useViewerAuth();
+  const { playerToken, discordUser } = useViewerAuth();
   const [roomId, setRoomId] = useState<string | null>(null);
 
   // Feed state
@@ -152,6 +152,13 @@ export default function Lobby() {
     };
   }, [roomId]);
 
+  // Filter out self-activity (keep friend_score, tournament events, admin messages, etc.)
+  const SELF_EVENT_TYPES = new Set(['score_posted', 'new_high_score', 'rank_change', 'player_milestone']);
+  const myId = discordUser?.discordId;
+  const visibleEvents = myId
+    ? events.filter(e => !(e.player_id === myId && SELF_EVENT_TYPES.has(e.type)))
+    : events;
+
   const hasSocialLinks = config?.socialLinks && config.socialLinks.length > 0;
   const hasPinnedMessage = config?.pinnedMessage?.enabled && config.pinnedMessage.content;
 
@@ -187,7 +194,7 @@ export default function Lobby() {
           <div className="flex justify-center py-16">
             <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
           </div>
-        ) : events.length === 0 ? (
+        ) : visibleEvents.length === 0 ? (
           <div className="text-center py-12">
             <MessageSquare size={40} className="text-muted/30 mx-auto mb-3" />
             <p className="text-muted mb-2">No activity yet</p>
@@ -202,7 +209,7 @@ export default function Lobby() {
           </div>
         ) : (
           <div className="space-y-1">
-            {events.map(event => (
+            {visibleEvents.map(event => (
               <FeedItem key={event.id} event={event} slug={slug || ''} />
             ))}
 

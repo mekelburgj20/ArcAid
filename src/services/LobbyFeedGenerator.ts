@@ -69,7 +69,7 @@ export class LobbyFeedGenerator {
                 await LobbyFeedService.emit({
                     gameRoomId,
                     type: 'new_high_score',
-                    icon: '🔥',
+                    icon: undefined,
                     title: `${username} posted ${formattedScore} on ${gameName} — new room #1!`,
                     playerId: discordUserId,
                     gameName,
@@ -80,7 +80,7 @@ export class LobbyFeedGenerator {
                 await LobbyFeedService.emit({
                     gameRoomId,
                     type: 'rank_change',
-                    icon: '⬆️',
+                    icon: undefined,
                     title: `${username} climbed to #${currentRank} on ${gameName}`,
                     playerId: discordUserId,
                     gameName,
@@ -93,7 +93,7 @@ export class LobbyFeedGenerator {
                 await LobbyFeedService.emit({
                     gameRoomId,
                     type: 'score_posted',
-                    icon: '🎯',
+                    icon: undefined,
                     title: `${username} submitted ${formattedScore} on ${gameName}`,
                     playerId: discordUserId,
                     gameName,
@@ -114,7 +114,7 @@ export class LobbyFeedGenerator {
                             await LobbyFeedService.emit({
                                 gameRoomId,
                                 type: 'friend_score',
-                                icon: '\u{1F465}',
+                                icon: undefined,
                                 title: `Your friend ${username} posted ${formattedScore} on ${gameName}`,
                                 playerId: discordUserId,
                                 gameName,
