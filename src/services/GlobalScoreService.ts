@@ -294,7 +294,7 @@ export class GlobalScoreService {
                     `SELECT grl.global_game_id, gg.name
                      FROM game_room_game_library grl
                      LEFT JOIN global_games gg ON gg.id = grl.global_game_id
-                     WHERE grl.game_room_id = ? AND LOWER(grl.name) = LOWER(?)`,
+                     WHERE grl.game_room_id = ? AND LOWER(grl.game_name) = LOWER(?)`,
                     opts.gameRoomId, opts.gameName
                 );
                 if (row?.global_game_id) {
