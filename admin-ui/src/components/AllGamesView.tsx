@@ -1,80 +1,88 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Trophy, Clock, Users } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import CardRouter from './scoreboard/CardRouter';
+import { GameCard } from './ScoreboardComponents';
+import type { GameLeaderboard } from './ScoreboardComponents';
+import { deriveScoreboardConfig, deriveCardProps, getCardWidth } from '../lib/scoreboardConfig';
 
-interface GameLeaderboardSummary {
-  gameName: string;
+interface CommunityLeaderboardGame extends GameLeaderboard {
+  globalGameId: string | null;
+  lastPlayed: string;
   playerCount: number;
   totalScores: number;
-  lastPlayed: string;
-  globalGameId: string | null;
-  imageUrl: string | null;
-  topScores: Array<{
-    iscored_username: string;
-    best_score: number;
-  }>;
-}
-
-function toCatalogueUrl(path: string): string {
-  if (/^https?:\/\//i.test(path)) return path;
-  const m = path.match(/^\/?data\/catalogue-images\/(.+)$/);
-  if (m) return `/api/catalogue-images/${m[1]}`;
-  return path.startsWith('/') ? path : `/${path}`;
-}
-
-function relativeTime(iso: string): string {
-  const now = Date.now();
-  const then = new Date(iso).getTime();
-  const diff = now - then;
-  const hours = Math.floor(diff / 3600000);
-  if (hours < 1) return 'just now';
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return 'Yesterday';
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
 }
 
 interface AllGamesViewProps {
   roomId: string;
   slug: string;
+  config: Record<string, string>;
+  roomName: string;
+  viewerUsername?: string;
 }
 
-export default function AllGamesView({ roomId, slug }: AllGamesViewProps) {
-  const [games, setGames] = useState<GameLeaderboardSummary[]>([]);
+export default function AllGamesView({ roomId, slug, config, roomName, viewerUsername }: AllGamesViewProps) {
+  const [games, setGames] = useState<CommunityLeaderboardGame[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sort, setSort] = useState<'recent' | 'alpha'>('recent');
-  const [hasMore, setHasMore] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const PAGE_SIZE = 20;
+  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
 
-  const fetchGames = useCallback(async (reset = false) => {
-    const currentOffset = reset ? 0 : offset;
-    const params = new URLSearchParams({
-      sort,
-      limit: String(PAGE_SIZE),
-      offset: String(currentOffset),
-    });
+  const useNewCards = !!config.SCOREBOARD_STYLE;
+  const newConfig = deriveScoreboardConfig(config, roomName);
+  const legacyProps = deriveCardProps(config, roomName);
+  const cardWidth = useNewCards ? getCardWidth(newConfig.style) : legacyProps.cardWidth;
+  const cardGap = useNewCards ? newConfig.cardSpacing : 20;
+
+  // Debounced search
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
+
+  // Fetch games
+  const fetchGames = useCallback(async () => {
+    const params = new URLSearchParams({ sort: 'recent', limit: '50' });
+    if (search) params.set('search', search);
     try {
       const res = await fetch(`/api/rooms/${roomId}/community-leaderboards?${params}`);
       if (!res.ok) return;
-      const data: GameLeaderboardSummary[] = await res.json();
-      if (reset) {
-        setGames(data);
-        setOffset(data.length);
-      } else {
-        setGames(prev => [...prev, ...data]);
-        setOffset(currentOffset + data.length);
-      }
-      setHasMore(data.length >= PAGE_SIZE);
+      setGames(await res.json());
     } catch { /* ignore */ }
-  }, [roomId, sort, offset]);
+  }, [roomId, search]);
 
   useEffect(() => {
     setLoading(true);
-    setOffset(0);
-    fetchGames(true).finally(() => setLoading(false));
-  }, [roomId, sort]);
+    fetchGames().finally(() => setLoading(false));
+  }, [fetchGames]);
+
+  // Auto-scroll carousel — pauses on hover or when searching
+  useEffect(() => {
+    if (isHovered || search || games.length <= 1) return;
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const interval = setInterval(() => {
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      if (maxScroll <= 0) return;
+      const step = cardWidth + cardGap;
+      const nextPos = el.scrollLeft + step;
+      if (nextPos >= maxScroll) {
+        el.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        el.scrollTo({ left: nextPos, behavior: 'smooth' });
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isHovered, search, games.length, cardWidth, cardGap]);
+
+  const scrollBy = (direction: 1 | -1) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * (cardWidth + cardGap), behavior: 'smooth' });
+  };
 
   if (loading) {
     return (
@@ -84,7 +92,7 @@ export default function AllGamesView({ roomId, slug }: AllGamesViewProps) {
     );
   }
 
-  if (games.length === 0) {
+  if (games.length === 0 && !search) {
     return (
       <div className="text-center py-16">
         <p className="text-muted">No community scores yet.</p>
@@ -98,110 +106,140 @@ export default function AllGamesView({ roomId, slug }: AllGamesViewProps) {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4">
-      {/* Sort toggle */}
-      <div className="flex items-center gap-2 mb-4">
-        <button
-          onClick={() => setSort('recent')}
-          className={`px-3 py-1.5 text-xs rounded-lg border transition-colors cursor-pointer ${
-            sort === 'recent'
-              ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
-              : 'border-border/50 text-muted hover:text-primary'
-          }`}
-        >
-          <Clock size={12} className="inline mr-1" />
-          Recent
-        </button>
-        <button
-          onClick={() => setSort('alpha')}
-          className={`px-3 py-1.5 text-xs rounded-lg border transition-colors cursor-pointer ${
-            sort === 'alpha'
-              ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
-              : 'border-border/50 text-muted hover:text-primary'
-          }`}
-        >
-          A-Z
-        </button>
+    <div className="px-4 sm:px-6 pb-6">
+      {/* Search bar */}
+      <div className="max-w-md mx-auto mb-4">
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            type="text"
+            placeholder="Search games..."
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            className="w-full pl-10 pr-3 py-2 rounded-lg border border-border/50 bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan/40 text-sm"
+          />
+        </div>
       </div>
 
-      {/* Game cards grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {games.map(game => (
-          <Link
-            key={game.gameName}
-            to={game.globalGameId
-              ? `/games/${game.globalGameId}?from=${encodeURIComponent(slug)}`
-              : `/${slug}/games/${encodeURIComponent(game.gameName)}`}
-            className="no-underline block"
-          >
-            <div className="bg-surface border border-border/50 rounded-lg overflow-hidden hover:border-neon-cyan/30 transition-colors group">
-              {/* Image header */}
-              {game.imageUrl ? (
-                <div className="h-24 bg-deep overflow-hidden">
-                  <img
-                    src={toCatalogueUrl(game.imageUrl)}
-                    alt=""
-                    className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                  />
-                </div>
-              ) : (
-                <div className="h-12 bg-gradient-to-r from-neon-cyan/5 to-neon-magenta/5" />
-              )}
-
-              {/* Content */}
-              <div className="px-3 py-2.5">
-                <h3 className="text-sm font-semibold text-primary truncate">
-                  {game.gameName}
-                </h3>
-
-                {/* Stats row */}
-                <div className="flex items-center gap-3 mt-1.5 text-[10px] text-faint">
-                  <span className="flex items-center gap-1">
-                    <Users size={10} />
-                    {game.playerCount}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Trophy size={10} />
-                    {game.totalScores} scores
-                  </span>
-                  <span>{relativeTime(game.lastPlayed)}</span>
-                </div>
-
-                {/* Top scores */}
-                {game.topScores.length > 0 && (
-                  <div className="mt-2 space-y-0.5">
-                    {game.topScores.slice(0, 3).map((s, i) => (
-                      <div key={s.iscored_username} className="flex items-center justify-between text-[11px]">
-                        <span className="text-muted truncate">
-                          <span className={i === 0 ? 'text-neon-cyan' : 'text-faint'}>
-                            #{i + 1}
-                          </span>
-                          {' '}{s.iscored_username}
-                        </span>
-                        <span className="text-primary font-mono ml-2">
-                          {s.best_score.toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </Link>
-        ))}
-      </div>
-
-      {/* Load more */}
-      {hasMore && (
-        <div className="flex justify-center pt-6">
+      {games.length === 0 ? (
+        <div className="text-center py-12 text-muted text-sm">
+          No games found for &ldquo;{search}&rdquo;
+        </div>
+      ) : (
+        <div
+          className="relative group/carousel"
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+        >
+          {/* Left arrow */}
           <button
-            onClick={() => fetchGames(false)}
-            className="px-4 py-2 text-xs text-muted hover:text-neon-cyan border border-border/50 rounded-lg hover:border-neon-cyan/30 transition-colors cursor-pointer"
+            onClick={() => scrollBy(-1)}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-surface/90 border border-border/50 text-muted hover:text-primary hover:border-neon-cyan/40 opacity-0 group-hover/carousel:opacity-100 transition-opacity cursor-pointer backdrop-blur-sm"
+            aria-label="Previous"
           >
-            Load more
+            <ChevronLeft size={20} />
+          </button>
+
+          {/* Carousel container */}
+          <div
+            ref={scrollRef}
+            className="overflow-x-auto allgames-carousel"
+          >
+            <div
+              className="flex pb-2 px-8"
+              style={{ gap: cardGap }}
+            >
+              {games.map(game => {
+                const linkTo = game.globalGameId
+                  ? `/games/${game.globalGameId}?from=${encodeURIComponent(slug)}`
+                  : `/${slug}/games/${encodeURIComponent(game.gameName)}`;
+
+                return (
+                  <div
+                    key={game.gameName}
+                    className="flex-shrink-0 relative group/card"
+                    style={{ width: `min(${cardWidth}px, calc(100vw - 3rem))` }}
+                  >
+                    {/* Clickable overlay — navigates to game detail */}
+                    <Link
+                      to={linkTo}
+                      className="absolute inset-0 z-10"
+                      aria-label={game.gameName}
+                    />
+                    {useNewCards ? (
+                      <CardRouter
+                        lb={game}
+                        slug={slug}
+                        roomId={roomId}
+                        style={newConfig.style}
+                        theme={newConfig.theme}
+                        maxScores={newConfig.maxScores}
+                        minScores={newConfig.minScores}
+                        showTimer={false}
+                        cardBgFill={newConfig.cardBgFill}
+                        titleFontSize={newConfig.titleFontSize || undefined}
+                        viewerUsername={viewerUsername}
+                        qrMode="disabled"
+                        gameTitleStyle={newConfig.gameTitleStyle}
+                      />
+                    ) : (
+                      <GameCard
+                        lb={game}
+                        slug={slug}
+                        maxScores={legacyProps.maxScores}
+                        roomId={roomId}
+                        cardOpacity={legacyProps.cardOpacity}
+                        scoreColumns={legacyProps.scoreColumns}
+                        viewerUsername={viewerUsername}
+                        headerStyle={legacyProps.headerStyle}
+                        globalStyles={legacyProps.globalStyles}
+                        wheelScale={legacyProps.wheelScale}
+                        bgFill={legacyProps.bgFill}
+                        bgSize={legacyProps.bgSize}
+                        cardWidth={legacyProps.cardWidth}
+                        glassOpacity={legacyProps.glassOpacity}
+                        gameTitleStyle={legacyProps.gameTitleStyle}
+                        gameTitleEnhance={legacyProps.gameTitleEnhance}
+                        scoreStyle={legacyProps.scoreStyle}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right arrow */}
+          <button
+            onClick={() => scrollBy(1)}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-surface/90 border border-border/50 text-muted hover:text-primary hover:border-neon-cyan/40 opacity-0 group-hover/carousel:opacity-100 transition-opacity cursor-pointer backdrop-blur-sm"
+            aria-label="Next"
+          >
+            <ChevronRight size={20} />
           </button>
         </div>
       )}
+
+      <style>{`
+        .allgames-carousel {
+          scrollbar-width: thin;
+          scrollbar-color: var(--color-border) transparent;
+          scroll-behavior: smooth;
+        }
+        .allgames-carousel::-webkit-scrollbar {
+          height: 6px;
+        }
+        .allgames-carousel::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .allgames-carousel::-webkit-scrollbar-thumb {
+          background: var(--color-border);
+          border-radius: 3px;
+        }
+        .allgames-carousel::-webkit-scrollbar-thumb:hover {
+          background: var(--color-muted);
+        }
+      `}</style>
     </div>
   );
 }

@@ -1146,14 +1146,17 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const sort = (req.query.sort as string) || 'recent';
-        const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+        const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
         const offset = parseInt(req.query.offset as string) || 0;
+        const search = (req.query.search as string) || '';
         const db = await getDatabase();
 
         // Get unique games with community scores
         const orderBy = sort === 'alpha'
             ? 'game_name ASC'
             : 'last_played DESC';
+        const searchFilter = search ? 'AND LOWER(game_name) LIKE LOWER(?)' : '';
+        const searchParams = search ? [`%${search}%`] : [];
 
         const games = await db.all(`
             SELECT
@@ -1162,40 +1165,108 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
                 COUNT(*) as total_scores,
                 MAX(created_at) as last_played
             FROM community_scores
-            WHERE game_room_id = ?
+            WHERE game_room_id = ? ${searchFilter}
             GROUP BY LOWER(game_name)
             ORDER BY ${orderBy}
             LIMIT ? OFFSET ?
-        `, roomId, limit, offset);
+        `, roomId, ...searchParams, limit, offset);
 
-        // For each game, get top 5 scores
+        // For each game, get top scores with style resolution for card rendering
         const results = await Promise.all(games.map(async (game: any) => {
             const topScores = await db.all(`
                 SELECT
-                    iscored_username,
-                    MAX(score) as best_score,
-                    discord_user_id
-                FROM community_scores
-                WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
-                GROUP BY LOWER(iscored_username)
+                    cs.iscored_username,
+                    MAX(cs.score) as best_score,
+                    cs.discord_user_id,
+                    um.avatar_hash
+                FROM community_scores cs
+                LEFT JOIN user_mappings um ON cs.discord_user_id = um.discord_user_id
+                WHERE cs.game_room_id = ? AND LOWER(cs.game_name) = LOWER(?)
+                GROUP BY LOWER(cs.iscored_username)
                 ORDER BY best_score DESC
-                LIMIT 5
+                LIMIT 10
             `, roomId, game.game_name);
 
-            // Try to find catalogue image
+            // Style resolution: room library → game_library → global_games
+            const roomLib = await db.get(`
+                SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled, global_game_id
+                FROM game_room_game_library
+                WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
+            `, roomId, game.game_name);
+
+            const globalLib = await db.get(`
+                SELECT catalogue_style_id, global_game_id, display_name, image_url
+                FROM game_library WHERE LOWER(name) = LOWER(?)
+            `, game.game_name);
+
             const catalogueGame = await db.get(
                 "SELECT id, local_image_path, wheel_image_path, image_url FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1",
                 game.game_name
             );
 
+            const catalogueStyleId = roomLib?.catalogue_style_id || globalLib?.catalogue_style_id || null;
+            const logoStyleId = roomLib?.logo_style_id || null;
+            const bgStyleId = roomLib?.bg_style_id || null;
+            const styleHeaderDisabled = !!(roomLib?.style_header_disabled);
+
+            // Style catalogue image-presence flags
+            let bgHasBg = null, logoHasHeader = null, catHasBg = null, catHasHeader = null;
+            const styleIds = new Set([bgStyleId, logoStyleId, catalogueStyleId].filter(Boolean));
+            if (styleIds.size > 0) {
+                const placeholders = [...styleIds].map(() => '?').join(',');
+                const rows = await db.all(
+                    `SELECT id, has_background, has_header FROM style_catalogue WHERE id IN (${placeholders})`,
+                    ...[...styleIds]
+                );
+                const byId: Record<string, any> = {};
+                for (const r of rows) byId[r.id] = r;
+                if (bgStyleId && byId[bgStyleId]) bgHasBg = byId[bgStyleId].has_background;
+                if (logoStyleId && byId[logoStyleId]) logoHasHeader = byId[logoStyleId].has_header;
+                if (catalogueStyleId && byId[catalogueStyleId]) {
+                    catHasBg = byId[catalogueStyleId].has_background;
+                    catHasHeader = byId[catalogueStyleId].has_header;
+                }
+            }
+
+            const globalGameId = roomLib?.global_game_id || globalLib?.global_game_id || catalogueGame?.id || null;
+            const imageUrl = catalogueGame?.local_image_path || catalogueGame?.wheel_image_path || catalogueGame?.image_url || globalLib?.image_url || null;
+
             return {
+                // Card-compatible fields (GameLeaderboard shape)
+                gameId: globalGameId || `community_${game.game_name}`,
                 gameName: game.game_name,
+                displayName: globalLib?.display_name || null,
+                tournamentName: 'Community',
+                tournamentType: 'community',
+                imageUrl,
+                gameStatus: 'COMMUNITY',
+                catalogueStyleId,
+                logoStyleId,
+                bgStyleId,
+                styleHeaderDisabled,
+                bgHasBg,
+                logoHasHeader,
+                catHasBg,
+                catHasHeader,
+                externalUrl: null,
+                notes: null,
+                rankings: topScores.map((s: any, i: number) => ({
+                    rank: i + 1,
+                    discord_user_id: s.discord_user_id || '',
+                    iscored_username: s.iscored_username,
+                    score: s.best_score,
+                    avatar_hash: s.avatar_hash || null,
+                })),
+                // Extra metadata
+                globalGameId,
+                lastPlayed: game.last_played,
                 playerCount: game.player_count,
                 totalScores: game.total_scores,
-                lastPlayed: game.last_played,
-                topScores,
-                globalGameId: catalogueGame?.id || null,
-                imageUrl: catalogueGame?.local_image_path || catalogueGame?.wheel_image_path || catalogueGame?.image_url || null,
+                // Legacy format for Freeplay backward compat
+                topScores: topScores.map((s: any) => ({
+                    iscored_username: s.iscored_username,
+                    best_score: s.best_score,
+                })),
             };
         }));
 

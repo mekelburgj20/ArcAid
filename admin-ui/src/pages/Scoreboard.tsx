@@ -328,7 +328,7 @@ export default function Scoreboard() {
       </div>
 
       {tab === 'all' ? (
-        <AllGamesView roomId={roomId} slug={slug || ''} />
+        <AllGamesView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
       ) : (
       <>
       {/* Game cards */}
