@@ -318,6 +318,18 @@ export class GlobalScoreService {
                 }
             }
 
+            if (!globalGameId) {
+                // Direct lookup in global_games catalogue by name
+                const row = await db.get(
+                    `SELECT id, name FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
+                    opts.gameName
+                );
+                if (row) {
+                    globalGameId = row.id;
+                    globalGameName = row.name;
+                }
+            }
+
             if (!globalGameId) return null;
 
             // Dedup: if a row already exists for this player+game+score+room origin,
