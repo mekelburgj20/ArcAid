@@ -129,7 +129,9 @@ export default function AllGamesView({ roomId, slug }: AllGamesViewProps) {
         {games.map(game => (
           <Link
             key={game.gameName}
-            to={`/${slug}/games/${encodeURIComponent(game.gameName)}`}
+            to={game.globalGameId
+              ? `/games/${game.globalGameId}`
+              : `/${slug}/games/${encodeURIComponent(game.gameName)}`}
             className="no-underline block"
           >
             <div className="bg-surface border border-border/50 rounded-lg overflow-hidden hover:border-neon-cyan/30 transition-colors group">

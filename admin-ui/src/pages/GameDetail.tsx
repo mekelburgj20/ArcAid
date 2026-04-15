@@ -93,7 +93,7 @@ export default function GameDetail() {
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('leaderboard');
+  const [activeTab, setActiveTab] = useState<Tab>('community');
 
   // Expandable score history per player in leaderboard
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
@@ -353,25 +353,19 @@ export default function GameDetail() {
     );
   }
 
-  if (!stats) {
-    return (
-      <div className="text-center py-24 px-4">
-        <p className="text-muted mb-2">No stats available for <span className="text-primary font-medium">{name}</span>.</p>
-        <p className="text-faint text-sm mb-4">This game hasn&apos;t been played in a tournament yet.</p>
-        <Link to={`/${slug}/games`} className="text-neon-cyan text-sm hover:text-neon-cyan/80 no-underline transition-colors">
-          &larr; Back to Game Availability
-        </Link>
-      </div>
-    );
-  }
-
   const imageUrl = leaderboard?.imageUrl;
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'leaderboard', label: 'Leaderboard' },
-    { id: 'community', label: 'Community' },
-    { id: 'tips', label: 'Tips & Comments' },
-    { id: 'player-stats', label: 'Player Stats' },
-  ];
+  const hasTournamentData = !!stats;
+  const tabs: { id: Tab; label: string }[] = hasTournamentData
+    ? [
+        { id: 'leaderboard', label: 'Leaderboard' },
+        { id: 'community', label: 'Community' },
+        { id: 'tips', label: 'Tips & Comments' },
+        { id: 'player-stats', label: 'Player Stats' },
+      ]
+    : [
+        { id: 'community', label: 'Community' },
+        { id: 'tips', label: 'Tips & Comments' },
+      ];
 
   return (
     <div>
@@ -389,7 +383,7 @@ export default function GameDetail() {
           <Link to={`/${slug}`} className="text-white/50 text-xs hover:text-white/70 no-underline transition-colors">
             &larr; Scoreboard
           </Link>
-          <h2 className="font-display text-2xl font-bold text-white mt-1">{stats.gameName}</h2>
+          <h2 className="font-display text-2xl font-bold text-white mt-1">{stats?.gameName || name}</h2>
           {leaderboard && (
             <p className="text-white/50 text-xs uppercase tracking-wider">{leaderboard.tournamentName}</p>
           )}
@@ -405,13 +399,15 @@ export default function GameDetail() {
       </div>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
-        {/* Stat Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatCard label="Times Featured" value={stats.timesPlayed.toString()} color="text-neon-cyan" />
-          <StatCard label="Unique Players" value={stats.uniquePlayers.toString()} color="text-neon-green" />
-          <StatCard label="Avg Score" value={stats.avgScore.toLocaleString()} color="text-muted" />
-          <StatCard label="All-Time High" value={stats.allTimeHigh.toLocaleString()} color="text-neon-amber" />
-        </div>
+        {/* Stat Cards — only when tournament data exists */}
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <StatCard label="Times Featured" value={stats.timesPlayed.toString()} color="text-neon-cyan" />
+            <StatCard label="Unique Players" value={stats.uniquePlayers.toString()} color="text-neon-green" />
+            <StatCard label="Avg Score" value={stats.avgScore.toLocaleString()} color="text-muted" />
+            <StatCard label="All-Time High" value={stats.allTimeHigh.toLocaleString()} color="text-neon-amber" />
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex border-b border-border mb-6">
@@ -513,7 +509,7 @@ export default function GameDetail() {
             )}
 
             {/* Record Holder */}
-            {stats.allTimeHighPlayer && (
+            {stats?.allTimeHighPlayer && (
               <div className="bg-surface border border-neon-amber/30 rounded-lg p-5 mb-8 text-center">
                 <p className="text-faint text-xs uppercase tracking-wider mb-1">All-Time Record Holder</p>
                 <p className="font-display text-xl font-bold text-neon-amber">{stats.allTimeHighPlayer}</p>
@@ -522,7 +518,7 @@ export default function GameDetail() {
             )}
 
             {/* Past Results */}
-            {stats.recentResults.length > 0 && (
+            {stats && stats.recentResults.length > 0 && (
               <div>
                 <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Past Results</h2>
                 <div className="bg-surface border border-border rounded-lg overflow-hidden">
