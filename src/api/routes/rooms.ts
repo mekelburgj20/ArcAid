@@ -1195,7 +1195,7 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
             `, roomId, game.game_name);
 
             const globalLib = await db.get(`
-                SELECT catalogue_style_id, global_game_id, display_name, image_url
+                SELECT global_game_id, display_name, image_url
                 FROM game_library WHERE LOWER(name) = LOWER(?)
             `, game.game_name);
 
