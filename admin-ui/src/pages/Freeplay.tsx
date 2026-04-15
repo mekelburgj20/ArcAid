@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Search, Upload, Camera, Trash2, X, Filter, Trophy, Users } from 'lucide-react';
+import { Search, Upload, Camera, Trash2, X, Filter } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
@@ -167,60 +167,9 @@ export default function Freeplay() {
       ) : communityGames.length > 0 ? (
         <div className="mb-8">
           <h3 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Recently Played</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
             {communityGames.map(game => (
-              <Link
-                key={game.gameName}
-                to={game.globalGameId
-                  ? `/games/${game.globalGameId}?from=${encodeURIComponent(slug || '')}`
-                  : `/${slug}/games/${encodeURIComponent(game.gameName)}`}
-                className="no-underline block"
-              >
-                <div className="bg-surface border border-border/50 rounded-lg overflow-hidden hover:border-neon-cyan/30 transition-colors group">
-                  {game.imageUrl ? (
-                    <div className="h-24 bg-deep overflow-hidden">
-                      <img
-                        src={toCatalogueUrl(game.imageUrl)}
-                        alt=""
-                        className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                      />
-                    </div>
-                  ) : (
-                    <div className="h-12 bg-gradient-to-r from-neon-cyan/5 to-neon-magenta/5" />
-                  )}
-                  <div className="px-3 py-2.5">
-                    <h4 className="text-sm font-semibold text-primary truncate">{game.gameName}</h4>
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-faint">
-                      <span className="flex items-center gap-1">
-                        <Users size={10} />
-                        {game.playerCount}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Trophy size={10} />
-                        {game.totalScores} scores
-                      </span>
-                      <span>{relativeTime(game.lastPlayed)}</span>
-                    </div>
-                    {game.topScores.length > 0 && (
-                      <div className="mt-2 space-y-0.5">
-                        {game.topScores.slice(0, 3).map((s, i) => (
-                          <div key={s.iscored_username} className="flex items-center justify-between text-[11px]">
-                            <span className="text-muted truncate">
-                              <span className={i === 0 ? 'text-neon-cyan' : 'text-faint'}>
-                                #{i + 1}
-                              </span>
-                              {' '}{s.iscored_username}
-                            </span>
-                            <span className="text-primary font-mono ml-2">
-                              {s.best_score.toLocaleString()}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </Link>
+              <CommunityGameCard key={game.gameName} game={game} slug={slug || ''} />
             ))}
           </div>
         </div>
@@ -358,6 +307,111 @@ export default function Freeplay() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+const RANK_STYLES: Record<number, { bg: string; border: string; rank: string; score: string; label: string }> = {
+  1: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', rank: 'text-yellow-400', score: 'text-yellow-300', label: '\u{1F3C6} 1st' },
+  2: { bg: 'bg-gray-300/10', border: 'border-gray-400/30', rank: 'text-gray-300', score: 'text-gray-200', label: '2nd' },
+  3: { bg: 'bg-amber-700/10', border: 'border-amber-600/30', rank: 'text-amber-500', score: 'text-amber-400', label: '3rd' },
+};
+
+function formatScore(n: number): string {
+  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
+  return n.toLocaleString();
+}
+
+function PodiumSlot({ username, score, rank, large }: { username?: string; score?: number; rank: number; large?: boolean }) {
+  const s = RANK_STYLES[rank] || RANK_STYLES[3];
+  return (
+    <div className={`flex-1 min-w-0 rounded-lg border ${s.border} ${s.bg} flex flex-col items-center justify-center gap-0.5 ${large ? 'py-2.5 px-1.5' : 'py-1.5 px-1'}`}>
+      <span className={`text-[10px] font-bold ${s.rank}`}>{s.label}</span>
+      {username ? (
+        <>
+          <span className={`font-semibold truncate max-w-full ${large ? 'text-xs' : 'text-[11px]'}`}>
+            {username}
+          </span>
+          <span
+            className={`font-mono font-bold ${s.score} ${large ? 'text-xs' : 'text-[11px]'}`}
+            title={score && score >= 1e12 ? score.toLocaleString() : undefined}
+          >
+            {score ? formatScore(score) : '—'}
+          </span>
+        </>
+      ) : (
+        <span className="text-[11px] text-muted/30 italic">—</span>
+      )}
+    </div>
+  );
+}
+
+function CommunityGameCard({ game, slug }: { game: CommunityGame; slug: string }) {
+  const img = game.imageUrl ? toCatalogueUrl(game.imageUrl) : null;
+  const scores = game.topScores || [];
+  const podium = [scores[0], scores[1], scores[2]];
+  const list = scores.slice(3, 5);
+  const linkTo = game.globalGameId
+    ? `/games/${game.globalGameId}?from=${encodeURIComponent(slug)}`
+    : `/${slug}/games/${encodeURIComponent(game.gameName)}`;
+
+  return (
+    <div className="group relative rounded-xl border border-border bg-surface overflow-hidden hover:border-neon-cyan/60 transition-colors flex flex-col">
+      <Link to={linkTo} className="block no-underline">
+        <div className="px-3 pt-3 pb-1 text-center">
+          <h3 className="font-display font-bold text-xl leading-tight text-primary line-clamp-2">{game.gameName}</h3>
+          <div className="text-sm text-muted/80 mt-0.5">
+            {game.playerCount} player{game.playerCount !== 1 ? 's' : ''} · {game.totalScores} score{game.totalScores !== 1 ? 's' : ''}
+          </div>
+        </div>
+      </Link>
+
+      <Link to={linkTo} className="block no-underline">
+        <div className="relative h-28 bg-deep mx-3 rounded-lg overflow-hidden">
+          {img ? (
+            <img src={img} alt={game.gameName} className="absolute inset-0 w-full h-full object-cover opacity-70" />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center text-muted text-xs">No image</div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-surface/40 to-transparent" />
+        </div>
+      </Link>
+
+      {/* Podium */}
+      <div className="px-3 pt-2 pb-1">
+        <div className="flex justify-center mb-1.5">
+          <div className="w-[60%] min-w-[100px]">
+            <PodiumSlot username={podium[0]?.iscored_username} score={podium[0]?.best_score} rank={1} large />
+          </div>
+        </div>
+        <div className="flex gap-1.5">
+          <PodiumSlot username={podium[1]?.iscored_username} score={podium[1]?.best_score} rank={2} />
+          <PodiumSlot username={podium[2]?.iscored_username} score={podium[2]?.best_score} rank={3} />
+        </div>
+      </div>
+
+      {/* 4th–5th list */}
+      <div className="px-3 pt-1 pb-1 flex-1">
+        {list.length > 0 && (
+          <div className="border-t border-border/40 pt-1.5 space-y-0.5">
+            {list.map((e, i) => (
+              <div key={e.iscored_username} className="flex items-center gap-1.5 text-[11px]">
+                <span className="text-muted w-4 text-right font-mono">{i + 4}.</span>
+                <span className="truncate flex-1">{e.iscored_username}</span>
+                <span className="font-mono text-muted">{formatScore(e.best_score)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {!podium[0] && (
+          <div className="text-center py-2 text-muted text-[11px] italic">No scores yet</div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-3 pb-2.5 pt-1.5 flex items-center justify-center border-t border-border/30 mt-auto">
+        <span className="text-[10px] text-muted">{relativeTime(game.lastPlayed)}</span>
+      </div>
     </div>
   );
 }

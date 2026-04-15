@@ -313,7 +313,7 @@ export default function GlobalGameDetail() {
     return (
       <div className="min-h-screen bg-deep text-primary flex flex-col items-center justify-center gap-4 p-6">
         <div className="text-muted">Game not found.</div>
-        <Link to={fromSlug ? `/${fromSlug}` : '/scoreboard'} className="text-neon-cyan hover:underline">
+        <Link to={fromSlug ? `/${fromSlug}/freeplay` : '/scoreboard'} className="text-neon-cyan hover:underline">
           ← {fromSlug ? `Back to ${fromSlug}` : 'Back to global scoreboard'}
         </Link>
       </div>
@@ -326,7 +326,7 @@ export default function GlobalGameDetail() {
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <Link
-            to={fromSlug ? `/${fromSlug}` : '/scoreboard'}
+            to={fromSlug ? `/${fromSlug}/freeplay` : '/scoreboard'}
             className="flex items-center gap-2 text-xs text-muted hover:text-neon-cyan no-underline"
           >
             <ArrowLeft className="w-4 h-4" />
