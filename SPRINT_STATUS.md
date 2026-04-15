@@ -313,7 +313,7 @@
 - [x] Admin leaderboard inline rankings — matches public scoreboard behavior (inline ranking cards when `rankingsSticky` is off)
 - [x] DMD rendering fix — removed `imageRendering: pixelated` to eliminate moiré/plaid pattern at scaled display sizes
 
-### Lobby & Social Features (2026-04-14)
+### Lobby & Social Features (2026-04-14→2026-04-15)
 
 **Phase 0: Bug Fixes**
 - [x] Admin leaderboard "View Public Scoreboard" link
@@ -328,9 +328,10 @@
 - [x] WebSocket: `join:lobby`/`leave:lobby` channels + `emitLobbyEvent()` for live feed updates
 - [x] Scheduler: `startLobbyFeedCleanup()` cron job (3:30 AM, 90-day retention)
 - [x] `Lobby.tsx` — public lobby page with activity stream, infinite scroll, WebSocket live updates
-- [x] `AllGamesView.tsx` — Scoreboard "All Games" tab with community score grid
+- [x] `AllGamesView.tsx` — Scoreboard "All Games" tab: auto-cycling carousel with room card styles (CardRouter/GameCard), search bar, left/right arrows, hover-pause
 - [x] Scoreboard tab toggle (Tournament | All Games)
 - [x] Lobby nav item (first position, MessageSquare icon) in PublicLayout
+- [x] `community-leaderboards` endpoint enhanced — returns `GameLeaderboard`-compatible data with style resolution (room library → game_library → style_catalogue), search param, rankings array + avatar hashes
 
 **Phase 2: Lobby Content & Admin**
 - [x] Migration 044: `lobby_announcements` table
@@ -348,7 +349,7 @@
 - [x] `MilestoneService.ts` — threshold-based milestone detection (scores submitted, unique games, #1 positions)
 - [x] Milestone events emitted from LobbyFeedGenerator on score submission
 
-**Phase 4: Social Features**
+**Phase 4: Social Features (PARTIAL)**
 - [x] Migration 046: `friendships` table (unidirectional follow model)
 - [x] Migration 047: `notification_prefs` column on `user_preferences`
 - [x] `FriendsService.ts` — friend CRUD, reverse lookup for feed events
@@ -357,23 +358,50 @@
 - [x] Friend score events in lobby feed (targeted to friend's viewer)
 - [x] Friends link (UserPlus icon) in PublicLayout avatar area
 - [x] Route: `/friends` with ViewerAuthProvider
+- [ ] `NotificationService.ts` — Discord DM dispatch with user prefs + rate limiting (5/user/hour)
+- [ ] Notification dispatch hooks (rank dethroned, friend score, tournament win, turn to pick, tournament starting)
+- [ ] Discord `/arcaid-notifications` slash command (show/toggle notification prefs)
 
-**Phase 5: Polish & Engagement**
+**Phase 5: Polish & Engagement (PARTIAL)**
 - [x] Freeplay contextual leaders — top 5 scores shown in submit modal via `/community-scores/:gameName/leaders`
 - [x] Activity indicator in nav — localStorage-based last-seen tracking, cyan dot badge on Lobby icon
+- [ ] Kiosk lobby ticker — scrolling feed events at bottom of KioskScoreboard
+- [ ] Feed coalescing — collapse 3+ score_posted events from same player within 1 hour
+- [ ] Notification rate limiting & coalescing — batch 3+ same-type notifications into summary
+
+### Cross-Page UX Improvements (2026-04-15)
+- [x] GameDetail non-tournament support — removed bail on null stats, conditional tournament tabs, default to community tab
+- [x] GlobalGameDetail room context — `?from=slug` preserves room context, back link goes to `/:slug/freeplay`
+- [x] Freeplay podium cards — rewritten to match GlobalScoreboard card style (RANK_STYLES, PodiumSlot, CommunityGameCard)
+- [x] Global score fan-out fixes:
+  - Fixed `grl.name` → `grl.game_name` in `fanOutFromRoomSubmission()` (critical — was silently killing ALL fan-out via game_room_game_library path)
+  - Added 4th fallback lookup directly against `global_games` table by name
+- [x] All Games cards link to GlobalGameDetail when globalGameId exists, with room context via `?from=slug`
 
 ## Last Session
 
-**Date:** 2026-04-14
-**What happened:** Implemented full Lobby & Social Features (Phases 0-5) from the implementation plan.
+**Date:** 2026-04-15
+**What happened:** Fixed cross-page UX issues (game detail, freeplay, global score fan-out), then rewrote All Games tab as auto-cycling carousel with room card styles and search.
 
 **Work done this session:**
-- **Lobby & Social Features:** Complete implementation of all 6 phases from the plan in `tmp/arcaid_lobby_social.md`. Created 16 new files (7 backend services, 9 frontend pages/components). Modified 12 existing files. Added 5 database migrations (043-047). All builds pass clean.
-- **Key new capabilities:** Public lobby page with live activity stream (WebSocket), announcements rail, community shelf, social links. Admin lobby management panel. Friends system. Milestone detection. Tournament event hooks. Freeplay contextual leaders. Nav activity indicator.
+- **GameDetail non-tournament support:** Removed bail on null stats, added conditional tournament tabs, default to community tab
+- **GlobalGameDetail room context:** `?from=slug` param preserves room context; back link navigates to `/:slug/freeplay`
+- **Freeplay podium cards:** Rewritten CommunityGameCard with GlobalScoreboard-style podium layout (RANK_STYLES, PodiumSlot)
+- **Global score fan-out fixes:** Fixed `grl.name` → `grl.game_name` (was silently breaking ALL fan-out); added direct `global_games` name lookup as 4th fallback
+- **AllGamesView carousel:** Rewritten to use same CardRouter/GameCard as tournament tab, auto-cycles every 5s, pauses on hover, left/right arrows, search bar at top
+- **community-leaderboards endpoint:** Enhanced to return GameLeaderboard-compatible format with style resolution (room library → game_library → style_catalogue), search param, rankings with avatar hashes
+- **Bug fix:** `game_library` table has no `catalogue_style_id` column — fixed SQL query
 
-**Git state:** On `main`, uncommitted changes across backend and admin-ui.
+**Git state:** On `main`, all committed and deployed. Latest commit: `cb481504` (fix: community-leaderboards query)
 
-**Production notes:** Needs build + deploy. All TypeScript compiles clean (backend + admin-ui).
+**Production status:** Deployed and healthy. CI/CD run 24459681027 completed.
+
+**Known issue:** User reported All Games and Freeplay showing no games after the carousel deploy. Traced to `catalogue_style_id` column missing from `game_library` table (500 error from endpoint). Fix deployed (`cb481504`) but user hasn't confirmed yet.
+
+**Next up:**
+- Verify All Games carousel and Freeplay are working after the SQL fix
+- Discord push notifications: `NotificationService` (DM dispatch + prefs + rate limiting), notification hooks (rank dethroned, friend score, tournament win, turn to pick), Discord `/arcaid-notifications` command
+- Remaining Phase 5 polish: kiosk lobby ticker, feed coalescing
 
 ## Blockers
 
