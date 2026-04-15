@@ -33,3 +33,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | # | Title | Status | Date |
 |---|---|---|---|
 | 0001 | [Device-specific scoreboard preferences](0001-device-specific-preferences.md) | accepted | 2026-04-12 |
+| 0002 | [Decoupled logo consumption paths](0002-decoupled-logo-paths.md) | accepted | 2026-04-14 |

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams, useLocation } from 'react-router-dom';
-import { Users, Monitor, Gamepad2, BarChart3, LogOut, Joystick, Trophy, Settings, Settings2 } from 'lucide-react';
+import { Users, Monitor, Gamepad2, BarChart3, LogOut, Joystick, Trophy, Settings, Settings2, MessageSquare, UserPlus } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface PublicLayoutProps {
@@ -13,9 +13,12 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const [roomName, setRoomName] = useState(gameRoomName || 'ARCAID');
   const { discordUser, loginWithDiscord, logoutPlayer } = useViewerAuth();
 
+  const [lobbyHasNew, setLobbyHasNew] = useState(false);
+
   // Show prefs gear only on scoreboard page (/:slug with no extra segments)
   const pathParts = location.pathname.split('/').filter(Boolean);
   const isScoreboard = pathParts.length === 1 && !!slug;
+  const isLobbyPage = pathParts.length === 2 && pathParts[1] === 'lobby';
 
   useEffect(() => {
     if (gameRoomName) { setRoomName(gameRoomName); return; }
@@ -29,9 +32,37 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       .catch(() => {});
   }, [slug, gameRoomName]);
 
+  // Lobby activity indicator: check for unseen events
+  useEffect(() => {
+    if (!slug) return;
+    // When on lobby page, mark as seen
+    if (isLobbyPage) {
+      localStorage.setItem(`lobby_last_seen_${slug}`, new Date().toISOString());
+      setLobbyHasNew(false);
+      return;
+    }
+    // Otherwise, check if there are newer events
+    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(portal => {
+        if (!portal?.roomId) return;
+        return fetch(`/api/rooms/${portal.roomId}/lobby/feed?limit=1`);
+      })
+      .then(r => r?.ok ? r.json() : null)
+      .then(events => {
+        if (!events?.length) return;
+        const lastSeen = localStorage.getItem(`lobby_last_seen_${slug}`);
+        if (!lastSeen || new Date(events[0].created_at) > new Date(lastSeen)) {
+          setLobbyHasNew(true);
+        }
+      })
+      .catch(() => {});
+  }, [slug, location.pathname]);
+
   const hasAdminToken = !!localStorage.getItem('arcaid_token');
 
   const navItems = [
+    { path: `/${slug}/lobby`, label: 'Lobby', icon: <MessageSquare size={16} /> },
     { path: `/${slug}`, label: 'Scoreboard', icon: <Monitor size={16} />, end: true },
     { path: `/${slug}/games`, label: 'Game Picks', icon: <Gamepad2 size={16} /> },
     { path: `/${slug}/freeplay`, label: 'Freeplay', icon: <Joystick size={16} /> },
@@ -56,7 +87,12 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 to={item.path}
                 className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-2 text-xs sm:text-sm text-muted hover:text-neon-cyan rounded transition-colors no-underline"
               >
-                {item.icon}
+                {item.label === 'Lobby' && lobbyHasNew ? (
+                  <span className="relative">
+                    {item.icon}
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-neon-cyan rounded-full" />
+                  </span>
+                ) : item.icon}
                 <span className="hidden sm:inline">{item.label}</span>
               </Link>
             ))}
@@ -88,6 +124,13 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                   </div>
                 )}
                 <span className="hidden lg:inline text-xs text-muted truncate max-w-[80px]">{discordUser.username}</span>
+                <Link
+                  to="/friends"
+                  className="p-1 text-muted hover:text-neon-cyan transition-colors no-underline"
+                  title="Friends"
+                >
+                  <UserPlus size={14} />
+                </Link>
                 {isScoreboard && (
                   <button
                     onClick={() => window.dispatchEvent(new Event('open-scoreboard-prefs'))}

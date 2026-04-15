@@ -596,6 +596,81 @@ export async function initDatabase(): Promise<Database> {
                 FOREIGN KEY (global_game_id) REFERENCES global_games (id) ON DELETE CASCADE
             )
         ` },
+        { name: '043_lobby_feed_events', sql: `
+            CREATE TABLE IF NOT EXISTS lobby_feed_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_room_id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'system',
+                icon TEXT,
+                title TEXT NOT NULL,
+                subtitle TEXT,
+                player_id TEXT,
+                game_name TEXT,
+                tournament_id TEXT,
+                target_user_id TEXT,
+                metadata TEXT DEFAULT '{}',
+                created_at TEXT DEFAULT (datetime('now')),
+                expires_at TEXT,
+                FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_lobby_feed_room_created ON lobby_feed_events(game_room_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_lobby_feed_type ON lobby_feed_events(game_room_id, type);
+            CREATE INDEX IF NOT EXISTS idx_lobby_feed_target ON lobby_feed_events(target_user_id);
+        ` },
+        { name: '044_lobby_announcements', sql: `
+            CREATE TABLE IF NOT EXISTS lobby_announcements (
+                id TEXT PRIMARY KEY,
+                game_room_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT,
+                image_url TEXT,
+                cta_url TEXT,
+                cta_label TEXT,
+                type TEXT NOT NULL DEFAULT 'announcement',
+                event_datetime TEXT,
+                display_from TEXT NOT NULL DEFAULT (datetime('now')),
+                display_until TEXT,
+                sort_order INTEGER DEFAULT 0,
+                created_by TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_lobby_announcements_room ON lobby_announcements(game_room_id);
+        ` },
+        { name: '045_community_shelf_items', sql: `
+            CREATE TABLE IF NOT EXISTS community_shelf_items (
+                id TEXT PRIMARY KEY,
+                game_room_id TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'link',
+                url TEXT NOT NULL,
+                title TEXT NOT NULL,
+                thumbnail TEXT,
+                description TEXT,
+                sort_order INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_community_shelf_room ON community_shelf_items(game_room_id);
+        ` },
+        { name: '046_friendships', sql: `
+            CREATE TABLE IF NOT EXISTS friendships (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                friend_user_id TEXT NOT NULL,
+                friend_discord_username TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(user_id, friend_user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_friendships_user ON friendships(user_id);
+            CREATE INDEX IF NOT EXISTS idx_friendships_friend ON friendships(friend_user_id);
+        ` },
+        { name: '047_notification_prefs', sql: `
+            ALTER TABLE user_preferences ADD COLUMN notification_prefs TEXT DEFAULT '{}';
+        ` },
     ];
 
     for (const migration of migrations) {

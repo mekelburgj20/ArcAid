@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Lock, Trash2, Pencil, StickyNote } from 'lucide-react';
+import { Lock, Trash2, Pencil, StickyNote, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
@@ -127,7 +127,18 @@ export default function Leaderboard() {
 
   return (
     <div>
-      <h1 className="font-display text-2xl font-bold mb-6">Leaderboards</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="font-display text-2xl font-bold">Leaderboards</h1>
+        <a
+          href={`/${room.roomSlug}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-xs text-muted hover:text-neon-cyan transition-colors no-underline"
+        >
+          <ExternalLink size={14} />
+          <span>View Public Scoreboard</span>
+        </a>
+      </div>
 
       {/* Scoreboard Preview — matches public layout */}
       <div

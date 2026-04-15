@@ -165,6 +165,15 @@ export class ScoreSyncPoller {
                                         source: 'sync',
                                     });
 
+                                    // Fire-and-forget lobby feed event
+                                    import('../services/LobbyFeedGenerator.js').then(({ LobbyFeedGenerator }) => {
+                                        LobbyFeedGenerator.onScoreSubmitted({
+                                            gameRoomId: tournament.game_room_id, gameName: localGame.name,
+                                            username: resolvedName, score: scoreValue,
+                                            discordUserId, source: 'sync',
+                                        }).catch(() => {});
+                                    }).catch(() => {});
+
                                     // Fan-out to global scoreboard (best-effort)
                                     const { GlobalScoreService } = await import('../services/GlobalScoreService.js');
                                     const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({

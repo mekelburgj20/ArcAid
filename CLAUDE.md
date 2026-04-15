@@ -78,6 +78,7 @@ Two sub-applications in one process:
   - **Import:** `VpsImportService` (VPS database JSON + global catalogue), `WizardImportService` (VPXS Wizard + Manual Install tables from GitHub), `OPDBImportService` (OPDB bulk pinball machine import), `IGDBImportService` (IGDB arcade/console games via Twitch OAuth)
   - **Global Catalogue:** `GlobalGameService` (catalogue CRUD, upsert with dedup, search, merge cascade), `SyncLogService` (sync log tracking + Discord alerts on failure)
   - **Global Scoreboard:** `GlobalScoreService` (score submissions, fan-out from room scores, soft/hard delete, bans), `GlobalLeaderboardService` (caching, recalculate, top games by popularity), `ScoreReportService` (score reporting and moderation)
+  - **Lobby & Social:** `LobbyFeedService` (feed event CRUD, cursor pagination, 90-day cleanup, WebSocket emit), `LobbyFeedGenerator` (score event generation hooked into all 5 submission paths), `AnnouncementService` (announcement CRUD with active/scheduled/expired), `CommunityShelfService` (shelf CRUD + reorder, URL type auto-detection), `MilestoneService` (threshold-based milestone detection), `FriendsService` (unidirectional friend follow/unfollow, reverse lookup for feed events)
 - `src/utils/` — `discord.ts` (sendChannelMessage, sendDirectMessage, resolveDiscordUserId), `terminology.ts`, `cooldown.ts`, `startup.ts`, `logger.ts`, `config.ts`, `platformRules.ts` (shared platform eligibility check for API + Discord), `cronUtils.ts` (getNextRunTime via cron-parser for countdown timers), `catalogueUtils.ts` (normalizeGameName for dedup matching), `platformMapping.ts` (canonical platform IDs, IGDB/VPS/OPDB normalization, PLATFORM_GROUPS)
 
 **Admin UI (`admin-ui/src/`):**
@@ -85,9 +86,10 @@ Two sub-applications in one process:
 - **Layouts:** `SuperAdminLayout` (`/admin/*`), `RoomAdminLayout` (`/:slug/admin/*`), `PublicLayout` (`/:slug/*`)
 - **Room context:** `admin-ui/src/contexts/RoomContext.tsx` provides `roomId`, `roomSlug`, `roomName` to room pages
 - **Super-admin pages:** SuperAdminDashboard, GameRoomManager, GlobalSettings, StyleCatalogue (+ shared: Logs, Backups, MasterGameLibrary)
-- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, GameStates (game state management escape hatch), StyleCatalogue (upload to global catalogue), Settings (includes Users section), ActivityLog
-- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard, ScoreSubmit, Freeplay (catalogue browse + score submit)
+- **Room admin pages:** Dashboard, Tournaments, GameLibrary, Leaderboard, Rankings, Stats, History, GameStates (game state management escape hatch), StyleCatalogue (upload to global catalogue), LobbyAdmin (lobby content management), Settings (includes Users section), ActivityLog
+- **Public pages (no auth):** LandingPage, Scoreboard, Players, PlayerDetail, GameDetail, GameAvailability, InviteAccept, PublicStats, KioskScoreboard, ScoreSubmit, Freeplay (catalogue browse + score submit), Lobby (live activity feed + announcements + community shelf)
 - **Global pages:** GlobalScoreboard (`/scoreboard`), GlobalCatalogue (`/catalogue`), GlobalGameDetail (`/games/:id`)
+- **Social pages:** Friends (`/friends`, requires Discord login)
 - **Viewer auth context:** `ViewerAuthContext.tsx` provides `discordUser`, `playerToken`, `loginWithDiscord`, `logoutPlayer`, `usePlayerHeaders` — wraps public routes via `ViewerAuthProvider` in App.tsx. Auto-refreshes player tokens via refresh token (60s check, 5min pre-expiry threshold).
 - **Scoreboard config:** `admin-ui/src/lib/scoreboardConfig.ts` exports `deriveCardProps(settings)` (legacy) and `deriveScoreboardConfig(settings)` (new style/theme system) — shared config derivation used by Scoreboard, KioskScoreboard, and ScoreboardPreview
 - **Scoreboard card system:** Style+Theme 2-level selection (`SCOREBOARD_STYLE` + `SCOREBOARD_THEME`). Three styles: Banner (280px, iScored-compatible), Showcase (380px, art-forward with podium), Minimal (typography-only). Two Showcase themes: Glass Deck, Neon Circuit. `CardRouter.tsx` dispatches to `BannerCard`/`ShowcaseCard`/`MinimalCard`. Theme registry in `scoreboardThemes.ts`. Dual-path: new cards render when `SCOREBOARD_STYLE` is set, legacy `GameCard` otherwise.
@@ -96,7 +98,7 @@ Two sub-applications in one process:
 - **Scoreboard preview:** `admin-ui/src/components/ScoreboardPreview.tsx` — multi-card scaled preview in Settings using real catalogue images, scale-transform for sidebar fit
 - **Layout presets:** `admin-ui/src/components/PresetSelector.tsx` — 5 curated presets (Classic, Compact, Showcase, Arcade Wheel, Tournament) with auto-detection of custom settings
 - **Image cropper:** `admin-ui/src/components/ImageCropper.tsx` — react-easy-crop wrapper for branding/style uploads with locked aspect ratios
-- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, `GamePickerModal`, `StylePicker`, `PlayerAvatar`, `PresetSelector`, `ScoreboardPreview`, `ScoreboardPreferencesModal`, `ImageCropper`, etc.
+- Shared components: `NeonCard`, `NeonButton`, `DataTable`, `StarRating`, `Sparkline`, `PublicLayout`, `ScheduleBuilder` (supports `L` for last day of month), `ThemeProvider`, `PickGameModal`, `GamePickerModal`, `StylePicker`, `PlayerAvatar`, `PresetSelector`, `ScoreboardPreview`, `ScoreboardPreferencesModal`, `ImageCropper`, `MysteryAward` (canvas-based random game picker with DMD + translite), etc.
 - Mobile-responsive: hamburger sidebar on small screens, responsive grids and cards
 
 ## Multi-Room Architecture
@@ -202,7 +204,13 @@ Two sub-applications in one process:
 - **Freeplay:** `/:slug/freeplay` page lets players browse the global catalogue and submit scores to any game, not just active tournament games. Posts to `POST /api/rooms/:roomId/freeplay-score`.
 - **Scoreboard user preferences:** `user_preferences.scoreboard_prefs` stores per-user display overrides in device-keyed JSON: `{ desktop: {...}, mobile: {...} }`. Auto-migrates from old flat format. `GET/POST /api/me/scoreboard-preferences?device=desktop|mobile` accepts device type. Scoreboard.tsx detects device (`window.innerWidth <= 640`), fetches device-specific prefs, merges on top of room config. `ScoreboardPreferencesModal` (~20 settings with Desktop/Mobile toggle) triggered via `open-scoreboard-prefs` DOM event from PublicLayout gear icon. Preference hierarchy: user pref → room admin default.
 - **Cross-component communication:** PublicLayout (nav bar) and Scoreboard (renders via `<Outlet />`) communicate via DOM custom events: `window.dispatchEvent(new Event('open-scoreboard-prefs'))` from nav gear button, `window.addEventListener` in Scoreboard.tsx. Used because React Router Outlet doesn't support direct prop passing.
+- **Mystery Award:** `MysteryAward.tsx` — canvas-based random game picker (replaced PinballPicker). Features: 192×48 DMD dot grid with glow halos, translite renderer with GI backlight/starburst/vignette, room logo in backglass area (`backglassUrl` from `room.logo_url` via `/api/rooms`, independent of scoreboard config), "Add to Queue" for Discord-authenticated users (`onPickGame` prop). Phases: idle → cycling (Fisher-Yates shuffle, easeOutQuart deceleration) → landed (winner reveal with flash).
+- **Scoreboard logo toggle:** `SCOREBOARD_LOGO_ENABLED` setting (default true) controls whether `LOGO_URL` appears on the scoreboard. When false, `deriveScoreboardConfig`/`deriveCardProps` return empty `logoUrl`. Mystery Award backglass is unaffected (reads `room.logo_url` directly).
 - **Tournament rotation guards:** `TournamentEngine.processSlotMaintenance()` checks `max_active_games` before creating picker slots and checks for duplicate `[Pending Pick]` entries before creating new ones. `autoPickAndActivate()` also validates `max_active_games`. `TimeoutManager.fallbackToAutoSelection()` includes `max_active_games` guard and orphaned slot cleanup. `handleTieredTimeout()` verifies game still exists and is QUEUED before acting.
+- **Lobby feed:** `lobby_feed_events` table (separate from `room_events` — different retention/schema/query patterns). 90-day retention (vs 7-day for room_events). Cursor-based pagination via `created_at`. WebSocket `lobby:${roomId}` channel for live updates. `LobbyFeedGenerator.onScoreSubmitted()` hooked into all 5 score submission paths (CommunityScoreService, Discord `/submit-score`, ScoreSyncPoller) via fire-and-forget dynamic imports.
+- **Lobby config:** Stored as `game_room_settings` keys: `LOBBY_SOCIAL_LINKS` (JSON array of `{type, url, label}`), `LOBBY_PINNED_MESSAGE` (JSON `{content, enabled}`), `LOBBY_FEED_SETTINGS` (JSON `{enabledTypes, stalenessThresholdDays, roomStatsFrequency}`). No new tables needed for config.
+- **Friends:** Unidirectional follow model (no pending/mutual confirmation). `FriendsService.getPlayersWhoFriended()` reverse lookup used by `LobbyFeedGenerator` to emit targeted `friend_score` events. Friends page at `/friends` (global, not room-scoped).
+- **Milestones:** `MilestoneService.checkAndEmit()` uses "exactly equals threshold" check against count queries — no separate tracking table. Thresholds: scores submitted (10/25/50/100/250/500/1000), unique games (5/10/25/50), #1 positions (1/5/10/25).
 
 ## Community Features
 
@@ -246,6 +254,8 @@ SQLite at `data/arcaid.db` (git-ignored). Schema auto-created on first run. Idem
 **Style tables:** `style_catalogue` (iScored style catalog entries)
 
 **Global tables:** `global_games` (cross-room game catalogue with UUID PKs), `global_scores` (global scoreboard submissions with soft-delete), `global_leaderboard_cache`, `sync_logs` (catalogue import tracking), `score_reports` (moderation), `user_bans`, `sessions` (JWT refresh tokens, 30-day expiry)
+
+**Lobby & Social tables:** `lobby_feed_events` (activity feed with 90-day retention, cursor pagination, entity linking), `lobby_announcements` (admin-curated with display_from/display_until scheduling), `community_shelf_items` (media links with type auto-detection and reorder), `friendships` (unidirectional follow model, no pending/mutual confirmation)
 
 ## Deployment
 

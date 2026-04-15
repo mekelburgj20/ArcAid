@@ -301,25 +301,79 @@
 - Feature: Scoreboard UX Fixes (inline rankings, style-matched ranking cards, 12 game title styles, avatar fallback) — COMPLETE
 - Feature: User Preferences Overhaul (device-specific prefs, expanded modal, gear button in nav) — COMPLETE
 - Fix: Tournament Rotation Bug (max_active_games guards, duplicate picker slot prevention) — COMPLETE
+- Feature: Mystery Award & UI Fixes (canvas-based picker, logo toggle, admin inline rankings) — COMPLETE
+
+### Mystery Award & UI Fixes (2026-04-13→2026-04-14)
+- [x] MysteryAward component — replaced PinballPicker with new canvas-based backbox component (DMD 192×48 dot grid, translite renderer with GI backlight/starburst/vignette, room logo in backglass)
+- [x] Room branding integration — backglass shows `room.logo_url` from `/api/rooms`, independent of scoreboard config
+- [x] "Add to Queue" integration — Discord-authenticated users can queue the randomly selected game directly from the picker
+- [x] Nav rename: "Games" → "Game Picks", button: "Pick Random" → "Mystery Award" (Sparkles icon)
+- [x] Page description added to Game Picks page
+- [x] Scoreboard logo visibility toggle — `SCOREBOARD_LOGO_ENABLED` setting lets rooms upload logos for Mystery Award backglass without showing them on the scoreboard
+- [x] Admin leaderboard inline rankings — matches public scoreboard behavior (inline ranking cards when `rankingsSticky` is off)
+- [x] DMD rendering fix — removed `imageRendering: pixelated` to eliminate moiré/plaid pattern at scaled display sizes
+
+### Lobby & Social Features (2026-04-14)
+
+**Phase 0: Bug Fixes**
+- [x] Admin leaderboard "View Public Scoreboard" link
+- [x] Landing page carousel clickthrough to GlobalGameDetail
+
+**Phase 1: Lobby Core**
+- [x] Migration 043: `lobby_feed_events` table with indexes
+- [x] `LobbyFeedService.ts` — feed event CRUD, cursor-based pagination, 90-day cleanup, WebSocket emit
+- [x] `LobbyFeedGenerator.ts` — central score event generation, hooked into all 5 submission paths
+- [x] Score submission hooks: CommunityScoreService (3 web routes), Discord `/submit-score`, ScoreSyncPoller
+- [x] Lobby feed API: `GET/POST /:roomId/lobby/feed` (public read, admin curated posts)
+- [x] WebSocket: `join:lobby`/`leave:lobby` channels + `emitLobbyEvent()` for live feed updates
+- [x] Scheduler: `startLobbyFeedCleanup()` cron job (3:30 AM, 90-day retention)
+- [x] `Lobby.tsx` — public lobby page with activity stream, infinite scroll, WebSocket live updates
+- [x] `AllGamesView.tsx` — Scoreboard "All Games" tab with community score grid
+- [x] Scoreboard tab toggle (Tournament | All Games)
+- [x] Lobby nav item (first position, MessageSquare icon) in PublicLayout
+
+**Phase 2: Lobby Content & Admin**
+- [x] Migration 044: `lobby_announcements` table
+- [x] Migration 045: `community_shelf_items` table
+- [x] `AnnouncementService.ts` — announcement CRUD with active/scheduled/expired status
+- [x] `CommunityShelfService.ts` — shelf CRUD with reorder, URL type auto-detection
+- [x] Lobby config via `game_room_settings`: social links, pinned message, feed settings
+- [x] API: 12 new endpoints for announcements, shelf, and lobby config (public + admin)
+- [x] `LobbyAdmin.tsx` — admin page with 5 sections: social links, pinned message, announcements, community shelf, feed settings
+- [x] Lobby components: SocialLinksBar, PinnedMessage, AnnouncementCard, AnnouncementsRail, FeedItem, CommunityShelf
+- [x] Full 4-zone Lobby page: social links bar → announcements rail → activity stream → community shelf
+
+**Phase 3: Tournament & Milestone Integration**
+- [x] TournamentEngine hooks: 3 lobby feed events (tournament results with winner, game rotation × 2)
+- [x] `MilestoneService.ts` — threshold-based milestone detection (scores submitted, unique games, #1 positions)
+- [x] Milestone events emitted from LobbyFeedGenerator on score submission
+
+**Phase 4: Social Features**
+- [x] Migration 046: `friendships` table (unidirectional follow model)
+- [x] Migration 047: `notification_prefs` column on `user_preferences`
+- [x] `FriendsService.ts` — friend CRUD, reverse lookup for feed events
+- [x] Friends API: `GET/POST/DELETE /me/friends`, notification prefs `GET/PUT`
+- [x] `Friends.tsx` — global friends page with add/remove/avatar display
+- [x] Friend score events in lobby feed (targeted to friend's viewer)
+- [x] Friends link (UserPlus icon) in PublicLayout avatar area
+- [x] Route: `/friends` with ViewerAuthProvider
+
+**Phase 5: Polish & Engagement**
+- [x] Freeplay contextual leaders — top 5 scores shown in submit modal via `/community-scores/:gameName/leaders`
+- [x] Activity indicator in nav — localStorage-based last-seen tracking, cyan dot badge on Lobby icon
 
 ## Last Session
 
-**Date:** 2026-04-12
-**What happened:** Tournament rotation bug fix, user preferences overhaul with device-specific settings, gear button UX improvement.
+**Date:** 2026-04-14
+**What happened:** Implemented full Lobby & Social Features (Phases 0-5) from the implementation plan.
 
 **Work done this session:**
-- **Tournament rotation bug fix:** Fixed critical bug where maintenance would re-announce winner and create duplicate picker slots after a game picks. Added 4 defensive guards:
-  1. `TournamentEngine.processSlotMaintenance()`: max_active_games check before creating picker slots
-  2. `TournamentEngine.processSlotMaintenance()`: duplicate picker slot guard (checks if winner already has `[Pending Pick]`)
-  3. `TournamentEngine.autoPickAndActivate()`: max_active_games check before auto-picking
-  4. `TimeoutManager.fallbackToAutoSelection()`: max_active_games check + stale slot cleanup
-- **Device-specific user preferences:** Overhauled `PreferencesService` to store preferences per device type (desktop/mobile) in nested JSON format `{ desktop: {...}, mobile: {...} }`. Auto-migrates from old flat format. API endpoints accept `?device=desktop|mobile` query param.
-- **ScoreboardPreferencesModal expansion:** Rebuilt modal with ~20 settings matching admin Settings page: card style, showcase theme, UI theme, 6 toggle prefs, 5 select prefs, zoom slider, 5 advanced number prefs, 2 mobile-specific prefs. Desktop/Mobile toggle in header.
-- **Gear button placement:** Moved scoreboard preferences gear icon from absolute-positioned overlay on Scoreboard page to PublicLayout nav bar, between username and logout button. Uses `window.dispatchEvent(new Event('open-scoreboard-prefs'))` DOM event for cross-component communication (PublicLayout → Scoreboard via Outlet).
+- **Lobby & Social Features:** Complete implementation of all 6 phases from the plan in `tmp/arcaid_lobby_social.md`. Created 16 new files (7 backend services, 9 frontend pages/components). Modified 12 existing files. Added 5 database migrations (043-047). All builds pass clean.
+- **Key new capabilities:** Public lobby page with live activity stream (WebSocket), announcements rail, community shelf, social links. Admin lobby management panel. Friends system. Milestone detection. Tournament event hooks. Freeplay contextual leaders. Nav activity indicator.
 
-**Git state:** On `main`, uncommitted changes.
+**Git state:** On `main`, uncommitted changes across backend and admin-ui.
 
-**Production notes:** Discord bot token is invalid on prod (pre-existing, unrelated) — API runs without Discord. ScoreSyncPoller active.
+**Production notes:** Needs build + deploy. All TypeScript compiles clean (backend + admin-ui).
 
 ## Blockers
 

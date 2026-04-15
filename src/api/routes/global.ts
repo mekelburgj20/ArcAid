@@ -126,6 +126,84 @@ router.post('/me/scoreboard-preferences', requireDiscordUser, async (req, res) =
     }
 });
 
+// --- Friends ---
+
+router.get('/me/friends', requireDiscordUser, async (req, res) => {
+    try {
+        const { FriendsService } = await import('../../services/FriendsService.js');
+        const friends = await FriendsService.getFriends(req.user!.discordId!);
+        res.json(friends);
+    } catch (error) {
+        logError('API Error (GET /api/me/friends):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/me/friends', requireDiscordUser, async (req, res) => {
+    try {
+        const { discordUsername } = req.body;
+        if (!discordUsername || typeof discordUsername !== 'string') {
+            return res.status(400).json({ error: 'discordUsername is required' });
+        }
+        const { FriendsService } = await import('../../services/FriendsService.js');
+        const result = await FriendsService.addFriend(req.user!.discordId!, discordUsername.trim());
+        res.status(201).json(result);
+    } catch (error: any) {
+        if (error?.message?.includes('Could not find')) {
+            return res.status(404).json({ error: error.message });
+        }
+        if (error?.message?.includes('Cannot add yourself')) {
+            return res.status(400).json({ error: error.message });
+        }
+        logError('API Error (POST /api/me/friends):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/me/friends/:friendUserId', requireDiscordUser, async (req, res) => {
+    try {
+        const { FriendsService } = await import('../../services/FriendsService.js');
+        await FriendsService.removeFriend(req.user!.discordId!, req.params.friendUserId as string);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/me/friends):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Notification Preferences ---
+
+router.get('/me/notification-preferences', requireDiscordUser, async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const row = await db.get('SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?', req.user!.discordId!);
+        res.json(row?.notification_prefs ? JSON.parse(row.notification_prefs) : {});
+    } catch (error) {
+        logError('API Error (GET /api/me/notification-preferences):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.put('/me/notification-preferences', requireDiscordUser, async (req, res) => {
+    try {
+        const prefs = req.body;
+        if (!prefs || typeof prefs !== 'object') {
+            return res.status(400).json({ error: 'Body must be a JSON object' });
+        }
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO user_preferences (discord_user_id, notification_prefs)
+             VALUES (?, ?)
+             ON CONFLICT(discord_user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs`,
+            req.user!.discordId!, JSON.stringify(prefs)
+        );
+        res.json(prefs);
+    } catch (error) {
+        logError('API Error (PUT /api/me/notification-preferences):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // --- Public Invite Endpoints ---
 
 // Get invite info (no auth)

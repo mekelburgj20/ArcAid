@@ -35,6 +35,15 @@ export function initWebSocket(httpServer: HttpServer): SocketServer {
         socket.on('leave:game', (gameId: string) => {
             socket.leave(`game:${gameId}`);
         });
+
+        // Lobby feed: room-scoped channel
+        socket.on('join:lobby', (roomId: string) => {
+            socket.join(`lobby:${roomId}`);
+        });
+
+        socket.on('leave:lobby', (roomId: string) => {
+            socket.leave(`lobby:${roomId}`);
+        });
     });
 
     logInfo('WebSocket server initialized');
@@ -96,6 +105,14 @@ export function emitPickerAssigned(data: { tournamentName: string; pickerName: s
 export function emitLeaderboardUpdated(data: { gameId: string }) {
     if (!io) return;
     io.to(`game:${data.gameId}`).emit('leaderboard:updated', data);
+}
+
+/**
+ * Emit a lobby:event to clients watching a specific game room's lobby.
+ */
+export function emitLobbyEvent(roomId: string, event: Record<string, unknown>) {
+    if (!io) return;
+    io.to(`lobby:${roomId}`).emit('lobby:event', event);
 }
 
 /**

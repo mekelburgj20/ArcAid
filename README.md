@@ -10,7 +10,8 @@
 - **Automated tournament rotation** — Daily, Weekly, Monthly (including last-day-of-month), or custom cron schedules
 - **iScored integration** — REST API for score sync (preferred) with Playwright fallback for game management. Continuous background polling keeps leaderboards in sync across all submission methods (web, iScored, Discord)
 - **Pick system** — Winner picks the next game with tiered timeouts (winner → runner-up → auto-select). Web-based game picking for Discord-authenticated players with queue management (reorder, delete, max 5 per tournament)
-- **Discord player login** — Public page visitors can log in via Discord to pick/queue games directly from the Game Availability page
+- **Mystery Award** — Canvas-based random game picker with animated DMD dot display and pinball backbox aesthetic. Room logo displayed in backglass area. Discord-authenticated users can add the selected game directly to their pick queue
+- **Discord player login** — Public page visitors can log in via Discord to pick/queue games directly from the Game Picks page
 - **Discord bot** — Full slash command suite for players (submit scores, check stats) and admins (force rotations, manage games)
 - **Cross-tournament rankings** — Ranking groups with 4 scoring methods
 - **Game library imports** — Bulk import from Virtual Pinball Spreadsheet (VPS) and VPXS Wizard Tables
@@ -87,9 +88,13 @@ npm run dev            # Vite dev server with HMR
 | `/:slug/players` | Public player list |
 | `/:slug/players/:id` | Player detail (stats, history) |
 | `/:slug/games/:name` | Game detail — tabs: scores, community, tips/comments, player stats |
-| `/:slug/games` | Game availability (cooldowns, random picker, pick/queue games if Discord-logged-in) |
+| `/:slug/games` | Game Picks (cooldowns, Mystery Award picker, pick/queue games if Discord-logged-in) |
+| `/:slug/freeplay` | Freeplay (browse catalogue, submit scores for any game) |
 | `/:slug/submit/:gameId` | Standalone score submission (QR code target) |
 | `/:slug/stats` | Public enhanced stats (avg finish, top 5%, champion streak) |
+| `/scoreboard` | Global cross-room leaderboard |
+| `/catalogue` | Global searchable game catalogue |
+| `/games/:id` | Global game detail (scores, metadata, downloads, tutorials) |
 | `/:slug/login` | Room admin login |
 | `/:slug/admin/*` | Room admin panel (dashboard, tournaments, library, leaderboard, rankings, stats, history, settings) |
 
@@ -163,7 +168,7 @@ npm run dev            # Vite dev server with HMR
 | Winner Pick Window | Minutes the winner has to pick the next game |
 | Runner-up Pick Window | Minutes for runner-up fallback if winner doesn't pick |
 | UI Theme | Admin theme (per-user) and public/scoreboard theme (per-room) — 11 themes available |
-| Scoreboard Branding | Custom background image, logo, and title style/size for public scoreboard |
+| Scoreboard Branding | Custom background image, logo, and title style/size for public scoreboard. Logo visibility toggle (show/hide on scoreboard independently of Mystery Award backglass) |
 | Kiosk Refresh Interval | Auto-refresh interval (seconds) for kiosk display |
 | Hide Empty Games | Toggle to suppress games with no scores from public views |
 | Discord @Mentions | Toggle Discord role/user @mentions in tournament announcements |

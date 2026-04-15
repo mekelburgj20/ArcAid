@@ -32,6 +32,14 @@ export class CommunityScoreService {
             source: 'community',
         });
 
+        // Fire-and-forget lobby feed event
+        import('./LobbyFeedGenerator.js').then(({ LobbyFeedGenerator }) => {
+            LobbyFeedGenerator.onScoreSubmitted({
+                gameRoomId, gameName, username, score,
+                discordUserId, source: 'community',
+            }).catch(() => {});
+        }).catch(() => {});
+
         // Fan-out to global scoreboard (best-effort, never throws)
         const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({
             gameRoomId,

@@ -854,6 +854,21 @@ router.get('/:roomId/community-scores/:gameName', async (req, res) => {
     }
 });
 
+// Lightweight top-N leaders for a game (used by Freeplay contextual leaders)
+router.get('/:roomId/community-scores/:gameName/leaders', async (req, res) => {
+    try {
+        const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
+        const gameName = decodeURIComponent(req.params.gameName as string);
+        const roomId = req.params.roomId as string;
+        const limit = Math.min(parseInt(req.query.limit as string) || 5, 20);
+        const leaderboard = await CommunityScoreService.getGameLeaderboard(roomId, gameName);
+        res.json(leaderboard.slice(0, limit));
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/community-scores/:gameName/leaders):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.post('/:roomId/community-scores/:gameName', conditionalRequireDiscordUser('roomId'), async (req, res) => {
     try {
         const validationResult = validate(CommunityScoreSchema, req.body);
@@ -1062,6 +1077,313 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         res.status(201).json({ id: result.id, gameName: globalGame.name });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/freeplay-score):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ─── Lobby Feed ───
+
+// Public feed — no auth required, optional player token for friend events
+router.get('/:roomId/lobby/feed', async (req, res) => {
+    try {
+        const { LobbyFeedService } = await import('../../services/LobbyFeedService.js');
+        const roomId = req.params.roomId as string;
+        const limit = parseInt(req.query.limit as string) || 20;
+        const before = req.query.before as string | undefined;
+        const typesParam = req.query.types as string | undefined;
+        const types = typesParam ? typesParam.split(',').filter(Boolean) : undefined;
+
+        // If viewer is authenticated, pass their ID for targeted events (friend scores)
+        const viewerUserId = req.user?.discordId;
+
+        const feed = await LobbyFeedService.getFeed(roomId, {
+            limit: Math.min(limit, 50),
+            before,
+            types,
+            viewerUserId,
+        });
+
+        res.json(feed);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/lobby/feed):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin curated feed posts
+router.post('/:roomId/lobby/feed', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { LobbyFeedService } = await import('../../services/LobbyFeedService.js');
+        const roomId = req.params.roomId as string;
+        const { type, title, subtitle } = req.body;
+
+        if (!type || !title) {
+            return res.status(400).json({ error: 'type and title are required' });
+        }
+
+        if (!['admin_message', 'admin_shoutout'].includes(type)) {
+            return res.status(400).json({ error: 'type must be admin_message or admin_shoutout' });
+        }
+
+        const id = await LobbyFeedService.emit({
+            gameRoomId: roomId,
+            type,
+            source: 'admin',
+            icon: type === 'admin_shoutout' ? '⭐' : '📢',
+            title,
+            subtitle,
+        });
+
+        res.status(201).json({ id });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/lobby/feed):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Community leaderboards — all games with freeplay/community scores
+router.get('/:roomId/community-leaderboards', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const sort = (req.query.sort as string) || 'recent';
+        const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+        const offset = parseInt(req.query.offset as string) || 0;
+        const db = await getDatabase();
+
+        // Get unique games with community scores
+        const orderBy = sort === 'alpha'
+            ? 'game_name ASC'
+            : 'last_played DESC';
+
+        const games = await db.all(`
+            SELECT
+                game_name,
+                COUNT(DISTINCT LOWER(iscored_username)) as player_count,
+                COUNT(*) as total_scores,
+                MAX(created_at) as last_played
+            FROM community_scores
+            WHERE game_room_id = ?
+            GROUP BY LOWER(game_name)
+            ORDER BY ${orderBy}
+            LIMIT ? OFFSET ?
+        `, roomId, limit, offset);
+
+        // For each game, get top 5 scores
+        const results = await Promise.all(games.map(async (game: any) => {
+            const topScores = await db.all(`
+                SELECT
+                    iscored_username,
+                    MAX(score) as best_score,
+                    discord_user_id
+                FROM community_scores
+                WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
+                GROUP BY LOWER(iscored_username)
+                ORDER BY best_score DESC
+                LIMIT 5
+            `, roomId, game.game_name);
+
+            // Try to find catalogue image
+            const catalogueGame = await db.get(
+                "SELECT id, cover_art_url, wheel_art_url FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1",
+                game.game_name
+            );
+
+            return {
+                gameName: game.game_name,
+                playerCount: game.player_count,
+                totalScores: game.total_scores,
+                lastPlayed: game.last_played,
+                topScores,
+                globalGameId: catalogueGame?.id || null,
+                imageUrl: catalogueGame?.cover_art_url || catalogueGame?.wheel_art_url || null,
+            };
+        }));
+
+        res.json(results);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/community-leaderboards):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ── Lobby Content (announcements, shelf, config) ──
+
+// Public: active announcements
+router.get('/:roomId/lobby/announcements', async (req, res) => {
+    try {
+        const { AnnouncementService } = await import('../../services/AnnouncementService.js');
+        const announcements = await AnnouncementService.getActive(req.params.roomId as string);
+        res.json(announcements);
+    } catch (error) {
+        logError('API Error (GET lobby/announcements):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin: all announcements (includes expired/scheduled)
+router.get('/:roomId/lobby/announcements/all', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { AnnouncementService } = await import('../../services/AnnouncementService.js');
+        const announcements = await AnnouncementService.getAll(req.params.roomId as string);
+        res.json(announcements);
+    } catch (error) {
+        logError('API Error (GET lobby/announcements/all):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin: create announcement
+router.post('/:roomId/lobby/announcements', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { title, body, image_url, cta_url, cta_label, type, event_datetime, display_from, display_until, sort_order } = req.body;
+        if (!title) return res.status(400).json({ error: 'title is required' });
+        const { AnnouncementService } = await import('../../services/AnnouncementService.js');
+        const announcement = await AnnouncementService.create(req.params.roomId as string, {
+            title, body, image_url, cta_url, cta_label, type, event_datetime, display_from, display_until, sort_order,
+        });
+        res.status(201).json(announcement);
+    } catch (error) {
+        logError('API Error (POST lobby/announcements):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin: update announcement
+router.put('/:roomId/lobby/announcements/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { AnnouncementService } = await import('../../services/AnnouncementService.js');
+        const updated = await AnnouncementService.update(req.params.id as string, req.body);
+        if (!updated) return res.status(404).json({ error: 'Not found' });
+        res.json(updated);
+    } catch (error) {
+        logError('API Error (PUT lobby/announcements/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin: delete announcement
+router.delete('/:roomId/lobby/announcements/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { AnnouncementService } = await import('../../services/AnnouncementService.js');
+        await AnnouncementService.delete(req.params.id as string);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (DELETE lobby/announcements/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Public: community shelf items
+router.get('/:roomId/lobby/shelf', async (req, res) => {
+    try {
+        const { CommunityShelfService } = await import('../../services/CommunityShelfService.js');
+        const items = await CommunityShelfService.getAll(req.params.roomId as string);
+        res.json(items);
+    } catch (error) {
+        logError('API Error (GET lobby/shelf):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin: add shelf item
+router.post('/:roomId/lobby/shelf', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { url, title, type, thumbnail, description, sort_order } = req.body;
+        if (!url || !title) return res.status(400).json({ error: 'url and title are required' });
+        const { CommunityShelfService } = await import('../../services/CommunityShelfService.js');
+        const item = await CommunityShelfService.create(req.params.roomId as string, {
+            url, title, type, thumbnail, description, sort_order,
+        });
+        res.status(201).json(item);
+    } catch (error) {
+        logError('API Error (POST lobby/shelf):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin: update shelf item
+router.put('/:roomId/lobby/shelf/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { CommunityShelfService } = await import('../../services/CommunityShelfService.js');
+        const updated = await CommunityShelfService.update(req.params.id as string, req.body);
+        if (!updated) return res.status(404).json({ error: 'Not found' });
+        res.json(updated);
+    } catch (error) {
+        logError('API Error (PUT lobby/shelf/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin: delete shelf item
+router.delete('/:roomId/lobby/shelf/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { CommunityShelfService } = await import('../../services/CommunityShelfService.js');
+        await CommunityShelfService.delete(req.params.id as string);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (DELETE lobby/shelf/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin: reorder shelf items
+router.put('/:roomId/lobby/shelf-reorder', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { orderedIds } = req.body;
+        if (!Array.isArray(orderedIds)) return res.status(400).json({ error: 'orderedIds array is required' });
+        const { CommunityShelfService } = await import('../../services/CommunityShelfService.js');
+        await CommunityShelfService.reorder(req.params.roomId as string, orderedIds);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (PUT lobby/shelf-reorder):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Public: lobby config (social links, pinned message, feed settings)
+router.get('/:roomId/lobby/config', async (req, res) => {
+    try {
+        const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+        const roomId = req.params.roomId as string;
+        const [socialLinks, pinnedMessage, feedSettings, defaultLanding] = await Promise.all([
+            GameRoomSettingsService.get(roomId, 'LOBBY_SOCIAL_LINKS'),
+            GameRoomSettingsService.get(roomId, 'LOBBY_PINNED_MESSAGE'),
+            GameRoomSettingsService.get(roomId, 'LOBBY_FEED_SETTINGS'),
+            GameRoomSettingsService.get(roomId, 'LOBBY_DEFAULT_LANDING'),
+        ]);
+        res.json({
+            socialLinks: socialLinks ? JSON.parse(socialLinks) : [],
+            pinnedMessage: pinnedMessage ? JSON.parse(pinnedMessage) : null,
+            feedSettings: feedSettings ? JSON.parse(feedSettings) : null,
+            defaultLanding: defaultLanding === 'true',
+        });
+    } catch (error) {
+        logError('API Error (GET lobby/config):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin: save lobby config
+router.put('/:roomId/lobby/config', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+        const roomId = req.params.roomId as string;
+        const { socialLinks, pinnedMessage, feedSettings, defaultLanding } = req.body;
+        if (socialLinks !== undefined) {
+            await GameRoomSettingsService.set(roomId, 'LOBBY_SOCIAL_LINKS', JSON.stringify(socialLinks));
+        }
+        if (pinnedMessage !== undefined) {
+            await GameRoomSettingsService.set(roomId, 'LOBBY_PINNED_MESSAGE', JSON.stringify(pinnedMessage));
+        }
+        if (feedSettings !== undefined) {
+            await GameRoomSettingsService.set(roomId, 'LOBBY_FEED_SETTINGS', JSON.stringify(feedSettings));
+        }
+        if (defaultLanding !== undefined) {
+            await GameRoomSettingsService.set(roomId, 'LOBBY_DEFAULT_LANDING', defaultLanding ? 'true' : 'false');
+        }
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (PUT lobby/config):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

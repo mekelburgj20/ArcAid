@@ -62,6 +62,9 @@ export class Scheduler {
         // Daily cleanup of old room events (3 AM)
         this.startRoomEventCleanup();
 
+        // Daily cleanup of old lobby feed events (3:30 AM)
+        this.startLobbyFeedCleanup();
+
         // Weekly VPS catalogue sync (Wednesday 2 AM Pacific)
         this.startVpsCatalogueSync();
     }
@@ -99,6 +102,25 @@ export class Scheduler {
 
         this.tasks.set('__room_event_cleanup__', task);
         logInfo('Room event cleanup scheduled (daily at 3 AM).');
+    }
+
+    /**
+     * Schedules a daily cleanup of old lobby feed events at 3:30 AM (90-day retention).
+     */
+    private startLobbyFeedCleanup(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('30 3 * * *', async () => {
+            try {
+                const { LobbyFeedService } = await import('../services/LobbyFeedService.js');
+                const deleted = await LobbyFeedService.cleanup(90);
+                if (deleted > 0) logInfo(`Lobby feed cleanup: removed ${deleted} old events.`);
+            } catch (error) {
+                logError('Lobby feed cleanup error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__lobby_feed_cleanup__', task);
+        logInfo('Lobby feed cleanup scheduled (daily at 3:30 AM).');
     }
 
     /**

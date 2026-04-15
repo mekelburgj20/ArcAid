@@ -14,6 +14,7 @@ import {
   getTitleSizeClass,
 } from '../components/ScoreboardComponents';
 import CardRouter from '../components/scoreboard/CardRouter';
+import AllGamesView from '../components/AllGamesView';
 import ScoreSubmitModal from '../components/ScoreSubmitModal';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
@@ -36,6 +37,7 @@ export default function Scoreboard() {
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
+  const [tab, setTab] = useState<'tournament' | 'all'>('tournament');
   const viewerHeaders = useViewerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
   const { setPublicTheme } = useTheme();
@@ -299,8 +301,36 @@ export default function Scoreboard() {
         </div>
       )}
 
+      {/* Tab toggle */}
+      <div className="flex justify-center gap-1 pb-3">
+        <button
+          onClick={() => setTab('tournament')}
+          className={`px-3 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
+            tab === 'tournament'
+              ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
+              : 'border-border/50 text-muted hover:text-primary'
+          }`}
+        >
+          Tournament
+        </button>
+        <button
+          onClick={() => setTab('all')}
+          className={`px-3 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
+            tab === 'all'
+              ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
+              : 'border-border/50 text-muted hover:text-primary'
+          }`}
+        >
+          All Games
+        </button>
       </div>
 
+      </div>
+
+      {tab === 'all' ? (
+        <AllGamesView roomId={roomId} slug={slug || ''} />
+      ) : (
+      <>
       {/* Game cards */}
       <div className="px-4 sm:px-6 pb-6 scoreboard-mobile-scale" style={{ '--mobile-scale': newConfig.mobileScale } as React.CSSProperties}>
 
@@ -440,6 +470,8 @@ export default function Scoreboard() {
       )}
 
       </div>{/* end game cards */}
+      </>
+      )}
       </div>{/* end scrollable */}
 
       {/* Score submission modal */}

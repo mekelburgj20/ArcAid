@@ -224,12 +224,21 @@ function FreeplaySubmitModal({ game, roomId, playerToken, discordUsername, onClo
   const [excludeFromGlobal, setExcludeFromGlobal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [leaders, setLeaders] = useState<Array<{ iscored_username: string; best_score: number }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backdropMouseDown = useRef(false);
 
   useEffect(() => {
     return () => { if (photoPreview) URL.revokeObjectURL(photoPreview); };
   }, [photoPreview]);
+
+  // Fetch top 5 leaders for this game
+  useEffect(() => {
+    fetch(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(game.name)}/leaders?limit=5`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setLeaders(data))
+      .catch(() => {});
+  }, [roomId, game.name]);
 
   const displayName = game.display_name || game.name;
 
@@ -286,6 +295,22 @@ function FreeplaySubmitModal({ game, roomId, playerToken, discordUsername, onClo
           {game.manufacturer ? ` · ${game.manufacturer}` : ''}
           {game.year ? ` · ${game.year}` : ''}
         </div>
+
+        {/* Contextual leaders */}
+        {leaders.length > 0 && (
+          <div className="bg-raised/50 border border-border/30 rounded-lg px-3 py-2 mb-4">
+            <span className="text-[10px] uppercase text-faint block mb-1">Current Leaders</span>
+            {leaders.map((l, i) => (
+              <div key={l.iscored_username} className="flex justify-between text-xs py-0.5">
+                <span className="text-muted">
+                  <span className={i === 0 ? 'text-neon-cyan' : 'text-faint'}>#{i + 1}</span>{' '}
+                  {l.iscored_username}
+                </span>
+                <span className="text-primary font-mono">{l.best_score.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="space-y-4">
           <div>

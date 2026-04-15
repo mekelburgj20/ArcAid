@@ -32,6 +32,7 @@ import Settings from './pages/Settings';
 import Help from './pages/Help';
 import ActivityLog from './pages/ActivityLog';
 import GameStates from './pages/GameStates';
+import LobbyAdmin from './pages/LobbyAdmin';
 
 // Pages — Public
 import Scoreboard from './pages/Scoreboard';
@@ -40,6 +41,7 @@ import PlayerDetail from './pages/PlayerDetail';
 import GameDetail from './pages/GameDetail';
 import GameAvailability from './pages/GameAvailability';
 import Freeplay from './pages/Freeplay';
+import Lobby from './pages/Lobby';
 import PublicStats from './pages/PublicStats';
 
 // Pages — Kiosk
@@ -51,6 +53,9 @@ import ScoreSubmit from './pages/ScoreSubmit';
 // Pages — Global (non-room-scoped)
 import GlobalScoreboard from './pages/GlobalScoreboard';
 import GlobalGameDetail from './pages/GlobalGameDetail';
+
+// Pages — Social
+import Friends from './pages/Friends';
 
 // Pages — Auth
 import RoomLogin from './pages/RoomLogin';
@@ -110,11 +115,15 @@ function App() {
           <Route path="stats" element={<Stats />} />
           <Route path="history" element={<History />} />
           <Route path="games" element={<GameStates />} />
+          <Route path="lobby" element={<LobbyAdmin />} />
           <Route path="styles" element={<StyleCatalogue />} />
           <Route path="activity" element={<ActivityLog />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
         </Route>
+
+        {/* Friends (global, requires Discord login) */}
+        <Route path="/friends" element={<ViewerAuthProvider><Friends /></ViewerAuthProvider>} />
 
         {/* Global scoreboard (cross-room aggregate, public) */}
         <Route path="/scoreboard" element={<ViewerAuthProvider><GlobalScoreboard /></ViewerAuthProvider>} />
@@ -129,6 +138,7 @@ function App() {
         {/* Public room routes */}
         <Route path="/:slug" element={<ViewerAuthProvider><PublicLayout /></ViewerAuthProvider>}>
           <Route index element={<Scoreboard />} />
+          <Route path="lobby" element={<Lobby />} />
           <Route path="players" element={<Players />} />
           <Route path="players/:id" element={<PlayerDetail />} />
           <Route path="games" element={<GameAvailability />} />

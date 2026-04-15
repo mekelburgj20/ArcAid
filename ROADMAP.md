@@ -324,13 +324,39 @@ All 7 phases implemented and deployed to production (2026-04-12).
 
 ---
 
+## Mystery Award & UI Fixes (COMPLETE)
+
+- [x] MysteryAward component — canvas-based random game picker replacing PinballPicker (DMD 192×48 dot grid, translite renderer with GI backlight/starburst/vignette, room logo in backglass)
+- [x] Room branding in backglass — reads `room.logo_url` directly from `/api/rooms`, independent of scoreboard config
+- [x] "Add to Queue" integration — Discord-authenticated users can queue the selected game from the picker
+- [x] Nav/button rename: "Games" → "Game Picks", "Pick Random" → "Mystery Award" (Sparkles icon)
+- [x] Scoreboard logo visibility toggle — `SCOREBOARD_LOGO_ENABLED` setting decouples logo upload from scoreboard display
+- [x] Admin leaderboard inline rankings — matches public scoreboard behavior (inline when `rankingsSticky` off)
+- [x] DMD rendering fix — removed `imageRendering: pixelated` to eliminate moiré pattern
+
+---
+
+## Lobby & Social Features (COMPLETE)
+
+All 6 phases implemented (2026-04-14).
+
+- [x] Phase 0: Bug fixes — admin leaderboard public link, landing carousel clickthrough
+- [x] Phase 1: Lobby Core — `lobby_feed_events` table, `LobbyFeedService`, `LobbyFeedGenerator` (5 score submission hooks), WebSocket live feed, Lobby page with activity stream, Scoreboard "All Games" tab, feed cleanup scheduler
+- [x] Phase 2: Lobby Content & Admin — `lobby_announcements` + `community_shelf_items` tables, `AnnouncementService`, `CommunityShelfService`, lobby config via `game_room_settings`, LobbyAdmin page (5 sections), full 4-zone Lobby (social links, announcements rail, activity stream, community shelf), 6 lobby sub-components
+- [x] Phase 3: Tournament & Milestone Integration — TournamentEngine hooks (3 event types), `MilestoneService` (threshold-based: scores/games/firsts)
+- [x] Phase 4: Social Features — `friendships` table (unidirectional follow), `FriendsService`, Friends page, friend score events in lobby feed, notification preferences column
+- [x] Phase 5: Polish & Engagement — Freeplay contextual leaders, nav activity indicator (localStorage-based with cyan dot badge)
+
+**New files:** `LobbyFeedService.ts`, `LobbyFeedGenerator.ts`, `AnnouncementService.ts`, `CommunityShelfService.ts`, `MilestoneService.ts`, `FriendsService.ts`, `Lobby.tsx`, `LobbyAdmin.tsx`, `Friends.tsx`, `AllGamesView.tsx`, `SocialLinksBar.tsx`, `PinnedMessage.tsx`, `AnnouncementCard.tsx`, `AnnouncementsRail.tsx`, `FeedItem.tsx`, `CommunityShelf.tsx`
+
+**Migrations:** 043 (lobby_feed_events), 044 (lobby_announcements), 045 (community_shelf_items), 046 (friendships), 047 (notification_prefs)
+
+---
+
 ## Future
 
 ### Multi-Room
 - [ ] Discord Bot Multi-Room (Phase 5) — single bot, multi-guild, per-room command scoping
-
-### UX Polish
-- [ ] Notification preferences (opt-in/out for reminders, announcements)
 
 ### Score Photo Persistence
 Score proof photos are stored locally on disk (`data/score-photos/`). As the Global Scoreboard becomes the primary submission path (no iScored dependency), reliable photo storage is critical. Many rooms will not use iScored integration at all.
@@ -354,7 +380,7 @@ Options to evaluate:
 - [ ] Monitoring / alerting (health check dashboard, error rate tracking)
 - [ ] Super-admin dashboard server metrics (CPU, memory, I/O, container stats)
 - [ ] High availability / multi-container — see notes below
-- [ ] Friends-list score filtering (requires OAuth2 user token flow or manual friends list — Discord bots can't access `relationships.read`)
+- [x] Friends-list score filtering — implemented via unidirectional follow model (no Discord relationships.read needed)
 
 #### High Availability Notes
 Current constraints: SQLite (single-writer), singleton engine classes (in-memory state), Playwright persistent sessions (local disk).

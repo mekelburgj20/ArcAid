@@ -175,6 +175,14 @@ export const submitscore: Command = {
 
                 logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
 
+                // Fire-and-forget lobby feed event
+                import('../../services/LobbyFeedGenerator.js').then(({ LobbyFeedGenerator }) => {
+                    LobbyFeedGenerator.onScoreSubmitted({
+                        gameRoomId: game.game_room_id, gameName, username: username!,
+                        score, discordUserId: interaction.user.id, source: 'tournament',
+                    }).catch(() => {});
+                }).catch(() => {});
+
                 // Fan-out to global scoreboard (best-effort — never blocks the room submission)
                 try {
                     const { GlobalScoreService } = await import('../../services/GlobalScoreService.js');

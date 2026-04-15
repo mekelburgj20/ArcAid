@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Users, Gamepad2, Trophy, ChevronRight } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 
@@ -252,6 +252,7 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
 /* ─── Ticker Card ─── */
 
 function ScoreTickerCard({ score }: { score: RecentScore }) {
+  const navigate = useNavigate();
   const img = imageForScore(score);
   const gameName = score.display_name || score.game_name;
   const [imgError, setImgError] = useState(false);
@@ -277,6 +278,13 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
       transition: 'transform 0.2s, box-shadow 0.2s',
       fontFamily: "'DM Sans', sans-serif",
     }}
+      onClick={e => {
+        if (score.global_game_id) {
+          e.preventDefault();
+          e.stopPropagation();
+          navigate(`/games/${score.global_game_id}`);
+        }
+      }}
       onMouseEnter={e => {
         e.currentTarget.style.transform = 'translateY(-2px)';
         e.currentTarget.style.boxShadow = '0 6px 24px rgba(139,92,246,0.2)';

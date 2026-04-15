@@ -601,6 +601,23 @@ export class TournamentEngine {
             }
         }
 
+        // Lobby feed: tournament results
+        if (tournamentRow.game_room_id) {
+            import('../services/LobbyFeedService.js').then(({ LobbyFeedService }) => {
+                LobbyFeedService.emit({
+                    gameRoomId: tournamentRow.game_room_id,
+                    type: 'tournament_results',
+                    icon: '\u{1F947}',
+                    title: `${tournamentRow.name} complete — ${winnerIscoredName || 'Unknown'} takes 1st!`,
+                    subtitle: activeGame.name,
+                    tournamentId: tournamentRow.id,
+                    playerId: winnerId || undefined,
+                    gameName: activeGame.name,
+                    metadata: { score: winnerScore },
+                }).catch(() => {});
+            }).catch(() => {});
+        }
+
         // Announce completion
         if (channelId) {
             const color = getTournamentColor(tournamentRow.type);
@@ -687,6 +704,18 @@ export class TournamentEngine {
                     tournamentName: tournamentRow.name,
                     oldGame: activeGame.name,
                     newGame: queuedRow.name,
+                }).catch(() => {});
+
+                // Lobby feed: new active game
+                import('../services/LobbyFeedService.js').then(({ LobbyFeedService }) => {
+                    LobbyFeedService.emit({
+                        gameRoomId: tournamentRow.game_room_id,
+                        type: 'tournament_active',
+                        icon: '\u{1F3C6}',
+                        title: `Now active in ${tournamentRow.name}: ${queuedRow.name}`,
+                        gameName: queuedRow.name,
+                        tournamentId: tournamentRow.id,
+                    }).catch(() => {});
                 }).catch(() => {});
             }
 
@@ -953,6 +982,18 @@ export class TournamentEngine {
                 tournamentName: tournamentRow.name,
                 oldGame: completedGame.name,
                 newGame: pick.name,
+            }).catch(() => {});
+
+            // Lobby feed: auto-picked game activated
+            import('../services/LobbyFeedService.js').then(({ LobbyFeedService }) => {
+                LobbyFeedService.emit({
+                    gameRoomId: tournamentRow.game_room_id,
+                    type: 'tournament_active',
+                    icon: '\u{1F3C6}',
+                    title: `Now active in ${tournamentRow.name}: ${pick.name}`,
+                    gameName: pick.name,
+                    tournamentId: tournamentRow.id,
+                }).catch(() => {});
             }).catch(() => {});
         }
 
