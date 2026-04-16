@@ -363,12 +363,12 @@
 - [x] Discord `/arcaid-notifications` slash command — show (embed), toggle per-type, enable/disable all
 - [x] Registered in DiscordClient.ts (21 commands total)
 
-**Phase 5: Polish & Engagement (PARTIAL)**
+**Phase 5: Polish & Engagement (COMPLETE)**
 - [x] Freeplay contextual leaders — top 5 scores shown in submit modal via `/community-scores/:gameName/leaders`
 - [x] Activity indicator in nav — localStorage-based last-seen tracking, cyan dot badge on Lobby icon
-- [ ] Kiosk lobby ticker — scrolling feed events at bottom of KioskScoreboard
-- [ ] Feed coalescing — collapse 3+ score_posted events from same player within 1 hour
-- [ ] Notification rate limiting & coalescing — batch 3+ same-type notifications into summary
+- [x] Kiosk lobby ticker — scrolling ticker bar at bottom of KioskScoreboard with recent feed events, auto-refresh, CSS marquee animation
+- [x] Feed coalescing — `LobbyFeedService.coalesceScoreEvents()` collapses 3+ consecutive score_posted events from same player within 1 hour into summary (query-time, DB unchanged)
+- [ ] Notification rate limiting & coalescing — batch 3+ same-type notifications into summary (deferred)
 
 ### Cross-Page UX Improvements (2026-04-15)
 - [x] GameDetail non-tournament support — removed bail on null stats, conditional tournament tabs, default to community tab
@@ -382,23 +382,22 @@
 ## Last Session
 
 **Date:** 2026-04-15
-**What happened:** Built Discord push notifications (NotificationService, 5 dispatch hooks, slash command). Cleaned up dead SQL reference.
+**What happened:** Completed Discord push notifications + remaining Phase 5 polish (kiosk ticker, feed coalescing). Lobby & Social feature set now fully complete.
 
 **Work done this session:**
-- **SQL cleanup:** Removed dead `globalLib?.catalogue_style_id` reference in community-leaderboards endpoint (column doesn't exist on `game_library`)
-- **NotificationService.ts:** Discord DM dispatch service with per-user pref check, in-memory rate limiting (5/user/hour), `buildLink()` helper for deep links
-- **Rank dethroned hook:** In `LobbyFeedGenerator.onScoreSubmitted()` — when new #1, look up previous #1's Discord ID and DM them
-- **Friend score hook:** In `LobbyFeedGenerator.onScoreSubmitted()` — alongside friend_score feed events, DM friend followers
-- **Tournament win hook:** In `TournamentEngine.processSlotMaintenance()` — after winner resolution + lobby feed event, DM the winner
-- **Turn to pick hook:** In `TournamentEngine.processSlotMaintenance()` — after picker slot creation, DM the winner it's their turn to pick
-- **Tournament starting hook:** New `startTournamentStartingNotifier()` in `Scheduler` — runs every 15 minutes, checks if any tournament maintenance is within 45-60 minutes, DMs opted-in users once per rotation
-- **`/arcaid-notifications` command:** Show prefs (embed), toggle individual types, enable/disable all. Registered in DiscordClient (21 commands).
+- **SQL cleanup:** Removed dead `globalLib?.catalogue_style_id` reference in community-leaderboards endpoint
+- **NotificationService.ts:** Discord DM dispatch with per-user pref check + in-memory rate limiting (5/user/hour)
+- **5 notification hooks:** rank dethroned, friend score, tournament win, turn to pick, tournament starting
+- **`/arcaid-notifications` command:** Show prefs embed, toggle per-type, enable/disable all (21 commands)
+- **Kiosk lobby ticker:** Scrolling ticker bar at bottom of KioskScoreboard with recent feed events, icon per type, relative timestamps, CSS marquee animation, auto-refresh with leaderboard data
+- **Feed coalescing:** `LobbyFeedService.coalesceScoreEvents()` collapses 3+ consecutive `score_posted` events from same player within 1 hour into summary (query-time only, DB unchanged)
 
-**Git state:** On `main`, uncommitted changes ready.
+**Git state:** On `main`, ready to commit.
 
 **Next up:**
 - Commit and deploy
-- Remaining Phase 5 polish: kiosk lobby ticker, feed coalescing, notification coalescing
+- Notification coalescing (deferred — low priority)
+- Discord Bot Multi-Room (Phase 5) — deferred
 
 ## Blockers
 

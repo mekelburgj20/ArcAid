@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
+import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users } from 'lucide-react';
 import {
   GameCard,
   RankingGroupCard,
@@ -20,6 +21,7 @@ export default function KioskScoreboard() {
   const [configLoaded, setConfigLoaded] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
+  const [feedEvents, setFeedEvents] = useState<Array<{ id: number; type: string; title: string; created_at: string }>>([]);
 
   // Resolve room and fetch scoreboard config
   useEffect(() => {
@@ -45,6 +47,13 @@ export default function KioskScoreboard() {
     try {
       const res = await fetch(`/api/rooms/${roomId}/rankings`);
       if (res.ok) setRankingGroups(await res.json());
+    } catch { /* ignore */ }
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/lobby/feed?limit=15`);
+      if (res.ok) {
+        const events = await res.json();
+        setFeedEvents(events.filter((e: any) => !e.target_user_id));
+      }
     } catch { /* ignore */ }
   }, [roomId]);
 
@@ -99,6 +108,25 @@ export default function KioskScoreboard() {
   const bgBehindTitle = useNewCards ? newConfig.bgBehindTitle : false;
   const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
 
+  const TICKER_ICONS: Record<string, typeof Flame> = {
+    new_high_score: Flame, rank_change: TrendingUp, score_posted: Target,
+    tournament_results: Trophy, tournament_active: Gamepad2,
+    player_milestone: Star, friend_score: Users,
+  };
+
+  const tickerItems = useMemo(() => feedEvents.map(e => {
+    const ago = (() => {
+      const s = Math.floor((Date.now() - new Date(e.created_at).getTime()) / 1000);
+      if (s < 60) return 'just now';
+      const m = Math.floor(s / 60);
+      if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h}h ago`;
+      return `${Math.floor(h / 24)}d ago`;
+    })();
+    return { id: e.id, title: e.title, ago, Icon: TICKER_ICONS[e.type] || Target };
+  }), [feedEvents]);
+
   // Guard: wait for config to load, then check if kiosk is enabled
   if (!configLoaded) {
     return <div className="min-h-screen bg-deep" />;
@@ -135,6 +163,7 @@ export default function KioskScoreboard() {
         style={{
           ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
           minHeight: '100vh',
+          paddingBottom: feedEvents.length > 0 ? 48 : undefined,
         }}
       >
         {/* Title — solid background by default when bg image is set */}
@@ -263,6 +292,25 @@ export default function KioskScoreboard() {
         )}
       </div>
 
+      {/* Lobby feed ticker */}
+      {tickerItems.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden" style={{ height: 36 }}>
+          <div className="kiosk-ticker flex items-center gap-10 whitespace-nowrap h-full px-4">
+            {/* Double the items for seamless loop */}
+            {[...tickerItems, ...tickerItems].map((item, i) => {
+              const Icon = item.Icon;
+              return (
+                <span key={`${item.id}-${i}`} className="inline-flex items-center gap-1.5 text-xs">
+                  <Icon size={12} className="text-neon-cyan flex-shrink-0" />
+                  <span className="text-primary/80">{item.title}</span>
+                  <span className="text-faint ml-1">{item.ago}</span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <style>{`
         .scoreboard-hscroll-layout {
           scrollbar-width: thin;
@@ -273,6 +321,13 @@ export default function KioskScoreboard() {
         .scoreboard-hscroll-layout::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 4px; }
         .scoreboard-hscroll-layout::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
         .scoreboard-hscroll-layout::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+        @keyframes kiosk-ticker-scroll {
+          from { transform: translateX(0); }
+          to { transform: translateX(-50%); }
+        }
+        .kiosk-ticker {
+          animation: kiosk-ticker-scroll 60s linear infinite;
+        }
         @media (max-width: 640px) {
           .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.6); }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout { overflow-x: hidden !important; }
@@ -282,6 +337,7 @@ export default function KioskScoreboard() {
           .scoreboard-mobile-vertical .scoreboard-grid-layout > div { max-width: 100%; }
         }
       `}</style>
+
       {/* Scanline overlay */}
       <div className="fixed inset-0 pointer-events-none z-50 scanlines" />
     </div>

@@ -336,16 +336,16 @@ All 7 phases implemented and deployed to production (2026-04-12).
 
 ---
 
-## Lobby & Social Features (IN PROGRESS)
+## Lobby & Social Features (COMPLETE)
 
-Phases 0-3 complete, Phases 4-5 partial (2026-04-14→2026-04-15).
+All 5 phases complete (2026-04-14→2026-04-15). Notification coalescing deferred.
 
 - [x] Phase 0: Bug fixes — admin leaderboard public link, landing carousel clickthrough
 - [x] Phase 1: Lobby Core — `lobby_feed_events` table, `LobbyFeedService`, `LobbyFeedGenerator` (5 score submission hooks), WebSocket live feed, Lobby page with activity stream, Scoreboard "All Games" tab (carousel with room card styles + search), feed cleanup scheduler, `community-leaderboards` endpoint enhanced with GameLeaderboard format + style resolution
 - [x] Phase 2: Lobby Content & Admin — `lobby_announcements` + `community_shelf_items` tables, `AnnouncementService`, `CommunityShelfService`, lobby config via `game_room_settings`, LobbyAdmin page (5 sections), full 4-zone Lobby (social links, announcements rail, activity stream, community shelf), 6 lobby sub-components
 - [x] Phase 3: Tournament & Milestone Integration — TournamentEngine hooks (3 event types), `MilestoneService` (threshold-based: scores/games/firsts)
 - [x] Phase 4: Social Features — Friends system (`friendships` table, `FriendsService`, Friends page, friend feed events) + Discord push notifications (`NotificationService` with prefs + rate limiting, 5 dispatch hooks, `/arcaid-notifications` slash command)
-- [~] Phase 5: Polish & Engagement (PARTIAL) — Freeplay contextual leaders + nav activity indicator complete. **Remaining:** kiosk lobby ticker, feed coalescing, notification rate limiting & coalescing
+- [x] Phase 5: Polish & Engagement — Freeplay contextual leaders, nav activity indicator, kiosk lobby ticker, feed coalescing. **Remaining:** notification coalescing (deferred)
 
 **New files:** `LobbyFeedService.ts`, `LobbyFeedGenerator.ts`, `AnnouncementService.ts`, `CommunityShelfService.ts`, `MilestoneService.ts`, `FriendsService.ts`, `NotificationService.ts`, `notifications.ts` (Discord command), `Lobby.tsx`, `LobbyAdmin.tsx`, `Friends.tsx`, `AllGamesView.tsx`, `SocialLinksBar.tsx`, `PinnedMessage.tsx`, `AnnouncementCard.tsx`, `AnnouncementsRail.tsx`, `FeedItem.tsx`, `CommunityShelf.tsx`
 

@@ -136,10 +136,70 @@ export class LobbyFeedService {
             ...params
         );
 
-        return rows.map((r: any) => ({
+        const events: LobbyFeedEvent[] = rows.map((r: any) => ({
             ...r,
             metadata: JSON.parse(r.metadata || '{}'),
         }));
+
+        return this.coalesceScoreEvents(events);
+    }
+
+    /**
+     * Collapse 3+ score_posted events from the same player within 1 hour into a summary.
+     * Preserves non-score events and score events that don't meet the threshold.
+     */
+    private static coalesceScoreEvents(events: LobbyFeedEvent[]): LobbyFeedEvent[] {
+        const ONE_HOUR = 3600000;
+        const result: LobbyFeedEvent[] = [];
+        let i = 0;
+
+        while (i < events.length) {
+            const ev = events[i]!;
+
+            // Only coalesce score_posted events
+            if (ev.type !== 'score_posted' || !ev.player_id) {
+                result.push(ev);
+                i++;
+                continue;
+            }
+
+            // Collect consecutive score_posted from same player within 1 hour of the first
+            const cluster: LobbyFeedEvent[] = [ev];
+            let j = i + 1;
+            while (j < events.length) {
+                const next = events[j]!;
+                if (
+                    next.type === 'score_posted' &&
+                    next.player_id === ev.player_id &&
+                    Math.abs(new Date(ev.created_at).getTime() - new Date(next.created_at).getTime()) < ONE_HOUR
+                ) {
+                    cluster.push(next);
+                    j++;
+                } else {
+                    break;
+                }
+            }
+
+            if (cluster.length >= 3) {
+                // Collapse into summary event
+                const first = cluster[0]!;
+                const username = first.metadata?.username || 'A player';
+                const games = [...new Set(cluster.map(e => e.game_name).filter(Boolean))];
+                const gameList = games.length <= 2 ? games.join(' and ') : `${games.length} games`;
+                result.push({
+                    ...first,
+                    title: `${username} submitted ${cluster.length} scores across ${gameList}`,
+                    subtitle: null,
+                    metadata: { ...first.metadata, coalescedCount: cluster.length, coalescedIds: cluster.map(e => e.id) },
+                });
+            } else {
+                result.push(...cluster);
+            }
+
+            i = j;
+        }
+
+        return result;
     }
 
     /**
