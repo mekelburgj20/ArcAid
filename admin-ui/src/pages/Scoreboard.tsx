@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
 import { useTheme } from '../components/ThemeProvider';
@@ -14,7 +14,7 @@ import {
   getTitleSizeClass,
 } from '../components/ScoreboardComponents';
 import CardRouter from '../components/scoreboard/CardRouter';
-import AllGamesView from '../components/AllGamesView';
+import GamesTabView from '../components/GamesTabView';
 import ScoreSubmitModal from '../components/ScoreSubmitModal';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
@@ -37,7 +37,10 @@ export default function Scoreboard() {
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
-  const [tab, setTab] = useState<'tournament' | 'all'>('tournament');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<'tournament' | 'games'>(
+    searchParams.get('tab') === 'games' ? 'games' : 'tournament'
+  );
   const viewerHeaders = useViewerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
   const { setPublicTheme } = useTheme();
@@ -314,21 +317,21 @@ export default function Scoreboard() {
           Tournament
         </button>
         <button
-          onClick={() => setTab('all')}
+          onClick={() => setTab('games')}
           className={`px-3 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
-            tab === 'all'
+            tab === 'games'
               ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
               : 'border-border/50 text-muted hover:text-primary'
           }`}
         >
-          All Games
+          Games
         </button>
       </div>
 
       </div>
 
-      {tab === 'all' ? (
-        <AllGamesView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
+      {tab === 'games' ? (
+        <GamesTabView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
       ) : (
       <>
       {/* Game cards */}

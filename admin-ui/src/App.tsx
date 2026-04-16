@@ -40,7 +40,6 @@ import Players from './pages/Players';
 import PlayerDetail from './pages/PlayerDetail';
 import GameDetail from './pages/GameDetail';
 import GameAvailability from './pages/GameAvailability';
-import Freeplay from './pages/Freeplay';
 import Lobby from './pages/Lobby';
 import PublicStats from './pages/PublicStats';
 
@@ -65,6 +64,11 @@ import InviteAccept from './pages/InviteAccept';
 function NavigateToRoomLogin() {
   const { slug } = useParams();
   return <Navigate to={`/${slug}/login`} replace />;
+}
+
+function FreeplayRedirect() {
+  const { slug } = useParams();
+  return <Navigate to={`/${slug}?tab=games&view=catalogue`} replace />;
 }
 
 function App() {
@@ -143,7 +147,7 @@ function App() {
           <Route path="players/:id" element={<PlayerDetail />} />
           <Route path="games" element={<GameAvailability />} />
           <Route path="games/:name" element={<GameDetail />} />
-          <Route path="freeplay" element={<Freeplay />} />
+          <Route path="freeplay" element={<FreeplayRedirect />} />
           <Route path="stats" element={<PublicStats />} />
         </Route>
       </Routes>
