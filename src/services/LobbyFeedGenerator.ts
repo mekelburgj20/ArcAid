@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { LobbyFeedService } from './LobbyFeedService.js';
+import { NotificationService } from './NotificationService.js';
 import { logError } from '../utils/logger.js';
 
 interface ScoreSubmittedParams {
@@ -75,6 +76,24 @@ export class LobbyFeedGenerator {
                     gameName,
                     metadata: { score, username },
                 });
+
+                // Notify dethroned #1 player via DM
+                const dethronedKey = sorted[1]?.[0]; // previous #1 is now at index 1
+                if (dethronedKey && dethronedKey !== playerKey) {
+                    const dethronedMapping = await db.get(
+                        'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
+                        dethronedKey
+                    );
+                    if (dethronedMapping?.discord_user_id && dethronedMapping.discord_user_id !== discordUserId) {
+                        const room = await db.get('SELECT slug FROM game_rooms WHERE id = ?', gameRoomId);
+                        const link = room?.slug ? NotificationService.buildLink(room.slug) : '';
+                        NotificationService.notify({
+                            userId: dethronedMapping.discord_user_id,
+                            type: 'rankDethroned',
+                            message: `You've been dethroned on **${gameName}**! ${username} posted ${formattedScore} to claim #1.${link ? `\n${link}` : ''}`,
+                        }).catch(() => {});
+                    }
+                }
             } else if (currentRank > 0 && currentRank <= 10 && isTypeEnabled(enabledTypes, 'rank_change')) {
                 // Rank change (top 10 only to reduce noise)
                 await LobbyFeedService.emit({
@@ -106,7 +125,7 @@ export class LobbyFeedGenerator {
                 MilestoneService.checkAndEmit(gameRoomId, username, discordUserId).catch(() => {});
             }).catch(() => {});
 
-            // Friend score events (fire-and-forget, targeted per user)
+            // Friend score events + notifications (fire-and-forget, targeted per user)
             if (discordUserId) {
                 import('./FriendsService.js').then(({ FriendsService }) => {
                     FriendsService.getPlayersWhoFriended(discordUserId!).then(async (friendIds) => {
@@ -121,6 +140,13 @@ export class LobbyFeedGenerator {
                                 targetUserId: friendId,
                                 metadata: { score },
                             });
+
+                            // DM notification for friend score
+                            NotificationService.notify({
+                                userId: friendId,
+                                type: 'friendScore',
+                                message: `Your friend **${username}** just posted **${formattedScore}** on **${gameName}**!`,
+                            }).catch(() => {});
                         }
                     }).catch(() => {});
                 }).catch(() => {});

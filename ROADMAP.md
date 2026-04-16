@@ -344,10 +344,10 @@ Phases 0-3 complete, Phases 4-5 partial (2026-04-14→2026-04-15).
 - [x] Phase 1: Lobby Core — `lobby_feed_events` table, `LobbyFeedService`, `LobbyFeedGenerator` (5 score submission hooks), WebSocket live feed, Lobby page with activity stream, Scoreboard "All Games" tab (carousel with room card styles + search), feed cleanup scheduler, `community-leaderboards` endpoint enhanced with GameLeaderboard format + style resolution
 - [x] Phase 2: Lobby Content & Admin — `lobby_announcements` + `community_shelf_items` tables, `AnnouncementService`, `CommunityShelfService`, lobby config via `game_room_settings`, LobbyAdmin page (5 sections), full 4-zone Lobby (social links, announcements rail, activity stream, community shelf), 6 lobby sub-components
 - [x] Phase 3: Tournament & Milestone Integration — TournamentEngine hooks (3 event types), `MilestoneService` (threshold-based: scores/games/firsts)
-- [~] Phase 4: Social Features (PARTIAL) — Friends system complete (`friendships` table, `FriendsService`, Friends page, friend feed events). **Remaining:** `NotificationService` (Discord DM dispatch with user prefs + rate limiting), notification dispatch hooks (rank dethroned, friend score, tournament win, turn to pick, tournament starting), Discord `/arcaid-notifications` slash command
+- [x] Phase 4: Social Features — Friends system (`friendships` table, `FriendsService`, Friends page, friend feed events) + Discord push notifications (`NotificationService` with prefs + rate limiting, 5 dispatch hooks, `/arcaid-notifications` slash command)
 - [~] Phase 5: Polish & Engagement (PARTIAL) — Freeplay contextual leaders + nav activity indicator complete. **Remaining:** kiosk lobby ticker, feed coalescing, notification rate limiting & coalescing
 
-**New files:** `LobbyFeedService.ts`, `LobbyFeedGenerator.ts`, `AnnouncementService.ts`, `CommunityShelfService.ts`, `MilestoneService.ts`, `FriendsService.ts`, `Lobby.tsx`, `LobbyAdmin.tsx`, `Friends.tsx`, `AllGamesView.tsx`, `SocialLinksBar.tsx`, `PinnedMessage.tsx`, `AnnouncementCard.tsx`, `AnnouncementsRail.tsx`, `FeedItem.tsx`, `CommunityShelf.tsx`
+**New files:** `LobbyFeedService.ts`, `LobbyFeedGenerator.ts`, `AnnouncementService.ts`, `CommunityShelfService.ts`, `MilestoneService.ts`, `FriendsService.ts`, `NotificationService.ts`, `notifications.ts` (Discord command), `Lobby.tsx`, `LobbyAdmin.tsx`, `Friends.tsx`, `AllGamesView.tsx`, `SocialLinksBar.tsx`, `PinnedMessage.tsx`, `AnnouncementCard.tsx`, `AnnouncementsRail.tsx`, `FeedItem.tsx`, `CommunityShelf.tsx`
 
 **Migrations:** 043 (lobby_feed_events), 044 (lobby_announcements), 045 (community_shelf_items), 046 (friendships), 047 (notification_prefs)
 
@@ -362,23 +362,18 @@ Phases 0-3 complete, Phases 4-5 partial (2026-04-14→2026-04-15).
 
 ## Future
 
-### Discord Push Notifications (Next)
-From Lobby & Social plan Phase 4 — the notification infrastructure for opt-in Discord DM alerts.
+### Discord Push Notifications (COMPLETE)
 
-- [ ] `NotificationService.ts` — Discord DM dispatch with per-user prefs check + in-memory rate limiting (5/user/hour)
-- [ ] Notification dispatch hooks wired into existing services:
+- [x] `NotificationService.ts` — Discord DM dispatch with per-user prefs check + in-memory rate limiting (5/user/hour)
+- [x] 5 notification dispatch hooks:
   - Rank Dethroned: `LobbyFeedGenerator.onScoreSubmitted()` — when new #1, notify previous #1
   - Friend Score: `LobbyFeedGenerator.onScoreSubmitted()` — alongside friend_score feed events
-  - Tournament Win: `TournamentEngine` after winner resolution (~line 602)
+  - Tournament Win: `TournamentEngine` after winner resolution
   - Turn to Pick: `TournamentEngine` after picker slot creation
-  - Tournament Starting: `Scheduler` or `TimeoutManager` — 1 hour before tournament cadence fires
-- [ ] Discord `/arcaid-notifications` slash command — `show` (current prefs) + `toggle <type>` (on/off per notification type)
-- [ ] Register command in `DiscordClient.ts` command list
-- [ ] Notification coalescing — batch 3+ same-type notifications within 5 minutes into summary DM
-
-**Schema ready:** Migration 047 added `notification_prefs` column on `user_preferences`. JSON shape: `{ tournamentWin, turnToPick, tournamentStarting, rankDethroned, friendScore }` (all default false — opt-in). API endpoints `GET/PUT /api/me/notification-preferences` already exist.
-
-**Implementation plan:** Full details in `C:\Users\mekel\.claude\plans\ticklish-chasing-tower.md` sections 4.6-4.8.
+  - Tournament Starting: `Scheduler` every 15 minutes — 45-60 min before tournament cadence fires
+- [x] Discord `/arcaid-notifications` slash command — `show` (embed), `toggle <type>`, `enable all`, `disable all`
+- [x] Registered in `DiscordClient.ts` command list
+- [ ] Notification coalescing — batch 3+ same-type notifications within 5 minutes into summary DM (deferred to Phase 5 polish)
 
 ### Multi-Room
 - [ ] Discord Bot Multi-Room (Phase 5) — single bot, multi-guild, per-room command scoping

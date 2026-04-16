@@ -1204,7 +1204,7 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
                 game.game_name
             );
 
-            const catalogueStyleId = roomLib?.catalogue_style_id || globalLib?.catalogue_style_id || null;
+            const catalogueStyleId = roomLib?.catalogue_style_id || null;
             const logoStyleId = roomLib?.logo_style_id || null;
             const bgStyleId = roomLib?.bg_style_id || null;
             const styleHeaderDisabled = !!(roomLib?.style_header_disabled);

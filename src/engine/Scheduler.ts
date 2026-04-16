@@ -6,6 +6,7 @@ import { TournamentEngine } from './TournamentEngine.js';
 import { TimeoutManager } from './TimeoutManager.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { VpsImportService } from '../services/VpsImportService.js';
+import { getNextRunTime } from '../utils/cronUtils.js';
 
 export class Scheduler {
     private static instance: Scheduler;
@@ -67,6 +68,9 @@ export class Scheduler {
 
         // Weekly VPS catalogue sync (Wednesday 2 AM Pacific)
         this.startVpsCatalogueSync();
+
+        // Tournament starting notifications (every 15 minutes)
+        this.startTournamentStartingNotifier();
     }
 
     /**
@@ -121,6 +125,79 @@ export class Scheduler {
 
         this.tasks.set('__lobby_feed_cleanup__', task);
         logInfo('Lobby feed cleanup scheduled (daily at 3:30 AM).');
+    }
+
+    /** Tracks which tournament+timestamp combos have already been notified to avoid repeats. */
+    private notifiedStarting = new Set<string>();
+
+    /**
+     * Every 15 minutes, checks if any tournament's next maintenance is within 60 minutes.
+     * Sends a one-time "tournament starting" DM to opted-in players.
+     */
+    private startTournamentStartingNotifier(): void {
+        const task = cron.schedule('*/15 * * * *', async () => {
+            try {
+                const db = await getDatabase();
+                const tournaments = await db.all(
+                    "SELECT id, name, cadence, game_room_id FROM tournaments WHERE is_active = 1 AND cadence IS NOT NULL"
+                );
+                const now = Date.now();
+
+                for (const t of tournaments) {
+                    let cadence: CadenceConfig;
+                    try { cadence = JSON.parse(t.cadence); } catch { continue; }
+                    if (!cadence.cron) continue;
+
+                    const tz = cadence.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+                    const nextRun = getNextRunTime(cadence.cron, tz);
+                    if (!nextRun) continue;
+
+                    const msUntil = nextRun.getTime() - now;
+                    // Notify if within 45–60 minutes (narrow window avoids repeat sends)
+                    if (msUntil > 0 && msUntil <= 60 * 60000 && msUntil > 45 * 60000) {
+                        const key = `${t.id}:${nextRun.toISOString()}`;
+                        if (this.notifiedStarting.has(key)) continue;
+                        this.notifiedStarting.add(key);
+
+                        // Clean old keys (keep set from growing)
+                        if (this.notifiedStarting.size > 200) {
+                            const iter = this.notifiedStarting.values();
+                            for (let i = 0; i < 100; i++) iter.next();
+                            // Just clear old entries
+                            this.notifiedStarting.clear();
+                        }
+
+                        // Get all opted-in users
+                        const { NotificationService } = await import('../services/NotificationService.js');
+                        const users = await db.all(
+                            "SELECT discord_user_id, notification_prefs FROM user_preferences WHERE notification_prefs IS NOT NULL"
+                        );
+                        const room = t.game_room_id
+                            ? await db.get('SELECT slug FROM game_rooms WHERE id = ?', t.game_room_id)
+                            : null;
+                        const link = room?.slug ? NotificationService.buildLink(room.slug) : '';
+                        const mins = Math.round(msUntil / 60000);
+
+                        for (const u of users) {
+                            try {
+                                const prefs = JSON.parse(u.notification_prefs || '{}');
+                                if (!prefs.tournamentStarting) continue;
+                                NotificationService.notify({
+                                    userId: u.discord_user_id,
+                                    type: 'tournamentStarting',
+                                    message: `**${t.name}** rotates in ~${mins} minutes — get your scores in!${link ? `\n${link}` : ''}`,
+                                }).catch(() => {});
+                            } catch { /* skip malformed prefs */ }
+                        }
+                    }
+                }
+            } catch (error) {
+                logError('Tournament starting notifier error:', error);
+            }
+        });
+
+        this.tasks.set('__tournament_starting_notifier__', task);
+        logInfo('Tournament starting notifier scheduled (every 15 minutes).');
     }
 
     /**

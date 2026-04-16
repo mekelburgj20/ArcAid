@@ -616,6 +616,21 @@ export class TournamentEngine {
                     metadata: { score: winnerScore },
                 }).catch(() => {});
             }).catch(() => {});
+
+            // Notify winner via DM
+            if (winnerId) {
+                import('../services/NotificationService.js').then(({ NotificationService }) => {
+                    const room = db.get('SELECT slug FROM game_rooms WHERE id = ?', tournamentRow.game_room_id);
+                    (room as Promise<any>).then((r: any) => {
+                        const link = r?.slug ? NotificationService.buildLink(r.slug) : '';
+                        NotificationService.notify({
+                            userId: winnerId!,
+                            type: 'tournamentWin',
+                            message: `Congrats! You won **${activeGame.name}** in **${tournamentRow.name}**!${winnerScore ? ` Score: **${winnerScore.toLocaleString()}**` : ''}${link ? `\n${link}` : ''}`,
+                        }).catch(() => {});
+                    }).catch(() => {});
+                }).catch(() => {});
+            }
         }
 
         // Announce completion
@@ -807,6 +822,18 @@ export class TournamentEngine {
                     pickerName: winnerIscoredName || 'Unknown',
                     deadline: new Date(Date.now() + (tournamentRow.winner_pick_window_min ?? 60) * 60000).toISOString(),
                 });
+
+                // Notify winner it's their turn to pick
+                import('../services/NotificationService.js').then(({ NotificationService }) => {
+                    db.get('SELECT slug FROM game_rooms WHERE id = ?', tournamentRow.game_room_id).then((r: any) => {
+                        const link = r?.slug ? NotificationService.buildLink(r.slug, '/games') : '';
+                        NotificationService.notify({
+                            userId: winnerId!,
+                            type: 'turnToPick',
+                            message: `It's your turn to pick in **${tournamentRow.name}**! You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` or pick from the web.${link ? `\n${link}` : ''}`,
+                        }).catch(() => {});
+                    }).catch(() => {});
+                }).catch(() => {});
             } else if (!winnerPicks && !autoPick) {
                 // Manual only — no pick windows, no auto-select
                 logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=off — waiting for admin.`);

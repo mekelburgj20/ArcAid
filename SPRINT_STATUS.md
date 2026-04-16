@@ -349,7 +349,7 @@
 - [x] `MilestoneService.ts` — threshold-based milestone detection (scores submitted, unique games, #1 positions)
 - [x] Milestone events emitted from LobbyFeedGenerator on score submission
 
-**Phase 4: Social Features (PARTIAL)**
+**Phase 4: Social Features (COMPLETE)**
 - [x] Migration 046: `friendships` table (unidirectional follow model)
 - [x] Migration 047: `notification_prefs` column on `user_preferences`
 - [x] `FriendsService.ts` — friend CRUD, reverse lookup for feed events
@@ -358,9 +358,10 @@
 - [x] Friend score events in lobby feed (targeted to friend's viewer)
 - [x] Friends link (UserPlus icon) in PublicLayout avatar area
 - [x] Route: `/friends` with ViewerAuthProvider
-- [ ] `NotificationService.ts` — Discord DM dispatch with user prefs + rate limiting (5/user/hour)
-- [ ] Notification dispatch hooks (rank dethroned, friend score, tournament win, turn to pick, tournament starting)
-- [ ] Discord `/arcaid-notifications` slash command (show/toggle notification prefs)
+- [x] `NotificationService.ts` — Discord DM dispatch with user prefs + in-memory rate limiting (5/user/hour)
+- [x] 5 notification dispatch hooks: rank dethroned (LobbyFeedGenerator), friend score (LobbyFeedGenerator), tournament win (TournamentEngine), turn to pick (TournamentEngine), tournament starting (Scheduler, 15-min check)
+- [x] Discord `/arcaid-notifications` slash command — show (embed), toggle per-type, enable/disable all
+- [x] Registered in DiscordClient.ts (21 commands total)
 
 **Phase 5: Polish & Engagement (PARTIAL)**
 - [x] Freeplay contextual leaders — top 5 scores shown in submit modal via `/community-scores/:gameName/leaders`
@@ -381,27 +382,23 @@
 ## Last Session
 
 **Date:** 2026-04-15
-**What happened:** Fixed cross-page UX issues (game detail, freeplay, global score fan-out), then rewrote All Games tab as auto-cycling carousel with room card styles and search.
+**What happened:** Built Discord push notifications (NotificationService, 5 dispatch hooks, slash command). Cleaned up dead SQL reference.
 
 **Work done this session:**
-- **GameDetail non-tournament support:** Removed bail on null stats, added conditional tournament tabs, default to community tab
-- **GlobalGameDetail room context:** `?from=slug` param preserves room context; back link navigates to `/:slug/freeplay`
-- **Freeplay podium cards:** Rewritten CommunityGameCard with GlobalScoreboard-style podium layout (RANK_STYLES, PodiumSlot)
-- **Global score fan-out fixes:** Fixed `grl.name` → `grl.game_name` (was silently breaking ALL fan-out); added direct `global_games` name lookup as 4th fallback
-- **AllGamesView carousel:** Rewritten to use same CardRouter/GameCard as tournament tab, auto-cycles every 5s, pauses on hover, left/right arrows, search bar at top
-- **community-leaderboards endpoint:** Enhanced to return GameLeaderboard-compatible format with style resolution (room library → game_library → style_catalogue), search param, rankings with avatar hashes
-- **Bug fix:** `game_library` table has no `catalogue_style_id` column — fixed SQL query
+- **SQL cleanup:** Removed dead `globalLib?.catalogue_style_id` reference in community-leaderboards endpoint (column doesn't exist on `game_library`)
+- **NotificationService.ts:** Discord DM dispatch service with per-user pref check, in-memory rate limiting (5/user/hour), `buildLink()` helper for deep links
+- **Rank dethroned hook:** In `LobbyFeedGenerator.onScoreSubmitted()` — when new #1, look up previous #1's Discord ID and DM them
+- **Friend score hook:** In `LobbyFeedGenerator.onScoreSubmitted()` — alongside friend_score feed events, DM friend followers
+- **Tournament win hook:** In `TournamentEngine.processSlotMaintenance()` — after winner resolution + lobby feed event, DM the winner
+- **Turn to pick hook:** In `TournamentEngine.processSlotMaintenance()` — after picker slot creation, DM the winner it's their turn to pick
+- **Tournament starting hook:** New `startTournamentStartingNotifier()` in `Scheduler` — runs every 15 minutes, checks if any tournament maintenance is within 45-60 minutes, DMs opted-in users once per rotation
+- **`/arcaid-notifications` command:** Show prefs (embed), toggle individual types, enable/disable all. Registered in DiscordClient (21 commands).
 
-**Git state:** On `main`, all committed and deployed. Latest commit: `cb481504` (fix: community-leaderboards query)
-
-**Production status:** Deployed and healthy. CI/CD run 24459681027 completed.
-
-**Known issue:** User reported All Games and Freeplay showing no games after the carousel deploy. Traced to `catalogue_style_id` column missing from `game_library` table (500 error from endpoint). Fix deployed (`cb481504`) but user hasn't confirmed yet.
+**Git state:** On `main`, uncommitted changes ready.
 
 **Next up:**
-- Verify All Games carousel and Freeplay are working after the SQL fix
-- Discord push notifications: `NotificationService` (DM dispatch + prefs + rate limiting), notification hooks (rank dethroned, friend score, tournament win, turn to pick), Discord `/arcaid-notifications` command
-- Remaining Phase 5 polish: kiosk lobby ticker, feed coalescing
+- Commit and deploy
+- Remaining Phase 5 polish: kiosk lobby ticker, feed coalescing, notification coalescing
 
 ## Blockers
 
