@@ -2,6 +2,7 @@ import { Guild } from 'discord.js';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { IScoredClient } from './IScoredClient.js';
+import { resolveServerNickname } from '../services/DiscordNicknameResolver.js';
 
 export class IdentityManager {
     private static instance: IdentityManager;
@@ -63,27 +64,14 @@ export class IdentityManager {
 
             logInfo(`   -> Attempting to auto-map ${unmappedNames.length} users: ${unmappedNames.join(', ')}`);
 
-            try {
-                await guild.members.fetch();
-            } catch (e) {
-                logWarn('   -> Failed to fetch all members (Intent might be missing). Searching cache only.');
-            }
-
-            // 4. Attempt exact matching
+            // 4. Attempt exact matching via shared resolver (memoized, no GUILD_MEMBERS intent required)
             for (const iscoredName of unmappedNames) {
-                const searchName = iscoredName.toLowerCase();
-                
-                const match = guild.members.cache.find(m => 
-                    m.user.username.toLowerCase() === searchName ||
-                    m.nickname?.toLowerCase() === searchName ||
-                    m.user.globalName?.toLowerCase() === searchName
-                );
-
+                const match = await resolveServerNickname(guild.id, iscoredName);
                 if (match) {
-                    logInfo(`   Auto-mapped: iScored '${iscoredName}' -> Discord @${match.user.tag}`);
+                    logInfo(`   Auto-mapped: iScored '${iscoredName}' -> Discord ${match.username} (${match.matchedField})`);
                     await db.run(
                         `INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)`,
-                        match.id, iscoredName
+                        match.discordUserId, iscoredName
                     );
                 } else {
                     logWarn(`   No match found for iScored user: '${iscoredName}'`);

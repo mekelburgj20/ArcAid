@@ -1,4 +1,6 @@
 import { getDatabase } from '../database/database.js';
+import { normalizeSubmitterUserId } from './SubmissionContextService.js';
+import { RoomMembershipService } from './RoomMembershipService.js';
 
 export class ScoreHistoryService {
     /**
@@ -13,6 +15,8 @@ export class ScoreHistoryService {
         score: number;
         photoUrl?: string;
         source: 'tournament' | 'community' | 'sync';
+        tournamentId?: string | null;
+        anonymousName?: string | null;
     }) {
         const db = await getDatabase();
 
@@ -25,13 +29,27 @@ export class ScoreHistoryService {
         );
         if (existing) return;
 
+        const submittedByUserId = normalizeSubmitterUserId(params.discordUserId);
+        const submittedByAnonymousName =
+            params.anonymousName ?? (submittedByUserId ? null : params.username);
+        const submittedTournamentId =
+            params.tournamentId ?? (params.source === 'tournament' ? null : null);
+
         await db.run(
-            `INSERT INTO score_history (game_name, game_room_id, game_id, iscored_username, discord_user_id, score, photo_url, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO score_history (
+                game_name, game_room_id, game_id, iscored_username, discord_user_id, score, photo_url, source,
+                submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
             params.gameName, params.gameRoomId, params.gameId || null,
             params.username, params.discordUserId || 'SYSTEM',
-            params.score, params.photoUrl || null, params.source
+            params.score, params.photoUrl || null, params.source,
+            params.gameRoomId, submittedTournamentId, submittedByUserId, submittedByAnonymousName
         );
+
+        // Sprint 6.5: any Discord-authenticated score establishes room membership.
+        // addMember is sentinel-aware, so SYSTEM/ANON/etc. calls are no-ops.
+        await RoomMembershipService.addMember(submittedByUserId, params.gameRoomId, 'submission');
     }
 
     /**
@@ -51,6 +69,7 @@ export class ScoreHistoryService {
             WHERE game_room_id = ?
             AND LOWER(game_name) = LOWER(?)
             AND LOWER(iscored_username) = LOWER(?)
+            AND orphaned_at IS NULL
             ORDER BY created_at DESC
             LIMIT ?
         `, gameRoomId, gameName, username, limit);
@@ -70,6 +89,7 @@ export class ScoreHistoryService {
             FROM score_history
             WHERE game_room_id = ?
             AND LOWER(game_name) = LOWER(?)
+            AND orphaned_at IS NULL
             ORDER BY created_at DESC
             LIMIT ?
         `, gameRoomId, gameName, limit);
@@ -85,6 +105,7 @@ export class ScoreHistoryService {
             SELECT id, iscored_username, score, source, photo_url, created_at
             FROM score_history
             WHERE game_room_id = ? AND game_id = ?
+            AND orphaned_at IS NULL
             ORDER BY score DESC, created_at ASC
         `, gameRoomId, gameId);
     }

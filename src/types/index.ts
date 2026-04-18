@@ -57,6 +57,14 @@ export interface Game {
     queueOrder?: number;
 }
 
+export interface SubmissionContext {
+    submittedFromRoomId: string | null;
+    submittedDuringTournamentId: string | null;
+    submittedByUserId: string | null;
+    submittedByAnonymousName: string | null;
+    mergedFromAnonymousIdentityId: number | null;
+}
+
 export interface Submission {
     id: string;
     gameId: string;
@@ -65,6 +73,30 @@ export interface Submission {
     score: number;
     photoUrl?: string;
     timestamp: Date;
+    context?: SubmissionContext;
+}
+
+export type AnonymousIdentityStatus = 'active' | 'merged' | 'orphaned';
+
+export interface AnonymousIdentity {
+    id: number;
+    serverNickname: string;
+    guildId: string | null;
+    roomId: string | null;
+    firstSeenAt: string;
+    status: AnonymousIdentityStatus;
+}
+
+export interface MergeRecord {
+    id: number;
+    anonymousIdentityId: number;
+    targetDiscordUserId: string;
+    adminDiscordUserId: string;
+    createdAt: string;
+    reversedAt: string | null;
+    reversalAdminId: string | null;
+    scoreIdsSnapshot: string;
+    reason: string | null;
 }
 
 export interface UserMapping {
@@ -142,6 +174,8 @@ export interface GameRoom {
     is_public: boolean;
     logo_url: string | null;
     discord_guild_id: string | null;
+    /** Sprint 13 — optional short label for RoomTag badges. Falls back to slug-derived when null. */
+    short_tag: string | null;
     created_at: string;
 }
 

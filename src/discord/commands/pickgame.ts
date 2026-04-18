@@ -8,7 +8,9 @@ import { IScoredClient } from '../../engine/IScoredClient.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
 import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
+import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
 import { v4 as uuidv4 } from 'uuid';
+// TODO(§8): gate /mystery-award when that command is authored (Q6 — out of scope for Sprint 5).
 
 export const pickgame: Command = {
     data: new SlashCommandBuilder()
@@ -108,10 +110,17 @@ export const pickgame: Command = {
 
         try {
             const db = await getDatabase();
-            const tournament = await db.get('SELECT id, type, mode, max_active_games FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
+            const tournament = await db.get('SELECT id, type, mode, max_active_games, game_room_id FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
 
             if (!tournament) {
                 await interaction.editReply(`Could not find a tournament named '${tournamentName}'.`);
+                return;
+            }
+
+            // Pick-award gate (plan §8) — short-circuit with exact reply string.
+            const pickEnabled = await PickAwardGate.isEnabled(tournament.game_room_id, tournament.id);
+            if (!pickEnabled) {
+                await interaction.editReply(PICK_AWARD_DISABLED_REPLY);
                 return;
             }
 

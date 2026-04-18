@@ -9,13 +9,25 @@ interface ImageCropperProps {
   maxOutputWidth: number;
   onConfirm: (blob: Blob) => void;
   onCancel: () => void;
+  notice?: string;
 }
 
-export default function ImageCropper({ imageSrc, aspectRatio, maxOutputWidth, onConfirm, onCancel }: ImageCropperProps) {
+export default function ImageCropper({ imageSrc, aspectRatio, maxOutputWidth, onConfirm, onCancel, notice }: ImageCropperProps) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [sourceIsSquare, setSourceIsSquare] = useState<boolean | null>(null);
+  const [mediaLoaded, setMediaLoaded] = useState(false);
+
+  const handleMediaLoaded = useCallback((media: { naturalWidth: number; naturalHeight: number }) => {
+    const ratio = media.naturalWidth / media.naturalHeight;
+    // Consider within 1% of square to be square (accounts for PNG rounding)
+    setSourceIsSquare(Math.abs(ratio - 1) < 0.01);
+    setMediaLoaded(true);
+  }, []);
+
+  const showNonSquareWarning = notice === 'square-badge' && mediaLoaded && sourceIsSquare === false;
 
   const onCropComplete = useCallback((_croppedArea: Area, croppedPixels: Area) => {
     setCroppedAreaPixels(croppedPixels);
@@ -47,10 +59,16 @@ export default function ImageCropper({ imageSrc, aspectRatio, maxOutputWidth, on
           onCropChange={setCrop}
           onZoomChange={setZoom}
           onCropComplete={onCropComplete}
+          onMediaLoaded={handleMediaLoaded}
           style={{
             containerStyle: { background: '#111' },
           }}
         />
+        {showNonSquareWarning && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-neon-cyan/15 border border-neon-cyan/50 text-neon-cyan text-xs px-4 py-2 rounded max-w-md text-center">
+            This logo isn't square. Adjust the crop to pick the square region used as this room's Global Scoreboard badge.
+          </div>
+        )}
       </div>
 
       {/* Controls */}

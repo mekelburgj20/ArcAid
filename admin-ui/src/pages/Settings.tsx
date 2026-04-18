@@ -115,8 +115,12 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     defaultOn: true,
   },
   'REQUIRE_DISCORD_LOGIN': {
-    label: 'Require Discord Login for Score Submission',
-    description: 'When enabled, players must log in with Discord before submitting scores from the public scoreboard. Useful for kiosks where you want to track who submitted what.',
+    label: 'Require login for score submissions',
+    description: 'When enabled, players must log in with Discord before submitting scores. Anonymous scores already in this room will be hidden from every leaderboard while this is on; toggle it back off to restore them. Existing anonymous rows are preserved either way — they are simply orphaned, not deleted.',
+  },
+  'ENABLE_GAME_PICK_AWARD': {
+    label: 'Enable Game Pick Award',
+    description: 'When enabled, tournament winners earn the right to pick the next game (Picks tab, /pick-game command, Mystery Award spinner, and turn-to-pick DMs are all active). When disabled, the whole pick-award flow is suppressed room-wide and a moderator queues games manually. Per-tournament winner-picks settings can further disable this but cannot override a room-level off switch.',
   },
 };
 
@@ -1409,7 +1413,11 @@ export default function Settings() {
                     </NeonButton>
                   )}
                 </div>
-                <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Shown alongside the scoreboard title.</p>
+                <p className="text-xs text-faint mt-2">
+                  PNG, JPEG, or WebP. Max 5 MB. Shown alongside the scoreboard title.
+                  A 1:1 (square) crop is also used as this room's badge on the Global Scoreboard.
+                  Non-square logos will prompt for a square crop on upload.
+                </p>
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   <div>
                     <label className="text-xs text-faint block mb-1">Logo Position</label>
@@ -1513,6 +1521,7 @@ export default function Settings() {
             maxOutputWidth={brandingCropTarget === 'bg' ? 1920 : 600}
             onConfirm={handleBrandingCropConfirm}
             onCancel={handleBrandingCropCancel}
+            notice={brandingCropTarget === 'logo' ? 'square-badge' : undefined}
           />
         )}
         </Fragment>

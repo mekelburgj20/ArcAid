@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Delete } from 'lucide-react';
 
 interface OnScreenKeyboardProps {
   mode: 'alpha' | 'numeric';
@@ -33,7 +34,7 @@ export default function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone
           {NUMBER_ROW.slice(0, 9).map(k => (
             <button key={k} type="button" className={keyClass} onClick={() => onKeyPress(k)}>{k}</button>
           ))}
-          <button type="button" className={`${keyClass} text-neon-amber`} onClick={onBackspace}>⌫</button>
+          <button type="button" aria-label="Backspace" className={`${keyClass} text-neon-amber inline-flex items-center justify-center`} onClick={onBackspace}><Delete size={16} /></button>
           <button type="button" className={keyClass} onClick={() => onKeyPress('0')}>0</button>
           <button type="button" className={`${keyClass} text-neon-cyan`} onClick={onDone}>Done</button>
         </div>
@@ -64,7 +65,7 @@ export default function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone
         <button type="button" className={`${keyClass} text-neon-purple px-3`} onClick={() => setShowSymbols(!showSymbols)}>
           {showSymbols ? 'ABC' : '#+='}
         </button>
-        <button type="button" className={`${keyClass} text-neon-amber px-4`} onClick={onBackspace}>⌫</button>
+        <button type="button" aria-label="Backspace" className={`${keyClass} text-neon-amber px-4 inline-flex items-center justify-center`} onClick={onBackspace}><Delete size={16} /></button>
         <button type="button" className={`${keyClass} flex-1 max-w-[200px]`} onClick={() => onKeyPress(' ')}>space</button>
         <button type="button" className={`${keyClass} text-neon-cyan px-4`} onClick={onDone}>Done</button>
       </div>

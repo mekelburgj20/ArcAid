@@ -6,6 +6,7 @@ import { IScoredApiClient } from '../../engine/IScoredApiClient.js';
 import { getDatabase } from '../../database/database.js';
 import { TOURNAMENT_TAG_KEYS, MANAGED_TAGS } from '../../utils/config.js';
 import { v4 as uuidv4 } from 'uuid';
+import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 
 export const syncstate: Command = {
     data: new SlashCommandBuilder()
@@ -128,6 +129,11 @@ async function syncScoresViaApi(db: any, allIscoredGames: any[]): Promise<number
         const localGame = await db.get('SELECT * FROM games WHERE iscored_id = ?', gameData.GameID);
         if (!localGame) continue;
 
+        // Resolve game_room_id once per game (sync path: submitted_from_room_id context)
+        const gameRoomIdForGame = localGame.tournament_id
+            ? (await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', localGame.tournament_id))?.game_room_id || null
+            : null;
+
         logInfo(`   -> API: ${gameData.scores.length} score(s) for "${gameData.gameName}" (${gameData.GameID})`);
 
         const syncedIds = new Set<string>();
@@ -145,30 +151,39 @@ async function syncScoresViaApi(db: any, allIscoredGames: any[]): Promise<number
             const existing = await db.get('SELECT score FROM submissions WHERE id = ?', syncId);
             const isNewOrHigher = !existing || scoreValue > existing.score;
 
+            const submittedByUserId = normalizeSubmitterUserId(
+                discordUserId.startsWith('iscored:') ? null : discordUserId
+            );
+            const submittedByAnonymousName = submittedByUserId ? null : score.name;
+
             await db.run(`
-                INSERT INTO submissions (id, game_id, iscored_username, score, timestamp, discord_user_id)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO submissions (
+                    id, game_id, iscored_username, score, timestamp, discord_user_id,
+                    submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                    submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                 ON CONFLICT(id) DO UPDATE SET score = excluded.score,
                     discord_user_id = excluded.discord_user_id, iscored_username = excluded.iscored_username
             `,
-                syncId, localGame.id, score.name, scoreValue, new Date().toISOString(), discordUserId
+                syncId, localGame.id, score.name, scoreValue, new Date().toISOString(), discordUserId,
+                gameRoomIdForGame, localGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
             );
 
-            if (isNewOrHigher && localGame.tournament_id) {
+            if (isNewOrHigher && localGame.tournament_id && gameRoomIdForGame) {
                 try {
-                    const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', localGame.tournament_id);
-                    if (tournament?.game_room_id) {
-                        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
-                        await ScoreHistoryService.log({
-                            gameName: localGame.name,
-                            gameRoomId: tournament.game_room_id,
-                            gameId: localGame.id,
-                            username: score.name,
-                            discordUserId,
-                            score: scoreValue,
-                            source: 'sync',
-                        });
-                    }
+                    const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+                    await ScoreHistoryService.log({
+                        gameName: localGame.name,
+                        gameRoomId: gameRoomIdForGame,
+                        gameId: localGame.id,
+                        username: score.name,
+                        discordUserId,
+                        score: scoreValue,
+                        source: 'sync',
+                        tournamentId: localGame.tournament_id,
+                        anonymousName: submittedByAnonymousName,
+                    });
                 } catch {}
             }
         }
@@ -219,6 +234,11 @@ async function syncScoresViaPlaywright(db: any, allIscoredGames: any[]): Promise
             const localGame = await db.get('SELECT * FROM games WHERE iscored_id = ?', iscoredGame.id);
             if (!localGame) continue;
 
+            // Resolve game_room_id once per game (sync path: submitted_from_room_id context)
+            const gameRoomIdForGame = localGame.tournament_id
+                ? (await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', localGame.tournament_id))?.game_room_id || null
+                : null;
+
             const scores = await iscored.scrapePublicScores(publicUrl, iscoredGame.id);
             logInfo(`   -> Scraped ${scores.length} score(s) for "${iscoredGame.name}" (${iscoredGame.id})`);
 
@@ -236,32 +256,41 @@ async function syncScoresViaPlaywright(db: any, allIscoredGames: any[]): Promise
                 const existing = await db.get('SELECT score FROM submissions WHERE id = ?', syncId);
                 const isNewOrHigher = !existing || scoreValue > existing.score;
 
+                const submittedByUserId = normalizeSubmitterUserId(
+                    discordUserId.startsWith('iscored:') ? null : discordUserId
+                );
+                const submittedByAnonymousName = submittedByUserId ? null : score.name;
+
                 await db.run(`
-                    INSERT INTO submissions (id, game_id, iscored_username, score, photo_url, timestamp, discord_user_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO submissions (
+                        id, game_id, iscored_username, score, photo_url, timestamp, discord_user_id,
+                        submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                     ON CONFLICT(id) DO UPDATE SET score = excluded.score, photo_url = excluded.photo_url,
                         discord_user_id = excluded.discord_user_id, iscored_username = excluded.iscored_username
                 `,
                     syncId, localGame.id, score.name, scoreValue, score.photoUrl,
-                    new Date().toISOString(), discordUserId
+                    new Date().toISOString(), discordUserId,
+                    gameRoomIdForGame, localGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
                 );
 
-                if (isNewOrHigher && localGame.tournament_id) {
+                if (isNewOrHigher && localGame.tournament_id && gameRoomIdForGame) {
                     try {
-                        const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', localGame.tournament_id);
-                        if (tournament?.game_room_id) {
-                            const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
-                            await ScoreHistoryService.log({
-                                gameName: localGame.name,
-                                gameRoomId: tournament.game_room_id,
-                                gameId: localGame.id,
-                                username: score.name,
-                                discordUserId,
-                                score: scoreValue,
-                                photoUrl: score.photoUrl,
-                                source: 'sync',
-                            });
-                        }
+                        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+                        await ScoreHistoryService.log({
+                            gameName: localGame.name,
+                            gameRoomId: gameRoomIdForGame,
+                            gameId: localGame.id,
+                            username: score.name,
+                            discordUserId,
+                            score: scoreValue,
+                            photoUrl: score.photoUrl,
+                            source: 'sync',
+                            tournamentId: localGame.tournament_id,
+                            anonymousName: submittedByAnonymousName,
+                        });
                     } catch {}
                 }
             }

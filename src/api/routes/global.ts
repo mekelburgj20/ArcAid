@@ -171,6 +171,19 @@ router.delete('/me/friends/:friendUserId', requireDiscordUser, async (req, res) 
     }
 });
 
+// --- My Rooms (Sprint 7 / plan Q8 → b) ---
+
+router.get('/me/rooms', requireDiscordUser, async (req, res) => {
+    try {
+        const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
+        const rooms = await RoomMembershipService.listRoomsForUser(req.user!.discordId!);
+        res.json(rooms);
+    } catch (error) {
+        logError('API Error (GET /api/me/rooms):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // --- Notification Preferences ---
 
 router.get('/me/notification-preferences', requireDiscordUser, async (req, res) => {
@@ -294,8 +307,10 @@ router.get('/portal', async (req, res) => {
         const room = await GameRoomService.getBySlug(slug);
         if (!room) return res.status(404).json({ error: 'Room not found' });
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+        const { PickAwardGate } = await import('../../services/PickAwardGate.js');
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
+        const pickAwardEnabled = await PickAwardGate.isEnabled(room.id);
         res.json({
             id: room.id,
             roomId: room.id,
@@ -306,9 +321,287 @@ router.get('/portal', async (req, res) => {
             ui_theme: uiTheme || 'dark',
             admin_theme: adminTheme || 'dark',
             is_public: !!room.is_public,
+            pick_award_enabled: pickAwardEnabled,
         });
     } catch (error) {
         logError('API Error (GET /api/portal):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Sprint 10 / plan §15 — submission drafts (5-min TTL). Server-side fallback
+// for the anonymous-claim OAuth handoff; the client stores the same blob in
+// sessionStorage as the primary path. Keyed on the OAuth `state` param so
+// DiscordCallback can replay across browser tabs or devices.
+router.post('/submission-drafts/:stateParam', globalScoreUpload.single('photo'), async (req, res) => {
+    try {
+        const stateParam = req.params.stateParam as string;
+        if (!stateParam || stateParam.length > 128) return res.status(400).json({ error: 'invalid stateParam' });
+        const targetRaw = typeof req.body?.target === 'string' ? req.body.target : '';
+        if (!targetRaw) return res.status(400).json({ error: 'target is required' });
+        let target;
+        try { target = JSON.parse(targetRaw); } catch { return res.status(400).json({ error: 'target must be JSON' }); }
+
+        const playerName = typeof req.body?.playerName === 'string' ? req.body.playerName : null;
+        const scoreRaw = req.body?.score;
+        const score = scoreRaw !== undefined && scoreRaw !== null && scoreRaw !== ''
+            ? Number.parseInt(String(scoreRaw), 10)
+            : null;
+        const excludeFromGlobal = req.body?.excludeFromGlobal === 'true' || req.body?.excludeFromGlobal === true;
+
+        const photoBuffer = req.file?.buffer ?? null;
+        const photoExt = req.file
+            ? (req.file.mimetype === 'image/png' || req.file.mimetype === 'image/apng') ? 'png'
+            : req.file.mimetype === 'image/webp' ? 'webp'
+            : 'jpg'
+            : undefined;
+
+        const { SubmissionDraftService } = await import('../../services/SubmissionDraftService.js');
+        await SubmissionDraftService.create(stateParam, target, {
+            playerName,
+            score: Number.isFinite(score) ? score : null,
+            photoBuffer,
+            photoExt,
+            excludeFromGlobal,
+        });
+        res.status(201).json({ ok: true });
+    } catch (error) {
+        logError('API Error (POST /api/submission-drafts):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/submission-drafts/:stateParam', async (req, res) => {
+    try {
+        const { SubmissionDraftService } = await import('../../services/SubmissionDraftService.js');
+        const draft = await SubmissionDraftService.get(req.params.stateParam as string);
+        if (!draft) return res.status(404).json({ error: 'draft not found or expired' });
+        res.json({
+            target: draft.target,
+            playerName: draft.playerName,
+            score: draft.score,
+            excludeFromGlobal: draft.excludeFromGlobal,
+            hasPhoto: !!draft.photoPath,
+            createdAt: draft.createdAt,
+            expiresAt: draft.expiresAt,
+        });
+    } catch (error) {
+        logError('API Error (GET /api/submission-drafts):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/submission-drafts/:stateParam', async (req, res) => {
+    try {
+        const { SubmissionDraftService } = await import('../../services/SubmissionDraftService.js');
+        await SubmissionDraftService.consume(req.params.stateParam as string);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/submission-drafts):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Sprint 10 — commit a server-stored draft as the now-authenticated user.
+// Called by SubmissionSheet on OAuth return. The draft's target drives dispatch:
+// tournament/freeplay go through CommunityScoreService + the usual fan-out +
+// submissions upsert; global goes through GlobalScoreService.submit.
+router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, async (req, res) => {
+    try {
+        const stateParam = req.params.stateParam as string;
+        const { SubmissionDraftService } = await import('../../services/SubmissionDraftService.js');
+        const draft = await SubmissionDraftService.get(stateParam);
+        if (!draft) return res.status(404).json({ error: 'draft not found or expired' });
+
+        const discordId = req.user?.discordId;
+        if (!discordId) return res.status(401).json({ error: 'authentication required' });
+        if (draft.score === null || draft.score === undefined) return res.status(400).json({ error: 'draft missing score' });
+        if (!draft.playerName) return res.status(400).json({ error: 'draft missing player name' });
+
+        const fs = await import('fs');
+        const path = await import('path');
+        const photoBuffer = draft.photoPath && fs.existsSync(draft.photoPath) ? fs.readFileSync(draft.photoPath) : null;
+
+        if (draft.target.kind === 'tournament' || draft.target.kind === 'freeplay') {
+            const roomId = draft.target.roomId;
+            const gameName = draft.target.gameName;
+
+            // Persist photo to the room's score-photos dir so it survives draft cleanup.
+            let photoUrl: string | null = null;
+            if (photoBuffer) {
+                const ext = path.extname(draft.photoPath!).slice(1) || 'jpg';
+                const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+                const dir = path.join(process.cwd(), 'data', 'score-photos', roomId);
+                fs.mkdirSync(dir, { recursive: true });
+                const outPath = path.join(dir, filename);
+                fs.writeFileSync(outPath, photoBuffer);
+                photoUrl = `/api/score-photos/${roomId}/${filename}`;
+            }
+
+            const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
+            await CommunityScoreService.submitScore(
+                roomId,
+                gameName,
+                draft.playerName,
+                draft.score,
+                discordId,
+                photoUrl ?? undefined,
+                { excludeFromGlobal: draft.excludeFromGlobal },
+            );
+
+            // Mirror submit-score route: upsert into submissions if an active/completed tournament game matches.
+            const db = await getDatabase();
+            const activeGame = await db.get(`
+                SELECT g.id, g.tournament_id FROM games g
+                JOIN tournaments t ON t.id = g.tournament_id
+                WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
+                  AND g.status IN ('ACTIVE', 'COMPLETED')
+                LIMIT 1
+            `, gameName, roomId);
+            if (activeGame) {
+                const submissionId = `${activeGame.id}-${draft.playerName.toLowerCase()}`;
+                const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
+                if (!existing || draft.score > existing.score) {
+                    await db.run(
+                        `INSERT OR REPLACE INTO submissions (
+                            id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                            submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                            submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+                        submissionId, activeGame.id, discordId, draft.playerName, draft.score, photoUrl || null, new Date().toISOString(),
+                        roomId, activeGame.tournament_id || null, discordId,
+                    );
+                    const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+                    await LeaderboardService.invalidate(activeGame.id);
+                }
+            }
+        } else {
+            // global target — derive mimeType from the draft's stored extension so
+            // PNG/WebP drafts don't masquerade as JPEG after the OAuth round-trip.
+            const { GlobalScoreService } = await import('../../services/GlobalScoreService.js');
+            const draftExt = draft.photoPath ? path.extname(draft.photoPath).slice(1).toLowerCase() : '';
+            const photoMimeType = photoBuffer
+                ? (draftExt === 'png' ? 'image/png'
+                    : draftExt === 'webp' ? 'image/webp'
+                    : 'image/jpeg')
+                : undefined;
+            await GlobalScoreService.submit({
+                globalGameId: draft.target.globalGameId,
+                playerId: discordId,
+                iscoredUsername: draft.playerName,
+                score: draft.score,
+                photoBuffer: photoBuffer ?? undefined,
+                photoMimeType,
+                originType: 'global',
+                excludeFromGlobal: draft.excludeFromGlobal,
+            } as Parameters<typeof GlobalScoreService.submit>[0]);
+        }
+
+        // Sprint 11 self-claim (plan §15 / sprint-02-merge-model §4.2):
+        // after the draft commits, scan for active anonymous identities in the
+        // target room whose nickname matches the submitted name. Each match
+        // creates a self-claim merge_records row (admin == target) so the
+        // user's prior anon scores roll up under their Discord account.
+        // Best-effort: errors are logged but do not fail the submission.
+        if ((draft.target.kind === 'tournament' || draft.target.kind === 'freeplay') && draft.playerName) {
+            try {
+                const claimRoomId = draft.target.roomId;
+                const db = await getDatabase();
+                const identities = await db.all(
+                    `SELECT id FROM anonymous_identities
+                     WHERE status = 'active'
+                       AND (room_id = ? OR room_id IS NULL)
+                       AND LOWER(server_nickname) = LOWER(?)`,
+                    claimRoomId, draft.playerName,
+                );
+                if (identities.length > 0) {
+                    const { MergeService } = await import('../../services/MergeService.js');
+                    const { RoomEventService } = await import('../../services/RoomEventService.js');
+                    for (const ai of identities) {
+                        try {
+                            const preview = await MergeService.previewMerge(claimRoomId, ai.id, discordId);
+                            if (preview.totalMovingRows === 0) continue;
+                            const out = await MergeService.recordMerge({
+                                roomId: claimRoomId,
+                                anonymousIdentityId: ai.id,
+                                targetDiscordUserId: discordId,
+                                adminDiscordUserId: discordId, // self-claim
+                                reason: 'self-claim via OAuth',
+                                previewHash: preview.previewHash,
+                            });
+                            RoomEventService.log(claimRoomId, 'identity_merge', {
+                                mergeId: out.mergeId,
+                                anonymousIdentityId: ai.id,
+                                targetUserId: discordId,
+                                movedRows: out.movedRows,
+                                source: 'self-claim',
+                            }).catch(() => {});
+                        } catch (err) {
+                            logError('self-claim merge failed', err);
+                        }
+                    }
+                }
+            } catch (err) {
+                logError('self-claim sweep failed', err);
+            }
+        }
+
+        await SubmissionDraftService.consume(stateParam);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (POST /api/submission-drafts/:stateParam/commit):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Sprint 13 (plan §10.3) — commit a stored draft anonymously. Called when the
+// user cancels OAuth and chooses "Submit as guest" in the PendingSubmissionWatcher
+// modal. Tournament + freeplay targets go through CommunityScoreService without
+// a discordUserId; global targets are rejected (global submissions require auth).
+router.post('/submission-drafts/:stateParam/commit-as-guest', async (req, res) => {
+    try {
+        const stateParam = req.params.stateParam as string;
+        const { SubmissionDraftService } = await import('../../services/SubmissionDraftService.js');
+        const draft = await SubmissionDraftService.get(stateParam);
+        if (!draft) return res.status(404).json({ error: 'draft not found or expired' });
+
+        if (draft.score === null || draft.score === undefined) return res.status(400).json({ error: 'draft missing score' });
+        if (!draft.playerName) return res.status(400).json({ error: 'draft missing player name' });
+        if (draft.target.kind === 'global') return res.status(400).json({ error: 'global submissions require Discord login' });
+
+        const fs = await import('fs');
+        const path = await import('path');
+        const photoBuffer = draft.photoPath && fs.existsSync(draft.photoPath) ? fs.readFileSync(draft.photoPath) : null;
+
+        const roomId = draft.target.roomId;
+        const gameName = draft.target.gameName;
+
+        let photoUrl: string | null = null;
+        if (photoBuffer) {
+            const ext = path.extname(draft.photoPath!).slice(1) || 'jpg';
+            const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+            const dir = path.join(process.cwd(), 'data', 'score-photos', roomId);
+            fs.mkdirSync(dir, { recursive: true });
+            const outPath = path.join(dir, filename);
+            fs.writeFileSync(outPath, photoBuffer);
+            photoUrl = `/api/score-photos/${roomId}/${filename}`;
+        }
+
+        const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
+        await CommunityScoreService.submitScore(
+            roomId,
+            gameName,
+            draft.playerName,
+            draft.score,
+            undefined, // guest submission — no Discord user id
+            photoUrl ?? undefined,
+            { excludeFromGlobal: draft.excludeFromGlobal },
+        );
+
+        await SubmissionDraftService.consume(stateParam);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (POST /api/submission-drafts/:stateParam/commit-as-guest):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -346,7 +639,8 @@ router.get('/rooms', async (req, res) => {
                 `SELECT COUNT(DISTINCT LOWER(s.iscored_username)) as count FROM submissions s
                  JOIN games g ON s.game_id = g.id
                  JOIN tournaments t ON g.tournament_id = t.id
-                 WHERE t.game_room_id = ?`,
+                 WHERE t.game_room_id = ?
+                   AND s.orphaned_at IS NULL`,
                 room.id
             );
             const discordInvite = await GameRoomSettingsService.get(room.id, 'DISCORD_INVITE_URL');
@@ -466,6 +760,7 @@ router.get('/global/recent-scores', async (req, res) => {
                 OR LOWER(um.iscored_username) = LOWER(gs.iscored_username)
             )
             WHERE gs.deleted_at IS NULL
+              AND gs.orphaned_at IS NULL
               AND gs.exclude_from_global = 0
             GROUP BY gs.id
             ORDER BY gs.submitted_at DESC

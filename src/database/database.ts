@@ -671,6 +671,165 @@ export async function initDatabase(): Promise<Database> {
         { name: '047_notification_prefs', sql: `
             ALTER TABLE user_preferences ADD COLUMN notification_prefs TEXT DEFAULT '{}';
         ` },
+        { name: '048_submissions_context', sql: `
+            ALTER TABLE submissions ADD COLUMN submitted_from_room_id TEXT;
+            ALTER TABLE submissions ADD COLUMN submitted_during_tournament_id TEXT;
+            ALTER TABLE submissions ADD COLUMN submitted_by_user_id TEXT;
+            ALTER TABLE submissions ADD COLUMN submitted_by_anonymous_name TEXT;
+            ALTER TABLE submissions ADD COLUMN merged_from_anonymous_identity_id INTEGER;
+            CREATE INDEX IF NOT EXISTS idx_submissions_room_tourney ON submissions(submitted_from_room_id, submitted_during_tournament_id);
+            CREATE INDEX IF NOT EXISTS idx_submissions_by_user ON submissions(submitted_by_user_id);
+        ` },
+        { name: '049_community_scores_context', sql: `
+            ALTER TABLE community_scores ADD COLUMN submitted_from_room_id TEXT;
+            ALTER TABLE community_scores ADD COLUMN submitted_during_tournament_id TEXT;
+            ALTER TABLE community_scores ADD COLUMN submitted_by_user_id TEXT;
+            ALTER TABLE community_scores ADD COLUMN submitted_by_anonymous_name TEXT;
+            ALTER TABLE community_scores ADD COLUMN merged_from_anonymous_identity_id INTEGER;
+            CREATE INDEX IF NOT EXISTS idx_community_scores_room_tourney ON community_scores(submitted_from_room_id, submitted_during_tournament_id);
+            CREATE INDEX IF NOT EXISTS idx_community_scores_by_user ON community_scores(submitted_by_user_id);
+        ` },
+        { name: '050_score_history_context', sql: `
+            ALTER TABLE score_history ADD COLUMN submitted_from_room_id TEXT;
+            ALTER TABLE score_history ADD COLUMN submitted_during_tournament_id TEXT;
+            ALTER TABLE score_history ADD COLUMN submitted_by_user_id TEXT;
+            ALTER TABLE score_history ADD COLUMN submitted_by_anonymous_name TEXT;
+            ALTER TABLE score_history ADD COLUMN merged_from_anonymous_identity_id INTEGER;
+            CREATE INDEX IF NOT EXISTS idx_score_history_room_tourney ON score_history(submitted_from_room_id, submitted_during_tournament_id);
+            CREATE INDEX IF NOT EXISTS idx_score_history_by_user ON score_history(submitted_by_user_id);
+        ` },
+        { name: '051_global_scores_context', sql: `
+            ALTER TABLE global_scores ADD COLUMN submitted_from_room_id TEXT;
+            ALTER TABLE global_scores ADD COLUMN submitted_during_tournament_id TEXT;
+            ALTER TABLE global_scores ADD COLUMN submitted_by_user_id TEXT;
+            ALTER TABLE global_scores ADD COLUMN submitted_by_anonymous_name TEXT;
+            ALTER TABLE global_scores ADD COLUMN merged_from_anonymous_identity_id INTEGER;
+            CREATE INDEX IF NOT EXISTS idx_global_scores_room_tourney ON global_scores(submitted_from_room_id, submitted_during_tournament_id);
+            CREATE INDEX IF NOT EXISTS idx_global_scores_by_user ON global_scores(submitted_by_user_id);
+        ` },
+        { name: '052_anonymous_identities', sql: `
+            CREATE TABLE IF NOT EXISTS anonymous_identities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_nickname TEXT NOT NULL,
+                guild_id TEXT,
+                room_id TEXT,
+                first_seen_at TEXT DEFAULT (datetime('now')),
+                status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','merged','orphaned'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_anon_identities_guild_name ON anonymous_identities(guild_id, server_nickname);
+            CREATE INDEX IF NOT EXISTS idx_anon_identities_room ON anonymous_identities(room_id);
+            CREATE INDEX IF NOT EXISTS idx_anon_identities_status ON anonymous_identities(status);
+        ` },
+        { name: '053_merge_records', sql: `
+            CREATE TABLE IF NOT EXISTS merge_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                anonymous_identity_id INTEGER NOT NULL,
+                target_discord_user_id TEXT NOT NULL,
+                admin_discord_user_id TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                reversed_at TEXT,
+                reversal_admin_id TEXT,
+                score_ids_snapshot TEXT NOT NULL DEFAULT '{}',
+                reason TEXT,
+                FOREIGN KEY (anonymous_identity_id) REFERENCES anonymous_identities(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_merge_records_target ON merge_records(target_discord_user_id);
+            CREATE INDEX IF NOT EXISTS idx_merge_records_anon ON merge_records(anonymous_identity_id);
+            CREATE INDEX IF NOT EXISTS idx_merge_records_active ON merge_records(reversed_at);
+        ` },
+        { name: '054_orphaned_scores', sql: `
+            ALTER TABLE submissions ADD COLUMN orphaned_at TEXT;
+            ALTER TABLE community_scores ADD COLUMN orphaned_at TEXT;
+            ALTER TABLE score_history ADD COLUMN orphaned_at TEXT;
+            ALTER TABLE global_scores ADD COLUMN orphaned_at TEXT;
+            CREATE INDEX IF NOT EXISTS idx_submissions_orphaned ON submissions(orphaned_at);
+            CREATE INDEX IF NOT EXISTS idx_community_scores_orphaned ON community_scores(orphaned_at);
+            CREATE INDEX IF NOT EXISTS idx_score_history_orphaned ON score_history(orphaned_at);
+            CREATE INDEX IF NOT EXISTS idx_global_scores_orphaned ON global_scores(orphaned_at);
+        ` },
+        { name: '055_room_members', sql: `
+            CREATE TABLE IF NOT EXISTS room_members (
+                user_id TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+                source TEXT NOT NULL CHECK (source IN ('submission','admin_invite','claim','backfill')),
+                PRIMARY KEY (user_id, room_id),
+                FOREIGN KEY (room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(user_id);
+
+            -- Backfill from tournament submissions (Discord-authenticated only). Earliest
+            -- submission timestamp per (user, room) becomes joined_at. Sentinels excluded.
+            INSERT OR IGNORE INTO room_members (user_id, room_id, joined_at, source)
+            SELECT s.discord_user_id, t.game_room_id, MIN(s.timestamp), 'backfill'
+            FROM submissions s
+            JOIN games g ON g.id = s.game_id
+            JOIN tournaments t ON t.id = g.tournament_id
+            WHERE s.discord_user_id IS NOT NULL
+              AND s.discord_user_id NOT IN ('SYSTEM', 'COMMUNITY', 'ANON', '')
+            GROUP BY s.discord_user_id, t.game_room_id;
+
+            -- Backfill from community scores (Discord-authenticated only). Same shape.
+            INSERT OR IGNORE INTO room_members (user_id, room_id, joined_at, source)
+            SELECT cs.discord_user_id, cs.game_room_id, MIN(cs.created_at), 'backfill'
+            FROM community_scores cs
+            WHERE cs.discord_user_id IS NOT NULL
+              AND cs.discord_user_id NOT IN ('SYSTEM', 'COMMUNITY', 'ANON', '')
+            GROUP BY cs.discord_user_id, cs.game_room_id;
+
+            -- Backfill from existing room admins. They have implicit membership.
+            INSERT OR IGNORE INTO room_members (user_id, room_id, joined_at, source)
+            SELECT discord_user_id, game_room_id, datetime('now'), 'backfill'
+            FROM game_room_admins;
+        ` },
+        { name: '056_submission_drafts', sql: `
+            CREATE TABLE IF NOT EXISTS submission_drafts (
+                state_param TEXT PRIMARY KEY,
+                target_json TEXT NOT NULL,
+                player_name TEXT,
+                score INTEGER,
+                photo_path TEXT,
+                exclude_from_global INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_submission_drafts_expires ON submission_drafts(expires_at);
+        ` },
+        { name: '057_global_leaderboard_cache_bust_room_fields', sql: `
+            -- Sprint 12: GlobalRankedEntry schema grew origin_room_slug + origin_room_logo_url.
+            -- One-shot bust so clients never render a stale cached row without badge fields.
+            DELETE FROM global_leaderboard_cache;
+        ` },
+        { name: '058_leaderboard_cache_bust_sprint12_tournament_filter', sql: `
+            -- Sprint 12 / plan §13: Tournament card query dropped its community_scores
+            -- union (see LeaderboardService.recalculate). Flush cached rows so clients
+            -- don't see stale unions until a new score submission triggers recompute.
+            DELETE FROM leaderboard_cache;
+        ` },
+        { name: '059_anonymous_identities_unique', sql: `
+            -- Sprint 13: UNIQUE partial indexes close the read-check-insert race in
+            -- AnonymousIdentityService.upsert. Two indexes cover the (guild_id set,
+            -- room_id set) dichotomy since SQLite's default UNIQUE treats NULLs as
+            -- distinct. LOWER() matches the service's case-insensitive comparison.
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_anon_identities_guild_nick_unique
+                ON anonymous_identities(guild_id, LOWER(server_nickname))
+                WHERE guild_id IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_anon_identities_room_nick_unique
+                ON anonymous_identities(room_id, LOWER(server_nickname))
+                WHERE guild_id IS NULL;
+        ` },
+        { name: '060_game_rooms_short_tag', sql: `
+            -- Sprint 13: optional short_tag (≤6 chars, uppercased on render) replaces
+            -- the slug-derived RoomTag label on the Global Scoreboard. Falls back to
+            -- slug-derived when NULL.
+            ALTER TABLE game_rooms ADD COLUMN short_tag TEXT;
+        ` },
+        { name: '061_global_leaderboard_cache_bust_short_tag', sql: `
+            -- Sprint 13: leaderboard cache shape gained origin_room_short_tag.
+            -- Bust the cache once so stale entries (lacking the new field) don't
+            -- reach clients before the next natural recompute.
+            DELETE FROM global_leaderboard_cache;
+        ` },
     ];
 
     for (const migration of migrations) {

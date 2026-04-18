@@ -66,6 +66,9 @@ export class Scheduler {
         // Daily cleanup of old lobby feed events (3:30 AM)
         this.startLobbyFeedCleanup();
 
+        // Expire stale submission drafts (every 5 minutes)
+        this.startSubmissionDraftCleanup();
+
         // Weekly VPS catalogue sync (Wednesday 2 AM Pacific)
         this.startVpsCatalogueSync();
 
@@ -125,6 +128,26 @@ export class Scheduler {
 
         this.tasks.set('__lobby_feed_cleanup__', task);
         logInfo('Lobby feed cleanup scheduled (daily at 3:30 AM).');
+    }
+
+    /**
+     * Sprint 10 — sweeps expired submission drafts (plan §15). 5-minute TTL so
+     * a 5-minute sweep is frequent enough that storage never builds up.
+     */
+    private startSubmissionDraftCleanup(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('*/5 * * * *', async () => {
+            try {
+                const { SubmissionDraftService } = await import('../services/SubmissionDraftService.js');
+                const deleted = await SubmissionDraftService.cleanup();
+                if (deleted > 0) logInfo(`Submission draft cleanup: removed ${deleted} stale drafts.`);
+            } catch (error) {
+                logError('Submission draft cleanup error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__submission_draft_cleanup__', task);
+        logInfo('Submission draft cleanup scheduled (every 5 minutes).');
     }
 
     /** Tracks which tournament+timestamp combos have already been notified to avoid repeats. */

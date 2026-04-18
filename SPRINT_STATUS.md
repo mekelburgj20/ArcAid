@@ -7,6 +7,196 @@
 
 ## Current Work
 
+### Fresh-agent handoff (read this first)
+
+- **Trigger:** the user says **"Resume"** (per `ArcAid/CLAUDE.md` Session Start Checklist). Not "Continue".
+- **Active plan:** `tmp/scores-nav-reorg-plan-v1.md` — 12-sprint Scores/Nav Reorg. Source planning doc: `tmp/scores_nav_reorg_plan.md` (Justin's 19-section spec).
+- **Position:** **Scores/Nav Reorg plan COMPLETE (12/12 sprints) + Sprint 13 polish pass COMPLETE.** All twelve sprints plus the review-driven polish pass shipped in one session arc. Review-orchestrator runs executed across every gated sprint; 2 correctness bugs fixed inline during reviews, 11 deferred findings tackled in Sprint 13.
+- **Rollout status:** not yet committed — the full Sprint 1-13 delta sits on an uncommitted working tree on `main`. Justin decides commit cadence and production deploy.
+- **Decisions locked (Q1–Q11 all answered):** Q1 null-out + manual wipe script; Q2 parallel merge system (legacy `merge-player` renamed "Sync-alias rename"); Q3 new `/:slug/admin/identity` page for merges; Q4 enforce 1:1 crop via `ImageCropper`; Q5 AND semantics on pick-award override; Q6 `/mystery-award` Discord command out of scope; Q7 reuse `REQUIRE_DISCORD_LOGIN` key; Q8 explicit `room_members` table (shipped as Sprint 6.5); Q9 merge public `Players.tsx` + `PublicStats.tsx` only, admin `Stats.tsx` untouched; Q10 `/:slug/picks` is the dedicated Picks page; Q11 rename `/:slug/games` → `/:slug/picks` with 301 redirect (deferred to Sprint 9).
+- **Review-gate state:** all nine full gates (Sprints 3, 5, 6, 7, 8, 9, 10, 11, 12) plus the two code-only gates (Sprints 4, 6.5) closed with `review-orchestrator` verdicts. Consolidated report preserved in session transcript; findings tracker cleared via Sprint 13 polish pass.
+- **Build state:** backend `tsc` clean, admin-ui `vite build` clean as of 2026-04-17 end of Sprint 13. Tests: **67/67 pass** (Sprint 13 added 5 `AnonymousIdentityService` concurrency tests covering the new UNIQUE partial index + atomic upsert). Emoji sweep across `admin-ui/src/` for Unicode ranges `U+1F300..U+1FAFF`, `U+2600..U+27BF`, `U+2300..U+23FF`: 0 hits.
+- **Non-reorg work in flight:** none. All other initiatives (Sprints 1–10 core, Community Platform, Global Scoreboard, Lobby, Discord push) are complete and deployed.
+
+---
+
+**Scores/Nav Reorg — Sprint 1: Score schema migration & context-capture plumbing** — COMPLETE (2026-04-17)
+- [x] Migrations 048–053: 5 context columns on `submissions`/`community_scores`/`score_history`/`global_scores`, plus new `anonymous_identities` and `merge_records` tables + indexes
+- [x] `SubmissionContextService` + `normalizeSubmitterUserId()` helper (sentinel-aware: ANON/SYSTEM/COMMUNITY → null)
+- [x] Write-site instrumentation (9 production sites): `CommunityScoreService`, `ScoreHistoryService`, `GlobalScoreService`, `admin.ts` backfill (×2), `rooms.ts` web community submit, `ScoreSyncPoller`, Discord `/submit-score`, `/sync-state` (API + Playwright paths). `GlobalScoreService.fanOutFromRoomSubmission()` extended with `tournamentId` + `submittedByAnonymousName`.
+- [x] TypeScript types in `src/types/index.ts`: `SubmissionContext`, `AnonymousIdentity`, `AnonymousIdentityStatus`, `MergeRecord`
+- [x] Invariant guard: `SubmissionContextService.assertNotMutating()` + 10 unit tests (all passing)
+- [x] `scripts/wipe-test-scores.ts` — manual operator tool (null-out + optional wipe, per Q1 answer)
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean, 50/50 tests pass
+
+**Scores/Nav Reorg — Sprint 2: Merge-reversal data model spec + MergeService skeleton** — COMPLETE (2026-04-17)
+- [x] `tmp/sprint-02-merge-model.md` — merge_records field-by-field spec, freeze rule (both directions, including tournaments that complete between merge+reversal), reversal UI wireframe, API surface for Sprint 11, out-of-scope list, sign-off checklist
+- [x] `src/services/MergeService.ts` skeleton — `previewMerge`, `recordMerge`, `previewReversal`, `reverseMerge`, `listMergeHistory`, `getMergeRecord` (all throw NotImplemented(Sprint 11))
+- [x] Decisions locked: Q2 → (a) parallel system (legacy `merge-player` renamed to "Sync-alias rename"); Q3 → new `/:slug/admin/identity` page
+- [x] Build verification: `tsc` clean (MergeService signatures compile)
+
+Sprint 2 review gate: docs-only, no automated reviews. Ready for Justin sign-off on `tmp/sprint-02-merge-model.md`.
+
+**Scores/Nav Reorg — Sprint 4: DiscordNicknameResolver utility + anonymous-identity write plumbing** — COMPLETE (2026-04-17)
+- [x] `src/services/DiscordNicknameResolver.ts` — `resolveServerNickname(guildId, name, { fallbackToGlobal })` using `guildMembersSearch` REST endpoint (no GUILD_MEMBERS intent). 30s memoization keyed on `(guildId, lowercased query)`.
+- [x] `src/engine/IdentityManager.ts` refactored to call the utility; preserves match precedence (nickname → globalName → username) with regression tests.
+- [x] `src/services/AnonymousIdentityService.ts` — `upsert({ roomId, guildId, serverNickname })` keyed on `(guild_id, LOWER(server_nickname))`, falls back to `(room_id, ...)` when guild absent. Returns identity `id` for OAuth handoff.
+- [x] `CommunityScoreService.submitScore()` — upserts `anonymous_identities` when submitter is anonymous, returns `{ id, anonymousIdentityId }` for Sprint 10 claim flow.
+- [x] 12 unit tests for `DiscordNicknameResolver` (exact match, whitespace trim, case-insensitive, fallback precedence, memoization, empty-input / missing-token guards).
+- [x] Build verification: `tsc` clean, 62/62 tests pass.
+
+Sprint 4 review gate: plumbing — `review-code-quality.md` only (skips design/UX per plan).
+
+**Scores/Nav Reorg — Sprint 3: Shared GameCard + SubmissionSheet + themed icons** — COMPLETE (2026-04-17)
+- [x] `admin-ui/src/assets/icons/ThemedIcons.tsx` — `TrophyIcon`, `SubmitScoreIcon`, `MysteryAwardIcon`, `RoomBadgeIcon`, `CooldownLockIcon` (24×24 SVGs, `fill="currentColor"`), plus `drawCanvasStar()` helper for canvas path stars.
+- [x] `admin-ui/src/components/RoomTag.tsx` — themed mini-component for room badges (16/24/32 sizes, logo or text variant, optional Link wrapping).
+- [x] Emoji replacement at the 3 audit-identified sites: `ShowcasePodium.tsx:153` and `:204` Trophy (🏆) → `<TrophyIcon size={13} />`; `MysteryAward.tsx:354` Star (★) → canvas-path stars flanking "MYSTERY AWARD" text.
+- [x] `admin-ui/src/components/cards/GameCard.tsx` — shared wrapper implementing §10 contract: `{ game, context, slug, onSubmit, onNavigate, slots }`. Link overlay (z-10) + always-visible submit affordance (z-20 with `stopPropagation`). Delegates to existing `CardRouter` (Banner/Showcase/Minimal). Available for Sprint 8 migration.
+- [x] `GameLeaderboard` base interface extended with optional `globalGameId?: string | null` so tournament-tab cards can route to the canonical `/games/:globalGameId` when available, falling back to `/:slug/games/:gameName`.
+- [x] Tournament-tab Link overlay on `Scoreboard.tsx` — all 3 render paths (grid / vertical-scroll / horizontal-scroll) wrapped with `relative group/card`, absolute-positioned `<Link>` at z-10, and themed `<SubmitScoreIcon>` button at z-20. Fills the §10 gap (Tournament cards previously lacked title→detail navigation).
+- [x] `admin-ui/src/components/SubmissionSheet.tsx` — strangler-pattern consolidation of the 4 submit surfaces (`ScoreSubmitModal`, `FreeplaySubmitModal`, `GlobalScoreSubmitModal`, `ScoreSubmit` page) behind a single component with a discriminated `SubmissionTarget` union (`tournament` | `freeplay` | `global`). Dispatches to 3 endpoints, preserves all UX (OnScreenKeyboard, touch detection, photo preview, exclude-from-global). Ships alongside originals — Sprint 10 migrates call sites and removes legacy modals.
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean, 62/62 tests pass. Sprint 3 emoji sweep (`\u{1F3C6}` / `\u2605` at the 3 audit sites): 0 hits in `ShowcasePodium.tsx` and `MysteryAward.tsx`. Residual ★ in `StarRating.tsx:28` is Sprint 12 final-sweep scope (out of Sprint 3 per audit).
+
+Sprint 3 review gate: first UI sprint — all three reviews required per plan (`review-code-quality`, `review-design-fidelity`, `review-ux`).
+
+**Scores/Nav Reorg — Sprint 5: `ENABLE_GAME_PICK_AWARD` setting + full-system cascade gating** — COMPLETE (2026-04-17)
+- [x] `src/services/PickAwardGate.ts` — `isEnabled(roomId, tournamentId?)` with 5s TTL cache, AND semantics (Q5): both room setting and per-tournament `winner_picks` must be truthy. Exports `ENABLE_GAME_PICK_AWARD` key and `PICK_AWARD_DISABLED_REPLY` exact string.
+- [x] `TournamentEngine.processSlotMaintenance()` — gate checked before picker-slot creation. When off, winner gets plain "Congrats!" embed (no pick language), no picker slot, no `turnToPick` dispatch. Copy in `!winnerPicks && !autoPick` and final-else branches branches on `pickAwardEnabled` to drop `/pick-game` references.
+- [x] `TimeoutManager.checkTimeouts()` — per-tournament gate filter (`gateByTournament` Map) skips pending games in gated-off tournaments. Scheduler global timer stays unchanged (shared across rooms, filter is effective gate).
+- [x] `NotificationService.notify()` — defense-in-depth short-circuit on `turnToPick` when gate off. Extended `NotifyParams` with optional `roomId` / `tournamentId`; legacy callers without roomId pass through existing prefs logic.
+- [x] Discord commands — `/pick-game`, `/nominate-picker`, `/pause-pick` all short-circuit with exact reply `"/pick-game is not available in this game room"` (plan §8). `// TODO(§8): gate /mystery-award when command is authored (Q6 — out of scope)`.
+- [x] `/api/rooms/:roomId/pick-game` web endpoint — gated with 403 before queue creation, mirrors Discord-command gate so web path can't bypass.
+- [x] `/api/rooms/:roomId/pick-status` response extended with `pickAwardEnabled` for authenticated UI consumption.
+- [x] `/api/portal?slug=...` (public, no-auth) extended with `pick_award_enabled` for public pages that haven't logged in.
+- [x] `admin-ui/src/pages/GameAvailability.tsx` — fetches gate from `/api/portal`, hides Mystery Award button, Pick column, Pick buttons (desktop + mobile), Your Picks summary, pending banner, and PickGameModal / MysteryAward render paths. Shows disabled-state banner when gate off. Subtitle copy swaps to omit pick/mystery language.
+- [x] Settings UI — `ENABLE_GAME_PICK_AWARD` row added to `TOGGLE_SETTINGS` with §8 label/description. Default off (plan §17).
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean. Grep confirms 9 PickAwardGate consumers cover every pick/winner action surface enumerated in the plan audit.
+
+Sprint 5 review gate: all three reviews required per plan (`review-code-quality`, `review-design-fidelity`, `review-ux`).
+
+**Scores/Nav Reorg — Sprint 6: `REQUIRE_DISCORD_LOGIN` relabel + logo-badge + orphan-on-flip** — COMPLETE (2026-04-17)
+- [x] Settings UI — `REQUIRE_DISCORD_LOGIN` relabeled to "Require login for score submissions" with §15 description (internal key reused per Q7). Logo section appends §9 badge copy: "A 1:1 (square) crop is also used as this room's badge on the Global Scoreboard. Non-square logos will prompt for a square crop on upload."
+- [x] Migration `054_orphaned_scores` — adds `orphaned_at TEXT` column to `submissions`, `community_scores`, `score_history`, `global_scores`; indexes on each.
+- [x] `src/services/OrphanService.ts` — `orphanAnonymousRows(roomId)` / `restoreOrphanedRows(roomId)` bulk UPDATE across the 4 score tables, scoped to rows where `submitted_from_room_id = ?` AND `submitted_by_user_id IS NULL`. `handleRequireLoginFlip(roomId, prev, next)` no-ops when values match, orphans on false→true, restores on true→false.
+- [x] `GameRoomSettingsService` — `set()` / `saveMany()` / `delete()` capture previous value and invoke `OrphanService.handleRequireLoginFlip()` + `invalidateLeaderboardCaches()` when `REQUIRE_DISCORD_LOGIN` changes. Delete treated as flip to "false". Cache invalidation uses `LeaderboardService.invalidateAll()` + `GlobalLeaderboardService.invalidateAll()` (broad drop acceptable — orphan flips are admin-initiated and infrequent).
+- [x] Central orphan filter (`AND orphaned_at IS NULL`) applied across every public-facing leaderboard surface: `LeaderboardService.recalculate()` (both UNION ALL legs), `GlobalLeaderboardService.recalculate()` + top-games-per-game query, `CommunityScoreService` (3 methods), `ScoreHistoryService` (3 methods), `RankingService` cross-tournament scoring, plus 6 direct-SQL route-handler queries (`rooms.ts`: `/leaderboard/:gameId/submissions`, `/game-availability/:tournamentId` winner subselect + all-time-highs, `/community-leaderboards` outer + top-scores inner, `/history` ROW_NUMBER subquery; `global.ts`: active players count in `/api/rooms`, recent scores endpoint). Stats/Dashboard/Milestone/LobbyFeed queries out of Sprint 6 scope per plan.
+- [x] `ImageCropper` — added optional `notice` prop. When caller passes `notice="square-badge"` and source image is non-square (>1% off 1:1), overlays a cyan info banner: "This logo isn't square. Adjust the crop to pick the square region used as this room's Global Scoreboard badge." Settings.tsx wires `notice="square-badge"` only for the logo target (bg target stays unannotated).
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean.
+
+Sprint 6 review gate: all three reviews required per plan (`review-code-quality`, `review-design-fidelity`, `review-ux`).
+
+**Scores/Nav Reorg — Sprint 6.5: Explicit `room_members` table + backfill + RoomMembershipService** — COMPLETE (2026-04-17)
+- [x] Migration `055_room_members` — table with PK `(user_id, room_id)`, source CHECK constraint (`submission`/`admin_invite`/`claim`/`backfill`), FK to `game_rooms` ON DELETE CASCADE, index on `user_id`. Backfill in same migration (idempotent via INSERT OR IGNORE) from 3 sources: `submissions` joined via games→tournaments to get room_id (Discord-authenticated only, sentinels filtered), `community_scores` (has direct `game_room_id`), and `game_room_admins`. Backfill rows tagged `source='backfill'` per plan. user_mappings skipped — no room scope so it can't generate (user, room) pairs.
+- [x] `src/services/RoomMembershipService.ts` — `addMember(userId, roomId, source)` (idempotent INSERT OR IGNORE, sentinel-aware no-op for SYSTEM/COMMUNITY/ANON/empty), `removeMember(userId, roomId)` (for Sprint 11 merge/unmerge), `isMember(userId, roomId)`, `listRoomsForUser(userId)` (joins game_rooms, computes `lastActivityAt` via correlated MAX over submissions/community_scores, orders by COALESCE(lastActivityAt, joined_at) DESC).
+- [x] Wire `addMember` at 3 chokepoints: `ScoreHistoryService.log()` (covers every score path — tournament, community, sync — since every write site already calls log), `AdminService.addRoomDiscordAdmin()` (Discord admin grant → `source='admin_invite'`), and the web `/pick-game` endpoint (web pick action → `source='submission'`). Anonymous-claim flow wiring deferred to Sprint 10.
+- [x] Build verification: backend `tsc` clean.
+
+Sprint 6.5 review gate: code-only — `review-code-quality.md`. Skip design/UX per plan.
+
+**Scores/Nav Reorg — Sprint 7: Nav restructure + UserMenu dropdown + My Rooms + Stats merge** — COMPLETE (2026-04-17)
+- [x] `admin-ui/src/hooks/usePickAwardEnabled.ts` — thin hook over `/api/portal?slug=…` with shared module-level cache (per slug). Returns `{ loading, enabled }`; nav suppresses the Picks tab until loading resolves to avoid flash-of-mismatched-content.
+- [x] `admin-ui/src/components/UserMenu.tsx` — real dropdown (replaces flat icon row). Avatar + username trigger; chevron indicates open state. Items: My Rooms, Friends, Scoreboard display (conditional, fires `open-scoreboard-prefs`), Room admin (conditional on `arcaid_token`), Log out. Outside-click dismiss, ESC closes and returns focus to trigger, `aria-haspopup` / `aria-expanded` / `role="menu"` / `role="menuitem"`.
+- [x] `admin-ui/src/pages/MyRooms.tsx` — lists rooms user belongs to; row shows logo fallback, relative-time last activity, membership-source badge (submission/admin_invite/claim/backfill). Unauthenticated state prompts Discord OAuth with `returnPath='/my-rooms'`. Wired at `/my-rooms` in `App.tsx` inside `ViewerAuthProvider`.
+- [x] `GET /api/me/rooms` endpoint (in `global.ts`) — `requireDiscordUser`, delegates to `RoomMembershipService.listRoomsForUser`. Follows existing `/api/me/*` convention (plan's wording `/api/users/me/rooms` was non-literal).
+- [x] `PublicStats.tsx` reworked into merged Stats page — internal Players | Games tabs via `?view=` URL param. Players view keeps existing enhanced table + search. New Games view (`GET /:roomId/stats/games-activity`) lists per-game submissions / unique players / top score / last activity, with search. `StatsService.getGameActivityStats()` uses UNION ALL across `submissions` + `community_scores` (SQLite lacks FULL OUTER JOIN) and respects `orphaned_at IS NULL`. Admin `/:slug/admin/stats` untouched (Q9). Deleted `admin-ui/src/pages/Players.tsx` (unused).
+- [x] `App.tsx` — `/:slug/players` → `PlayersToStatsRedirect` (Navigate to `/:slug/stats?view=players`, replace). `/:slug/players/:id` → `PlayerDetail` unchanged. Added `/my-rooms` route. Removed `Players` import.
+- [x] `PublicLayout.tsx` — final nav: `Lobby | Scores | Picks* | Stats | Global`. "Game Picks" renamed to "Picks"; route stays `/:slug/games` this sprint (rename handled in Sprint 9). Picks hidden when `!pickAwardLoading && !pickAwardEnabled`. Standalone Admin link removed from nav (now inside UserMenu). Flat icon row (avatar + Friends + prefs + logout) replaced with `<UserMenu>`.
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean (3.22s).
+
+Sprint 7 review gate: all three reviews required per plan (`review-code-quality`, `review-design-fidelity`, `review-ux`). Lead UX concerns: dropdown discoverability/keyboard accessibility, Picks-tab no-flash behaviour, Stats feels like one page.
+
+**Scores/Nav Reorg — Sprint 8: Scores page restructure — Tournaments | All Games tabs, room filter, Mystery removal** — COMPLETE (2026-04-17)
+- [x] `Scoreboard.tsx` — tabs renamed `Tournament` → `Tournaments`, `Games` → `All Games`. URL state `?tab=all-games` with legacy `?tab=games` redirect. `role="tablist"` / `aria-selected` for accessibility.
+- [x] `GamesTabView.tsx` — full rewrite: removed Room Games / Browse Catalogue sub-toggle, removed Mystery Award button (moves to Picks in Sprint 9), dropped `CatalogueBrowse` + `MysteryAward` imports. Single unified data flow rendering through `CardRouter` (or legacy `GameCard`).
+- [x] "Played at $tag" filter toggle — pair of buttons: "All Games" (default, unfiltered catalogue) / "Played at `<RoomTag>`" (room-scoped). URL state `?played-here=1`. `RoomTag` used inline with `size={16}`, `shortTag=slug` (slugs normalize via `slice(0,6).toUpperCase()`).
+- [x] Data paths: filter OFF → `/api/global/games?status=approved` paginated (48/page, Load More); filter ON → `/api/rooms/:roomId/community-leaderboards` (100 limit, no pagination). `catalogueToLeaderboard()` helper maps `CatalogueGame` onto `GameLeaderboard` shape (gameStatus `'CATALOGUE'` distinguishes source) so both sources render through the same `CardRouter` path.
+- [x] Submit dispatch: `gameStatus === 'CATALOGUE'` routes to `FreeplaySubmitModal` with Discord login gate; community/room games route to `ScoreSubmitModal`. Preserves existing per-endpoint submission semantics.
+- [x] Consistent search-bar slot: both tabs render an always-visible search input above the grid. Tournaments tab filters `visibleLeaderboards` by game name client-side; empty-state message distinguishes "no games match" from "waiting for active games". All Games tab debounces to backend `?search=`.
+- [x] External URL callers updated: `App.tsx` `FreeplayRedirect` → `?tab=all-games`, `GlobalGameDetail.tsx` back-links (×2) → `?tab=all-games`, `Lobby.tsx` "Play a game" link → `?tab=all-games`. Grep confirms 0 residual `tab=games` / `view=catalogue` references in `admin-ui/src/`.
+- [x] Dead-code removal: `admin-ui/src/components/CatalogueBrowse.tsx` deleted (only consumer was GamesTabView).
+- [x] Tournament card title→detail linking unchanged (shipped in Sprint 3; verified still present).
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean (2.89s), 62/62 tests pass.
+
+Sprint 8 review gate: all three reviews required per plan (`review-code-quality`, `review-design-fidelity`, `review-ux`). Lead concerns: tab surgery didn't regress tournament card chrome (countdown timer, badges, rankings alignment); catalogue cards render acceptably without per-room style resolution (`catalogueStyleId`/`logoStyleId` all null → falls back to catalogue image); "Played at $tag" discoverability vs. default unfiltered view.
+
+**Scores/Nav Reorg — Sprint 9: Picks page rename + Mystery Award lift + route redirect** — COMPLETE (2026-04-17)
+- [x] `admin-ui/src/pages/GameAvailability.tsx` → `admin-ui/src/pages/Picks.tsx` via `git mv` (preserves history). Export renamed `GameAvailability` → `Picks`.
+- [x] Mystery Award promoted from inline header button to persistent top-level hero card at the top of Picks, using `MysteryAwardIcon` (Sprint 3 themed icon, no more lucide `Sparkles`). Hero always visible; Spin button disables when `availableCount < 2` with explanatory copy.
+- [x] Page copy: h1 "Picks" + subtitle "Spin the Mystery Award, or queue your next pick from available tables." Removed inline pick-award-disabled banner (page now hard-gates).
+- [x] Defense-in-depth gate (plan §3): `usePickAwardEnabled(slug)` hook → early `<Navigate to={`/${slug}`} replace />` when `enabled === false`. Loading state renders spinner to avoid flash-of-Picks-UI on disabled rooms. All residual `pickAwardEnabled` conditional checks inside the rendered body removed (dead code past the early return).
+- [x] Route rename in `admin-ui/src/App.tsx`: added `<Route path="picks" element={<Picks />} />`. Added `GamesToPicksRedirect` component → `/:slug/games` 301-equivalent (`<Navigate replace>`) to `/:slug/picks`, preserving query string (`?t=<tournamentId>` from stale Discord DMs still works). `games/:name` GameDetail route unchanged.
+- [x] `PublicLayout.tsx` nav item path `/${slug}/games` → `/${slug}/picks` (Sprint 7 already set label = "Picks").
+- [x] Discord DM link builder in `TournamentEngine.ts:847` → `/picks`. `NotificationService.buildLink(slug, '/picks')` — old DMs with `/games` still route via the Sprint 9 redirect, no disruption during rollout.
+- [x] `ViewerAuthContext.tsx:164` default return path `/${returnSlug}/games` → `/${returnSlug}/picks`. `DiscordCallback.tsx:77` `player:` state fallback → `/picks`.
+- [x] `GameRoomManager.tsx:141` onboarding message: "Game Availability" label → "Picks", URL → `/picks`.
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean (2.89s), 62/62 tests pass.
+
+Sprint 9 review gate: all three reviews required per plan. Lead concerns: Mystery Award hero visual matches themed-icon system (Sprint 3); disabled-gate redirect is invisible to authorized users yet hard-blocks unauthorized URL access; 301 redirect preserves tournament `?t=` query param from stale Discord DMs.
+
+**Scores/Nav Reorg — Sprint 10: Anonymous submission runtime + cooldown messaging + legacy modal deletion** — COMPLETE (2026-04-17)
+- [x] Migration `056_submission_drafts` — table keyed on OAuth `state_param`, TEXT target JSON, integer score, photo path (photos live under `data/submission-drafts/`), `excludeFromGlobal` flag, `expires_at` (5-min TTL).
+- [x] `src/services/SubmissionDraftService.ts` — `create` / `get` (TTL-filtered) / `consume` (deletes row + photo file) / `cleanup` (bulk sweep). Mirrors the submission-photo persistence pattern used elsewhere.
+- [x] `Scheduler.startSubmissionDraftCleanup()` — cron `*/5 * * * *` sweeps expired drafts + photo files. Logs counts when non-zero.
+- [x] `POST /api/rooms/:roomId/submit/anonymous-check` — public endpoint using `DiscordNicknameResolver.resolveServerNickname()` against the room's `discord_guild_id`. Returns `{ match, serverNickname, matchedField }` or `{ match: false }` when the guild isn't configured.
+- [x] `POST/GET/DELETE /api/submission-drafts/:stateParam` — CRUD with multer for optional photo. Plus `POST /api/submission-drafts/:stateParam/commit` (requireDiscordUser) that server-side commits the stored draft via `CommunityScoreService.submitScore` (tournament/freeplay) or `GlobalScoreService.submit` (global), mirrors the `submissions` upsert in the tournament submit route, then consumes the draft (removes DB row + photo file).
+- [x] `admin-ui/src/components/SubmissionSheet.tsx` — rewritten as a phase state machine (`form` / `checkingCollision` / `claimPrompt` / `submitting` / `committingDraft` / `success` / `error`). Cooldown warning banner replaces the legacy full-form block (plan §13 — "Submission NEVER blocked"). Claim prompt (§15) renders when `anonymous-check` returns a match; user chooses "Log in with Discord" (uploads draft, stashes sessionStorage breadcrumb, kicks OAuth) or "Continue as guest" (direct submit). `commitDraftState` prop drives the OAuth-return path: skip form, POST `/commit`, close.
+- [x] `admin-ui/src/components/PendingSubmissionWatcher.tsx` — mounted in `PublicLayout`; reads `?submit-draft=<stateParam>` (with sessionStorage fallback for the target JSON, fetching from server when stale), re-mounts `SubmissionSheet` in commit mode, clears the query param on close.
+- [x] `AnonymousAvatarIcon` added to `ThemedIcons.tsx`; `PlayerAvatar` routes `SYSTEM`/`COMMUNITY`/`ANON`/empty/null sentinels through the themed silhouette (skips the Discord CDN path so we never 404 on synthetic IDs, and skips the colored-letter fallback so anonymous rows read as "not a Discord user").
+- [x] Call-site migration — `Scoreboard.tsx`, `GamesTabView.tsx`, `GlobalScoreboard.tsx`, `GlobalGameDetail.tsx`, and `ScoreSubmit.tsx` (standalone page) all now use `SubmissionSheet`. `ScoreSubmit.tsx` rewritten as a thin page wrapper. `CatalogueGame` type re-exported from `GamesTabView.tsx` since `FreeplaySubmitModal` was its original home.
+- [x] Strangler complete: `ScoreSubmitModal.tsx`, `FreeplaySubmitModal.tsx`, `GlobalScoreSubmitModal.tsx` deleted. Grep confirms zero residual imports across `admin-ui/src/`.
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean (2.96s, bundle shrank ~7KB), 62/62 tests pass.
+
+Sprint 10 review gate: all three reviews required per plan. Lead concerns (quoting plan): claim prompt wording is load-bearing (§15 "framing matters"), themed anonymous avatar visual, draft TTL correctness (no replay-after-expiry), no double-submits across the sessionStorage + server-side + commit paths, no dangling references to deleted modals.
+
+**Scores/Nav Reorg — Sprint 11: Merge/unmerge admin flow + self-claim OAuth hook** — COMPLETE (2026-04-17)
+- [x] `src/services/MergeService.ts` — fully implemented (previously a Sprint 2 skeleton that threw `NotImplemented`). Six methods: `previewMerge`, `recordMerge`, `previewReversal`, `reverseMerge`, `listMergeHistory`, `getMergeRecord`.
+- [x] **Preview / record:** Scope filter `submitted_by_user_id IS NULL AND merged_from_anonymous_identity_id IS NULL AND LOWER(submitted_by_anonymous_name) = LOWER(?)`, run across all 4 score tables (submissions + community_scores + score_history + global_scores). Room scoping: community_scores via `game_room_id`, submissions via `submitted_from_room_id OR tournament.game_room_id`, history + global via `submitted_from_room_id`. Preview returns a SHA256 hash of `(identity, target, sorted rowIds, sorted frozen tournament IDs)` — confirm must echo the same hash or the service raises `MERGE_CONFLICT` with a refreshed preview for the 409 response body (plan §4 bail-out).
+- [x] **Freeze rule (§3):** On merge — rows whose `submitted_during_tournament_id` references a tournament where `is_active=0 AND end_date IS NOT NULL` stay put; snapshot stores the set as `frozen_tournament_ids_at_merge`. On reversal — a row stays if EITHER its tournament was frozen at merge time OR the tournament is currently frozen (freshly checked against the DB). Post-merge logged-in submissions aren't in the snapshot, so reversal ignores them.
+- [x] **Record + reverse:** Transactional (`BEGIN`/`COMMIT`/`ROLLBACK`); bulk UPDATEs across the 4 tables with `merged_from_anonymous_identity_id = ?` guard to prevent re-applying. `anonymous_identities.status` transitions: `active → merged` on merge; `merged → active` on reversal, but only when no other live merge_records row still points at that identity. `submitted_by_anonymous_name` is never touched (§15 "preserve original name" rule). Leaderboard + Global leaderboard caches invalidated on both paths.
+- [x] **Admin API (six routes under `/api/rooms/:roomId/admin/identity/*`, all `requireAuth + requireRoomAccess`):** `GET /queue` (active anon identities + row counts + potential user_mappings hint), `GET /audit?limit=N` (merge_records enriched with anon nickname + target username + summary counts), `POST /preview`, `POST /merge` (409 on preview drift), `POST /:mergeId/reverse`, `GET /:mergeId` (record + fresh reversal preview for drill-down). Activity-log events: `identity_merge` + `identity_unmerge`.
+- [x] **Self-claim OAuth hook:** extended `POST /api/submission-drafts/:stateParam/commit` to scan `anonymous_identities WHERE status='active' AND LOWER(server_nickname) = LOWER(draft.playerName)` in the target room after a successful submission. Each match auto-produces a `merge_records` row with `admin_discord_user_id = target_discord_user_id` (self-claim per spec §4.2). Errors are swallowed — self-claim is best-effort, the submission itself is already committed.
+- [x] **Admin UI `/:slug/admin/identity`:** new `Identity.tsx` page with two sections — Pending Claims (active anon identities, target-user input, Preview button) and Audit Chain (merge records, Reverse button for unreversed entries). Preview modal shows moving-row count + frozen-tournament groups with close dates, accepts optional reason, POSTs the merge/reverse. Nav entry added to `RoomAdminLayout` sidebar under Activity. Route wired in `App.tsx`.
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean (3.23s), 62/62 tests pass.
+
+Sprint 11 review gate: all three reviews required per plan — flagged as the most complex single sprint. Lead concerns (quoting spec §8): `score_ids_snapshot` exactly matches the UPDATE'd rows (integration test territory), freeze rule honored both directions (incl. tournaments that complete between merge and reversal), preview-hash bailout on drift, reversal preview distinguishes frozen rows, self-claim path still hits the freeze rule, sync-alias rename (legacy `merge-player` route) untouched.
+
+**Scores/Nav Reorg — Sprint 12: Global Scoreboard badges + cooldown display rules + final sweep** — COMPLETE (2026-04-17)
+- [x] `GlobalLeaderboardService` — `GlobalRankedEntry` grew `origin_room_slug` + `origin_room_logo_url`; `recalculate()` and `getTopScoresForGames()` SELECTs now join `game_rooms` for slug + logo. Cache-bust migration `057_global_leaderboard_cache_bust_room_fields` clears `global_leaderboard_cache` once so stale rows (lacking the new fields) never reach clients.
+- [x] **Global Scoreboard row layout (§6):** `GlobalScoreboard.tsx` `PodiumSlot` and the 4th-10th rows now render a `RoomTag` badge next to the username (`logoUrl` when available, short-tag fallback otherwise). Badge is an anchor to `/scoreboard?room=<slug>`, null-room rows render no badge. `GlobalScoreboard.tsx` + `GlobalGameDetail.tsx` both sync scope with `?room=<slug>` via `useSearchParams` → resolve slug against `/api/rooms` → set scope to room_id; URL drives state so share-links render the same filtered view.
+- [x] **RANK_STYLES emoji swap:** the Trophy glyph (`U+1F3C6`) on the 1st-place podium label was replaced with plain `"1st"` text (§12 final-sweep rule).
+- [x] **Cooldown display rules (§13):** `LeaderboardService.recalculate()` no longer unions `community_scores`. Tournament-card leaderboards now resolve exclusively from `submissions.game_id`, which is tournament-scoped; freeplay-style community rows that don't belong on a tournament card no longer leak in. All Games / Game Detail / Global paths are unchanged (they each have their own queries that union appropriately). Migration `058_leaderboard_cache_bust_sprint12_tournament_filter` flushes `leaderboard_cache` so existing clients don't render stale unions.
+- [x] **`?room=<slug>` canonicalization (§11):** `GlobalGameDetail.tsx` reads the query param, scopes its leaderboard fetch, and re-exports changes back to the URL via `setSearchParams`. Per-row badges link to `?room=<slug>` for in-page drilldown (relative URL preserves the game context). Scope dropdown stays in sync with the URL both directions.
+- [x] **Final emoji sweep (§9 Layer 9):** grep across `admin-ui/src/` for Unicode ranges `U+1F300..U+1FAFF`, `U+2600..U+27BF`, `U+2300..U+23FF`: 2 hits replaced — `★` in `StarRating.tsx` → lucide `<Star>` (with `fill="currentColor"` when filled, proper `aria-label`), `⌫` in `OnScreenKeyboard.tsx` (numeric + alpha layouts) → lucide `<Delete>` with `aria-label="Backspace"`. Post-sweep grep: **0 hits**.
+- [x] Build verification: backend `tsc` clean, admin-ui `vite build` clean (2.94s), 62/62 tests pass.
+
+Sprint 12 review gate: all three reviews required per plan — this is the capstone. Lead concerns: badge rendering degrades cleanly for null-room rows; `?room=<slug>` share-URLs behave identically after refresh; cooldown removal didn't regress tournament leaderboards for rooms with real tournament history; emoji sweep is truly zero (lucide SVGs are not emoji).
+
+**Plan complete (12/12 sprints).** Verification plan (plan §Verification plan) smoke tests outstanding — Justin will run them against staging before commit.
+
+---
+
+**Scores/Nav Reorg — Sprint 13: Review-driven polish pass** — COMPLETE (2026-04-17)
+
+All 11 deferred findings from the batched review-orchestrator run addressed. Two review-gate decisions were required from Justin: Q1 invisible 44×44 tap expansion (option b), Q2 OAuth-cancel modal (recommendation), Q3 explicit `short_tag` column (option a).
+
+- [x] **Tap target (Sprint 3 #1):** GameCard shared component + the 3 Scoreboard inline submit buttons wrapped in 44×44 transparent `<button>` with inner 36×36 visual `<span>`. `group-hover/submit` + `group-focus/submit` drive hover state on the inner span so mobile taps land anywhere in the 44×44 box. Zero visual density change per Q1 (b).
+- [x] **Discord error cache (Sprint 4 #2):** `MemoEntry` gained an `ok: boolean` flag. Transient 5xx no longer pollutes the 30s window; next call retries Discord REST. Successful empty-array results still cached (they mean "no match, don't re-fetch").
+- [x] **anonymous_identities race (Sprint 4 #3):** Migration `059` adds two partial UNIQUE indexes covering the `(guild_id, LOWER(server_nickname))` and `(room_id, LOWER(server_nickname)) WHERE guild_id IS NULL` cases. `AnonymousIdentityService.upsert` switched to `INSERT OR IGNORE` + SELECT — DB-level atomicity. **5 new tests** (`src/__tests__/AnonymousIdentityService.test.ts`) cover repeated upserts, case-insensitivity, 10-parallel concurrency, null-guild room fallback, and empty-nickname rejection.
+- [x] **PickAwardGate invalidation (Sprint 5 #4, #5):** `GameRoomSettingsService.set/saveMany/delete` now call `PickAwardGate.invalidate(roomId)` whenever `ENABLE_GAME_PICK_AWARD` changes. `TournamentService.update/delete` also invalidate the gate for the tournament's room so `winner_picks` flips no longer stay stale up to 5s.
+- [x] **OrphanService atomicity (Sprint 6 #6):** `orphanAnonymousRows` + `restoreOrphanedRows` wrapped in `BEGIN`/`COMMIT`/`ROLLBACK`. A mid-flip crash no longer leaves half a room's anonymous history orphaned and half visible.
+- [x] **UserMenu keyboard nav (Sprint 7 #7, #8):** WAI-ARIA menu pattern implemented — `ArrowDown`/`ArrowUp` cycle items, `Home`/`End` jump to bounds, `Escape` closes + restores trigger focus, `Tab` exits the menu. All menuitems carry `tabIndex={-1}` (roving-tabindex-equivalent); imperative `.focus()` moves focus without making them tab-reachable from outside.
+- [x] **OAuth-cancel modal (Sprint 10 #9):** `DiscordCallback` detects `error=access_denied` + `state=player:<slug>` and rewrites the stored return URL from `?submit-draft=<state>` to `?submit-cancelled=<state>`. `PendingSubmissionWatcher` picks up both cases — commit-mode on success, cancel-modal on abort. Modal copy: "You cancelled the Discord login. Your score for _<game>_ is still saved. Submit it as a guest instead?" with `[Discard]` / `[Submit as guest]`. New endpoint `POST /api/submission-drafts/:stateParam/commit-as-guest` (no auth) consumes the draft via `CommunityScoreService.submitScore` without a Discord user id. Tournament + freeplay only (global submissions still require Discord login by design).
+- [x] **Identity admin responsive (Sprint 11 #10):** Pending Claims + Audit Chain rows use `sm:grid-cols-[1fr_auto] sm:items-center` (single-column stack at <640px), `break-words` on long nickname paragraphs, `w-full sm:w-auto` on action buttons. Admin surface but now clean at 375px.
+- [x] **short_tag column (Sprint 8 #11 → Q3 option a):** Migration `060` adds `short_tag TEXT` to `game_rooms`. Migration `061` cache-busts `global_leaderboard_cache`. `GameRoomService.create/update` normalizes input (trim + slice 6 + uppercase → null when empty). `GlobalLeaderboardService.recalculate()` + `getTopScoresForGames()` return `origin_room_short_tag` alongside slug + logo. Frontend passes `origin_room_short_tag || origin_room_slug` as RoomTag `shortTag` — falls back invisibly when NULL. GameRoomManager gets a "Short tag (optional, ≤6 chars)" input with a placeholder showing the slug-derived default. Zod `CreateGameRoomSchema` accepts optional `short_tag: z.string().max(6).nullable().optional()`.
+
+Also fixed in the review pass itself (pre-Sprint-13):
+- `RoomMembershipService.listRoomsForUser` — `COALESCE` → `MAX(ts) FROM (UNION ALL)` so true most-recent activity wins (was returning first-non-null).
+- `/submission-drafts/:stateParam/commit` global-target branch — `photoMimeType` derived from draft extension (was hardcoded `'image/jpeg'`).
+
+Build verification: backend `tsc` clean, admin-ui `vite build` clean, **67/67 tests pass**. Migrations 059–061 run idempotently on startup.
+
+No open findings remaining. Plan + polish pass ready for commit at Justin's discretion.
+
 **Sprint 10: Production Hardening** — COMPLETE
 **Post-Sprint Features** — COMPLETE (deployed to production)
 **Community Platform Features** — COMPLETE (deployed to production)
@@ -381,23 +571,26 @@
 
 ## Last Session
 
-**Date:** 2026-04-15
-**What happened:** Completed Discord push notifications + remaining Phase 5 polish (kiosk ticker, feed coalescing). Lobby & Social feature set now fully complete.
+**Date:** 2026-04-17
+**What happened:** Twelve-sprint Scores/Nav Reorg + batched review-orchestrator pass across all nine full gates + Sprint 13 polish pass (11 findings fixed). Plan and polish complete; 67/67 tests pass; working tree uncommitted pending Justin's commit + smoke-test decision.
 
-**Work done this session:**
-- **SQL cleanup:** Removed dead `globalLib?.catalogue_style_id` reference in community-leaderboards endpoint
-- **NotificationService.ts:** Discord DM dispatch with per-user pref check + in-memory rate limiting (5/user/hour)
-- **5 notification hooks:** rank dethroned, friend score, tournament win, turn to pick, tournament starting
-- **`/arcaid-notifications` command:** Show prefs embed, toggle per-type, enable/disable all (21 commands)
-- **Kiosk lobby ticker:** Scrolling ticker bar at bottom of KioskScoreboard with recent feed events, icon per type, relative timestamps, CSS marquee animation, auto-refresh with leaderboard data
-- **Feed coalescing:** `LobbyFeedService.coalesceScoreEvents()` collapses 3+ consecutive `score_posted` events from same player within 1 hour into summary (query-time only, DB unchanged)
+**Work done this session (Sprint 12 highlights):**
+- **GlobalLeaderboardService:** extended with `origin_room_slug` + `origin_room_logo_url` on `GlobalRankedEntry` (both methods that feed row rendering). Cache-bust migration clears stale cached rows once.
+- **Global row layout (§6):** `RoomTag` badge in `PodiumSlot` + 4th-10th list, anchor-linked to `/scoreboard?room=<slug>`. Null-room rows skip the badge cleanly. `GlobalScoreboard.tsx` + `GlobalGameDetail.tsx` both sync scope with `?room=<slug>` via `useSearchParams`, resolving slug → room_id against the rooms list.
+- **Cooldown display rules (§13):** `LeaderboardService.recalculate()` no longer unions `community_scores` — tournament cards now resolve strictly from `submissions.game_id`. Freeplay rows to the same game name no longer leak onto tournament leaderboards. Migration `058` flushes `leaderboard_cache` once so clients don't render stale unions.
+- **`?room=<slug>` canonicalization (§11):** `GlobalGameDetail.tsx` has full scope ↔ URL round-trip; per-row RoomTag badges link to the filtered view.
+- **Final emoji sweep (§9 Layer 9):** replaced `★` (StarRating) with lucide `<Star>` + proper ARIA and `⌫` (OnScreenKeyboard, two layouts) with lucide `<Delete>`. Post-sweep grep over Unicode emoji ranges: **0 hits**.
+- **RANK_STYLES** trophy glyph on 1st-place podium label: replaced with plain `"1st"` text.
+- **Build verification:** backend `tsc` clean, admin-ui `vite build` clean (2.94s), 62/62 tests pass.
 
-**Git state:** On `main`, ready to commit.
+**Earlier in this session (Sprints 8–11):** Scoreboard tab restructure + `RoomTag`-based "Played at $tag" filter; Picks page rename with Mystery Award hero + 301 redirect + Discord DM link rewrite; unified `SubmissionSheet` with anonymous collision prompt + OAuth draft handoff + themed anonymous avatar; MergeService with freeze-rule on both directions + admin UI + self-claim hook.
+
+**Git state:** On `main`, uncommitted — the full 12-sprint delta sits on the working tree. Justin decides commit cadence.
 
 **Next up:**
-- Commit and deploy
-- Notification coalescing (deferred — low priority)
-- Discord Bot Multi-Room (Phase 5) — deferred
+- Commit strategy + deploy (working tree has the full 13-sprint delta)
+- Verification-plan smoke tests (plan §Verification plan) — manual, Justin-driven, staging-first
+- Discord Bot Multi-Room (Phase 5) — deferred, not part of this plan
 
 ## Blockers
 

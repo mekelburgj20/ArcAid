@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Search } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
 import { useTheme } from '../components/ThemeProvider';
@@ -15,7 +16,8 @@ import {
 } from '../components/ScoreboardComponents';
 import CardRouter from '../components/scoreboard/CardRouter';
 import GamesTabView from '../components/GamesTabView';
-import ScoreSubmitModal from '../components/ScoreSubmitModal';
+import { SubmitScoreIcon } from '../assets/icons/ThemedIcons';
+import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
 import { deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
@@ -37,10 +39,23 @@ export default function Scoreboard() {
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
-  const [searchParams] = useSearchParams();
-  const [tab, setTab] = useState<'tournament' | 'games'>(
-    searchParams.get('tab') === 'games' ? 'games' : 'tournament'
-  );
+  const [tournamentSearch, setTournamentSearch] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = (() => {
+    const t = searchParams.get('tab');
+    // Legacy: `games` → `all-games`
+    if (t === 'all-games' || t === 'games') return 'all-games';
+    return 'tournaments';
+  })();
+  const [tab, setTab] = useState<'tournaments' | 'all-games'>(initialTab);
+
+  const selectTab = (next: 'tournaments' | 'all-games') => {
+    setTab(next);
+    const params = new URLSearchParams(searchParams);
+    if (next === 'all-games') params.set('tab', 'all-games');
+    else params.delete('tab');
+    setSearchParams(params, { replace: true });
+  };
   const viewerHeaders = useViewerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
   const { setPublicTheme } = useTheme();
@@ -159,7 +174,10 @@ export default function Scoreboard() {
   // Mobile always forces vertical via CSS
   const effectiveLayout = isBanner ? 'scroll' : layout;
 
-  const visibleLeaderboards = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
+  const trimmedTournamentSearch = tournamentSearch.trim().toLowerCase();
+  const visibleLeaderboards = leaderboards
+    .filter(lb => !hideEmpty || lb.rankings.length > 0)
+    .filter(lb => !trimmedTournamentSearch || (lb.displayName || lb.gameName).toLowerCase().includes(trimmedTournamentSearch));
 
   // When sticky is off (default), rankings render inline with game cards
   const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
@@ -180,6 +198,12 @@ export default function Scoreboard() {
 
   const bgBehindTitle = useNewCards ? newConfig.bgBehindTitle : false;
   const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
+
+  // Plan §10 / Sprint 3: Tournament-tab cards now link to game detail like All Games.
+  const linkForTournamentCard = (lb: GameLeaderboard) =>
+    lb.globalGameId
+      ? `/games/${lb.globalGameId}?from=${encodeURIComponent(slug || '')}`
+      : `/${slug || ''}/games/${encodeURIComponent(lb.gameName)}`;
 
   return (
     <div className={`h-full flex flex-col overflow-hidden relative ${newConfig.mobileVertical ? 'scoreboard-mobile-vertical' : ''}`}>
@@ -305,35 +329,56 @@ export default function Scoreboard() {
       )}
 
       {/* Tab toggle */}
-      <div className="flex justify-center gap-1 pb-3">
+      <div className="flex justify-center gap-1 pb-3" role="tablist" aria-label="Scoreboard tabs">
         <button
-          onClick={() => setTab('tournament')}
+          role="tab"
+          aria-selected={tab === 'tournaments'}
+          onClick={() => selectTab('tournaments')}
           className={`px-3 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
-            tab === 'tournament'
+            tab === 'tournaments'
               ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
               : 'border-border/50 text-muted hover:text-primary'
           }`}
         >
-          Tournament
+          Tournaments
         </button>
         <button
-          onClick={() => setTab('games')}
+          role="tab"
+          aria-selected={tab === 'all-games'}
+          onClick={() => selectTab('all-games')}
           className={`px-3 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
-            tab === 'games'
+            tab === 'all-games'
               ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
               : 'border-border/50 text-muted hover:text-primary'
           }`}
         >
-          Games
+          All Games
         </button>
       </div>
 
       </div>
 
-      {tab === 'games' ? (
+      {tab === 'all-games' ? (
         <GamesTabView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
       ) : (
       <>
+      {/* Tournament search (reserved slot matches All Games tab for layout stability) */}
+      <div className="px-4 sm:px-6">
+        <div className="max-w-md mx-auto mb-4">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              type="text"
+              placeholder="Search active games..."
+              value={tournamentSearch}
+              onChange={e => setTournamentSearch(e.target.value)}
+              className="w-full pl-10 pr-3 py-2 rounded-lg border border-border/50 bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan/40 text-sm"
+              aria-label="Search active games"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Game cards */}
       <div className="px-4 sm:px-6 pb-6 scoreboard-mobile-scale" style={{ '--mobile-scale': newConfig.mobileScale } as React.CSSProperties}>
 
@@ -353,7 +398,11 @@ export default function Scoreboard() {
         {/* Game leaderboards */}
         {visibleLeaderboards.length === 0 ? (
           <div className="flex-1 text-center py-24">
-            <p className="text-muted font-display">Waiting for active games...</p>
+            <p className="text-muted font-display">
+              {trimmedTournamentSearch
+                ? `No active games match "${tournamentSearch.trim()}".`
+                : 'Waiting for active games...'}
+            </p>
           </div>
         ) : effectiveLayout === 'grid' ? (
           /* Grid layout — responsive rows, mobile forces single column via CSS */
@@ -366,7 +415,13 @@ export default function Scoreboard() {
               }}
             >
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0 }}>
+                <div key={lb.gameId} className="relative group/card" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0 }}>
+                  <Link to={linkForTournamentCard(lb)} className="absolute inset-0 z-10" aria-label={lb.displayName || lb.gameName} />
+                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
+                    <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
+                      <SubmitScoreIcon size={16} />
+                    </span>
+                  </button>
                   {useNewCards ? (
                     <CardRouter
                       lb={lb} slug={slug || ''} roomId={roomId}
@@ -398,7 +453,13 @@ export default function Scoreboard() {
           <div className="flex-1 min-w-0">
             <div className="flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
+                <div key={lb.gameId} className="relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
+                  <Link to={linkForTournamentCard(lb)} className="absolute inset-0 z-10" aria-label={lb.displayName || lb.gameName} />
+                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
+                    <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
+                      <SubmitScoreIcon size={16} />
+                    </span>
+                  </button>
                   {useNewCards ? (
                     <CardRouter
                       lb={lb} slug={slug || ''} roomId={roomId}
@@ -431,7 +492,11 @@ export default function Scoreboard() {
             <div className="-mx-4 sm:-mx-6 overflow-x-auto scoreboard-hscroll-layout">
               <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
+                  <div key={lb.gameId} className="flex-shrink-0 relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
+                    <Link to={linkForTournamentCard(lb)} className="absolute inset-0 z-10" aria-label={lb.displayName || lb.gameName} />
+                    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-2 right-2 z-20 w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/20 focus:bg-neon-cyan/20 flex items-center justify-center transition-colors cursor-pointer backdrop-blur-sm">
+                      <SubmitScoreIcon size={16} />
+                    </button>
                     {useNewCards ? (
                       <CardRouter
                         lb={lb} slug={slug || ''} roomId={roomId}
@@ -477,15 +542,13 @@ export default function Scoreboard() {
       )}
       </div>{/* end scrollable */}
 
-      {/* Score submission modal */}
+      {/* Score submission — SubmissionSheet (Sprint 10) handles anonymous flow. */}
       {selectedGame && roomId && (
-        <ScoreSubmitModal
-          gameName={selectedGame.gameName}
-          roomId={roomId}
-          gameStatus={selectedGame.gameStatus}
-          requirePhoto={requirePhoto}
+        <SubmissionSheet
+          target={{ kind: 'tournament', roomId, gameName: selectedGame.gameName, gameStatus: selectedGame.gameStatus, requirePhoto }}
+          roomSlug={slug}
           onClose={() => setSelectedGame(null)}
-          onSubmitted={() => { loadData(); loadRankings(); }}
+          onSubmitted={() => { loadData(); loadRankings(); setSelectedGame(null); }}
         />
       )}
 

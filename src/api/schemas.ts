@@ -125,6 +125,9 @@ export const CreateGameRoomSchema = z.object({
     is_public: z.boolean().default(true),
     logo_url: z.string().url().optional().or(z.literal('')),
     discord_guild_id: z.string().optional().default(''),
+    // Sprint 13 — optional short label (≤6 chars) for RoomTag badges. Server
+    // normalizes on write (uppercase + slice); null means fall back to slug.
+    short_tag: z.string().max(6).nullable().optional(),
 });
 
 export const CreateLocalAdminSchema = z.object({

@@ -14,6 +14,7 @@ interface Room {
   name: string;
   description: string;
   is_public: boolean;
+  short_tag: string | null;
 }
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
@@ -32,6 +33,7 @@ export default function GameRoomManager() {
   const [formSlug, setFormSlug] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formIsPublic, setFormIsPublic] = useState(true);
+  const [formShortTag, setFormShortTag] = useState('');
 
   const loadRooms = () => {
     setLoading(true);
@@ -48,6 +50,7 @@ export default function GameRoomManager() {
     setFormSlug('');
     setFormDescription('');
     setFormIsPublic(true);
+    setFormShortTag('');
     setShowCreate(false);
     setEditTarget(null);
   };
@@ -61,6 +64,7 @@ export default function GameRoomManager() {
         slug: formSlug.trim().toLowerCase(),
         description: formDescription.trim(),
         is_public: formIsPublic,
+        short_tag: formShortTag.trim() || null,
       });
       toast('Room created', 'success');
       resetForm();
@@ -81,6 +85,7 @@ export default function GameRoomManager() {
         slug: formSlug.trim().toLowerCase(),
         description: formDescription.trim(),
         is_public: formIsPublic,
+        short_tag: formShortTag.trim() || null,
       });
       toast('Room updated', 'success');
       resetForm();
@@ -110,6 +115,7 @@ export default function GameRoomManager() {
     setFormSlug(room.slug);
     setFormDescription(room.description);
     setFormIsPublic(room.is_public);
+    setFormShortTag(room.short_tag || '');
     setShowCreate(false);
   };
 
@@ -138,7 +144,7 @@ export default function GameRoomManager() {
       `HELP`,
       `Your admin panel has a Help page in the sidebar with a complete setup guide and Discord command reference.`,
       ``,
-      `Game Availability: ${origin}/${room.slug}/games`,
+      `Picks: ${origin}/${room.slug}/picks`,
       `Player Stats: ${origin}/${room.slug}/players`,
     ].join('\n');
     try {
@@ -257,6 +263,22 @@ export default function GameRoomManager() {
                 placeholder="A brief description of this game room"
                 className={`${inputClass} min-h-[60px] resize-y`}
               />
+            </div>
+            <div>
+              <label className="text-xs text-faint block mb-1">
+                Short tag <span className="text-faint">(optional, ≤6 chars)</span>
+              </label>
+              <input
+                type="text"
+                value={formShortTag}
+                onChange={e => setFormShortTag(e.target.value.toUpperCase().slice(0, 6))}
+                placeholder={formSlug ? formSlug.slice(0, 6).toUpperCase() : 'e.g. RTX'}
+                maxLength={6}
+                className={inputClass}
+              />
+              <p className="text-xs text-muted mt-1">
+                Shown on Global Scoreboard badges. Falls back to the slug if left blank.
+              </p>
             </div>
             <div className="flex items-center gap-3">
               <label className="text-xs text-faint">Public</label>

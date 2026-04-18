@@ -32,16 +32,17 @@ import Settings from './pages/Settings';
 import Help from './pages/Help';
 import ActivityLog from './pages/ActivityLog';
 import GameStates from './pages/GameStates';
+import Identity from './pages/Identity';
 import LobbyAdmin from './pages/LobbyAdmin';
 
 // Pages — Public
 import Scoreboard from './pages/Scoreboard';
-import Players from './pages/Players';
 import PlayerDetail from './pages/PlayerDetail';
 import GameDetail from './pages/GameDetail';
-import GameAvailability from './pages/GameAvailability';
+import Picks from './pages/Picks';
 import Lobby from './pages/Lobby';
 import PublicStats from './pages/PublicStats';
+import MyRooms from './pages/MyRooms';
 
 // Pages — Kiosk
 import KioskScoreboard from './pages/KioskScoreboard';
@@ -68,7 +69,22 @@ function NavigateToRoomLogin() {
 
 function FreeplayRedirect() {
   const { slug } = useParams();
-  return <Navigate to={`/${slug}?tab=games&view=catalogue`} replace />;
+  return <Navigate to={`/${slug}?tab=all-games`} replace />;
+}
+
+function PlayersToStatsRedirect() {
+  const { slug } = useParams();
+  return <Navigate to={`/${slug}/stats?view=players`} replace />;
+}
+
+/**
+ * Sprint 9: `/:slug/games` was the winner-picks page; renamed to `/:slug/picks`.
+ * Preserves query string so stale Discord DM links (`?t=<tournamentId>`) keep working.
+ */
+function GamesToPicksRedirect() {
+  const { slug } = useParams();
+  const search = window.location.search;
+  return <Navigate to={`/${slug}/picks${search}`} replace />;
 }
 
 function App() {
@@ -121,6 +137,7 @@ function App() {
           <Route path="games" element={<GameStates />} />
           <Route path="lobby" element={<LobbyAdmin />} />
           <Route path="styles" element={<StyleCatalogue />} />
+          <Route path="identity" element={<Identity />} />
           <Route path="activity" element={<ActivityLog />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
@@ -128,6 +145,9 @@ function App() {
 
         {/* Friends (global, requires Discord login) */}
         <Route path="/friends" element={<ViewerAuthProvider><Friends /></ViewerAuthProvider>} />
+
+        {/* My Rooms (global, requires Discord login) */}
+        <Route path="/my-rooms" element={<ViewerAuthProvider><MyRooms /></ViewerAuthProvider>} />
 
         {/* Global scoreboard (cross-room aggregate, public) */}
         <Route path="/scoreboard" element={<ViewerAuthProvider><GlobalScoreboard /></ViewerAuthProvider>} />
@@ -143,9 +163,10 @@ function App() {
         <Route path="/:slug" element={<ViewerAuthProvider><PublicLayout /></ViewerAuthProvider>}>
           <Route index element={<Scoreboard />} />
           <Route path="lobby" element={<Lobby />} />
-          <Route path="players" element={<Players />} />
+          <Route path="players" element={<PlayersToStatsRedirect />} />
           <Route path="players/:id" element={<PlayerDetail />} />
-          <Route path="games" element={<GameAvailability />} />
+          <Route path="picks" element={<Picks />} />
+          <Route path="games" element={<GamesToPicksRedirect />} />
           <Route path="games/:name" element={<GameDetail />} />
           <Route path="freeplay" element={<FreeplayRedirect />} />
           <Route path="stats" element={<PublicStats />} />

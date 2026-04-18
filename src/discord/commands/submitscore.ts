@@ -11,6 +11,7 @@ import { logInfo, logError } from '../../utils/logger.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
 import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { checkCooldown } from '../../utils/cooldown.js';
+import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -101,7 +102,7 @@ export const submitscore: Command = {
         try {
             // Find the game ID and room
             const game = await db.get(`
-                SELECT g.id, g.iscored_id, t.game_room_id
+                SELECT g.id, g.iscored_id, g.tournament_id, t.game_room_id
                 FROM games g
                 JOIN tournaments t ON g.tournament_id = t.id
                 WHERE g.name = ? COLLATE NOCASE AND g.status = 'ACTIVE'
@@ -151,11 +152,18 @@ export const submitscore: Command = {
                 }
 
                 // Record internally (use sync-compatible ID so sync won't create a duplicate)
+                const submittedByUserId = normalizeSubmitterUserId(interaction.user.id);
+                const submittedByAnonymousName = submittedByUserId ? null : username!;
                 await db.run(
-                    `INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)
+                    `INSERT INTO submissions (
+                        id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                        submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                     )
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                      ON CONFLICT(id) DO UPDATE SET score = MAX(score, excluded.score), discord_user_id = excluded.discord_user_id, photo_url = excluded.photo_url`,
-                    `${game.id}-${username!.toLowerCase()}`, game.id, interaction.user.id, username, score, photo.url, new Date().toISOString()
+                    `${game.id}-${username!.toLowerCase()}`, game.id, interaction.user.id, username, score, photo.url, new Date().toISOString(),
+                    game.game_room_id || null, game.tournament_id || null, submittedByUserId, submittedByAnonymousName
                 );
 
                 // Log to score history
@@ -164,6 +172,8 @@ export const submitscore: Command = {
                     gameName, gameRoomId: game.game_room_id, gameId: game.id,
                     username: username!, discordUserId: interaction.user.id,
                     score, photoUrl: photo.url, source: 'tournament',
+                    tournamentId: game.tournament_id,
+                    anonymousName: submittedByAnonymousName,
                 });
 
                 // Invalidate leaderboard cache
@@ -195,6 +205,8 @@ export const submitscore: Command = {
                         score,
                         photoUrl: photo.url,
                         excludeFromGlobal: excludeGlobal,
+                        tournamentId: game.tournament_id,
+                        submittedByAnonymousName: submittedByAnonymousName ?? undefined,
                     });
                     if (fanOut && !excludeGlobal) {
                         const { emitScoreNewGlobal } = await import('../../api/websocket.js');

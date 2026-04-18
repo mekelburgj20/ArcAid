@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import NeonButton from './NeonButton';
+import { drawCanvasStar } from '../assets/icons/ThemedIcons';
 
 // --- Props ---
 interface MysteryAwardProps {
@@ -347,11 +348,17 @@ function renderTranslite(
   ctx.globalAlpha = 0.15 + intensity * 0.2;
   ctx.fillStyle = '#fff';
   ctx.fillText(displayName, w / 2, h * 0.72);
-  // Subtitle
+  // Subtitle rendered with canvas-path stars flanking the title (no Unicode glyphs).
   ctx.font = `bold ${Math.floor(h * 0.045)}px 'Courier New', monospace`;
   ctx.globalAlpha = 0.25 + intensity * 0.2;
   ctx.fillStyle = 'rgba(255,200,120,0.8)';
-  ctx.fillText('\u2605  MYSTERY AWARD  \u2605', w / 2, h * 0.85);
+  const subtitle = 'MYSTERY AWARD';
+  const subtitleMetrics = ctx.measureText(subtitle);
+  const starR = Math.floor(h * 0.028);
+  const gap = starR * 2.2;
+  ctx.fillText(subtitle, w / 2, h * 0.85);
+  drawCanvasStar(ctx, w / 2 - subtitleMetrics.width / 2 - gap, h * 0.85 - starR * 0.4, starR);
+  drawCanvasStar(ctx, w / 2 + subtitleMetrics.width / 2 + gap, h * 0.85 - starR * 0.4, starR);
   ctx.restore();
 
   // Scattered stars

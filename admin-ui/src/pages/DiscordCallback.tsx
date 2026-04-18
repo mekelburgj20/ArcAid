@@ -28,6 +28,29 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
     const state = searchParams.get('state'); // room slug, player:slug, or __super__
 
     if (errorParam) {
+      // Sprint 13 (plan §10.3): if the user cancelled OAuth mid-claim flow, the
+      // original page has a pending draft in sessionStorage + on the stored return
+      // URL. Replace the success marker with `submit-cancelled` so the
+      // PendingSubmissionWatcher opens the "Continue as guest or discard?" modal
+      // instead of committing. Applies only to player flows.
+      const isPlayerCancel = errorParam === 'access_denied' && state?.startsWith('player:');
+      if (isPlayerCancel) {
+        const stored = localStorage.getItem('arcaid_player_return');
+        localStorage.removeItem('arcaid_player_return');
+        if (stored) {
+          const parsed = new URL(stored, window.location.origin);
+          const stateParam = parsed.searchParams.get('submit-draft');
+          if (stateParam) {
+            parsed.searchParams.delete('submit-draft');
+            parsed.searchParams.set('submit-cancelled', stateParam);
+            window.location.href = parsed.pathname + parsed.search;
+            return;
+          }
+          // No draft associated — drop the marker and return to origin.
+          window.location.href = parsed.pathname + parsed.search;
+          return;
+        }
+      }
       setError(`Discord authorization denied: ${searchParams.get('error_description') || errorParam}`);
       return;
     }
@@ -74,7 +97,7 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
             window.location.href = returnPath;
           } else if (state?.startsWith('player:')) {
             const slug = state.slice('player:'.length);
-            window.location.href = `/${slug}/games`;
+            window.location.href = `/${slug}/picks`;
           } else {
             window.location.href = '/';
           }

@@ -58,6 +58,9 @@ export class AdminService {
             'INSERT OR REPLACE INTO game_room_admins (game_room_id, discord_user_id, role) VALUES (?, ?, ?)',
             gameRoomId, discordUserId, role
         );
+        // Sprint 6.5: room admin grants imply membership.
+        const { RoomMembershipService } = await import('./RoomMembershipService.js');
+        await RoomMembershipService.addMember(discordUserId, gameRoomId, 'admin_invite');
     }
 
     static async removeRoomDiscordAdmin(gameRoomId: string, discordUserId: string): Promise<boolean> {

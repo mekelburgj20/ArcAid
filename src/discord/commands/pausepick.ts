@@ -2,6 +2,7 @@ import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
 import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { logError } from '../../utils/logger.js';
+import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export const pausepick: Command = {
@@ -17,6 +18,14 @@ export const pausepick: Command = {
         const db = await getDatabase();
 
         try {
+            // Pick-award gate (plan §8) — short-circuit with exact reply string.
+            const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+            const pickEnabled = await PickAwardGate.isEnabled(tournament?.game_room_id ?? null, tournamentId);
+            if (!pickEnabled) {
+                await interaction.editReply(PICK_AWARD_DISABLED_REPLY);
+                return;
+            }
+
             await db.run(`
                 INSERT INTO games (id, tournament_id, name, status) 
                 VALUES (?, ?, ?, 'QUEUED')

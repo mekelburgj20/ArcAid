@@ -201,7 +201,7 @@ export default function Lobby() {
             <p className="text-xs text-faint">
               Be the first to post a score!{' '}
               {slug && (
-                <Link to={`/${slug}?tab=games&view=catalogue`} className="text-neon-cyan hover:underline">
+                <Link to={`/${slug}?tab=all-games`} className="text-neon-cyan hover:underline">
                   Play a game
                 </Link>
               )}

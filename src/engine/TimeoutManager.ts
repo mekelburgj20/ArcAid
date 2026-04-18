@@ -8,6 +8,7 @@ import { TournamentEngine } from './TournamentEngine.js';
 import { IScoredClient } from './IScoredClient.js';
 import { v4 as uuidv4 } from 'uuid';
 import { parsePlatformsList } from '../utils/platformRules.js';
+import { PickAwardGate } from '../services/PickAwardGate.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -39,18 +40,24 @@ export class TimeoutManager {
 
             if (pendingGames.length === 0) return;
 
-            // Load per-tournament timeout settings
+            // Load per-tournament timeout settings + pick-award gate state
             const tournamentIds = [...new Set(pendingGames.map((g: any) => g.tournament_id).filter(Boolean))];
             const tournamentSettings = new Map<string, { winnerWindowMin: number; runnerUpWindowMin: number }>();
+            const gateByTournament = new Map<string, boolean>();
             for (const tid of tournamentIds) {
-                const t = await db.get('SELECT winner_pick_window_min, runnerup_pick_window_min FROM tournaments WHERE id = ?', tid);
+                const t = await db.get('SELECT winner_pick_window_min, runnerup_pick_window_min, game_room_id FROM tournaments WHERE id = ?', tid);
                 tournamentSettings.set(tid, {
                     winnerWindowMin: t?.winner_pick_window_min ?? 60,
                     runnerUpWindowMin: t?.runnerup_pick_window_min ?? 30,
                 });
+                gateByTournament.set(tid, await PickAwardGate.isEnabled(t?.game_room_id ?? null, tid));
             }
 
             for (const row of pendingGames) {
+                // Pick-award gate off — suspend timeout processing for this slot.
+                // Existing slots are grandfathered in: admin can clear via game-states page.
+                if (!gateByTournament.get(row.tournament_id)) continue;
+
                 const game: Game = {
                     id: row.id,
                     tournamentId: row.tournament_id,

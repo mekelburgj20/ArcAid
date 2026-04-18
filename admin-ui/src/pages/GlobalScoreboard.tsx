@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Trophy, Upload, LogIn, LogOut, Filter } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import LoadingState from '../components/LoadingState';
-import GlobalScoreSubmitModal from '../components/GlobalScoreSubmitModal';
+import SubmissionSheet from '../components/SubmissionSheet';
 import StarRating from '../components/StarRating';
+import RoomTag from '../components/RoomTag';
 
 interface TopScoreEntry {
   iscored_username: string;
   score: number;
   avatar_hash: string | null;
   discord_user_id: string;
+  origin_room_slug: string | null;
+  origin_room_logo_url: string | null;
+  /** Sprint 13 — admin-set short label; falls back to slug-derived when null. */
+  origin_room_short_tag: string | null;
 }
 
 interface TopGame {
@@ -106,6 +111,7 @@ export default function GlobalScoreboard() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState(''); // debounced value actually sent to API
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [submitGame, setSubmitGame] = useState<TopGame | null>(null);
   const [toast, setToast] = useState<{ player: string; game: string; score: number } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
@@ -124,6 +130,32 @@ export default function GlobalScoreboard() {
       .then((data: Room[]) => setRooms((data || []).filter(r => r.is_public)))
       .catch(() => {});
   }, []);
+
+  // Sprint 12 — sync scope with ?room=<slug>. When the URL names a slug that
+  // resolves to a known room, scope points at that room's id; otherwise fall
+  // back to global. Scope changes push back onto the URL for shareability.
+  useEffect(() => {
+    const slug = searchParams.get('room');
+    if (!slug) {
+      if (scope !== 'global') setScope('global');
+      return;
+    }
+    if (rooms.length === 0) return; // wait for rooms to load
+    const match = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
+    if (match && scope !== match.id) setScope(match.id);
+  }, [searchParams, rooms]);
+
+  const setScopeFromSlug = (slug: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (slug) next.set('room', slug);
+    else next.delete('room');
+    setSearchParams(next, { replace: true });
+  };
+  const setScopeToRoomId = (roomId: string) => {
+    const room = rooms.find(r => r.id === roomId);
+    if (!room) { setScope(roomId); return; }
+    setScopeFromSlug(room.slug);
+  };
 
   // Fetch user's own ratings (needs token)
   useEffect(() => {
@@ -316,7 +348,10 @@ export default function GlobalScoreboard() {
           </select>
           <select
             value={scope}
-            onChange={e => setScope(e.target.value)}
+            onChange={e => {
+              if (e.target.value === 'global') setScopeFromSlug(null);
+              else setScopeToRoomId(e.target.value);
+            }}
             className="px-3 py-2 rounded border border-border bg-surface text-primary text-sm"
           >
             <option value="global">All rooms (global)</option>
@@ -399,15 +434,18 @@ export default function GlobalScoreboard() {
         </div>
       )}
 
-      {/* Submit modal */}
+      {/* Sprint 10 — SubmissionSheet handles the global submit flow. Discord auth
+          already required upstream (handleSubmitClick short-circuits to login). */}
       {submitGame && playerToken && (
-        <GlobalScoreSubmitModal
-          game={submitGame}
-          playerToken={playerToken}
+        <SubmissionSheet
+          target={{
+            kind: 'global',
+            globalGameId: submitGame.global_game_id,
+            gameName: submitGame.display_name || submitGame.name,
+          }}
           onClose={() => setSubmitGame(null)}
           onSubmitted={() => {
             setSubmitGame(null);
-            // Refetch scoreboard
             const params = new URLSearchParams({ sort, scope, limit: '60' });
             fetch(`/api/global/scoreboard?${params}`)
               .then(r => r.ok ? r.json() : { data: [] })
@@ -422,7 +460,7 @@ export default function GlobalScoreboard() {
 
 /* ── Podium rank colors (Tailwind classes) ── */
 const RANK_STYLES: Record<number, { bg: string; border: string; rank: string; score: string; label: string }> = {
-  1: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', rank: 'text-yellow-400', score: 'text-yellow-300', label: '\u{1F3C6} 1st' },
+  1: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', rank: 'text-yellow-400', score: 'text-yellow-300', label: '1st' },
   2: { bg: 'bg-gray-300/10', border: 'border-gray-400/30', rank: 'text-gray-300', score: 'text-gray-200', label: '2nd' },
   3: { bg: 'bg-amber-700/10', border: 'border-amber-600/30', rank: 'text-amber-500', score: 'text-amber-400', label: '3rd' },
 };
@@ -445,6 +483,15 @@ function PodiumSlot({ entry, rank, large }: { entry?: TopScoreEntry; rank: numbe
             <span className={`font-semibold truncate ${large ? 'text-xs' : 'text-[11px]'}`}>
               {entry.iscored_username}
             </span>
+            {entry.origin_room_slug && (
+              <RoomTag
+                shortTag={entry.origin_room_short_tag || entry.origin_room_slug}
+                size={16}
+                logoUrl={entry.origin_room_logo_url}
+                href={`/scoreboard?room=${encodeURIComponent(entry.origin_room_slug)}`}
+                title={`Filter to ${entry.origin_room_short_tag || entry.origin_room_slug}`}
+              />
+            )}
           </div>
           <span
             className={`font-mono font-bold ${s.score} ${large ? 'text-xs' : 'text-[11px]'}`}
@@ -526,6 +573,15 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
                   size={16}
                 />
                 <span className="truncate flex-1">{e.iscored_username}</span>
+                {e.origin_room_slug && (
+                  <RoomTag
+                    shortTag={e.origin_room_short_tag || e.origin_room_slug}
+                    size={16}
+                    logoUrl={e.origin_room_logo_url}
+                    href={`/scoreboard?room=${encodeURIComponent(e.origin_room_slug)}`}
+                    title={`Filter to ${e.origin_room_short_tag || e.origin_room_slug}`}
+                  />
+                )}
                 <span className="font-mono text-muted">{formatScore(e.score)}</span>
               </div>
             ))}

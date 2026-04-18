@@ -1,6 +1,7 @@
 import { logInfo, logError, logWarn, logDebug } from '../utils/logger.js';
 import { IScoredApiClient, IScoredApiGameScores } from './IScoredApiClient.js';
 import { getDatabase } from '../database/database.js';
+import { normalizeSubmitterUserId } from '../services/SubmissionContextService.js';
 
 const DEFAULT_INTERVAL_MS = 30_000; // 30 seconds
 
@@ -107,9 +108,12 @@ export class ScoreSyncPoller {
             for (const gameData of allScores) {
                 if (!gameData.GameID || !gameData.scores) continue;
 
-                // Find local game by iScored ID
+                // Find local game by iScored ID (joins tournament to capture room context)
                 const localGame = await db.get(
-                    'SELECT id, tournament_id, name FROM games WHERE iscored_id = ?',
+                    `SELECT g.id, g.tournament_id, g.name, t.game_room_id
+                     FROM games g
+                     LEFT JOIN tournaments t ON t.id = g.tournament_id
+                     WHERE g.iscored_id = ?`,
                     gameData.GameID
                 );
                 if (!localGame) continue;
@@ -137,14 +141,24 @@ export class ScoreSyncPoller {
                     if (!existing || scoreValue > existing.score) {
                         const discordUserId = mappingMap.get(resolvedName.toLowerCase()) || mappingMap.get(score.name.toLowerCase()) || `iscored:${resolvedName}`;
 
+                        const submittedByUserId = normalizeSubmitterUserId(
+                            discordUserId.startsWith('iscored:') ? null : discordUserId
+                        );
+                        const submittedByAnonymousName = submittedByUserId ? null : resolvedName;
                         await db.run(`
-                            INSERT INTO submissions (id, game_id, iscored_username, score, timestamp, discord_user_id)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO submissions (
+                                id, game_id, iscored_username, score, timestamp, discord_user_id,
+                                submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                                submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                             ON CONFLICT(id) DO UPDATE SET
                                 score = excluded.score,
                                 discord_user_id = excluded.discord_user_id,
                                 iscored_username = excluded.iscored_username
-                        `, syncId, localGame.id, resolvedName, scoreValue, new Date().toISOString(), discordUserId);
+                        `, syncId, localGame.id, resolvedName, scoreValue, new Date().toISOString(), discordUserId,
+                            localGame.game_room_id || null, localGame.tournament_id || null,
+                            submittedByUserId, submittedByAnonymousName);
 
                         changedGameIds.add(localGame.id);
                         logDebug(`ScoreSyncPoller: ${existing ? 'updated' : 'new'} score for ${resolvedName}${resolvedName !== score.name ? ` (alias of ${score.name})` : ''} on "${gameData.gameName}": ${scoreValue.toLocaleString()}`);
@@ -163,6 +177,8 @@ export class ScoreSyncPoller {
                                         discordUserId,
                                         score: scoreValue,
                                         source: 'sync',
+                                        tournamentId: localGame.tournament_id,
+                                        anonymousName: submittedByAnonymousName,
                                     });
 
                                     // Fire-and-forget lobby feed event
@@ -183,6 +199,8 @@ export class ScoreSyncPoller {
                                         playerId: discordUserId,
                                         iscoredUsername: resolvedName,
                                         score: scoreValue,
+                                        tournamentId: localGame.tournament_id,
+                                        submittedByAnonymousName: submittedByAnonymousName ?? undefined,
                                     });
                                     if (fanOut) {
                                         const { emitScoreNewGlobal } = await import('../api/websocket.js');

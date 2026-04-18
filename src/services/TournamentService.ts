@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
+import { PickAwardGate } from './PickAwardGate.js';
 
 export class TournamentService {
     /**
@@ -95,6 +96,9 @@ export class TournamentService {
             data.runnerup_pick_window_min ?? 30,
             id
         );
+        // Sprint 13: winner_picks may have flipped — bust cached PickAwardGate
+        // entries for this tournament's room so the next consumer hits fresh state.
+        if (data.game_room_id) PickAwardGate.invalidate(data.game_room_id);
     }
 
     /**
@@ -102,6 +106,8 @@ export class TournamentService {
      */
     static async delete(id: string): Promise<void> {
         const db = await getDatabase();
+        const row = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', id);
         await db.run('DELETE FROM tournaments WHERE id = ?', id);
+        if (row?.game_room_id) PickAwardGate.invalidate(row.game_room_id);
     }
 }

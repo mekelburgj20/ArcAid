@@ -160,8 +160,8 @@ export function ViewerAuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithDiscord = useCallback(async (returnSlug: string, returnPath?: string) => {
     // Store return path so DiscordCallback knows where to send the user back.
-    // Default for room pages: /:slug/games. Global pages pass returnPath explicitly.
-    const path = returnPath || `/${returnSlug}/games`;
+    // Default for room pages: /:slug/picks (Sprint 9 rename). Global pages pass returnPath explicitly.
+    const path = returnPath || `/${returnSlug}/picks`;
     localStorage.setItem('arcaid_player_return', path);
 
     try {

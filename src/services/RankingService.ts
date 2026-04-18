@@ -210,6 +210,7 @@ export class RankingService {
                     MAX(score) as score
                 FROM submissions
                 WHERE game_id = ?
+                  AND orphaned_at IS NULL
                 GROUP BY LOWER(iscored_username)
                 ORDER BY score DESC
             `, game.id);

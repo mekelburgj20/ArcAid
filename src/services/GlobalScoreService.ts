@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getDatabase } from '../database/database.js';
 import { GlobalLeaderboardService } from './GlobalLeaderboardService.js';
+import { normalizeSubmitterUserId } from './SubmissionContextService.js';
 import { logInfo, logError } from '../utils/logger.js';
 
 export interface GlobalScoreInput {
@@ -16,6 +17,10 @@ export interface GlobalScoreInput {
     originGameRoomId?: string | null;
     originGameId?: string | null;
     excludeFromGlobal?: boolean;
+    submittedFromRoomId?: string | null;
+    submittedDuringTournamentId?: string | null;
+    submittedByUserId?: string | null;
+    submittedByAnonymousName?: string | null;
 }
 
 export interface GlobalScore {
@@ -98,12 +103,22 @@ export class GlobalScoreService {
         const now = new Date().toISOString();
         const excludeFlag = input.excludeFromGlobal ? 1 : 0;
 
+        const submittedByUserId =
+            input.submittedByUserId !== undefined
+                ? input.submittedByUserId
+                : normalizeSubmitterUserId(input.playerId);
+        const submittedByAnonymousName =
+            input.submittedByAnonymousName ?? (submittedByUserId ? null : input.iscoredUsername);
+        const submittedFromRoomId = input.submittedFromRoomId ?? input.originGameRoomId ?? null;
+
         await db.run(
             `INSERT INTO global_scores (
                 id, global_game_id, player_id, iscored_username, score,
                 photo_url, origin_type, origin_game_room_id, origin_game_id,
-                exclude_from_global, submitted_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                exclude_from_global, submitted_at,
+                submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
             id,
             input.globalGameId,
             input.playerId,
@@ -114,7 +129,11 @@ export class GlobalScoreService {
             input.originGameRoomId || null,
             input.originGameId || null,
             excludeFlag,
-            now
+            now,
+            submittedFromRoomId,
+            input.submittedDuringTournamentId ?? null,
+            submittedByUserId,
+            submittedByAnonymousName
         );
 
         // Invalidate cached leaderboards for this game (global + all room scopes).
@@ -259,6 +278,8 @@ export class GlobalScoreService {
         score: number;
         photoUrl?: string | null;
         excludeFromGlobal?: boolean;
+        tournamentId?: string | null;
+        submittedByAnonymousName?: string | null;
     }): Promise<{ globalScoreId: string; globalGameId: string; gameName: string } | null> {
         try {
             const db = await getDatabase();
@@ -356,6 +377,9 @@ export class GlobalScoreService {
                 originGameRoomId: opts.gameRoomId,
                 originGameId: opts.gameId || null,
                 excludeFromGlobal: opts.excludeFromGlobal,
+                submittedFromRoomId: opts.gameRoomId,
+                submittedDuringTournamentId: opts.tournamentId ?? null,
+                submittedByAnonymousName: opts.submittedByAnonymousName ?? undefined,
             });
 
             // Patch in the photo_url from the room's storage (submit() only handles buffer uploads)

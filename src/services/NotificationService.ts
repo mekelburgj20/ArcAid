@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { sendDirectMessage } from '../utils/discord.js';
 import { logError, logInfo } from '../utils/logger.js';
+import { PickAwardGate } from './PickAwardGate.js';
 
 /** Notification preference keys — all default to false (opt-in only). */
 export interface NotificationPrefs {
@@ -17,6 +18,9 @@ interface NotifyParams {
     userId: string;
     type: NotificationType;
     message: string;
+    /** Required for `turnToPick` — used by the pick-award gate defense-in-depth check. */
+    roomId?: string | null;
+    tournamentId?: string | null;
 }
 
 /** In-memory rate limit bucket per user. */
@@ -36,8 +40,19 @@ export class NotificationService {
      */
     static async notify(params: NotifyParams): Promise<boolean> {
         try {
-            const { userId, type, message } = params;
+            const { userId, type, message, roomId, tournamentId } = params;
             if (!userId || !process.env.DISCORD_BOT_TOKEN) return false;
+
+            // 0. Pick-award gate defense-in-depth (plan §5) — callers passing roomId
+            // for `turnToPick` get suppressed here too, even if the upstream gate was
+            // missed. Callers without roomId fall through to prefs check (legacy).
+            if (type === 'turnToPick' && roomId) {
+                const pickEnabled = await PickAwardGate.isEnabled(roomId, tournamentId);
+                if (!pickEnabled) {
+                    logInfo(`NotificationService: turnToPick suppressed (pick-award gate off) for room ${roomId}`);
+                    return false;
+                }
+            }
 
             // 1. Load user's notification_prefs
             const prefs = await this.getPrefs(userId);

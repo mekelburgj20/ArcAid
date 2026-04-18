@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Sparkles, Star, Crosshair, X } from 'lucide-react';
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
+import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Star, Crosshair, X } from 'lucide-react';
 import MysteryAward from '../components/MysteryAward';
 import PickGameModal from '../components/PickGameModal';
+import { MysteryAwardIcon } from '../assets/icons/ThemedIcons';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useToast } from '../components/Toast';
 
 interface GameAvailabilityEntry {
@@ -60,7 +62,7 @@ interface PickStatusData {
   tournaments: Array<{ id: string; name: string; type: string; mode: string; max_active_games: number; platform_rules: string }>;
 }
 
-export default function GameAvailability() {
+export default function Picks() {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tournaments, setTournaments] = useState<TournamentOption[]>([]);
@@ -79,6 +81,9 @@ export default function GameAvailability() {
   const { toast } = useToast();
   const [pickStatus, setPickStatus] = useState<PickStatusData | null>(null);
   const [pickTarget, setPickTarget] = useState<string | null>(null);
+  // Pick-award gate (plan §5) — when false the whole pick + Mystery Award flow is disabled room-wide.
+  // Sprint 9: this page is the Picks surface; when the gate is off the page should not exist.
+  const { loading: pickAwardLoading, enabled: pickAwardEnabled } = usePickAwardEnabled(slug);
 
   // Resolve room
   useEffect(() => {
@@ -210,33 +215,44 @@ export default function GameAvailability() {
 
   const hasPendingPicks = (pickStatus?.pendingPicks.length ?? 0) > 0;
 
+  // Defense-in-depth (plan §3): when gate off the Picks page should not exist.
+  // Sprint 7 already hides the nav tab; this covers direct-URL access.
+  if (!pickAwardLoading && !pickAwardEnabled && slug) {
+    return <Navigate to={`/${slug}`} replace />;
+  }
+
+  // Wait for gate state so we never briefly render Picks UI for a disabled room.
+  if (pickAwardLoading) {
+    return (
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+        <div className="flex items-center justify-center py-16">
+          <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
+        </div>
+      </main>
+    );
+  }
+
+  const mysteryAvailable = availableCount >= 2;
+
   return (
     <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
       <Link to={`/${slug}`} className="text-muted text-xs hover:text-neon-cyan no-underline transition-colors">
         &larr; Scoreboard
       </Link>
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-3 mb-6">
-        <div className="flex items-center gap-3">
-          <h1 className="font-display text-xl font-bold text-primary">Game Picks</h1>
-          {availableCount >= 2 && (
-            <button
-              onClick={() => setShowPicker(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neon-green/40 bg-neon-green/10 text-neon-green text-xs font-medium hover:bg-neon-green/20 hover:border-neon-green/60 transition-colors cursor-pointer"
-            >
-              <Sparkles size={14} />
-              Mystery Award
-            </button>
-          )}
+      <div className="mt-3 mb-4 flex items-baseline justify-between gap-3">
+        <div>
+          <h1 className="font-display text-xl font-bold text-primary">Picks</h1>
+          <p className="text-muted text-xs mt-1">
+            Spin the Mystery Award, or queue your next pick from available tables.
+          </p>
         </div>
-        <p className="text-muted text-xs -mt-4 mb-4">Browse available tables, check cooldown timers, queue your next pick, or spin the Mystery Award.</p>
-
         {tournaments.length > 1 && (
           <div className="relative">
             <select
               value={selectedTournamentId || ''}
               onChange={(e) => setSelectedTournamentId(e.target.value)}
-              className="w-full appearance-none bg-surface border border-border rounded-lg px-4 py-2 pr-8 text-sm text-primary focus:outline-none focus:border-neon-cyan/50 cursor-pointer"
+              className="appearance-none bg-surface border border-border rounded-lg px-4 py-2 pr-8 text-sm text-primary focus:outline-none focus:border-neon-cyan/50 cursor-pointer"
             >
               {tournaments.map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>
@@ -245,6 +261,33 @@ export default function GameAvailability() {
             <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
           </div>
         )}
+      </div>
+
+      {/* Top-level Mystery Award action (plan §9). Persistent at the top of Picks. */}
+      <div className="mb-6 rounded-lg border border-neon-green/30 bg-gradient-to-br from-neon-green/5 to-transparent p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-neon-green/10 border border-neon-green/30 text-neon-green flex items-center justify-center">
+              <MysteryAwardIcon size={22} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-display text-sm font-bold text-primary">Mystery Award</h2>
+              <p className="text-xs text-muted">
+                {mysteryAvailable
+                  ? 'Spin the translite for a random available pick.'
+                  : 'Needs at least 2 available tables to spin.'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowPicker(true)}
+            disabled={!mysteryAvailable}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-neon-green/40 bg-neon-green/10 text-neon-green text-sm font-semibold hover:bg-neon-green/20 hover:border-neon-green/60 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <MysteryAwardIcon size={16} />
+            Spin
+          </button>
+        </div>
       </div>
 
       {/* Pending pick banner */}

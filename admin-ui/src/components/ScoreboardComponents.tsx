@@ -4,6 +4,7 @@ import { Lock, Plus, Minus, Camera, Upload } from 'lucide-react';
 import QRCode from 'qrcode';
 import ScorePhotoModal from './ScorePhotoModal';
 import GameInfoPopup from './scoreboard/GameInfoPopup';
+import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
 
@@ -37,6 +38,7 @@ export interface GameLeaderboard {
   notes?: string | null;
   rankings: RankedEntry[];
   nextMaintenanceAt?: string | null;
+  globalGameId?: string | null;
 }
 
 export interface RankingGroupData {
@@ -159,6 +161,13 @@ function hashString(str: string): number {
   return Math.abs(hash);
 }
 
+const ANONYMOUS_SENTINELS = new Set(['SYSTEM', 'COMMUNITY', 'ANON', '']);
+
+function isAnonymousDiscordId(discordUserId?: string | null): boolean {
+  if (!discordUserId) return true;
+  return ANONYMOUS_SENTINELS.has(discordUserId);
+}
+
 export function PlayerAvatar({ username, discordUserId, avatarHash, size = 24 }: {
   username: string;
   discordUserId?: string | null;
@@ -167,7 +176,9 @@ export function PlayerAvatar({ username, discordUserId, avatarHash, size = 24 }:
 }) {
   const [imgError, setImgError] = useState(false);
 
-  const hasDiscordAvatar = discordUserId && avatarHash && !imgError;
+  // Sentinel IDs (SYSTEM/COMMUNITY/ANON) never map to a real Discord CDN path.
+  const anonymous = isAnonymousDiscordId(discordUserId);
+  const hasDiscordAvatar = !anonymous && discordUserId && avatarHash && !imgError;
 
   if (hasDiscordAvatar) {
     return (
@@ -183,7 +194,22 @@ export function PlayerAvatar({ username, discordUserId, avatarHash, size = 24 }:
     );
   }
 
-  // Colored-letter fallback
+  // Sprint 10 / plan §15: anonymous rows get a themed silhouette rather than a
+  // colored-letter chip so they read as "not a Discord user" at a glance.
+  if (anonymous) {
+    return (
+      <div
+        className="rounded-full flex-shrink-0 flex items-center justify-center text-muted bg-raised border border-border/60"
+        style={{ width: size, height: size }}
+        aria-label={`${username} (anonymous)`}
+        title={`${username} — anonymous`}
+      >
+        <AnonymousAvatarIcon size={Math.round(size * 0.72)} />
+      </div>
+    );
+  }
+
+  // Colored-letter fallback (real Discord user with no avatar yet).
   const colorIndex = hashString(username) % AVATAR_COLORS.length;
   const bgColor = AVATAR_COLORS[colorIndex];
   const letter = (username[0] || '?').toUpperCase();

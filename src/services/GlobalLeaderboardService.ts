@@ -11,6 +11,11 @@ export interface GlobalRankedEntry {
     origin_type: string;
     origin_game_room_id: string | null;
     origin_room_name: string | null;
+    /** Sprint 12 — supports the RoomTag badge on Global Scoreboard rows. */
+    origin_room_slug: string | null;
+    origin_room_logo_url: string | null;
+    /** Sprint 13 — optional admin-set short label; null falls back to slug-derived. */
+    origin_room_short_tag: string | null;
     avatar_hash: string | null;
     score_id: string;
 }
@@ -52,6 +57,9 @@ export class GlobalLeaderboardService {
                 best.origin_type,
                 best.origin_game_room_id,
                 gr.name as origin_room_name,
+                gr.slug as origin_room_slug,
+                gr.logo_url as origin_room_logo_url,
+                gr.short_tag as origin_room_short_tag,
                 um.avatar_hash
             FROM (
                 SELECT
@@ -80,6 +88,7 @@ export class GlobalLeaderboardService {
                     FROM global_scores
                     WHERE global_game_id = ?
                       AND deleted_at IS NULL
+                      AND orphaned_at IS NULL
                       ${excludeFilter}
                       ${roomFilter}
                 ) gs
@@ -104,6 +113,9 @@ export class GlobalLeaderboardService {
             origin_type: e.origin_type,
             origin_game_room_id: e.origin_game_room_id || null,
             origin_room_name: e.origin_room_name || null,
+            origin_room_slug: e.origin_room_slug || null,
+            origin_room_logo_url: e.origin_room_logo_url || null,
+            origin_room_short_tag: e.origin_room_short_tag || null,
             avatar_hash: e.avatar_hash || null,
             score_id: e.score_id,
         }));
@@ -319,6 +331,11 @@ export class GlobalLeaderboardService {
         score: number;
         avatar_hash: string | null;
         discord_user_id: string;
+        /** Sprint 12 — badge fields on Global Scoreboard cards. */
+        origin_room_slug: string | null;
+        origin_room_logo_url: string | null;
+        /** Sprint 13 — admin-set label preferred over slug for RoomTag. */
+        origin_room_short_tag: string | null;
     }>>> {
         if (gameIds.length === 0) return {};
         const db = await getDatabase();
@@ -335,6 +352,10 @@ export class GlobalLeaderboardService {
                 ranked.discord_user_id,
                 ranked.iscored_username,
                 ranked.score,
+                ranked.origin_game_room_id,
+                gr.slug as origin_room_slug,
+                gr.logo_url as origin_room_logo_url,
+                gr.short_tag as origin_room_short_tag,
                 um.avatar_hash
             FROM (
                 SELECT
@@ -342,6 +363,7 @@ export class GlobalLeaderboardService {
                     gs.player_id as discord_user_id,
                     gs.iscored_username,
                     gs.score,
+                    gs.origin_game_room_id,
                     ROW_NUMBER() OVER (
                         PARTITION BY gs.global_game_id, LOWER(COALESCE(gs.iscored_username, gs.player_id))
                         ORDER BY gs.score DESC
@@ -349,9 +371,11 @@ export class GlobalLeaderboardService {
                 FROM global_scores gs
                 WHERE gs.global_game_id IN (${placeholders})
                   AND gs.deleted_at IS NULL
+                  AND gs.orphaned_at IS NULL
                   ${excludeFilter}
                   ${roomFilter}
             ) ranked
+            LEFT JOIN game_rooms gr ON gr.id = ranked.origin_game_room_id
             LEFT JOIN user_mappings um ON (
                 um.discord_user_id = ranked.discord_user_id
                 OR LOWER(um.iscored_username) = LOWER(ranked.iscored_username)
@@ -366,6 +390,9 @@ export class GlobalLeaderboardService {
             score: number;
             avatar_hash: string | null;
             discord_user_id: string;
+            origin_room_slug: string | null;
+            origin_room_logo_url: string | null;
+            origin_room_short_tag: string | null;
         }>> = {};
         for (const row of rows) {
             const gid = row.global_game_id;
@@ -376,6 +403,9 @@ export class GlobalLeaderboardService {
                     score: row.score,
                     avatar_hash: row.avatar_hash || null,
                     discord_user_id: row.discord_user_id,
+                    origin_room_slug: row.origin_room_slug || null,
+                    origin_room_logo_url: row.origin_room_logo_url || null,
+                    origin_room_short_tag: row.origin_room_short_tag || null,
                 });
             }
         }

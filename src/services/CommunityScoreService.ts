@@ -1,6 +1,8 @@
 import { getDatabase } from '../database/database.js';
 import { ScoreHistoryService } from './ScoreHistoryService.js';
 import { GlobalScoreService } from './GlobalScoreService.js';
+import { normalizeSubmitterUserId } from './SubmissionContextService.js';
+import { AnonymousIdentityService } from './AnonymousIdentityService.js';
 import { emitScoreNewGlobal } from '../api/websocket.js';
 
 export class CommunityScoreService {
@@ -19,10 +21,30 @@ export class CommunityScoreService {
         options?: { excludeFromGlobal?: boolean }
     ) {
         const db = await getDatabase();
+        const submittedByUserId = normalizeSubmitterUserId(discordUserId);
+        const submittedByAnonymousName = submittedByUserId ? null : username;
+
+        let anonymousIdentityId: number | null = null;
+        if (!submittedByUserId) {
+            const room = await db.get(
+                'SELECT discord_guild_id FROM game_rooms WHERE id = ?',
+                gameRoomId,
+            );
+            anonymousIdentityId = await AnonymousIdentityService.upsert({
+                roomId: gameRoomId,
+                guildId: room?.discord_guild_id ?? null,
+                serverNickname: username,
+            });
+        }
+
         const result = await db.run(
-            `INSERT INTO community_scores (game_name, game_room_id, iscored_username, discord_user_id, score, photo_url)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            gameName, gameRoomId, username, discordUserId || 'ANON', score, photoUrl || null
+            `INSERT INTO community_scores (
+                game_name, game_room_id, iscored_username, discord_user_id, score, photo_url,
+                submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+            gameName, gameRoomId, username, discordUserId || 'ANON', score, photoUrl || null,
+            gameRoomId, submittedByUserId, submittedByAnonymousName
         );
 
         // Also log to unified score history
@@ -64,7 +86,7 @@ export class CommunityScoreService {
             });
         }
 
-        return { id: result.lastID };
+        return { id: result.lastID, anonymousIdentityId };
     }
 
     /**
@@ -81,6 +103,7 @@ export class CommunityScoreService {
                 MAX(created_at) as last_played
             FROM community_scores
             WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
+              AND orphaned_at IS NULL
             GROUP BY LOWER(iscored_username)
             ORDER BY best_score DESC
         `, gameRoomId, gameName);
@@ -96,6 +119,7 @@ export class CommunityScoreService {
             SELECT id, iscored_username, score, photo_url, created_at
             FROM community_scores
             WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
+              AND orphaned_at IS NULL
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         `, gameRoomId, gameName, limit, offset);
@@ -110,6 +134,7 @@ export class CommunityScoreService {
             SELECT id, game_name, iscored_username, score, created_at
             FROM community_scores
             WHERE game_room_id = ?
+              AND orphaned_at IS NULL
             ORDER BY created_at DESC
             LIMIT ?
         `, gameRoomId, limit);

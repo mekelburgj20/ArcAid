@@ -28,6 +28,7 @@ import { writeLimiter, pickLimiter } from '../rateLimit.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
 import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
+import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
 import { GameRoomSettingsService } from '../../services/GameRoomSettingsService.js';
@@ -199,6 +200,7 @@ router.get('/:roomId/leaderboard/:gameId/submissions', async (req, res) => {
             SELECT id, iscored_username, score, timestamp, photo_url
             FROM submissions
             WHERE game_id = ?
+              AND orphaned_at IS NULL
             ORDER BY LOWER(iscored_username), score DESC
         `, gameId);
         res.json(submissions);
@@ -311,8 +313,8 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
         // Get recently played games in this tournament within the lookback window
         const recentGames = await db.all(`
             SELECT g.name, g.start_date, g.end_date, g.status,
-                   (SELECT s.iscored_username FROM submissions s WHERE s.game_id = g.id ORDER BY s.score DESC LIMIT 1) as winner_name,
-                   (SELECT s.score FROM submissions s WHERE s.game_id = g.id ORDER BY s.score DESC LIMIT 1) as winner_score
+                   (SELECT s.iscored_username FROM submissions s WHERE s.game_id = g.id AND s.orphaned_at IS NULL ORDER BY s.score DESC LIMIT 1) as winner_name,
+                   (SELECT s.score FROM submissions s WHERE s.game_id = g.id AND s.orphaned_at IS NULL ORDER BY s.score DESC LIMIT 1) as winner_score
             FROM games g
             WHERE g.tournament_id = ?
               AND g.start_date >= ?
@@ -326,10 +328,12 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             FROM submissions s
             JOIN games g ON g.id = s.game_id
             WHERE g.tournament_id IN (SELECT id FROM tournaments WHERE game_room_id = ?)
+              AND s.orphaned_at IS NULL
               AND s.score = (
                 SELECT MAX(s2.score) FROM submissions s2
                 JOIN games g2 ON g2.id = s2.game_id
                 WHERE LOWER(g2.name) = LOWER(g.name)
+                  AND s2.orphaned_at IS NULL
                   AND g2.tournament_id IN (SELECT id FROM tournaments WHERE game_room_id = ?)
               )
             GROUP BY LOWER(g.name)
@@ -447,7 +451,11 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
             roomId
         );
 
-        res.json({ pendingPicks, queuedGames, tournaments });
+        // Pick-award gate state (plan §5) — room-level, controls UI enablement.
+        const { PickAwardGate } = await import('../../services/PickAwardGate.js');
+        const pickAwardEnabled = await PickAwardGate.isEnabled(roomId);
+
+        res.json({ pendingPicks, queuedGames, tournaments, pickAwardEnabled });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/pick-status):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -471,6 +479,12 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
             tournamentId, roomId
         );
         if (!tournament) return res.status(404).json({ error: 'Tournament not found or inactive' });
+
+        // 1a. Pick-award gate (plan §5 / §8). Mirrors the Discord-command gate so the web
+        //     pick path can't re-enable a flow that admins have opted out of.
+        const { PickAwardGate } = await import('../../services/PickAwardGate.js');
+        const pickEnabled = await PickAwardGate.isEnabled(tournament.game_room_id, tournament.id);
+        if (!pickEnabled) return res.status(403).json({ error: 'Game picks are disabled in this room' });
 
         // 2. Look up game in library
         const gameLibEntry = await db.get(
@@ -531,6 +545,10 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
         if ((queueCount?.count ?? 0) >= 5) {
             return res.status(400).json({ error: 'Queue limit reached (max 5 games per tournament)' });
         }
+
+        // 6a. Sprint 6.5: a successful pick action establishes room membership.
+        const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
+        await RoomMembershipService.addMember(discordId, roomId, 'submission');
 
         // 7. Check for pending pick slot (user won and has picking rights)
         const pendingPick = await db.get(
@@ -710,6 +728,18 @@ router.get('/:roomId/stats/enhanced/players', async (req, res) => {
     }
 });
 
+// Sprint 7: per-game activity stats for the public Stats page (Games view)
+router.get('/:roomId/stats/games-activity', async (req, res) => {
+    try {
+        const { StatsService } = await import('../../services/StatsService.js');
+        const games = await StatsService.getGameActivityStats(req.params.roomId as string);
+        res.json(games);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/stats/games-activity):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.get('/:roomId/stats/enhanced/player/:identifier', async (req, res) => {
     try {
         const { StatsService } = await import('../../services/StatsService.js');
@@ -885,6 +915,36 @@ router.post('/:roomId/community-scores/:gameName', conditionalRequireDiscordUser
     }
 });
 
+// Sprint 10 / plan §15 — collision check for anonymous submissions.
+// Runs the typed name against the room's Discord guild and returns whether a
+// guild member maps to it. The SubmissionSheet uses the response to decide
+// whether to render the claim prompt before an unauthenticated submit.
+router.post('/:roomId/submit/anonymous-check', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+        if (!name) return res.status(400).json({ error: 'name is required' });
+
+        const db = await getDatabase();
+        const room = await db.get('SELECT discord_guild_id FROM game_rooms WHERE id = ?', roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+        if (!room.discord_guild_id) return res.json({ match: false });
+
+        const { resolveServerNickname } = await import('../../services/DiscordNicknameResolver.js');
+        const resolved = await resolveServerNickname(room.discord_guild_id, name);
+        if (!resolved) return res.json({ match: false });
+
+        res.json({
+            match: true,
+            serverNickname: resolved.serverNickname,
+            matchedField: resolved.matchedField,
+        });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/submit/anonymous-check):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Score submission with photo upload (public, rate-limited)
 // Discord login conditionally enforced via REQUIRE_DISCORD_LOGIN room setting.
 router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireDiscordUser('roomId'), roomAssetUpload.single('photo'), async (req, res) => {
@@ -929,7 +989,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
         // Also upsert into submissions so the main leaderboard reflects the highest score
         const db = await getDatabase();
         const activeGame = await db.get(`
-            SELECT g.id FROM games g
+            SELECT g.id, g.tournament_id FROM games g
             JOIN tournaments t ON t.id = g.tournament_id
             WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
               AND g.status IN ('ACTIVE', 'COMPLETED')
@@ -939,10 +999,16 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
             const submissionId = `${activeGame.id}-${username.toLowerCase()}`;
             const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
             if (!existing || score > existing.score) {
+                const submittedByUserId = normalizeSubmitterUserId(req.user?.discordId);
+                const submittedByAnonymousName = submittedByUserId ? null : username;
                 await db.run(
-                    `INSERT OR REPLACE INTO submissions (id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    submissionId, activeGame.id, 'COMMUNITY', username, score, photoUrl || null, new Date().toISOString()
+                    `INSERT OR REPLACE INTO submissions (
+                        id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                        submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+                    submissionId, activeGame.id, 'COMMUNITY', username, score, photoUrl || null, new Date().toISOString(),
+                    roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
                 );
                 const { LeaderboardService } = await import('../../services/LeaderboardService.js');
                 await LeaderboardService.invalidate(activeGame.id);
@@ -1165,7 +1231,9 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
                 COUNT(*) as total_scores,
                 MAX(created_at) as last_played
             FROM community_scores
-            WHERE game_room_id = ? ${searchFilter}
+            WHERE game_room_id = ?
+              AND orphaned_at IS NULL
+              ${searchFilter}
             GROUP BY LOWER(game_name)
             ORDER BY ${orderBy}
             LIMIT ? OFFSET ?
@@ -1182,6 +1250,7 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
                 FROM community_scores cs
                 LEFT JOIN user_mappings um ON cs.discord_user_id = um.discord_user_id
                 WHERE cs.game_room_id = ? AND LOWER(cs.game_name) = LOWER(?)
+                  AND cs.orphaned_at IS NULL
                 GROUP BY LOWER(cs.iscored_username)
                 ORDER BY best_score DESC
                 LIMIT 10
@@ -1636,6 +1705,7 @@ router.get('/:roomId/history', async (req, res) => {
                 SELECT game_id, iscored_username, score,
                        ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY score DESC) AS rn
                 FROM submissions
+                WHERE orphaned_at IS NULL
             ) s ON s.game_id = g.id AND s.rn = 1
             WHERE ${whereClause}
             ORDER BY g.end_date DESC
@@ -2709,6 +2779,192 @@ router.delete('/:roomId/admin/upload/logo', requireAuth, requireRoomAccess('room
     } catch (error) {
         logError('API Error (DELETE upload/logo):', error);
         res.status(500).json({ error: 'Delete failed' });
+    }
+});
+
+// Sprint 11 — Anonymous-identity merge admin endpoints (plan §15).
+//
+// Pending claim queue: active anonymous identities in this room, plus a rough
+// Discord-match hint (server nickname ↔ user_mappings.iscored_username).
+router.get('/:roomId/admin/identity/queue', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const db = await getDatabase();
+        const identities = await db.all(
+            `SELECT ai.id, ai.server_nickname, ai.guild_id, ai.first_seen_at, ai.status
+             FROM anonymous_identities ai
+             WHERE ai.status = 'active' AND (ai.room_id = ? OR ai.room_id IS NULL)
+             ORDER BY ai.first_seen_at DESC
+             LIMIT 200`,
+            roomId,
+        );
+        const results = await Promise.all(identities.map(async (ai: any) => {
+            // Row counts across the 4 score tables for this nickname.
+            const csRow = await db.get(
+                `SELECT COUNT(*) AS c FROM community_scores
+                 WHERE game_room_id = ? AND submitted_by_user_id IS NULL
+                   AND merged_from_anonymous_identity_id IS NULL
+                   AND LOWER(submitted_by_anonymous_name) = LOWER(?)`,
+                roomId, ai.server_nickname,
+            );
+            // Potential target from user_mappings by nickname.
+            const match = await db.get(
+                `SELECT discord_user_id, iscored_username, avatar_hash FROM user_mappings
+                 WHERE LOWER(iscored_username) = LOWER(?) LIMIT 1`,
+                ai.server_nickname,
+            );
+            return {
+                id: ai.id,
+                serverNickname: ai.server_nickname,
+                guildId: ai.guild_id,
+                firstSeenAt: ai.first_seen_at,
+                status: ai.status,
+                anonymousScoreCount: csRow?.c ?? 0,
+                potentialMatch: match ? {
+                    discordUserId: match.discord_user_id,
+                    username: match.iscored_username,
+                    avatarHash: match.avatar_hash,
+                } : null,
+            };
+        }));
+        res.json(results);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/identity/queue):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/:roomId/admin/identity/audit', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+        const { MergeService } = await import('../../services/MergeService.js');
+        const records = await MergeService.listMergeHistory(roomId, limit);
+        // Enrich with the anonymous nickname + target username for display.
+        const db = await getDatabase();
+        const enriched = await Promise.all(records.map(async r => {
+            const ai = await db.get(`SELECT server_nickname, status FROM anonymous_identities WHERE id = ?`, r.anonymousIdentityId);
+            const targetMap = await db.get(`SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?`, r.targetDiscordUserId);
+            let summary = { moving: 0, frozen: 0 };
+            try {
+                const snap = JSON.parse(r.scoreIdsSnapshot) as { submissions?: string[]; community_scores?: number[]; score_history?: number[]; global_scores?: string[]; frozen_tournament_ids_at_merge?: string[] };
+                summary.moving = (snap.submissions?.length ?? 0) + (snap.community_scores?.length ?? 0) + (snap.score_history?.length ?? 0) + (snap.global_scores?.length ?? 0);
+                summary.frozen = snap.frozen_tournament_ids_at_merge?.length ?? 0;
+            } catch { /* bad JSON — report zeros */ }
+            return {
+                ...r,
+                anonymousNickname: ai?.server_nickname ?? null,
+                anonymousStatus: ai?.status ?? null,
+                targetUsername: targetMap?.iscored_username ?? null,
+                summary,
+            };
+        }));
+        res.json(enriched);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/identity/audit):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/admin/identity/preview', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { anonymousIdentityId, targetUserId } = req.body || {};
+        if (!Number.isInteger(anonymousIdentityId)) return res.status(400).json({ error: 'anonymousIdentityId (int) required' });
+        if (!targetUserId || typeof targetUserId !== 'string') return res.status(400).json({ error: 'targetUserId required' });
+        const { MergeService } = await import('../../services/MergeService.js');
+        const preview = await MergeService.previewMerge(roomId, anonymousIdentityId, targetUserId);
+        res.json(preview);
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : 'preview failed';
+        logError('API Error (POST rooms/:roomId/admin/identity/preview):', error);
+        res.status(400).json({ error: msg });
+    }
+});
+
+router.post('/:roomId/admin/identity/merge', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { anonymousIdentityId, targetUserId, reason, previewHash } = req.body || {};
+        if (!Number.isInteger(anonymousIdentityId)) return res.status(400).json({ error: 'anonymousIdentityId (int) required' });
+        if (!targetUserId || typeof targetUserId !== 'string') return res.status(400).json({ error: 'targetUserId required' });
+        if (!previewHash || typeof previewHash !== 'string') return res.status(400).json({ error: 'previewHash required' });
+        const adminId = req.user?.discordId || req.user?.localAdminId || 'unknown';
+
+        const { MergeService } = await import('../../services/MergeService.js');
+        try {
+            const out = await MergeService.recordMerge({
+                roomId,
+                anonymousIdentityId,
+                targetDiscordUserId: targetUserId,
+                adminDiscordUserId: adminId,
+                reason,
+                previewHash,
+            });
+            const { RoomEventService } = await import('../../services/RoomEventService.js');
+            RoomEventService.log(roomId, 'identity_merge', {
+                mergeId: out.mergeId,
+                anonymousIdentityId,
+                targetUserId,
+                movedRows: out.movedRows,
+                reason: reason ?? null,
+            }).catch(() => {});
+            res.status(201).json(out);
+        } catch (err) {
+            if (err instanceof Error && (err as Error & { code?: string }).code === 'MERGE_CONFLICT') {
+                return res.status(409).json({ error: 'preview drift', fresh: (err as Error & { fresh?: unknown }).fresh });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/identity/merge):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/admin/identity/:mergeId/reverse', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const mergeId = Number(req.params.mergeId);
+        if (!Number.isInteger(mergeId)) return res.status(400).json({ error: 'mergeId must be integer' });
+        const adminId = req.user?.discordId || req.user?.localAdminId || 'unknown';
+        const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+
+        const { MergeService } = await import('../../services/MergeService.js');
+        const out = await MergeService.reverseMerge({ mergeId, reversalAdminId: adminId, reason });
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        RoomEventService.log(roomId, 'identity_unmerge', {
+            mergeId,
+            returnedRows: out.returned,
+            stayingRows: out.staying,
+            reason: reason ?? null,
+        }).catch(() => {});
+        res.json(out);
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : 'reverse failed';
+        logError('API Error (POST rooms/:roomId/admin/identity/:mergeId/reverse):', error);
+        res.status(400).json({ error: msg });
+    }
+});
+
+router.get('/:roomId/admin/identity/:mergeId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const mergeId = Number(req.params.mergeId);
+        if (!Number.isInteger(mergeId)) return res.status(400).json({ error: 'mergeId must be integer' });
+        const { MergeService } = await import('../../services/MergeService.js');
+        const record = await MergeService.getMergeRecord(mergeId);
+        if (!record) return res.status(404).json({ error: 'merge record not found' });
+        // If unreversed, include a fresh reversal preview to power the drill-down UI.
+        let reversalPreview = null;
+        if (!record.reversedAt) {
+            try {
+                reversalPreview = await MergeService.previewReversal(mergeId);
+            } catch { /* best effort */ }
+        }
+        res.json({ record, reversalPreview });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/identity/:mergeId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 

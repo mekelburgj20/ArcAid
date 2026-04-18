@@ -1,8 +1,10 @@
+import type { ReactNode } from 'react';
 import { Plus, Minus } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar } from '../ScoreboardComponents';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import type { ScoreHistoryEntry } from './useScoreExpand';
+import { TrophyIcon } from '../../assets/icons/ThemedIcons';
 
 interface ShowcasePodiumProps {
   entries: RankedEntry[];  // top 3 (or fewer)
@@ -44,7 +46,7 @@ function ExpandedHistory({ playerHistory, historyLoading, theme }: { playerHisto
 interface PodiumSlotConfig {
   entry: RankedEntry | undefined;
   label: string;
-  emoji: string;
+  icon: ReactNode | null;
   pod: { bg: string; border: string; rankColor: string; textColor: string; scoreColor: string };
   avatarSize: number;
   nameSize: number;
@@ -63,7 +65,7 @@ function PodiumSlot({
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
 }) {
-  const { entry, label, emoji, pod, avatarSize, nameSize, scoreSize } = config;
+  const { entry, label, icon, pod, avatarSize, nameSize, scoreSize } = config;
   const canExpand = entry ? (hasMultiple?.(entry.iscored_username) ?? false) : false;
   const isExpanded = entry ? expandedPlayer === entry.iscored_username : false;
 
@@ -87,7 +89,7 @@ function PodiumSlot({
       >
         {/* Rank label */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 6 }}>
-          {emoji && <span style={{ fontSize: 13, lineHeight: 1 }}>{emoji}</span>}
+          {icon && <span style={{ display: 'inline-flex', lineHeight: 1, color: pod.rankColor }}>{icon}</span>}
           <span style={{ fontSize: 11, fontWeight: 700, color: pod.rankColor }}>{label}</span>
         </div>
 
@@ -150,9 +152,9 @@ function PyramidPodium({ entries, theme, hasMultiple, expandedPlayer, playerHist
   const [first, second, third] = entries;
 
   const configs: PodiumSlotConfig[] = [
-    { entry: first, pod: theme.podiumGold, avatarSize: 28, nameSize: 15, scoreSize: 13, label: '1st', emoji: '\u{1F3C6}' },
-    { entry: second, pod: theme.podiumSilver, avatarSize: 24, nameSize: 14, scoreSize: 12, label: '2nd', emoji: '' },
-    { entry: third, pod: theme.podiumBronze, avatarSize: 24, nameSize: 14, scoreSize: 12, label: '3rd', emoji: '' },
+    { entry: first, pod: theme.podiumGold, avatarSize: 28, nameSize: 15, scoreSize: 13, label: '1st', icon: <TrophyIcon size={13} title="1st place" /> },
+    { entry: second, pod: theme.podiumSilver, avatarSize: 24, nameSize: 14, scoreSize: 12, label: '2nd', icon: null },
+    { entry: third, pod: theme.podiumBronze, avatarSize: 24, nameSize: 14, scoreSize: 12, label: '3rd', icon: null },
   ];
 
   return (
@@ -201,9 +203,9 @@ function ChipPodium({ entries, theme, hasMultiple, expandedPlayer, playerHistory
   const [first, second, third] = entries;
 
   const configs: PodiumSlotConfig[] = [
-    { entry: first, pod: theme.podiumGold, avatarSize: 28, nameSize: 15, scoreSize: 13, label: '1ST', emoji: '\u{1F3C6}' },
-    { entry: second, pod: theme.podiumSilver, avatarSize: 24, nameSize: 14, scoreSize: 12, label: '2ND', emoji: '' },
-    { entry: third, pod: theme.podiumBronze, avatarSize: 24, nameSize: 14, scoreSize: 12, label: '3RD', emoji: '' },
+    { entry: first, pod: theme.podiumGold, avatarSize: 28, nameSize: 15, scoreSize: 13, label: '1ST', icon: <TrophyIcon size={13} title="1st place" /> },
+    { entry: second, pod: theme.podiumSilver, avatarSize: 24, nameSize: 14, scoreSize: 12, label: '2ND', icon: null },
+    { entry: third, pod: theme.podiumBronze, avatarSize: 24, nameSize: 14, scoreSize: 12, label: '3RD', icon: null },
   ];
 
   return (

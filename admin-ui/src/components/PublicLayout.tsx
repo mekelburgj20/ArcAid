@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams, useLocation } from 'react-router-dom';
-import { Users, Monitor, Gamepad2, BarChart3, LogOut, Trophy, Settings, Settings2, MessageSquare, UserPlus } from 'lucide-react';
+import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
+import UserMenu from './UserMenu';
+import PendingSubmissionWatcher from './PendingSubmissionWatcher';
 
 interface PublicLayoutProps {
   gameRoomName?: string;
@@ -12,6 +15,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const location = useLocation();
   const [roomName, setRoomName] = useState(gameRoomName || 'ARCAID');
   const { discordUser, loginWithDiscord, logoutPlayer } = useViewerAuth();
+  const { loading: pickAwardLoading, enabled: pickAwardEnabled } = usePickAwardEnabled(slug);
 
   const [lobbyHasNew, setLobbyHasNew] = useState(false);
 
@@ -61,17 +65,23 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
 
   const hasAdminToken = !!localStorage.getItem('arcaid_token');
 
-  const navItems = [
+  // Sprint 7 nav: Lobby | Scores | Picks* | Stats | Global
+  // Picks is suppressed when ENABLE_GAME_PICK_AWARD is off. Keep it hidden
+  // during the initial fetch to avoid a flash of mismatched nav.
+  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; end?: boolean }> = [
     { path: `/${slug}/lobby`, label: 'Lobby', icon: <MessageSquare size={16} /> },
     { path: `/${slug}`, label: 'Scores', icon: <Monitor size={16} />, end: true },
-    { path: `/${slug}/games`, label: 'Game Picks', icon: <Gamepad2 size={16} /> },
-    { path: `/${slug}/players`, label: 'Players', icon: <Users size={16} /> },
-    { path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> },
-    { path: '/scoreboard', label: 'Global', icon: <Trophy size={16} /> },
   ];
+  if (!pickAwardLoading && pickAwardEnabled) {
+    navItems.push({ path: `/${slug}/picks`, label: 'Picks', icon: <Gamepad2 size={16} /> });
+  }
+  navItems.push({ path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> });
+  navItems.push({ path: '/scoreboard', label: 'Global', icon: <Trophy size={16} /> });
 
   return (
     <div className="h-[100dvh] bg-deep text-primary relative flex flex-col overflow-hidden">
+      {/* Sprint 10 — resumes an anonymous submission draft after Discord OAuth. */}
+      <PendingSubmissionWatcher roomSlug={slug} />
       {/* Public Nav Bar */}
       <nav className="border-b border-border bg-surface/80 backdrop-blur-sm z-20 flex-shrink-0">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
@@ -96,57 +106,15 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
               </Link>
             ))}
 
-            {/* Admin link (visible only when admin token exists) */}
-            {hasAdminToken && (
-              <Link
-                to={`/${slug}/admin`}
-                className="flex items-center gap-1.5 px-2 sm:px-3 py-2 text-xs sm:text-sm text-muted hover:text-neon-amber rounded transition-colors no-underline"
-                title="Room Admin"
-              >
-                <Settings size={16} />
-                <span className="hidden lg:inline">Admin</span>
-              </Link>
-            )}
-
-            {/* Discord login / user avatar */}
+            {/* Discord login / user menu */}
             {discordUser ? (
-              <div className="flex items-center gap-1.5 ml-1 sm:ml-2">
-                {discordUser.avatar ? (
-                  <img
-                    src={discordUser.avatar}
-                    alt={discordUser.username}
-                    className="w-6 h-6 rounded-full border border-border"
-                  />
-                ) : (
-                  <div className="w-6 h-6 rounded-full bg-neon-cyan/20 border border-border flex items-center justify-center text-[10px] font-bold text-neon-cyan">
-                    {discordUser.username.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span className="hidden lg:inline text-xs text-muted truncate max-w-[80px]">{discordUser.username}</span>
-                <Link
-                  to="/friends"
-                  className="p-1 text-muted hover:text-neon-cyan transition-colors no-underline"
-                  title="Friends"
-                >
-                  <UserPlus size={14} />
-                </Link>
-                {isScoreboard && (
-                  <button
-                    onClick={() => window.dispatchEvent(new Event('open-scoreboard-prefs'))}
-                    className="p-1 text-muted hover:text-neon-cyan transition-colors cursor-pointer"
-                    title="Display preferences"
-                  >
-                    <Settings2 size={14} />
-                  </button>
-                )}
-                <button
-                  onClick={logoutPlayer}
-                  className="p-1 text-muted hover:text-neon-magenta transition-colors cursor-pointer"
-                  title="Log out"
-                >
-                  <LogOut size={14} />
-                </button>
-              </div>
+              <UserMenu
+                user={discordUser}
+                slug={slug}
+                showScoreboardPrefs={isScoreboard}
+                hasAdminToken={hasAdminToken}
+                onLogout={logoutPlayer}
+              />
             ) : (
               <button
                 onClick={() => slug && loginWithDiscord(slug)}

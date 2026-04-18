@@ -28,6 +28,7 @@ import { IGDBImportService } from '../../services/IGDBImportService.js';
 import { SyncLogService } from '../../services/SyncLogService.js';
 import { ScoreReportService } from '../../services/ScoreReportService.js';
 import { GlobalScoreService } from '../../services/GlobalScoreService.js';
+import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 
 const router = Router();
 
@@ -942,15 +943,19 @@ router.post('/global-backfill', requireAuth, requireSuperAdmin, async (_req, res
             if (exists) { stats.skippedDupes++; continue; }
 
             const id = (await import('crypto')).randomUUID();
+            const submittedBy = normalizeSubmitterUserId(s.discord_user_id);
             await dbConn.run(
                 `INSERT INTO global_scores (
                     id, global_game_id, player_id, iscored_username, score,
                     photo_url, origin_type, origin_game_room_id,
-                    exclude_from_global, submitted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?)`,
+                    exclude_from_global, submitted_at,
+                    submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                    submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?, ?, NULL, ?, ?, NULL)`,
                 id, s.global_game_id, s.discord_user_id, s.iscored_username,
                 s.score, s.photo_url || null, s.game_room_id,
-                s.timestamp || new Date().toISOString()
+                s.timestamp || new Date().toISOString(),
+                s.game_room_id, submittedBy, submittedBy ? null : s.iscored_username
             );
             stats.submissionsBackfilled++;
         }
@@ -977,15 +982,19 @@ router.post('/global-backfill', requireAuth, requireSuperAdmin, async (_req, res
             if (exists) { stats.skippedDupes++; continue; }
 
             const id = (await import('crypto')).randomUUID();
+            const submittedBy = normalizeSubmitterUserId(cs.discord_user_id);
             await dbConn.run(
                 `INSERT INTO global_scores (
                     id, global_game_id, player_id, iscored_username, score,
                     photo_url, origin_type, origin_game_room_id,
-                    exclude_from_global, submitted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?)`,
+                    exclude_from_global, submitted_at,
+                    submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                    submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?, ?, NULL, ?, ?, NULL)`,
                 id, globalGameId, cs.discord_user_id || 'COMMUNITY',
                 cs.iscored_username, cs.score, cs.photo_url || null,
-                cs.game_room_id, cs.created_at || new Date().toISOString()
+                cs.game_room_id, cs.created_at || new Date().toISOString(),
+                cs.game_room_id, submittedBy, submittedBy ? null : cs.iscored_username
             );
             stats.communityBackfilled++;
         }

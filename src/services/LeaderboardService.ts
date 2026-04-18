@@ -17,10 +17,12 @@ export class LeaderboardService {
     static async recalculate(gameId: string): Promise<RankedEntry[]> {
         const db = await getDatabase();
 
-        // Get best score per player across both submissions and community_scores.
-        // submissions uses game_id; community_scores uses game_name + game_room_id.
-        // Union both sources, then take MAX(score) per player.
-        // Left join user_mappings to get avatar_hash for Discord-linked players.
+        // Sprint 12 / plan §13 — Tournament card shows ONLY tournament scores for
+        // this game (game_id is already tournament-scoped, so submissions is the
+        // right table). community_scores intentionally excluded: a freeplay
+        // submission to the same game name doesn't belong on the tournament
+        // leaderboard. The All Games tab, Game Detail, and Global Scoreboard
+        // each have their own queries that unify both sources.
         const entries = await db.all(`
             SELECT
                 COALESCE(um.discord_user_id, combined.discord_user_id) as discord_user_id,
@@ -35,16 +37,9 @@ export class LeaderboardService {
                     END as discord_user_id,
                     iscored_username,
                     MAX(score) as score
-                FROM (
-                    SELECT discord_user_id, iscored_username, score
-                    FROM submissions
-                    WHERE game_id = ?
-                    UNION ALL
-                    SELECT discord_user_id, iscored_username, score
-                    FROM community_scores
-                    WHERE LOWER(game_name) = LOWER((SELECT name FROM games WHERE id = ?))
-                      AND game_room_id = (SELECT t.game_room_id FROM games g JOIN tournaments t ON t.id = g.tournament_id WHERE g.id = ?)
-                ) raw
+                FROM submissions
+                WHERE game_id = ?
+                  AND orphaned_at IS NULL
                 GROUP BY LOWER(iscored_username)
             ) combined
             LEFT JOIN user_mappings um ON (
@@ -53,7 +48,7 @@ export class LeaderboardService {
                     AND LOWER(um.iscored_username) = LOWER(combined.iscored_username))
             )
             ORDER BY combined.score DESC
-        `, gameId, gameId, gameId);
+        `, gameId);
 
         const rankings: RankedEntry[] = entries.map((e: any, i: number) => ({
             rank: i + 1,

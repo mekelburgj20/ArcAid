@@ -5,7 +5,8 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import StarRating from '../components/StarRating';
 import LoadingState from '../components/LoadingState';
-import GlobalScoreSubmitModal from '../components/GlobalScoreSubmitModal';
+import SubmissionSheet from '../components/SubmissionSheet';
+import RoomTag from '../components/RoomTag';
 
 interface GlobalGame {
   id: string;
@@ -45,6 +46,10 @@ interface RankingEntry {
   origin_type: string;
   origin_game_room_id: string | null;
   origin_room_name: string | null;
+  origin_room_slug: string | null;
+  origin_room_logo_url: string | null;
+  /** Sprint 13 — admin-set short label; falls back to slug-derived when null. */
+  origin_room_short_tag: string | null;
   avatar_hash: string | null;
   score_id: string;
 }
@@ -102,7 +107,7 @@ function resolveWheel(game: GlobalGame): string | null {
 
 export default function GlobalGameDetail() {
   const { globalGameId } = useParams<{ globalGameId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const fromSlug = searchParams.get('from');
   const { discordUser, playerToken, loginWithDiscord, logoutPlayer } = useViewerAuth();
   const [game, setGame] = useState<GlobalGame | null>(null);
@@ -151,6 +156,30 @@ export default function GlobalGameDetail() {
       .then((data: Room[]) => setRooms((data || []).filter(r => r.is_public)))
       .catch(() => {});
   }, []);
+
+  // Sprint 12 — sync scope with ?room=<slug> for shareable room-filtered views.
+  useEffect(() => {
+    const slug = searchParams.get('room');
+    if (!slug) {
+      if (scope !== 'global') setScope('global');
+      return;
+    }
+    if (rooms.length === 0) return;
+    const match = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
+    if (match && scope !== match.id) setScope(match.id);
+  }, [searchParams, rooms]);
+
+  const setScopeFromSlug = (slug: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (slug) next.set('room', slug);
+    else next.delete('room');
+    setSearchParams(next, { replace: true });
+  };
+  const selectScopeFromRoomId = (roomId: string) => {
+    const room = rooms.find(r => r.id === roomId);
+    if (room) setScopeFromSlug(room.slug);
+    else setScope(roomId);
+  };
 
   // Fetch leaderboard whenever game or scope changes
   useEffect(() => {
@@ -313,7 +342,7 @@ export default function GlobalGameDetail() {
     return (
       <div className="min-h-screen bg-deep text-primary flex flex-col items-center justify-center gap-4 p-6">
         <div className="text-muted">Game not found.</div>
-        <Link to={fromSlug ? `/${fromSlug}?tab=games` : '/scoreboard'} className="text-neon-cyan hover:underline">
+        <Link to={fromSlug ? `/${fromSlug}?tab=all-games` : '/scoreboard'} className="text-neon-cyan hover:underline">
           ← {fromSlug ? `Back to ${fromSlug}` : 'Back to global scoreboard'}
         </Link>
       </div>
@@ -326,7 +355,7 @@ export default function GlobalGameDetail() {
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <Link
-            to={fromSlug ? `/${fromSlug}?tab=games` : '/scoreboard'}
+            to={fromSlug ? `/${fromSlug}?tab=all-games` : '/scoreboard'}
             className="flex items-center gap-2 text-xs text-muted hover:text-neon-cyan no-underline"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -459,7 +488,10 @@ export default function GlobalGameDetail() {
             </h2>
             <select
               value={scope}
-              onChange={e => setScope(e.target.value)}
+              onChange={e => {
+                if (e.target.value === 'global') setScopeFromSlug(null);
+                else selectScopeFromRoomId(e.target.value);
+              }}
               className="px-3 py-1.5 rounded border border-border bg-surface text-primary text-sm"
             >
               <option value="global">All rooms (global)</option>
@@ -510,8 +542,20 @@ export default function GlobalGameDetail() {
                       <td className="px-3 py-2 text-right font-mono font-semibold text-neon-cyan" title={entry.score.toLocaleString()}>
                         {formatScore(entry.score)}
                       </td>
-                      <td className="px-3 py-2 text-xs text-muted hidden sm:table-cell truncate">
-                        {entry.origin_type === 'global' ? 'Global' : (entry.origin_room_name || '—')}
+                      <td className="px-3 py-2 text-xs text-muted hidden sm:table-cell">
+                        {entry.origin_type === 'global' ? (
+                          <span>Global</span>
+                        ) : entry.origin_room_slug ? (
+                          <RoomTag
+                            shortTag={entry.origin_room_short_tag || entry.origin_room_slug}
+                            size={16}
+                            logoUrl={entry.origin_room_logo_url}
+                            href={`?room=${encodeURIComponent(entry.origin_room_slug)}`}
+                            title={entry.origin_room_name || entry.origin_room_slug}
+                          />
+                        ) : (
+                          <span>—</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-xs text-muted hidden md:table-cell">
                         {formatDate(entry.submitted_at)}
@@ -795,15 +839,12 @@ export default function GlobalGameDetail() {
 
       {/* Submit modal */}
       {showSubmit && playerToken && (
-        <GlobalScoreSubmitModal
-          game={{
-            global_game_id: game.id,
-            name: game.name,
-            display_name: game.display_name,
-            manufacturer: game.manufacturer,
-            year: game.year,
+        <SubmissionSheet
+          target={{
+            kind: 'global',
+            globalGameId: game.id,
+            gameName: game.display_name || game.name,
           }}
-          playerToken={playerToken}
           onClose={() => setShowSubmit(false)}
           onSubmitted={() => {
             setShowSubmit(false);

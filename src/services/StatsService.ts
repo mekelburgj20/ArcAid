@@ -719,4 +719,58 @@ export class StatsService {
             ORDER BY best_score DESC
         `);
     }
+
+    /**
+     * Per-game activity stats for the public Stats page (Games view).
+     * Counts submissions from the tournament `submissions` table and
+     * `community_scores`, excluding orphaned rows (Sprint 6).
+     *
+     * SQLite lacks FULL OUTER JOIN, so we UNION ALL per-row stats from both
+     * sources and collapse in an outer GROUP BY. Note: COUNT(DISTINCT) across
+     * both tables isn't expressible this way, so `players` is an upper bound
+     * (a player who submitted tournament + community scores counts twice).
+     * Acceptable for a Stats overview page.
+     */
+    static async getGameActivityStats(gameRoomId: string) {
+        const db = await getDatabase();
+        return db.all(`
+            SELECT
+                name,
+                SUM(submissions) AS submissions,
+                SUM(players) AS players,
+                MAX(top_score) AS top_score,
+                MAX(last_activity) AS last_activity
+            FROM (
+                SELECT
+                    g.name AS name,
+                    LOWER(g.name) AS name_key,
+                    COUNT(*) AS submissions,
+                    COUNT(DISTINCT LOWER(s.iscored_username)) AS players,
+                    MAX(s.score) AS top_score,
+                    MAX(s.timestamp) AS last_activity
+                FROM submissions s
+                JOIN games g ON g.id = s.game_id
+                JOIN tournaments t ON t.id = g.tournament_id
+                WHERE t.game_room_id = ?
+                  AND s.orphaned_at IS NULL
+                GROUP BY LOWER(g.name)
+
+                UNION ALL
+
+                SELECT
+                    cs.game_name AS name,
+                    LOWER(cs.game_name) AS name_key,
+                    COUNT(*) AS submissions,
+                    COUNT(DISTINCT LOWER(cs.iscored_username)) AS players,
+                    MAX(cs.score) AS top_score,
+                    MAX(cs.created_at) AS last_activity
+                FROM community_scores cs
+                WHERE cs.game_room_id = ?
+                  AND cs.orphaned_at IS NULL
+                GROUP BY LOWER(cs.game_name)
+            )
+            GROUP BY name_key
+            ORDER BY submissions DESC, last_activity DESC
+        `, gameRoomId, gameRoomId);
+    }
 }

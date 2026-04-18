@@ -10,6 +10,7 @@ import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMen
 import { IScoredClient } from './IScoredClient.js';
 import { GameLibraryService } from '../services/GameLibraryService.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
+import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { parsePlatformsList } from '../utils/platformRules.js';
@@ -764,7 +765,10 @@ export class TournamentEngine {
             });
         } else {
             // No queued game — behavior depends on winner_picks and auto_pick settings
-            const winnerPicks = tournamentRow.winner_picks !== 0;
+            // Pick-award gate (plan §5, Q5: AND semantics) — when off, winner-picks
+            // is treated as disabled regardless of tournament setting.
+            const pickAwardEnabled = await PickAwardGate.isEnabled(tournamentRow.game_room_id, tournamentId);
+            const winnerPicks = pickAwardEnabled && tournamentRow.winner_picks !== 0;
             const autoPick = tournamentRow.auto_pick !== 0;
 
             // Guard: if tournament already has max active games, skip slot fill entirely.
@@ -787,6 +791,20 @@ export class TournamentEngine {
                     logInfo(`   -> Winner <@${winnerId}> already has a pending pick slot. Skipping duplicate.`);
                     return;
                 }
+            }
+
+            // Pick-award gate off — emit plain "Congrats" embed (no pick flow, no DM).
+            // Next-game selection still honors auto_pick and manual admin paths below.
+            if (!pickAwardEnabled && winnerId && channelId) {
+                const color = getTournamentColor(tournamentRow.type);
+                const winnerMention = await formatUserMention(winnerId, winnerIscoredName || 'Unknown', tournamentRow.game_room_id);
+                const embed = new EmbedBuilder()
+                    .setTitle('Congrats!')
+                    .setDescription(`${winnerMention} — great ${term.game}! Thanks for playing.`)
+                    .setColor(color)
+                    .setFooter({ text: tournamentRow.name })
+                    .setTimestamp();
+                await sendChannelEmbed(channelId, embed);
             }
 
             if (!winnerPicks && autoPick) {
@@ -826,11 +844,13 @@ export class TournamentEngine {
                 // Notify winner it's their turn to pick
                 import('../services/NotificationService.js').then(({ NotificationService }) => {
                     db.get('SELECT slug FROM game_rooms WHERE id = ?', tournamentRow.game_room_id).then((r: any) => {
-                        const link = r?.slug ? NotificationService.buildLink(r.slug, '/games') : '';
+                        const link = r?.slug ? NotificationService.buildLink(r.slug, '/picks') : '';
                         NotificationService.notify({
                             userId: winnerId!,
                             type: 'turnToPick',
                             message: `It's your turn to pick in **${tournamentRow.name}**! You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` or pick from the web.${link ? `\n${link}` : ''}`,
+                            roomId: tournamentRow.game_room_id,
+                            tournamentId,
                         }).catch(() => {});
                     }).catch(() => {});
                 }).catch(() => {});
@@ -839,9 +859,12 @@ export class TournamentEngine {
                 logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=off — waiting for admin.`);
                 if (channelId) {
                     const color = getTournamentColor(tournamentRow.type);
+                    const description = pickAwardEnabled
+                        ? `Auto-pick is disabled. A moderator should use \`/pick-game\` to select the next ${term.game}.`
+                        : `Auto-pick is disabled. A moderator will queue the next ${term.game}.`;
                     const embed = new EmbedBuilder()
                         .setTitle(`No ${term.game} Queued`)
-                        .setDescription(`Auto-pick is disabled. A moderator should use \`/pick-game\` to select the next ${term.game}.`)
+                        .setDescription(description)
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
                         .setTimestamp();
@@ -856,9 +879,12 @@ export class TournamentEngine {
                     logInfo(`   -> No ${term.game} queued and no winner found. auto_pick=off — waiting for admin.`);
                     if (channelId) {
                         const color = getTournamentColor(tournamentRow.type);
+                        const description = pickAwardEnabled
+                            ? `A moderator should use \`/pick-game\` or \`/nominate-picker\`.`
+                            : `A moderator will queue the next ${term.game}.`;
                         const embed = new EmbedBuilder()
                             .setTitle(`No ${term.game} Queued`)
-                            .setDescription(`A moderator should use \`/pick-game\` or \`/nominate-picker\`.`)
+                            .setDescription(description)
                             .setColor(color)
                             .setFooter({ text: tournamentRow.name })
                             .setTimestamp();
