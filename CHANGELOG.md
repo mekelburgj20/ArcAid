@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.0.2] — 2026-04-18
+
+**Hotfix.** Tournament card title routed to room-scoped URL instead of global catalogue.
+`LeaderboardService.getActiveLeaderboards()` now selects `COALESCE(g.global_game_id, gl.global_game_id)`
+so the frontend's `linkForTournamentCard` resolves to `/games/:id?from=:slug` when the game is mapped.
+
+Full details → [releases/v2.0.2/README.md](releases/v2.0.2/README.md)
+
+---
+
 ## [2.0.1] — 2026-04-18
 
 **Patch release.** Seven fixes from v2.0.0 manual testing.
