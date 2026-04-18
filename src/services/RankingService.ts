@@ -260,7 +260,13 @@ export class RankingService {
         }
 
         // Batch-load avatar hashes for all known discord user IDs
-        const isSyntheticId = (id: string) => !id || id === 'SYSTEM' || id === 'COMMUNITY';
+        const isSyntheticId = (id: string) => !id || id === 'SYSTEM' || id === 'COMMUNITY' || id === 'ANON';
+        // v2.0.1: username fallback is only valid for iScored-synced scores
+        // (legitimate attribution of a sync score to a known Discord user).
+        // COMMUNITY/ANON/SYSTEM must NOT fall back — those are truly anonymous
+        // and the fallback leaks the real user's avatar when the typed name
+        // happens to match a user_mapping. See v2.0.0 F.20 regression.
+        const canUseUsernameFallback = (id: string) => !!id && id.startsWith('iscored:');
         const discordIds = [...new Set(
             [...playerData.values()]
                 .map(p => p.discord_user_id)
@@ -279,9 +285,10 @@ export class RankingService {
                 }
             }
         }
-        // Fallback: for players with synthetic IDs, look up by username
+        // Fallback: look up by username only for iScored-synced rows. Truly
+        // anonymous submissions (COMMUNITY/ANON) never fall back.
         const usernamesFallback = [...playerData.values()]
-            .filter(p => isSyntheticId(p.discord_user_id) || !avatarMap.has(p.discord_user_id))
+            .filter(p => canUseUsernameFallback(p.discord_user_id))
             .map(p => p.iscored_username.toLowerCase());
         const userAvatarMap = new Map<string, { discord_user_id: string; avatar_hash: string }>();
         if (usernamesFallback.length > 0) {

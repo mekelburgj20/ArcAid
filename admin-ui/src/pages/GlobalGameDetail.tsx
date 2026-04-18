@@ -120,6 +120,10 @@ export default function GlobalGameDetail() {
   const [showSubmit, setShowSubmit] = useState(false);
   const [reportingId, setReportingId] = useState<string | null>(null);
   const [reportMessage, setReportMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  // v2.0.1: when navigated with ?from=<slug>, treat the Submit as a room-scoped
+  // freeplay submission (respects the room's REQUIRE_DISCORD_LOGIN) rather than
+  // a direct global submission (which always requires Discord login).
+  const [fromRoom, setFromRoom] = useState<{ id: string; requireLogin: boolean } | null>(null);
 
   // Rating state
   const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
@@ -156,6 +160,25 @@ export default function GlobalGameDetail() {
       .then((data: Room[]) => setRooms((data || []).filter(r => r.is_public)))
       .catch(() => {});
   }, []);
+
+  // v2.0.1 — when opened with ?from=<slug>, fetch the room so Submit can
+  // resolve to a freeplay target with that room's login requirement.
+  useEffect(() => {
+    if (!fromSlug) { setFromRoom(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const portal = await fetch(`/api/portal?slug=${encodeURIComponent(fromSlug)}`);
+        if (!portal.ok) return;
+        const p: { id: string } = await portal.json();
+        const cfgRes = await fetch(`/api/rooms/${p.id}/scoreboard-config`);
+        const cfg = cfgRes.ok ? await cfgRes.json() as Record<string, string> : {};
+        if (cancelled) return;
+        setFromRoom({ id: p.id, requireLogin: cfg.REQUIRE_DISCORD_LOGIN === 'true' });
+      } catch { /* ignore — fall back to global */ }
+    })();
+    return () => { cancelled = true; };
+  }, [fromSlug]);
 
   // Sprint 12 — sync scope with ?room=<slug> for shareable room-filtered views.
   useEffect(() => {
@@ -270,7 +293,10 @@ export default function GlobalGameDetail() {
   };
 
   const handleSubmitClick = () => {
-    if (!playerToken) {
+    // v2.0.1 — when navigated from a room (?from=<slug>), let SubmissionSheet
+    // decide whether to require login based on the room's setting. Direct
+    // global submissions still need Discord auth upfront.
+    if (!fromRoom && !playerToken) {
       handleLogin();
       return;
     }
@@ -837,14 +863,24 @@ export default function GlobalGameDetail() {
         </div>
       </div>
 
-      {/* Submit modal */}
-      {showSubmit && playerToken && (
+      {/* Submit modal — v2.0.1: room-context freeplay when ?from=<slug>, else global. */}
+      {showSubmit && game && (
         <SubmissionSheet
-          target={{
-            kind: 'global',
-            globalGameId: game.id,
-            gameName: game.display_name || game.name,
-          }}
+          target={fromRoom
+            ? {
+                kind: 'freeplay',
+                roomId: fromRoom.id,
+                globalGameId: game.id,
+                gameName: game.display_name || game.name,
+              }
+            : {
+                kind: 'global',
+                globalGameId: game.id,
+                gameName: game.display_name || game.name,
+              }
+          }
+          roomSlug={fromSlug || undefined}
+          requireLogin={fromRoom?.requireLogin}
           onClose={() => setShowSubmit(false)}
           onSubmitted={() => {
             setShowSubmit(false);

@@ -542,11 +542,13 @@ export default function Scoreboard() {
       )}
       </div>{/* end scrollable */}
 
-      {/* Score submission — SubmissionSheet (Sprint 10) handles anonymous flow. */}
+      {/* Score submission — SubmissionSheet (Sprint 10) handles anonymous flow.
+          v2.0.1 — requireLogin short-circuits the form when the room gates submissions. */}
       {selectedGame && roomId && (
         <SubmissionSheet
           target={{ kind: 'tournament', roomId, gameName: selectedGame.gameName, gameStatus: selectedGame.gameStatus, requirePhoto }}
           roomSlug={slug}
+          requireLogin={config.REQUIRE_DISCORD_LOGIN === 'true'}
           onClose={() => setSelectedGame(null)}
           onSubmitted={() => { loadData(); loadRankings(); setSelectedGame(null); }}
         />

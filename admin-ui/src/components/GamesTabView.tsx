@@ -58,7 +58,7 @@ function catalogueToLeaderboard(g: CatalogueGame): GameLeaderboard {
     gameId: g.id,
     gameName: g.name,
     displayName: g.display_name || null,
-    tournamentName: 'Catalogue',
+    tournamentName: '', // v2.0.1 — no user-facing "Catalogue" label; cards hide when empty.
     tournamentType: 'community',
     imageUrl: catalogueImage(g),
     gameStatus: 'CATALOGUE',
@@ -332,7 +332,8 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
       )}
 
       {/* Sprint 10 — SubmissionSheet handles both tournament (room) and freeplay
-          (catalogue) submissions plus the anonymous collision flow. */}
+          (catalogue) submissions plus the anonymous collision flow.
+          v2.0.1 — requireLogin short-circuits the form when the room gates submissions. */}
       {submissionTarget && roomId && (
         <SubmissionSheet
           target={
@@ -341,6 +342,7 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
               : { kind: 'freeplay', roomId, gameName: submissionTarget.gameName, globalGameId: submissionTarget.globalGameId }
           }
           roomSlug={slug}
+          requireLogin={config.REQUIRE_DISCORD_LOGIN === 'true'}
           onClose={() => setSubmissionTarget(null)}
           onSubmitted={() => {
             if (submissionTarget.kind === 'tournament') fetchPlayedHere();

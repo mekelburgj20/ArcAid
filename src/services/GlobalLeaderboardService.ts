@@ -95,8 +95,12 @@ export class GlobalLeaderboardService {
             ) best
             LEFT JOIN game_rooms gr ON gr.id = best.origin_game_room_id
             LEFT JOIN user_mappings um ON (
+                -- v2.0.1: username fallback limited to iScored-synced rows so anonymous
+                -- submissions whose typed name matches a user_mapping don't leak the
+                -- real user's avatar. See v2.0.0 F.20 regression.
                 um.discord_user_id = best.discord_user_id
-                OR LOWER(um.iscored_username) = LOWER(best.iscored_username)
+                OR (best.discord_user_id LIKE 'iscored:%'
+                    AND LOWER(um.iscored_username) = LOWER(best.iscored_username))
             )
             WHERE best.rn = 1
             GROUP BY best.score_id
@@ -377,8 +381,10 @@ export class GlobalLeaderboardService {
             ) ranked
             LEFT JOIN game_rooms gr ON gr.id = ranked.origin_game_room_id
             LEFT JOIN user_mappings um ON (
+                -- v2.0.1: same username-fallback narrowing as recalculate() above.
                 um.discord_user_id = ranked.discord_user_id
-                OR LOWER(um.iscored_username) = LOWER(ranked.iscored_username)
+                OR (ranked.discord_user_id LIKE 'iscored:%'
+                    AND LOWER(um.iscored_username) = LOWER(ranked.iscored_username))
             )
             WHERE ranked.player_rn = 1
             ORDER BY ranked.global_game_id, ranked.score DESC

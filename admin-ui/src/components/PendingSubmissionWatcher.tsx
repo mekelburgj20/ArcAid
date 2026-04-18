@@ -82,27 +82,55 @@ export default function PendingSubmissionWatcher({ roomSlug }: { roomSlug?: stri
         return () => { cancelled = true; };
     }, [stateParam, playerToken, roomSlug]);
 
-    // Resolve cancel draft when OAuth was aborted.
+    // Resolve cancel draft. Two paths:
+    //   1. Explicit (v2.0.0): DiscordCallback set ?submit-cancelled=<state> after access_denied.
+    //   2. Implicit (v2.0.1): user closed the Discord tab / hit the X — no redirect.
+    //      They reach the origin URL some other way; sessionStorage still holds
+    //      the breadcrumb. After a short settling delay we surface the modal
+    //      so the draft doesn't silently expire.
     useEffect(() => {
-        if (!cancelledState) return;
         let cancelled = false;
-        (async () => {
+
+        const resolveCancel = async (state: string) => {
             const local = readSessionDraft();
-            if (local && local.stateParam === cancelledState) {
-                if (!cancelled) setCancelDraft({ stateParam: cancelledState, target: local.target, roomSlug });
+            if (local && local.stateParam === state) {
+                if (!cancelled) setCancelDraft({ stateParam: state, target: local.target, roomSlug });
                 return;
             }
             try {
-                const res = await fetch(`/api/submission-drafts/${encodeURIComponent(cancelledState)}`);
-                if (!res.ok) return;
+                const res = await fetch(`/api/submission-drafts/${encodeURIComponent(state)}`);
+                if (!res.ok) {
+                    // Draft gone — clean up stale breadcrumb.
+                    sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
+                    return;
+                }
                 const data = await res.json();
                 if (!cancelled && data?.target) {
-                    setCancelDraft({ stateParam: cancelledState, target: data.target as SubmissionTarget, roomSlug });
+                    setCancelDraft({ stateParam: state, target: data.target as SubmissionTarget, roomSlug });
                 }
             } catch { /* ignore */ }
-        })();
+        };
+
+        if (cancelledState) {
+            resolveCancel(cancelledState);
+            return () => { cancelled = true; };
+        }
+
+        // Implicit-cancel detection: sessionStorage has a draft and we're NOT
+        // in the middle of the commit path. Delay so a slow commit effect
+        // running first (?submit-draft + token) gets a chance to claim it.
+        if (!stateParam && !playerToken) {
+            const local = readSessionDraft();
+            if (local) {
+                const timer = window.setTimeout(() => {
+                    if (!cancelled) resolveCancel(local.stateParam);
+                }, 800);
+                return () => { cancelled = true; window.clearTimeout(timer); };
+            }
+        }
+
         return () => { cancelled = true; };
-    }, [cancelledState, roomSlug]);
+    }, [cancelledState, stateParam, playerToken, roomSlug]);
 
     const clearCommit = () => {
         setCommitDraft(null);

@@ -148,12 +148,14 @@ export default function BannerCard({
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
           </div>
         )}
-        <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted flex items-center justify-center gap-1`}>
-          {lb.tournamentName}
-          {lb.gameStatus === 'COMPLETED' && (
-            <Lock size={11} className="text-neon-amber flex-shrink-0" />
-          )}
-        </p>
+        {(lb.tournamentName || lb.gameStatus === 'COMPLETED') && (
+          <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted flex items-center justify-center gap-1`}>
+            {lb.tournamentName}
+            {lb.gameStatus === 'COMPLETED' && (
+              <Lock size={11} className="text-neon-amber flex-shrink-0" />
+            )}
+          </p>
+        )}
         {showTimer && countdown && (
           <p className="text-[10px] text-faint mt-0.5">{countdown}</p>
         )}

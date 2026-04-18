@@ -865,6 +865,14 @@ export default function MysteryAward({
                 Add to Queue?
               </NeonButton>
             )}
+            {phase === 'landed' && !onPickGame && result && (
+              // v2.0.1: tell unauthenticated users what they're missing so they
+              // don't think the button is broken. Login CTA lives on the
+              // surrounding page since this component is auth-agnostic.
+              <div className="flex-1 flex items-center justify-center text-[11px] text-muted italic px-2 text-center">
+                Log in to queue this game
+              </div>
+            )}
             {phase === 'landed' && (
               <NeonButton variant="ghost" onClick={spin} className="flex-1">
                 Play Again

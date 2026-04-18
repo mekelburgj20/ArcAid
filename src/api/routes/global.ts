@@ -756,8 +756,12 @@ router.get('/global/recent-scores', async (req, res) => {
             FROM global_scores gs
             JOIN global_games gg ON gg.id = gs.global_game_id
             LEFT JOIN user_mappings um ON (
+                -- v2.0.1: username fallback limited to iScored-synced rows so
+                -- anonymous community submissions don't inherit a real user's
+                -- avatar via a case-insensitive nickname match.
                 um.discord_user_id = gs.player_id
-                OR LOWER(um.iscored_username) = LOWER(gs.iscored_username)
+                OR (gs.player_id LIKE 'iscored:%'
+                    AND LOWER(um.iscored_username) = LOWER(gs.iscored_username))
             )
             WHERE gs.deleted_at IS NULL
               AND gs.orphaned_at IS NULL

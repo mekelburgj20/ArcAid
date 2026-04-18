@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
+import SubmissionSheet from '../components/SubmissionSheet';
 import { api } from '../lib/api';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
 
@@ -18,6 +19,8 @@ interface GameLeaderboard {
   tournamentName: string;
   imageUrl: string | null;
   rankings: RankedEntry[];
+  /** Sprint 10 / v2.0.1 — surfaces cooldown banner state to SubmissionSheet. */
+  gameStatus?: string;
 }
 
 interface GameStats {
@@ -116,11 +119,10 @@ export default function GameDetail() {
   // Community scores state
   const [communityBoard, setCommunityBoard] = useState<CommunityLeaderboardEntry[]>([]);
   const [communityHistory, setCommunityHistory] = useState<CommunityHistoryEntry[]>([]);
-  const [showSubmitForm, setShowSubmitForm] = useState(false);
-  const [submitUsername, setSubmitUsername] = useState(() => localStorage.getItem('arcaid-player-name') || '');
-  const [submitScore, setSubmitScore] = useState('');
-  const [submitLoading, setSubmitLoading] = useState(false);
-  const [submitMessage, setSubmitMessage] = useState('');
+  const [submissionOpen, setSubmissionOpen] = useState(false);
+  // Room config for SubmissionSheet — photo + login requirements come from game-info/portal.
+  const [requirePhoto, setRequirePhoto] = useState(false);
+  const [requireLogin, setRequireLogin] = useState(false);
 
   // Comments/tips state
   const [tips, setTips] = useState<GameComment[]>([]);
@@ -188,6 +190,16 @@ export default function GameDetail() {
 
     // Load comments and tips
     loadComments(roomId, name);
+
+    // v2.0.1 — fetch room config so SubmissionSheet knows whether a photo is
+    // required and whether to show the login-required state upfront.
+    fetch(`/api/rooms/${roomId}/scoreboard-config`)
+      .then(r => r.ok ? r.json() : {})
+      .then((cfg: Record<string, string>) => {
+        setRequirePhoto(cfg.REQUIRE_SCORE_PHOTO === 'true');
+        setRequireLogin(cfg.REQUIRE_DISCORD_LOGIN === 'true');
+      })
+      .catch(() => {});
   }, [name, roomId]);
 
   const loadCommunityData = (rid: string, gameName: string) => {
@@ -315,35 +327,8 @@ export default function GameDetail() {
       .catch(() => {});
   };
 
-  const handleSubmitScore = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedName = submitUsername.trim();
-    const scoreNum = parseInt(submitScore, 10);
-    if (!trimmedName || isNaN(scoreNum) || scoreNum < 0 || !roomId || !name) return;
-
-    setSubmitLoading(true);
-    setSubmitMessage('');
-    try {
-      const res = await fetch(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(name)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: trimmedName, score: scoreNum }),
-      });
-      if (res.ok) {
-        setSubmitMessage('Score submitted!');
-        setSubmitScore('');
-        localStorage.setItem('arcaid-player-name', trimmedName);
-        loadCommunityData(roomId, name);
-        setTimeout(() => setSubmitMessage(''), 3000);
-      } else {
-        setSubmitMessage('Failed to submit score.');
-      }
-    } catch {
-      setSubmitMessage('Failed to submit score.');
-    } finally {
-      setSubmitLoading(false);
-    }
-  };
+  // v2.0.1 — Community submit migrated to SubmissionSheet. Photo upload works,
+  // anon-claim flow applies, login gate enforced upfront when room requires it.
 
   if (loading) {
     return (
@@ -604,49 +589,13 @@ export default function GameDetail() {
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-display text-sm text-muted uppercase tracking-wider">Community Scores</h2>
                 <button
-                  onClick={() => setShowSubmitForm(!showSubmitForm)}
+                  onClick={() => setSubmissionOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-neon-green/15 border border-neon-green/40 text-neon-green rounded-lg text-xs font-medium hover:bg-neon-green/25 transition-colors"
                 >
                   <Plus size={14} />
                   Submit Score
                 </button>
               </div>
-
-              {showSubmitForm && (
-                <form onSubmit={handleSubmitScore} className="bg-surface border border-border rounded-lg p-4 mb-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                    <input
-                      type="text"
-                      placeholder="Your player name"
-                      value={submitUsername}
-                      onChange={e => setSubmitUsername(e.target.value)}
-                      className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Score"
-                      value={submitScore}
-                      onChange={e => setSubmitScore(e.target.value)}
-                      min="0"
-                      className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
-                    />
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="submit"
-                      disabled={!submitUsername.trim() || !submitScore || submitLoading}
-                      className="px-4 py-2 bg-neon-green/15 border border-neon-green/40 text-neon-green rounded-lg text-sm font-medium hover:bg-neon-green/25 transition-colors disabled:opacity-40"
-                    >
-                      {submitLoading ? 'Submitting...' : 'Submit'}
-                    </button>
-                    {submitMessage && (
-                      <span className={`text-sm ${submitMessage.includes('!') ? 'text-neon-green' : 'text-neon-coral'}`}>
-                        {submitMessage}
-                      </span>
-                    )}
-                  </div>
-                </form>
-              )}
             </div>
 
             {/* Community Leaderboard */}
@@ -967,6 +916,27 @@ export default function GameDetail() {
           </div>
         )}
       </main>
+
+      {/* v2.0.1: Community Submit flow now uses unified SubmissionSheet
+          (photo support + anon-claim prompt + login gate + OAuth draft). */}
+      {submissionOpen && roomId && name && (
+        <SubmissionSheet
+          target={{
+            kind: 'tournament',
+            roomId,
+            gameName: name,
+            gameStatus: leaderboard?.gameStatus,
+            requirePhoto,
+          }}
+          roomSlug={slug}
+          requireLogin={requireLogin}
+          onClose={() => setSubmissionOpen(false)}
+          onSubmitted={() => {
+            setSubmissionOpen(false);
+            if (roomId && name) loadCommunityData(roomId, name);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -43,8 +43,12 @@ export class LeaderboardService {
                 GROUP BY LOWER(iscored_username)
             ) combined
             LEFT JOIN user_mappings um ON (
+                -- v2.0.1: only do username-fallback for iScored-synced rows. The
+                -- previous COMMUNITY/ANON branch leaked the real user's avatar onto
+                -- truly anonymous submissions whose typed name happened to match an
+                -- existing user_mapping (privacy regression flagged in v2.0.0 test F.20).
                 um.discord_user_id = combined.discord_user_id
-                OR ((combined.discord_user_id IN ('SYSTEM','COMMUNITY','ANON') OR combined.discord_user_id LIKE 'iscored:%')
+                OR (combined.discord_user_id LIKE 'iscored:%'
                     AND LOWER(um.iscored_username) = LOWER(combined.iscored_username))
             )
             ORDER BY combined.score DESC

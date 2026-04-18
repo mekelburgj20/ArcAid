@@ -60,10 +60,17 @@ export interface SubmissionSheetProps {
     commitDraftState?: string;
     /** Slug of the room the user is on — needed to kick off Discord OAuth. */
     roomSlug?: string;
+    /**
+     * v2.0.1: when true and the viewer has no player token, the sheet renders
+     * a login-required state immediately instead of the form. Saves the user
+     * from typing name+score+photo only to be rejected server-side.
+     */
+    requireLogin?: boolean;
 }
 
 type Phase =
     | 'form'
+    | 'loginRequired'  // v2.0.1 — room requires login + viewer not authed
     | 'checkingCollision'
     | 'claimPrompt'
     | 'submitting'
@@ -99,6 +106,7 @@ export default function SubmissionSheet({
     initialPlayerName,
     commitDraftState,
     roomSlug,
+    requireLogin,
 }: SubmissionSheetProps) {
     const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
     const [playerName, setPlayerName] = useState(
@@ -111,7 +119,12 @@ export default function SubmissionSheet({
     const [photoFile, setPhotoFile] = useState<File | null>(null);
     const [photoPreview, setPhotoPreview] = useState<string | null>(null);
     const [excludeFromGlobal, setExcludeFromGlobal] = useState(false);
-    const [phase, setPhase] = useState<Phase>(commitDraftState ? 'committingDraft' : 'form');
+    const [phase, setPhase] = useState<Phase>(() => {
+        if (commitDraftState) return 'committingDraft';
+        // v2.0.1: pre-form login gate when room requires auth and viewer isn't authenticated.
+        if (requireLogin && !playerToken && target.kind !== 'global') return 'loginRequired';
+        return 'form';
+    });
     const [matchedNickname, setMatchedNickname] = useState<string | null>(null);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [activeField, setActiveField] = useState<'name' | 'score' | null>(null);
@@ -384,6 +397,38 @@ export default function SubmissionSheet({
                         <NeonButton onClick={() => { setPhase('form'); setMessage(null); }} className="w-full">
                             Try Again
                         </NeonButton>
+                    </div>
+                ) : phase === 'loginRequired' ? (
+                    <div className="px-4 py-6 space-y-4">
+                        <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-full bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan flex items-center justify-center flex-shrink-0">
+                                <LogIn size={18} />
+                            </div>
+                            <div className="flex-1">
+                                <p className="text-sm text-primary font-display font-bold mb-1">
+                                    Log in to submit a score
+                                </p>
+                                <p className="text-xs text-muted leading-relaxed">
+                                    This room requires a Discord login for score submissions. Log in to submit on <span className="text-primary font-medium">{target.gameName}</span>.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2">
+                            <NeonButton
+                                onClick={() => roomSlug && loginWithDiscord(roomSlug)}
+                                disabled={!roomSlug}
+                                className="w-full inline-flex items-center justify-center gap-2"
+                            >
+                                <LogIn size={16} /> Log in with Discord
+                            </NeonButton>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="w-full px-4 py-2 rounded border border-border text-muted text-sm hover:text-primary hover:border-border/80 transition-colors cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                        </div>
                     </div>
                 ) : phase === 'claimPrompt' ? (
                     <div className="px-4 py-6 space-y-4">

@@ -195,6 +195,15 @@ export default function ShowcaseCard({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
               {(() => {
                 const tBadge = lb.tournamentType ? TOURNAMENT_BADGE_COLORS[lb.tournamentType.toUpperCase()] : null;
+                const label =
+                  lb.tournamentType === 'DG' ? 'Daily Grind' :
+                  lb.tournamentType === 'WG-VPXS' ? 'Weekly Grind' :
+                  lb.tournamentType === 'WG-VR' ? 'VR Weekly' :
+                  lb.tournamentType === 'MG' ? 'Monthly Grind' :
+                  lb.tournamentName;
+                // v2.0.1: hide the tournament badge when label is empty (catalogue
+                // / community rows have no tournament context to surface).
+                if (!label) return null;
                 return (
               <span style={{
                 padding: '4px 12px',
@@ -210,11 +219,7 @@ export default function ShowcaseCard({
                 fontWeight: 600,
                 textShadow: cardBgFill ? '0 1px 4px rgba(0,0,0,0.8)' : undefined,
               }}>
-                {lb.tournamentType === 'DG' ? 'Daily Grind' :
-                 lb.tournamentType === 'WG-VPXS' ? 'Weekly Grind' :
-                 lb.tournamentType === 'WG-VR' ? 'VR Weekly' :
-                 lb.tournamentType === 'MG' ? 'Monthly Grind' :
-                 lb.tournamentName}
+                {label}
               </span>
                 );
               })()}

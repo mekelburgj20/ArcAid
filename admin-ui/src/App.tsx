@@ -40,6 +40,7 @@ import Scoreboard from './pages/Scoreboard';
 import PlayerDetail from './pages/PlayerDetail';
 import GameDetail from './pages/GameDetail';
 import Picks from './pages/Picks';
+import MysteryAwardPage from './pages/MysteryAwardPage';
 import Lobby from './pages/Lobby';
 import PublicStats from './pages/PublicStats';
 import MyRooms from './pages/MyRooms';
@@ -166,6 +167,7 @@ function App() {
           <Route path="players" element={<PlayersToStatsRedirect />} />
           <Route path="players/:id" element={<PlayerDetail />} />
           <Route path="picks" element={<Picks />} />
+          <Route path="mystery-award" element={<MysteryAwardPage />} />
           <Route path="games" element={<GamesToPicksRedirect />} />
           <Route path="games/:name" element={<GameDetail />} />
           <Route path="freeplay" element={<FreeplayRedirect />} />

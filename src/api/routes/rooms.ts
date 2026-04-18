@@ -1305,7 +1305,7 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
                 gameId: globalGameId || `community_${game.game_name}`,
                 gameName: game.game_name,
                 displayName: globalLib?.display_name || null,
-                tournamentName: 'Community',
+                tournamentName: '', // v2.0.1 — no user-facing "Community" label; cards hide when empty.
                 tournamentType: 'community',
                 imageUrl,
                 gameStatus: 'COMMUNITY',

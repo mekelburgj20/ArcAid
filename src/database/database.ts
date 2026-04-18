@@ -830,6 +830,14 @@ export async function initDatabase(): Promise<Database> {
             -- reach clients before the next natural recompute.
             DELETE FROM global_leaderboard_cache;
         ` },
+        { name: '062_cache_bust_v2_0_1_anon_avatar_fix', sql: `
+            -- v2.0.1: LeaderboardService + GlobalLeaderboardService SQL tightened
+            -- so COMMUNITY/ANON rows no longer inherit avatars via the username
+            -- fallback. Flush cached rows once so clients don't keep rendering
+            -- the pre-fix attribution.
+            DELETE FROM leaderboard_cache;
+            DELETE FROM global_leaderboard_cache;
+        ` },
     ];
 
     for (const migration of migrations) {

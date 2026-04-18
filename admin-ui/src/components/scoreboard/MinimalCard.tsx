@@ -121,9 +121,11 @@ export default function MinimalCard({
           <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
         </h3>
         <div className="flex items-center gap-3 mt-1">
-          <span className="text-[11px] uppercase tracking-wider text-muted">
-            {lb.tournamentName}
-          </span>
+          {lb.tournamentName && (
+            <span className="text-[11px] uppercase tracking-wider text-muted">
+              {lb.tournamentName}
+            </span>
+          )}
           {lb.gameStatus === 'COMPLETED' && (
             <Lock size={11} className="text-neon-amber flex-shrink-0" />
           )}
