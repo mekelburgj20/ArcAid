@@ -112,20 +112,25 @@ export class LeaderboardService {
         const roomParams = gameRoomId ? [gameRoomId] : [];
 
         // 1. All ACTIVE games always show
-        // v2.0.2: pull global_game_id so card title → /games/:id?from=:slug routes
-        // correctly. Prefer games.global_game_id (per-game link), fall back to
-        // game_library.global_game_id (library-level), else null.
+        // v2.0.2: three-level globalGameId resolution so card title → /games/:id?from=:slug
+        // routes correctly even when the games/library column wasn't populated during
+        // tournament setup. Resolution order:
+        //   a. games.global_game_id          (explicit per-game link)
+        //   b. game_library.global_game_id   (library-level link)
+        //   c. global_games.id via case-insensitive name match (approved only)
+        // Matches the resolution used by All Games search.
         const activeGames = await db.all(`
             SELECT g.id, g.name as game_name, g.display_name, g.status, t.name as tournament_name, t.type as tournament_type,
                    COALESCE(t.display_order, 9999) as display_order, gl.image_url,
                    g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                    g.tournament_id, g.external_url, g.notes,
-                   COALESCE(g.global_game_id, gl.global_game_id) as global_game_id,
+                   COALESCE(g.global_game_id, gl.global_game_id, gg.id) as global_game_id,
                    sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                    sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
             LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
+            LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
             LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
             LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
             LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
@@ -160,11 +165,12 @@ export class LeaderboardService {
                            ? as display_order, gl.image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                            g.external_url, g.notes,
-                           COALESCE(g.global_game_id, gl.global_game_id) as global_game_id,
+                           COALESCE(g.global_game_id, gl.global_game_id, gg.id) as global_game_id,
                            sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                            sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
                     FROM games g
                     LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
+                    LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
                     LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
                     LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
                     LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
@@ -179,11 +185,12 @@ export class LeaderboardService {
                            ? as display_order, gl.image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                            g.external_url, g.notes,
-                           COALESCE(g.global_game_id, gl.global_game_id) as global_game_id,
+                           COALESCE(g.global_game_id, gl.global_game_id, gg.id) as global_game_id,
                            sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                            sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
                     FROM games g
                     LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
+                    LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
                     LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
                     LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
                     LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id

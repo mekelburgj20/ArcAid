@@ -11,9 +11,9 @@ One-line-data hotfix.
 
 Clicking a game title in the Scoreboard **Tournaments** tab landed on the room-scoped detail page (`/:slug/games/:name`), while clicking the same game in the **All Games** tab landed on the global catalogue detail (`/games/:globalGameId?from=:slug`). Per Sprint 3 §10 the title should always prefer the shared detail when globally mapped.
 
-Root cause: `LeaderboardService.getActiveLeaderboards()` wasn't selecting `global_game_id`, so the frontend's `linkForTournamentCard` always hit the fallback branch for room-scoped URLs.
+Root cause: `LeaderboardService.getActiveLeaderboards()` wasn't selecting `global_game_id`, so the frontend's `linkForTournamentCard` always hit the fallback branch for room-scoped URLs. Additionally, most historical tournament rows never had `games.global_game_id` or `game_library.global_game_id` populated during setup, so even with the column exposed the field was NULL for them.
 
-Fix: the active + retained-completed games queries now `COALESCE(g.global_game_id, gl.global_game_id) as global_game_id` and include it in the result row. Frontend routing picks up the new field automatically — no client-side changes required.
+Fix: three-level `globalGameId` resolution in the active + retained-completed queries — `COALESCE(g.global_game_id, gl.global_game_id, gg.id)` where `gg` is a `LEFT JOIN global_games ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'`. Matches the name-based resolution used by All Games search so both surfaces agree. Frontend routing picks up the new field automatically — no client-side changes required.
 
 ## Files touched
 
