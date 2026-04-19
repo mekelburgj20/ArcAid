@@ -83,7 +83,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       {/* Sprint 10 — resumes an anonymous submission draft after Discord OAuth. */}
       <PendingSubmissionWatcher roomSlug={slug} />
       {/* Public Nav Bar */}
-      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm z-20 flex-shrink-0">
+      <nav className="border-b border-border bg-surface/80 backdrop-blur-sm z-40 flex-shrink-0">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <Link to={`/${slug}`} className="no-underline flex items-center gap-2 sm:gap-3 min-w-0">
             <img src="/arcaid-logo.png" alt="ArcAid" className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0" />
