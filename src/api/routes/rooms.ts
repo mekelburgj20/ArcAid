@@ -987,18 +987,30 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
             photoUrl = `/api/score-photos/${roomId}/${filename}`;
         }
 
+        // v2.2.0: read the localStorage-derived anon token so guest claims are
+        // sticky-per-browser. The `x-user-id` header may be undefined for
+        // sessionless clients (curl, Discord-embed, etc.) — that's handled
+        // downstream as a no-claim resolution.
+        const rawAnonHeader = req.headers['x-user-id'];
+        const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
+
         // Save to community_scores + score_history. Fan-out to global_scores
         // is handled inside CommunityScoreService.submitScore (best-effort).
+        // The service routes username through RoomNameClaimService and returns
+        // the resolved displayName (possibly suffixed e.g. "Bob_2").
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const result = await CommunityScoreService.submitScore(
-            roomId, gameName, username, score, req.user?.discordId, photoUrl, { excludeFromGlobal }
+            roomId, gameName, username, score, req.user?.discordId, photoUrl, { excludeFromGlobal, anonToken }
         );
+        const effectiveUsername = result.displayName;
 
         // Log activity event
         const { RoomEventService } = await import('../../services/RoomEventService.js');
-        RoomEventService.log(roomId, 'score_submission', { gameName, username, score }).catch(() => {});
+        RoomEventService.log(roomId, 'score_submission', { gameName, username: effectiveUsername, score }).catch(() => {});
 
-        // Also upsert into submissions so the main leaderboard reflects the highest score
+        // Also upsert into submissions so the main leaderboard reflects the highest score.
+        // Use the resolved displayName so the submission ID and stored name match
+        // the community/score_history rows — keeps the leaderboard grouping clean.
         const db = await getDatabase();
         const activeGame = await db.get(`
             SELECT g.id, g.tournament_id FROM games g
@@ -1008,18 +1020,18 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
             LIMIT 1
         `, gameName, roomId);
         if (activeGame) {
-            const submissionId = `${activeGame.id}-${username.toLowerCase()}`;
+            const submissionId = `${activeGame.id}-${effectiveUsername.toLowerCase()}`;
             const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
             if (!existing || score > existing.score) {
                 const submittedByUserId = normalizeSubmitterUserId(req.user?.discordId);
-                const submittedByAnonymousName = submittedByUserId ? null : username;
+                const submittedByAnonymousName = submittedByUserId ? null : effectiveUsername;
                 await db.run(
                     `INSERT OR REPLACE INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
                         submitted_by_anonymous_name, merged_from_anonymous_identity_id
                      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-                    submissionId, activeGame.id, 'COMMUNITY', username, score, photoUrl || null, new Date().toISOString(),
+                    submissionId, activeGame.id, 'COMMUNITY', effectiveUsername, score, photoUrl || null, new Date().toISOString(),
                     roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
                 );
                 const { LeaderboardService } = await import('../../services/LeaderboardService.js');
@@ -1129,9 +1141,14 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         fs.writeFileSync(path.join(dir, filename), req.file.buffer);
         const photoUrl = `/api/score-photos/${roomId}/${filename}`;
 
+        // v2.2.0: anon-token plumbed for first-claim-wins (see tournament submit handler comment).
+        const rawAnonHeader = req.headers['x-user-id'];
+        const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
+
         // Save to community_scores (room-scoped) — uses the global_games.name for
         // consistent cross-referencing. CommunityScoreService will also fan-out to
         // global_scores via GlobalScoreService, respecting exclude_from_global.
+        // Returns resolved displayName when the requested username collided.
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const result = await CommunityScoreService.submitScore(
             roomId,
@@ -1140,15 +1157,20 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             score,
             req.user?.discordId,
             photoUrl,
-            { excludeFromGlobal }
+            { excludeFromGlobal, anonToken }
         );
+
+        // v2.2.0: use the resolved displayName (possibly suffixed) for activity
+        // logging and the submissions upsert, so leaderboard groupings match
+        // what's stored in community_scores/score_history.
+        const effectiveUsername = result.displayName;
 
         // Log activity
         const { RoomEventService } = await import('../../services/RoomEventService.js');
         RoomEventService.log(roomId, 'freeplay_score_submission', {
             globalGameId,
             gameName: globalGame.name,
-            username,
+            username: effectiveUsername,
             score,
         }).catch(() => {});
 
@@ -1165,19 +1187,19 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             LIMIT 1
         `, globalGame.name, roomId);
         if (activeGame) {
-            const submissionId = `${activeGame.id}-${username.toLowerCase()}`;
+            const submissionId = `${activeGame.id}-${effectiveUsername.toLowerCase()}`;
             const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
             if (!existing || score > existing.score) {
                 const { normalizeSubmitterUserId } = await import('../../services/SubmissionContextService.js');
                 const submittedByUserId = normalizeSubmitterUserId(req.user?.discordId);
-                const submittedByAnonymousName = submittedByUserId ? null : username;
+                const submittedByAnonymousName = submittedByUserId ? null : effectiveUsername;
                 await db.run(
                     `INSERT OR REPLACE INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
                         submitted_by_anonymous_name, merged_from_anonymous_identity_id
                      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-                    submissionId, activeGame.id, 'COMMUNITY', username, score, photoUrl, new Date().toISOString(),
+                    submissionId, activeGame.id, 'COMMUNITY', effectiveUsername, score, photoUrl, new Date().toISOString(),
                     roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
                 );
                 const { LeaderboardService } = await import('../../services/LeaderboardService.js');
@@ -1185,7 +1207,13 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             }
         }
 
-        res.status(201).json({ id: result.id, gameName: globalGame.name });
+        res.status(201).json({
+            id: result.id,
+            gameName: globalGame.name,
+            displayName: result.displayName,
+            suffixed: result.suffixed,
+            requested: result.requested,
+        });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/freeplay-score):', error);
         res.status(500).json({ error: 'Internal Server Error' });

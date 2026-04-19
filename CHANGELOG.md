@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.2.0] — 2026-04-19
+
+**Minor.** Identity-correctness release. Closes the "guest score absorbs a logged-in user's leaderboard row" gap.
+
+- **Global fan-out gate** — guest submissions never reach the Global Leaderboard. Every row on global is guaranteed to have a real Discord ID behind it. Implemented as a one-line early-return in `GlobalScoreService.fanOutFromRoomSubmission` keyed on `normalizeSubmitterUserId`.
+- **First-claim-wins identity** — new `RoomNameClaimService` resolves a per-room display name at submission time. The first identity (Discord or anon) to use a name in a room owns it; later arrivals auto-suffix to `Bob_2`, `Bob_3`. Backed by a new `room_members.display_name` column and a new `anon_room_claims` table. SubmissionSheet shows "Submitted as Bob_2 — 'Bob' is already in use" when a suffix was applied.
+- **`REQUIRE_DISCORD_LOGIN=true` default for new rooms** — safe-by-default identity. Existing rooms unaffected (flipping retroactively orphans anon scores).
+- **SubmissionSheet polish** — always sends a stable anon-token; replaces the global-exclude checkbox with a guest-mode nudge ("Log in with Discord to also include it on the global ArcAid leaderboard").
+- **UserMenu z-index fix** — dropdown bumped to `z-50` so it wins over game-card submit buttons.
+
+Migrations 064 (DDL for first-claim-wins) and 065 (no-op marker for the default-flip event).
+
+Full details → [releases/v2.2.0/README.md](releases/v2.2.0/README.md)
+
+---
+
 ## [2.1.0] — 2026-04-18
 
 **Minor.** Three net-new capabilities.

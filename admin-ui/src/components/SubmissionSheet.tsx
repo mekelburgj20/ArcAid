@@ -209,8 +209,17 @@ export default function SubmissionSheet({
 
             let url = '';
             const headers: Record<string, string> = {};
-            const anonId = localStorage.getItem('arcaid_anon_id');
-            if (anonId) headers['x-user-id'] = anonId;
+            // v2.2.0: always send a stable anon-token so first-claim-wins can
+            // keep this browser's display name sticky across re-submits.
+            // Generated lazily on first submission, persisted in localStorage.
+            let anonId = localStorage.getItem('arcaid_anon_id');
+            if (!anonId) {
+                anonId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+                    ? crypto.randomUUID()
+                    : `anon_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+                localStorage.setItem('arcaid_anon_id', anonId);
+            }
+            headers['x-user-id'] = anonId;
             if (playerToken) headers.Authorization = `Bearer ${playerToken}`;
 
             if (target.kind === 'tournament') {
@@ -230,15 +239,22 @@ export default function SubmissionSheet({
             }
 
             const res = await fetch(url, { method: 'POST', headers, body: formData });
+            const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                const data = await res.json().catch(() => ({ error: 'Submission failed' }));
-                throw new Error(data.error || 'Submission failed');
+                throw new Error((data as { error?: string }).error || 'Submission failed');
             }
 
             localStorage.setItem('arcaid-player-name', trimmedName);
             setPhase('success');
-            setMessage({ text: 'Score submitted!', type: 'success' });
-            setTimeout(finish, 1200);
+            // v2.2.0: when first-claim-wins auto-suffixed the requested name,
+            // surface that to the user so they understand why the leaderboard
+            // shows "Bob_2" instead of "Bob".
+            const responseData = data as { displayName?: string; suffixed?: boolean; requested?: string };
+            const successText = responseData?.suffixed && responseData.displayName && responseData.requested
+                ? `Submitted as ${responseData.displayName} — "${responseData.requested}" is already in use in this room.`
+                : 'Score submitted!';
+            setMessage({ text: successText, type: 'success' });
+            setTimeout(finish, responseData?.suffixed ? 2400 : 1200);
         } catch (err) {
             setPhase('error');
             setMessage({ text: err instanceof Error ? err.message : 'Submission failed', type: 'error' });
@@ -563,7 +579,17 @@ export default function SubmissionSheet({
                                 )}
                             </div>
 
-                            {target.kind !== 'global' ? (
+                            {target.kind === 'global' ? (
+                                <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={excludeFromGlobal}
+                                        onChange={e => setExcludeFromGlobal(e.target.checked)}
+                                        className="rounded border-border"
+                                    />
+                                    Submit privately (not shown on the public global scoreboard)
+                                </label>
+                            ) : playerToken ? (
                                 <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
                                     <input
                                         type="checkbox"
@@ -574,15 +600,27 @@ export default function SubmissionSheet({
                                     Don't post this score to the global ArcAid scoreboard
                                 </label>
                             ) : (
-                                <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={excludeFromGlobal}
-                                        onChange={e => setExcludeFromGlobal(e.target.checked)}
-                                        className="rounded border-border"
-                                    />
-                                    Submit privately (not shown on the public global scoreboard)
-                                </label>
+                                /* v2.2.0: guest scores never reach global. Replace the
+                                   exclude-from-global checkbox with a clear note + login CTA so
+                                   the user understands the consequence before they submit. */
+                                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-neon-cyan/5 border border-neon-cyan/20">
+                                    <UserX size={14} className="text-neon-cyan flex-shrink-0 mt-0.5" />
+                                    <div className="flex-1 text-xs text-muted leading-relaxed">
+                                        Submitting as a guest — this score posts to the room only.{' '}
+                                        {roomSlug ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => loginWithDiscord(roomSlug)}
+                                                className="text-neon-cyan hover:underline cursor-pointer bg-transparent border-0 p-0 inline"
+                                            >
+                                                Log in with Discord
+                                            </button>
+                                        ) : (
+                                            <span className="text-neon-cyan">Log in with Discord</span>
+                                        )}{' '}
+                                        to also include it on the global ArcAid leaderboard.
+                                    </div>
+                                </div>
                             )}
 
                             {message && (

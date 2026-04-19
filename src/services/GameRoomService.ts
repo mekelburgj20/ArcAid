@@ -59,6 +59,16 @@ export class GameRoomService {
             data.logo_url || null, data.discord_guild_id || null,
             normalizeShortTag(data.short_tag),
         );
+
+        // v2.2.0: new rooms get safe-by-default identity. REQUIRE_DISCORD_LOGIN=true
+        // means walk-up web submitters must authenticate, which closes the
+        // anonymous-name collision surface entirely. Existing rooms are unaffected;
+        // admins can opt out per-room via Settings if they want kiosk/guest play.
+        await db.run(
+            `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+            id, 'REQUIRE_DISCORD_LOGIN', 'true',
+        );
+
         return (await GameRoomService.getById(id))!;
     }
 

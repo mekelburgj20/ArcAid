@@ -282,6 +282,14 @@ export class GlobalScoreService {
         submittedByAnonymousName?: string | null;
     }): Promise<{ globalScoreId: string; globalGameId: string; gameName: string } | null> {
         try {
+            // v2.2.0: guest submissions never reach global. The Global Leaderboard's
+            // identity guarantee depends on every row having an immutable Discord ID
+            // behind it — a typed nickname can collide across people and devices, so
+            // it can't be promoted out of its room of origin. ANON/COMMUNITY/SYSTEM
+            // sentinels normalize to null; real Discord IDs (incl. iScored synthetic
+            // `iscored:*` IDs from sync) pass through.
+            if (normalizeSubmitterUserId(opts.playerId) === null) return null;
+
             const db = await getDatabase();
 
             // Check the room's global opt-in setting (default ON)

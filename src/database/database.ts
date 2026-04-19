@@ -857,6 +857,44 @@ export async function initDatabase(): Promise<Database> {
             -- Shape-change cache bust.
             DELETE FROM leaderboard_cache;
         ` },
+        { name: '064_first_claim_wins_identity', sql: `
+            -- v2.2.0: per-room display name (first-claim-wins identity model).
+            -- Discord users get a per-room display override stored on room_members.
+            -- NULL means a member that hasn't claimed a name in this room yet
+            -- (legacy backfilled rows, or admin-invited users who never submitted).
+            ALTER TABLE room_members ADD COLUMN display_name TEXT;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_room_members_room_display_unique
+                ON room_members(room_id, LOWER(display_name))
+                WHERE display_name IS NOT NULL;
+
+            -- Per-anon-token, per-room display claim. The anon_token is the
+            -- localStorage 'arcaid_anon_id' UUID the SubmissionSheet sends as
+            -- the 'x-user-id' header. One row per (anon, room) — guest's "Bob"
+            -- on the same browser stays "Bob" across re-submits, but a different
+            -- browser/device has a different token and gets auto-suffixed if
+            -- "Bob" is already claimed in that room.
+            CREATE TABLE IF NOT EXISTS anon_room_claims (
+                anon_token TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                claimed_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (anon_token, room_id),
+                FOREIGN KEY (room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_anon_room_claims_room_display_unique
+                ON anon_room_claims(room_id, LOWER(display_name));
+            CREATE INDEX IF NOT EXISTS idx_anon_room_claims_room ON anon_room_claims(room_id);
+        ` },
+        { name: '065_default_require_login_existing_rooms', sql: `
+            -- v2.2.0: the GameRoomService.create path now writes
+            -- REQUIRE_DISCORD_LOGIN='true' for new rooms. Pre-existing rooms
+            -- aren't touched here on purpose — flipping it on retroactively
+            -- would orphan all their anon scores (OrphanService.handleRequireLoginFlip
+            -- fires when the value transitions). Admins can opt in per-room
+            -- via Settings when they're ready. This migration is intentionally a no-op
+            -- so the migration ledger reflects the v2.2.0 default-flip event.
+            SELECT 1;
+        ` },
     ];
 
     for (const migration of migrations) {

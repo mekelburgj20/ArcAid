@@ -3,6 +3,7 @@ import { ScoreHistoryService } from './ScoreHistoryService.js';
 import { GlobalScoreService } from './GlobalScoreService.js';
 import { normalizeSubmitterUserId } from './SubmissionContextService.js';
 import { AnonymousIdentityService } from './AnonymousIdentityService.js';
+import { RoomNameClaimService } from './RoomNameClaimService.js';
 import { emitScoreNewGlobal } from '../api/websocket.js';
 
 export class CommunityScoreService {
@@ -10,6 +11,11 @@ export class CommunityScoreService {
      * Submit a community score for a game.
      * Also fans out to the global scoreboard if the game is linked to the catalogue
      * and the room has GLOBAL_SCOREBOARD_ENABLED != 'false'.
+     *
+     * v2.2.0: routes the requested username through `RoomNameClaimService` so
+     * collisions auto-suffix (`Bob`, `Bob_2`, …). The returned `displayName` is
+     * the actual stored name — callers should surface it to the user when
+     * `suffixed === true` so they know "Bob" became "Bob_2".
      */
     static async submitScore(
         gameRoomId: string,
@@ -18,11 +24,21 @@ export class CommunityScoreService {
         score: number,
         discordUserId?: string,
         photoUrl?: string,
-        options?: { excludeFromGlobal?: boolean }
+        options?: { excludeFromGlobal?: boolean; anonToken?: string | null }
     ) {
         const db = await getDatabase();
+
+        // First-claim-wins: resolve a per-room display name. Same claimant gets
+        // the same name back; new arrivals collide → auto-suffix.
+        const claimant = RoomNameClaimService.buildClaimant({
+            discordUserId,
+            anonToken: options?.anonToken,
+        });
+        const resolved = await RoomNameClaimService.resolveAndClaim(gameRoomId, username, claimant);
+        const effectiveUsername = resolved.displayName;
+
         const submittedByUserId = normalizeSubmitterUserId(discordUserId);
-        const submittedByAnonymousName = submittedByUserId ? null : username;
+        const submittedByAnonymousName = submittedByUserId ? null : effectiveUsername;
 
         let anonymousIdentityId: number | null = null;
         if (!submittedByUserId) {
@@ -33,7 +49,7 @@ export class CommunityScoreService {
             anonymousIdentityId = await AnonymousIdentityService.upsert({
                 roomId: gameRoomId,
                 guildId: room?.discord_guild_id ?? null,
-                serverNickname: username,
+                serverNickname: effectiveUsername,
             });
         }
 
@@ -43,13 +59,13 @@ export class CommunityScoreService {
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
                 submitted_by_anonymous_name, merged_from_anonymous_identity_id
              ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
-            gameName, gameRoomId, username, discordUserId || 'ANON', score, photoUrl || null,
+            gameName, gameRoomId, effectiveUsername, discordUserId || 'ANON', score, photoUrl || null,
             gameRoomId, submittedByUserId, submittedByAnonymousName
         );
 
         // Also log to unified score history
         await ScoreHistoryService.log({
-            gameName, gameRoomId, username,
+            gameName, gameRoomId, username: effectiveUsername,
             discordUserId, score, photoUrl,
             source: 'community',
         });
@@ -57,17 +73,19 @@ export class CommunityScoreService {
         // Fire-and-forget lobby feed event
         import('./LobbyFeedGenerator.js').then(({ LobbyFeedGenerator }) => {
             LobbyFeedGenerator.onScoreSubmitted({
-                gameRoomId, gameName, username, score,
+                gameRoomId, gameName, username: effectiveUsername, score,
                 discordUserId, source: 'community',
             }).catch(() => {});
         }).catch(() => {});
 
-        // Fan-out to global scoreboard (best-effort, never throws)
+        // Fan-out to global scoreboard (best-effort, never throws). Will early-
+        // return inside fanOutFromRoomSubmission when the playerId is a guest
+        // sentinel — guest scores never reach global.
         const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({
             gameRoomId,
             gameName,
             playerId: discordUserId || 'COMMUNITY',
-            iscoredUsername: username,
+            iscoredUsername: effectiveUsername,
             score,
             photoUrl,
             excludeFromGlobal: options?.excludeFromGlobal,
@@ -79,14 +97,20 @@ export class CommunityScoreService {
             emitScoreNewGlobal({
                 globalGameId: fanOut.globalGameId,
                 gameName: fanOut.gameName,
-                playerName: username,
+                playerName: effectiveUsername,
                 score,
                 originRoomSlug: room?.slug || null,
                 originRoomName: room?.name || null,
             });
         }
 
-        return { id: result.lastID, anonymousIdentityId };
+        return {
+            id: result.lastID,
+            anonymousIdentityId,
+            displayName: effectiveUsername,
+            suffixed: resolved.suffixed,
+            requested: resolved.requested,
+        };
     }
 
     /**

@@ -133,7 +133,7 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
           ref={menuRef}
           role="menu"
           aria-label="User menu"
-          className="absolute right-0 top-full mt-1 w-56 bg-surface border border-border rounded-lg shadow-lg z-30 py-1"
+          className="absolute right-0 top-full mt-1 w-56 bg-surface border border-border rounded-lg shadow-lg z-50 py-1"
         >
           {/* Identity header */}
           <div className="px-3 py-2 border-b border-border/50">
