@@ -433,7 +433,11 @@ export default function GameDetail() {
                   {leaderboard.rankings.map((entry) => {
                     const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
                     return (
-                    <div key={entry.discord_user_id}>
+                    /* v2.2.0 fix: discord_user_id is "SYSTEM" / "ANON" / "COMMUNITY"
+                       for guest submissions, so two anon players collide on the
+                       React key and the reconciler drops a row. rank+username is
+                       always unique within a leaderboard. */
+                    <div key={`${entry.rank}-${entry.iscored_username.toLowerCase()}`}>
                       <div
                         className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
                           entry.rank === 1 ? 'bg-neon-amber/8' : ''
