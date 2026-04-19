@@ -180,7 +180,8 @@ export class LeaderboardService {
             if (rule.mode === 'retain' && (rule.count || 0) > 0) {
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, g.display_name, g.status, ? as tournament_name, ? as tournament_type,
-                           ? as display_order, gl.image_url,
+                           ? as display_order,
+                           COALESCE(gl.image_url, gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                            g.external_url, g.notes,
                            COALESCE(g.global_game_id, gl.global_game_id, gg.id) as global_game_id,
@@ -200,7 +201,8 @@ export class LeaderboardService {
             } else if (rule.mode === 'scheduled') {
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, g.display_name, g.status, ? as tournament_name, ? as tournament_type,
-                           ? as display_order, gl.image_url,
+                           ? as display_order,
+                           COALESCE(gl.image_url, gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                            g.external_url, g.notes,
                            COALESCE(g.global_game_id, gl.global_game_id, gg.id) as global_game_id,
