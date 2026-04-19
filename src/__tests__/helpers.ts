@@ -62,6 +62,11 @@ export async function createTestGame(tournamentId: string, opts: {
 
 /**
  * Insert a test submission (score).
+ *
+ * v2.1.0: writes to BOTH `submissions` (back-compat) and `score_history`
+ * (new source of truth for tournament leaderboards). score_history row
+ * carries submitted_during_tournament_id so LeaderboardService.recalculate
+ * picks it up.
  */
 export async function createTestSubmission(gameId: string, opts: {
     username?: string;
@@ -70,12 +75,41 @@ export async function createTestSubmission(gameId: string, opts: {
 } = {}) {
     const db = await getDatabase();
     const username = opts.username || 'TestPlayer';
+    const discordUserId = opts.discordUserId || 'SYSTEM';
+    const score = opts.score || 1000;
     const id = `${gameId}-${username.toLowerCase()}`;
+
     await db.run(
         `INSERT OR REPLACE INTO submissions (id, game_id, discord_user_id, iscored_username, score, timestamp)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        id, gameId, opts.discordUserId || 'SYSTEM', username, opts.score || 1000,
+        id, gameId, discordUserId, username, score,
         new Date().toISOString()
     );
+
+    // Look up the tournament + room + game name so score_history has the same
+    // context that production writes carry.
+    const game = await db.get<{ name: string; tournament_id: string | null }>(
+        'SELECT name, tournament_id FROM games WHERE id = ?',
+        gameId,
+    );
+    if (game) {
+        const tournament = game.tournament_id
+            ? await db.get<{ game_room_id: string | null }>(
+                'SELECT game_room_id FROM tournaments WHERE id = ?',
+                game.tournament_id,
+            )
+            : null;
+        await db.run(
+            `INSERT INTO score_history (
+                game_name, game_room_id, game_id, iscored_username, discord_user_id, score, source,
+                submitted_from_room_id, submitted_during_tournament_id
+             ) VALUES (?, ?, ?, ?, ?, ?, 'tournament', ?, ?)`,
+            game.name, tournament?.game_room_id ?? null, gameId,
+            username, discordUserId, score,
+            tournament?.game_room_id ?? null,
+            game.tournament_id,
+        );
+    }
+
     return id;
 }

@@ -32,8 +32,28 @@ export class ScoreHistoryService {
         const submittedByUserId = normalizeSubmitterUserId(params.discordUserId);
         const submittedByAnonymousName =
             params.anonymousName ?? (submittedByUserId ? null : params.username);
-        const submittedTournamentId =
-            params.tournamentId ?? (params.source === 'tournament' ? null : null);
+
+        // v2.1.0: auto-resolve the active tournament for this room+game so
+        // every score_history row carries submitted_during_tournament_id.
+        // Tournament leaderboards use this as the primary filter (replaces the
+        // submissions table as the source of truth for "best-score-during-
+        // this-tournament"). Only populated when the game is ACTIVE — once
+        // COMPLETED, the tournament window for that game is closed, so new
+        // submissions don't count toward it.
+        let submittedTournamentId = params.tournamentId ?? null;
+        if (!submittedTournamentId && params.gameRoomId && params.gameName) {
+            const activeGame = await db.get(
+                `SELECT t.id as tournament_id
+                 FROM games g
+                 JOIN tournaments t ON t.id = g.tournament_id
+                 WHERE LOWER(g.name) = LOWER(?)
+                   AND t.game_room_id = ?
+                   AND g.status = 'ACTIVE'
+                 LIMIT 1`,
+                params.gameName, params.gameRoomId,
+            );
+            submittedTournamentId = activeGame?.tournament_id ?? null;
+        }
 
         await db.run(
             `INSERT INTO score_history (
@@ -55,6 +75,10 @@ export class ScoreHistoryService {
     /**
      * Get all score history for a specific player + game in a room.
      * Returns both tournament and community submissions.
+     *
+     * v2.1.0: joins to tournaments so the inline-expand UI on leaderboards can
+     * show which tournament each score counts for. `tournament_active` lets
+     * the UI split "This tournament" vs "All time" without a second query.
      */
     static async getPlayerGameHistory(
         gameRoomId: string,
@@ -64,13 +88,17 @@ export class ScoreHistoryService {
     ) {
         const db = await getDatabase();
         return db.all(`
-            SELECT id, score, source, photo_url, created_at, game_id
-            FROM score_history
-            WHERE game_room_id = ?
-            AND LOWER(game_name) = LOWER(?)
-            AND LOWER(iscored_username) = LOWER(?)
-            AND orphaned_at IS NULL
-            ORDER BY created_at DESC
+            SELECT sh.id, sh.score, sh.source, sh.photo_url, sh.created_at, sh.game_id,
+                   sh.submitted_during_tournament_id as tournament_id,
+                   t.name as tournament_name,
+                   CASE WHEN t.is_active = 1 THEN 1 ELSE 0 END as tournament_active
+            FROM score_history sh
+            LEFT JOIN tournaments t ON t.id = sh.submitted_during_tournament_id
+            WHERE sh.game_room_id = ?
+            AND LOWER(sh.game_name) = LOWER(?)
+            AND LOWER(sh.iscored_username) = LOWER(?)
+            AND sh.orphaned_at IS NULL
+            ORDER BY sh.created_at DESC
             LIMIT ?
         `, gameRoomId, gameName, username, limit);
     }

@@ -838,6 +838,25 @@ export async function initDatabase(): Promise<Database> {
             DELETE FROM leaderboard_cache;
             DELETE FROM global_leaderboard_cache;
         ` },
+        { name: '063_score_history_tournament_backfill', sql: `
+            -- v2.1.0: tournament leaderboards now read from score_history filtered
+            -- by submitted_during_tournament_id. Existing rows with game_id set
+            -- but submitted_during_tournament_id NULL need backfilling so they
+            -- keep appearing on tournament cards. Rows without a game_id link
+            -- stay null (community-only submissions — correct exclusion).
+            UPDATE score_history
+            SET submitted_during_tournament_id = (
+                SELECT t.id FROM games g
+                JOIN tournaments t ON t.id = g.tournament_id
+                WHERE g.id = score_history.game_id
+                LIMIT 1
+            )
+            WHERE submitted_during_tournament_id IS NULL
+              AND game_id IS NOT NULL;
+
+            -- Shape-change cache bust.
+            DELETE FROM leaderboard_cache;
+        ` },
     ];
 
     for (const migration of migrations) {

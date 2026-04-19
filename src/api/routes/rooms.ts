@@ -728,6 +728,18 @@ router.get('/:roomId/stats/enhanced/players', async (req, res) => {
     }
 });
 
+// v2.1.0: Stats page Combo overview — 4 cards at the top of /:slug/stats.
+router.get('/:roomId/stats/overview', async (req, res) => {
+    try {
+        const { StatsService } = await import('../../services/StatsService.js');
+        const overview = await StatsService.getRoomOverview(req.params.roomId as string);
+        res.json(overview);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/stats/overview):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Sprint 7: per-game activity stats for the public Stats page (Games view)
 router.get('/:roomId/stats/games-activity', async (req, res) => {
     try {

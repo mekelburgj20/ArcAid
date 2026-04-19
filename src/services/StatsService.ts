@@ -773,4 +773,56 @@ export class StatsService {
             ORDER BY submissions DESC, last_activity DESC
         `, gameRoomId, gameRoomId);
     }
+
+    /**
+     * v2.1.0 Stats overview — the 4 cards at the top of /:slug/stats.
+     *
+     * All "this week" metrics use a rolling 7-day window. Pulls from
+     * `score_history` which carries every submission (tournament + community +
+     * sync). Hottest game is by submission count; latest is by timestamp.
+     */
+    static async getRoomOverview(gameRoomId: string): Promise<{
+        totalPlaysWeek: number;
+        activePlayersWeek: number;
+        hottestGame: { name: string; submissions: number } | null;
+        latestSubmission: { iscored_username: string; score: number; game_name: string; created_at: string } | null;
+    }> {
+        const db = await getDatabase();
+        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+        const plays = await db.get<{ total: number }>(
+            `SELECT COUNT(*) as total FROM score_history
+             WHERE game_room_id = ? AND created_at >= ? AND orphaned_at IS NULL`,
+            gameRoomId, weekAgo,
+        );
+        const players = await db.get<{ total: number }>(
+            `SELECT COUNT(DISTINCT LOWER(iscored_username)) as total FROM score_history
+             WHERE game_room_id = ? AND created_at >= ? AND orphaned_at IS NULL`,
+            gameRoomId, weekAgo,
+        );
+        const hottest = await db.get<{ game_name: string; submissions: number }>(
+            `SELECT game_name, COUNT(*) as submissions FROM score_history
+             WHERE game_room_id = ? AND created_at >= ? AND orphaned_at IS NULL
+             GROUP BY LOWER(game_name)
+             ORDER BY submissions DESC
+             LIMIT 1`,
+            gameRoomId, weekAgo,
+        );
+        const latest = await db.get<{ iscored_username: string; score: number; game_name: string; created_at: string }>(
+            `SELECT iscored_username, score, game_name, created_at FROM score_history
+             WHERE game_room_id = ? AND orphaned_at IS NULL
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            gameRoomId,
+        );
+
+        return {
+            totalPlaysWeek: plays?.total ?? 0,
+            activePlayersWeek: players?.total ?? 0,
+            hottestGame: hottest ? { name: hottest.game_name, submissions: hottest.submissions } : null,
+            latestSubmission: latest
+                ? { iscored_username: latest.iscored_username, score: latest.score, game_name: latest.game_name, created_at: latest.created_at }
+                : null,
+        };
+    }
 }

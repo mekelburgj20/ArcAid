@@ -26,46 +26,70 @@ export interface RankedEntry {
 export class LeaderboardService {
     /**
      * Recalculate and cache the leaderboard for a specific game.
+     *
+     * v2.1.0: tournament leaderboards now read from `score_history` filtered by
+     * `submitted_during_tournament_id` (§13 refactor). Previously they read
+     * `submissions`, which stores only the best-ever per player — incorrect for
+     * tournament scoring, where the goal is "best score during *this* tournament
+     * window", which may legitimately be below an all-time personal best.
+     *
+     * The `submissions` table is still written on every submit (dual-write) so
+     * back-compat is preserved for anything still reading it directly, but the
+     * canonical source for tournament card rankings is now score_history.
      */
     static async recalculate(gameId: string): Promise<RankedEntry[]> {
         const db = await getDatabase();
 
-        // Sprint 12 / plan §13 — Tournament card shows ONLY tournament scores for
-        // this game (game_id is already tournament-scoped, so submissions is the
-        // right table). community_scores intentionally excluded: a freeplay
-        // submission to the same game name doesn't belong on the tournament
-        // leaderboard. The All Games tab, Game Detail, and Global Scoreboard
-        // each have their own queries that unify both sources.
+        // Resolve the game's tournament + room scope so we can filter score_history correctly.
+        const gameMeta = await db.get(`
+            SELECT g.id, g.name, g.tournament_id, t.game_room_id
+            FROM games g
+            LEFT JOIN tournaments t ON t.id = g.tournament_id
+            WHERE g.id = ?
+        `, gameId);
+        if (!gameMeta) {
+            // Game not found — cache an empty ranking so callers don't thrash on retries.
+            await db.run(
+                `INSERT OR REPLACE INTO leaderboard_cache (game_id, rankings, generated_at) VALUES (?, ?, ?)`,
+                gameId, JSON.stringify([]), new Date().toISOString()
+            );
+            return [];
+        }
+
+        // Best-score-per-player from score_history for this tournament window.
+        // ROW_NUMBER lets us keep the winning row's photo_url + discord_user_id
+        // without a separate JOIN back to the same table.
         const entries = await db.all(`
             SELECT
-                COALESCE(um.discord_user_id, combined.discord_user_id) as discord_user_id,
-                combined.iscored_username,
-                combined.score,
+                COALESCE(um.discord_user_id, best.discord_user_id) as discord_user_id,
+                best.iscored_username,
+                best.score,
                 um.avatar_hash
             FROM (
                 SELECT
-                    CASE WHEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') AND discord_user_id NOT LIKE 'iscored:%' THEN discord_user_id END) IS NOT NULL
-                         THEN MAX(CASE WHEN discord_user_id NOT IN ('SYSTEM','COMMUNITY','ANON') AND discord_user_id NOT LIKE 'iscored:%' THEN discord_user_id END)
-                         ELSE MAX(discord_user_id)
-                    END as discord_user_id,
                     iscored_username,
-                    MAX(score) as score
-                FROM submissions
-                WHERE game_id = ?
+                    discord_user_id,
+                    score,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LOWER(iscored_username)
+                        ORDER BY score DESC, created_at ASC
+                    ) as rn
+                FROM score_history
+                WHERE game_room_id = ?
+                  AND submitted_during_tournament_id = ?
+                  AND LOWER(game_name) = LOWER(?)
                   AND orphaned_at IS NULL
-                GROUP BY LOWER(iscored_username)
-            ) combined
+            ) best
             LEFT JOIN user_mappings um ON (
-                -- v2.0.1: only do username-fallback for iScored-synced rows. The
-                -- previous COMMUNITY/ANON branch leaked the real user's avatar onto
-                -- truly anonymous submissions whose typed name happened to match an
-                -- existing user_mapping (privacy regression flagged in v2.0.0 test F.20).
-                um.discord_user_id = combined.discord_user_id
-                OR (combined.discord_user_id LIKE 'iscored:%'
-                    AND LOWER(um.iscored_username) = LOWER(combined.iscored_username))
+                -- v2.0.1: username-fallback limited to iScored-synced rows so
+                -- anonymous submissions don't leak avatars.
+                um.discord_user_id = best.discord_user_id
+                OR (best.discord_user_id LIKE 'iscored:%'
+                    AND LOWER(um.iscored_username) = LOWER(best.iscored_username))
             )
-            ORDER BY combined.score DESC
-        `, gameId);
+            WHERE best.rn = 1
+            ORDER BY best.score DESC
+        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name);
 
         const rankings: RankedEntry[] = entries.map((e: any, i: number) => ({
             rank: i + 1,

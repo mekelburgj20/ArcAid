@@ -77,6 +77,10 @@ interface ScoreHistoryEntry {
   source: 'tournament' | 'community' | 'sync';
   created_at: string;
   photo_url?: string;
+  /** v2.1.0 — tournament this score was submitted during (if any). */
+  tournament_id?: string | null;
+  tournament_name?: string | null;
+  tournament_active?: 0 | 1 | null;
 }
 
 interface GamePlayerRanking {
@@ -461,26 +465,57 @@ export default function GameDetail() {
                         </div>
                       </div>
                       {expandedPlayer === entry.iscored_username && (
-                        <div className="bg-deep/50 border-b border-border/20 px-5 py-2">
+                        <div className="bg-deep/50 border-b border-border/20 px-5 py-3">
                           {historyLoading ? (
                             <p className="text-faint text-xs py-2">Loading history...</p>
                           ) : playerHistory.length > 0 ? (
-                            <div className="space-y-1">
-                              <p className="text-faint text-[10px] uppercase tracking-wider mb-1">Score History</p>
-                              {playerHistory.map(h => (
-                                <div key={h.id} className="flex items-center justify-between text-sm">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-muted">{h.score.toLocaleString()}</span>
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                      h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
-                                      h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
-                                      'bg-neon-green/10 text-neon-green'
-                                    }`}>{h.source}</span>
-                                  </div>
-                                  <span className="text-faint text-xs">{new Date(h.created_at).toLocaleDateString()}</span>
+                            (() => {
+                              // v2.1.0: split the history into "This tournament" +
+                              // "All time" when there's an active tournament linked
+                              // to any of this player's scores. Progression
+                              // sparkline shows every submission in chronological
+                              // order so improvement is visible at a glance.
+                              const activeEntries = playerHistory.filter(h => h.tournament_active === 1);
+                              const otherEntries = playerHistory.filter(h => h.tournament_active !== 1);
+                              const chron = [...playerHistory].sort(
+                                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                              );
+                              const activeTournamentName = activeEntries[0]?.tournament_name || null;
+                              return (
+                                <div className="space-y-3">
+                                  {chron.length > 1 && (
+                                    <div>
+                                      <p className="text-faint text-[10px] uppercase tracking-wider mb-1">Progression</p>
+                                      <Sparkline data={chron.map(h => h.score)} width={400} height={40} />
+                                    </div>
+                                  )}
+                                  {activeEntries.length > 0 && (
+                                    <div>
+                                      <p className="text-neon-cyan text-[10px] uppercase tracking-wider mb-1">
+                                        This tournament{activeTournamentName ? ` · ${activeTournamentName}` : ''}
+                                      </p>
+                                      <div className="space-y-1">
+                                        {activeEntries.map(h => (
+                                          <ScoreHistoryRow key={h.id} h={h} />
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {otherEntries.length > 0 && (
+                                    <div>
+                                      <p className="text-faint text-[10px] uppercase tracking-wider mb-1">
+                                        {activeEntries.length > 0 ? 'All time' : 'Score history'}
+                                      </p>
+                                      <div className="space-y-1">
+                                        {otherEntries.map(h => (
+                                          <ScoreHistoryRow key={h.id} h={h} />
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
-                              ))}
-                            </div>
+                              );
+                            })()
                           ) : (
                             <p className="text-faint text-xs py-2">No score history recorded yet.</p>
                           )}
@@ -937,6 +972,29 @@ export default function GameDetail() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** v2.1.0 — one row in the expanded score-history view. Keeps the visual
+    consistent between "This tournament" + "All time" groupings. */
+function ScoreHistoryRow({ h }: { h: ScoreHistoryEntry }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-muted">{h.score.toLocaleString()}</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+          h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
+          h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
+          'bg-neon-green/10 text-neon-green'
+        }`}>{h.source}</span>
+        {h.photo_url && (
+          <a href={h.photo_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-neon-cyan/70 hover:text-neon-cyan no-underline" title="View proof">
+            proof
+          </a>
+        )}
+      </div>
+      <span className="text-faint text-xs whitespace-nowrap">{new Date(h.created_at).toLocaleDateString()}</span>
     </div>
   );
 }

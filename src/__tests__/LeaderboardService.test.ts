@@ -43,16 +43,10 @@ describe('LeaderboardService', () => {
             const tournamentId = await createTestTournament(roomId);
             const gameId = await createTestGame(tournamentId);
 
-            // Same player, different case
+            // Same player, different case — v2.1.0 leaderboard reads score_history,
+            // so both submissions go through the helper (which dual-writes).
             await createTestSubmission(gameId, { username: 'Alice', score: 5000, discordUserId: '123' });
-            // Insert a second score under different case directly
-            const { getDatabase } = await import('../database/database.js');
-            const db = await getDatabase();
-            await db.run(
-                `INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, timestamp)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                `${gameId}-alice2`, gameId, '123', 'ALICE', 9000, new Date().toISOString()
-            );
+            await createTestSubmission(gameId, { username: 'ALICE', score: 9000, discordUserId: '123' });
 
             const rankings = await LeaderboardService.recalculate(gameId);
 

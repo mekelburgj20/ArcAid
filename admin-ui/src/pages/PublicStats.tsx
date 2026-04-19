@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { Trophy, Flame, Users, Gamepad2 } from 'lucide-react';
+import { Trophy, Flame, Users, Gamepad2, Zap, Clock } from 'lucide-react';
 
 interface PlayerSummary {
   discord_user_id: string;
@@ -18,6 +18,13 @@ interface GameActivity {
   players: number;
   top_score: number;
   last_activity: string | null;
+}
+
+interface StatsOverview {
+  totalPlaysWeek: number;
+  activePlayersWeek: number;
+  hottestGame: { name: string; submissions: number } | null;
+  latestSubmission: { iscored_username: string; score: number; game_name: string; created_at: string } | null;
 }
 
 type View = 'players' | 'games';
@@ -52,6 +59,7 @@ export default function PublicStats() {
 
   const [players, setPlayers] = useState<PlayerSummary[]>([]);
   const [games, setGames] = useState<GameActivity[]>([]);
+  const [overview, setOverview] = useState<StatsOverview | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -63,12 +71,14 @@ export default function PublicStats() {
       .then(async (rooms: Array<{ id: string; slug: string }>) => {
         const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
         if (!found) return;
-        const [playersRes, gamesRes] = await Promise.all([
+        const [playersRes, gamesRes, overviewRes] = await Promise.all([
           fetch(`/api/rooms/${found.id}/stats/enhanced/players`).then(r => r.ok ? r.json() : []),
           fetch(`/api/rooms/${found.id}/stats/games-activity`).then(r => r.ok ? r.json() : []),
+          fetch(`/api/rooms/${found.id}/stats/overview`).then(r => r.ok ? r.json() : null),
         ]);
         setPlayers(playersRes || []);
         setGames(gamesRes || []);
+        setOverview(overviewRes);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -88,8 +98,47 @@ export default function PublicStats() {
 
   return (
     <div>
+      {/* v2.1.0 Stats Combo — purpose + overview cards above the tabs. */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2">
+        <p className="text-xs text-muted mb-4">
+          How this room's doing. Pulse of the week above; drill into players and games below.
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <OverviewCard
+            icon={<Zap size={14} className="text-neon-cyan" />}
+            label="Plays this week"
+            value={overview ? overview.totalPlaysWeek.toLocaleString() : '—'}
+            sub={overview ? `${overview.activePlayersWeek} player${overview.activePlayersWeek === 1 ? '' : 's'}` : null}
+          />
+          <OverviewCard
+            icon={<Users size={14} className="text-neon-green" />}
+            label="Active players"
+            value={overview ? overview.activePlayersWeek.toLocaleString() : '—'}
+            sub="past 7 days"
+          />
+          <OverviewCard
+            icon={<Flame size={14} className="text-neon-magenta" />}
+            label="Hottest game"
+            value={overview?.hottestGame?.name ?? '—'}
+            sub={overview?.hottestGame ? `${overview.hottestGame.submissions} submission${overview.hottestGame.submissions === 1 ? '' : 's'}` : null}
+            truncate
+          />
+          <OverviewCard
+            icon={<Clock size={14} className="text-neon-amber" />}
+            label="Latest"
+            value={overview?.latestSubmission
+              ? abbreviateScore(overview.latestSubmission.score)
+              : '—'}
+            sub={overview?.latestSubmission
+              ? `${overview.latestSubmission.iscored_username} · ${formatRelative(overview.latestSubmission.created_at)}`
+              : null}
+            truncate
+          />
+        </div>
+      </div>
+
       {/* Page Header + toggle + search */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2 flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-2 flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="font-display text-xl font-bold">Stats</h2>
           <div role="tablist" className="flex bg-raised border border-border rounded overflow-hidden">
@@ -211,6 +260,36 @@ export default function PublicStats() {
           )
         )}
       </main>
+    </div>
+  );
+}
+
+/**
+ * v2.1.0 — small summary card for the Stats page overview row.
+ */
+function OverviewCard({
+  icon,
+  label,
+  value,
+  sub,
+  truncate,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub: string | null;
+  truncate?: boolean;
+}) {
+  return (
+    <div className="bg-surface border border-border rounded-lg p-3">
+      <div className="flex items-center gap-1.5 text-[10px] text-faint uppercase tracking-wider">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <p className={`font-display text-sm text-primary mt-1 ${truncate ? 'truncate' : ''}`} title={truncate ? value : undefined}>
+        {value}
+      </p>
+      {sub && <p className="text-[10px] text-muted mt-0.5 truncate">{sub}</p>}
     </div>
   );
 }
