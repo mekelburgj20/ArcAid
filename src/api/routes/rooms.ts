@@ -1140,6 +1140,39 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             score,
         }).catch(() => {});
 
+        // v2.0.3: if this room has an ACTIVE/COMPLETED tournament game matching
+        // this name, upsert into submissions too so the Tournament card
+        // reflects the score. Matches the behavior of /submit-score — the path
+        // a user takes to submit shouldn't change whether the score counts
+        // toward the active tournament.
+        const activeGame = await db.get(`
+            SELECT g.id, g.tournament_id FROM games g
+            JOIN tournaments t ON t.id = g.tournament_id
+            WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
+              AND g.status IN ('ACTIVE', 'COMPLETED')
+            LIMIT 1
+        `, globalGame.name, roomId);
+        if (activeGame) {
+            const submissionId = `${activeGame.id}-${username.toLowerCase()}`;
+            const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
+            if (!existing || score > existing.score) {
+                const { normalizeSubmitterUserId } = await import('../../services/SubmissionContextService.js');
+                const submittedByUserId = normalizeSubmitterUserId(req.user?.discordId);
+                const submittedByAnonymousName = submittedByUserId ? null : username;
+                await db.run(
+                    `INSERT OR REPLACE INTO submissions (
+                        id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                        submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+                    submissionId, activeGame.id, 'COMMUNITY', username, score, photoUrl, new Date().toISOString(),
+                    roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
+                );
+                const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+                await LeaderboardService.invalidate(activeGame.id);
+            }
+        }
+
         res.status(201).json({ id: result.id, gameName: globalGame.name });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/freeplay-score):', error);

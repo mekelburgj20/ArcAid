@@ -2,6 +2,19 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { getNextRunTime } from '../utils/cronUtils.js';
 
+/**
+ * v2.0.3: translate stored catalogue paths (`data/catalogue-images/…`) to the
+ * public HTTP URL (`/api/catalogue-images/…`). Leaves absolute URLs and other
+ * paths untouched. Mirrors the frontend `toCatalogueUrl` helper.
+ */
+function normalizeImageUrl(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const m = raw.match(/^\/?data\/catalogue-images\/(.+)$/);
+    if (m) return `/api/catalogue-images/${m[1]}`;
+    return raw.startsWith('/') ? raw : `/${raw}`;
+}
+
 export interface RankedEntry {
     rank: number;
     discord_user_id: string;
@@ -121,7 +134,12 @@ export class LeaderboardService {
         // Matches the resolution used by All Games search.
         const activeGames = await db.all(`
             SELECT g.id, g.name as game_name, g.display_name, g.status, t.name as tournament_name, t.type as tournament_type,
-                   COALESCE(t.display_order, 9999) as display_order, gl.image_url,
+                   COALESCE(t.display_order, 9999) as display_order,
+                   -- v2.0.3: image fallback hierarchy — game_library.image_url,
+                   -- then global_games (local → wheel → url) so tournament cards
+                   -- get a default image when neither the room admin nor the
+                   -- tournament curator set a style background.
+                   COALESCE(gl.image_url, gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                    g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                    g.tournament_id, g.external_url, g.notes,
                    COALESCE(g.global_game_id, gl.global_game_id, gg.id) as global_game_id,
@@ -269,7 +287,9 @@ export class LeaderboardService {
                 displayName: game.display_name || null,
                 tournamentName: game.tournament_name || 'Untracked',
                 tournamentType: game.tournament_type || '',
-                imageUrl: game.image_url || null,
+                // v2.0.3: normalize catalogue paths to their public URL so cards
+                // render the image directly. `data/catalogue-images/...` → `/api/catalogue-images/...`.
+                imageUrl: normalizeImageUrl(game.image_url),
                 gameStatus: game.status || 'ACTIVE',
                 catalogueStyleId: game.catalogue_style_id || null,
                 logoStyleId: game.logo_style_id || null,

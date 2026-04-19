@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.0.3] — 2026-04-18
+
+**Patch.** Three smoke-test follow-ups.
+
+- Default catalogue image restored on Tournament + All Games cards (backend COALESCE to `global_games` + ShowcaseCard fallback; admin style still wins)
+- Submit button icon unified — `Plus` on both Tournament and All Games cards
+- `/freeplay-score` now upserts `submissions` when the game is an active tournament game, so scores submitted via game detail count for the tournament just like Tournament-card submits
+
+Full details → [releases/v2.0.3/README.md](releases/v2.0.3/README.md)
+
+---
+
 ## [2.0.2] — 2026-04-18
 
 **Hotfix.** Tournament card title routed to room-scoped URL instead of global catalogue.

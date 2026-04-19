@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import CardRouter from '../scoreboard/CardRouter';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import type { ScoreboardStyle } from '../../lib/scoreboardThemes';
-import { SubmitScoreIcon } from '../../assets/icons/ThemedIcons';
+import { Plus } from 'lucide-react';
 
 /**
  * Surfaces that render a GameCard. Used for:
@@ -162,7 +162,7 @@ export default function GameCard({
                     title="Submit score"
                 >
                     <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
-                        <SubmitScoreIcon size={18} />
+                        <Plus size={18} />
                     </span>
                 </button>
             )}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, Plus } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
 import { useTheme } from '../components/ThemeProvider';
@@ -16,7 +16,6 @@ import {
 } from '../components/ScoreboardComponents';
 import CardRouter from '../components/scoreboard/CardRouter';
 import GamesTabView from '../components/GamesTabView';
-import { SubmitScoreIcon } from '../assets/icons/ThemedIcons';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
@@ -419,7 +418,7 @@ export default function Scoreboard() {
                   <Link to={linkForTournamentCard(lb)} className="absolute inset-0 z-10" aria-label={lb.displayName || lb.gameName} />
                   <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
                     <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
-                      <SubmitScoreIcon size={16} />
+                      <Plus size={16} />
                     </span>
                   </button>
                   {useNewCards ? (
@@ -457,7 +456,7 @@ export default function Scoreboard() {
                   <Link to={linkForTournamentCard(lb)} className="absolute inset-0 z-10" aria-label={lb.displayName || lb.gameName} />
                   <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
                     <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
-                      <SubmitScoreIcon size={16} />
+                      <Plus size={16} />
                     </span>
                   </button>
                   {useNewCards ? (
@@ -495,7 +494,7 @@ export default function Scoreboard() {
                   <div key={lb.gameId} className="flex-shrink-0 relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
                     <Link to={linkForTournamentCard(lb)} className="absolute inset-0 z-10" aria-label={lb.displayName || lb.gameName} />
                     <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-2 right-2 z-20 w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/20 focus:bg-neon-cyan/20 flex items-center justify-center transition-colors cursor-pointer backdrop-blur-sm">
-                      <SubmitScoreIcon size={16} />
+                      <Plus size={16} />
                     </button>
                     {useNewCards ? (
                       <CardRouter

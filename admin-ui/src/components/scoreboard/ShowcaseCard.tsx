@@ -33,9 +33,13 @@ function resolveImages(lb: GameLeaderboard) {
     : (lb.catalogueStyleId && lb.catHasBg !== 0) ? lb.catalogueStyleId : null;
   const effectiveLogoId = (lb.logoStyleId && lb.logoHasHeader !== 0) ? lb.logoStyleId
     : (lb.catalogueStyleId && lb.catHasHeader !== 0) ? lb.catalogueStyleId : null;
+  // v2.0.3: fall back to catalogue image when no style_id is set. Previously
+  // cards with no style mapping rendered blank; now they show the default
+  // catalogue art, which admins can override via the style editor.
   const styleBgUrl = effectiveBgId ? `/api/styles/images/backgrounds/${effectiveBgId}.png` : null;
+  const bgImage = styleBgUrl || lb.imageUrl || null;
   const styleHeaderUrl = effectiveLogoId && !lb.styleHeaderDisabled ? `/api/styles/images/headers/${effectiveLogoId}.png` : null;
-  return { styleBgUrl, styleHeaderUrl };
+  return { bgImage, styleHeaderUrl };
 }
 
 export default function ShowcaseCard({
@@ -54,7 +58,7 @@ export default function ShowcaseCard({
   qrPosition = 'top-right',
   onSubmitScore,
 }: ShowcaseCardProps) {
-  const { styleBgUrl, styleHeaderUrl } = resolveImages(lb);
+  const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
   const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
 
@@ -126,12 +130,12 @@ export default function ShowcaseCard({
         display: 'flex',
         flexDirection: 'column',
       }}>
-        {/* Card background fill */}
-        {cardBgFill && styleBgUrl && (
+        {/* Card background fill — v2.0.3: accepts catalogue image fallback too. */}
+        {cardBgFill && bgImage && (
           <>
             <div style={{
               position: 'absolute', inset: 0, zIndex: 0,
-              backgroundImage: `url(${styleBgUrl})`,
+              backgroundImage: `url(${bgImage})`,
               backgroundSize: 'cover', backgroundPosition: 'center',
             }} />
             <div style={{ position: 'absolute', inset: 0, zIndex: 0, background: 'rgba(0,0,0,0.55)' }} />
