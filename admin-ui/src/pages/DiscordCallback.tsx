@@ -97,7 +97,7 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
             window.location.href = returnPath;
           } else if (state?.startsWith('player:')) {
             const slug = state.slice('player:'.length);
-            window.location.href = `/${slug}/picks`;
+            window.location.href = `/${slug}/lobby`;
           } else {
             window.location.href = '/';
           }
