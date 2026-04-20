@@ -59,40 +59,23 @@ export class RoomNameClaimService {
 
         const db = await getDatabase();
 
-        // 1. Idempotency: same claimant in the same room → return their already-claimed name.
-        if (claimant.kind === 'discord') {
-            const existing = await db.get(
-                `SELECT display_name FROM room_members
-                 WHERE room_id = ? AND user_id = ? AND display_name IS NOT NULL`,
-                roomId, claimant.discordUserId,
-            );
-            if (existing?.display_name) {
-                return {
-                    displayName: existing.display_name,
-                    requested: trimmed,
-                    suffixed: existing.display_name.toLowerCase() !== trimmed.toLowerCase(),
-                };
-            }
-        } else if (claimant.kind === 'anon') {
-            const existing = await db.get(
-                `SELECT display_name FROM anon_room_claims
-                 WHERE room_id = ? AND anon_token = ?`,
-                roomId, claimant.anonId,
-            );
-            if (existing?.display_name) {
-                return {
-                    displayName: existing.display_name,
-                    requested: trimmed,
-                    suffixed: existing.display_name.toLowerCase() !== trimmed.toLowerCase(),
-                };
-            }
-        }
-
-        // 2. Find the next free name in this room. Walks _2, _3, … against the
-        // union of room_members + anon_room_claims claims.
+        // v2.2.3: removed the token→name idempotent short-circuit. Previously
+        // any submission from a browser that had already claimed a name was
+        // collapsed back to that first claim — so typing "Bob_2" from the same
+        // browser as an earlier "Bob" was silently re-stored as "Bob". The
+        // token now proves ownership OF SPECIFIC NAMES you've claimed, not
+        // ownership of a single name forever. Multiple names per token per
+        // room are allowed (migration 066 widens the PK).
+        //
+        // Suffix loop: walk _2, _3, … until we find a name that's either free
+        // or already owned by this claimant. Discord claimants get the same
+        // treatment — they can rotate their per-room display name too.
         let candidate = trimmed;
         let suffix = 1;
-        while (await this.isNameClaimed(roomId, candidate)) {
+        while (true) {
+            const owner = await this.findClaimOwner(roomId, candidate);
+            if (!owner) break;                          // Free — we can claim it
+            if (this.isOwnedByClaimant(owner, claimant)) break;  // Already ours — reuse
             suffix++;
             if (suffix > MAX_SUFFIX_TRIES) {
                 throw new Error(
@@ -102,29 +85,30 @@ export class RoomNameClaimService {
             candidate = `${trimmed}_${suffix}`;
         }
 
-        // 3. Persist the claim. Sessionless callers skip persistence — they just
+        // Persist the claim. Sessionless callers skip persistence — they just
         // get the resolved name with no stickiness across sessions.
         try {
             if (claimant.kind === 'discord') {
-                // Insert the membership row if missing (covers users without prior
-                // submissions — first interaction with this room). Then set
-                // display_name only if it's still NULL, so we never silently
-                // re-claim over an existing claim under race.
+                // Ensure the membership row exists first.
                 await db.run(
                     `INSERT OR IGNORE INTO room_members (user_id, room_id, joined_at, source, display_name)
                      VALUES (?, ?, datetime('now'), 'submission', ?)`,
                     claimant.discordUserId, roomId, candidate,
                 );
+                // Update their per-room display name unconditionally. room_members
+                // is one row per (user, room), so a Discord user has exactly one
+                // display name per room at any time. Changing it doesn't rewrite
+                // historical score_history/submissions rows — those stay keyed
+                // on whatever name was stored at submit time.
                 await db.run(
                     `UPDATE room_members SET display_name = ?
-                     WHERE user_id = ? AND room_id = ? AND display_name IS NULL`,
+                     WHERE user_id = ? AND room_id = ?`,
                     candidate, claimant.discordUserId, roomId,
                 );
             } else if (claimant.kind === 'anon') {
-                // INSERT OR IGNORE — if a concurrent submit already claimed the
-                // anon's row, the existing row wins and we move on. The unique
-                // index on (room_id, LOWER(display_name)) guarantees no two
-                // anon-tokens can claim the same name simultaneously.
+                // Post-migration 066: multiple rows per (anon_token, room_id)
+                // keyed on display_name. INSERT OR IGNORE so concurrent
+                // submissions with the same (token, name) don't fight.
                 await db.run(
                     `INSERT OR IGNORE INTO anon_room_claims (anon_token, room_id, display_name)
                      VALUES (?, ?, ?)`,
@@ -132,9 +116,6 @@ export class RoomNameClaimService {
                 );
             }
         } catch (err) {
-            // Constraint-violation under race: re-resolve once. The next
-            // resolveAndClaim call will hit the idempotent short-circuit OR
-            // pick a fresh suffix.
             logError('RoomNameClaimService.resolveAndClaim: persist failed (race likely), continuing with resolved name', err);
         }
 
@@ -146,29 +127,66 @@ export class RoomNameClaimService {
     }
 
     /**
-     * True iff `name` is already claimed in `roomId` by any identity (Discord
-     * user via room_members.display_name OR anon via anon_room_claims).
-     * Case-insensitive.
+     * Look up who owns a display name in the room. Returns:
+     *   - `{ kind: 'discord', discordUserId }` when owned by a Discord user
+     *   - `{ kind: 'anon', anonToken }` when owned by a guest claim
+     *   - `null` when the name is free
+     *
+     * Case-insensitive name comparison. Both claim stores are checked; if both
+     * have a match (which shouldn't happen thanks to the unique indexes), the
+     * Discord claim wins.
      */
-    static async isNameClaimed(roomId: string, name: string): Promise<boolean> {
+    static async findClaimOwner(
+        roomId: string,
+        name: string,
+    ): Promise<{ kind: 'discord'; discordUserId: string } | { kind: 'anon'; anonToken: string } | null> {
         const db = await getDatabase();
         const lower = name.toLowerCase();
 
         const discordHit = await db.get(
-            `SELECT 1 FROM room_members
+            `SELECT user_id FROM room_members
              WHERE room_id = ? AND LOWER(display_name) = ?
              LIMIT 1`,
             roomId, lower,
         );
-        if (discordHit) return true;
+        if (discordHit?.user_id) {
+            return { kind: 'discord', discordUserId: discordHit.user_id };
+        }
 
         const anonHit = await db.get(
-            `SELECT 1 FROM anon_room_claims
+            `SELECT anon_token FROM anon_room_claims
              WHERE room_id = ? AND LOWER(display_name) = ?
              LIMIT 1`,
             roomId, lower,
         );
-        return !!anonHit;
+        if (anonHit?.anon_token) {
+            return { kind: 'anon', anonToken: anonHit.anon_token };
+        }
+
+        return null;
+    }
+
+    /** True iff the claim owner matches the submitting claimant. */
+    private static isOwnedByClaimant(
+        owner: { kind: 'discord'; discordUserId: string } | { kind: 'anon'; anonToken: string },
+        claimant: ClaimantId,
+    ): boolean {
+        if (owner.kind === 'discord' && claimant.kind === 'discord') {
+            return owner.discordUserId === claimant.discordUserId;
+        }
+        if (owner.kind === 'anon' && claimant.kind === 'anon') {
+            return owner.anonToken === claimant.anonId;
+        }
+        return false;
+    }
+
+    /**
+     * True iff `name` is already claimed in `roomId` by any identity.
+     * Case-insensitive. Kept for backward compatibility — new callers should
+     * use `findClaimOwner` which tells them *who* owns it.
+     */
+    static async isNameClaimed(roomId: string, name: string): Promise<boolean> {
+        return (await this.findClaimOwner(roomId, name)) !== null;
     }
 
     /**

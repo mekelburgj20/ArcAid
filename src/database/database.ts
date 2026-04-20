@@ -895,6 +895,30 @@ export async function initDatabase(): Promise<Database> {
             -- so the migration ledger reflects the v2.2.0 default-flip event.
             SELECT 1;
         ` },
+        { name: '066_anon_room_claims_multi_name', sql: `
+            -- v2.2.3: allow one anon_token to hold multiple display-name claims
+            -- per room. Pre-v2.2.3 the PK was (anon_token, room_id) — one claim per
+            -- browser per room — which meant a guest who typed "Bob_2" after
+            -- already claiming "Bob" silently got collapsed back to "Bob" by the
+            -- service's idempotent short-circuit. New PK keys on display_name too,
+            -- so the same token can claim "Bob" AND "Bob_2" as separate identities.
+            -- Name uniqueness per room is preserved by idx_anon_room_claims_room_display_unique.
+            CREATE TABLE anon_room_claims_new (
+                anon_token TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                claimed_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (anon_token, room_id, display_name),
+                FOREIGN KEY (room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+            );
+            INSERT INTO anon_room_claims_new (anon_token, room_id, display_name, claimed_at)
+                SELECT anon_token, room_id, display_name, claimed_at FROM anon_room_claims;
+            DROP TABLE anon_room_claims;
+            ALTER TABLE anon_room_claims_new RENAME TO anon_room_claims;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_anon_room_claims_room_display_unique
+                ON anon_room_claims(room_id, LOWER(display_name));
+            CREATE INDEX IF NOT EXISTS idx_anon_room_claims_room ON anon_room_claims(room_id);
+        ` },
     ];
 
     for (const migration of migrations) {
