@@ -919,7 +919,22 @@ router.post('/:roomId/community-scores/:gameName', conditionalRequireDiscordUser
         const gameName = decodeURIComponent(req.params.gameName as string);
         const roomId = req.params.roomId as string;
         const { username, score, discord_user_id, photo_url } = validationResult.data;
-        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, discord_user_id, photo_url);
+        // v2.2.0: anon-token plumbed for first-claim-wins.
+        const rawAnonHeader = req.headers['x-user-id'];
+        const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
+        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, discord_user_id, photo_url, { anonToken });
+
+        // v2.2.2: sync to iScored when this matches an ACTIVE tournament game.
+        // photo_url is a pre-existing URL (not an upload), so no persistentPhotoPath
+        // — Playwright fallback will skip the photo copy. API path still syncs.
+        const { syncScoreToIScored } = await import('../../services/IScoredSubmitSync.js');
+        syncScoreToIScored({
+            roomId,
+            gameName,
+            username: result.displayName,
+            score,
+        });
+
         res.status(201).json(result);
     } catch (error) {
         logError('API Error (POST rooms/:roomId/community-scores/:gameName):', error);
@@ -1039,56 +1054,17 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
             }
         }
 
-        // Fire-and-forget iScored sync (API preferred, Playwright fallback for photos)
-        (async () => {
-            let tempPhotoPath: string | undefined;
-            try {
-                const db = await getDatabase();
-                const activeGame = await db.get(`
-                    SELECT g.iscored_id FROM games g
-                    JOIN tournaments t ON t.id = g.tournament_id
-                    WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
-                      AND g.status = 'ACTIVE' AND g.iscored_id IS NOT NULL
-                    LIMIT 1
-                `, gameName, roomId);
-                if (!activeGame) {
-                    logWarn(`No active iScored game found for "${gameName}" in room ${roomId}, skipping sync`);
-                    return;
-                }
-
-                const useApi = process.env.ISCORED_API_ENABLED !== 'false';
-                if (useApi) {
-                    // API path — fast, no browser overhead (no photo support)
-                    const { IScoredApiClient } = await import('../../engine/IScoredApiClient.js');
-                    const apiClient = new IScoredApiClient();
-                    await apiClient.submitScore(activeGame.iscored_id, username, score);
-                    logInfo(`iScored API sync: submitted score for "${gameName}" by ${username}`);
-                } else {
-                    // Playwright fallback — supports photos
-                    const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
-                    if (!hasCredentials) return;
-
-                    if (persistentPhotoPath) {
-                        tempPhotoPath = persistentPhotoPath + '.tmp';
-                        fs.copyFileSync(persistentPhotoPath, tempPhotoPath);
-                    }
-
-                    const { IScoredClient } = await import('../../engine/IScoredClient.js');
-                    const client = new IScoredClient();
-                    await client.connect();
-                    try {
-                        await client.submitScore(activeGame.iscored_id, username, score, tempPhotoPath);
-                        logInfo(`iScored Playwright sync: submitted score for "${gameName}" by ${username}`);
-                    } finally {
-                        await client.disconnect();
-                    }
-                }
-            } catch (err) {
-                logError(`iScored sync failed for "${gameName}" by ${username}:`, err);
-            } finally {
-                if (tempPhotoPath) try { fs.unlinkSync(tempPhotoPath); } catch {}
-            }
-        })();
+        // v2.2.2: iScored sync extracted to a shared helper so all three web
+        // submission paths sync identically. Pass the resolved displayName so the
+        // name on iScored matches the name on ArcAid's scoreboard.
+        const { syncScoreToIScored } = await import('../../services/IScoredSubmitSync.js');
+        syncScoreToIScored({
+            roomId,
+            gameName,
+            username: effectiveUsername,
+            score,
+            persistentPhotoPath,
+        });
 
         res.status(201).json(result);
     } catch (error) {
@@ -1138,7 +1114,8 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
         const dir = path.join(process.cwd(), 'data', 'score-photos', roomId);
         fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, filename), req.file.buffer);
+        const persistentPhotoPath = path.join(dir, filename);
+        fs.writeFileSync(persistentPhotoPath, req.file.buffer);
         const photoUrl = `/api/score-photos/${roomId}/${filename}`;
 
         // v2.2.0: anon-token plumbed for first-claim-wins (see tournament submit handler comment).
@@ -1206,6 +1183,17 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
                 await LeaderboardService.invalidate(activeGame.id);
             }
         }
+
+        // v2.2.2: sync to iScored too when the freeplay target matches an ACTIVE
+        // tournament game. Closes the "freeplay scores never reach iScored" gap.
+        const { syncScoreToIScored } = await import('../../services/IScoredSubmitSync.js');
+        syncScoreToIScored({
+            roomId,
+            gameName: globalGame.name,
+            username: effectiveUsername,
+            score,
+            persistentPhotoPath,
+        });
 
         res.status(201).json({
             id: result.id,
