@@ -484,93 +484,96 @@ export class TournamentEngine {
         let winnerIscoredName: string | null = null;
         let winnerScore: number | null = null;
 
-        // --- iScored work for this slot ---
-        if (client) {
-            // Lock the completed game
-            if (activeGame.iscoredId) {
-                try {
-                    await client.setGameStatus(activeGame.iscoredId, { locked: true });
-                    logInfo(`   -> Locked on iScored: ${activeGame.name}`);
-                } catch (err) {
-                    logError('   -> Failed to lock game on iScored (continuing):', err);
-                }
+        // --- iScored housekeeping for this slot (lock + style sync) ---
+        // Score reads happen below from the local DB — see v2.2.1 note.
+        if (client && activeGame.iscoredId) {
+            try {
+                await client.setGameStatus(activeGame.iscoredId, { locked: true });
+                logInfo(`   -> Locked on iScored: ${activeGame.name}`);
+            } catch (err) {
+                logError('   -> Failed to lock game on iScored (continuing):', err);
+            }
 
-                // Learn styles
+            // Learn styles
+            try {
+                const styles = await client.syncStyle(activeGame.iscoredId);
+                if (styles) {
+                    const updated = await GameLibraryService.updateStyles(activeGame.name, styles);
+                    if (updated) logInfo(`   -> Learned styles for ${activeGame.name}`);
+                }
+            } catch (err) {
+                logWarn('   -> Failed to learn styles (continuing):', err);
+            }
+        }
+
+        // --- Winner resolution: local DB is canonical (v2.2.1) ---
+        // Previously iScored was the primary source and local DB was the fallback.
+        // That broke rooms where REQUIRE_DISCORD_LOGIN=false: guest scores live in
+        // `submissions` but may never reach iScored (iScored can reject them —
+        // seen "Access Denied" on a 99.9B submission), so the bot would announce
+        // whoever was on top in iScored, not whoever was on top in the room.
+        // `submissions` is the union of (Discord-submitted) + (guest-submitted) +
+        // (iScored-synced via ScoreSyncPoller), so it's the right source.
+        const topSubmission = await db.get(
+            `SELECT iscored_username, score, discord_user_id FROM submissions
+             WHERE game_id = ? ORDER BY score DESC LIMIT 1`,
+            activeGame.id
+        );
+        if (topSubmission) {
+            winnerIscoredName = topSubmission.iscored_username;
+            winnerScore = topSubmission.score;
+            logInfo(`   -> Top scorer (local DB): ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
+        }
+
+        // Fallback to iScored only when local DB is empty (pure iScored-driven
+        // legacy room that never saw a web/Discord submission).
+        if (!winnerIscoredName && client && activeGame.iscoredId) {
+            const useApi = process.env.ISCORED_API_ENABLED !== 'false';
+            if (useApi) {
                 try {
-                    const styles = await client.syncStyle(activeGame.iscoredId);
-                    if (styles) {
-                        const updated = await GameLibraryService.updateStyles(activeGame.name, styles);
-                        if (updated) logInfo(`   -> Learned styles for ${activeGame.name}`);
+                    const { IScoredApiClient } = await import('./IScoredApiClient.js');
+                    const apiClient = new IScoredApiClient();
+                    const gameScores = await apiClient.getGameScores(activeGame.iscoredId, 1);
+                    const topScore = gameScores.scores?.[0];
+                    if (topScore) {
+                        winnerIscoredName = topScore.name;
+                        const rawScore = String(topScore.score).replace(/[^0-9]/g, '');
+                        winnerScore = parseInt(rawScore, 10) || null;
+                        logInfo(`   -> Top scorer (iScored API fallback): ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
                     }
                 } catch (err) {
-                    logWarn('   -> Failed to learn styles (continuing):', err);
-                }
-
-                // Get final standings — API preferred, Playwright fallback
-                const useApi = process.env.ISCORED_API_ENABLED !== 'false';
-                if (useApi && activeGame.iscoredId) {
-                    try {
-                        const { IScoredApiClient } = await import('./IScoredApiClient.js');
-                        const apiClient = new IScoredApiClient();
-                        const gameScores = await apiClient.getGameScores(activeGame.iscoredId, 1);
-                        const topScore = gameScores.scores?.[0];
-                        if (topScore) {
-                            winnerIscoredName = topScore.name;
-                            const rawScore = String(topScore.score).replace(/[^0-9]/g, '');
-                            winnerScore = parseInt(rawScore, 10) || null;
-                            logInfo(`   -> Top scorer (API): ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
-                        } else {
-                            logWarn('   -> No scores found on iScored API for this game.');
-                        }
-                    } catch (err) {
-                        logError('   -> iScored API failed, trying Playwright fallback:', err);
-                        // Fall through to Playwright
-                        if (hasPublicUrl && client) {
-                            try {
-                                const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId!);
-                                if (scores.length > 0) {
-                                    winnerIscoredName = scores[0].name;
-                                    const rawScore = String(scores[0].score).replace(/[^0-9]/g, '');
-                                    winnerScore = parseInt(rawScore, 10) || null;
-                                    logInfo(`   -> Top scorer (Playwright fallback): ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
-                                }
-                            } catch (err2) {
-                                logError('   -> Playwright fallback also failed:', err2);
+                    logError('   -> iScored API fallback failed:', err);
+                    if (hasPublicUrl) {
+                        try {
+                            const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId);
+                            if (scores.length > 0) {
+                                winnerIscoredName = scores[0].name;
+                                const rawScore = String(scores[0].score).replace(/[^0-9]/g, '');
+                                winnerScore = parseInt(rawScore, 10) || null;
+                                logInfo(`   -> Top scorer (Playwright fallback): ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
                             }
+                        } catch (err2) {
+                            logError('   -> Playwright fallback also failed:', err2);
                         }
                     }
-                } else if (hasPublicUrl && activeGame.iscoredId) {
-                    try {
-                        const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId);
-                        if (scores.length > 0) {
-                            winnerIscoredName = scores[0].name;
-                            const rawScore = String(scores[0].score).replace(/[^0-9]/g, '');
-                            winnerScore = parseInt(rawScore, 10) || null;
-                            logInfo(`   -> Top scorer: ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
-                        } else {
-                            logWarn('   -> No scores found on iScored for this game.');
-                        }
-                    } catch (err) {
-                        logError('   -> Failed to scrape public scores (continuing):', err);
+                }
+            } else if (hasPublicUrl) {
+                try {
+                    const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId);
+                    if (scores.length > 0) {
+                        winnerIscoredName = scores[0].name;
+                        const rawScore = String(scores[0].score).replace(/[^0-9]/g, '');
+                        winnerScore = parseInt(rawScore, 10) || null;
+                        logInfo(`   -> Top scorer (Playwright): ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
                     }
+                } catch (err) {
+                    logError('   -> Failed to scrape public scores (continuing):', err);
                 }
             }
         }
 
-        // --- Fallback: check ArcAid DB if iScored scraping found no winner ---
         if (!winnerIscoredName) {
-            const topSubmission = await db.get(
-                `SELECT iscored_username, score FROM submissions
-                 WHERE game_id = ? ORDER BY score DESC LIMIT 1`,
-                activeGame.id
-            );
-            if (topSubmission) {
-                winnerIscoredName = topSubmission.iscored_username;
-                winnerScore = topSubmission.score;
-                logInfo(`   -> Winner from ArcAid DB: ${winnerIscoredName} (${winnerScore?.toLocaleString() ?? 'N/A'})`);
-            } else {
-                logWarn('   -> No scores found in ArcAid DB either.');
-            }
+            logWarn('   -> No scores found in local DB or iScored.');
         }
 
         // --- Mark active game COMPLETED ---
@@ -647,6 +650,16 @@ export class TournamentEngine {
             if (displayName) {
                 desc += `\n**Winner:** ${displayName}`;
                 if (winnerScore) desc += ` — **${winnerScore.toLocaleString()}**`;
+            }
+            // v2.2.1: when the winner has no Discord mapping, they can't @mention,
+            // they can't use /pick-game, and their identity might not match their
+            // real Discord name. Tell them how to claim so future wins work.
+            if (!winnerId && winnerIscoredName) {
+                const roomRow = tournamentRow.game_room_id
+                    ? await db.get('SELECT slug FROM game_rooms WHERE id = ?', tournamentRow.game_room_id)
+                    : null;
+                const scoreboardLink = roomRow?.slug ? `https://arcaid.app/${roomRow.slug}` : 'the room scoreboard';
+                desc += `\n\n_Is this you?_ Log in with Discord on ${scoreboardLink} to claim future scores. If your Discord name differs from \`${winnerIscoredName}\`, ask an admin to merge identities. An admin will pick the next ${term.game} in the meantime.`;
             }
             embed.setDescription(desc);
             await sendChannelEmbed(channelId, embed);

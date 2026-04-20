@@ -394,6 +394,12 @@ Options to evaluate:
 - [ ] Download and persist iScored CDN photos during sync (for rooms still using iScored)
 - [ ] Copy room photos to global photo dir during fan-out
 
+### iScored Sync Hardening
+Cooldown enforcement gaps identified in v2.2.0 review. Evaluate and address in a future sprint.
+
+- [ ] **Cooldown bypass via `/sync-state`** — when an admin manually creates a game on iScored tagged `DG` / `WG-VPXS` / `WG-VR` / `MG`, the next `/sync-state` creates a local `games` row set to ACTIVE with no `GAME_ELIGIBILITY_DAYS` / `last_played` check (`src/discord/commands/syncstate.ts:45-65`). The game goes live in ArcAid even if `game_library` says it's still in cooldown. Cooldown is only enforced by `runMaintenance()`, `autoPickAndActivate()`, and the web `/pick-game` path — not by sync. Decide: (a) treat sync as admin-override and document, (b) refuse to create the local row when cooldown applies, or (c) create it as LOCKED so it's recorded but doesn't surface on scoreboards. Option (c) preserves iScored-is-source-of-truth while respecting cooldown.
+- [ ] **Duplicate active games when sync runs with an active DG game present** — related to above. Sync doesn't check `max_active_games` before marking a discovered game ACTIVE, so two DG games can be ACTIVE simultaneously until the next maintenance run rotates one out.
+
 ### Ops / Infrastructure
 - [x] CI/CD pipeline (GitHub Actions: build + push to GHCR + deploy to Hetzner on push to main)
 - [ ] Automated backup schedule (configurable via admin UI)

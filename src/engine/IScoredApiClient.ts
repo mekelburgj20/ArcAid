@@ -108,7 +108,17 @@ export class IScoredApiClient {
             const text = await res.text().catch(() => '');
             throw new Error(`iScored API submitScore error: ${res.status} — ${text}`);
         }
-        return res.json();
+        // v2.2.1: iScored occasionally returns `200 OK` with a plain-text body like
+        // "Access Denied" (seen when a score is rejected — e.g. suspicious magnitude,
+        // rate limiting, etc.). Reading as text first lets us surface that cleanly as
+        // an Error instead of throwing a raw SyntaxError from res.json(). The caller
+        // (fire-and-forget sync in the route handler) catches and logs non-fatally.
+        const text = await res.text();
+        try {
+            return JSON.parse(text) as IScoredApiSubmitResult;
+        } catch {
+            throw new Error(`iScored API submitScore rejected: ${text.slice(0, 200)}`);
+        }
     }
 
     /**
