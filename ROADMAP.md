@@ -394,6 +394,41 @@ Options to evaluate:
 - [ ] Download and persist iScored CDN photos during sync (for rooms still using iScored)
 - [ ] Copy room photos to global photo dir during fan-out
 
+### Phantom anon-claim cleanup — manual runbook (not automation)
+
+First-claim-wins is the policy: whoever uses a name first in a room owns it. **We don't automate "Discord trumps anon" name transfers** — that's the fraud surface we explicitly rejected when the design was agreed. If a Discord user and a legit-different-human anon share a display name, the anon (who got there first) keeps it, the Discord user gets `Name_2`.
+
+The one exception is a phantom claim — an anon row that *is actually the same human* as the Discord user who later tries to claim the name, typically from the pre-v2.2.5 window when `conditionalRequireDiscordUser` was dropping Bearer tokens in guest-allowed rooms. Those should be cleaned up case-by-case, never automated.
+
+**Procedure:**
+
+1. Verify the claim is a phantom. Needs at least two of:
+   - The anon claim's `claimed_at` falls inside a known middleware-bug window (pre-v2.2.5 deploy, or after any future auth-middleware regression).
+   - The user confirms it was their browser session.
+   - The `anon_token` matches a localStorage UUID the user can produce.
+2. Identify the row precisely:
+   ```sql
+   SELECT anon_token, room_id, display_name, claimed_at
+     FROM anon_room_claims
+    WHERE LOWER(display_name) = LOWER('<name>')
+      AND room_id = '<room-uuid>';
+   ```
+3. Delete narrow, keyed on `anon_token` + `room_id` + `display_name`:
+   ```sql
+   DELETE FROM anon_room_claims
+    WHERE anon_token = '<token>'
+      AND room_id = '<room-uuid>'
+      AND LOWER(display_name) = LOWER('<name>');
+   ```
+4. Log the deletion in `audit_log` with a reason so there's a trail (or document in ops notes if the table doesn't accept ad-hoc reasons).
+
+**Do not:**
+- Run the broad `DELETE ... WHERE name IN (SELECT iscored_username FROM user_mappings)` form. It can't distinguish phantom from legit and violates first-claim-wins.
+- Surface a self-serve "claim this name" button in the UI — same fraud surface.
+- Build a background job that auto-cleans phantoms. Needs a human to verify the claim is actually the same user.
+
+The existing admin merge tool at `/:slug/admin/identity` is the right place for real cross-identity reconciliation when it turns out two claims should collapse into one.
+
 ### Comments & Tips — bidirectional view (Option 2)
 
 Comments/tips and ratings currently live in two parallel stores: `game_comments`/`game_ratings` (room-scoped, keyed on `(room_id, game_name)`, anon allowed) and `global_game_comments`/`global_game_ratings` (keyed on `global_game_id`, Discord required). A tip written on the Room Game Detail never reaches the Global Game Detail for the same game, and vice versa.
