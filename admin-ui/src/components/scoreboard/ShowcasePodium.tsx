@@ -70,7 +70,13 @@ function PodiumSlot({
   const isExpanded = entry ? expandedPlayer === entry.iscored_username : false;
 
   return (
-    <div style={{ flex: 1, minWidth: 0 }}>
+    /* v2.2.7: also set pointerEvents: 'auto' on the outer wrapper when
+       canExpand, so every pixel of this podium column (not just the inner
+       tinted box) captures expand clicks. Previously the inner div alone
+       had pointer-events auto — padding / surrounding flex area fell back
+       to the wrapper's pointer-events-none and clicks there navigated
+       instead of expanding. */
+    <div style={{ flex: 1, minWidth: 0, ...(canExpand ? { pointerEvents: 'auto' } : {}) }}>
       <div
         style={{
           borderRadius: isExpanded ? '12px 12px 0 0' : '12px',

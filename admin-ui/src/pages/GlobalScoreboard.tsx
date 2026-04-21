@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Trophy, Upload, LogIn, Filter } from 'lucide-react';
+import { Search, Trophy, Upload, Filter } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
@@ -9,6 +9,7 @@ import SubmissionSheet from '../components/SubmissionSheet';
 import StarRating from '../components/StarRating';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
+import DiscordLoginButton from '../components/DiscordLoginButton';
 
 interface TopScoreEntry {
   iscored_username: string;
@@ -284,18 +285,11 @@ export default function GlobalScoreboard() {
               </Link>
             )}
             {discordUser ? (
-              /* v2.2.6: use shared UserMenu component so My Rooms/Friends/etc
-                 are reachable from the Global Scoreboard too. No slug here
-                 (global page), so Room-admin link is hidden. */
+              /* v2.2.6: shared UserMenu so My Rooms / Friends are reachable here too. */
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
             ) : (
-              <button
-                onClick={handleLogin}
-                className="flex items-center gap-1 px-3 py-1.5 rounded border border-neon-cyan/40 text-xs text-neon-cyan hover:bg-neon-cyan/10"
-              >
-                <LogIn className="w-3 h-3" />
-                Login
-              </button>
+              /* v2.2.7: shared Discord-brand Login button, matches PublicLayout. */
+              <DiscordLoginButton onClick={handleLogin} />
             )}
           </div>
         </div>

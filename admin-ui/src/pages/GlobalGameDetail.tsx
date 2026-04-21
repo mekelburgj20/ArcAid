@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Trophy, Upload, LogIn, Download, BookOpen, Play, ExternalLink, Flag, MessageSquare, Lightbulb, Trash2 } from 'lucide-react';
+import { ArrowLeft, Trophy, Upload, Download, BookOpen, Play, ExternalLink, Flag, MessageSquare, Lightbulb, Trash2 } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import StarRating from '../components/StarRating';
@@ -8,6 +8,7 @@ import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
+import DiscordLoginButton from '../components/DiscordLoginButton';
 
 interface GlobalGame {
   id: string;
@@ -403,17 +404,11 @@ export default function GlobalGameDetail() {
               </Link>
             )}
             {discordUser ? (
-              /* v2.2.6: shared UserMenu — surfaces My Rooms / Friends / Log out
-                 from this page too, matching the PublicLayout nav on room pages. */
+              /* v2.2.6: shared UserMenu — surfaces My Rooms / Friends / Log out here too. */
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
             ) : (
-              <button
-                onClick={handleLogin}
-                className="flex items-center gap-1 px-3 py-1.5 rounded border border-neon-cyan/40 text-xs text-neon-cyan hover:bg-neon-cyan/10"
-              >
-                <LogIn className="w-3 h-3" />
-                Login
-              </button>
+              /* v2.2.7: shared Discord-brand Login button. */
+              <DiscordLoginButton onClick={handleLogin} />
             )}
           </div>
         </div>
