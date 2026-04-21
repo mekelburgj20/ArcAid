@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.2.11] — 2026-04-21
+
+**Patch.** Service-worker cache-bust. `sw.js` uses cache-first for JS/CSS assets and its `CACHE_NAME` had been pinned at `arcaid-v5` since v2.0.x, so installed service workers were serving stale bundles even after browser hard-refreshes. Bumped to `arcaid-v6`. The SW's `activate` handler deletes all caches not matching the current name, so on the user's next page load the old cache is purged and everything reloads fresh.
+
+This is why v2.2.10's username-Link / expand-contrast / Picks-URL changes weren't visible to the tester even though the bundle was correctly deployed.
+
+---
+
 ## [2.2.10] — 2026-04-21
 
 **Patch.** Five follow-ups from v2.2.9 testing.
