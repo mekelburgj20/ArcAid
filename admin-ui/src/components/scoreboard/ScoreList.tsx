@@ -61,7 +61,7 @@ export default function ScoreList({
                 borderLeft: '2px solid transparent',
                 background: i % 2 === 0 ? zebraStripe : 'transparent',
                 ...(hoverBorder ? { transition: 'border-color 0.15s' } : {}),
-                ...(canExpand ? { cursor: 'pointer' } : {}),
+                ...(canExpand ? { cursor: 'pointer', pointerEvents: 'auto' } : {}),
               }}
               onClick={canExpand ? () => onTogglePlayer?.(entry.iscored_username) : undefined}
               onMouseEnter={hoverBorder ? (e) => { (e.currentTarget as HTMLElement).style.borderLeftColor = hoverBorder; } : undefined}

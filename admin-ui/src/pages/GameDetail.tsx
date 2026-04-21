@@ -453,7 +453,16 @@ export default function GameDetail() {
                           }`}>
                             {entry.rank}
                           </span>
-                          <span className="font-medium truncate">{entry.iscored_username}</span>
+                          {/* v2.2.6: clicking the username goes to player
+                              stats. stopPropagation so the row-click expand
+                              (when hasMultiple) doesn't also fire. */}
+                          <Link
+                            to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
+                            onClick={e => e.stopPropagation()}
+                            className="font-medium truncate no-underline text-primary hover:text-neon-cyan transition-colors"
+                          >
+                            {entry.iscored_username}
+                          </Link>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`font-display font-bold flex-shrink-0 ${

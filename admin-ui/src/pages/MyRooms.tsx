@@ -72,7 +72,7 @@ export default function MyRooms() {
             onClick={() => loginWithDiscord('__myrooms__', '/my-rooms')}
             className="px-4 py-2 rounded border border-[#5865F2]/40 bg-[#5865F2]/10 text-[#5865F2] text-sm font-medium hover:bg-[#5865F2]/20 cursor-pointer"
           >
-            Login with Discord
+            Login
           </button>
         </div>
       </div>

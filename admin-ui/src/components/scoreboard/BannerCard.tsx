@@ -134,7 +134,7 @@ export default function BannerCard({
 
       {/* Title area */}
       <div
-        className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
+        className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors pointer-events-auto' : ''}`}
         onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
       >
         {!hasIdentifierImage && (
@@ -199,7 +199,7 @@ export default function BannerCard({
               return (
                 <div key={`${entry.rank}-${entry.iscored_username}`}>
                   <div
-                    className={`flex items-center gap-1.5 ${canExpand ? 'cursor-pointer' : ''}`}
+                    className={`flex items-center gap-1.5 ${canExpand ? 'cursor-pointer pointer-events-auto' : ''}`}
                     onClick={canExpand ? () => togglePlayer(entry.iscored_username) : undefined}
                   >
                     <span className={`w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>

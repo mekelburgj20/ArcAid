@@ -66,9 +66,12 @@ export interface GameCardProps {
 }
 
 function defaultLinkTarget(game: GameLeaderboard, slug: string): string {
-    if (game.globalGameId) {
-        return `/games/${game.globalGameId}?from=${encodeURIComponent(slug)}`;
-    }
+    // v2.2.6: always link to the room-scoped Game Detail so clicks show the
+    // same scores that appeared on the card (including anon/guest submissions).
+    // Pre-v2.2.6 we routed to the Global Game Detail when a globalGameId was
+    // present — but Global correctly hides anon submissions via the fan-out
+    // gate, so users saw scores vanish when they clicked through. Global is
+    // still reachable via `/scoreboard` → game tile.
     return `/${slug}/games/${encodeURIComponent(game.gameName)}`;
 }
 
@@ -167,25 +170,33 @@ export default function GameCard({
                 </button>
             )}
 
-            <CardRouter
-                lb={game}
-                slug={slug}
-                roomId={roomId}
-                style={style}
-                theme={theme}
-                maxScores={maxScores}
-                minScores={minScores}
-                showTimer={showTimer}
-                viewerUsername={viewerUsername}
-                viewerEntry={viewerEntry}
-                qrMode={qrMode}
-                qrSize={qrSize}
-                qrPosition={qrPosition}
-                cardBgFill={cardBgFill}
-                titleFontSize={titleFontSize}
-                gameTitleStyle={gameTitleStyle}
-                onSubmitScore={onSubmit}
-            />
+            {/* v2.2.6: wrap CardRouter in a z-20 pointer-events-none container
+                so expandable score rows can opt in to clicks (via pointer-events-auto
+                in BannerCard/MinimalCard/ShowcasePodium/ScoreList) without the
+                z-10 Link overlay intercepting them. Non-interactive CardRouter
+                area still passes clicks through to Link → card navigates on
+                background clicks as before. */}
+            <div className="relative z-20 pointer-events-none">
+                <CardRouter
+                    lb={game}
+                    slug={slug}
+                    roomId={roomId}
+                    style={style}
+                    theme={theme}
+                    maxScores={maxScores}
+                    minScores={minScores}
+                    showTimer={showTimer}
+                    viewerUsername={viewerUsername}
+                    viewerEntry={viewerEntry}
+                    qrMode={qrMode}
+                    qrSize={qrSize}
+                    qrPosition={qrPosition}
+                    cardBgFill={cardBgFill}
+                    titleFontSize={titleFontSize}
+                    gameTitleStyle={gameTitleStyle}
+                    onSubmitScore={onSubmit}
+                />
+            </div>
 
             {slots?.bottom && (
                 <div className="relative z-20 mt-2">{slots.bottom}</div>

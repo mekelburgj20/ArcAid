@@ -252,9 +252,10 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
             }}
           >
             {cards.map(lb => {
-              const linkTo = lb.globalGameId
-                ? `/games/${lb.globalGameId}?from=${encodeURIComponent(slug)}`
-                : `/${slug}/games/${encodeURIComponent(lb.gameName)}`;
+              // v2.2.6: always link to the room-scoped Game Detail. Global was
+              // preferred when globalGameId existed, but Global hides anon
+              // scores via the fan-out gate so clicks made scores "disappear".
+              const linkTo = `/${slug}/games/${encodeURIComponent(lb.gameName)}`;
 
               return (
                 <div

@@ -7,6 +7,7 @@ import StarRating from '../components/StarRating';
 import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
 import RoomTag from '../components/RoomTag';
+import UserMenu from '../components/UserMenu';
 
 interface GlobalGame {
   id: string;
@@ -402,29 +403,16 @@ export default function GlobalGameDetail() {
               </Link>
             )}
             {discordUser ? (
-              <div className="flex items-center gap-2">
-                {discordUser.avatar ? (
-                  <img src={discordUser.avatar} alt="" className="w-6 h-6 rounded-full border border-border" />
-                ) : (
-                  <div className="w-6 h-6 rounded-full bg-neon-cyan/20 border border-border flex items-center justify-center text-[10px] font-bold text-neon-cyan">
-                    {discordUser.username.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span className="text-xs text-muted hidden sm:inline">{discordUser.username}</span>
-                <button
-                  onClick={logoutPlayer}
-                  className="px-3 py-1.5 rounded border border-border text-xs text-muted hover:text-primary hover:border-neon-cyan"
-                >
-                  Logout
-                </button>
-              </div>
+              /* v2.2.6: shared UserMenu — surfaces My Rooms / Friends / Log out
+                 from this page too, matching the PublicLayout nav on room pages. */
+              <UserMenu user={discordUser} onLogout={logoutPlayer} />
             ) : (
               <button
                 onClick={handleLogin}
                 className="flex items-center gap-1 px-3 py-1.5 rounded border border-neon-cyan/40 text-xs text-neon-cyan hover:bg-neon-cyan/10"
               >
                 <LogIn className="w-3 h-3" />
-                Login with Discord
+                Login
               </button>
             )}
           </div>

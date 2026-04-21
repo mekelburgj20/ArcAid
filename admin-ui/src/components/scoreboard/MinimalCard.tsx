@@ -159,7 +159,7 @@ export default function MinimalCard({
                   <div
                     className={`flex items-center gap-2.5 px-3 py-1.5 rounded ${
                       isViewerRow ? 'bg-neon-cyan/10' : ''
-                    } ${canExpand ? 'cursor-pointer hover:bg-raised/30 transition-colors' : ''}`}
+                    } ${canExpand ? 'cursor-pointer hover:bg-raised/30 transition-colors pointer-events-auto' : ''}`}
                     onClick={canExpand ? () => togglePlayer(entry.iscored_username) : undefined}
                   >
                     <span className={`w-5 text-right text-[11px] font-semibold tabular-nums ${rankColor}`}>

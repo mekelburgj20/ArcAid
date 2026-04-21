@@ -24,6 +24,9 @@ interface GameAvailabilityEntry {
 
 interface TournamentInfo {
     id: string;
+    name?: string;
+    type?: string;
+    is_active?: boolean;
 }
 
 interface AvailabilityData {
@@ -42,6 +45,8 @@ export default function MysteryAwardPage() {
     const [roomName, setRoomName] = useState<string>('');
     const [roomLogo, setRoomLogo] = useState<string>('');
     const [availableGames, setAvailableGames] = useState<string[]>([]);
+    // v2.2.6 — full tournament list so the user can switch pools.
+    const [tournaments, setTournaments] = useState<TournamentInfo[]>([]);
     const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
 
@@ -63,15 +68,23 @@ export default function MysteryAwardPage() {
         if (!roomId) return;
         fetch(`/api/rooms/${roomId}/tournaments`)
             .then(r => r.ok ? r.json() : [])
-            .then((ts: Array<{ id: string; is_active: boolean }>) => {
-                const active = ts.find(t => t.is_active);
-                if (active) setSelectedTournamentId(active.id);
+            .then((ts: Array<{ id: string; name: string; type: string; is_active: boolean }>) => {
+                // v2.2.6 — keep every active tournament so the user can pick
+                // the pool. Default to the first active one on initial load.
+                const actives = ts.filter(t => t.is_active);
+                setTournaments(actives);
+                if (actives.length > 0 && !selectedTournamentId) {
+                    setSelectedTournamentId(actives[0].id);
+                }
             })
             .catch(() => {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [roomId]);
 
     useEffect(() => {
         if (!roomId || !selectedTournamentId) return;
+        setReady(false);
+        setAvailableGames([]);
         fetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
             .then(r => r.ok ? r.json() : null)
             .then((data: AvailabilityData | null) => {
@@ -130,14 +143,33 @@ export default function MysteryAwardPage() {
 
     return (
         <div className="relative min-h-screen bg-deep">
-            {/* Header overlay — back link + login CTA for anon viewers */}
-            <div className="absolute top-0 left-0 right-0 z-10 px-4 py-3 flex items-center justify-between pointer-events-none">
+            {/* Header overlay — back link + tournament selector + login CTA */}
+            <div className="absolute top-0 left-0 right-0 z-10 px-4 py-3 flex items-center justify-between gap-2 pointer-events-none">
                 <Link
                     to={`/${slug}`}
                     className="pointer-events-auto inline-flex items-center gap-1 text-xs text-muted hover:text-neon-cyan no-underline"
                 >
                     <ArrowLeft size={12} /> {roomName || slug}
                 </Link>
+
+                {/* v2.2.6 — tournament pool selector. Only rendered when the
+                    room has >1 active tournament; otherwise there's nothing
+                    to choose between. */}
+                {tournaments.length > 1 && (
+                    <label className="pointer-events-auto inline-flex items-center gap-2 text-xs text-muted">
+                        <span className="hidden sm:inline">Pool:</span>
+                        <select
+                            value={selectedTournamentId ?? ''}
+                            onChange={e => setSelectedTournamentId(e.target.value || null)}
+                            className="bg-surface border border-border rounded px-2 py-1 text-xs text-primary focus:outline-none focus:border-neon-cyan cursor-pointer"
+                        >
+                            {tournaments.map(t => (
+                                <option key={t.id} value={t.id}>{t.name || t.type || t.id}</option>
+                            ))}
+                        </select>
+                    </label>
+                )}
+
                 {!discordUser && (
                     <NeonButton
                         onClick={() => loginWithDiscord(slug)}

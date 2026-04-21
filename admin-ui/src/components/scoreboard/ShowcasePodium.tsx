@@ -83,7 +83,7 @@ function PodiumSlot({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          ...(canExpand ? { cursor: 'pointer' } : {}),
+          ...(canExpand ? { cursor: 'pointer', pointerEvents: 'auto' } : {}),
         }}
         onClick={canExpand ? () => onTogglePlayer?.(entry!.iscored_username) : undefined}
       >
