@@ -77,28 +77,36 @@ export function conditionalRequireDiscordUser(roomIdParam = 'roomId') {
         const roomId = (req.params as any)[roomIdParam];
         if (!roomId) return next();
 
+        let required = 'false';
         try {
             const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
-            const required = await GameRoomSettingsService.get(roomId, 'REQUIRE_DISCORD_LOGIN');
-            if (required !== 'true') return next();
+            required = (await GameRoomSettingsService.get(roomId, 'REQUIRE_DISCORD_LOGIN')) || 'false';
         } catch {
-            // Setting lookup failed — fail-open rather than block submissions
-            return next();
+            // Setting lookup failed — fall through to optional-auth path below (fail-open).
         }
 
-        // Gate is on — require Discord identity
         const authHeader = req.headers['authorization'];
         const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-        if (!token) {
-            res.status(401).json({ error: 'Discord login required for this room' });
-            return;
+
+        // v2.2.5: always try to decode the token when present, regardless of the
+        // REQUIRE_DISCORD_LOGIN setting. Previously this middleware `return next()`'d
+        // without looking at Authorization when the room was guest-allowed, which
+        // meant a logged-in user's submission silently fell through as COMMUNITY.
+        // Result: their score didn't fan out to Global and the avatar join failed.
+        // Now: token present → decode + attach to req.user so downstream handlers
+        // can attribute correctly. Token missing → only block when login is required.
+        if (token) {
+            const payload = verifyToken(token);
+            if (payload?.discordId) req.user = payload;
         }
-        const payload = verifyToken(token);
-        if (!payload || !payload.discordId) {
-            res.status(401).json({ error: 'Discord login required for this room' });
-            return;
+
+        if (required === 'true') {
+            if (!req.user?.discordId) {
+                res.status(401).json({ error: 'Discord login required for this room' });
+                return;
+            }
         }
-        req.user = payload;
+
         next();
     };
 }

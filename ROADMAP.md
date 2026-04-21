@@ -394,6 +394,20 @@ Options to evaluate:
 - [ ] Download and persist iScored CDN photos during sync (for rooms still using iScored)
 - [ ] Copy room photos to global photo dir during fan-out
 
+### Comments & Tips — bidirectional view (Option 2)
+
+Comments/tips and ratings currently live in two parallel stores: `game_comments`/`game_ratings` (room-scoped, keyed on `(room_id, game_name)`, anon allowed) and `global_game_comments`/`global_game_ratings` (keyed on `global_game_id`, Discord required). A tip written on the Room Game Detail never reaches the Global Game Detail for the same game, and vice versa.
+
+Ship a union-view model that keeps both stores but surfaces cross-room content where appropriate:
+
+- [ ] Comment compose UI gains a "Share globally" checkbox. Defaults on for Discord-authed users (writes to both tables); anon comments stay room-only.
+- [ ] Room Game Detail renders local + global comments together, tagged by origin (e.g., small "Globally" badge on shared comments, room logo on room-only). Add a `?scope=room|global|both` filter or tab.
+- [ ] Global Game Detail adds a "From rooms" section or similar so room-shared tips are discoverable cross-community.
+- [ ] **Ratings:** probably fully unify for any game with a `global_game_id` — a star is a star. Room-only games (no global mapping) keep their ratings local.
+- [ ] Migration / backfill decision: do we one-shot promote existing room comments with Discord-authored authors into `global_game_comments`, or leave history as-is?
+
+Rough scope: half a day of focused work. Needs a design pass on the compose UX (where exactly the checkbox lives, default state per auth state, how to handle room games without a global mapping).
+
 ### iScored Sync Hardening
 Cooldown enforcement gaps identified in v2.2.0 review. Evaluate and address in a future sprint.
 

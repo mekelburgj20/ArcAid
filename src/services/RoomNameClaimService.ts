@@ -190,6 +190,46 @@ export class RoomNameClaimService {
     }
 
     /**
+     * v2.2.5 — dry-run availability check used by the SubmissionSheet pre-submit
+     * collision prompt. Returns whether the requested name is free for the
+     * submitting claimant (either unclaimed, or already owned by them), and if
+     * not, the next available suffix the server *would* assign on submit.
+     *
+     * Does not persist anything. Callers use it to show a "name taken, try X"
+     * UX before the user commits to submission.
+     */
+    static async checkAvailability(
+        roomId: string,
+        requestedName: string,
+        claimant: ClaimantId,
+    ): Promise<{ available: boolean; suggestion: string }> {
+        const trimmed = requestedName.trim();
+        if (!trimmed) throw new Error('RoomNameClaimService.checkAvailability: requestedName is empty');
+        if (!roomId) throw new Error('RoomNameClaimService.checkAvailability: roomId is required');
+
+        const ownerOfRequested = await this.findClaimOwner(roomId, trimmed);
+        if (!ownerOfRequested || this.isOwnedByClaimant(ownerOfRequested, claimant)) {
+            return { available: true, suggestion: trimmed };
+        }
+
+        let candidate = trimmed;
+        let suffix = 1;
+        while (true) {
+            const owner = await this.findClaimOwner(roomId, candidate);
+            if (!owner || this.isOwnedByClaimant(owner, claimant)) break;
+            suffix++;
+            if (suffix > MAX_SUFFIX_TRIES) {
+                throw new Error(
+                    `RoomNameClaimService.checkAvailability: exhausted ${MAX_SUFFIX_TRIES} suffixes for "${trimmed}" in room ${roomId}`,
+                );
+            }
+            candidate = `${trimmed}_${suffix}`;
+        }
+
+        return { available: false, suggestion: candidate };
+    }
+
+    /**
      * Build the right ClaimantId for a submission given the request context.
      * Centralizes the discord-vs-anon-vs-sessionless decision so all submission
      * paths agree on it.

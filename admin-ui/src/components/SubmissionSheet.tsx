@@ -70,9 +70,10 @@ export interface SubmissionSheetProps {
 
 type Phase =
     | 'form'
-    | 'loginRequired'  // v2.0.1 — room requires login + viewer not authed
-    | 'checkingCollision'
-    | 'claimPrompt'
+    | 'loginRequired'         // v2.0.1 — room requires login + viewer not authed
+    | 'checkingCollision'     // running anonymous-check / name-check
+    | 'claimPrompt'           // v2.0.0 Discord-guild-member nickname match
+    | 'nameCollisionPrompt'   // v2.2.5 — name is taken by another claimant in this room
     | 'submitting'
     | 'committingDraft'
     | 'success'
@@ -126,6 +127,9 @@ export default function SubmissionSheet({
         return 'form';
     });
     const [matchedNickname, setMatchedNickname] = useState<string | null>(null);
+    // v2.2.5 — pre-submit name collision prompt state.
+    const [collisionRequested, setCollisionRequested] = useState<string>('');
+    const [collisionInput, setCollisionInput] = useState<string>('');
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [activeField, setActiveField] = useState<'name' | 'score' | null>(null);
     const [showKeyboard, setShowKeyboard] = useState(false);
@@ -193,9 +197,24 @@ export default function SubmissionSheet({
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
+    /**
+     * Ensure a persisted anon-id so first-claim-wins can key on it.
+     * Generated lazily on first submit, same UUID across page reloads.
+     */
+    const ensureAnonId = (): string => {
+        let anonId = localStorage.getItem('arcaid_anon_id');
+        if (!anonId) {
+            anonId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+                ? crypto.randomUUID()
+                : `anon_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+            localStorage.setItem('arcaid_anon_id', anonId);
+        }
+        return anonId;
+    };
+
     /** POST score directly as-the-current-user (authenticated or anonymous). */
-    const submitScoreNow = async () => {
-        const trimmedName = playerName.trim();
+    const submitScoreNow = async (overrideName?: string) => {
+        const trimmedName = (overrideName ?? playerName).trim();
         const scoreNum = parseInt(score, 10);
         if (!trimmedName || isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
@@ -209,17 +228,7 @@ export default function SubmissionSheet({
 
             let url = '';
             const headers: Record<string, string> = {};
-            // v2.2.0: always send a stable anon-token so first-claim-wins can
-            // keep this browser's display name sticky across re-submits.
-            // Generated lazily on first submission, persisted in localStorage.
-            let anonId = localStorage.getItem('arcaid_anon_id');
-            if (!anonId) {
-                anonId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-                    ? crypto.randomUUID()
-                    : `anon_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
-                localStorage.setItem('arcaid_anon_id', anonId);
-            }
-            headers['x-user-id'] = anonId;
+            headers['x-user-id'] = ensureAnonId();
             if (playerToken) headers.Authorization = `Bearer ${playerToken}`;
 
             if (target.kind === 'tournament') {
@@ -244,12 +253,14 @@ export default function SubmissionSheet({
                 throw new Error((data as { error?: string }).error || 'Submission failed');
             }
 
-            localStorage.setItem('arcaid-player-name', trimmedName);
-            setPhase('success');
-            // v2.2.0: when first-claim-wins auto-suffixed the requested name,
-            // surface that to the user so they understand why the leaderboard
-            // shows "Bob_2" instead of "Bob".
+            // v2.2.5: store the *resolved* display name (may differ from what was
+            // typed if the server auto-suffixed it) so the next session prefills
+            // with the sticky identity, not the now-stale request.
             const responseData = data as { displayName?: string; suffixed?: boolean; requested?: string };
+            const resolvedName = responseData?.displayName || trimmedName;
+            localStorage.setItem('arcaid-player-name', resolvedName);
+            setPlayerName(resolvedName);
+            setPhase('success');
             const successText = responseData?.suffixed && responseData.displayName && responseData.requested
                 ? `Submitted as ${responseData.displayName} — "${responseData.requested}" is already in use in this room.`
                 : 'Score submitted!';
@@ -261,18 +272,59 @@ export default function SubmissionSheet({
         }
     };
 
+    /**
+     * v2.2.5 — pre-submit name availability check. If the name is taken by
+     * another claimant in this room, surface the collision prompt with the
+     * server's suggested alternative. Otherwise submit normally. Failures
+     * fall through to a direct submit (server will auto-suffix as fallback).
+     */
+    const runNameCheckThenSubmit = async (nameToUse: string) => {
+        if (!canHaveAnonymousFlow(target)) return submitScoreNow(nameToUse);
+        const trimmed = nameToUse.trim();
+        if (!trimmed) return;
+        const roomId = target.kind === 'tournament' || target.kind === 'freeplay' ? target.roomId : '';
+        if (!roomId) return submitScoreNow(nameToUse);
+        setPhase('checkingCollision');
+        setMessage(null);
+        try {
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            headers['x-user-id'] = ensureAnonId();
+            if (playerToken) headers.Authorization = `Bearer ${playerToken}`;
+            const res = await fetch(`/api/rooms/${roomId}/submit/name-check`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ name: trimmed }),
+            });
+            const data = await res.json().catch(() => ({ available: true }));
+            if (!res.ok || data?.available) {
+                return submitScoreNow(trimmed);
+            }
+            setCollisionRequested(trimmed);
+            setCollisionInput(typeof data.suggestion === 'string' && data.suggestion.length ? data.suggestion : `${trimmed}_2`);
+            setPhase('nameCollisionPrompt');
+        } catch {
+            // Name-check failure shouldn't block the submit — fall through.
+            return submitScoreNow(trimmed);
+        }
+    };
+
     const handleSubmitClick = async () => {
         const trimmedName = playerName.trim();
         const scoreNum = parseInt(score, 10);
         if (!trimmedName || isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
 
-        // Authenticated users and global submissions bypass the collision prompt.
+        // Authenticated users and global submissions bypass the Discord-guild
+        // claim prompt. They still run through runNameCheckThenSubmit so
+        // a Discord user re-submitting under a name owned by someone else in
+        // this room also gets the pre-submit collision prompt (v2.2.5).
         if (playerToken || !canHaveAnonymousFlow(target)) {
-            return submitScoreNow();
+            return runNameCheckThenSubmit(trimmedName);
         }
 
-        // Anonymous room submit: check for a Discord member matching this name.
+        // Anonymous room submit: first check for a Discord-guild member matching
+        // this name (v2.0.0 claim prompt). If no guild match, fall through to
+        // the room-level name-availability check (v2.2.5).
         setPhase('checkingCollision');
         setMessage(null);
         try {
@@ -288,11 +340,12 @@ export default function SubmissionSheet({
                 setPhase('claimPrompt');
                 return;
             }
-            // No collision — submit as guest.
-            return submitScoreNow();
+            // No guild match — run the room-level name-check.
+            return runNameCheckThenSubmit(trimmedName);
         } catch {
-            // If the check fails we don't want to block the submission. Fall through.
-            return submitScoreNow();
+            // If the check fails we don't want to block the submission. Fall through
+            // to the name-check path; if that also fails, submitScoreNow handles it.
+            return runNameCheckThenSubmit(trimmedName);
         }
     };
 
@@ -469,10 +522,66 @@ export default function SubmissionSheet({
                             </NeonButton>
                             <button
                                 type="button"
-                                onClick={submitScoreNow}
+                                onClick={() => runNameCheckThenSubmit(playerName)}
                                 className="w-full px-4 py-2 rounded border border-border text-muted text-sm hover:text-primary hover:border-border/80 transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
                             >
                                 <UserX size={14} /> Continue as guest
+                            </button>
+                        </div>
+                    </div>
+                ) : phase === 'nameCollisionPrompt' ? (
+                    /* v2.2.5 — pre-submit collision prompt. Editable input
+                       pre-filled with the server's next-free suggestion; user
+                       can accept or type something else. "Submit" re-runs the
+                       check against whatever's currently in the field. */
+                    <div className="px-4 py-6 space-y-4">
+                        <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-full bg-neon-amber/10 border border-neon-amber/30 text-neon-amber flex items-center justify-center flex-shrink-0">
+                                <AlertTriangle size={18} />
+                            </div>
+                            <div className="flex-1">
+                                <p className="text-sm text-primary font-display font-bold mb-1">
+                                    Name already in use
+                                </p>
+                                <p className="text-xs text-muted leading-relaxed">
+                                    <span className="text-neon-amber font-medium">{collisionRequested}</span>{' '}
+                                    is taken in this room. Pick a different name to submit under, or accept
+                                    the suggestion below.
+                                </p>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs text-faint block mb-1">Name</label>
+                            <input
+                                type="text"
+                                value={collisionInput}
+                                onChange={e => setCollisionInput(e.target.value)}
+                                className="w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+                                maxLength={100}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 gap-2">
+                            <NeonButton
+                                onClick={() => {
+                                    const next = collisionInput.trim();
+                                    if (!next) return;
+                                    // Re-run the check with the edited name. If it's free,
+                                    // submits directly; if still taken, prompt refreshes
+                                    // with a new suggestion.
+                                    runNameCheckThenSubmit(next);
+                                }}
+                                disabled={!collisionInput.trim()}
+                                className="w-full"
+                            >
+                                Submit as {collisionInput.trim() || '—'}
+                            </NeonButton>
+                            <button
+                                type="button"
+                                onClick={() => setPhase('form')}
+                                className="w-full px-4 py-2 rounded border border-border text-muted text-sm hover:text-primary hover:border-border/80 transition-colors cursor-pointer"
+                            >
+                                Back
                             </button>
                         </div>
                     </div>
