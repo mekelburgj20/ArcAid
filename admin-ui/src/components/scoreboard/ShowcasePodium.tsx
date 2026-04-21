@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Plus, Minus } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar } from '../ScoreboardComponents';
@@ -9,6 +10,8 @@ import { TrophyIcon } from '../../assets/icons/ThemedIcons';
 interface ShowcasePodiumProps {
   entries: RankedEntry[];  // top 3 (or fewer)
   theme: ShowcaseThemeConfig;
+  /** v2.2.10: needed for the player-stats Link on usernames. */
+  slug?: string;
   hasMultiple?: (username: string) => boolean;
   expandedPlayer?: string | null;
   playerHistory?: ScoreHistoryEntry[];
@@ -24,20 +27,24 @@ function formatScore(score: number): string {
 /** Expanded history panel for a podium entry */
 function ExpandedHistory({ playerHistory, historyLoading, theme }: { playerHistory?: ScoreHistoryEntry[]; historyLoading?: boolean; theme: ShowcaseThemeConfig }) {
   return (
-    <div style={{ padding: '4px 8px 6px', background: 'rgba(0,0,0,0.3)', borderRadius: '0 0 8px 8px', marginTop: -2 }}>
+    /* v2.2.10: bumped text contrast substantially — previously scores were
+       at rgba(255,255,255,0.5) which blended into the card's busy background
+       (see image #12 feedback). Now scores use the theme's normal text color
+       and dates are ~75% opacity. */
+    <div style={{ padding: '6px 10px 8px', background: 'rgba(0,0,0,0.55)', borderRadius: '0 0 8px 8px', marginTop: -2 }}>
       {historyLoading ? (
-        <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', margin: '2px 0' }}>Loading...</p>
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', margin: '2px 0' }}>Loading…</p>
       ) : (playerHistory && playerHistory.length > 0) ? (
         <div>
           {playerHistory.map(h => (
-            <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0' }}>
-              <span style={{ color: 'rgba(255,255,255,0.5)', fontFamily: theme.monoFontFamily }}>{h.score.toLocaleString()}</span>
-              <span style={{ color: 'rgba(255,255,255,0.25)' }}>{new Date(h.created_at).toLocaleDateString()}</span>
+            <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, padding: '2px 0' }}>
+              <span style={{ color: 'rgba(255,255,255,0.95)', fontFamily: theme.monoFontFamily, fontWeight: 600 }}>{h.score.toLocaleString()}</span>
+              <span style={{ color: 'rgba(255,255,255,0.65)' }}>{new Date(h.created_at).toLocaleDateString()}</span>
             </div>
           ))}
         </div>
       ) : (
-        <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', margin: '2px 0' }}>No additional scores.</p>
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', margin: '2px 0' }}>No additional scores.</p>
       )}
     </div>
   );
@@ -55,10 +62,11 @@ interface PodiumSlotConfig {
 
 /** A single podium card — always rendered (empty state if no entry) */
 function PodiumSlot({
-  config, theme, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer,
+  config, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer,
 }: {
   config: PodiumSlotConfig;
   theme: ShowcaseThemeConfig;
+  slug?: string;
   hasMultiple?: (username: string) => boolean;
   expandedPlayer?: string | null;
   playerHistory?: ScoreHistoryEntry[];
@@ -109,16 +117,35 @@ function PodiumSlot({
                 avatarHash={entry.avatar_hash}
                 size={avatarSize}
               />
-              <span style={{
-                fontWeight: 600,
-                color: pod.textColor,
-                fontSize: nameSize,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
-                {entry.iscored_username}
-              </span>
+              {slug ? (
+                <Link
+                  to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    fontWeight: 600,
+                    color: pod.textColor,
+                    fontSize: nameSize,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    textDecoration: 'none',
+                    pointerEvents: 'auto',
+                  }}
+                >
+                  {entry.iscored_username}
+                </Link>
+              ) : (
+                <span style={{
+                  fontWeight: 600,
+                  color: pod.textColor,
+                  fontSize: nameSize,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {entry.iscored_username}
+                </span>
+              )}
             </div>
 
             {/* Score + expand icon row */}
@@ -154,7 +181,7 @@ function PodiumSlot({
   );
 }
 
-function PyramidPodium({ entries, theme, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer }: ShowcasePodiumProps) {
+function PyramidPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer }: ShowcasePodiumProps) {
   const [first, second, third] = entries;
 
   const configs: PodiumSlotConfig[] = [
@@ -171,6 +198,7 @@ function PyramidPodium({ entries, theme, hasMultiple, expandedPlayer, playerHist
           <PodiumSlot
             config={configs[0]}
             theme={theme}
+            slug={slug}
             hasMultiple={hasMultiple}
             expandedPlayer={expandedPlayer}
             playerHistory={playerHistory}
@@ -185,6 +213,7 @@ function PyramidPodium({ entries, theme, hasMultiple, expandedPlayer, playerHist
         <PodiumSlot
           config={configs[1]}
           theme={theme}
+          slug={slug}
           hasMultiple={hasMultiple}
           expandedPlayer={expandedPlayer}
           playerHistory={playerHistory}
@@ -194,6 +223,7 @@ function PyramidPodium({ entries, theme, hasMultiple, expandedPlayer, playerHist
         <PodiumSlot
           config={configs[2]}
           theme={theme}
+          slug={slug}
           hasMultiple={hasMultiple}
           expandedPlayer={expandedPlayer}
           playerHistory={playerHistory}
@@ -205,7 +235,7 @@ function PyramidPodium({ entries, theme, hasMultiple, expandedPlayer, playerHist
   );
 }
 
-function ChipPodium({ entries, theme, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer }: ShowcasePodiumProps) {
+function ChipPodium({ entries, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer }: ShowcasePodiumProps) {
   const [first, second, third] = entries;
 
   const configs: PodiumSlotConfig[] = [
@@ -222,6 +252,7 @@ function ChipPodium({ entries, theme, hasMultiple, expandedPlayer, playerHistory
           <PodiumSlot
             config={configs[0]}
             theme={theme}
+            slug={slug}
             hasMultiple={hasMultiple}
             expandedPlayer={expandedPlayer}
             playerHistory={playerHistory}
@@ -236,6 +267,7 @@ function ChipPodium({ entries, theme, hasMultiple, expandedPlayer, playerHistory
         <PodiumSlot
           config={configs[1]}
           theme={theme}
+          slug={slug}
           hasMultiple={hasMultiple}
           expandedPlayer={expandedPlayer}
           playerHistory={playerHistory}
@@ -245,6 +277,7 @@ function ChipPodium({ entries, theme, hasMultiple, expandedPlayer, playerHistory
         <PodiumSlot
           config={configs[2]}
           theme={theme}
+          slug={slug}
           hasMultiple={hasMultiple}
           expandedPlayer={expandedPlayer}
           playerHistory={playerHistory}

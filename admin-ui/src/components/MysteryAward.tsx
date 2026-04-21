@@ -850,20 +850,32 @@ export default function MysteryAward({
           }}
         >
           <div className="flex gap-3">
+            {/* v2.2.10 — chunky pinball-backbox-style action button for Hit
+                Mystery / Add to Queue. Chrome bezel + neon inner face +
+                pressed-in look on :active. Matches the feel of a flipper or
+                magnasave button on a cabinet. */}
             {phase === 'idle' && (
-              <NeonButton variant="primary" onClick={spin} className="flex-1">
-                Hit Mystery
-              </NeonButton>
+              <button
+                type="button"
+                onClick={spin}
+                className="flex-1 pinball-action-btn"
+              >
+                <span className="pinball-action-btn__face">Hit Mystery</span>
+              </button>
             )}
             {phase === 'cycling' && (
-              <NeonButton variant="ghost" disabled className="flex-1">
-                Selecting...
-              </NeonButton>
+              <button type="button" disabled className="flex-1 pinball-action-btn pinball-action-btn--disabled">
+                <span className="pinball-action-btn__face">Selecting…</span>
+              </button>
             )}
             {phase === 'landed' && onPickGame && result && (
-              <NeonButton variant="primary" onClick={() => onPickGame(result)} className="flex-1">
-                Add to Queue?
-              </NeonButton>
+              <button
+                type="button"
+                onClick={() => onPickGame(result)}
+                className="flex-1 pinball-action-btn pinball-action-btn--green"
+              >
+                <span className="pinball-action-btn__face">Add to Queue</span>
+              </button>
             )}
             {phase === 'landed' && !onPickGame && result && (
               // v2.0.1: tell unauthenticated users what they're missing so they

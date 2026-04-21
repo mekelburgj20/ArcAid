@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.2.10] — 2026-04-21
+
+**Patch.** Five follow-ups from v2.2.9 testing.
+
+- **Username → player stats everywhere.** BannerCard, MinimalCard, ShowcasePodium (all 3 slots), and ScoreList now render each leaderboard username as a `<Link>` to `/:slug/players/:name` with `stopPropagation` so row-click expand still works. Previously only Room Game Detail's leaderboard had the Link.
+- **Expanded history contrast bumped.** The inline mini-history panel under an expanded player was rendering scores at 50% opacity and dates at 25% — nearly invisible against the card background (image #12). Now scores at ~95%, dates at ~65%, panel background opacity bumped from 30% → 55%. Font size up 1px.
+- **Mystery Award: pool selector moved under the back link → centered above the modal.** Was tucked in the top-right corner disconnected from the object it controls. Now sits at `top-[14%]` centered horizontally so the Tournament → Mystery Award relationship is visually obvious. Label changed from `Pool:` → `Tournament Pool:`.
+- **Pinball-backbox-style action button.** `Hit Mystery` / `Add to Queue` buttons now render as chunky pinball-cabinet buttons — chrome bezel, neon gradient face, pressed-in `:active` state, color-coded (orange for spin, green for queue). Full CSS lives in `index.css` as the `.pinball-action-btn` family.
+- **Picks URL is human-readable.** `/:slug/picks?t=<uuid>` became `/:slug/picks?t=daily_grind` (tournament name slugified — lowercased + non-alphanumerics collapsed to underscores). Resolved back to tournament id once the list loads. Back-compat: UUID still works if an old link is clicked.
+
+---
+
 ## [2.2.9] — 2026-04-21
 
 **Patch.** Apply the v2.2.8 Link-overlay removal to the places that actually render scorecards.

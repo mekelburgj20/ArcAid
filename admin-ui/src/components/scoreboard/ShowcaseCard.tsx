@@ -286,7 +286,7 @@ export default function ShowcaseCard({
           {isChipPodium ? (
             <div style={{ position: 'relative' }}>
               <PodiumBackground />
-              <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
+              <ShowcasePodium entries={podiumEntries} theme={theme} slug={slug} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
             </div>
           ) : (
             <ShowcasePodium entries={podiumEntries} theme={theme} hasMultiple={hasMultiple} expandedPlayer={expandedPlayer} playerHistory={playerHistory} historyLoading={historyLoading} onTogglePlayer={togglePlayer} />
@@ -304,6 +304,7 @@ export default function ShowcaseCard({
           {/* Score list (ranks 4+) */}
           <ScoreList
             entries={listEntries}
+            slug={slug}
             fontFamily={theme.fontFamily}
             monoFontFamily={theme.monoFontFamily}
             zebraStripe={theme.rowZebraStripe}

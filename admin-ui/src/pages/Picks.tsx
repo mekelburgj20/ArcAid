@@ -62,11 +62,30 @@ interface PickStatusData {
   tournaments: Array<{ id: string; name: string; type: string; mode: string; max_active_games: number; platform_rules: string }>;
 }
 
+/**
+ * v2.2.10: URL param is a human-readable slug derived from the tournament
+ * name (e.g. "Daily Grind" → "daily_grind"), not the UUID. The raw id is
+ * still used internally for API calls — the slug is resolved to an id once
+ * tournaments have loaded. Back-compat: if the URL still has a UUID (from
+ * bookmarks etc.), it's kept as-is.
+ */
+function tournamentSlug(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+function isUuid(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
 export default function Picks() {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tournaments, setTournaments] = useState<TournamentOption[]>([]);
-  const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(searchParams.get('t'));
+  // URL param is tournament slug (or UUID for back-compat). The resolved id
+  // lives in state and is used for all API calls.
+  const urlTournament = searchParams.get('t');
+  const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(
+    urlTournament && isUuid(urlTournament) ? urlTournament : null,
+  );
   const [data, setData] = useState<AvailabilityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -108,26 +127,40 @@ export default function Picks() {
     fetch(`/api/rooms/${roomId}/tournaments`)
       .then(r => r.json())
       .then((ts: TournamentOption[]) => {
-        setTournaments(ts.filter((t: any) => t.is_active));
-        if (!selectedTournamentId && ts.length > 0) {
-          const active = ts.filter((t: any) => t.is_active);
-          if (active.length > 0) setSelectedTournamentId(active[0]!.id);
+        const actives = ts.filter((t: any) => t.is_active);
+        setTournaments(actives);
+        // v2.2.10 — resolve URL slug to tournament id once the list has loaded.
+        // Accepts either a UUID (back-compat) or a human slug from the URL.
+        if (!selectedTournamentId && actives.length > 0) {
+          if (urlTournament && !isUuid(urlTournament)) {
+            const bySlug = actives.find(t => tournamentSlug(t.name) === urlTournament.toLowerCase());
+            setSelectedTournamentId(bySlug ? bySlug.id : actives[0]!.id);
+          } else {
+            setSelectedTournamentId(actives[0]!.id);
+          }
         }
       })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
   // Load availability data
   useEffect(() => {
     if (!roomId || !selectedTournamentId) return;
     setLoading(true);
-    setSearchParams(selectedTournamentId ? { t: selectedTournamentId } : {});
+    // v2.2.10 — URL reflects the tournament's human slug rather than its UUID,
+    // so `/picks?t=daily_grind` is shareable and remembered. Fallback to the
+    // raw id if the tournament object hasn't loaded yet.
+    const t = tournaments.find(x => x.id === selectedTournamentId);
+    const urlValue = t ? tournamentSlug(t.name) : selectedTournamentId;
+    setSearchParams({ t: urlValue });
     fetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
       .then(r => r.json())
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [roomId, selectedTournamentId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, selectedTournamentId, tournaments]);
 
   // Load pick status when Discord user is logged in
   const fetchPickStatus = useCallback(() => {

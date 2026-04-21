@@ -143,10 +143,8 @@ export default function MysteryAwardPage() {
 
     return (
         <div className="relative min-h-screen bg-deep">
-            {/* Header overlay — back link + tournament selector + login CTA.
-                v2.2.8: z-[60] so the header renders above MysteryAward's
-                fixed inset-0 z-50 modal (previously z-10 left the whole
-                header hidden behind the modal — including the pool selector). */}
+            {/* Header — back link (top-left) + login CTA (top-right). z-[60]
+                so it renders above MysteryAward's fixed inset-0 z-50 modal. */}
             <div className="fixed top-0 left-0 right-0 z-[60] px-4 py-3 flex items-center justify-between gap-2 pointer-events-none">
                 <Link
                     to={`/${slug}`}
@@ -154,24 +152,6 @@ export default function MysteryAwardPage() {
                 >
                     <ArrowLeft size={12} /> {roomName || slug}
                 </Link>
-
-                {/* v2.2.6 — tournament pool selector. Only rendered when the
-                    room has >1 active tournament; otherwise there's nothing
-                    to choose between. */}
-                {tournaments.length > 1 && (
-                    <label className="pointer-events-auto inline-flex items-center gap-2 text-xs text-muted">
-                        <span className="hidden sm:inline">Pool:</span>
-                        <select
-                            value={selectedTournamentId ?? ''}
-                            onChange={e => setSelectedTournamentId(e.target.value || null)}
-                            className="bg-surface border border-border rounded px-2 py-1 text-xs text-primary focus:outline-none focus:border-neon-cyan cursor-pointer"
-                        >
-                            {tournaments.map(t => (
-                                <option key={t.id} value={t.id}>{t.name || t.type || t.id}</option>
-                            ))}
-                        </select>
-                    </label>
-                )}
 
                 {!discordUser && (
                     <NeonButton
@@ -182,6 +162,28 @@ export default function MysteryAwardPage() {
                     </NeonButton>
                 )}
             </div>
+
+            {/* v2.2.10 — Tournament Pool selector, centered above the Mystery
+                Award modal. Was previously tucked in the top-right corner, way
+                off to the side of the object it controls. Now it sits just
+                above the modal so the relationship is visually obvious.
+                Only rendered when the room has >1 active tournament. */}
+            {tournaments.length > 1 && (
+                <div className="fixed top-[14%] left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
+                    <label className="pointer-events-auto inline-flex items-center gap-2 text-xs text-muted bg-surface/80 backdrop-blur-sm border border-border rounded-full px-3 py-1.5 shadow-lg">
+                        <span>Tournament Pool:</span>
+                        <select
+                            value={selectedTournamentId ?? ''}
+                            onChange={e => setSelectedTournamentId(e.target.value || null)}
+                            className="bg-raised border border-border rounded px-2 py-0.5 text-xs text-primary focus:outline-none focus:border-neon-cyan cursor-pointer"
+                        >
+                            {tournaments.map(t => (
+                                <option key={t.id} value={t.id}>{t.name || t.type || t.id}</option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
+            )}
 
             <MysteryAward
                 availableGames={availableGames}

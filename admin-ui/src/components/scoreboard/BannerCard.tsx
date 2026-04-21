@@ -235,9 +235,14 @@ export default function BannerCard({
                         />
                       </div>
                       <div className="text-center">
-                        <span className="text-[11px] truncate text-secondary block">
+                        {/* v2.2.10: username → player stats Link */}
+                        <Link
+                          to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
+                          onClick={e => e.stopPropagation()}
+                          className="text-[11px] truncate text-secondary block no-underline hover:text-neon-cyan transition-colors"
+                        >
                           {entry.iscored_username}
-                        </span>
+                        </Link>
                         <span
                           className={`text-xs font-bold tabular-nums block ${scoreColor}`}
                           title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}

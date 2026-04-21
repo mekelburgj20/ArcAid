@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Plus, Minus } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar } from '../ScoreboardComponents';
@@ -5,6 +6,8 @@ import type { ScoreHistoryEntry } from './useScoreExpand';
 
 interface ScoreListProps {
   entries: RankedEntry[];
+  /** v2.2.10: required for username → player-stats Link. */
+  slug?: string;
   fontFamily?: string;
   monoFontFamily?: string;
   zebraStripe?: string;
@@ -27,6 +30,7 @@ function formatScore(score: number): string {
 
 export default function ScoreList({
   entries,
+  slug,
   fontFamily,
   monoFontFamily,
   zebraStripe = 'rgba(255,255,255,0.015)',
@@ -87,18 +91,38 @@ export default function ScoreList({
                 size={20}
               />
 
-              {/* Name */}
-              <span style={{
-                flex: 1,
-                fontSize: '13px',
-                color: nameColor,
-                fontFamily: fontFamily || monoFontFamily,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
-                {entry.iscored_username}
-              </span>
+              {/* Name — v2.2.10: Link to player stats when slug available */}
+              {slug ? (
+                <Link
+                  to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    flex: 1,
+                    fontSize: '13px',
+                    color: nameColor,
+                    fontFamily: fontFamily || monoFontFamily,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    textDecoration: 'none',
+                    pointerEvents: 'auto',
+                  }}
+                >
+                  {entry.iscored_username}
+                </Link>
+              ) : (
+                <span style={{
+                  flex: 1,
+                  fontSize: '13px',
+                  color: nameColor,
+                  fontFamily: fontFamily || monoFontFamily,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {entry.iscored_username}
+                </span>
+              )}
 
               {/* Score */}
               <span
