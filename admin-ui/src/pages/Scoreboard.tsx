@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Search, Plus } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
@@ -415,7 +415,7 @@ export default function Scoreboard() {
             >
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId} className="relative group/card" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0 }}>
-                  <Link to={linkForTournamentCard(lb)} className="absolute inset-0 z-10" aria-label={lb.displayName || lb.gameName} />
+                  {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                   <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
                     <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
                       <Plus size={16} />
@@ -434,6 +434,7 @@ export default function Scoreboard() {
                       qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition}
                       gameTitleStyle={newConfig.gameTitleStyle}
                       onSubmitScore={(lb) => setSelectedGame(lb)}
+                      titleLinkTo={linkForTournamentCard(lb)}
                     />
                   ) : (
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
@@ -453,7 +454,7 @@ export default function Scoreboard() {
             <div className="flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
               {visibleLeaderboards.map(lb => (
                 <div key={lb.gameId} className="relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
-                  <Link to={linkForTournamentCard(lb)} className="absolute inset-0 z-10" aria-label={lb.displayName || lb.gameName} />
+                  {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                   <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
                     <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
                       <Plus size={16} />
@@ -472,6 +473,7 @@ export default function Scoreboard() {
                       qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition}
                       gameTitleStyle={newConfig.gameTitleStyle}
                       onSubmitScore={(lb) => setSelectedGame(lb)}
+                      titleLinkTo={linkForTournamentCard(lb)}
                     />
                   ) : (
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
@@ -492,7 +494,7 @@ export default function Scoreboard() {
               <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0 relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
-                    <Link to={linkForTournamentCard(lb)} className="absolute inset-0 z-10" aria-label={lb.displayName || lb.gameName} />
+                    {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                     <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-2 right-2 z-20 w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/20 focus:bg-neon-cyan/20 flex items-center justify-center transition-colors cursor-pointer backdrop-blur-sm">
                       <Plus size={16} />
                     </button>
@@ -509,6 +511,7 @@ export default function Scoreboard() {
                         qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition}
                         gameTitleStyle={newConfig.gameTitleStyle}
                         onSubmitScore={(lb) => setSelectedGame(lb)}
+                        titleLinkTo={linkForTournamentCard(lb)}
                       />
                     ) : (
                       <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />

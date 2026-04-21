@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.2.9] — 2026-04-21
+
+**Patch.** Apply the v2.2.8 Link-overlay removal to the places that actually render scorecards.
+
+v2.2.8 removed the Link overlay + passed `titleLinkTo` through CardRouter — but only via `GameCard`. **The public Scoreboard (`Scoreboard.tsx`) and `GamesTabView.tsx` render `CardRouter` directly**, with their *own* overlay Link wrapping. v2.2.8's fix never applied to the room scoreboard the user actually sees. This patch:
+
+- Drops the overlay Links from `Scoreboard.tsx` (all three layouts: grid / vertical / horizontal) and `GamesTabView.tsx`.
+- Passes `titleLinkTo={linkForTournamentCard(lb)}` to each `CardRouter` call.
+- Drops the now-unused `Link` imports from both files to satisfy TypeScript `noUnusedLocals`.
+
+Same behavior goal as v2.2.8, this time applied to the actual render paths.
+
+---
+
 ## [2.2.8] — 2026-04-21
 
 **Patch.** Structural fix for the scoreboard click-routing problem + Mystery Award visibility.

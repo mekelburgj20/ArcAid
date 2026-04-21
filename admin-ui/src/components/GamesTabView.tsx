@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Search, Plus } from 'lucide-react';
 import CardRouter from './scoreboard/CardRouter';
 import { GameCard } from './ScoreboardComponents';
@@ -263,11 +263,7 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
                   className="relative group/card justify-self-center w-full"
                   style={{ maxWidth: `${cardWidth}px` }}
                 >
-                  <Link
-                    to={linkTo}
-                    className="absolute inset-0 z-10"
-                    aria-label={lb.displayName || lb.gameName}
-                  />
+                  {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter. */}
                   {useNewCards ? (
                     <CardRouter
                       lb={lb}
@@ -283,6 +279,7 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
                       viewerUsername={viewerUsername}
                       qrMode="disabled"
                       gameTitleStyle={newConfig.gameTitleStyle}
+                      titleLinkTo={linkTo}
                     />
                   ) : (
                     <GameCard
