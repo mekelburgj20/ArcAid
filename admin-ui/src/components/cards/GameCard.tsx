@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import CardRouter from '../scoreboard/CardRouter';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import type { ScoreboardStyle } from '../../lib/scoreboardThemes';
@@ -76,16 +75,18 @@ function defaultLinkTarget(game: GameLeaderboard, slug: string): string {
 }
 
 /**
- * Shared card wrapper (Sprint 3, plan §10).
+ * Shared card wrapper.
  *
- * Wraps CardRouter with:
- *   • Link overlay covering the card (title + image always navigate).
- *   • Always-visible submit affordance (top-right icon button).
- *   • Optional slot nodes for context-specific chrome (room badge, etc).
- *
- * Submit + slot children sit above the Link overlay via z-index, so clicks
- * on them do not trigger navigation. `e.preventDefault()` is still called as
- * a belt-and-suspenders for environments where the Link swallows the event.
+ * v2.2.8 — removed the inset-0 Link overlay that used to cover the whole
+ * card. The overlay was intercepting clicks on expand (+) icons and inline
+ * score rows, and no amount of pointer-events / z-index juggling in the
+ * child cards was reliable across layouts. Now:
+ *   • Each card style (BannerCard / MinimalCard / ShowcaseCard) wraps its
+ *     own title in a Link via the `titleLinkTo` prop plumbed through
+ *     CardRouter. Click the title → navigate.
+ *   • Submit button is an always-visible top-right affordance, as before.
+ *   • Score rows with onClick handlers just work — no competing overlay.
+ *   • Slot badges / footers render normally.
  */
 export default function GameCard({
     game,
@@ -111,7 +112,7 @@ export default function GameCard({
     maxWidth,
     className,
 }: GameCardProps) {
-    const linkTo = defaultLinkTarget(game, slug);
+    const titleLinkTo = defaultLinkTarget(game, slug);
 
     const handleSubmit = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -119,7 +120,7 @@ export default function GameCard({
         onSubmit?.(game);
     };
 
-    const handleNavClick = onNavigate
+    const handleTitleNav = onNavigate
         ? (e: React.MouseEvent) => {
               e.preventDefault();
               onNavigate(game);
@@ -132,30 +133,21 @@ export default function GameCard({
             className={`relative group/card justify-self-center w-full ${className ?? ''}`}
             style={maxWidth ? { maxWidth: `${maxWidth}px` } : undefined}
         >
-            {/* Navigation overlay — always wired, regardless of context. */}
-            <Link
-                to={linkTo}
-                onClick={handleNavClick}
-                className="absolute inset-0 z-10"
-                aria-label={game.displayName || game.gameName}
-            />
-
-            {/* Optional slot nodes (badges etc) — rendered above the Link overlay. */}
+            {/* Optional slot nodes (badges etc). */}
             {slots?.topLeft && (
-                <div className="absolute top-1 left-1 z-20 pointer-events-auto">
+                <div className="absolute top-1 left-1 z-20">
                     {slots.topLeft}
                 </div>
             )}
             {slots?.topRight && (
-                <div className="absolute top-1 right-1 z-20 pointer-events-auto">
+                <div className="absolute top-1 right-1 z-20">
                     {slots.topRight}
                 </div>
             )}
 
             {/* Submit affordance — always visible per §10.
-                Sprint 13: outer 44×44 button is the tap target (iOS HIG min); inner 36×36
-                span carries the visible chrome. group-hover/submit drives hover state on
-                the inner span so mobile taps land anywhere in the 44×44 box. */}
+                Sprint 13: outer 44×44 button is the tap target (iOS HIG min);
+                inner 36×36 span carries the visible chrome. */}
             {onSubmit && (
                 <button
                     type="button"
@@ -170,33 +162,27 @@ export default function GameCard({
                 </button>
             )}
 
-            {/* v2.2.6: wrap CardRouter in a z-20 pointer-events-none container
-                so expandable score rows can opt in to clicks (via pointer-events-auto
-                in BannerCard/MinimalCard/ShowcasePodium/ScoreList) without the
-                z-10 Link overlay intercepting them. Non-interactive CardRouter
-                area still passes clicks through to Link → card navigates on
-                background clicks as before. */}
-            <div className="relative z-20 pointer-events-none">
-                <CardRouter
-                    lb={game}
-                    slug={slug}
-                    roomId={roomId}
-                    style={style}
-                    theme={theme}
-                    maxScores={maxScores}
-                    minScores={minScores}
-                    showTimer={showTimer}
-                    viewerUsername={viewerUsername}
-                    viewerEntry={viewerEntry}
-                    qrMode={qrMode}
-                    qrSize={qrSize}
-                    qrPosition={qrPosition}
-                    cardBgFill={cardBgFill}
-                    titleFontSize={titleFontSize}
-                    gameTitleStyle={gameTitleStyle}
-                    onSubmitScore={onSubmit}
-                />
-            </div>
+            <CardRouter
+                lb={game}
+                slug={slug}
+                roomId={roomId}
+                style={style}
+                theme={theme}
+                maxScores={maxScores}
+                minScores={minScores}
+                showTimer={showTimer}
+                viewerUsername={viewerUsername}
+                viewerEntry={viewerEntry}
+                qrMode={qrMode}
+                qrSize={qrSize}
+                qrPosition={qrPosition}
+                cardBgFill={cardBgFill}
+                titleFontSize={titleFontSize}
+                gameTitleStyle={gameTitleStyle}
+                onSubmitScore={onSubmit}
+                titleLinkTo={titleLinkTo}
+                titleLinkOnClick={handleTitleNav}
+            />
 
             {slots?.bottom && (
                 <div className="relative z-20 mt-2">{slots.bottom}</div>

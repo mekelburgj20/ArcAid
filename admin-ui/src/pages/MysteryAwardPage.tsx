@@ -143,8 +143,11 @@ export default function MysteryAwardPage() {
 
     return (
         <div className="relative min-h-screen bg-deep">
-            {/* Header overlay — back link + tournament selector + login CTA */}
-            <div className="absolute top-0 left-0 right-0 z-10 px-4 py-3 flex items-center justify-between gap-2 pointer-events-none">
+            {/* Header overlay — back link + tournament selector + login CTA.
+                v2.2.8: z-[60] so the header renders above MysteryAward's
+                fixed inset-0 z-50 modal (previously z-10 left the whole
+                header hidden behind the modal — including the pool selector). */}
+            <div className="fixed top-0 left-0 right-0 z-[60] px-4 py-3 flex items-center justify-between gap-2 pointer-events-none">
                 <Link
                     to={`/${slug}`}
                     className="pointer-events-auto inline-flex items-center gap-1 text-xs text-muted hover:text-neon-cyan no-underline"

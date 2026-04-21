@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass } from '../ScoreboardComponents';
@@ -21,6 +22,9 @@ interface BannerCardProps {
   titleFontSize?: number;
   gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
+  /** v2.2.8 — title-click nav target (replaces the GameCard Link overlay). */
+  titleLinkTo?: string;
+  titleLinkOnClick?: (e: React.MouseEvent) => void;
 }
 
 function formatScore(score: number): string {
@@ -61,7 +65,9 @@ export default function BannerCard({
   cardBgFill = false,
   titleFontSize,
   gameTitleStyle = 'default',
-  onSubmitScore,
+  onSubmitScore: _onSubmitScore,  // v2.2.8: no longer used here (title is a Link); kept in props for CardRouter spread compat
+  titleLinkTo,
+  titleLinkOnClick,
 }: BannerCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
@@ -132,16 +138,28 @@ export default function BannerCard({
         <div className="absolute inset-0 z-[0] bg-black/50" />
       )}
 
-      {/* Title area */}
-      <div
-        className={`px-4 py-3 text-center border-b border-border/30 relative ${onSubmitScore ? 'cursor-pointer hover:bg-raised/50 transition-colors pointer-events-auto' : ''}`}
-        onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
-      >
+      {/* Title area. v2.2.8: click on the title navigates to the Room Game
+          Detail (via titleLinkTo). Previously the whole title area was a
+          submit trigger when onSubmitScore was set — redundant with the
+          explicit + button and confusing (title should behave like a link). */}
+      <div className="px-4 py-3 text-center border-b border-border/30 relative">
         {!hasIdentifierImage && (
-          <h3 className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-            {displayName}
-            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
-          </h3>
+          titleLinkTo ? (
+            <Link
+              to={titleLinkTo}
+              onClick={titleLinkOnClick}
+              className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center no-underline text-primary hover:text-neon-cyan transition-colors ${getTitleStyleClass(gameTitleStyle)}`}
+              style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}
+            >
+              {displayName}
+              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+            </Link>
+          ) : (
+            <h3 className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+              {displayName}
+              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+            </h3>
+          )
         )}
         {hasIdentifierImage && (lb.externalUrl || lb.notes) && (
           <div className="absolute left-3 top-3 z-[2]">

@@ -24,6 +24,9 @@ export interface CardRouterProps {
   titleFontSize?: number;
   gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
+  /** v2.2.8 — title-click navigation target (replaces the old GameCard Link overlay). */
+  titleLinkTo?: string;
+  titleLinkOnClick?: (e: React.MouseEvent) => void;
 }
 
 export default function CardRouter({
@@ -44,71 +47,38 @@ export default function CardRouter({
   titleFontSize,
   gameTitleStyle,
   onSubmitScore,
+  titleLinkTo,
+  titleLinkOnClick,
 }: CardRouterProps) {
+  const commonProps = {
+    lb,
+    slug,
+    roomId,
+    maxScores,
+    minScores,
+    showTimer,
+    viewerUsername,
+    viewerEntry,
+    qrMode,
+    qrSize,
+    qrPosition,
+    cardBgFill,
+    titleFontSize,
+    gameTitleStyle,
+    onSubmitScore,
+    titleLinkTo,
+    titleLinkOnClick,
+  };
+
   switch (style) {
     case 'showcase': {
       const themeConfig = SHOWCASE_THEMES[theme || DEFAULT_SHOWCASE_THEME] ?? SHOWCASE_THEMES[DEFAULT_SHOWCASE_THEME]!;
-      return (
-        <ShowcaseCard
-          lb={lb}
-          slug={slug}
-          roomId={roomId}
-          theme={themeConfig}
-          maxScores={maxScores}
-          minScores={minScores}
-          showTimer={showTimer}
-          viewerUsername={viewerUsername}
-          viewerEntry={viewerEntry}
-          qrMode={qrMode}
-          qrSize={qrSize}
-          qrPosition={qrPosition}
-          cardBgFill={cardBgFill}
-          titleFontSize={titleFontSize}
-          gameTitleStyle={gameTitleStyle}
-          onSubmitScore={onSubmitScore}
-        />
-      );
+      return <ShowcaseCard {...commonProps} theme={themeConfig} />;
     }
     case 'minimal':
-      return (
-        <MinimalCard
-          lb={lb}
-          slug={slug}
-          roomId={roomId}
-          maxScores={maxScores}
-          minScores={minScores}
-          showTimer={showTimer}
-          viewerUsername={viewerUsername}
-          viewerEntry={viewerEntry}
-          qrMode={qrMode}
-          qrSize={qrSize}
-          qrPosition={qrPosition}
-          cardBgFill={cardBgFill}
-          titleFontSize={titleFontSize}
-          gameTitleStyle={gameTitleStyle}
-          onSubmitScore={onSubmitScore}
-        />
-      );
+      return <MinimalCard {...commonProps} />;
     case 'banner':
     default:
-      return (
-        <BannerCard
-          lb={lb}
-          slug={slug}
-          roomId={roomId}
-          maxScores={maxScores}
-          minScores={minScores}
-          showTimer={showTimer}
-          viewerUsername={viewerUsername}
-          viewerEntry={viewerEntry}
-          qrMode={qrMode}
-          qrSize={qrSize}
-          qrPosition={qrPosition}
-          cardBgFill={cardBgFill}
-          titleFontSize={titleFontSize}
-          gameTitleStyle={gameTitleStyle}
-          onSubmitScore={onSubmitScore}
-        />
-      );
+      return <BannerCard {...commonProps} />;
   }
 }

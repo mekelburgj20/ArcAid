@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass } from '../ScoreboardComponents';
@@ -21,6 +22,9 @@ interface MinimalCardProps {
   titleFontSize?: number;
   gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
+  /** v2.2.8 — title-click nav target. */
+  titleLinkTo?: string;
+  titleLinkOnClick?: (e: React.MouseEvent) => void;
 }
 
 function formatScore(score: number): string {
@@ -43,7 +47,9 @@ export default function MinimalCard({
   cardBgFill = false,
   titleFontSize,
   gameTitleStyle = 'default',
-  onSubmitScore,
+  onSubmitScore: _onSubmitScore,  // v2.2.8: unused (title is a Link); kept for CardRouter spread compat
+  titleLinkTo,
+  titleLinkOnClick,
 }: MinimalCardProps) {
   const displayName = lb.displayName || lb.gameName;
   const { expandedPlayer, playerHistory, historyLoading, togglePlayer, hasMultiple } = useScoreExpand(roomId, lb.gameId, lb.gameName, lb.rankings.length);
@@ -111,15 +117,24 @@ export default function MinimalCard({
           <div className="absolute inset-0 z-0 bg-black/55" />
         </>
       )}
-      {/* Title area */}
-      <div
-        className={`px-5 pt-4 pb-3 relative z-[1] ${onSubmitScore ? 'cursor-pointer hover:bg-raised/30 transition-colors' : ''}`}
-        onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
-      >
-        <h3 className={`font-display font-bold leading-tight text-primary flex items-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-          {displayName}
-          <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
-        </h3>
+      {/* Title area. v2.2.8: title is a Link to Room Game Detail. */}
+      <div className="px-5 pt-4 pb-3 relative z-[1]">
+        {titleLinkTo ? (
+          <Link
+            to={titleLinkTo}
+            onClick={titleLinkOnClick}
+            className={`font-display font-bold leading-tight flex items-center gap-1 no-underline text-primary hover:text-neon-cyan transition-colors ${getTitleStyleClass(gameTitleStyle)}`}
+            style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}
+          >
+            {displayName}
+            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+          </Link>
+        ) : (
+          <h3 className={`font-display font-bold leading-tight text-primary flex items-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+            {displayName}
+            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+          </h3>
+        )}
         <div className="flex items-center gap-3 mt-1">
           {lb.tournamentName && (
             <span className="text-[11px] uppercase tracking-wider text-muted">

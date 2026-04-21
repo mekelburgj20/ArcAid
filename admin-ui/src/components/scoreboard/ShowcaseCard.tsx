@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Lock } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { formatCountdown, TOURNAMENT_BADGE_COLORS, GameQRCode, getTitleStyleClass } from '../ScoreboardComponents';
@@ -26,6 +27,9 @@ interface ShowcaseCardProps {
   titleFontSize?: number;
   gameTitleStyle?: string;
   onSubmitScore?: (lb: GameLeaderboard) => void;
+  /** v2.2.8 — title-click nav target. */
+  titleLinkTo?: string;
+  titleLinkOnClick?: (e: React.MouseEvent) => void;
 }
 
 function resolveImages(lb: GameLeaderboard) {
@@ -56,7 +60,9 @@ export default function ShowcaseCard({
   qrMode = 'disabled',
   qrSize = 24,
   qrPosition = 'top-right',
-  onSubmitScore,
+  onSubmitScore: _onSubmitScore,  // v2.2.8: unused (title is a Link); kept for CardRouter spread compat
+  titleLinkTo,
+  titleLinkOnClick,
 }: ShowcaseCardProps) {
   const { bgImage, styleHeaderUrl } = resolveImages(lb);
   const displayName = lb.displayName || lb.gameName;
@@ -165,35 +171,61 @@ export default function ShowcaseCard({
 
         {/* Content area */}
         <div style={{ position: 'relative', zIndex: 4, display: 'flex', flexDirection: 'column', flex: 1, ...(cardBgFill ? { textShadow: '0 1px 6px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.7)' } : {}) }}>
-          {/* Title area */}
+          {/* Title area. v2.2.8: title is a Link to Room Game Detail. */}
           <div
             style={{
               textAlign: 'center',
               padding: hasFloatImage ? '90px 24px 4px' : '20px 24px 4px',
               position: 'relative',
-              ...(onSubmitScore ? { cursor: 'pointer' } : {}),
             }}
-            onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
-            <h2 className={getTitleStyleClass(gameTitleStyle)} style={{
-              fontSize: titleFontSize || 18,
-              fontWeight: 700 as const,
-              ...(gameTitleStyle === 'default' ? { color: theme.titleColor, textShadow: theme.titleTextShadow } : {}),
-              lineHeight: 1.2,
-              marginBottom: 6,
-              fontFamily: theme.fontFamily,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexWrap: 'wrap',
-              gap: 4,
-              overflowWrap: 'break-word',
-              wordBreak: 'break-word',
-              textAlign: 'center',
-            }}>
-              {displayName}
-              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
-            </h2>
+            {titleLinkTo ? (
+              <Link
+                to={titleLinkTo}
+                onClick={titleLinkOnClick}
+                className={getTitleStyleClass(gameTitleStyle)}
+                style={{
+                  fontSize: titleFontSize || 18,
+                  fontWeight: 700 as const,
+                  ...(gameTitleStyle === 'default' ? { color: theme.titleColor, textShadow: theme.titleTextShadow } : {}),
+                  lineHeight: 1.2,
+                  marginBottom: 6,
+                  fontFamily: theme.fontFamily,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexWrap: 'wrap',
+                  gap: 4,
+                  overflowWrap: 'break-word',
+                  wordBreak: 'break-word',
+                  textAlign: 'center',
+                  textDecoration: 'none',
+                }}
+              >
+                {displayName}
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
+              </Link>
+            ) : (
+              <h2 className={getTitleStyleClass(gameTitleStyle)} style={{
+                fontSize: titleFontSize || 18,
+                fontWeight: 700 as const,
+                ...(gameTitleStyle === 'default' ? { color: theme.titleColor, textShadow: theme.titleTextShadow } : {}),
+                lineHeight: 1.2,
+                marginBottom: 6,
+                fontFamily: theme.fontFamily,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexWrap: 'wrap',
+                gap: 4,
+                overflowWrap: 'break-word',
+                wordBreak: 'break-word',
+                textAlign: 'center',
+              }}>
+                {displayName}
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
+              </h2>
+            )}
 
             {/* Meta: badge + timer */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
