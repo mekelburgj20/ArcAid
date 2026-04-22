@@ -740,3 +740,192 @@ select option {
 .pinball-action-btn--disabled:active {
   transform: none;
 }
+
+/* v2.2.13 — circular pinball-cabinet action button (Fire / Queue).
+   Chrome bezel ring, recessed neon face, pressed-in :active. Replaces
+   the pill-shaped .pinball-action-btn for the Mystery Award interface. */
+.pinball-round-btn {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  padding: 5px;
+  background:
+    radial-gradient(circle at 30% 25%, #7a7a7e 0%, #3a3a3e 40%, #1a1a1e 80%, #0a0a0c 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.5),
+    0 6px 14px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(0, 0, 0, 0.85);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pinball-round-btn__face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.pinball-round-btn--fire .pinball-round-btn__face {
+  color: #fff7d6;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.6), 0 1px 2px rgba(255, 180, 60, 0.5);
+  background: radial-gradient(circle at 35% 30%, #ff8a3c 0%, #d94c12 45%, #8f1f00 95%);
+  box-shadow:
+    inset 0 2px 6px rgba(255, 220, 140, 0.55),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.55),
+    0 0 20px rgba(255, 110, 30, 0.5);
+}
+.pinball-round-btn--queue .pinball-round-btn__face {
+  /* Match the cabinet's orange accent — same family as Fire but slightly
+     deeper / amber so the two are distinguishable. */
+  color: #fff5d0;
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.6), 0 1px 2px rgba(255, 170, 40, 0.5);
+  background: radial-gradient(circle at 35% 30%, #ffb347 0%, #d57a00 45%, #6f3a00 95%);
+  box-shadow:
+    inset 0 2px 6px rgba(255, 210, 130, 0.55),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.55),
+    0 0 20px rgba(210, 130, 20, 0.5);
+}
+.pinball-round-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+.pinball-round-btn:not(:disabled):hover .pinball-round-btn__face {
+  filter: brightness(1.12);
+  box-shadow:
+    inset 0 2px 6px rgba(255, 230, 170, 0.7),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.5),
+    0 0 28px rgba(255, 150, 40, 0.75);
+}
+.pinball-round-btn:not(:disabled):active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 3px 6px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.pinball-round-btn--disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.pinball-round-btn--disabled .pinball-round-btn__face {
+  background: radial-gradient(circle at 35% 30%, #444 0%, #2a2a2e 60%, #161618 100%) !important;
+  color: rgba(255, 255, 255, 0.35) !important;
+  text-shadow: none !important;
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.5),
+    inset 0 -2px 4px rgba(255, 255, 255, 0.04) !important;
+  filter: grayscale(0.7);
+}
+
+/* v2.2.13 — Tournament Pool topper. Sits above the backbox like a
+   cabinet topper, with a LED-style glow and curved silhouette. Click
+   to reveal the pool list, which drops down into the backbox area. */
+.pinball-topper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 22px 12px;
+  min-width: 220px;
+  border-radius: 14px 14px 4px 4px;
+  background:
+    linear-gradient(180deg, #242123 0%, #181618 60%, #0e0d0f 100%);
+  border: 2px solid #050505;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -2px 6px rgba(0, 0, 0, 0.55),
+    0 0 0 1px #2a282c,
+    0 4px 14px rgba(0, 0, 0, 0.7);
+  color: #ffd079;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.08s ease;
+}
+.pinball-topper:hover {
+  filter: brightness(1.12);
+}
+.pinball-topper::before {
+  /* Orange LED glow strip across the bottom edge — fakes the "lit topper" look. */
+  content: '';
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, transparent 0%, #ff8c2a 30%, #ffd079 50%, #ff8c2a 70%, transparent 100%);
+  box-shadow: 0 0 12px #ff8c2a, 0 0 4px #ffd079;
+}
+.pinball-topper__label {
+  color: #c78b3a;
+  margin-right: 10px;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+}
+.pinball-topper__value {
+  color: #fff2c2;
+  font-weight: 800;
+  text-shadow: 0 1px 6px rgba(255, 180, 60, 0.5);
+}
+.pinball-topper__chevron {
+  margin-left: 10px;
+  transition: transform 0.2s ease;
+  color: #ff8c2a;
+}
+.pinball-topper--open .pinball-topper__chevron {
+  transform: rotate(180deg);
+}
+.pinball-topper__menu {
+  position: absolute;
+  top: calc(100% - 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 260px;
+  max-width: 95vw;
+  z-index: 10;
+  background: linear-gradient(180deg, #1a181a, #0e0c0e);
+  border: 1.5px solid #3a3638;
+  border-radius: 8px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.75);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pinball-topper__menu-item {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 9px 14px;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  color: #e8d8a8;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.pinball-topper__menu-item:hover {
+  background: rgba(255, 140, 42, 0.18);
+  color: #fff2c2;
+}
+.pinball-topper__menu-item--active {
+  background: rgba(255, 140, 42, 0.28);
+  color: #fff2c2;
+  font-weight: 700;
+}

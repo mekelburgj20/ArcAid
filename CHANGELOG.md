@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.2.13] — 2026-04-21
+
+**Patch.** Mystery Award cabinet redesign.
+
+- **Tournament Pool is now a pinball cabinet topper.** New `TournamentPoolTopper` component renders directly above the backbox as a cabinet attachment — orange LED glow strip, chunky silhouette, "TOURNAMENT POOL — Daily Grind ▼" pill. Clicking opens a drop-down list that overlays the top of the backbox; selecting collapses it back. `MysteryAward` accepts an optional `topper` slot so the page composes it in.
+- **Fire and Queue buttons are always visible as circles.** Replaced the branching Hit Mystery / Add to Queue / Log in to queue / Play Again / Close button stack with two persistent circular pinball-cabinet buttons. Fire is always live (triggers a new spin, disabled only while cycling); Queue is grayed out until a game is revealed and the viewer has a Discord login. Labels beneath ("SPIN" / "ADD") clarify action.
+- **Queue color matches the cabinet.** Was green. Now an amber-orange sibling of Fire (slightly deeper tint) so both buttons read as part of the same cabinet.
+- **"Hit Mystery" renamed to "Fire"** per user preference — matches the cabinet action-button vocabulary.
+- **Close moved to a footer text button** (was a NeonButton in the control panel). Less visually competitive with the round action buttons.
+
+SW `CACHE_NAME` bumped to `arcaid-v8` so the cabinet redesign propagates to installed PWAs on next reload.
+
+---
+
 ## [2.2.12] — 2026-04-21
 
 **Patch.** Mystery Award: Tournament Pool selector was at `top-[14%]` which overlapped the backbox graphic on mobile. Collapsed it into the top nav row alongside the back link + login CTA — single fixed header at `top-0`, selector centered between the two, so it sits directly above the backbox with no overlap at any viewport width. Label shows "Tournament Pool:" on sm+ and "Pool:" on xs.

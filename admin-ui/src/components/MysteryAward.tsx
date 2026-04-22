@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import NeonButton from './NeonButton';
 import { drawCanvasStar } from '../assets/icons/ThemedIcons';
 
@@ -9,6 +10,8 @@ interface MysteryAwardProps {
   roomName?: string;
   backglassUrl?: string;
   onPickGame?: (gameName: string) => void;
+  /** v2.2.13 — slot rendered above the backbox as a pinball "topper". */
+  topper?: ReactNode;
 }
 
 type Phase = 'idle' | 'cycling' | 'landed';
@@ -424,6 +427,7 @@ export default function MysteryAward({
   roomName,
   backglassUrl,
   onPickGame,
+  topper,
 }: MysteryAwardProps) {
   const dmdRef = useRef<HTMLCanvasElement>(null);
   const transliteRef = useRef<HTMLCanvasElement>(null);
@@ -585,6 +589,16 @@ export default function MysteryAward({
         className="w-[480px] max-w-[92vw] flex flex-col gap-3"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* v2.2.13 — Topper slot: renders above the backbox as a pinball
+            cabinet topper. Consumers pass React nodes (e.g. a tournament
+            pool selector). The slot itself has no chrome so the topper
+            content owns its own visual. */}
+        {topper && (
+          <div className="relative mx-auto -mb-2" style={{ zIndex: 3 }}>
+            {topper}
+          </div>
+        )}
+
         {/* ═══════════════════════════════════
             BACKBOX — Heavy metal/wood housing
             ═══════════════════════════════════ */}
@@ -840,72 +854,75 @@ export default function MysteryAward({
           </div>
         )}
 
-        {/* ═══ CONTROL PANEL ═══ */}
+        {/* ═══ CONTROL PANEL ═══
+            v2.2.13 — both Fire and Queue buttons are always visible as
+            circular pinball-cabinet action buttons. Queue is grayed out
+            until a game is picked (phase === 'landed' AND onPickGame
+            available). Matches a real cabinet's always-present flipper
+            buttons: you can see both, one's just "cold" until activated. */}
         <div
-          className="rounded-[10px] px-4 py-3"
+          className="rounded-[10px] px-4 py-4"
           style={{
             background: 'linear-gradient(180deg, #161518, #0e0d10, #0a090c)',
             border: '2px solid #2a282c',
             boxShadow: '0 6px 24px rgba(0,0,0,0.6)',
           }}
         >
-          <div className="flex gap-3">
-            {/* v2.2.10 — chunky pinball-backbox-style action button for Hit
-                Mystery / Add to Queue. Chrome bezel + neon inner face +
-                pressed-in look on :active. Matches the feel of a flipper or
-                magnasave button on a cabinet. */}
-            {phase === 'idle' && (
+          <div className="flex items-center justify-center gap-6">
+            {/* FIRE — spin trigger. Always enabled unless cycling. */}
+            <div className="flex flex-col items-center gap-1">
               <button
                 type="button"
                 onClick={spin}
-                className="flex-1 pinball-action-btn"
+                disabled={phase === 'cycling'}
+                className={`pinball-round-btn pinball-round-btn--fire ${phase === 'cycling' ? 'pinball-round-btn--disabled' : ''}`}
+                aria-label="Fire — start mystery spin"
               >
-                <span className="pinball-action-btn__face">Hit Mystery</span>
+                <span className="pinball-round-btn__face">Fire</span>
               </button>
-            )}
-            {phase === 'cycling' && (
-              <button type="button" disabled className="flex-1 pinball-action-btn pinball-action-btn--disabled">
-                <span className="pinball-action-btn__face">Selecting…</span>
-              </button>
-            )}
-            {phase === 'landed' && onPickGame && result && (
+              <span className="text-[9px] tracking-[0.15em] uppercase text-muted">Spin</span>
+            </div>
+
+            {/* QUEUE — only active after a result lands and onPickGame is available. */}
+            <div className="flex flex-col items-center gap-1">
               <button
                 type="button"
-                onClick={() => onPickGame(result)}
-                className="flex-1 pinball-action-btn pinball-action-btn--green"
+                onClick={() => { if (result && onPickGame && phase === 'landed') onPickGame(result); }}
+                disabled={!(phase === 'landed' && onPickGame && result)}
+                className={`pinball-round-btn pinball-round-btn--queue ${!(phase === 'landed' && onPickGame && result) ? 'pinball-round-btn--disabled' : ''}`}
+                aria-label="Queue the revealed game"
               >
-                <span className="pinball-action-btn__face">Add to Queue</span>
+                <span className="pinball-round-btn__face">Queue</span>
               </button>
-            )}
-            {phase === 'landed' && !onPickGame && result && (
-              // v2.0.1: tell unauthenticated users what they're missing so they
-              // don't think the button is broken. Login CTA lives on the
-              // surrounding page since this component is auth-agnostic.
-              <div className="flex-1 flex items-center justify-center text-[11px] text-muted italic px-2 text-center">
-                Log in to queue this game
-              </div>
-            )}
-            {phase === 'landed' && (
-              <NeonButton variant="ghost" onClick={spin} className="flex-1">
-                Play Again
-              </NeonButton>
-            )}
-            <NeonButton variant="ghost" onClick={onClose}>
-              Close
-            </NeonButton>
+              <span className="text-[9px] tracking-[0.15em] uppercase text-muted">Add</span>
+            </div>
           </div>
 
-          <div className="h-[22px] flex items-center justify-center mt-2">
-            {phase === 'landed' && result && (
-              <p className="text-[11px] tracking-[2px] text-amber-500/60">
-                {availableGames.length} TABLES &bull; <strong className="text-amber-400">{result}</strong>
-              </p>
-            )}
-            {phase === 'idle' && (
-              <p className="text-[11px] tracking-[2px] text-amber-500/25">
-                {availableGames.length} TABLES LOADED
-              </p>
-            )}
+          {/* Footer row: login hint (guest) + tables count + close link */}
+          <div className="flex items-center justify-between gap-2 mt-3 px-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-[10px] uppercase tracking-[0.15em] text-muted hover:text-neon-cyan transition-colors bg-transparent border-0 cursor-pointer"
+            >
+              Close
+            </button>
+            <div className="flex-1 text-center">
+              {phase === 'landed' && result && (
+                <p className="text-[11px] tracking-[2px] text-amber-500/60">
+                  {availableGames.length} TABLES &bull; <strong className="text-amber-400">{result}</strong>
+                </p>
+              )}
+              {phase === 'idle' && (
+                <p className="text-[11px] tracking-[2px] text-amber-500/25">
+                  {availableGames.length} TABLES LOADED
+                </p>
+              )}
+              {phase === 'landed' && !onPickGame && result && (
+                <p className="text-[10px] italic text-muted mt-0.5">Log in to queue this game</p>
+              )}
+            </div>
+            <span className="w-[40px]" aria-hidden="true" />
           </div>
         </div>
       </div>
