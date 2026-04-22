@@ -362,6 +362,50 @@ All 5 phases complete (2026-04-14→2026-04-15). Notification coalescing deferre
 
 ## Future
 
+### Player Self-Service + Moderation
+
+Three related features that together tighten up score/comment integrity and give admins a proper moderation surface. All gated behind Discord-authenticated identity — anonymous users don't get self-service edit/delete (they have no durable identity to verify), don't get to leave comments/tips, and don't need to be "banned" because the claim system auto-suffixes them anyway.
+
+**A. Self-edit / self-delete scores**
+
+Logged-in players can correct or remove their own submissions across every surface where their score appears.
+
+- [ ] **Delete own score** — button/icon on each score row where `submitted_by_user_id === viewer's Discord ID`. Applies to `submissions`, `community_scores`, `score_history`, AND the fanned-out `global_scores` row for the same event. Soft-delete (set `deleted_at` / `orphaned_at`) rather than hard-delete so audit trail survives.
+- [ ] **Edit own score value** — modal with new score input + photo upload. Gated on ownership. Writes a new `score_history` row for the revision, updates the canonical `submissions` / `community_scores` row to the new value, re-fans to `global_scores` (delete old global row + insert new). Photo required if the game's room requires photos on new submits.
+- [ ] **Scope consistency** — deleting/editing a room score automatically mirrors to the global row (via `submitted_from_room_id` + `submitted_during_tournament_id` linkage). Deleting a pure global submission only affects `global_scores`.
+- [ ] **Self-actions logged to `audit_log`** with actor, target row id, old/new values. Room admin + super-admin can see via the activity log.
+- [ ] **Rate limit** — e.g., 10 self-edits per user per hour to prevent leaderboard thrashing.
+- [ ] **UX** — edit/delete controls on: Tournament card rows (expanded view), Game Detail leaderboard rows, Community tab rows, Global Scoreboard rows, Global Game Detail rows. Hidden for non-owners.
+
+Open design question: **should edit be allowed to raise a score or only lower it?** Raising is abusable without photo-proof verification. Safe default: edits require a new photo if photos are required for submission in that room; otherwise any value is allowed but all edits are logged.
+
+**B. Comments/tips require Discord login**
+
+Currently `POST /:roomId/comments/:gameName` and the global `/global/games/:id/comments` both accept anonymous posts. Change the gate.
+
+- [ ] **Server** — add `requireDiscordUser` middleware to comment POST endpoints (room + global). Reject 401 without a valid player token. Existing anon comments stay visible but read-only.
+- [ ] **Client** — comment compose UI hides or replaces with "Log in to leave a tip" CTA when viewer isn't Discord-authenticated. Same for rating.
+- [ ] **Self-edit / self-delete comments** — same ownership rule as scores. Logged-in users see edit + delete controls on their own comments on Room Game Detail and Global Game Detail. Soft-delete (set `deleted_at`), audit-logged.
+- [ ] **Legacy anon comments** — kept as-is, visible but no owner controls. Admin can still delete them from the mod surface.
+
+**C. Admin ban — logged-in users**
+
+`user_bans` table already exists (used by `GlobalScoreService.isBanned` to short-circuit global submissions). Build out the full moderation workflow around it.
+
+- [ ] **Admin ban UI** — new page (or section in existing admin activity log): `/admin/bans` (super-admin, global) and `/:slug/admin/bans` (room-admin, room-scoped). List current bans, add a ban (Discord user ID + reason + optional expiry), lift a ban.
+- [ ] **Ban scope** — two tiers: (1) **room ban** — user can't submit/comment in that room, existing content orphaned; (2) **global ban** — user can't submit anywhere, all their content hidden from Global Scoreboard. Super-admins can set either; room admins can only set room-level.
+- [ ] **Enforcement points** — extend the existing `isBanned()` check from global submissions only to room submissions, comment POSTs, rating POSTs, friend POSTs. Consistent 403 response with ban reason (if admin chose to surface it).
+- [ ] **Ban → content cascade** — decide per ban whether the user's existing scores + comments are: (a) hidden from public views (soft), (b) deleted (hard), or (c) left visible. Default to (a) soft-hide for reversibility. `orphaned_at` column already exists on `submissions` / `community_scores` / `score_history` for this pattern.
+- [ ] **Ban → Discord notification** — optional DM to the banned user with reason, scope, and expiry. Opt-out respected if they've turned off Discord notifications, but bans should probably override that since it's a moderation action.
+- [ ] **Audit** — every ban / unban logged to `audit_log` with actor, target, reason, scope.
+
+**Shared plumbing across A/B/C:**
+- Need a new `/api/me/scores` endpoint returning the viewer's own recent submissions across all score tables (paginated) so the UI can show a "My scores" management view.
+- Need a new `/api/me/comments` endpoint, same pattern.
+- Ownership check helper: `requireOwnsScore(scoreId)` / `requireOwnsComment(commentId)` middleware that reads the row's `submitted_by_user_id` / `user_id` and compares to `req.user.discordId`. Super-admins bypass.
+
+**Rough sizing:** A is ~2 days (lots of surface area — scores live in 4 tables and 6+ UI components). B is ~0.5 days (middleware flip + compose-UI gate). C is ~1-1.5 days depending on whether the ban→cascade hide logic is implemented or deferred. All three should probably ship behind a `FEATURE_PLAYER_SELF_SERVICE=true` settings flag initially so it can be rolled back without data loss.
+
 ### Discord Push Notifications (COMPLETE)
 
 - [x] `NotificationService.ts` — Discord DM dispatch with per-user prefs check + in-memory rate limiting (5/user/hour)
