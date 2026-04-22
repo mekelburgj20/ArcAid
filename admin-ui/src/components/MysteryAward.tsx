@@ -869,21 +869,10 @@ export default function MysteryAward({
           }}
         >
           <div className="flex items-center justify-center gap-6">
-            {/* FIRE — spin trigger. Always enabled unless cycling. */}
-            <div className="flex flex-col items-center gap-1">
-              <button
-                type="button"
-                onClick={spin}
-                disabled={phase === 'cycling'}
-                className={`pinball-round-btn pinball-round-btn--fire ${phase === 'cycling' ? 'pinball-round-btn--disabled' : ''}`}
-                aria-label="Fire — start mystery spin"
-              >
-                <span className="pinball-round-btn__face">Fire</span>
-              </button>
-              <span className="text-[9px] tracking-[0.15em] uppercase text-muted">Spin</span>
-            </div>
-
-            {/* QUEUE — only active after a result lands and onPickGame is available. */}
+            {/* QUEUE (left) — only active after a result lands and onPickGame is available.
+                v2.2.14: Queue on the left, Fire on the right — matches pinball
+                cabinet convention where the "commit/hit" button is on the right
+                and auxiliary actions are on the left. */}
             <div className="flex flex-col items-center gap-1">
               <button
                 type="button"
@@ -895,6 +884,20 @@ export default function MysteryAward({
                 <span className="pinball-round-btn__face">Queue</span>
               </button>
               <span className="text-[9px] tracking-[0.15em] uppercase text-muted">Add</span>
+            </div>
+
+            {/* FIRE (right) — spin trigger. Always enabled unless cycling. */}
+            <div className="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                onClick={spin}
+                disabled={phase === 'cycling'}
+                className={`pinball-round-btn pinball-round-btn--fire ${phase === 'cycling' ? 'pinball-round-btn--disabled' : ''}`}
+                aria-label="Fire — start mystery spin"
+              >
+                <span className="pinball-round-btn__face">Fire</span>
+              </button>
+              <span className="text-[9px] tracking-[0.15em] uppercase text-muted">Spin</span>
             </div>
           </div>
 

@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.2.14] — 2026-04-21
+
+**Patch.** Swapped Fire and Queue button positions on the Mystery Award cabinet — Queue now sits on the left, Fire on the right. Matches pinball cabinet convention where the "commit/hit" button is on the right. SW `CACHE_NAME` → `arcaid-v9`.
+
+---
+
 ## [2.2.13] — 2026-04-21
 
 **Patch.** Mystery Award cabinet redesign.
