@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.2.12] — 2026-04-21
+
+**Patch.** Mystery Award: Tournament Pool selector was at `top-[14%]` which overlapped the backbox graphic on mobile. Collapsed it into the top nav row alongside the back link + login CTA — single fixed header at `top-0`, selector centered between the two, so it sits directly above the backbox with no overlap at any viewport width. Label shows "Tournament Pool:" on sm+ and "Pool:" on xs.
+
+SW `CACHE_NAME` bumped to `arcaid-v7` so clients pick up the new bundle on next reload.
+
+---
+
 ## [2.2.11] — 2026-04-21
 
 **Patch.** Service-worker cache-bust. `sw.js` uses cache-first for JS/CSS assets and its `CACHE_NAME` had been pinned at `arcaid-v5` since v2.0.x, so installed service workers were serving stale bundles even after browser hard-refreshes. Bumped to `arcaid-v6`. The SW's `activate` handler deletes all caches not matching the current name, so on the user's next page load the old cache is purged and everything reloads fresh.

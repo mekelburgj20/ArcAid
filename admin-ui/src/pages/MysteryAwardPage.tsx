@@ -143,47 +143,50 @@ export default function MysteryAwardPage() {
 
     return (
         <div className="relative min-h-screen bg-deep">
-            {/* Header — back link (top-left) + login CTA (top-right). z-[60]
-                so it renders above MysteryAward's fixed inset-0 z-50 modal. */}
+            {/* Header — back link (left), tournament pool selector (center),
+                login CTA (right). Single fixed row at top of viewport, z-[60]
+                so it renders above MysteryAward's fixed inset-0 z-50 modal.
+                v2.2.12: collapsed the separate centered Pool pill into this
+                row because its previous top-[14%] position overlapped the
+                backbox graphic on mobile. Now the selector sits in the
+                top nav row, directly above the backbox with no overlap. */}
             <div className="fixed top-0 left-0 right-0 z-[60] px-4 py-3 flex items-center justify-between gap-2 pointer-events-none">
                 <Link
                     to={`/${slug}`}
-                    className="pointer-events-auto inline-flex items-center gap-1 text-xs text-muted hover:text-neon-cyan no-underline"
+                    className="pointer-events-auto inline-flex items-center gap-1 text-xs text-muted hover:text-neon-cyan no-underline flex-shrink-0"
                 >
-                    <ArrowLeft size={12} /> {roomName || slug}
+                    <ArrowLeft size={12} /> <span className="truncate max-w-[100px] sm:max-w-none">{roomName || slug}</span>
                 </Link>
 
-                {!discordUser && (
-                    <NeonButton
-                        onClick={() => loginWithDiscord(slug)}
-                        className="pointer-events-auto inline-flex items-center gap-1 text-xs px-3 py-1.5"
-                    >
-                        <LogIn size={12} /> Log in to queue
-                    </NeonButton>
-                )}
-            </div>
-
-            {/* v2.2.10 — Tournament Pool selector, centered above the Mystery
-                Award modal. Was previously tucked in the top-right corner, way
-                off to the side of the object it controls. Now it sits just
-                above the modal so the relationship is visually obvious.
-                Only rendered when the room has >1 active tournament. */}
-            {tournaments.length > 1 && (
-                <div className="fixed top-[14%] left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
-                    <label className="pointer-events-auto inline-flex items-center gap-2 text-xs text-muted bg-surface/80 backdrop-blur-sm border border-border rounded-full px-3 py-1.5 shadow-lg">
-                        <span>Tournament Pool:</span>
+                {tournaments.length > 1 && (
+                    <label className="pointer-events-auto inline-flex items-center gap-1.5 text-[11px] text-muted bg-surface/80 backdrop-blur-sm border border-border rounded-full px-2.5 py-1 shadow-lg flex-shrink min-w-0">
+                        <span className="hidden sm:inline flex-shrink-0">Tournament Pool:</span>
+                        <span className="sm:hidden flex-shrink-0">Pool:</span>
                         <select
                             value={selectedTournamentId ?? ''}
                             onChange={e => setSelectedTournamentId(e.target.value || null)}
-                            className="bg-raised border border-border rounded px-2 py-0.5 text-xs text-primary focus:outline-none focus:border-neon-cyan cursor-pointer"
+                            className="bg-raised border border-border rounded px-1.5 py-0.5 text-[11px] text-primary focus:outline-none focus:border-neon-cyan cursor-pointer max-w-[120px] sm:max-w-none truncate"
                         >
                             {tournaments.map(t => (
                                 <option key={t.id} value={t.id}>{t.name || t.type || t.id}</option>
                             ))}
                         </select>
                     </label>
-                </div>
-            )}
+                )}
+
+                {!discordUser ? (
+                    <NeonButton
+                        onClick={() => loginWithDiscord(slug)}
+                        className="pointer-events-auto inline-flex items-center gap-1 text-xs px-3 py-1.5 flex-shrink-0"
+                    >
+                        <LogIn size={12} /> <span className="hidden sm:inline">Log in to queue</span>
+                    </NeonButton>
+                ) : (
+                    // Spacer keeps the center-justified pool selector actually centered
+                    // on mobile when login CTA is absent.
+                    <span className="w-6 flex-shrink-0" aria-hidden="true" />
+                )}
+            </div>
 
             <MysteryAward
                 availableGames={availableGames}
