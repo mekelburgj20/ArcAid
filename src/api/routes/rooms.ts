@@ -2451,11 +2451,21 @@ router.post('/:roomId/admins/discord', requireAuth, requireRoomAccess('roomId'),
         if (/^\d{17,20}$/.test(input.trim())) {
             resolvedId = input.trim();
         } else {
-            const { resolveDiscordUserId } = await import('../../utils/discord.js');
             const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
-            const resolved = await resolveDiscordUserId(input.trim(), guildId || undefined);
+            const hasBotToken = !!process.env.DISCORD_BOT_TOKEN;
+            if (!hasBotToken || !guildId) {
+                const missing = [
+                    !hasBotToken ? 'Discord bot token (Super-Admin → Global Settings)' : null,
+                    !guildId ? 'Discord Guild ID (this room\'s Discord section)' : null,
+                ].filter(Boolean).join(' and ');
+                return res.status(400).json({
+                    error: `Username lookup is not configured — set ${missing}. In the meantime, paste the user's numeric Discord ID (Developer Mode → Copy User ID).`,
+                });
+            }
+            const { resolveDiscordUserId } = await import('../../utils/discord.js');
+            const resolved = await resolveDiscordUserId(input.trim(), guildId);
             if (!resolved) {
-                return res.status(400).json({ error: `Could not find Discord user "${input}". Try their numeric user ID instead.` });
+                return res.status(400).json({ error: `Could not find Discord user "${input}" in the configured guild. Make sure the bot is a member of the guild with the Server Members Intent enabled, or paste their numeric user ID instead.` });
             }
             resolvedId = resolved;
         }

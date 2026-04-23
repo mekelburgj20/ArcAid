@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { UserCheck, UserPlus, Undo2, Lock, Clock } from 'lucide-react';
+import { UserCheck, UserPlus, Undo2, Lock, Clock, ArrowRightLeft } from 'lucide-react';
 import { useRoom } from '../contexts/RoomContext';
 import { api } from '../lib/api';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
+import { useToast } from '../components/Toast';
 
 /**
  * Sprint 11 — Admin Identity Management (plan §15, tmp/sprint-02-merge-model.md).
@@ -79,6 +80,7 @@ type PreviewModalState =
 
 export default function Identity() {
     const { roomId } = useRoom();
+    const { toast } = useToast();
     const [queue, setQueue] = useState<QueueEntry[]>([]);
     const [audit, setAudit] = useState<AuditEntry[]>([]);
     const [loading, setLoading] = useState(true);
@@ -87,6 +89,31 @@ export default function Identity() {
     const [reason, setReason] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [targetInput, setTargetInput] = useState<Record<number, string>>({});
+    const [mergeFrom, setMergeFrom] = useState('');
+    const [mergeTo, setMergeTo] = useState('');
+    const [renaming, setRenaming] = useState(false);
+
+    const handleRenamePlayer = async () => {
+        if (!roomId) return;
+        const from = mergeFrom.trim();
+        const to = mergeTo.trim();
+        if (!from || !to) return;
+        if (!confirm(`Rename all records from "${from}" to "${to}"? This cannot be undone.`)) return;
+        setRenaming(true);
+        try {
+            const result = await api.post<{ submissionsUpdated: number; scoresUpdated: number }>(
+                `/rooms/${roomId}/admin/merge-player`,
+                { fromUsername: from, toUsername: to },
+            );
+            toast(`Merged: ${result.submissionsUpdated} submissions, ${result.scoresUpdated} scores updated`, 'success');
+            setMergeFrom('');
+            setMergeTo('');
+        } catch {
+            toast('Failed to merge player', 'error');
+        } finally {
+            setRenaming(false);
+        }
+    };
 
     const refresh = useCallback(async () => {
         if (!roomId) return;
@@ -184,7 +211,8 @@ export default function Identity() {
             <header>
                 <h1 className="font-display text-2xl text-primary mb-1">Identity</h1>
                 <p className="text-xs text-muted">
-                    Claim anonymous scores for Discord users or reverse a prior merge.
+                    Manage player identity in this room: rename or merge usernames across all scores,
+                    claim anonymous scores for Discord users, or reverse a prior merge.
                     Completed tournaments freeze attribution — frozen rows cannot be moved.
                 </p>
             </header>
@@ -194,6 +222,45 @@ export default function Identity() {
                     {error}
                 </div>
             )}
+
+            <NeonCard glowColor="amber">
+                <h2 className="font-display text-sm text-primary mb-2 inline-flex items-center gap-2">
+                    <ArrowRightLeft size={16} /> Merge / Rename Player
+                </h2>
+                <p className="text-xs text-muted mb-3">
+                    Rename a player or merge two usernames into one. Updates submissions, scores, and user mappings.
+                    If the name was also wrong on iScored, fix it there first to prevent re-importing the old name on next sync.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                        <label className="text-xs text-faint block mb-1">From (old/wrong name)</label>
+                        <input
+                            type="text"
+                            placeholder="mekelburj"
+                            value={mergeFrom}
+                            onChange={e => setMergeFrom(e.target.value)}
+                            className="w-48 px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs text-faint block mb-1">To (correct name)</label>
+                        <input
+                            type="text"
+                            placeholder="mekelburgj"
+                            value={mergeTo}
+                            onChange={e => setMergeTo(e.target.value)}
+                            className="w-48 px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+                        />
+                    </div>
+                    <NeonButton
+                        variant="secondary"
+                        disabled={renaming || !mergeFrom.trim() || !mergeTo.trim()}
+                        onClick={handleRenamePlayer}
+                    >
+                        {renaming ? 'Merging...' : 'Merge'}
+                    </NeonButton>
+                </div>
+            </NeonCard>
 
             <NeonCard glowColor="cyan">
                 <h2 className="font-display text-sm text-primary mb-3 inline-flex items-center gap-2">

@@ -137,6 +137,19 @@ export default function Tournaments() {
   const [displayNameTarget, setDisplayNameTarget] = useState<ActiveGame | null>(null);
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [displayNameSaving, setDisplayNameSaving] = useState(false);
+  const [reloadingScheduler, setReloadingScheduler] = useState(false);
+
+  const handleReloadScheduler = async () => {
+    setReloadingScheduler(true);
+    try {
+      await api.post(`/rooms/${room.roomId}/scheduler/reload`, {});
+      toast('Schedules refreshed', 'success');
+    } catch {
+      toast('Failed to refresh schedules', 'error');
+    } finally {
+      setReloadingScheduler(false);
+    }
+  };
 
   const createForm = useTournamentForm();
   const editForm = useTournamentForm();
@@ -362,6 +375,12 @@ export default function Tournaments() {
           Create Tournament
         </NeonButton>
       </NeonCard>
+
+      <div className="flex justify-end mt-4 mb-6">
+        <NeonButton variant="ghost" onClick={handleReloadScheduler} disabled={reloadingScheduler} className="text-xs">
+          {reloadingScheduler ? 'Refreshing...' : 'Refresh Schedules'}
+        </NeonButton>
+      </div>
 
       {/* Deactivate Confirm */}
       {deactivateTarget && (
