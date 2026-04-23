@@ -16,12 +16,18 @@ async function bootstrap() {
         await initDatabase();
         logInfo('Database initialized.');
 
-        // 1.5 Load settings from DB into environment
+        // 1.4 Encrypt any legacy plaintext secret rows, fail fast if SECRETS_KEY
+        //     is missing while encrypted rows exist. Also hash any plaintext
+        //     refresh tokens in sessions (no SECRETS_KEY required — sha256 only).
         const db = await getDatabase();
-        const settings = await db.all('SELECT key, value FROM settings');
-        for (const row of settings) {
-            process.env[row.key] = row.value;
-        }
+        const { runSecretsMigration, loadSettingsToEnv, migrateRefreshTokensToHashed } =
+            await import('./utils/secretsMigration.js');
+        await migrateRefreshTokensToHashed(db);
+        await runSecretsMigration(db);
+
+        // 1.5 Load settings from DB into environment (decrypts secret keys
+        //     so downstream env reads see plaintext, never ciphertext).
+        await loadSettingsToEnv(db);
 
         // 1.6 Clear stale leaderboard cache
         await db.run('DELETE FROM leaderboard_cache');
@@ -58,13 +64,13 @@ async function bootstrap() {
             try {
                 const discord = new DiscordClient();
 
-                // 4. Deploy Commands (Guild-specific for beta testing)
-                const guildId = process.env.DISCORD_GUILD_ID;
-                if (guildId) {
-                    await discord.deployCommands(guildId);
-                } else {
-                    logError('DISCORD_GUILD_ID not found in DB or .env. Skipping guild-specific command deployment.');
-                }
+                // 4. Deploy slash commands globally so they work in every guild
+                //    the bot joins — no per-room redeploys when a room swaps
+                //    its Discord server. Global commands take up to 1 hour to
+                //    propagate; fine for real-world config changes, which are
+                //    rare. Old per-guild registrations remain until Discord
+                //    garbage-collects them.
+                await discord.deployCommands();
 
                 // 5. Connect to Discord
                 await discord.connect();
@@ -76,8 +82,12 @@ async function bootstrap() {
             }
         }
 
-        // 7. Start iScored API score poller (if enabled)
-        if (process.env.ISCORED_API_ENABLED !== 'false' && process.env.ISCORED_PUBLIC_URL) {
+        // 7. Start iScored API score poller. The poller now iterates over every
+        //    room's configured iScored account (per-room creds → env fallback),
+        //    so it's safe to start even when env-level ISCORED_PUBLIC_URL is
+        //    absent — rooms with their own creds still get polled. The poller
+        //    itself no-ops when no rooms have iScored enabled.
+        if (process.env.ISCORED_API_ENABLED !== 'false') {
             const intervalSec = parseInt(process.env.ISCORED_API_POLL_INTERVAL || '30', 10);
             ScoreSyncPoller.getInstance().start(intervalSec * 1000);
         }

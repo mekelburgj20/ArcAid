@@ -1823,7 +1823,8 @@ router.get('/:roomId/history', async (req, res) => {
 router.get('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const settings = await GameRoomSettingsService.getAll(req.params.roomId as string);
-        res.json(settings);
+        const { maskEncryptedValues } = await import('../../utils/secrets.js');
+        res.json(maskEncryptedValues(settings));
     } catch (error) {
         logError('API Error (GET rooms/:roomId/settings):', error);
         res.status(500).json({ error: 'Internal Server Error' });

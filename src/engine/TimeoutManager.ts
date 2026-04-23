@@ -82,12 +82,16 @@ export class TimeoutManager {
      * Resolves the announcement channel for a tournament.
      * Uses the tournament's discord_channel_id, falling back to the global env var.
      */
-    private async getChannelId(tournamentId: string | undefined): Promise<string | undefined> {
-        if (!tournamentId) return process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+    private async getChannelId(tournamentId: string | undefined): Promise<string | null> {
+        const { resolveAnnouncementChannelId } = await import('../utils/discord.js');
+        if (!tournamentId) return resolveAnnouncementChannelId(null, null);
 
         const db = await getDatabase();
-        const row = await db.get('SELECT discord_channel_id FROM tournaments WHERE id = ?', tournamentId);
-        return row?.discord_channel_id || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+        const row = await db.get(
+            'SELECT discord_channel_id, game_room_id FROM tournaments WHERE id = ?',
+            tournamentId,
+        );
+        return resolveAnnouncementChannelId(row?.game_room_id ?? null, row?.discord_channel_id ?? null);
     }
 
     private async handleTieredTimeout(game: Game, settings: { winnerWindowMin: number; runnerUpWindowMin: number }): Promise<void> {
@@ -374,12 +378,13 @@ export class TimeoutManager {
             const pick = eligible[Math.floor(Math.random() * eligible.length)]!;
             logInfo(`Auto-selected: ${pick.name} for ${tournament.name}`);
 
-            // Create on iScored if credentials are available
+            // Create on iScored if credentials are available (per-room → env fallback).
             let iscoredId: string | null = null;
-            const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+            const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+            const creds = await getIScoredCredsForRoom(tournament.game_room_id);
 
-            if (hasCredentials) {
-                const client = new IScoredClient();
+            if (creds) {
+                const client = new IScoredClient({ username: creds.username, password: creds.password });
                 try {
                     await client.connect();
                     iscoredId = await client.createGame(pick.name, pick.style_id || undefined);

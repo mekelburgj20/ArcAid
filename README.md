@@ -50,6 +50,24 @@
 - **Public pages** — Scoreboard, player profiles, game details, and game availability — no login required
 - **Mobile-responsive** — Full functionality on phones and tablets
 
+### v2.1.0 — Tournament scoring + Stats Combo (2026-04-18)
+- **Tournament leaderboards read from `score_history`** filtered by `submitted_during_tournament_id` — best-during-the-window wins, no longer tied to all-time personal best. Lower-than-PB scores during a tournament window count correctly.
+- **Multi-score inline expand** — click a username on Game Detail leaderboard to drop down a sparkline + "This tournament" / "All time" split of their submissions, with source tags and proof-photo links per row.
+- **Stats page Combo** — 4-card overview row at the top of `/:slug/stats` (plays this week / active players / hottest game / latest submission) above the existing Players / Games tabs.
+
+### v2.2.x — Identity correctness + cabinet redesign (2026-04-19 → 2026-04-21)
+- **First-claim-wins identity** — whoever uses a name first in a room owns it; later arrivals auto-suffix to `Bob_2`, `Bob_3`. Works symmetrically for Discord and anon users. Anon identity keyed on a per-browser localStorage token so re-submits stay sticky; multiple names per browser allowed.
+- **Pre-submit collision prompt** — when a guest types a name that's already claimed, `SubmissionSheet` surfaces an editable prompt with the server's suggested alternative before committing.
+- **Global fan-out gate** — guest submissions never reach `/scoreboard`. Every row on Global has a verified Discord ID behind it.
+- **Safe-by-default login** — new rooms get `REQUIRE_DISCORD_LOGIN=true` by default. Existing rooms unaffected; admins opt in per-room.
+- **Auth in guest-allowed rooms** — logged-in users' submissions attribute to their Discord identity even when the room allows guest play.
+- **Unified iScored sync** — all three web submission paths (tournament card, freeplay, legacy community endpoint) sync to iScored identically when the target is an active tournament game.
+- **Winner resolution from local DB** — the bot announces whoever's on top of the room's scoreboard (not iScored), and handles anon winners with a "claim your account" message instead of a broken `@mention`.
+- **Scoreboard click routing** — clicking a tournament card title goes to Room Game Detail; usernames everywhere are links to player stats; `+` expand icons actually expand inline (no accidental navigation).
+- **Human-readable Picks URL** — `/:slug/picks?t=daily_grind` (was `?t=<uuid>`).
+- **Mystery Award cabinet redesign** — `TournamentPoolTopper` component renders above the backbox as a pinball cabinet topper (orange LED glow, drop-down overlays the backbox). Fire + Queue buttons are always visible as circular pinball-cabinet buttons; Queue grayed until a game is revealed.
+- **Post-login lands on the Lobby** — `/:slug/lobby` is the default return path after Discord OAuth from room pages.
+
 ## Quick Start
 
 ### Docker (Recommended)
@@ -88,7 +106,11 @@ npm run dev            # Vite dev server with HMR
 | `/:slug/players` | Public player list |
 | `/:slug/players/:id` | Player detail (stats, history) |
 | `/:slug/games/:name` | Game detail — tabs: scores, community, tips/comments, player stats |
-| `/:slug/games` | Game Picks (cooldowns, Mystery Award picker, pick/queue games if Discord-logged-in) |
+| `/:slug/picks` | Game Picks (cooldowns, pick/queue games if Discord-logged-in). URL takes a `?t=<tournament_slug>` query (e.g. `?t=daily_grind`). `/:slug/games` 301-redirects here. |
+| `/:slug/mystery-award` | Mystery Award random-game picker (canvas DMD + pinball cabinet aesthetic). |
+| `/:slug/lobby` | Live activity feed + announcements + community shelf. Default post-login landing page. |
+| `/friends` | Friends list (global, requires Discord login). |
+| `/my-rooms` | Rooms you've submitted in (global, requires Discord login). |
 | `/:slug/freeplay` | Freeplay (browse catalogue, submit scores for any game) |
 | `/:slug/submit/:gameId` | Standalone score submission (QR code target) |
 | `/:slug/stats` | Public enhanced stats (avg finish, top 5%, champion streak) |
@@ -138,6 +160,26 @@ npm run dev            # Vite dev server with HMR
 
 ## Configuration
 
+### Secrets and encryption
+
+Secret values (currently: per-room `ISCORED_PASSWORD`) are stored encrypted at
+rest using AES-256-GCM. A master key is required — set it once per environment:
+
+```bash
+npm run generate-secrets-key
+# outputs: SECRETS_KEY=<base64>
+# Append that line to your .env file.
+```
+
+Back up the key. Losing it renders every encrypted secret in the database
+unreadable. Rotation is not yet automated — to rotate, generate a new key,
+re-enter each secret via the Settings UI, and restart. In production, prefer
+Docker secrets or a secret manager over committing the value to `.env`.
+
+Other secret-bearing env vars (`JWT_SECRET`, `DISCORD_BOT_TOKEN`, etc.) remain
+in `.env` for now. They're never written to the database, and the audit log
+middleware redacts them from request bodies.
+
 ### Global Settings (Super-Admin)
 | Setting | Description |
 |---------|-------------|
@@ -145,6 +187,7 @@ npm run dev            # Vite dev server with HMR
 | Discord Client ID | OAuth2 application client ID |
 | Discord Client Secret | OAuth2 client secret (for admin Discord login) |
 | JWT Secret | Secret for signing auth tokens |
+| Secrets Key | Master key for at-rest encryption of secret settings (generate via `npm run generate-secrets-key`) |
 | Port | HTTP server port (default: 3001) |
 | Max Log Lines | Maximum log lines returned by the API |
 | Backup Retention Days | How many days to keep automatic backups |

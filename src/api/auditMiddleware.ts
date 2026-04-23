@@ -83,7 +83,11 @@ function deriveTargetId(params: Record<string, any>): string {
 function sanitizeBody(body: any): any {
     if (!body || typeof body !== 'object') return body;
     const sanitized = { ...body };
-    const sensitiveKeys = ['password', 'newPassword', 'ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH', 'JWT_SECRET'];
+    const sensitiveKeys = [
+        'password', 'newPassword',
+        'ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH', 'JWT_SECRET', 'SECRETS_KEY',
+        'DISCORD_BOT_TOKEN',
+    ];
     for (const key of sensitiveKeys) {
         if (key in sanitized) {
             sanitized[key] = '[REDACTED]';

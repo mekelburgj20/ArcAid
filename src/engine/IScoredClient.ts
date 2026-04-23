@@ -44,7 +44,20 @@ export class IScoredClient {
     /** Tracks the last known DOM hash of the lineup for change detection. */
     private static lastLineupHash: string | null = null;
 
-    constructor() {}
+    /**
+     * Optional per-room credentials. When absent, falls back to
+     * `process.env.ISCORED_USERNAME`/`ISCORED_PASSWORD`. Allowing override at
+     * construction time lets different rooms target different iScored accounts.
+     */
+    constructor(private opts: { username?: string; password?: string } = {}) {}
+
+    private get effectiveUsername(): string | undefined {
+        return this.opts.username ?? process.env.ISCORED_USERNAME;
+    }
+
+    private get effectivePassword(): string | undefined {
+        return this.opts.password ?? process.env.ISCORED_PASSWORD;
+    }
 
     /**
      * Saves a screenshot on failure for debugging. Returns the path or null.
@@ -114,7 +127,12 @@ export class IScoredClient {
             await this.disconnect();
         }
 
-        logInfo(`Connecting to iScored as ${process.env.ISCORED_USERNAME}...`);
+        const username = this.effectiveUsername;
+        const password = this.effectivePassword;
+        if (!username || !password) {
+            throw new Error('IScoredClient: no credentials available (neither constructor opts nor ISCORED_USERNAME/PASSWORD env vars are set).');
+        }
+        logInfo(`Connecting to iScored as ${username}...`);
 
         await this.withScreenshotOnFailure('connect', async () => {
             this.browser = await chromium.launch({ headless: true });
@@ -147,8 +165,8 @@ export class IScoredClient {
 
             const mainFrame = this.page.frameLocator('#main');
 
-            await mainFrame.getByRole('textbox', { name: 'Username' }).fill(process.env.ISCORED_USERNAME!);
-            await mainFrame.getByRole('textbox', { name: 'Password', exact: true }).fill(process.env.ISCORED_PASSWORD!);
+            await mainFrame.getByRole('textbox', { name: 'Username' }).fill(username);
+            await mainFrame.getByRole('textbox', { name: 'Password', exact: true }).fill(password);
             await mainFrame.getByRole('button', { name: 'Log In' }).click();
 
             // Wait for successful login (user dropdown appears inside the main iframe)

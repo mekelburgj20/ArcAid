@@ -27,20 +27,34 @@ export interface IScoredApiSubmitResult extends IScoredApiGameScores {
  *
  * API docs: https://www.iscored.info/api/iScoredAPI.docx
  * Requires "Enable API" in iScored gameroom settings.
+ *
+ * Constructor accepts either a gameroom name directly or an options object
+ * with `{ publicUrl }` so callers can target different iScored accounts
+ * per-room. With no argument, falls back to `process.env.ISCORED_PUBLIC_URL`.
  */
 export class IScoredApiClient {
     private baseUrl = 'https://www.iscored.info/api';
     private gameroomName: string;
 
-    constructor(gameroomName?: string) {
-        if (gameroomName) {
-            this.gameroomName = gameroomName;
-        } else {
-            const publicUrl = process.env.ISCORED_PUBLIC_URL || '';
-            const match = publicUrl.match(/iscored\.info\/(\w+)/i);
-            if (!match) throw new Error('Cannot determine iScored gameroom name from ISCORED_PUBLIC_URL');
-            this.gameroomName = match[1] as string;
+    constructor(opts?: string | { gameroomName?: string; publicUrl?: string }) {
+        if (typeof opts === 'string') {
+            this.gameroomName = opts;
+            return;
         }
+        if (opts?.gameroomName) {
+            this.gameroomName = opts.gameroomName;
+            return;
+        }
+        const sourceUrl = opts?.publicUrl || process.env.ISCORED_PUBLIC_URL || '';
+        const parsed = IScoredApiClient.parseGameroomName(sourceUrl);
+        if (!parsed) throw new Error('Cannot determine iScored gameroom name from public URL');
+        this.gameroomName = parsed;
+    }
+
+    /** Extracts the gameroom slug (e.g. "mekelburgj") from an iScored public URL. */
+    static parseGameroomName(publicUrl: string): string | null {
+        const match = publicUrl.match(/iscored\.info\/(\w+)/i);
+        return match ? match[1] as string : null;
     }
 
     /** Check whether the iScored API is reachable and enabled for this gameroom. */

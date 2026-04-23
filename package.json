@@ -10,6 +10,7 @@
     "dev": "tsx src/index.ts",
     "restore": "tsx src/cli-restore.ts",
     "scrape-styles": "tsx src/cli-scrape-styles.ts",
+    "generate-secrets-key": "tsx scripts/generate-secrets-key.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

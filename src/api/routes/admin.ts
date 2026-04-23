@@ -300,7 +300,8 @@ router.get('/logs/stream', (req, res) => {
 router.get('/settings', async (req, res) => {
     try {
         const settings = await SettingsService.getAll();
-        res.json(settings);
+        const { maskEncryptedValues } = await import('../../utils/secrets.js');
+        res.json(maskEncryptedValues(settings));
     } catch (error) {
         logError('API Error (GET /api/admin/settings):', error);
         res.status(500).json({ error: 'Internal Server Error' });

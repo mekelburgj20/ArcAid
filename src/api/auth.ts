@@ -52,18 +52,23 @@ export function generateRefreshToken(): string {
     return crypto.randomUUID();
 }
 
+function hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
+
 export async function createSession(
     discordUserId: string,
     refreshToken: string,
     accessToken: string,
 ): Promise<void> {
     const db = await getDatabase();
-    const accessTokenHash = crypto.createHash('sha256').update(accessToken).digest('hex');
+    const refreshTokenHash = hashToken(refreshToken);
+    const accessTokenHash = hashToken(accessToken);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
     await db.run(
         `INSERT INTO sessions (id, discord_user_id, refresh_token, access_token_hash, expires_at, created_at, last_used_at)
          VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-        crypto.randomUUID(), discordUserId, refreshToken, accessTokenHash, expiresAt,
+        crypto.randomUUID(), discordUserId, refreshTokenHash, accessTokenHash, expiresAt,
     );
 }
 
@@ -73,7 +78,7 @@ export async function refreshAccessToken(
     const db = await getDatabase();
     const session = await db.get(
         `SELECT * FROM sessions WHERE refresh_token = ? AND expires_at > datetime('now')`,
-        refreshToken,
+        hashToken(refreshToken),
     );
     if (!session) return null;
 
@@ -104,11 +109,12 @@ export async function refreshAccessToken(
 
     const token = signToken(payload);
     const newRefresh = crypto.randomUUID();
-    const accessTokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const newRefreshHash = hashToken(newRefresh);
+    const accessTokenHash = hashToken(token);
     const newExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     await db.run(
         `UPDATE sessions SET refresh_token = ?, access_token_hash = ?, expires_at = ?, last_used_at = datetime('now') WHERE id = ?`,
-        newRefresh, accessTokenHash, newExpiry, session.id,
+        newRefreshHash, accessTokenHash, newExpiry, session.id,
     );
 
     return { token, refreshToken: newRefresh };

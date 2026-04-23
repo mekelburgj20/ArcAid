@@ -1,6 +1,13 @@
 import { getDatabase } from '../database/database.js';
 import { OrphanService } from './OrphanService.js';
 import { PickAwardGate, ENABLE_GAME_PICK_AWARD } from './PickAwardGate.js';
+import {
+    decryptSecret,
+    encryptSecret,
+    isEncrypted,
+    isEncryptedKey,
+    isMask,
+} from '../utils/secrets.js';
 
 // Settings that trigger side-effects on change. Kept explicit so new settings must
 // opt in deliberately.
@@ -20,6 +27,20 @@ async function invalidateLeaderboardCaches(_gameRoomId: string): Promise<void> {
     } catch { /* best-effort */ }
 }
 
+function decodeValue(key: string, stored: string): string {
+    if (!isEncryptedKey(key)) return stored;
+    if (isEncrypted(stored)) return decryptSecret(stored);
+    // Legacy plaintext row (before startup migration ran). Returned as-is so
+    // callers don't break during the migration window.
+    return stored;
+}
+
+/**
+ * Per-room key/value settings. Transparent encryption for keys listed in
+ * `ENCRYPTED_SETTING_KEYS` — callers see and write plaintext; on-disk is
+ * ciphertext. Empty-string writes on `saveMany`/`set` delete the row so admin
+ * UI "clear field" actions persist.
+ */
 export class GameRoomSettingsService {
     static async get(gameRoomId: string, key: string): Promise<string | null> {
         const db = await getDatabase();
@@ -27,7 +48,8 @@ export class GameRoomSettingsService {
             'SELECT value FROM game_room_settings WHERE game_room_id = ? AND key = ?',
             gameRoomId, key
         );
-        return row?.value ?? null;
+        if (!row) return null;
+        return decodeValue(key, row.value);
     }
 
     static async getAll(gameRoomId: string): Promise<Record<string, string>> {
@@ -37,20 +59,30 @@ export class GameRoomSettingsService {
             gameRoomId
         );
         return rows.reduce((acc: Record<string, string>, row: any) => {
-            acc[row.key] = row.value;
+            acc[row.key] = decodeValue(row.key, row.value);
             return acc;
         }, {});
     }
 
     static async set(gameRoomId: string, key: string, value: string): Promise<void> {
+        // Empty value → delete so clearing a field via admin UI persists.
+        if (value === '') {
+            await GameRoomSettingsService.delete(gameRoomId, key);
+            return;
+        }
+        // Mask sentinel → no-op (secret unchanged).
+        if (isMask(value)) return;
+
         const db = await getDatabase();
         // Capture previous value BEFORE the write so flip logic can diff.
         const prev = key === REQUIRE_LOGIN_KEY
             ? await GameRoomSettingsService.get(gameRoomId, key)
             : null;
+
+        const storedValue = isEncryptedKey(key) ? encryptSecret(value) : value;
         await db.run(
             'INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)',
-            gameRoomId, key, value
+            gameRoomId, key, storedValue
         );
         if (key === REQUIRE_LOGIN_KEY) {
             await OrphanService.handleRequireLoginFlip(gameRoomId, prev, value);
@@ -69,14 +101,28 @@ export class GameRoomSettingsService {
         const prevRequireLogin = REQUIRE_LOGIN_KEY in settings
             ? await GameRoomSettingsService.get(gameRoomId, REQUIRE_LOGIN_KEY)
             : null;
+
         for (const [key, value] of Object.entries(settings)) {
-            if (value === '') continue;
+            // Mask sentinel → user did not change this secret; skip.
+            if (isMask(value)) continue;
+
+            // Empty value → delete (so admin UI "clear field" persists).
+            if (value === '') {
+                await db.run(
+                    'DELETE FROM game_room_settings WHERE game_room_id = ? AND key = ?',
+                    gameRoomId, key,
+                );
+                continue;
+            }
+
+            const storedValue = isEncryptedKey(key) ? encryptSecret(value) : value;
             await db.run(
                 'INSERT OR REPLACE INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)',
-                gameRoomId, key, value
+                gameRoomId, key, storedValue
             );
         }
-        if (REQUIRE_LOGIN_KEY in settings) {
+
+        if (REQUIRE_LOGIN_KEY in settings && !isMask(settings[REQUIRE_LOGIN_KEY]!)) {
             await OrphanService.handleRequireLoginFlip(gameRoomId, prevRequireLogin, settings[REQUIRE_LOGIN_KEY]!);
             await invalidateLeaderboardCaches(gameRoomId);
         }

@@ -131,3 +131,34 @@ export async function formatUserMention(userId: string, fallbackName: string, ga
     }
     return `<@${userId}>`;
 }
+
+/**
+ * Returns true when Discord announcements + actions should happen for the
+ * given room. Controlled by the per-room `DISCORD_ENABLED` toggle (default
+ * true). A `null`/`undefined` roomId is treated as enabled — keeps legacy
+ * single-room flows working.
+ */
+export async function isDiscordEnabledForRoom(gameRoomId?: string | null): Promise<boolean> {
+    if (!gameRoomId) return true;
+    const raw = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_ENABLED');
+    return raw !== 'false';
+}
+
+/**
+ * Resolves the Discord channel that announcements for a tournament in this
+ * room should target. Precedence: tournament-specific channel → per-room
+ * `DISCORD_ANNOUNCEMENT_CHANNEL_ID` → env fallback. Returns `null` when the
+ * room has DISCORD_ENABLED=false or no channel can be resolved.
+ */
+export async function resolveAnnouncementChannelId(
+    gameRoomId: string | null | undefined,
+    tournamentChannelId: string | null | undefined,
+): Promise<string | null> {
+    if (!(await isDiscordEnabledForRoom(gameRoomId))) return null;
+    if (tournamentChannelId) return tournamentChannelId;
+    if (gameRoomId) {
+        const perRoom = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID');
+        if (perRoom) return perRoom;
+    }
+    return process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID ?? null;
+}

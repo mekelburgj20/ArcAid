@@ -39,6 +39,9 @@ interface PendingInvite {
 }
 
 const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
+const ENC_MASK_PREFIX = 'mask:';
+const isMaskedSecret = (v: string | undefined | null): boolean =>
+  typeof v === 'string' && v.startsWith(ENC_MASK_PREFIX);
 
 const CATEGORIES: Record<string, string[]> = {
   'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
@@ -97,7 +100,12 @@ const GLOBAL_CARD_TOGGLES: Record<string, { label: string; description: string; 
 const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
   'ISCORED_ENABLED': {
     label: 'iScored Integration',
-    description: 'When enabled, games are created and managed on iScored. Disable to use ArcAid leaderboards only.',
+    description: 'When enabled, games are created and managed on iScored for this room. Toggle off to fully disconnect this room from iScored without touching credentials.',
+    defaultOn: true,
+  },
+  'DISCORD_ENABLED': {
+    label: 'Discord Integration',
+    description: 'When enabled, this room sends tournament announcements and DMs to Discord. Toggle off to silence all Discord activity for this room without clearing the guild/channel config.',
     defaultOn: true,
   },
   'DISCORD_MENTIONS_ENABLED': {
@@ -1016,6 +1024,16 @@ export default function Settings() {
         ) : (
           /* ── All other categories ── */
           <NeonCard title={category} className="mb-4">
+            {category === 'Discord' && (
+              <div className="mb-3 px-3 py-2 rounded border border-neon-cyan/20 bg-neon-cyan/5 text-xs text-muted">
+                Per-room Discord config. To silence Discord activity for this room, toggle <strong>Discord Integration</strong> off in Integrations. Changing the guild here is safe; you'll need to invite the bot to the new guild manually. Avoid swapping guilds mid-tournament — per-tournament channel IDs still reference the old guild.
+              </div>
+            )}
+            {category === 'iScored' && (
+              <div className="mb-3 px-3 py-2 rounded border border-neon-cyan/20 bg-neon-cyan/5 text-xs text-muted">
+                Per-room iScored account. All three fields must be set together to override the server default — partial config is treated as disabled. The password is encrypted at rest. To disconnect this room from iScored entirely, toggle <strong>iScored Integration</strong> off in Integrations. Avoid swapping accounts mid-tournament — existing games still reference the old iScored IDs.
+              </div>
+            )}
             <div className="space-y-3">
               {entries.map(([key, value]) => {
                 const meta = SETTING_LABELS[key];
@@ -1061,6 +1079,14 @@ export default function Settings() {
                             >Clear</button>
                           )}
                         </div>
+                      ) : isMaskedSecret(value) ? (
+                        <input
+                          type="password"
+                          value=""
+                          placeholder="●●●●●●●● (stored — leave blank to keep, type to replace)"
+                          onChange={e => handleChange(key, e.target.value)}
+                          className={`${inputClass} flex-1`}
+                        />
                       ) : (
                         <input
                           type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
@@ -1069,10 +1095,17 @@ export default function Settings() {
                           className={`${inputClass} flex-1`}
                         />
                       )}
-                      {isSensitive(key) && (
+                      {isSensitive(key) && !isMaskedSecret(value) && (
                         <button onClick={() => toggleReveal(key)}
                           className="text-xs text-faint hover:text-muted cursor-pointer bg-transparent border-none"
                         >{revealed.has(key) ? 'Hide' : 'Show'}</button>
+                      )}
+                      {isMaskedSecret(value) && (
+                        <button
+                          onClick={() => handleChange(key, '')}
+                          className="text-xs text-faint hover:text-neon-magenta cursor-pointer bg-transparent border-none whitespace-nowrap"
+                          title="Remove this stored secret"
+                        >Remove</button>
                       )}
                     </div>
                   </div>
@@ -1425,17 +1458,34 @@ export default function Settings() {
       {uncategorizedKeys.length > 0 && (
         <NeonCard title="Other" className="mb-4">
           <div className="space-y-3">
-            {uncategorizedKeys.map(key => (
-              <div key={key} className="flex items-center gap-3">
-                <label className="w-64 shrink-0 text-sm font-mono text-muted">{key}</label>
-                <input
-                  type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
-                  value={settings[key]}
-                  onChange={e => handleChange(key, e.target.value)}
-                  className={`${inputClass} flex-1`}
-                />
-              </div>
-            ))}
+            {uncategorizedKeys.map(key => {
+              const value = settings[key] ?? '';
+              if (isMaskedSecret(value)) {
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <label className="w-64 shrink-0 text-sm font-mono text-muted">{key}</label>
+                    <input
+                      type="password"
+                      value=""
+                      placeholder="●●●●●●●● (stored — leave blank to keep, type to replace)"
+                      onChange={e => handleChange(key, e.target.value)}
+                      className={`${inputClass} flex-1`}
+                    />
+                  </div>
+                );
+              }
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <label className="w-64 shrink-0 text-sm font-mono text-muted">{key}</label>
+                  <input
+                    type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
+                    value={value}
+                    onChange={e => handleChange(key, e.target.value)}
+                    className={`${inputClass} flex-1`}
+                  />
+                </div>
+              );
+            })}
           </div>
         </NeonCard>
       )}

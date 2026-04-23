@@ -187,9 +187,8 @@ export class TournamentEngine {
         // - Not dbOnly mode
         // - Game has an iScored ID
         // - No other ACTIVE game shares this iScored ID
-        // - iScored is enabled for this room
-        const iscoredEnabled = await this.isIScoredEnabled(row.game_room_id);
-        if (!dbOnly && row.iscored_id && iscoredEnabled) {
+        // - Room has iScored credentials (per-room → env fallback)
+        if (!dbOnly && row.iscored_id) {
             const otherActive = await db.get(
                 `SELECT id FROM games WHERE iscored_id = ? AND status = 'ACTIVE' AND id != ?`,
                 row.iscored_id, gameId
@@ -198,9 +197,10 @@ export class TournamentEngine {
             if (otherActive) {
                 logInfo(`Skipping iScored lock — another active game shares iscored_id ${row.iscored_id}`);
             } else {
-                const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
-                if (hasCredentials) {
-                    const client = new IScoredClient();
+                const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+                const creds = await getIScoredCredsForRoom(row.game_room_id);
+                if (creds) {
+                    const client = new IScoredClient({ username: creds.username, password: creds.password });
                     try {
                         await client.connect();
                         await client.setGameStatus(row.iscored_id, { locked: true });
@@ -333,7 +333,11 @@ export class TournamentEngine {
         if (!tournamentRow) throw new Error(`Tournament ${tournamentId} not found.`);
 
         const term = getTerminology(tournamentRow.mode);
-        const channelId: string | undefined = tournamentRow.discord_channel_id || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
+        const { resolveAnnouncementChannelId } = await import('../utils/discord.js');
+        const channelId: string | null = await resolveAnnouncementChannelId(
+            tournamentRow.game_room_id,
+            tournamentRow.discord_channel_id,
+        );
 
         logInfo(`Starting maintenance for ${term.tournament}: ${tournamentRow.name}`);
 
@@ -349,9 +353,10 @@ export class TournamentEngine {
             return;
         }
 
-        const iscoredEnabled = await this.isIScoredEnabled(tournamentRow.game_room_id);
-        const hasIscoredCredentials = iscoredEnabled && !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
-        const hasPublicUrl = !!process.env.ISCORED_PUBLIC_URL;
+        const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(tournamentRow.game_room_id);
+        const hasIscoredCredentials = !!creds;
+        const hasPublicUrl = !!creds?.publicUrl;
 
         // Process each active game slot independently.
         // Each active game pairs with the next available queued game (FIFO).
@@ -359,8 +364,8 @@ export class TournamentEngine {
 
         // Open one iScored session for all operations
         let client: IScoredClient | null = null;
-        if (hasIscoredCredentials) {
-            client = new IScoredClient();
+        if (creds) {
+            client = new IScoredClient({ username: creds.username, password: creds.password });
             try {
                 await client.connect();
             } catch (err) {
@@ -373,7 +378,8 @@ export class TournamentEngine {
             for (const activeGame of activeGames) {
                 await this.processSlotMaintenance(
                     db, tournamentRow, activeGame, queuedQueue, client,
-                    hasPublicUrl, term, channelId, tournamentId
+                    creds?.publicUrl ?? null, creds?.gameroomName ?? null,
+                    term, channelId, tournamentId
                 );
             }
 
@@ -474,11 +480,13 @@ export class TournamentEngine {
         activeGame: Game,
         queuedQueue: any[],
         client: IScoredClient | null,
-        hasPublicUrl: boolean,
+        publicUrl: string | null,
+        gameroomName: string | null,
         term: ReturnType<typeof getTerminology>,
-        channelId: string | undefined,
+        channelId: string | null,
         tournamentId: string,
     ): Promise<void> {
+        const hasPublicUrl = !!publicUrl;
         logInfo(`   Processing slot: ${activeGame.name}`);
 
         let winnerIscoredName: string | null = null;
@@ -532,7 +540,9 @@ export class TournamentEngine {
             if (useApi) {
                 try {
                     const { IScoredApiClient } = await import('./IScoredApiClient.js');
-                    const apiClient = new IScoredApiClient();
+                    const apiClient = new IScoredApiClient(
+                        gameroomName ? { gameroomName } : undefined,
+                    );
                     const gameScores = await apiClient.getGameScores(activeGame.iscoredId, 1);
                     const topScore = gameScores.scores?.[0];
                     if (topScore) {
@@ -543,9 +553,9 @@ export class TournamentEngine {
                     }
                 } catch (err) {
                     logError('   -> iScored API fallback failed:', err);
-                    if (hasPublicUrl) {
+                    if (publicUrl) {
                         try {
-                            const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId);
+                            const scores = await client.scrapePublicScores(publicUrl, activeGame.iscoredId);
                             if (scores.length > 0) {
                                 winnerIscoredName = scores[0].name;
                                 const rawScore = String(scores[0].score).replace(/[^0-9]/g, '');
@@ -557,9 +567,9 @@ export class TournamentEngine {
                         }
                     }
                 }
-            } else if (hasPublicUrl) {
+            } else if (publicUrl) {
                 try {
-                    const scores = await client.scrapePublicScores(process.env.ISCORED_PUBLIC_URL!, activeGame.iscoredId);
+                    const scores = await client.scrapePublicScores(publicUrl, activeGame.iscoredId);
                     if (scores.length > 0) {
                         winnerIscoredName = scores[0].name;
                         const rawScore = String(scores[0].score).replace(/[^0-9]/g, '');
@@ -919,7 +929,7 @@ export class TournamentEngine {
         completedGame: Game,
         client: IScoredClient | null,
         term: ReturnType<typeof getTerminology>,
-        channelId: string | undefined,
+        channelId: string | null,
     ): Promise<void> {
         // Guard: if tournament already has max active games, skip auto-pick
         const maxSlots = tournamentRow.max_active_games ?? 1;
@@ -1109,13 +1119,14 @@ export class TournamentEngine {
         const toHide = completed.slice(retainCount);
         if (toHide.length === 0) return;
 
-        // Check if iScored is enabled for this tournament's room
+        // Resolve iScored creds for this tournament's room (per-room → env fallback).
         const tournamentRow = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
-        const iscoredEnabled = await this.isIScoredEnabled(tournamentRow?.game_room_id);
+        const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(tournamentRow?.game_room_id);
 
-        if (iscoredEnabled) {
+        if (creds) {
             logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
-            const client = new IScoredClient();
+            const client = new IScoredClient({ username: creds.username, password: creds.password });
             await client.connect();
             try {
                 for (const game of toHide) {
@@ -1130,7 +1141,7 @@ export class TournamentEngine {
                 await client.disconnect();
             }
         } else {
-            logInfo(`Cleanup for tournament ${tournamentId}: marking ${toHide.length} completed game(s) as HIDDEN (iScored disabled)`);
+            logInfo(`Cleanup for tournament ${tournamentId}: marking ${toHide.length} completed game(s) as HIDDEN (iScored disabled for room)`);
         }
 
         // Always mark as HIDDEN in DB regardless of iScored
@@ -1199,36 +1210,55 @@ export class TournamentEngine {
      * Within each tournament group: ACTIVE games first, then COMPLETED (locked).
      * Groups are sorted by tournament display_order, games within by start_date.
      * Unmanaged games (no tournament) remain at the bottom.
+     *
+     * Per-room aware: when rooms point at different iScored accounts, each
+     * account's lineup is reordered independently using that room's creds.
+     *
+     * If `gameRoomId` is provided, restricts the operation to that room only.
      */
-    public async reorderIScoredLineup(): Promise<void> {
+    public async reorderIScoredLineup(gameRoomId?: string): Promise<void> {
         const db = await getDatabase();
 
-        // Get all managed games with iScored IDs, ordered by:
-        // 1. Tournament display_order (lower = higher in lineup)
-        // 2. Status priority (ACTIVE before COMPLETED)
-        // 3. Start date (newest first within same status)
-        const managedGames = await db.all(`
-            SELECT g.iscored_id, g.status, t.display_order
+        const query = `
+            SELECT g.iscored_id, g.status, t.display_order, t.game_room_id
             FROM games g
             JOIN tournaments t ON g.tournament_id = t.id
             WHERE g.status IN ('ACTIVE', 'COMPLETED') AND g.iscored_id IS NOT NULL
+              ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY
                 t.display_order ASC,
                 CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END ASC,
                 g.start_date DESC
-        `);
+        `;
+        const managedGames = gameRoomId
+            ? await db.all(query, gameRoomId)
+            : await db.all(query);
 
         if (managedGames.length === 0) return;
 
-        const orderedIds = managedGames.map((g: any) => g.iscored_id);
-        logInfo(`Reordering iScored lineup: ${orderedIds.length} managed games by display_order`);
+        // Group by room so each iScored account is reordered with its own creds.
+        const byRoom = new Map<string | null, string[]>();
+        for (const g of managedGames as Array<{ iscored_id: string; game_room_id: string | null }>) {
+            const key = g.game_room_id;
+            if (!byRoom.has(key)) byRoom.set(key, []);
+            byRoom.get(key)!.push(g.iscored_id);
+        }
 
-        const client = new IScoredClient();
-        await client.connect();
-        try {
-            await client.repositionLineup(orderedIds);
-        } finally {
-            await client.disconnect();
+        const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+        for (const [roomId, orderedIds] of byRoom) {
+            const creds = await getIScoredCredsForRoom(roomId);
+            if (!creds) {
+                logWarn(`Reorder: skipping ${orderedIds.length} games from room ${roomId ?? '(unassigned)'} — iScored disabled or misconfigured.`);
+                continue;
+            }
+            logInfo(`Reordering iScored lineup for room ${roomId ?? '(unassigned)'}: ${orderedIds.length} games on account ${creds.gameroomName}`);
+            const client = new IScoredClient({ username: creds.username, password: creds.password });
+            await client.connect();
+            try {
+                await client.repositionLineup(orderedIds);
+            } finally {
+                await client.disconnect();
+            }
         }
     }
 }

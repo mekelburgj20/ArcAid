@@ -34,6 +34,15 @@ export async function syncScoreToIScored(opts: {
     const { roomId, gameName, username, score, persistentPhotoPath } = opts;
     let tempPhotoPath: string | undefined;
     try {
+        // Resolve per-room (or env-fallback) creds. null means iScored is
+        // disabled or unconfigured for this room — nothing to sync.
+        const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(roomId);
+        if (!creds) {
+            logInfo(`iScored disabled for room ${roomId}, skipping sync for "${gameName}"`);
+            return;
+        }
+
         const db = await getDatabase();
         const activeGame = await db.get(`
             SELECT g.iscored_id FROM games g
@@ -51,21 +60,18 @@ export async function syncScoreToIScored(opts: {
         if (useApi) {
             // API path — fast, no browser overhead (no photo support).
             const { IScoredApiClient } = await import('../engine/IScoredApiClient.js');
-            const apiClient = new IScoredApiClient();
+            const apiClient = new IScoredApiClient({ gameroomName: creds.gameroomName });
             await apiClient.submitScore(activeGame.iscored_id, username, score);
             logInfo(`iScored API sync: submitted score for "${gameName}" by ${username}`);
         } else {
             // Playwright fallback — supports photos.
-            const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
-            if (!hasCredentials) return;
-
             if (persistentPhotoPath) {
                 tempPhotoPath = persistentPhotoPath + '.tmp';
                 fs.copyFileSync(persistentPhotoPath, tempPhotoPath);
             }
 
             const { IScoredClient } = await import('../engine/IScoredClient.js');
-            const client = new IScoredClient();
+            const client = new IScoredClient({ username: creds.username, password: creds.password });
             await client.connect();
             try {
                 await client.submitScore(activeGame.iscored_id, username, score, tempPhotoPath);
