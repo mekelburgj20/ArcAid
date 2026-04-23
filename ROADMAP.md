@@ -358,6 +358,36 @@ All 5 phases complete (2026-04-14→2026-04-15). Notification coalescing deferre
 - [x] AllGamesView: carousel with room card styles (CardRouter/GameCard), auto-cycle, search, arrows
 - [x] Global score fan-out: fixed `grl.game_name` column name + added `global_games` direct lookup fallback
 
+## Scores/Nav Reorg — Sprints 1-13 (COMPLETE, shipped 2026-04-18)
+
+12-sprint plan + Sprint 13 polish pass. Context-capture plumbing, merge-model spec, shared `GameCard` + `SubmissionSheet` + themed icons, `DiscordNicknameResolver`, `PickAwardGate` cascade, `REQUIRE_DISCORD_LOGIN` relabel + orphan-on-flip + logo badge crop, `room_members` table, nav restructure + `UserMenu` + My Rooms + Stats merge, Scoreboard `Tournaments | All Games` tabs + `RoomTag` filter, Picks page rename + Mystery Award lift + 301 redirect, anonymous submission runtime + legacy modal deletion, `MergeService` + admin identity UI + self-claim hook, Global Scoreboard badges + cooldown display rules + emoji sweep. All committed to main as the `2.0.0` baseline and deployed.
+
+## v2.1.0 — Tournament scoring + Stats Combo (COMPLETE, shipped 2026-04-18)
+
+- [x] Tournament leaderboards read `score_history` filtered by `submitted_during_tournament_id` — best-during-window wins, no longer tied to all-time PB. Migration 063 backfills existing rows.
+- [x] Multi-score inline expand on Game Detail with sparkline + This-tournament / All-time split, proof-photo links, source pills.
+- [x] Stats page Combo — 4-card overview row (plays this week / active players / hottest game / latest submission) + new `GET /:roomId/stats/overview` endpoint.
+
+## v2.2.x — Identity correctness + cabinet redesign (COMPLETE, shipped 2026-04-19 → 2026-04-21)
+
+14 patch releases (v2.2.0 → v2.2.14) in a tight iteration cycle. Highlights:
+
+- [x] **First-claim-wins identity** (`RoomNameClaimService`, `room_members.display_name`, `anon_room_claims`, migrations 064 + 066). Auto-suffix colliding names across Discord/anon/browser contexts. Multi-name per browser allowed (one token → many names per room).
+- [x] **Pre-submit name-check** endpoint + `SubmissionSheet` collision prompt with editable suggestion.
+- [x] **Global fan-out gate** — guest submissions never reach `/scoreboard`; gated on `normalizeSubmitterUserId`.
+- [x] **`REQUIRE_DISCORD_LOGIN=true` default for new rooms**. Existing rooms untouched (migration 065 no-op marker).
+- [x] **`conditionalRequireDiscordUser` middleware** decodes optional tokens even in guest-allowed rooms. Fixes regression where logged-in users fell through as `COMMUNITY`.
+- [x] **Unified iScored sync** via `IScoredSubmitSync.syncScoreToIScored` — called from tournament submit, freeplay, and legacy community endpoint. `IScoredApiClient.submitScore` handles non-JSON rejections.
+- [x] **Winner resolution from local DB** — `TournamentEngine.processSlotMaintenance` reads `submissions` first, iScored fallback. Anon winners get a claim-your-account Discord message, no `@mention`, no picker slot.
+- [x] **Scoreboard click routing refactor** — removed inset-0 Link overlay from `GameCard`, `Scoreboard.tsx`, `GamesTabView.tsx`. Each card variant wraps its own title as a Link. Usernames everywhere are Links to `/:slug/players/:name`. Score rows + `+` expand icons capture clicks naturally.
+- [x] **Picks URL slug** — `/:slug/picks?t=daily_grind` (was UUID). Back-compat preserved.
+- [x] **Post-login lands on `/:slug/lobby`** (was `/:slug/picks`).
+- [x] **`UserMenu` on Global pages** (`/scoreboard`, `/games/:id`). Shared `DiscordLoginButton` component.
+- [x] **Mystery Award cabinet redesign** — `TournamentPoolTopper` (LED glow pill above backbox), circular Fire/Queue pinball-cabinet buttons always visible, Queue amber-orange (not green), grayed until a result lands. v2.2.14 flipped Fire/Queue positions.
+- [x] **Service-worker cache-bust discipline** — `CACHE_NAME` bumped every UI-visible release so installed PWAs pick up changes on reload.
+
+Manual test playbook: `tmp/manual-test-playbook-v2.2.3.md` (up to v2.2.7 checkpoints).
+
 ---
 
 ## Future
@@ -472,6 +502,30 @@ The one exception is a phantom claim — an anon row that *is actually the same 
 - Build a background job that auto-cleans phantoms. Needs a human to verify the claim is actually the same user.
 
 The existing admin merge tool at `/:slug/admin/identity` is the right place for real cross-identity reconciliation when it turns out two claims should collapse into one.
+
+### Game Library filters — Platform / Manufacturer / Type / etc.
+
+The game library and global catalogue are already searchable by name across four surfaces: room admin (`/:slug/admin/library`), global catalogue (`/catalogue`), freeplay picker (`/:slug/freeplay`), and super-admin master library. Add a filter panel so users can narrow by metadata fields without typing.
+
+- [ ] **Filter fields (MVP):**
+  - **Platform** — the canonical platform IDs from `src/utils/platformMapping.ts` (VPX, VPXS, VPX-VR, IRL, AtGames, Scorbit, etc.). Multi-select. Already stored as JSON array on `game_library.platforms` / `global_games.platforms`.
+  - **Manufacturer** — Stern, Bally, Williams, Gottlieb, Data East, Sega, etc. Stored on `global_games.manufacturer`; usually missing on pure room entries (falls back to catalogue lookup via `global_game_id`).
+  - **Type** — Real pinball (EM / SS / modern), Virtual pinball, Video game, Arcade cabinet. Derivable from platform + year + catalogue category; may need a dedicated column if the derivation gets ambiguous.
+  - **Year** — range slider or decade dropdown.
+  - **Theme / Tags** — adventure, sci-fi, supernatural, licensed (IP tags from VPS/OPDB imports). Multi-select.
+  - **Player count** — 1P / 2P / 4P (already surfaced on Global Game Detail, see image #5 earlier).
+- [ ] **Filter UI:** collapsible sidebar on desktop, bottom-sheet on mobile. Filter chips above the grid show active filters with `×` to remove. Clears-all link when any filter is active.
+- [ ] **URL state** — filters serialize to query params (`?platform=vpx,vpxs&manufacturer=stern&year=1990-2000`) so shares and deep-links work.
+- [ ] **Combined with search** — existing name-search input stays; filters narrow the result set server-side, search is applied on top.
+- [ ] **API surface** — extend the existing list endpoints (`GET /:roomId/game_library`, `GET /global/catalogue`, `GET /admin/master-library`) to accept the filter params. Single query with `WHERE` clauses + JSON array intersection for `platforms`.
+- [ ] **Performance** — all filter columns need indexes on `global_games` (platforms is JSON so an index helps but doesn't fully accelerate). Consider a materialized `global_games_facets` view or extracting filter keys into indexed columns if the catalogue grows past ~10k entries.
+- [ ] **Filter facet counts** — next to each filter option show the number of matching games (e.g. "Stern (47)", "Bally (23)"). Requires a separate aggregation query. Can ship without initially; add once the UI is validated.
+
+Open questions:
+- **Type derivation**: is "Real pinball" vs "Virtual pinball" vs "Video game" stored anywhere already, or do we need a new column? If new, seed from a platform→type mapping table.
+- **Room-local vs global**: should room-admin library filters be restricted to what the room has (reflecting its curated list) or show the full global catalogue with availability indicators? MVP: restricted to room's actual library; add "browse global" as a secondary pivot later.
+
+Rough sizing: 1-2 days depending on whether Type needs a new column + migration. Facet counts add another half-day.
 
 ### Comments & Tips — bidirectional view (Option 2)
 
