@@ -70,6 +70,38 @@ describe('global_games identity index + upsert disambiguation', () => {
         ).rejects.toThrow(/UNIQUE constraint failed/i);
     });
 
+    it('step 4: concrete (mfg, year) match wins over null-tolerant thin-row shadows', async () => {
+        const db = await getDatabase();
+        // Seed: the rich counterpart + two thin rows with the same normalized name.
+        // `normalizeGameName` collapses these to the same key via its
+        // LE-stripping + paren-stripping rules.
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Attack from Mars, JP''s', 'pinball', 'Bally', 1995, 'approved')`,
+            'rich-bally',
+        );
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Attack from Mars, JP''s (Bally 1995)', 'pinball', NULL, NULL, 'approved')`,
+            'thin-bally-paren',
+        );
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Attack from Mars LE, JP''s (Chicago Gaming Company 2017)', 'pinball', NULL, NULL, 'approved')`,
+            'thin-cgc-paren',
+        );
+
+        // Wizard re-import of the Bally 1995 variant. With v2.4.10 step 4,
+        // concrete mfg+year match picks rich-bally, ignoring the thin rows
+        // that would otherwise shadow it.
+        const result = await GlobalGameService.upsert({
+            name: "Attack from Mars, JP's", type: 'pinball',
+            manufacturer: 'Bally', year: 1995, platforms: ['vpxs'], status: 'approved',
+        });
+        expect(result.action).toBe('updated');
+        expect(result.id).toBe('rich-bally');
+    });
+
     it('blocks two rows where both have NULL manufacturer and NULL year (coalesce collapses NULLs)', async () => {
         const db = await getDatabase();
         await db.run(

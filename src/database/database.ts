@@ -1025,6 +1025,17 @@ export async function initDatabase(): Promise<Database> {
             const { relaxGlobalGamesUniqueIndex } = await import('./migrations/catalogueUnification.js');
             await relaxGlobalGamesUniqueIndex(db);
         } },
+        { name: '082_merge_thin_duplicates_after_wizard_reimport', handler: async (db) => {
+            // The first post-v2.4.8 Wizard import inserted rich (name, mfg,
+            // year) rows for titles that previously only existed as thin
+            // backfill duplicates. Migrations 078/079 ran BEFORE those rich
+            // rows existed, so their lookup found no counterpart and left
+            // the thin rows alone. Re-run the v2 merger now that the rich
+            // counterparts are in place. Idempotent — same (LIKE + regex +
+            // strict SELECT) pipeline as 079.
+            const { mergeThinCatalogueDuplicatesV2 } = await import('./migrations/catalogueUnification.js');
+            await mergeThinCatalogueDuplicatesV2(db);
+        } },
         { name: '081_clear_stale_sync_alert_channel_id', sql: `
             -- The original defaultSettings seed shipped a dev-test Discord
             -- channel ID ('1467561374040461527') as SYNC_ALERT_CHANNEL_ID.

@@ -211,26 +211,45 @@ export class GlobalGameService {
 
         // 4. Normalized name match with strict secondary confirmation.
         //
-        // v2.4.8: when multiple candidates share the normalized name, pick
-        // the one whose manufacturer+year matches the input — that's the
-        // specific machine. Real pinball has lots of same-name titles from
-        // different manufacturers (Batman by Stern/Data East, Playboy by
-        // Bally/Stern, etc.), so "multiple candidates" isn't inherently
-        // ambiguous; the (mfg, year) pair disambiguates.
+        // v2.4.10: two-tier match to defeat thin-duplicate interference.
+        // `manufacturerYearAgree` treats NULL mfg/year as "pass," which
+        // makes thin duplicates (NULL mfg + NULL year backfill leftovers)
+        // blend into the candidate set and prevent single-hit resolution.
+        //
+        // First, prefer candidates that CONCRETELY agree on both mfg AND
+        // year with the input (non-null on both sides, case-insensitive mfg
+        // match, year within ±1). That's the specific machine. Only if no
+        // concrete match exists do we fall back to the NULL-tolerant check
+        // — keeps "sole thin candidate" merges working without letting a
+        // thin row shadow a real rich row.
         if (!existing) {
             const nameMatches = (await this.findByNormalizedName(input.name))
                 .filter(g => g.type === inputType);
 
-            // Prefer a candidate whose (mfg, year) exactly agrees with input.
-            const mfgYearHits = nameMatches.filter(
-                g => !this.hasExternalIdConflict(input, g) && this.manufacturerYearAgree(input, g),
-            );
-            if (mfgYearHits.length === 1) {
-                existing = mfgYearHits[0]!;
+            const nonConflicting = nameMatches.filter(g => !this.hasExternalIdConflict(input, g));
+
+            const inputMfg = (input.manufacturer || '').trim().toLowerCase();
+            const inputYear = input.year ?? null;
+            const concrete = nonConflicting.filter(g => {
+                const cMfg = (g.manufacturer || '').trim().toLowerCase();
+                const cYear = g.year ?? null;
+                if (!inputMfg || !cMfg || !inputYear || !cYear) return false;
+                if (inputMfg !== cMfg) return false;
+                if (Math.abs(cYear - inputYear) > 1) return false;
+                return true;
+            });
+
+            if (concrete.length === 1) {
+                existing = concrete[0]!;
+            } else if (concrete.length === 0) {
+                // No concrete (mfg, year) match — fall back to NULL-tolerant
+                // agreement so a single thin-but-solo candidate can still merge.
+                const loose = nonConflicting.filter(g => this.manufacturerYearAgree(input, g));
+                if (loose.length === 1) existing = loose[0]!;
             }
-            // If no candidate agrees on mfg/year, fall through to INSERT —
-            // the new UNIQUE INDEX (migration 080) keys on (name, type, mfg,
-            // year) so distinct variants are allowed to coexist.
+            // concrete.length > 1 → multiple distinct same-(mfg,year) rows?
+            // Shouldn't happen under the composite UNIQUE INDEX (080). Fall
+            // through to INSERT; the index will reject if truly identical.
         }
 
         if (existing) {
