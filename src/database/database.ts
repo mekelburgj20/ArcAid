@@ -936,6 +936,37 @@ export async function initDatabase(): Promise<Database> {
             const { backfillGlobalGameId } = await import('./migrations/catalogueUnification.js');
             await backfillGlobalGameId(db);
         } },
+        // 077 MUST run before 070: the orphan delete handler UPDATEs
+        // submissions.game_id = NULL, which needs the NOT NULL constraint
+        // dropped first.
+        { name: '077_submissions_game_id_nullable', sql: `
+            CREATE TABLE submissions_new (
+                id TEXT PRIMARY KEY,
+                game_id TEXT,
+                discord_user_id TEXT NOT NULL,
+                iscored_username TEXT,
+                score INTEGER NOT NULL,
+                photo_url TEXT,
+                timestamp TEXT NOT NULL,
+                submitted_from_room_id TEXT,
+                submitted_during_tournament_id TEXT,
+                submitted_by_user_id TEXT,
+                submitted_by_anonymous_name TEXT,
+                merged_from_anonymous_identity_id INTEGER,
+                orphaned_at TEXT,
+                FOREIGN KEY (game_id) REFERENCES games (id)
+            );
+            INSERT INTO submissions_new
+                SELECT id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                       submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                       submitted_by_anonymous_name, merged_from_anonymous_identity_id, orphaned_at
+                FROM submissions;
+            DROP TABLE submissions;
+            ALTER TABLE submissions_new RENAME TO submissions;
+            CREATE INDEX IF NOT EXISTS idx_submissions_game_id ON submissions(game_id);
+            CREATE INDEX IF NOT EXISTS idx_submissions_discord_user_id ON submissions(discord_user_id);
+            CREATE INDEX IF NOT EXISTS idx_submissions_orphaned ON submissions(orphaned_at);
+        ` },
         { name: '070_delete_legacy_orphan_games', handler: async (db) => {
             const { deleteLegacyOrphanGames } = await import('./migrations/catalogueUnification.js');
             await deleteLegacyOrphanGames(db);
@@ -981,38 +1012,6 @@ export async function initDatabase(): Promise<Database> {
         ` },
         { name: '076_games_display_order', sql: `
             ALTER TABLE games ADD COLUMN display_order INTEGER;
-        ` },
-        { name: '077_submissions_game_id_nullable', sql: `
-            -- v2.4.0: drop NOT NULL on submissions.game_id so unpin can unlink
-            -- scores without losing the submission record (score_history and
-            -- global_scores.origin_game_id are already nullable). SQLite has no
-            -- ALTER COLUMN DROP NOT NULL — rebuild table (same pattern as 066).
-            CREATE TABLE submissions_new (
-                id TEXT PRIMARY KEY,
-                game_id TEXT,
-                discord_user_id TEXT NOT NULL,
-                iscored_username TEXT,
-                score INTEGER NOT NULL,
-                photo_url TEXT,
-                timestamp TEXT NOT NULL,
-                submitted_from_room_id TEXT,
-                submitted_during_tournament_id TEXT,
-                submitted_by_user_id TEXT,
-                submitted_by_anonymous_name TEXT,
-                merged_from_anonymous_identity_id INTEGER,
-                orphaned_at TEXT,
-                FOREIGN KEY (game_id) REFERENCES games (id)
-            );
-            INSERT INTO submissions_new
-                SELECT id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
-                       submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                       submitted_by_anonymous_name, merged_from_anonymous_identity_id, orphaned_at
-                FROM submissions;
-            DROP TABLE submissions;
-            ALTER TABLE submissions_new RENAME TO submissions;
-            CREATE INDEX IF NOT EXISTS idx_submissions_game_id ON submissions(game_id);
-            CREATE INDEX IF NOT EXISTS idx_submissions_discord_user_id ON submissions(discord_user_id);
-            CREATE INDEX IF NOT EXISTS idx_submissions_orphaned ON submissions(orphaned_at);
         ` },
     ];
 
