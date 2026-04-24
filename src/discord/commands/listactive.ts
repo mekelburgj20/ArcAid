@@ -16,10 +16,13 @@ export const listactive: Command = {
 
         try {
             const { sql: enabledFilter, params } = await buildEnabledRoomSqlFilter('t.game_room_id');
+            // INNER JOIN — orphan games with no tournament (legacy pre-multi-room
+            // data) have no room attribution and shouldn't surface in any guild's
+            // output. Only tournament-attributed games are relevant to Discord.
             const activeGames = await db.all(`
                 SELECT g.name as game_name, t.name as tournament_name
                 FROM games g
-                LEFT JOIN tournaments t ON g.tournament_id = t.id
+                JOIN tournaments t ON g.tournament_id = t.id
                 WHERE g.status = 'ACTIVE' ${enabledFilter}
             `, ...params);
 

@@ -16,11 +16,12 @@ export const listwinners: Command = {
         
         try {
             const { sql: enabledFilter, params } = await buildEnabledRoomSqlFilter('t.game_room_id');
-            // A simplified winner determination (max score per completed game)
+            // INNER JOIN — orphan games (no tournament, no room) don't belong
+            // to any guild's view.
             const completedGames = await db.all(`
                 SELECT g.id, g.name as game_name, t.name as tournament_name, g.end_date
                 FROM games g
-                LEFT JOIN tournaments t ON g.tournament_id = t.id
+                JOIN tournaments t ON g.tournament_id = t.id
                 WHERE g.status = 'COMPLETED' ${enabledFilter}
                 ORDER BY g.end_date DESC
                 LIMIT 5

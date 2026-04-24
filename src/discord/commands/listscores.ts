@@ -42,10 +42,12 @@ export const listscores: Command = {
 
         try {
             const { sql: enabledFilter, params } = await buildEnabledRoomSqlFilter('t.game_room_id');
+            // INNER JOIN — orphan games have no room and aren't relevant to
+            // any Discord guild's scoreboard.
             const activeGames = await db.all(`
                 SELECT g.id, g.name as game_name, t.name as tournament_name, t.type as tournament_type, t.display_order
                 FROM games g
-                LEFT JOIN tournaments t ON g.tournament_id = t.id
+                JOIN tournaments t ON g.tournament_id = t.id
                 WHERE g.status = 'ACTIVE' ${enabledFilter}
                 ORDER BY COALESCE(t.display_order, 999) ASC, g.start_date DESC
             `, ...params);
