@@ -1013,6 +1013,10 @@ export async function initDatabase(): Promise<Database> {
         { name: '076_games_display_order', sql: `
             ALTER TABLE games ADD COLUMN display_order INTEGER;
         ` },
+        { name: '078_merge_thin_catalogue_duplicates', handler: async (db) => {
+            const { mergeThinCatalogueDuplicates } = await import('./migrations/catalogueUnification.js');
+            await mergeThinCatalogueDuplicates(db);
+        } },
     ];
 
     for (const migration of migrations) {

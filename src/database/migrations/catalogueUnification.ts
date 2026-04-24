@@ -302,6 +302,83 @@ export async function deleteLegacyOrphanGames(db: Database): Promise<void> {
     }
 }
 
+/**
+ * Migration 078 — merge thin backfilled global_games rows into their rich
+ * catalogue counterparts.
+ *
+ * The v2.4.0 backfill (069) called `resolveOrCreateGlobalGame(row.name, type)`
+ * with the library's full combined name, e.g. `"Alien Nostromo (Original, 2022)"`.
+ * Where no exact-name match existed in the catalogue, it INSERTed a new thin
+ * row with that combined string as `name` and NULL manufacturer/year — even
+ * when a rich counterpart existed under `name="Alien Nostromo"` +
+ * `manufacturer="Original"` + `year=2022`.
+ *
+ * This handler parses every suspect thin row's name for the
+ * `<base> (<mfg>, <year>)` pattern and, when it finds a rich counterpart,
+ * merges the thin row into it via `GlobalGameService.merge` (which cascades
+ * games / game_room_game_library / game_library / global_scores /
+ * global_leaderboard_cache links). Rows with no discoverable counterpart are
+ * left alone — they're hidden from the public All Games tab by v2.4.5's
+ * image filter and can be enriched or deleted via the admin catalogue UI.
+ */
+export async function mergeThinCatalogueDuplicates(db: Database): Promise<void> {
+    const { GlobalGameService } = await import('../../services/GlobalGameService.js');
+
+    // Thin rows look like: name='X (Mfg, YYYY)' AND manufacturer/year nulls
+    // AND no image data. We only attempt the parse-and-merge on rows that
+    // match ALL of those — a narrow, deterministic cleanup.
+    const thinRows = (await db.all(`
+        SELECT id, name, type FROM global_games
+        WHERE manufacturer IS NULL
+          AND year IS NULL
+          AND local_image_path IS NULL
+          AND wheel_image_path IS NULL
+          AND image_url IS NULL
+          AND name LIKE '%(%,%)'
+    `)) as Array<{ id: string; name: string; type: string }>;
+
+    if (thinRows.length === 0) {
+        log('078: no thin catalogue duplicates matched the cleanup pattern');
+        return;
+    }
+
+    const parsePattern = /^(.+?)\s*\(\s*([^,]+?)\s*,\s*(\d{4})\s*\)\s*$/;
+    let merged = 0;
+    let unmatched = 0;
+
+    for (const thin of thinRows) {
+        const m = thin.name.match(parsePattern);
+        if (!m) { unmatched++; continue; }
+        const [, baseName, mfg, yearStr] = m;
+        const year = parseInt(yearStr!, 10);
+
+        // Prefer an exact (base, mfg, year) match of the SAME type.
+        const target = (await db.get(
+            `SELECT id FROM global_games
+             WHERE LOWER(name) = LOWER(?) AND type = ?
+               AND (manufacturer IS NOT NULL AND LOWER(manufacturer) = LOWER(?))
+               AND year = ?
+             LIMIT 1`,
+            baseName, thin.type, mfg, year,
+        )) as { id: string } | undefined;
+
+        if (!target || target.id === thin.id) {
+            unmatched++;
+            continue;
+        }
+
+        try {
+            await GlobalGameService.merge(target.id, thin.id);
+            merged++;
+        } catch (err) {
+            log(`078: merge failed for ${thin.id} → ${target.id} (name='${thin.name}'): ${err}`);
+            throw err;
+        }
+    }
+
+    log(`078: merged ${merged} thin duplicate(s); ${unmatched} row(s) had no catalogue counterpart and remain in the DB (hidden from public browse)`);
+}
+
 function safeJsonArray(raw: string | null | undefined): string[] {
     if (!raw) return [];
     try {

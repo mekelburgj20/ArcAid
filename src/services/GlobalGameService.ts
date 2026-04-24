@@ -663,6 +663,15 @@ export class GlobalGameService {
                 targetId, sourceId
             );
 
+            // v2.4.x: also repoint game_library.global_game_id. Prior to this,
+            // merge cascaded games + room-library + scores but forgot the
+            // canonical library table, leaving library rows pointing at the
+            // about-to-be-deleted source ID.
+            await db.run(
+                `UPDATE game_library SET global_game_id = ? WHERE global_game_id = ?`,
+                targetId, sourceId
+            );
+
             // Update games table links
             await db.run(
                 `UPDATE games SET global_game_id = ? WHERE global_game_id = ?`,
