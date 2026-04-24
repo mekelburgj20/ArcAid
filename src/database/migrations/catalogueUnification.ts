@@ -1,4 +1,5 @@
 import type { Database } from 'sqlite';
+import crypto from 'crypto';
 
 /**
  * Migration handlers for Sprint v2.4.0 — catalogue unification + pin feature.
@@ -132,8 +133,6 @@ export async function auditAndCreateGlobalGamesUniqueIndex(db: Database): Promis
  * re-run picks up only what's left.
  */
 export async function backfillGlobalGameId(db: Database): Promise<void> {
-    const { GlobalGameService } = await import('../../services/GlobalGameService.js');
-
     await db.exec('BEGIN TRANSACTION');
     try {
         // --- 1) game_library rows (these carry `mode` directly) ---
@@ -146,13 +145,7 @@ export async function backfillGlobalGameId(db: Database): Promise<void> {
         let libraryLinked = 0;
         for (const row of libraryRows) {
             const type = row.mode === 'video_game' ? 'video_game' : 'pinball';
-            const { id } = await GlobalGameService.upsert({
-                name: row.name,
-                type,
-                platforms: safeJsonArray(row.platforms),
-                image_url: row.image_url ?? null,
-                status: 'approved',
-            });
+            const id = await resolveOrCreateGlobalGame(db, row.name, type, row.platforms, row.image_url);
             await db.run(
                 'UPDATE game_library SET global_game_id = ? WHERE name = ?',
                 id, row.name,
@@ -173,14 +166,9 @@ export async function backfillGlobalGameId(db: Database): Promise<void> {
         let grlMissed = 0;
         for (const row of grlRows) {
             if (!row.resolved_fk) {
-                // Library row has no FK yet — either the room references a
-                // game that isn't in game_library, or upsert failed earlier.
-                // Attempt direct upsert with minimal info.
-                const { id } = await GlobalGameService.upsert({
-                    name: row.game_name,
-                    type: 'pinball',
-                    status: 'approved',
-                });
+                // Library row had no FK resolvable above (name drift, deleted
+                // library entry, etc.). Create a minimal global_games row.
+                const id = await resolveOrCreateGlobalGame(db, row.game_name, 'pinball');
                 await db.run(
                     'UPDATE game_room_game_library SET global_game_id = ? WHERE game_room_id = ? AND game_name = ?',
                     id, row.game_room_id, row.game_name,
@@ -194,7 +182,7 @@ export async function backfillGlobalGameId(db: Database): Promise<void> {
                 grlLinked++;
             }
         }
-        log(`069: linked ${grlLinked}/${grlRows.length} game_room_game_library rows (${grlMissed} required direct upsert)`);
+        log(`069: linked ${grlLinked}/${grlRows.length} game_room_game_library rows (${grlMissed} created direct)`);
 
         // --- 3) games rows (type from tournament.mode; orphans get NULL and are cleaned up in 070) ---
         const gameRows = (await db.all(`
@@ -208,11 +196,7 @@ export async function backfillGlobalGameId(db: Database): Promise<void> {
         let gamesLinked = 0;
         for (const row of gameRows) {
             const type = row.tournament_mode === 'video_game' ? 'video_game' : 'pinball';
-            const { id } = await GlobalGameService.upsert({
-                name: row.name,
-                type,
-                status: 'approved',
-            });
+            const id = await resolveOrCreateGlobalGame(db, row.name, type);
             await db.run(
                 'UPDATE games SET global_game_id = ? WHERE id = ?',
                 id, row.id,
@@ -226,6 +210,42 @@ export async function backfillGlobalGameId(db: Database): Promise<void> {
         await db.exec('ROLLBACK');
         throw err;
     }
+}
+
+/**
+ * Simple "find by exact (LOWER(name), type) or create" for backfill.
+ *
+ * Bypasses `GlobalGameService.upsert`'s 4-step dedup hierarchy on purpose:
+ * step 4 falls through to INSERT when `normalizeGameName()` returns the same
+ * key for multiple existing rows with DISTINCT raw names — which happens
+ * often post-merge (e.g. "Medieval Madness" + "Medieval Madness: Remastered"
+ * both normalize to "medieval madness"). For backfill we don't want that
+ * heuristic; we want strict "does a catalogue row with this exact (LOWER
+ * name, type) exist" semantics, which aligns with the UNIQUE INDEX migration
+ * 068 just installed.
+ */
+async function resolveOrCreateGlobalGame(
+    db: Database,
+    name: string,
+    type: 'pinball' | 'video_game',
+    platforms?: string | null,
+    imageUrl?: string | null,
+): Promise<string> {
+    const existing = await db.get(
+        `SELECT id FROM global_games WHERE LOWER(name) = LOWER(?) AND type = ? LIMIT 1`,
+        name, type,
+    ) as { id: string } | undefined;
+    if (existing) return existing.id;
+
+    const id = crypto.randomUUID();
+    await db.run(
+        `INSERT INTO global_games (id, name, type, status, platforms, image_url, created_at)
+         VALUES (?, ?, ?, 'approved', ?, ?, datetime('now'))`,
+        id, name, type,
+        platforms ?? '[]',
+        imageUrl ?? null,
+    );
+    return id;
 }
 
 /**
