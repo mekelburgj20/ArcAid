@@ -60,12 +60,19 @@ export default function SuperAdminDashboard() {
               </div>
               <p className="text-muted text-sm mb-1 font-mono">/{room.slug}</p>
               {room.description && <p className="text-muted text-sm mb-3">{room.description}</p>}
-              <div className="flex gap-2 pt-3 border-t border-border">
+              <div className="flex gap-2 pt-3 border-t border-border flex-wrap">
                 <Link
                   to={`/${room.slug}/admin/dashboard`}
                   className="text-neon-cyan text-xs hover:underline no-underline"
                 >
                   Open Admin
+                </Link>
+                <Link
+                  to={`/${room.slug}/admin/activity`}
+                  className="text-neon-amber text-xs hover:underline no-underline"
+                  title="Per-room activity log — room_events table (scores, rotations, admin actions)"
+                >
+                  Activity Log
                 </Link>
                 <Link
                   to={`/${room.slug}/`}

@@ -28,7 +28,16 @@ export class Scheduler {
     public async start(): Promise<void> {
         logInfo('Starting Scheduler...');
         const db = await getDatabase();
-        const activeTournaments = await db.all('SELECT * FROM tournaments WHERE is_active = 1');
+        // v2.4.14: LEFT JOIN game_rooms so per-tournament log lines carry the
+        // room slug. Two rooms can independently have a "Daily Grind"; without
+        // the slug the super-admin log reads "Scheduling maintenance for Daily
+        // Grind" with no way to tell which room is being scheduled.
+        const activeTournaments = await db.all(`
+            SELECT t.*, r.slug AS room_slug
+            FROM tournaments t
+            LEFT JOIN game_rooms r ON r.id = t.game_room_id
+            WHERE t.is_active = 1
+        `);
 
         for (const row of activeTournaments) {
             const tournament: Tournament = {
@@ -47,13 +56,13 @@ export class Scheduler {
                 runnerupPickWindowMin: row.runnerup_pick_window_min ?? 30,
             };
 
-            this.scheduleTournament(tournament);
+            this.scheduleTournament(tournament, row.room_slug ?? null);
 
             // Schedule cleanup cron if configured
             let cleanupRule: CleanupRule | null = null;
             try { cleanupRule = JSON.parse(row.cleanup_rule || 'null'); } catch {}
             if (cleanupRule?.mode === 'scheduled') {
-                this.scheduleCleanup(tournament.id, tournament.name, cleanupRule);
+                this.scheduleCleanup(tournament.id, tournament.name, cleanupRule, row.room_slug ?? null);
             }
         }
 
@@ -244,11 +253,12 @@ export class Scheduler {
     /**
      * Schedules a maintenance task for a specific tournament.
      */
-    public scheduleTournament(tournament: Tournament): void {
+    public scheduleTournament(tournament: Tournament, roomSlug?: string | null): void {
         const { id, name, cadence } = tournament;
+        const tag = roomSlug ? ` [${roomSlug}]` : '';
 
         if (!cadence || !cadence.cron) {
-            logInfo(`Skipping scheduler for tournament ${name} (ID: ${id}) - No cadence configured.`);
+            logInfo(`Skipping scheduler for tournament ${name}${tag} (ID: ${id}) - No cadence configured.`);
             return;
         }
 
@@ -259,15 +269,15 @@ export class Scheduler {
 
         const timezone = cadence.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
         const { cronExpr, isLastDay } = this.resolveCron(cadence.cron);
-        logInfo(`Scheduling maintenance for ${name} using cron: '${cadence.cron}'${isLastDay ? ' (last day of month)' : ''}`);
+        logInfo(`Scheduling maintenance for ${name}${tag} using cron: '${cadence.cron}'${isLastDay ? ' (last day of month)' : ''}`);
 
         const task = cron.schedule(cronExpr, async () => {
             if (isLastDay && !this.isLastDayOfMonth(timezone)) return;
-            logInfo(`Running scheduled maintenance for tournament: ${name}`);
+            logInfo(`Running scheduled maintenance for tournament: ${name}${tag}`);
             try {
                 await TournamentEngine.getInstance().runMaintenance(id);
             } catch (error) {
-                logError(`Maintenance failed for tournament ${name}:`, error);
+                logError(`Maintenance failed for tournament ${name}${tag}:`, error);
             }
         }, { timezone });
 
@@ -277,8 +287,9 @@ export class Scheduler {
     /**
      * Schedules a cleanup task for a tournament with 'scheduled' cleanup_rule.
      */
-    private scheduleCleanup(tournamentId: string, name: string, rule: CleanupRule & { mode: 'scheduled' }): void {
+    private scheduleCleanup(tournamentId: string, name: string, rule: CleanupRule & { mode: 'scheduled' }, roomSlug?: string | null): void {
         const taskKey = `__cleanup_${tournamentId}__`;
+        const tag = roomSlug ? ` [${roomSlug}]` : '';
 
         if (this.tasks.has(taskKey)) {
             this.tasks.get(taskKey)?.stop();
@@ -286,15 +297,15 @@ export class Scheduler {
 
         const timezone = rule.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
         const { cronExpr, isLastDay } = this.resolveCron(rule.cron);
-        logInfo(`Scheduling cleanup for ${name} using cron: '${cronExpr}' (${timezone})${isLastDay ? ' (last day of month)' : ''}`);
+        logInfo(`Scheduling cleanup for ${name}${tag} using cron: '${cronExpr}' (${timezone})${isLastDay ? ' (last day of month)' : ''}`);
 
         const task = cron.schedule(cronExpr, async () => {
             if (isLastDay && !this.isLastDayOfMonth(timezone)) return;
-            logInfo(`Running scheduled cleanup for tournament: ${name}`);
+            logInfo(`Running scheduled cleanup for tournament: ${name}${tag}`);
             try {
                 await TournamentEngine.getInstance().runScheduledCleanup(tournamentId);
             } catch (error) {
-                logError(`Scheduled cleanup failed for tournament ${name}:`, error);
+                logError(`Scheduled cleanup failed for tournament ${name}${tag}:`, error);
             }
         }, { timezone });
 
