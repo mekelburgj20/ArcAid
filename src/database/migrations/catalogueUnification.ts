@@ -45,41 +45,66 @@ export async function auditAndCreateGlobalGamesUniqueIndex(db: Database): Promis
     if (duplicates.length > 0) {
         log(`068: auto-merging ${duplicates.length} duplicate (name,type) group(s) in global_games`);
         const { GlobalGameService } = await import('../../services/GlobalGameService.js');
-        let groupsMerged = 0;
-        let rowsRemoved = 0;
 
-        for (const group of duplicates) {
-            // Load all rows in this group, score each by "external-id richness"
-            // (the more source systems reference the row, the more canonical
-            // it is). Tiebreak: earliest created_at.
-            const rows = (await db.all(
-                `SELECT id, opdb_id, vps_id, igdb_id, created_at
-                 FROM global_games
-                 WHERE LOWER(name) = ? AND type = ?`,
-                group.name_key, group.type,
-            )) as Array<{ id: string; opdb_id: string | null; vps_id: string | null; igdb_id: number | null; created_at: string | null }>;
+        // Loop up to 3 passes — if merge transitively exposes new duplicates
+        // (e.g. two rows match another row via external ID cascade), a single
+        // sweep can leave residue. Three passes is generous; real data should
+        // converge in one.
+        for (let pass = 1; pass <= 3; pass++) {
+            const groups = (await db.all(`
+                SELECT LOWER(name) AS name_key, type, COUNT(*) AS n
+                FROM global_games
+                GROUP BY LOWER(name), type
+                HAVING COUNT(*) > 1
+            `)) as Array<{ name_key: string; type: string; n: number }>;
+            if (groups.length === 0) {
+                log(`068: pass ${pass} — no duplicates remaining`);
+                break;
+            }
+            log(`068: pass ${pass} — ${groups.length} group(s) to merge`);
 
-            rows.sort((a, b) => {
-                const aScore = (a.opdb_id ? 1 : 0) + (a.vps_id ? 1 : 0) + (a.igdb_id ? 1 : 0);
-                const bScore = (b.opdb_id ? 1 : 0) + (b.vps_id ? 1 : 0) + (b.igdb_id ? 1 : 0);
-                if (aScore !== bScore) return bScore - aScore;
-                return (a.created_at ?? '').localeCompare(b.created_at ?? '');
-            });
+            for (const group of groups) {
+                const rows = (await db.all(
+                    `SELECT id, opdb_id, vps_id, igdb_id, created_at
+                     FROM global_games
+                     WHERE LOWER(name) = ? AND type = ?`,
+                    group.name_key, group.type,
+                )) as Array<{ id: string; opdb_id: string | null; vps_id: string | null; igdb_id: number | null; created_at: string | null }>;
 
-            const canonical = rows[0]!;
-            for (let i = 1; i < rows.length; i++) {
-                const duplicate = rows[i]!;
-                try {
-                    await GlobalGameService.merge(canonical.id, duplicate.id);
-                    rowsRemoved++;
-                } catch (err) {
-                    log(`068: merge failed for ${duplicate.id} → ${canonical.id} (name='${group.name_key}'): ${err}`);
-                    throw err;
+                rows.sort((a, b) => {
+                    const aScore = (a.opdb_id ? 1 : 0) + (a.vps_id ? 1 : 0) + (a.igdb_id ? 1 : 0);
+                    const bScore = (b.opdb_id ? 1 : 0) + (b.vps_id ? 1 : 0) + (b.igdb_id ? 1 : 0);
+                    if (aScore !== bScore) return bScore - aScore;
+                    return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+                });
+
+                const canonical = rows[0]!;
+                for (let i = 1; i < rows.length; i++) {
+                    const duplicate = rows[i]!;
+                    try {
+                        await GlobalGameService.merge(canonical.id, duplicate.id);
+                    } catch (err) {
+                        log(`068: merge failed for ${duplicate.id} → ${canonical.id} (name='${group.name_key}', type='${group.type}'): ${err}`);
+                        throw err;
+                    }
                 }
             }
-            groupsMerged++;
         }
-        log(`068: merged ${rowsRemoved} duplicate row(s) across ${groupsMerged} group(s)`);
+
+        // Final check — if anything survives the 3-pass loop, abort with
+        // diagnostics so an admin can resolve manually.
+        const residual = (await db.all(`
+            SELECT LOWER(name) AS name_key, type, COUNT(*) AS n, GROUP_CONCAT(id) AS ids
+            FROM global_games
+            GROUP BY LOWER(name), type
+            HAVING COUNT(*) > 1
+        `)) as Array<{ name_key: string; type: string; n: number; ids: string }>;
+        if (residual.length > 0) {
+            for (const r of residual) {
+                log(`068: UNRESOLVED (name='${r.name_key}', type='${r.type}') ids=[${r.ids}]`);
+            }
+            throw new Error(`Migration 068: ${residual.length} duplicate group(s) survived the merge loop — see logs above for IDs.`);
+        }
     }
 
     await db.exec(
