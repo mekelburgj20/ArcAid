@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { getDatabase } from '../database/database.js';
 import { setupTestDb } from './helpers.js';
-import { mergeThinCatalogueDuplicates } from '../database/migrations/catalogueUnification.js';
+import {
+    mergeThinCatalogueDuplicates,
+    mergeThinCatalogueDuplicatesV2,
+} from '../database/migrations/catalogueUnification.js';
 
 /**
  * v2.4.6 — migration 078 backfill cleanup.
@@ -79,6 +82,31 @@ describe('mergeThinCatalogueDuplicates (migration 078)', () => {
 
         const survived = await db.get(`SELECT id FROM global_games WHERE id = 'lonely-thin'`);
         expect(survived).toBeDefined();
+    });
+
+    it('v2 pattern handles no-comma separator (e.g. "Name (Mfg YYYY)")', async () => {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, image_url, status)
+             VALUES (?, 'Asteroid Annie and the Aliens', 'pinball', 'Gottlieb', 1980, 'https://ex/img.png', 'approved')`,
+            'rich-asteroid',
+        );
+        // No-comma format — v1 regex skips, v2 catches.
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Asteroid Annie and the Aliens (Gottlieb 1980)', 'pinball', NULL, NULL, 'approved')`,
+            'thin-asteroid',
+        );
+
+        // v1 should NOT merge this.
+        await mergeThinCatalogueDuplicates(db);
+        const stillThere = await db.get(`SELECT id FROM global_games WHERE id = 'thin-asteroid'`);
+        expect(stillThere).toBeDefined();
+
+        // v2 should merge it.
+        await mergeThinCatalogueDuplicatesV2(db);
+        const gone = await db.get(`SELECT id FROM global_games WHERE id = 'thin-asteroid'`);
+        expect(gone).toBeUndefined();
     });
 
     it('skips rows with any image source (they are legitimate thin-but-usable catalogue entries)', async () => {

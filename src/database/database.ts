@@ -1017,6 +1017,10 @@ export async function initDatabase(): Promise<Database> {
             const { mergeThinCatalogueDuplicates } = await import('./migrations/catalogueUnification.js');
             await mergeThinCatalogueDuplicates(db);
         } },
+        { name: '079_merge_thin_catalogue_duplicates_relaxed', handler: async (db) => {
+            const { mergeThinCatalogueDuplicatesV2 } = await import('./migrations/catalogueUnification.js');
+            await mergeThinCatalogueDuplicatesV2(db);
+        } },
     ];
 
     for (const migration of migrations) {

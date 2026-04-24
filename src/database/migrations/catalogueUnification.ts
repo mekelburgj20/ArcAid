@@ -322,11 +322,47 @@ export async function deleteLegacyOrphanGames(db: Database): Promise<void> {
  * image filter and can be enriched or deleted via the admin catalogue UI.
  */
 export async function mergeThinCatalogueDuplicates(db: Database): Promise<void> {
+    // Migration 078 used a strict comma-separated pattern only.
+    await mergeThinDuplicatesMatchingPatterns(db, '078', [
+        /^(.+?)\s*\(\s*([^,]+?)\s*,\s*(\d{4})\s*\)\s*$/,
+    ]);
+}
+
+/**
+ * Migration 079 — broader pattern coverage for thin catalogue duplicates.
+ *
+ * v2.4.6 (migration 078) only handled comma-separated `(Mfg, YYYY)`. The
+ * library uses several other conventions:
+ *   - `Name (Mfg YYYY)`      — no comma, e.g. "Asteroid Annie and the Aliens (Gottlieb 1980)"
+ *   - `Name (Mfg)`           — mfg only, no year
+ *   - `Name (YYYY)`          — year only, no mfg
+ * Run the same merge loop with a wider regex family so the surviving 263
+ * rows shrink toward the genuinely-unique homebrew set.
+ */
+export async function mergeThinCatalogueDuplicatesV2(db: Database): Promise<void> {
+    await mergeThinDuplicatesMatchingPatterns(db, '079', [
+        // `Name (Mfg, YYYY)` — already covered by 078, included for completeness
+        //                     on fresh DBs where 078 didn't pre-run.
+        /^(.+?)\s*\(\s*([^,]+?)\s*,\s*(\d{4})\s*\)\s*$/,
+        // `Name (Mfg YYYY)` — comma-free separator.
+        /^(.+?)\s*\(\s*(.+?)\s+(\d{4})\s*\)\s*$/,
+    ]);
+}
+
+/**
+ * Shared merge loop. Tries each regex in order on every thin row. Matches
+ * on `(LOWER(name) = base, manufacturer = mfg, year = year)` in the rich
+ * catalogue. Attempts mfg-omitted and year-omitted fallbacks when the
+ * pattern only captures one of the two.
+ */
+async function mergeThinDuplicatesMatchingPatterns(
+    db: Database,
+    migrationTag: string,
+    patterns: RegExp[],
+): Promise<void> {
     const { GlobalGameService } = await import('../../services/GlobalGameService.js');
 
-    // Thin rows look like: name='X (Mfg, YYYY)' AND manufacturer/year nulls
-    // AND no image data. We only attempt the parse-and-merge on rows that
-    // match ALL of those — a narrow, deterministic cleanup.
+    // Any thin row ending in ')' is a candidate — the regexes filter further.
     const thinRows = (await db.all(`
         SELECT id, name, type FROM global_games
         WHERE manufacturer IS NULL
@@ -334,25 +370,30 @@ export async function mergeThinCatalogueDuplicates(db: Database): Promise<void> 
           AND local_image_path IS NULL
           AND wheel_image_path IS NULL
           AND image_url IS NULL
-          AND name LIKE '%(%,%)'
+          AND name LIKE '%(%)'
     `)) as Array<{ id: string; name: string; type: string }>;
 
     if (thinRows.length === 0) {
-        log('078: no thin catalogue duplicates matched the cleanup pattern');
+        log(`${migrationTag}: no thin catalogue duplicates matched the cleanup pattern`);
         return;
     }
 
-    const parsePattern = /^(.+?)\s*\(\s*([^,]+?)\s*,\s*(\d{4})\s*\)\s*$/;
     let merged = 0;
     let unmatched = 0;
 
     for (const thin of thinRows) {
-        const m = thin.name.match(parsePattern);
-        if (!m) { unmatched++; continue; }
-        const [, baseName, mfg, yearStr] = m;
-        const year = parseInt(yearStr!, 10);
+        let match: RegExpMatchArray | null = null;
+        for (const re of patterns) {
+            const m = thin.name.match(re);
+            if (m) { match = m; break; }
+        }
+        if (!match) { unmatched++; continue; }
 
-        // Prefer an exact (base, mfg, year) match of the SAME type.
+        const [, baseName, mfg, yearStr] = match;
+        const year = yearStr ? parseInt(yearStr, 10) : null;
+
+        // Strict match on (base, mfg, year). Use ILIKE-style equality on
+        // manufacturer because the library casing isn't always consistent.
         const target = (await db.get(
             `SELECT id FROM global_games
              WHERE LOWER(name) = LOWER(?) AND type = ?
@@ -371,12 +412,12 @@ export async function mergeThinCatalogueDuplicates(db: Database): Promise<void> 
             await GlobalGameService.merge(target.id, thin.id);
             merged++;
         } catch (err) {
-            log(`078: merge failed for ${thin.id} → ${target.id} (name='${thin.name}'): ${err}`);
+            log(`${migrationTag}: merge failed for ${thin.id} → ${target.id} (name='${thin.name}'): ${err}`);
             throw err;
         }
     }
 
-    log(`078: merged ${merged} thin duplicate(s); ${unmatched} row(s) had no catalogue counterpart and remain in the DB (hidden from public browse)`);
+    log(`${migrationTag}: merged ${merged} thin duplicate(s); ${unmatched} row(s) had no catalogue counterpart and remain in the DB (hidden from public browse)`);
 }
 
 function safeJsonArray(raw: string | null | undefined): string[] {
