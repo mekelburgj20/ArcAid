@@ -101,9 +101,12 @@ describe('catalogue backfill (migration 069) + orphan delete (070)', () => {
 
     it('audit migration 068 auto-merges pre-existing duplicate (name,type) pairs', async () => {
         const db = await getDatabase();
-        // Bypass the unique index by dropping it first (simulates a pre-index DB
-        // — the real prod scenario where legacy imports created duplicates).
+        // Bypass the unique indexes by dropping them — simulates a pre-index DB
+        // where legacy imports created duplicates with the same (name, type)
+        // AND the same (coalesced) identity. Both 068 and 080 indexes need to
+        // be dropped so the raw INSERT of the duplicate pair is allowed.
         await db.exec(`DROP INDEX IF EXISTS idx_global_games_name_type`);
+        await db.exec(`DROP INDEX IF EXISTS idx_global_games_identity`);
         await db.run(
             `INSERT INTO global_games (id, name, type, status, opdb_id, created_at)
              VALUES (?, ?, 'pinball', 'approved', ?, '2025-01-01')`,

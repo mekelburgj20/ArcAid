@@ -209,19 +209,28 @@ export class GlobalGameService {
             }
         }
 
-        // 4. Normalized name match with strict secondary confirmation
+        // 4. Normalized name match with strict secondary confirmation.
+        //
+        // v2.4.8: when multiple candidates share the normalized name, pick
+        // the one whose manufacturer+year matches the input — that's the
+        // specific machine. Real pinball has lots of same-name titles from
+        // different manufacturers (Batman by Stern/Data East, Playboy by
+        // Bally/Stern, etc.), so "multiple candidates" isn't inherently
+        // ambiguous; the (mfg, year) pair disambiguates.
         if (!existing) {
             const nameMatches = (await this.findByNormalizedName(input.name))
                 .filter(g => g.type === inputType);
 
-            if (nameMatches.length === 1) {
-                const candidate = nameMatches[0]!;
-                if (!this.hasExternalIdConflict(input, candidate) && this.manufacturerYearAgree(input, candidate)) {
-                    existing = candidate;
-                }
-                // Manufacturer/year disagree → distinct game, fall through to INSERT
+            // Prefer a candidate whose (mfg, year) exactly agrees with input.
+            const mfgYearHits = nameMatches.filter(
+                g => !this.hasExternalIdConflict(input, g) && this.manufacturerYearAgree(input, g),
+            );
+            if (mfgYearHits.length === 1) {
+                existing = mfgYearHits[0]!;
             }
-            // Multiple name matches → too ambiguous, fall through to INSERT
+            // If no candidate agrees on mfg/year, fall through to INSERT —
+            // the new UNIQUE INDEX (migration 080) keys on (name, type, mfg,
+            // year) so distinct variants are allowed to coexist.
         }
 
         if (existing) {

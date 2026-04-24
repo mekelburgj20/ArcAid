@@ -1021,6 +1021,10 @@ export async function initDatabase(): Promise<Database> {
             const { mergeThinCatalogueDuplicatesV2 } = await import('./migrations/catalogueUnification.js');
             await mergeThinCatalogueDuplicatesV2(db);
         } },
+        { name: '080_relax_global_games_unique_index', handler: async (db) => {
+            const { relaxGlobalGamesUniqueIndex } = await import('./migrations/catalogueUnification.js');
+            await relaxGlobalGamesUniqueIndex(db);
+        } },
     ];
 
     for (const migration of migrations) {

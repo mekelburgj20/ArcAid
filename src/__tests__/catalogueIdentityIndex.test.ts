@@ -1,0 +1,86 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { getDatabase } from '../database/database.js';
+import { setupTestDb } from './helpers.js';
+import { GlobalGameService } from '../services/GlobalGameService.js';
+
+/**
+ * v2.4.8 — the composite UNIQUE INDEX on
+ * (LOWER(name), type, LOWER(COALESCE(manufacturer,'')), COALESCE(year,0))
+ * allows real-world same-name pinball variants to coexist while still
+ * rejecting thin duplicates.
+ */
+describe('global_games identity index + upsert disambiguation', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+    });
+
+    it('allows two pinballs named the same with different manufacturers', async () => {
+        const db = await getDatabase();
+        const a = await GlobalGameService.upsert({
+            name: 'Batman', type: 'pinball', manufacturer: 'Stern', year: 2008, status: 'approved',
+        });
+        const b = await GlobalGameService.upsert({
+            name: 'Batman', type: 'pinball', manufacturer: 'Data East', year: 1991, status: 'approved',
+        });
+        expect(a.action).toBe('inserted');
+        expect(b.action).toBe('inserted');
+        expect(a.id).not.toBe(b.id);
+
+        const rows = await db.all(`SELECT manufacturer, year FROM global_games WHERE LOWER(name) = 'batman' ORDER BY year`);
+        expect(rows.length).toBe(2);
+    });
+
+    it('upsert matches the right variant when multiple exist (Wizard re-import case)', async () => {
+        // Seed: "Playboy" (Bally, 1978) exists.
+        await GlobalGameService.upsert({
+            name: 'Playboy', type: 'pinball', manufacturer: 'Bally', year: 1978,
+            platforms: ['vpx'], status: 'approved',
+        });
+        // Seed: "Playboy" (Stern, 2002) exists.
+        const sternId = (await GlobalGameService.upsert({
+            name: 'Playboy', type: 'pinball', manufacturer: 'Stern', year: 2002,
+            platforms: ['vpx'], status: 'approved',
+        })).id;
+
+        // Wizard re-imports the Stern 2002 variant — should UPDATE (merge), not INSERT.
+        const result = await GlobalGameService.upsert({
+            name: 'Playboy', type: 'pinball', manufacturer: 'Stern', year: 2002,
+            platforms: ['vpxs'], status: 'approved',
+        });
+        expect(result.action).toBe('updated');
+        expect(result.id).toBe(sternId);
+
+        const db = await getDatabase();
+        const row = await db.get(`SELECT platforms FROM global_games WHERE id = ?`, sternId);
+        const platforms = JSON.parse(row!.platforms);
+        expect(platforms.sort()).toEqual(['vpx', 'vpxs']);
+    });
+
+    it('blocks inserting a second row with identical (name, type, mfg, year) — thin duplicate protection intact', async () => {
+        const db = await getDatabase();
+        await GlobalGameService.upsert({
+            name: 'Medieval Madness', type: 'pinball', manufacturer: 'Williams', year: 1997, status: 'approved',
+        });
+        // Bypass upsert's dedup and attempt a raw INSERT of the exact same identity.
+        await expect(
+            db.run(
+                `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+                 VALUES ('dup', 'Medieval Madness', 'pinball', 'Williams', 1997, 'approved')`,
+            ),
+        ).rejects.toThrow(/UNIQUE constraint failed/i);
+    });
+
+    it('blocks two rows where both have NULL manufacturer and NULL year (coalesce collapses NULLs)', async () => {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES ('a', 'Homebrew Thing', 'pinball', NULL, NULL, 'approved')`,
+        );
+        await expect(
+            db.run(
+                `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+                 VALUES ('b', 'Homebrew Thing', 'pinball', NULL, NULL, 'approved')`,
+            ),
+        ).rejects.toThrow(/UNIQUE constraint failed/i);
+    });
+});

@@ -350,6 +350,75 @@ export async function mergeThinCatalogueDuplicatesV2(db: Database): Promise<void
 }
 
 /**
+ * Migration 080 — replace the `(name, type)` UNIQUE INDEX with a composite
+ * `(name, type, manufacturer, year)` key.
+ *
+ * Migration 068's index was too strict: it collapsed real-world
+ * same-name/different-mfg games into a single catalogue row. The Wizard
+ * import hit this constantly — 115 failures on a single run — because
+ * many pinball titles ("Batman", "Playboy", "Star Wars", "Meteor", …)
+ * exist as distinct machines from different manufacturers and years.
+ *
+ * New key coalesces NULLs so the thin-duplicate protection (same name,
+ * both mfg+year NULL) still fires, while legitimate variants coexist.
+ * Pre-drop we audit for collisions under the new key and auto-merge any
+ * survivors the same way 078/079 did.
+ */
+export async function relaxGlobalGamesUniqueIndex(db: Database): Promise<void> {
+    const { GlobalGameService } = await import('../../services/GlobalGameService.js');
+
+    // 1. Find any rows that would collide under the NEW composite key.
+    //    Same coalesced (name, type, mfg, year) → pick richest row, fold others in.
+    const collisions = (await db.all(`
+        SELECT
+            LOWER(name) AS name_key,
+            type,
+            LOWER(COALESCE(manufacturer, '')) AS mfg_key,
+            COALESCE(year, 0) AS year_key,
+            COUNT(*) AS n
+        FROM global_games
+        GROUP BY LOWER(name), type, LOWER(COALESCE(manufacturer, '')), COALESCE(year, 0)
+        HAVING COUNT(*) > 1
+    `)) as Array<{ name_key: string; type: string; mfg_key: string; year_key: number; n: number }>;
+
+    if (collisions.length > 0) {
+        log(`080: pre-drop merge — ${collisions.length} group(s) share (name, type, mfg, year)`);
+        for (const group of collisions) {
+            const rows = (await db.all(
+                `SELECT id, opdb_id, vps_id, igdb_id, created_at FROM global_games
+                 WHERE LOWER(name) = ? AND type = ?
+                   AND LOWER(COALESCE(manufacturer, '')) = ?
+                   AND COALESCE(year, 0) = ?`,
+                group.name_key, group.type, group.mfg_key, group.year_key,
+            )) as Array<{ id: string; opdb_id: string | null; vps_id: string | null; igdb_id: number | null; created_at: string | null }>;
+            rows.sort((a, b) => {
+                const aScore = (a.opdb_id ? 1 : 0) + (a.vps_id ? 1 : 0) + (a.igdb_id ? 1 : 0);
+                const bScore = (b.opdb_id ? 1 : 0) + (b.vps_id ? 1 : 0) + (b.igdb_id ? 1 : 0);
+                if (aScore !== bScore) return bScore - aScore;
+                return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+            });
+            const canonical = rows[0]!;
+            for (let i = 1; i < rows.length; i++) {
+                await GlobalGameService.merge(canonical.id, rows[i]!.id);
+            }
+        }
+    }
+
+    // 2. Drop the over-strict index and create the composite one.
+    await db.exec(`DROP INDEX IF EXISTS idx_global_games_name_type`);
+    await db.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_global_games_identity
+         ON global_games(
+             LOWER(name),
+             type,
+             LOWER(COALESCE(manufacturer, '')),
+             COALESCE(year, 0)
+         )`,
+    );
+    log('080: dropped idx_global_games_name_type, created idx_global_games_identity');
+}
+
+/**
  * Shared merge loop. Tries each regex in order on every thin row. Matches
  * on `(LOWER(name) = base, manufacturer = mfg, year = year)` in the rich
  * catalogue. Attempts mfg-omitted and year-omitted fallbacks when the
