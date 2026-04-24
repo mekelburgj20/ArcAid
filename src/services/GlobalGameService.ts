@@ -377,6 +377,17 @@ export class GlobalGameService {
             conditions.push('status = ?');
             params.push(options.status);
         }
+        // v2.4.x: the public catalogue browse should only surface rows with
+        // at least one usable image source. The v2.4.0 backfill inserted
+        // thin library-derived rows that otherwise render as empty cards on
+        // the All Games tab — we'd rather omit them than show them blank.
+        // Admin catalogue editing uses a different service method and isn't
+        // affected by this filter.
+        if (options?.status === 'approved') {
+            conditions.push(
+                '(local_image_path IS NOT NULL OR wheel_image_path IS NOT NULL OR image_url IS NOT NULL)',
+            );
+        }
         if (options?.cursor) {
             conditions.push('id > ?');
             params.push(options.cursor);

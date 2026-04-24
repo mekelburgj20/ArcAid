@@ -252,10 +252,14 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
             }}
           >
             {cards.map(lb => {
-              // v2.2.6: always link to the room-scoped Game Detail. Global was
-              // preferred when globalGameId existed, but Global hides anon
-              // scores via the fan-out gate so clicks made scores "disappear".
-              const linkTo = `/${slug}/games/${encodeURIComponent(lb.gameName)}`;
+              // v2.4.x: route catalogue-sourced cards (All Games tab) to the
+              // rich global game-detail page so players see wheel art, table
+              // downloads, tips etc. Tournament/community cards still go to
+              // room-scoped detail (v2.2.6 rationale — anon scores would
+              // disappear behind the Global fan-out gate).
+              const linkTo = lb.gameStatus === 'CATALOGUE' && lb.globalGameId
+                ? `/games/${lb.globalGameId}`
+                : `/${slug}/games/${encodeURIComponent(lb.gameName)}`;
 
               return (
                 <div
