@@ -89,6 +89,45 @@ function parseAllSections(markdown: string): WizardTable[] {
 }
 
 /**
+ * Strip stale `vpxs` / `vpxs_manual` tags from each touched row and re-add
+ * only the ones matching the current README state. Other platform tags are
+ * preserved untouched.
+ *
+ * Running this after every Wizard import means section changes (a game
+ * moving from `wizard_auto` to `wizard_manual` in the README, or vice
+ * versa) update the tags on the next sync without needing a separate
+ * data-cleanup migration.
+ */
+async function reconcileWizardPlatformTags(
+    flagsById: Map<string, { auto: boolean; manual: boolean }>,
+): Promise<void> {
+    if (flagsById.size === 0) return;
+    const { getDatabase } = await import('../database/database.js');
+    const db = await getDatabase();
+    for (const [id, flags] of flagsById) {
+        const row = await db.get(
+            `SELECT platforms FROM global_games WHERE id = ?`,
+            id,
+        ) as { platforms: string | null } | undefined;
+        if (!row) continue;
+        let existing: string[] = [];
+        try {
+            const parsed = JSON.parse(row.platforms || '[]');
+            if (Array.isArray(parsed)) existing = parsed.filter((p): p is string => typeof p === 'string');
+        } catch { /* tolerate malformed JSON */ }
+        const stripped = existing.filter(p => p !== 'vpxs' && p !== 'vpxs_manual');
+        const next = [...stripped];
+        if (flags.auto) next.push('vpxs');
+        if (flags.manual) next.push('vpxs_manual');
+        const unique = [...new Set(next)];
+        await db.run(
+            `UPDATE global_games SET platforms = ? WHERE id = ?`,
+            JSON.stringify(unique), id,
+        );
+    }
+}
+
+/**
  * Builds feature tags from table metadata.
  */
 function buildFeatures(table: WizardTable): string[] {
@@ -292,6 +331,28 @@ export class WizardImportService {
                 throw new Error('No tables found in README — format may have changed');
             }
 
+            // v2.4.13: tag by section so tournaments can require the more
+            // reliable `vpxs` (Wizard Tables, auto-install) while excluding
+            // `vpxs_manual` (Manual Install — hit-or-miss, low fps). Games
+            // listed in BOTH README sections get both tags.
+            const platformsForTable = (t: WizardTable): string[] =>
+                t.section === 'wizard_auto' ? ['vpxs'] : ['vpxs_manual'];
+
+            // Aggregate per-game section flags so the reconcile pass below
+            // can strip stale wizard tags (e.g. a game that was in auto last
+            // week and moved to manual-only in this README needs vpxs → vpxs_manual).
+            const sectionsByIdentity = new Map<string, { auto: boolean; manual: boolean }>();
+            const identityKey = (baseName: string, mfg: string | undefined, year: number | undefined) =>
+                `${baseName.toLowerCase()}|${(mfg ?? '').toLowerCase()}|${year ?? 0}`;
+            for (const t of tables) {
+                const { baseName, manufacturer, year } = parseNameParts(t.name);
+                const k = identityKey(baseName, manufacturer, year);
+                const flags = sectionsByIdentity.get(k) ?? { auto: false, manual: false };
+                if (t.section === 'wizard_auto') flags.auto = true;
+                if (t.section === 'wizard_manual') flags.manual = true;
+                sectionsByIdentity.set(k, flags);
+            }
+
             // Legacy import for game_library (backward compat)
             const legacyGames = tables.map(t => ({
                 name: t.name,
@@ -299,7 +360,7 @@ export class WizardImportService {
                 style_id: '',
                 mode: 'pinball' as const,
                 css_title: '', css_initials: '', css_scores: '', css_box: '', bg_color: '',
-                platforms: JSON.stringify(['vpxs']),
+                platforms: JSON.stringify(platformsForTable(t)),
                 external_url: t.path ? `${GITHUB_BASE}/tree/main/${t.path.replace(/^\.\//, '')}` : null,
             }));
             const legacyResult = await GameLibraryService.importGames(legacyGames);
@@ -308,6 +369,7 @@ export class WizardImportService {
             let inserted = 0;
             let updated = 0;
             let skipped = 0;
+            const touchedIds = new Map<string, { auto: boolean; manual: boolean }>();
 
             for (const table of tables) {
                 try {
@@ -318,7 +380,7 @@ export class WizardImportService {
                         manufacturer,
                         year,
                         type: 'pinball',
-                        platforms: ['vpxs'],
+                        platforms: platformsForTable(table),
                         features: buildFeatures(table),
                         image_url: imageUrl,
                         external_url: table.path
@@ -331,6 +393,9 @@ export class WizardImportService {
                     if (result.action === 'inserted') inserted++;
                     else if (result.action === 'updated') updated++;
                     else skipped++;
+                    // Remember which row was touched + its overall section flags.
+                    const flags = sectionsByIdentity.get(identityKey(baseName, manufacturer, year))!;
+                    touchedIds.set(result.id, flags);
                 } catch (err) {
                     const msg = `Failed to import Wizard table "${table.name}": ${err}`;
                     logError(msg);
@@ -338,6 +403,11 @@ export class WizardImportService {
                     skipped++;
                 }
             }
+
+            // Reconcile wizard tags: strip stale `vpxs` / `vpxs_manual` from
+            // each touched row, add only the tags matching current README state.
+            // Other platform tags (vpx, fp, …) are left alone.
+            await reconcileWizardPlatformTags(touchedIds);
 
             logInfo(`Wizard Import: metadata pass complete. Starting background image downloads...`);
 

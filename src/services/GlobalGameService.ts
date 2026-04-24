@@ -272,7 +272,29 @@ export class GlobalGameService {
                 // No concrete (mfg, year) match — fall back to NULL-tolerant
                 // agreement so a single thin-but-solo candidate can still merge.
                 const loose = nonConflicting.filter(g => this.manufacturerYearAgree(input, g));
-                if (loose.length === 1) existing = loose[0]!;
+                if (loose.length === 1) {
+                    existing = loose[0]!;
+                } else if (loose.length > 1) {
+                    // v2.4.13: when multiple loose-matches exist (e.g.
+                    // Wizard input has NULL mfg/year and the catalogue has
+                    // a rich row + a thin backfill residue that both pass
+                    // NULL-tolerant agreement), prefer the richest. Keeps
+                    // the import from falling through to INSERT when a
+                    // usable counterpart exists. SpongeBob's Bikini Bottom
+                    // Pinball was the canary — no parens in the Wizard
+                    // name so parseNameParts returns no mfg/year, and both
+                    // rich (Original, 2021) and thin (NULL, NULL) rows
+                    // loose-matched.
+                    loose.sort((a, b) => {
+                        const aScore = (a.opdb_id ? 1 : 0) + (a.vps_id ? 1 : 0) + (a.igdb_id ? 1 : 0)
+                            + (a.manufacturer ? 1 : 0) + (a.year ? 1 : 0);
+                        const bScore = (b.opdb_id ? 1 : 0) + (b.vps_id ? 1 : 0) + (b.igdb_id ? 1 : 0)
+                            + (b.manufacturer ? 1 : 0) + (b.year ? 1 : 0);
+                        if (aScore !== bScore) return bScore - aScore;
+                        return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+                    });
+                    existing = loose[0]!;
+                }
             }
         }
 

@@ -22,6 +22,12 @@ export const CANONICAL_PLATFORMS: Record<string, PlatformInfo> = {
     vpx:         { id: 'vpx',         displayName: 'Visual Pinball X',   category: 'virtual_pinball' },
     vp9:         { id: 'vp9',         displayName: 'Visual Pinball 9',   category: 'virtual_pinball' },
     vpxs:        { id: 'vpxs',        displayName: 'VPX Standalone',     category: 'virtual_pinball' },
+    // v2.4.13: tables from VPX Wizard's "Manual Install" README section.
+    // Verified to LOAD on AtGames standalone but often hit-or-miss on
+    // performance (low fps, tweaking required). Tagged separately from
+    // `vpxs` so tournaments requiring verified-ready standalone tables
+    // can exclude them.
+    vpxs_manual: { id: 'vpxs_manual', displayName: 'VPX Standalone (Manual Install)', category: 'virtual_pinball' },
     fp:          { id: 'fp',          displayName: 'Future Pinball',     category: 'virtual_pinball' },
     bam:         { id: 'bam',         displayName: 'BAM (FP Mod)',       category: 'virtual_pinball' },
     pinball_fx:  { id: 'pinball_fx',  displayName: 'Pinball FX',         category: 'virtual_pinball' },
@@ -59,6 +65,9 @@ const PLATFORM_ALIASES: Record<string, string> = {
     // Current ArcAid values
     'atgames': 'atgames',
     'vpxs': 'vpxs',
+    'vpxs_manual': 'vpxs_manual',
+    'vpxs-manual': 'vpxs_manual',
+    'vpx standalone (manual install)': 'vpxs_manual',
     'vr': 'vr',
     'irl': 'real',
     // VPS tableFormat values
@@ -160,7 +169,7 @@ export const PLATFORM_GROUPS = [
     },
     {
         label: 'Virtual Pinball',
-        platforms: ['vpx', 'vp9', 'vpxs', 'fp', 'bam', 'pinball_fx', 'pinball_fx3', 'vr'],
+        platforms: ['vpx', 'vp9', 'vpxs', 'vpxs_manual', 'fp', 'bam', 'pinball_fx', 'pinball_fx3', 'vr'],
     },
     {
         label: 'Arcade & Video Games',

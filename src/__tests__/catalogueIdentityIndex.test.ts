@@ -175,6 +175,32 @@ describe('global_games identity index + upsert disambiguation', () => {
         expect(result.id).toBe('rich-gilligans');
     });
 
+    it('step 4: multiple loose-match candidates — richest row wins (SpongeBob case)', async () => {
+        const db = await getDatabase();
+        // Wizard README lists "SpongeBob's Bikini Bottom Pinball" with no
+        // parens, so parseNameParts returns undefined mfg/year. The
+        // catalogue already has both a rich row (Original, 2021) and a
+        // thin backfill residue (NULL, NULL) that both normalize to the
+        // same key. Both pass NULL-tolerant manufacturerYearAgree.
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'SpongeBob''s Bikini Bottom Pinball', 'pinball', 'Original', 2021, 'approved')`,
+            'rich-spongebob',
+        );
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'SpongeBob''s Bikini Bottom Pinball (Original 2021)', 'pinball', NULL, NULL, 'approved')`,
+            'thin-spongebob',
+        );
+
+        const result = await GlobalGameService.upsert({
+            name: "SpongeBob's Bikini Bottom Pinball", type: 'pinball',
+            platforms: ['vpxs'], status: 'approved',
+        });
+        expect(result.action).toBe('updated');
+        expect(result.id).toBe('rich-spongebob'); // tie-breaker prefers rich
+    });
+
     it('blocks two rows where both have NULL manufacturer and NULL year (coalesce collapses NULLs)', async () => {
         const db = await getDatabase();
         await db.run(
