@@ -99,20 +99,28 @@ describe('catalogue backfill (migration 069) + orphan delete (070)', () => {
         expect(second?.global_game_id).toBe(firstId);
     });
 
-    it('audit migration 068 aborts when duplicate (name,type) pairs exist', async () => {
+    it('audit migration 068 auto-merges pre-existing duplicate (name,type) pairs', async () => {
         const db = await getDatabase();
-        // Bypass the unique index by dropping it first (simulates a pre-index DB).
+        // Bypass the unique index by dropping it first (simulates a pre-index DB
+        // — the real prod scenario where legacy imports created duplicates).
         await db.exec(`DROP INDEX IF EXISTS idx_global_games_name_type`);
         await db.run(
-            `INSERT INTO global_games (id, name, type, status) VALUES (?, ?, 'pinball', 'approved')`,
-            'dup-1', 'The Addams Family',
+            `INSERT INTO global_games (id, name, type, status, opdb_id, created_at)
+             VALUES (?, ?, 'pinball', 'approved', ?, '2025-01-01')`,
+            'dup-rich', 'The Addams Family', 'OPDB-123',
         );
         await db.run(
-            `INSERT INTO global_games (id, name, type, status) VALUES (?, ?, 'pinball', 'approved')`,
-            'dup-2', 'The Addams Family',
+            `INSERT INTO global_games (id, name, type, status, created_at)
+             VALUES (?, ?, 'pinball', 'approved', '2025-06-01')`,
+            'dup-poor', 'The Addams Family',
         );
 
-        await expect(auditAndCreateGlobalGamesUniqueIndex(db)).rejects.toThrow(/aborted/);
+        await auditAndCreateGlobalGamesUniqueIndex(db);
+
+        // The row with richer external-id fingerprint survives as canonical.
+        const rows = await db.all(`SELECT id FROM global_games WHERE LOWER(name) = ?`, 'the addams family');
+        expect(rows.length).toBe(1);
+        expect((rows[0] as any).id).toBe('dup-rich');
     });
 
     it('deletes orphan games and unlinks score history (migration 070)', async () => {

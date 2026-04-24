@@ -23,31 +23,63 @@ function log(line: string): void {
 }
 
 /**
- * Migration 068 — audit `global_games` for duplicate (LOWER(name), type) pairs
- * and create a UNIQUE INDEX to close the read-check-insert race in
- * `GlobalGameService.upsert`. Precedent: migration 059 (anonymous_identities).
+ * Migration 068 — close the read-check-insert race in `GlobalGameService.upsert`
+ * by adding a UNIQUE INDEX on (LOWER(name), type). Precedent: migration 059
+ * (anonymous_identities).
  *
- * Duplicates are treated as an abort condition — the backfill relies on the
- * 4-step dedup hierarchy, and unhandled duplicates would let the race through.
- * If we find any, log every group and halt so an admin can resolve them via
- * `GlobalGameService.merge()` before the sprint's migrations complete.
+ * Duplicates from legacy imports (pre-Frankenstein-fix, 2026-04-10) would
+ * make the index creation fail. We auto-merge those first: within each
+ * duplicate group, pick the row with the most external IDs (opdb + vps +
+ * igdb) as canonical, break ties by earliest `created_at`, and fold others
+ * in via `GlobalGameService.merge()` — which already cascades references
+ * across global_scores, game_room_game_library, games, and leaderboard cache.
  */
 export async function auditAndCreateGlobalGamesUniqueIndex(db: Database): Promise<void> {
     const duplicates = (await db.all(`
-        SELECT LOWER(name) AS name_key, type, COUNT(*) AS n, GROUP_CONCAT(id, ',') AS ids
+        SELECT LOWER(name) AS name_key, type, COUNT(*) AS n
         FROM global_games
         GROUP BY LOWER(name), type
         HAVING COUNT(*) > 1
-    `)) as Array<{ name_key: string; type: string; n: number; ids: string }>;
+    `)) as Array<{ name_key: string; type: string; n: number }>;
 
     if (duplicates.length > 0) {
-        for (const row of duplicates) {
-            log(`DUPLICATE global_games: (name='${row.name_key}', type='${row.type}') count=${row.n} ids=[${row.ids}]`);
+        log(`068: auto-merging ${duplicates.length} duplicate (name,type) group(s) in global_games`);
+        const { GlobalGameService } = await import('../../services/GlobalGameService.js');
+        let groupsMerged = 0;
+        let rowsRemoved = 0;
+
+        for (const group of duplicates) {
+            // Load all rows in this group, score each by "external-id richness"
+            // (the more source systems reference the row, the more canonical
+            // it is). Tiebreak: earliest created_at.
+            const rows = (await db.all(
+                `SELECT id, opdb_id, vps_id, igdb_id, created_at
+                 FROM global_games
+                 WHERE LOWER(name) = ? AND type = ?`,
+                group.name_key, group.type,
+            )) as Array<{ id: string; opdb_id: string | null; vps_id: string | null; igdb_id: number | null; created_at: string | null }>;
+
+            rows.sort((a, b) => {
+                const aScore = (a.opdb_id ? 1 : 0) + (a.vps_id ? 1 : 0) + (a.igdb_id ? 1 : 0);
+                const bScore = (b.opdb_id ? 1 : 0) + (b.vps_id ? 1 : 0) + (b.igdb_id ? 1 : 0);
+                if (aScore !== bScore) return bScore - aScore;
+                return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+            });
+
+            const canonical = rows[0]!;
+            for (let i = 1; i < rows.length; i++) {
+                const duplicate = rows[i]!;
+                try {
+                    await GlobalGameService.merge(canonical.id, duplicate.id);
+                    rowsRemoved++;
+                } catch (err) {
+                    log(`068: merge failed for ${duplicate.id} → ${canonical.id} (name='${group.name_key}'): ${err}`);
+                    throw err;
+                }
+            }
+            groupsMerged++;
         }
-        throw new Error(
-            `Migration 068 aborted: ${duplicates.length} duplicate (name,type) group(s) in global_games. ` +
-            `Resolve via GlobalGameService.merge() for each group, then restart.`,
-        );
+        log(`068: merged ${rowsRemoved} duplicate row(s) across ${groupsMerged} group(s)`);
     }
 
     await db.exec(
