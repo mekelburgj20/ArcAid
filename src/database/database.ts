@@ -1025,6 +1025,17 @@ export async function initDatabase(): Promise<Database> {
             const { relaxGlobalGamesUniqueIndex } = await import('./migrations/catalogueUnification.js');
             await relaxGlobalGamesUniqueIndex(db);
         } },
+        { name: '081_clear_stale_sync_alert_channel_id', sql: `
+            -- The original defaultSettings seed shipped a dev-test Discord
+            -- channel ID ('1467561374040461527') as SYNC_ALERT_CHANNEL_ID.
+            -- That channel doesn't exist in any real deployment, so every
+            -- catalogue sync (VPS/Wizard/OPDB/IGDB) logged a 10003 "Unknown
+            -- Channel" error on partial/failure alerts. Scrub it; admins who
+            -- want alerts can set their own channel ID via Global Settings.
+            DELETE FROM settings
+             WHERE key = 'SYNC_ALERT_CHANNEL_ID'
+               AND value = '1467561374040461527';
+        ` },
     ];
 
     for (const migration of migrations) {
@@ -1093,7 +1104,10 @@ export async function initDatabase(): Promise<Database> {
         ['MAX_LOG_LINES', '500'],
         ['BACKUP_RETENTION_DAYS', '30'],
         ['PLATFORMS', JSON.stringify(['AtGames', 'VPXS', 'VR', 'IRL'])],
-        ['SYNC_ALERT_CHANNEL_ID', '1467561374040461527'],
+        // SYNC_ALERT_CHANNEL_ID intentionally unseeded — super-admin catalogue
+        // sync alerts stay silent until an admin configures a channel they
+        // actually own. The prior default was a dev-test channel ID that shipped
+        // into prod seed and caused "Unknown Channel" errors on every sync.
     ];
     for (const [key, value] of defaultSettings) {
         await db.run(
