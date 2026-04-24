@@ -153,6 +153,28 @@ describe('global_games identity index + upsert disambiguation', () => {
         expect(result.id).toBe('vps-row'); // richest wins
     });
 
+    it('step 4: finds catalogue rows whose raw names contain apostrophes / punctuation', async () => {
+        const db = await getDatabase();
+        // Seed a rich Wizard-style row with an apostrophe in the name.
+        // Before v2.4.12, the SQL prefilter used `LIKE '%<firstword>%'`
+        // where <firstword> was the NORMALIZED (punctuation-stripped)
+        // first word — so "gilligans" never matched "Gilligan's" in the
+        // stored name. The row was invisible to step-4 dedup and upsert
+        // fell through to INSERT, causing a UNIQUE violation.
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Gilligan''s Island', 'pinball', 'Bally', 1991, 'approved')`,
+            'rich-gilligans',
+        );
+
+        const result = await GlobalGameService.upsert({
+            name: "Gilligan's Island", type: 'pinball', manufacturer: 'Bally', year: 1991,
+            platforms: ['vpxs'], status: 'approved',
+        });
+        expect(result.action).toBe('updated');
+        expect(result.id).toBe('rich-gilligans');
+    });
+
     it('blocks two rows where both have NULL manufacturer and NULL year (coalesce collapses NULLs)', async () => {
         const db = await getDatabase();
         await db.run(

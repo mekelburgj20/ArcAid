@@ -105,17 +105,23 @@ export class GlobalGameService {
 
     /**
      * Finds games by normalized name match (for dedup flagging).
+     *
+     * v2.4.12: dropped the SQL `LIKE '%firstword%'` prefilter. It was
+     * fragile — for inputs like "Gilligan's Island" the normalizer strips
+     * apostrophes so the first-word fragment becomes "gilligans", but the
+     * stored name retains the apostrophe ("Gilligan's Island"), and SQL
+     * LIKE can't match across that gap. Catalogue rows with apostrophes,
+     * periods, commas, or accented characters were invisible to upsert's
+     * step-4 dedup and fell through to INSERT → UNIQUE collisions.
+     *
+     * At ~5k catalogue rows, full-scan + JS normalize compare runs in
+     * milliseconds; negligible for admin-triggered catalogue imports.
      */
     static async findByNormalizedName(name: string): Promise<GlobalGame[]> {
         const db = await getDatabase();
         const normalized = normalizeGameName(name);
         if (!normalized) return [];
-
-        // Get all games and check normalized match — SQLite can't run our JS normalization in SQL
-        const candidates = await db.all(
-            `SELECT * FROM global_games WHERE LOWER(name) LIKE ?`,
-            `%${normalized.split(' ')[0]}%`
-        );
+        const candidates = await db.all<GlobalGame[]>(`SELECT * FROM global_games`);
         return candidates.filter(
             (g: GlobalGame) => normalizeGameName(g.name) === normalized
         );
