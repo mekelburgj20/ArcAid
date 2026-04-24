@@ -3,6 +3,7 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logError } from '../../utils/logger.js';
+import { buildEnabledRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 
 export const listwinners: Command = {
     data: new SlashCommandBuilder()
@@ -14,15 +15,16 @@ export const listwinners: Command = {
         const term = getTerminology();
         
         try {
+            const { sql: enabledFilter, params } = await buildEnabledRoomSqlFilter('t.game_room_id');
             // A simplified winner determination (max score per completed game)
             const completedGames = await db.all(`
                 SELECT g.id, g.name as game_name, t.name as tournament_name, g.end_date
                 FROM games g
                 LEFT JOIN tournaments t ON g.tournament_id = t.id
-                WHERE g.status = 'COMPLETED'
+                WHERE g.status = 'COMPLETED' ${enabledFilter}
                 ORDER BY g.end_date DESC
                 LIMIT 5
-            `);
+            `, ...params);
 
             if (completedGames.length === 0) {
                 await interaction.editReply('No past winners found for any tournament.');

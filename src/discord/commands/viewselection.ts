@@ -3,6 +3,7 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logError } from '../../utils/logger.js';
+import { buildEnabledRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 
 export const viewselection: Command = {
     data: new SlashCommandBuilder()
@@ -14,12 +15,13 @@ export const viewselection: Command = {
         const term = getTerminology();
         
         try {
+            const { sql: enabledFilter, params } = await buildEnabledRoomSqlFilter('t.game_room_id');
             const queuedGames = await db.all(`
                 SELECT g.name as game_name, t.name as tournament_name
                 FROM games g
                 JOIN tournaments t ON g.tournament_id = t.id
-                WHERE g.status = 'QUEUED'
-            `);
+                WHERE g.status = 'QUEUED' ${enabledFilter}
+            `, ...params);
 
             let message = `**Queued ${term.games}:**\n`;
             if (queuedGames.length > 0) {

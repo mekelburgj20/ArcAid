@@ -6,6 +6,7 @@ import { logError } from '../../utils/logger.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { getTournamentColor } from '../../utils/discord.js';
+import { buildEnabledRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 
 const PAGE_SIZE = 10;
 
@@ -40,13 +41,14 @@ export const listscores: Command = {
         const offset = (page - 1) * PAGE_SIZE;
 
         try {
+            const { sql: enabledFilter, params } = await buildEnabledRoomSqlFilter('t.game_room_id');
             const activeGames = await db.all(`
                 SELECT g.id, g.name as game_name, t.name as tournament_name, t.type as tournament_type, t.display_order
                 FROM games g
                 LEFT JOIN tournaments t ON g.tournament_id = t.id
-                WHERE g.status = 'ACTIVE'
+                WHERE g.status = 'ACTIVE' ${enabledFilter}
                 ORDER BY COALESCE(t.display_order, 999) ASC, g.start_date DESC
-            `);
+            `, ...params);
 
             if (activeGames.length === 0) {
                 await interaction.editReply(`There are no recent ${term.games.toLowerCase()} to show scores for.`);

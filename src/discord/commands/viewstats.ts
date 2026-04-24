@@ -5,6 +5,7 @@ import { getTerminology } from '../../utils/terminology.js';
 import { logError } from '../../utils/logger.js';
 import { StatsService } from '../../services/StatsService.js';
 import { getTournamentColor } from '../../utils/discord.js';
+import { buildEnabledRoomSqlFilter } from '../../utils/discordRoomFilter.js';
 
 export const viewstats: Command = {
     data: new SlashCommandBuilder()
@@ -59,21 +60,25 @@ export const viewstats: Command = {
                 }
             }
 
+            const { sql: enabledFilter, params } = await buildEnabledRoomSqlFilter('t.game_room_id');
+
             // Get tournament type for color (from most recent game instance)
             const recentGame = await db.get(`
                 SELECT t.type FROM games g
                 LEFT JOIN tournaments t ON g.tournament_id = t.id
-                WHERE g.name = ? COLLATE NOCASE
+                WHERE g.name = ? COLLATE NOCASE ${enabledFilter}
                 ORDER BY g.start_date DESC LIMIT 1
-            `, gameName);
+            `, gameName, ...params);
             const color = getTournamentColor(recentGame?.type);
 
-            // Calculate win percentage if possible
+            // Calculate win percentage if possible (scoped same way so stats
+            // don't count instances that belong to Discord-disabled rooms).
             const winData = await db.get(`
                 SELECT COUNT(DISTINCT g.id) as total_instances,
                        COUNT(DISTINCT CASE WHEN g.status = 'COMPLETED' THEN g.id END) as completed
-                FROM games g WHERE g.name = ? COLLATE NOCASE
-            `, gameName);
+                FROM games g LEFT JOIN tournaments t ON t.id = g.tournament_id
+                WHERE g.name = ? COLLATE NOCASE ${enabledFilter}
+            `, gameName, ...params);
 
             const embed = new EmbedBuilder()
                 .setTitle(`Statistics: ${gameName}`)
