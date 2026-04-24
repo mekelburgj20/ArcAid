@@ -102,6 +102,57 @@ describe('global_games identity index + upsert disambiguation', () => {
         expect(result.id).toBe('rich-bally');
     });
 
+    it('step 4: exact year match disambiguates when both 2021 and 2022 rows exist', async () => {
+        const db = await getDatabase();
+        // Prod scenario: VPS imported 2021, a prior Wizard run created 2022,
+        // today's Wizard re-imports 2022. Pre-v2.4.11, concrete filter used
+        // ±1 tolerance so BOTH matched → concrete.length=2 → INSERT → collision.
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Breaking Bad', 'pinball', 'Original', 2021, 'approved')`,
+            'bb-2021',
+        );
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status)
+             VALUES (?, 'Breaking Bad', 'pinball', 'Original', 2022, 'approved')`,
+            'bb-2022',
+        );
+
+        const result = await GlobalGameService.upsert({
+            name: 'Breaking Bad', type: 'pinball', manufacturer: 'Original', year: 2022,
+            platforms: ['vpxs'], status: 'approved',
+        });
+        expect(result.action).toBe('updated');
+        expect(result.id).toBe('bb-2022'); // exact year match picks the right one
+
+        // Neither row deleted or duplicated.
+        const rows = await db.all(`SELECT year FROM global_games WHERE LOWER(name) = 'breaking bad' ORDER BY year`);
+        expect(rows.map((r: any) => r.year)).toEqual([2021, 2022]);
+    });
+
+    it('step 4: concrete.length > 1 picks the richest row (more external IDs / older) and updates it', async () => {
+        const db = await getDatabase();
+        // Two rows, both Stern 2011 Transformers Pro, different source-names.
+        // VPS row has a vps_id (rich), Wizard row has no externals.
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, vps_id, created_at, status)
+             VALUES (?, 'Transformers (Pro)', 'pinball', 'Stern', 2011, 'vps-xyz', '2025-01-01', 'approved')`,
+            'vps-row',
+        );
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, created_at, status)
+             VALUES (?, 'Transformers Pro', 'pinball', 'Stern', 2011, '2025-06-01', 'approved')`,
+            'wizard-row',
+        );
+
+        const result = await GlobalGameService.upsert({
+            name: 'Transformers Pro', type: 'pinball', manufacturer: 'Stern', year: 2011,
+            platforms: ['vpxs'], status: 'approved',
+        });
+        expect(result.action).toBe('updated');
+        expect(result.id).toBe('vps-row'); // richest wins
+    });
+
     it('blocks two rows where both have NULL manufacturer and NULL year (coalesce collapses NULLs)', async () => {
         const db = await getDatabase();
         await db.run(

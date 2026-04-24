@@ -230,26 +230,44 @@ export class GlobalGameService {
 
             const inputMfg = (input.manufacturer || '').trim().toLowerCase();
             const inputYear = input.year ?? null;
+            // v2.4.11: exact year match (not ±1 tolerance). The loose
+            // tolerance let "Breaking Bad (Original, 2021)" and "Breaking
+            // Bad (Original, 2022)" both count as concrete matches for a
+            // 2022 input, forcing a fall-through to INSERT on what was
+            // really one of the two rich rows.
             const concrete = nonConflicting.filter(g => {
                 const cMfg = (g.manufacturer || '').trim().toLowerCase();
                 const cYear = g.year ?? null;
                 if (!inputMfg || !cMfg || !inputYear || !cYear) return false;
                 if (inputMfg !== cMfg) return false;
-                if (Math.abs(cYear - inputYear) > 1) return false;
+                if (cYear !== inputYear) return false;
                 return true;
             });
 
             if (concrete.length === 1) {
                 existing = concrete[0]!;
-            } else if (concrete.length === 0) {
+            } else if (concrete.length > 1) {
+                // v2.4.11: same (mfg, year) matched by >1 row usually means
+                // two source-import variants with slightly different `name`
+                // strings that both normalize to the same key (e.g. VPS
+                // "Transformers (Pro)" and Wizard "Transformers Pro" for
+                // Stern 2011). Pick the richest one — most external IDs
+                // first, oldest created_at as tiebreak — and UPDATE into it.
+                // The other variant stays; admin can merge via the catalogue
+                // UI if desired. Better than failing the whole import.
+                concrete.sort((a, b) => {
+                    const aScore = (a.opdb_id ? 1 : 0) + (a.vps_id ? 1 : 0) + (a.igdb_id ? 1 : 0);
+                    const bScore = (b.opdb_id ? 1 : 0) + (b.vps_id ? 1 : 0) + (b.igdb_id ? 1 : 0);
+                    if (aScore !== bScore) return bScore - aScore;
+                    return (a.created_at ?? '').localeCompare(b.created_at ?? '');
+                });
+                existing = concrete[0]!;
+            } else {
                 // No concrete (mfg, year) match — fall back to NULL-tolerant
                 // agreement so a single thin-but-solo candidate can still merge.
                 const loose = nonConflicting.filter(g => this.manufacturerYearAgree(input, g));
                 if (loose.length === 1) existing = loose[0]!;
             }
-            // concrete.length > 1 → multiple distinct same-(mfg,year) rows?
-            // Shouldn't happen under the composite UNIQUE INDEX (080). Fall
-            // through to INSERT; the index will reject if truly identical.
         }
 
         if (existing) {
