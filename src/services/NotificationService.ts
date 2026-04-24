@@ -43,7 +43,20 @@ export class NotificationService {
             const { userId, type, message, roomId, tournamentId } = params;
             if (!userId || !process.env.DISCORD_BOT_TOKEN) return false;
 
-            // 0. Pick-award gate defense-in-depth (plan §5) — callers passing roomId
+            // 0a. Per-room Discord gate — if roomId is supplied and the room
+            // has DISCORD_ENABLED=false, suppress. Means disabling the toggle
+            // stops outbound DMs for events originating in that room the same
+            // way it silences announcements and command responses.
+            if (roomId) {
+                const { isDiscordEnabledForRoom } = await import('../utils/discord.js');
+                const enabled = await isDiscordEnabledForRoom(roomId);
+                if (!enabled) {
+                    logInfo(`NotificationService: ${type} suppressed (DISCORD_ENABLED=false) for room ${roomId}`);
+                    return false;
+                }
+            }
+
+            // 0b. Pick-award gate defense-in-depth (plan §5) — callers passing roomId
             // for `turnToPick` get suppressed here too, even if the upstream gate was
             // missed. Callers without roomId fall through to prefs check (legacy).
             if (type === 'turnToPick' && roomId) {
