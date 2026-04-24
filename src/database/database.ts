@@ -502,7 +502,15 @@ export async function initDatabase(): Promise<Database> {
 
     // --- Versioned Migrations ---
     // Each migration runs at most once, tracked in schema_migrations table.
-    const migrations: Array<{ name: string; sql: string }> = [
+    //
+    // Two shapes:
+    //   { name, sql }      — schema-only migration. Errors are swallowed (a column
+    //                        may already exist from a pre-ledger hand-run).
+    //   { name, handler }  — data/procedural migration. Errors HALT startup — there
+    //                        is no silently-skipping a failed backfill.
+    type SchemaMigration = { name: string; sql: string };
+    type HandlerMigration = { name: string; handler: (db: Database) => Promise<void> };
+    const migrations: Array<SchemaMigration | HandlerMigration> = [
         { name: '001_tournaments_created_at', sql: `ALTER TABLE tournaments ADD COLUMN created_at TEXT DEFAULT (datetime('now'))` },
         { name: '002_games_created_at', sql: `ALTER TABLE games ADD COLUMN created_at TEXT DEFAULT (datetime('now'))` },
         { name: '003_tournaments_mode', sql: `ALTER TABLE tournaments ADD COLUMN mode TEXT DEFAULT 'pinball'` },
@@ -919,15 +927,108 @@ export async function initDatabase(): Promise<Database> {
                 ON anon_room_claims(room_id, LOWER(display_name));
             CREATE INDEX IF NOT EXISTS idx_anon_room_claims_room ON anon_room_claims(room_id);
         ` },
+        // --- v2.4.0: Catalogue unification + pin-to-scoreboard (Sprint) ---
+        { name: '068_global_games_unique_name_type', handler: async (db) => {
+            const { auditAndCreateGlobalGamesUniqueIndex } = await import('./migrations/catalogueUnification.js');
+            await auditAndCreateGlobalGamesUniqueIndex(db);
+        } },
+        { name: '069_backfill_global_game_id', handler: async (db) => {
+            const { backfillGlobalGameId } = await import('./migrations/catalogueUnification.js');
+            await backfillGlobalGameId(db);
+        } },
+        { name: '070_delete_legacy_orphan_games', handler: async (db) => {
+            const { deleteLegacyOrphanGames } = await import('./migrations/catalogueUnification.js');
+            await deleteLegacyOrphanGames(db);
+        } },
+        { name: '071_room_library_overlay_fields', sql: `
+            ALTER TABLE game_room_game_library ADD COLUMN custom_platforms TEXT DEFAULT '[]';
+            ALTER TABLE game_room_game_library ADD COLUMN display_name TEXT;
+        ` },
+        { name: '072_cache_bust_for_global_game_id_shape', sql: `
+            -- Phase C (v2.4.0): leaderboard service output shape adds isPinned,
+            -- and query joins prefer global_game_id over name. Flush both
+            -- caches so clients don't render rows from the pre-shape schema.
+            DELETE FROM leaderboard_cache;
+            DELETE FROM global_leaderboard_cache;
+        ` },
+        { name: '073_games_game_room_id', sql: `
+            ALTER TABLE games ADD COLUMN game_room_id TEXT;
+            -- Denormalized FK: authoritative for pinned rows, derived from
+            -- tournament.game_room_id for tournament-linked rows. Set at insert,
+            -- never mutated independently. No FK constraint (rooms rarely
+            -- deleted and SQLite ALTER can't add enforced FKs).
+            UPDATE games SET game_room_id = (
+                SELECT game_room_id FROM tournaments WHERE id = games.tournament_id
+            )
+            WHERE tournament_id IS NOT NULL AND game_room_id IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_games_game_room_id ON games(game_room_id);
+        ` },
+        { name: '074_games_pinned_unique_per_room', sql: `
+            -- Prevent double-pinning the same game in the same room. Tournament
+            -- games (tournament_id IS NOT NULL) are allowed to repeat across
+            -- tournaments, so the partial predicate restricts the constraint
+            -- to pinned rows only.
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_games_pinned_unique
+                ON games(game_room_id, LOWER(name))
+                WHERE tournament_id IS NULL;
+        ` },
+        { name: '075_unpin_unlinks_submissions_marker', sql: `
+            -- Marker only: the application-layer unpin handler UPDATEs
+            -- submissions.game_id = NULL (and score_history / global_scores)
+            -- before DELETE on the games row, so score history is preserved
+            -- when a pin is removed. ON DELETE CASCADE was explicitly rejected.
+            SELECT 1;
+        ` },
+        { name: '076_games_display_order', sql: `
+            ALTER TABLE games ADD COLUMN display_order INTEGER;
+        ` },
+        { name: '077_submissions_game_id_nullable', sql: `
+            -- v2.4.0: drop NOT NULL on submissions.game_id so unpin can unlink
+            -- scores without losing the submission record (score_history and
+            -- global_scores.origin_game_id are already nullable). SQLite has no
+            -- ALTER COLUMN DROP NOT NULL — rebuild table (same pattern as 066).
+            CREATE TABLE submissions_new (
+                id TEXT PRIMARY KEY,
+                game_id TEXT,
+                discord_user_id TEXT NOT NULL,
+                iscored_username TEXT,
+                score INTEGER NOT NULL,
+                photo_url TEXT,
+                timestamp TEXT NOT NULL,
+                submitted_from_room_id TEXT,
+                submitted_during_tournament_id TEXT,
+                submitted_by_user_id TEXT,
+                submitted_by_anonymous_name TEXT,
+                merged_from_anonymous_identity_id INTEGER,
+                orphaned_at TEXT,
+                FOREIGN KEY (game_id) REFERENCES games (id)
+            );
+            INSERT INTO submissions_new
+                SELECT id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                       submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                       submitted_by_anonymous_name, merged_from_anonymous_identity_id, orphaned_at
+                FROM submissions;
+            DROP TABLE submissions;
+            ALTER TABLE submissions_new RENAME TO submissions;
+            CREATE INDEX IF NOT EXISTS idx_submissions_game_id ON submissions(game_id);
+            CREATE INDEX IF NOT EXISTS idx_submissions_discord_user_id ON submissions(discord_user_id);
+            CREATE INDEX IF NOT EXISTS idx_submissions_orphaned ON submissions(orphaned_at);
+        ` },
     ];
 
     for (const migration of migrations) {
         const applied = await db.get('SELECT id FROM schema_migrations WHERE name = ?', migration.name);
         if (applied) continue;
-        try {
-            await db.exec(migration.sql);
-        } catch {
-            // Column/table may already exist from before versioned migrations — safe to skip
+        if ('handler' in migration) {
+            // Handler migrations MUST succeed — a failed backfill cannot be
+            // silently skipped. Let the error propagate to halt startup.
+            await migration.handler(db);
+        } else {
+            try {
+                await db.exec(migration.sql);
+            } catch {
+                // Column/table may already exist from before versioned migrations — safe to skip
+            }
         }
         await db.run('INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)', migration.name);
     }

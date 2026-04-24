@@ -6,7 +6,7 @@ import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
 import { getTournamentColor } from '../../utils/discord.js';
-import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList, mergeEffectivePlatforms } from '../../utils/platformRules.js';
 
 export const activategame: Command = {
     data: new SlashCommandBuilder()
@@ -55,19 +55,26 @@ export const activategame: Command = {
 
         try {
             const db = await getDatabase();
-            const tournament = await db.get('SELECT id, type, mode, platform_rules FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
+            const tournament = await db.get('SELECT id, type, mode, platform_rules, game_room_id FROM tournaments WHERE name = ? COLLATE NOCASE', tournamentName);
 
             if (!tournament) {
                 await interaction.editReply(`Could not find a tournament named '${tournamentName}'.`);
                 return;
             }
 
-            // Enforce platform rules
+            // Enforce platform rules — effective = library + per-room custom.
             let platformRules = { required: [] as string[], excluded: [] as string[] };
             try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
             if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
-                const gameLibRow = await db.get('SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
-                const gamePlatforms = parsePlatformsList(gameLibRow?.platforms || '');
+                const gameLibRow = await db.get(
+                    `SELECT gl.platforms, grgl.custom_platforms AS room_custom
+                     FROM game_library gl
+                     LEFT JOIN game_room_game_library grgl
+                        ON grgl.game_name = gl.name AND grgl.game_room_id = ?
+                     WHERE gl.name = ? COLLATE NOCASE`,
+                    tournament.game_room_id, gameName,
+                );
+                const gamePlatforms = mergeEffectivePlatforms(gameLibRow?.platforms, gameLibRow?.room_custom);
                 if (!passesplatformRules(gamePlatforms, platformRules)) {
                     await interaction.editReply(`**${gameName}** does not meet the platform requirements for **${tournamentName}**.`);
                     return;

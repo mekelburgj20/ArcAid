@@ -13,7 +13,7 @@ import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js'
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { RoomEventService } from '../services/RoomEventService.js';
-import { parsePlatformsList } from '../utils/platformRules.js';
+import { parsePlatformsList, mergeEffectivePlatforms } from '../utils/platformRules.js';
 
 export class TournamentEngine {
     private static instance: TournamentEngine;
@@ -945,23 +945,25 @@ export class TournamentEngine {
 
         const eligibilityDays = tournamentRow.eligibility_days ?? 120;
 
-        // Get room-curated library if room-scoped, otherwise global library
+        // Get room-curated library if room-scoped, otherwise global library.
+        // Include the per-room custom_platforms overlay so tournament rules see
+        // the effective platform set (v2.4.0).
         let libraryGames: any[];
         if (tournamentRow.game_room_id) {
             libraryGames = await db.all(
-                `SELECT gl.name, gl.style_id, gl.mode, gl.platforms
+                `SELECT gl.name, gl.style_id, gl.mode, gl.platforms, grgl.custom_platforms AS room_custom
                  FROM game_library gl
                  INNER JOIN game_room_game_library grgl ON gl.name = grgl.game_name AND grgl.game_room_id = ?`,
                 tournamentRow.game_room_id
             );
         } else {
-            libraryGames = await db.all('SELECT name, style_id, mode, platforms FROM game_library');
+            libraryGames = await db.all('SELECT name, style_id, mode, platforms, NULL AS room_custom FROM game_library');
         }
 
         // Filter by mode + platform rules
         const eligible = libraryGames.filter(g => {
             if (g.mode !== tournamentRow.mode) return false;
-            const gamePlatforms = parsePlatformsList(g.platforms || '');
+            const gamePlatforms = mergeEffectivePlatforms(g.platforms, g.room_custom);
             const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
             if (platformRules.required.length > 0) {
                 if (!platformRules.required.some((rp: string) => upperPlatforms.includes(rp.toUpperCase()))) return false;

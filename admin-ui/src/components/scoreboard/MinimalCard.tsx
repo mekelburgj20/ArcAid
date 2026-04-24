@@ -136,7 +136,11 @@ export default function MinimalCard({
           </h3>
         )}
         <div className="flex items-center gap-3 mt-1">
-          {lb.tournamentName && (
+          {lb.isPinned ? (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm bg-neon-cyan/10 text-neon-cyan/80 text-[10px] uppercase tracking-wider">
+              Pinned
+            </span>
+          ) : lb.tournamentName && (
             <span className="text-[11px] uppercase tracking-wider text-muted">
               {lb.tournamentName}
             </span>

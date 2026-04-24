@@ -230,6 +230,24 @@ export default function ShowcaseCard({
             {/* Meta: badge + timer */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
               {(() => {
+                // v2.4.0: pinned games get a "Pinned" chip in place of the
+                // tournament badge. Rendering preserves theme colors.
+                if (lb.isPinned) {
+                  return (
+                    <span style={{
+                      padding: '4px 12px',
+                      borderRadius: theme.badgeBorder ? 4 : 6,
+                      background: cardBgFill ? 'rgba(0,0,0,0.6)' : theme.badgeBg,
+                      border: theme.badgeBorder || 'none',
+                      color: theme.badgeColor,
+                      fontSize: 10,
+                      letterSpacing: 2,
+                      textTransform: 'uppercase' as const,
+                      fontWeight: 600,
+                      textShadow: cardBgFill ? '0 1px 4px rgba(0,0,0,0.8)' : undefined,
+                    }}>Pinned</span>
+                  );
+                }
                 const tBadge = lb.tournamentType ? TOURNAMENT_BADGE_COLORS[lb.tournamentType.toUpperCase()] : null;
                 const label =
                   lb.tournamentType === 'DG' ? 'Daily Grind' :

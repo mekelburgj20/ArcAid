@@ -27,7 +27,7 @@ import {
 import { writeLimiter, pickLimiter } from '../rateLimit.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
-import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList, mergeEffectivePlatforms } from '../../utils/platformRules.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
@@ -486,10 +486,15 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
         const pickEnabled = await PickAwardGate.isEnabled(tournament.game_room_id, tournament.id);
         if (!pickEnabled) return res.status(403).json({ error: 'Game picks are disabled in this room' });
 
-        // 2. Look up game in library
+        // 2. Look up game in library AND the room's per-room overlay (custom_platforms).
         const gameLibEntry = await db.get(
-            'SELECT name, mode, platforms, style_id FROM game_library WHERE name = ? COLLATE NOCASE',
-            gameName
+            `SELECT gl.name, gl.mode, gl.platforms, gl.style_id,
+                    grgl.custom_platforms AS room_custom_platforms
+             FROM game_library gl
+             LEFT JOIN game_room_game_library grgl
+                ON grgl.game_name = gl.name AND grgl.game_room_id = ?
+             WHERE gl.name = ? COLLATE NOCASE`,
+            roomId, gameName,
         );
         if (!gameLibEntry) return res.status(404).json({ error: `Game "${gameName}" not found in the library` });
 
@@ -498,11 +503,14 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
             return res.status(400).json({ error: `Game mode "${gameLibEntry.mode}" does not match tournament mode "${tournament.mode}"` });
         }
 
-        // 4. Check platform rules
+        // 4. Check platform rules (effective = library + per-room custom)
         let platformRules = { required: [] as string[], excluded: [] as string[] };
         try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
 
-        const gamePlatforms = parsePlatformsList(gameLibEntry.platforms || '');
+        const gamePlatforms = mergeEffectivePlatforms(
+            gameLibEntry.platforms,
+            gameLibEntry.room_custom_platforms,
+        );
 
         if (!passesplatformRules(gamePlatforms, platformRules)) {
             const restrictedText = (JSON.parse(tournament.platform_rules || '{}') as any).restrictedText;
@@ -1916,12 +1924,19 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         const tournament = await db.get('SELECT id, name, type, mode, discord_channel_id, game_room_id, platform_rules FROM tournaments WHERE id = ?', tournamentId);
         if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-        // Enforce platform rules
+        // Enforce platform rules — effective = library + per-room custom.
         let platformRules = { required: [] as string[], excluded: [] as string[] };
         try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
         if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
-            const gameLibRow = await db.get('SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
-            const gamePlatforms = parsePlatformsList(gameLibRow?.platforms || '');
+            const gameLibRow = await db.get(
+                `SELECT gl.platforms, grgl.custom_platforms AS room_custom
+                 FROM game_library gl
+                 LEFT JOIN game_room_game_library grgl
+                    ON grgl.game_name = gl.name AND grgl.game_room_id = ?
+                 WHERE gl.name = ? COLLATE NOCASE`,
+                tournament.game_room_id, gameName,
+            );
+            const gamePlatforms = mergeEffectivePlatforms(gameLibRow?.platforms, gameLibRow?.room_custom);
             if (!passesplatformRules(gamePlatforms, platformRules)) {
                 return res.status(400).json({ error: `Game "${gameName}" does not meet this tournament's platform requirements` });
             }
@@ -1988,6 +2003,79 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         const message = error instanceof Error ? error.message : 'Internal Server Error';
         logError('API Error (POST rooms/:roomId/tournaments/:id/activate-game):', error);
         res.status(500).json({ error: message });
+    }
+});
+
+// Pin a game from the room's library to the scoreboard as a standalone
+// (non-tournament) entry. Body: { gameName, createOnIScored?, iScoredTags? }.
+// v2.4.0 feature — see src/engine/gameCreation.ts for the data-model invariants.
+router.post('/:roomId/games/pin', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { gameName, createOnIScored, iScoredTags } = req.body ?? {};
+        if (!gameName || typeof gameName !== 'string') {
+            return res.status(400).json({ error: 'gameName is required' });
+        }
+        if (createOnIScored !== undefined && typeof createOnIScored !== 'boolean') {
+            return res.status(400).json({ error: 'createOnIScored must be a boolean' });
+        }
+        if (iScoredTags !== undefined && (!Array.isArray(iScoredTags) || iScoredTags.some((t: unknown) => typeof t !== 'string'))) {
+            return res.status(400).json({ error: 'iScoredTags must be an array of strings' });
+        }
+
+        // Validate the game exists in the library (or per-room overlay) to prevent
+        // typo pins whose card would render without an image/identity.
+        const db = await getDatabase();
+        const exists = await db.get(
+            `SELECT 1 FROM game_library gl WHERE gl.name = ? COLLATE NOCASE
+             UNION
+             SELECT 1 FROM global_games gg WHERE gg.name = ? COLLATE NOCASE AND gg.status = 'approved'
+             LIMIT 1`,
+            gameName, gameName,
+        );
+        if (!exists) {
+            return res.status(404).json({ error: `Game "${gameName}" not found in library or catalogue — pin the canonical name` });
+        }
+
+        try {
+            const { pinGameToScoreboard } = await import('../../engine/gameCreation.js');
+            const result = await pinGameToScoreboard({
+                roomId, gameName, createOnIScored: !!createOnIScored,
+                iScoredTags: iScoredTags ?? ['MG'],
+            });
+            res.json(result);
+        } catch (err) {
+            // Unique-partial-index violation (074) = double pin attempt.
+            const msg = err instanceof Error ? err.message : String(err);
+            if (/UNIQUE constraint failed/i.test(msg)) {
+                return res.status(409).json({ error: `"${gameName}" is already pinned in this room` });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/games/pin):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Unpin a standalone game. Query: ?deleteOnIScored=true to also remove the
+// iScored row. Score history is always preserved (submissions.game_id → NULL
+// before DELETE).
+router.delete('/:roomId/games/pinned/:gameId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const deleteOnIScored = req.query.deleteOnIScored === 'true';
+
+        const { unpinGameFromScoreboard } = await import('../../engine/gameCreation.js');
+        const result = await unpinGameFromScoreboard({ roomId, gameId, deleteOnIScored });
+        if (!result.deleted) {
+            return res.status(404).json({ error: 'Pinned game not found in this room' });
+        }
+        res.json(result);
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/games/pinned/:gameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
@@ -2148,6 +2236,33 @@ router.put('/:roomId/game_library/:name/style', requireAuth, requireRoomAccess('
         res.json({ success: true });
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/game_library/:name/style):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Per-room overlay fields (v2.4.0): custom_platforms (additive tags like "WMS")
+// and display_name override. Either field is optional; omitted fields are left
+// unchanged. Passing null/[] clears that field.
+router.put('/:roomId/game_library/:name/overlay', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const gameName = decodeURIComponent(req.params.name as string);
+        const roomId = req.params.roomId as string;
+        const { customPlatforms, displayName } = req.body ?? {};
+        if (customPlatforms !== undefined) {
+            if (!Array.isArray(customPlatforms) || customPlatforms.some(x => typeof x !== 'string')) {
+                return res.status(400).json({ error: 'customPlatforms must be an array of strings' });
+            }
+            await GameLibraryService.setRoomCustomPlatforms(roomId, gameName, customPlatforms);
+        }
+        if (displayName !== undefined) {
+            if (displayName !== null && typeof displayName !== 'string') {
+                return res.status(400).json({ error: 'displayName must be a string or null' });
+            }
+            await GameLibraryService.setRoomDisplayName(roomId, gameName, displayName);
+        }
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/game_library/:name/overlay):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -3120,15 +3235,22 @@ router.get('/:roomId/admin/game-states', requireAuth, requireRoomAccess('roomId'
         const db = await getDatabase();
         const statusFilter = req.query.status ? (req.query.status as string).split(',') : null;
 
+        // v2.4.0: LEFT JOIN tournaments so pinned games (tournament_id IS NULL)
+        // appear. Scope by COALESCE(tournament.game_room_id, games.game_room_id)
+        // since tournament-linked rows get their room via the tournament and
+        // pinned rows carry it directly (migration 073).
         let query = `
             SELECT g.id, g.name, g.status, g.iscored_id, g.picker_discord_id,
                    g.picker_type, g.picker_designated_at, g.reminder_count,
                    g.won_game_id, g.start_date, g.end_date,
                    g.queue_order, g.style_id,
-                   t.name as tournament_name, t.type as tournament_type, t.id as tournament_id
+                   COALESCE(t.name, '(pinned)') as tournament_name,
+                   COALESCE(t.type, '') as tournament_type,
+                   t.id as tournament_id,
+                   CASE WHEN g.tournament_id IS NULL THEN 1 ELSE 0 END as is_pinned
             FROM games g
-            JOIN tournaments t ON g.tournament_id = t.id
-            WHERE t.game_room_id = ?
+            LEFT JOIN tournaments t ON g.tournament_id = t.id
+            WHERE COALESCE(t.game_room_id, g.game_room_id) = ?
         `;
         const params: any[] = [roomId];
 
@@ -3265,31 +3387,41 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
         const parsed = DeleteGameStateSchema.parse(req.body);
         const db = await getDatabase();
 
+        // v2.4.0: LEFT JOIN tournaments + COALESCE on game_room_id so pinned
+        // games (tournament_id IS NULL) resolve via the denormalized
+        // games.game_room_id column added in migration 073. Tournament games
+        // keep working because their row inherits the same FK.
         const game = await db.get(`
-            SELECT g.*, t.game_room_id
-            FROM games g JOIN tournaments t ON g.tournament_id = t.id
-            WHERE g.id = ? AND t.game_room_id = ?
+            SELECT g.*, t.game_room_id AS tournament_game_room_id
+            FROM games g LEFT JOIN tournaments t ON g.tournament_id = t.id
+            WHERE g.id = ? AND COALESCE(t.game_room_id, g.game_room_id) = ?
         `, gameId, roomId);
         if (!game) return res.status(404).json({ error: 'Game not found in this room' });
 
-        // Delete from iScored if requested
+        // Delete from iScored if requested (per-room creds via resolver).
         if (parsed.deleteFromIScored && game.iscored_id) {
-            const client = new IScoredClient();
-            try {
-                await client.connect();
-                await client.deleteGame(game.iscored_id);
-                logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
-            } catch (err) {
-                logError(`Failed to delete game ${gameId} from iScored:`, err);
-            } finally {
-                await client.disconnect();
+            const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+            const creds = await getIScoredCredsForRoom(roomId);
+            if (creds) {
+                const client = new IScoredClient({ username: creds.username, password: creds.password });
+                try {
+                    await client.connect();
+                    await client.deleteGame(game.iscored_id);
+                    logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
+                } catch (err) {
+                    logError(`Failed to delete game ${gameId} from iScored:`, err);
+                } finally {
+                    await client.disconnect();
+                }
             }
         }
 
-        // Cascade: delete submissions, leaderboard cache, score history
-        await db.run('DELETE FROM submissions WHERE game_id = ?', gameId);
+        // v2.4.0: unlink scores instead of cascading, so player history is
+        // preserved even when the game row is removed (matches unpin semantics).
+        await db.run('UPDATE submissions SET game_id = NULL WHERE game_id = ?', gameId);
         await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', gameId);
-        await db.run('DELETE FROM score_history WHERE game_id = ?', gameId);
+        await db.run('UPDATE score_history SET game_id = NULL WHERE game_id = ?', gameId);
+        await db.run('UPDATE global_scores SET origin_game_id = NULL WHERE origin_game_id = ?', gameId);
         await db.run('DELETE FROM games WHERE id = ?', gameId);
 
         const { RoomEventService } = await import('../../services/RoomEventService.js');

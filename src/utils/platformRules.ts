@@ -12,6 +12,31 @@ export function parsePlatformsList(raw: string): string[] {
 }
 
 /**
+ * v2.4.0: returns the effective platforms for a game in a room as the union of
+ * the shared library platforms and the per-room custom platforms (stored on
+ * `game_room_game_library.custom_platforms`). De-duplicated case-insensitively
+ * while preserving the first-seen casing. Use this instead of
+ * `parsePlatformsList` wherever a room context is available.
+ */
+export function mergeEffectivePlatforms(
+    libraryRaw: string | null | undefined,
+    roomCustomRaw: string | null | undefined,
+): string[] {
+    const merged: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of [libraryRaw, roomCustomRaw]) {
+        if (!raw) continue;
+        for (const p of parsePlatformsList(raw)) {
+            const key = p.toUpperCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(p);
+        }
+    }
+    return merged;
+}
+
+/**
  * Checks if a game's platforms satisfy a tournament's platform rules.
  * Shared between Discord commands and API endpoints.
  */

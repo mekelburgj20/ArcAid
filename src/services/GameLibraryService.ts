@@ -298,16 +298,96 @@ export class GameLibraryService {
 
     /**
      * Gets games from the library that are associated with a specific game room.
+     * Returns both the shared library record and the per-room overlay fields
+     * (custom platforms + display-name override from v2.4.0).
      */
     static async getForRoom(gameRoomId: string): Promise<any[]> {
         const db = await getDatabase();
         return db.all(
-            `SELECT gl.*, grgl.catalogue_style_id, grgl.logo_style_id, grgl.bg_style_id, grgl.style_header_disabled
+            `SELECT gl.*, grgl.catalogue_style_id, grgl.logo_style_id, grgl.bg_style_id,
+                    grgl.style_header_disabled, grgl.custom_platforms AS room_custom_platforms,
+                    grgl.display_name AS room_display_name
              FROM game_library gl
              JOIN game_room_game_library grgl ON gl.name = grgl.game_name
              WHERE grgl.game_room_id = ?`,
             gameRoomId
         );
+    }
+
+    /**
+     * Resolves the effective platforms for a game in a room: union of the
+     * shared `global_games.platforms` / `game_library.platforms` and the
+     * per-room `game_room_game_library.custom_platforms`. Tournament platform
+     * rules should call this instead of reading a single column.
+     *
+     * Lookup prefers `global_games` via FK; falls back to `game_library` by
+     * name during the transition period (some rows may still have NULL FK
+     * despite migration 069, e.g. games added between the backfill and a
+     * service restart).
+     */
+    static async getEffectivePlatformsForGame(
+        gameRoomId: string,
+        gameName: string,
+    ): Promise<string[]> {
+        const db = await getDatabase();
+        const row = await db.get(
+            `SELECT gl.platforms AS lib_platforms, gg.platforms AS cat_platforms,
+                    grgl.custom_platforms AS room_custom
+             FROM game_room_game_library grgl
+             LEFT JOIN game_library gl ON gl.name = grgl.game_name
+             LEFT JOIN global_games gg ON gg.id = COALESCE(grgl.global_game_id, gl.global_game_id)
+             WHERE grgl.game_room_id = ? AND grgl.game_name = ?`,
+            gameRoomId, gameName,
+        );
+        if (!row) return [];
+        const merge = new Set<string>();
+        for (const raw of [row.cat_platforms, row.lib_platforms, row.room_custom]) {
+            if (!raw) continue;
+            try {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) {
+                    for (const p of arr) if (typeof p === 'string' && p) merge.add(p);
+                }
+            } catch { /* ignore malformed JSON */ }
+        }
+        return Array.from(merge);
+    }
+
+    /**
+     * Set/clear per-room custom platform tags (additive to the shared list).
+     * Pass an empty array (or null) to clear all per-room tags for the game.
+     */
+    static async setRoomCustomPlatforms(
+        gameRoomId: string,
+        gameName: string,
+        platforms: string[],
+    ): Promise<boolean> {
+        const db = await getDatabase();
+        const json = JSON.stringify(platforms.map(p => p.trim()).filter(Boolean));
+        const result = await db.run(
+            `UPDATE game_room_game_library SET custom_platforms = ?
+             WHERE game_room_id = ? AND game_name = ?`,
+            json, gameRoomId, gameName,
+        );
+        return (result.changes || 0) > 0;
+    }
+
+    /**
+     * Set/clear the per-room display-name override. Null clears it so the
+     * shared `game_library.display_name` (or global fallback) takes over.
+     */
+    static async setRoomDisplayName(
+        gameRoomId: string,
+        gameName: string,
+        displayName: string | null,
+    ): Promise<boolean> {
+        const db = await getDatabase();
+        const result = await db.run(
+            `UPDATE game_room_game_library SET display_name = ?
+             WHERE game_room_id = ? AND game_name = ?`,
+            displayName ? displayName.trim() : null, gameRoomId, gameName,
+        );
+        return (result.changes || 0) > 0;
     }
 
     /**

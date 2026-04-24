@@ -7,7 +7,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
-import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList, mergeEffectivePlatforms } from '../../utils/platformRules.js';
 import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
 import { v4 as uuidv4 } from 'uuid';
 // TODO(§8): gate /mystery-award when that command is authored (Q6 — out of scope for Sprint 5).
@@ -49,19 +49,30 @@ export const pickgame: Command = {
             const selectedTournamentName = interaction.options.getString('tournament');
             let tournamentId: string | null = null;
             let tournamentMode: string | null = null;
+            let tournamentRoomId: string | null = null;
             let platformRules = { required: [] as string[], excluded: [] as string[] };
 
             if (selectedTournamentName) {
-                const tournamentRow = await db.get("SELECT id, type, mode, platform_rules FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
+                const tournamentRow = await db.get("SELECT id, type, mode, platform_rules, game_room_id FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
                 if (tournamentRow) {
                     tournamentId = tournamentRow.id;
                     tournamentMode = tournamentRow.mode;
+                    tournamentRoomId = tournamentRow.game_room_id;
                     try { platformRules = { ...platformRules, ...JSON.parse(tournamentRow.platform_rules || '{}') }; } catch {}
                 }
             }
 
-            // Fetch from the master Game Library
-            const rows = await db.all("SELECT name, mode, platforms FROM game_library");
+            // Fetch the master Game Library plus any per-room custom platform overlay
+            // for the tournament's room, so autocomplete honours per-room tags (WMS etc.).
+            const rows = tournamentRoomId
+                ? await db.all(
+                    `SELECT gl.name, gl.mode, gl.platforms, grgl.custom_platforms AS room_custom
+                     FROM game_library gl
+                     LEFT JOIN game_room_game_library grgl
+                        ON grgl.game_name = gl.name AND grgl.game_room_id = ?`,
+                    tournamentRoomId,
+                )
+                : await db.all("SELECT name, mode, platforms, NULL AS room_custom FROM game_library");
 
             let choices = rows;
 
@@ -70,9 +81,9 @@ export const pickgame: Command = {
                 choices = choices.filter(r => r.mode === tournamentMode);
             }
 
-            // Filter by platform rules
+            // Filter by platform rules (effective platforms = library + per-room custom)
             choices = choices.filter(r => {
-                const gamePlatforms = parsePlatformsList(r.platforms || '');
+                const gamePlatforms = mergeEffectivePlatforms(r.platforms, r.room_custom);
                 return passesplatformRules(gamePlatforms, platformRules);
             });
 

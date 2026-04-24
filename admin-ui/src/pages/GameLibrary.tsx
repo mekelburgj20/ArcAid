@@ -104,6 +104,11 @@ export default function GameLibrary() {
   const [tournaments, setTournaments] = useState<TournamentOption[]>([]);
   const [activatingFor, setActivatingFor] = useState<string | null>(null);
 
+  // v2.4.0 — Pin to scoreboard
+  const [pinTarget, setPinTarget] = useState<string | null>(null);
+  const [pinOnIScored, setPinOnIScored] = useState(true);
+  const [pinSubmitting, setPinSubmitting] = useState(false);
+
   // Style picker
   const [styleTarget, setStyleTarget] = useState<GameRow | null>(null);
 
@@ -234,6 +239,30 @@ export default function GameLibrary() {
       toast(err.message || 'Failed to activate game', 'error');
     } finally {
       setActivatingFor(null);
+    }
+  };
+
+  const handlePin = async () => {
+    if (!pinTarget || !room) return;
+    setPinSubmitting(true);
+    try {
+      const result = await api.post<{ iscoredStatus: 'created' | 'failed' | 'skipped' }>(
+        `/rooms/${room.roomId}/games/pin`,
+        { gameName: pinTarget, createOnIScored: pinOnIScored },
+      );
+      if (result.iscoredStatus === 'failed') {
+        toast(`${pinTarget} pinned locally (iScored mirror failed — retry from Game States)`, 'success');
+      } else if (result.iscoredStatus === 'skipped' && pinOnIScored) {
+        toast(`${pinTarget} pinned (iScored skipped — check room credentials)`, 'success');
+      } else {
+        toast(`${pinTarget} pinned to scoreboard`, 'success');
+      }
+      setPinTarget(null);
+      setPinOnIScored(true);
+    } catch (err: any) {
+      toast(err.message || 'Failed to pin game', 'error');
+    } finally {
+      setPinSubmitting(false);
     }
   };
 
@@ -744,6 +773,7 @@ export default function GameLibrary() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         {room && <NeonButton variant="ghost" onClick={() => setActivateTarget(g.name)} className="text-xs px-2 py-1">Activate</NeonButton>}
+                        {room && <NeonButton variant="ghost" onClick={() => { setPinTarget(g.name); setPinOnIScored(true); }} className="text-xs px-2 py-1">Pin</NeonButton>}
                         {room && (
                           <NeonButton
                             variant={g.catalogue_style_id ? 'secondary' : 'ghost'}
@@ -789,6 +819,42 @@ export default function GameLibrary() {
             <NeonButton variant="ghost" onClick={() => setActivateTarget(null)} disabled={activatingFor !== null}>
               Cancel
             </NeonButton>
+          </div>
+        </div>
+      )}
+
+      {pinTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-sm">
+            <h2 className="font-display text-lg font-bold mb-2">Pin to Scoreboard</h2>
+            <p className="text-muted text-sm mb-4">
+              Pin <span className="text-primary font-medium">{pinTarget}</span> to the scoreboard as a standalone
+              game. It will appear with a "Pinned" chip and stay active until you unpin it. Rankings (max_10 etc.)
+              ignore pinned games.
+            </p>
+            <label className="flex items-start gap-2 mb-4 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={pinOnIScored}
+                onChange={e => setPinOnIScored(e.target.checked)}
+                disabled={pinSubmitting}
+                className="mt-0.5 cursor-pointer accent-neon-cyan"
+              />
+              <span className="text-sm text-primary">
+                Also create on iScored
+                <span className="block text-xs text-faint">
+                  Uses the room's iScored credentials. Skipped automatically if iScored isn't configured.
+                </span>
+              </span>
+            </label>
+            <div className="flex justify-end gap-2">
+              <NeonButton variant="ghost" onClick={() => setPinTarget(null)} disabled={pinSubmitting}>
+                Cancel
+              </NeonButton>
+              <NeonButton onClick={handlePin} disabled={pinSubmitting}>
+                {pinSubmitting ? 'Pinning...' : 'Pin'}
+              </NeonButton>
+            </div>
           </div>
         </div>
       )}

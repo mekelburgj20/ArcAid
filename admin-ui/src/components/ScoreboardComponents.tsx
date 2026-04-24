@@ -24,6 +24,8 @@ export interface GameLeaderboard {
   displayName?: string | null;
   tournamentName: string;
   tournamentType: string;
+  /** v2.4.0: true when this card is a pinned standalone game (no tournament). */
+  isPinned?: boolean;
   imageUrl: string | null;
   gameStatus: string;
   catalogueStyleId: string | null;

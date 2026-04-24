@@ -158,7 +158,11 @@ export class LeaderboardService {
         // Matches the resolution used by All Games search.
         const activeGames = await db.all(`
             SELECT g.id, g.name as game_name, g.display_name, g.status, t.name as tournament_name, t.type as tournament_type,
-                   COALESCE(t.display_order, 9999) as display_order,
+                   -- v2.4.0: per-game display_order takes precedence (pinned games
+                   -- set their own), falling back to tournament order, then 9999.
+                   COALESCE(g.display_order, t.display_order, 9999) as display_order,
+                   -- v2.4.0: pinned games are those with no tournament attribution.
+                   CASE WHEN g.tournament_id IS NULL THEN 1 ELSE 0 END as is_pinned,
                    -- v2.0.3: image fallback hierarchy — game_library.image_url,
                    -- then global_games (local → wheel → url) so tournament cards
                    -- get a default image when neither the room admin nor the
@@ -313,6 +317,9 @@ export class LeaderboardService {
                 displayName: game.display_name || null,
                 tournamentName: game.tournament_name || 'Untracked',
                 tournamentType: game.tournament_type || '',
+                // v2.4.0: pinned games (no tournament) render with a "Pinned"
+                // chip instead of the tournament badge. Clients use this flag.
+                isPinned: game.is_pinned === 1,
                 // v2.0.3: normalize catalogue paths to their public URL so cards
                 // render the image directly. `data/catalogue-images/...` → `/api/catalogue-images/...`.
                 imageUrl: normalizeImageUrl(game.image_url),

@@ -166,9 +166,15 @@ export default function BannerCard({
             <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
           </div>
         )}
-        {(lb.tournamentName || lb.gameStatus === 'COMPLETED') && (
+        {(lb.tournamentName || lb.gameStatus === 'COMPLETED' || lb.isPinned) && (
           <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted flex items-center justify-center gap-1`}>
-            {lb.tournamentName}
+            {lb.isPinned ? (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm bg-neon-cyan/10 text-neon-cyan/80 text-[10px] tracking-normal normal-case">
+                Pinned
+              </span>
+            ) : (
+              lb.tournamentName
+            )}
             {lb.gameStatus === 'COMPLETED' && (
               <Lock size={11} className="text-neon-amber flex-shrink-0" />
             )}

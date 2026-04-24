@@ -7,7 +7,7 @@ import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMen
 import { TournamentEngine } from './TournamentEngine.js';
 import { IScoredClient } from './IScoredClient.js';
 import { v4 as uuidv4 } from 'uuid';
-import { parsePlatformsList } from '../utils/platformRules.js';
+import { parsePlatformsList, mergeEffectivePlatforms } from '../utils/platformRules.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 
 export class TimeoutManager {
@@ -312,14 +312,24 @@ export class TimeoutManager {
 
             const eligibilityDays = tournament.eligibility_days ?? 120;
 
-            // Get games matching tournament mode + platform rules
-            const libraryGames = await db.all('SELECT name, style_id, mode, platforms FROM game_library');
+            // Get games matching tournament mode + platform rules. Include per-room
+            // custom_platforms overlay (v2.4.0) so the fallback auto-pick honours WMS-style
+            // per-room tags the same way platform rules expect.
+            const libraryGames = tournament.game_room_id
+                ? await db.all(
+                    `SELECT gl.name, gl.style_id, gl.mode, gl.platforms, grgl.custom_platforms AS room_custom
+                     FROM game_library gl
+                     LEFT JOIN game_room_game_library grgl
+                        ON grgl.game_name = gl.name AND grgl.game_room_id = ?`,
+                    tournament.game_room_id,
+                )
+                : await db.all('SELECT name, style_id, mode, platforms, NULL AS room_custom FROM game_library');
             const modeAndPlatformMatches = libraryGames.filter(g => {
                 // Mode must match
                 if (g.mode !== tournament.mode) return false;
 
-                // Parse game platforms
-                const gamePlatforms = parsePlatformsList(g.platforms || '');
+                // Parse effective platforms (library + per-room custom).
+                const gamePlatforms = mergeEffectivePlatforms(g.platforms, g.room_custom);
                 const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
 
                 // Required: game must have at least one required platform

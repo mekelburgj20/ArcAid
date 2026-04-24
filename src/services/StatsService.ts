@@ -1,5 +1,25 @@
 import { getDatabase } from '../database/database.js';
 
+/**
+ * v2.4.0 note on pinned games:
+ *
+ * Every query in this service that takes a `gameRoomId` scopes via
+ * `INNER JOIN tournaments t ON g.tournament_id = t.id` (+ `t.game_room_id = ?`).
+ * Pinned games (tournament_id IS NULL) are therefore IMPLICITLY EXCLUDED from
+ * room-scoped stats — a deliberate conservative default. Rationale:
+ *
+ *   - Rankings are tournament-scoped by design (confirmed in sprint planning).
+ *   - "Tournament stats" like completed-rounds / win-percentage lose meaning
+ *     for a continuously-active pinned game.
+ *   - Pinned-game scores still surface in the per-game card leaderboard and
+ *     the global scoreboard fan-out, so the data isn't lost — just absent
+ *     from aggregate stats cards.
+ *
+ * If future work decides to include pinned games here, switch each JOIN to
+ * LEFT JOIN and scope via `COALESCE(t.game_room_id, g.game_room_id)`; the
+ * denormalized `games.game_room_id` column (migration 073) already exists
+ * to support that path.
+ */
 export class StatsService {
     /**
      * Get comprehensive stats for a player by Discord user ID.
