@@ -201,6 +201,29 @@ describe('global_games identity index + upsert disambiguation', () => {
         expect(result.id).toBe('rich-spongebob'); // tie-breaker prefers rich
     });
 
+    it('step 4 concrete: ignores external-ID conflicts when (name, mfg, year) match (VPS re-indexing case)', async () => {
+        const db = await getDatabase();
+        // Existing row from a prior VPS import has the old vps_id.
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, vps_id, status)
+             VALUES (?, 'Hot Tip', 'pinball', 'Williams', 1977, 'R_WxR47U', 'approved')`,
+            'rich-hot-tip',
+        );
+
+        // VPS now reports the same machine under a new vps_id (real-world:
+        // VPS re-registers the entry, IDs drift). Same canonical identity.
+        const result = await GlobalGameService.upsert({
+            name: 'Hot Tip', type: 'pinball', manufacturer: 'Williams', year: 1977,
+            vps_id: 'NEW_VPS_ID', platforms: ['vpx'], status: 'approved',
+        });
+        expect(result.action).toBe('updated');
+        expect(result.id).toBe('rich-hot-tip');
+
+        // The row's vps_id follows the new authoritative value via COALESCE.
+        const row = await db.get(`SELECT vps_id FROM global_games WHERE id = 'rich-hot-tip'`);
+        expect(row?.vps_id).toBe('NEW_VPS_ID');
+    });
+
     it('blocks two rows where both have NULL manufacturer and NULL year (coalesce collapses NULLs)', async () => {
         const db = await getDatabase();
         await db.run(

@@ -241,7 +241,17 @@ export class GlobalGameService {
             // Bad (Original, 2022)" both count as concrete matches for a
             // 2022 input, forcing a fall-through to INSERT on what was
             // really one of the two rich rows.
-            const concrete = nonConflicting.filter(g => {
+            //
+            // v2.4.15: concrete match runs against the FULL nameMatches set,
+            // not just `nonConflicting`. The Frankenstein-prevention guard
+            // (hasExternalIdConflict) is too strict when canonical identity
+            // already agrees — a pinball machine has a single (name, mfg,
+            // year) identity by physical reality, so a divergent vps_id /
+            // opdb_id / igdb_id just means the source re-indexed its own
+            // database (VPS does this occasionally). Accept the merge; the
+            // COALESCE-based UPDATE replaces the stale external ID with the
+            // new authoritative one.
+            const concrete = nameMatches.filter(g => {
                 const cMfg = (g.manufacturer || '').trim().toLowerCase();
                 const cYear = g.year ?? null;
                 if (!inputMfg || !cMfg || !inputYear || !cYear) return false;
