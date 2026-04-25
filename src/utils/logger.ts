@@ -33,12 +33,41 @@ function getLogStream(): RotatingFileStream {
     return logStream;
 }
 
+/**
+ * Serialize a single log argument for the file stream.
+ *
+ * v2.4.16: Error instances were stringifying to `{}` because their `message`
+ * and `stack` are non-enumerable — so `logError('OPDB sync failed:', err)`
+ * wrote a useless empty object to the rotating file. Console output was fine
+ * (Node's util.inspect handles Error specially), but the admin Logs viewer
+ * reads the file and lost every error detail.
+ *
+ * Error → "name: message\nstack". JSON.stringify everything else, with a
+ * fallback to String() for anything that throws on serialization (cyclic
+ * objects etc.).
+ */
+function formatLogArg(value: unknown): string {
+    if (value instanceof Error) {
+        const stack = value.stack ?? '';
+        return stack ? stack : `${value.name}: ${value.message}`;
+    }
+    if (value === null || value === undefined) return String(value);
+    if (typeof value === 'object') {
+        try {
+            return JSON.stringify(value);
+        } catch {
+            return String(value);
+        }
+    }
+    return String(value);
+}
+
 function writeToFile(prefix: string, message: string, ...args: any[]) {
     try {
         const timestamp = new Date().toISOString();
         let formattedArgs = '';
         if (args.length > 0) {
-            formattedArgs = ' ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+            formattedArgs = ' ' + args.map(formatLogArg).join(' ');
         }
 
         const logLine = `[${timestamp}] [${prefix}] ${message}${formattedArgs}\n`;
