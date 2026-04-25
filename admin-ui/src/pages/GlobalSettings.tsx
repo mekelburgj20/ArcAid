@@ -16,10 +16,13 @@ const GLOBAL_KEYS = [
   'BACKUP_RETENTION_DAYS',
   'ISCORED_API_ENABLED',
   'ISCORED_API_POLL_INTERVAL',
+  'OPDB_API_KEY',
+  'TWITCH_CLIENT_ID',
+  'TWITCH_CLIENT_SECRET',
   'GLOBAL_PAGE_THEME',
 ];
 
-const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'JWT_SECRET'];
+const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET'];
 
 const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   DISCORD_BOT_TOKEN: { label: 'Discord Bot Token', description: 'Bot token from the Discord Developer Portal.' },
@@ -31,6 +34,9 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   BACKUP_RETENTION_DAYS: { label: 'Backup Retention Days', description: 'How many days to keep automatic backups.' },
   ISCORED_API_ENABLED: { label: 'iScored API Enabled', description: 'Use iScored REST API for score sync instead of Playwright. Set to "false" to revert to Playwright.' },
   ISCORED_API_POLL_INTERVAL: { label: 'iScored Poll Interval (seconds)', description: 'How often to poll iScored for new scores. Default: 30. Hot-reloads on save.' },
+  OPDB_API_KEY: { label: 'OPDB API Key', description: 'API token for OPDB pinball catalogue sync. Register at https://opdb.org. Encrypted at rest.' },
+  TWITCH_CLIENT_ID: { label: 'Twitch Client ID', description: 'Twitch app client ID for IGDB arcade/console catalogue sync. Create an app at https://dev.twitch.tv/console.' },
+  TWITCH_CLIENT_SECRET: { label: 'Twitch Client Secret', description: 'Twitch app client secret for IGDB catalogue sync. Encrypted at rest.' },
 };
 
 interface SuperAdmin {

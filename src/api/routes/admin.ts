@@ -571,7 +571,7 @@ router.post('/catalogue/sync-wizard', async (req, res) => {
 router.post('/catalogue/sync-opdb', async (_req, res) => {
     if (!process.env.OPDB_API_KEY) {
         return res.status(400).json({
-            error: 'OPDB_API_KEY is not configured. Add it under Global Settings → Integrations, or register at https://opdb.org to get an API key.',
+            error: 'OPDB_API_KEY is not configured. Add it under Global Settings → Configuration, or register at https://opdb.org to get an API key.',
         });
     }
     void (async () => {
@@ -587,7 +587,7 @@ router.post('/catalogue/sync-opdb', async (_req, res) => {
 router.post('/catalogue/sync-igdb', async (_req, res) => {
     if (!process.env.TWITCH_CLIENT_ID || !process.env.TWITCH_CLIENT_SECRET) {
         return res.status(400).json({
-            error: 'TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET must be configured for IGDB import. Add them under Global Settings → Integrations.',
+            error: 'TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET must be configured for IGDB import. Add them under Global Settings → Configuration.',
         });
     }
     void (async () => {
