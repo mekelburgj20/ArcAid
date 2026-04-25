@@ -318,9 +318,18 @@ export class VpsImportService {
             const tables: VpsTable[] = await resp.json();
             logInfo(`VPS Import: received ${tables.length} entries`);
 
-            // Skip broken entries, only import entries with playable table files
+            // Two filters with different intents:
+            //   playable    — has a downloadable table file and isn't flagged broken.
+            //                 Used for the legacy game_library, which feeds room
+            //                 picks. Broken tables shouldn't show up there.
+            //   cataloguable — every VPS entry with a name. Used for the global
+            //                 catalogue (identity + metadata + images). Broken
+            //                 tables still have real images, manufacturer, year,
+            //                 and may have user-submitted scores; excluding them
+            //                 leaves orphan thin rows on /scoreboard with no art.
             const playable = tables.filter(t => t.name && !t.broken && t.tableFiles && t.tableFiles.length > 0);
-            logInfo(`VPS Import: ${playable.length} games with table files`);
+            const cataloguable = tables.filter(t => t.name);
+            logInfo(`VPS Import: ${playable.length} playable, ${cataloguable.length} catalogue entries`);
 
             // Legacy import for game_library (backward compat)
             const legacyGames = playable.map(t => ({
@@ -342,7 +351,7 @@ export class VpsImportService {
 
             // Process games without image downloads first (fast path, ~10-20s for 2500 games)
             // Image downloads happen in a separate background pass after metadata is imported.
-            for (const table of playable) {
+            for (const table of cataloguable) {
                 try {
                     const input: GlobalGameInput = {
                         name: table.name,
@@ -385,7 +394,7 @@ export class VpsImportService {
 
             // Background image download pass — parallelized with concurrency limit.
             // This runs after the main import returns so the API responds quickly.
-            void downloadImagesInBackground(playable);
+            void downloadImagesInBackground(cataloguable);
 
             const names = legacyGames.map(g => g.name);
             logInfo(`VPS Import: global catalogue — inserted ${inserted}, updated ${updated}, skipped ${skipped}`);
