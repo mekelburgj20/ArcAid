@@ -169,8 +169,24 @@ export class IScoredClient {
             await mainFrame.getByRole('textbox', { name: 'Password', exact: true }).fill(password);
             await mainFrame.getByRole('button', { name: 'Log In' }).click();
 
-            // Wait for successful login (user dropdown appears inside the main iframe)
-            await mainFrame.locator('#userDropdown').waitFor({ state: 'attached', timeout: 15000 });
+            // Wait for successful login (user dropdown appears inside the main iframe).
+            // On timeout, classify the failure: if the Log In button is still
+            // visible, iScored rejected the credentials. Surface a friendlier
+            // message than "locator.waitFor: Timeout 15000ms exceeded" so the
+            // admin Settings → Validate flow + the Discord/web error responses
+            // tell the user what to actually fix.
+            try {
+                await mainFrame.locator('#userDropdown').waitFor({ state: 'attached', timeout: 15000 });
+            } catch (err) {
+                const loginStillVisible = await mainFrame
+                    .getByRole('button', { name: 'Log In' })
+                    .count()
+                    .catch(() => 0);
+                if (loginStillVisible > 0) {
+                    throw new Error('iScored rejected the credentials (wrong username or password).');
+                }
+                throw new Error('iScored login timed out — possible rate limit, iScored slow/down, or login page changed.');
+            }
 
             logInfo('Successfully logged into iScored.');
         }, 2); // Only retry connect twice (initial + 1 retry)
