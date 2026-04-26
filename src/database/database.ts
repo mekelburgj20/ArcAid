@@ -1124,6 +1124,33 @@ export async function initDatabase(): Promise<Database> {
             const { normalizeAllPlatformArrays } = await import('./migrations/platformTaxonomyExpansion.js');
             await normalizeAllPlatformArrays(db);
         } },
+        { name: '090_global_games_aliases', sql: `ALTER TABLE global_games ADD COLUMN aliases TEXT DEFAULT '[]'` },
+        { name: '091_backfill_aliases_to_global_games', handler: async (db) => {
+            // Step 2a — preserve game_library.aliases (CSV) onto global_games.aliases (JSON)
+            // before the legacy table is dropped in 2e. Keyed via game_library.global_game_id
+            // (set by migration 069). Aliases turn out to be write-only metadata in the live
+            // codebase — no current reader — but we keep the data so a future feature
+            // (search-by-alias, iScored alt-name matching) can use it without re-import.
+            const rows = await db.all(`
+                SELECT gl.aliases AS aliases, gl.global_game_id AS gg_id
+                FROM game_library gl
+                WHERE gl.global_game_id IS NOT NULL
+                  AND gl.aliases IS NOT NULL
+                  AND gl.aliases != ''
+            `);
+            let updated = 0;
+            for (const row of rows) {
+                const gg = await db.get('SELECT aliases FROM global_games WHERE id = ?', row.gg_id);
+                if (!gg) continue;
+                if (gg.aliases && gg.aliases !== '[]') continue;
+                const list = String(row.aliases).split(',').map((a: string) => a.trim()).filter(Boolean);
+                if (list.length === 0) continue;
+                await db.run('UPDATE global_games SET aliases = ? WHERE id = ?', JSON.stringify(list), row.gg_id);
+                updated++;
+            }
+            // eslint-disable-next-line no-console
+            console.log(`[migration] 091: backfilled aliases onto ${updated} global_games row(s)`);
+        } },
     ];
 
     for (const migration of migrations) {
