@@ -6,7 +6,7 @@ import { getDatabase } from '../../database/database.js';
 import { requireAuth, requireSuperAdmin } from '../middleware.js';
 import { validate } from '../validate.js';
 import {
-    SettingsSchema, ImportGamesSchema, UpdateGameSchema,
+    SettingsSchema,
     BackupRestoreParamsSchema, CreateGameRoomSchema,
 } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
@@ -333,117 +333,6 @@ router.post('/settings', async (req, res) => {
     }
 });
 
-// --- Master Game Library CRUD ---
-
-router.get('/game_library', async (req, res) => {
-    try {
-        const rows = await GameLibraryService.getAll();
-        res.json(rows);
-    } catch (error) {
-        logError('API Error (GET /api/admin/game_library):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-router.post('/game_library/import', async (req, res) => {
-    try {
-        const validationResult = validate(ImportGamesSchema, req.body);
-        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-
-        const imported = await GameLibraryService.importGames(validationResult.data.games);
-        res.json({ success: true, imported });
-    } catch (error) {
-        logError('API Error (POST /api/admin/game_library/import):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-router.put('/game_library/:name', async (req, res) => {
-    try {
-        const originalName = decodeURIComponent(req.params.name as string);
-        const validationResult = validate(UpdateGameSchema, req.body);
-        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-
-        const updated = await GameLibraryService.updateGame(originalName, validationResult.data);
-        if (!updated) return res.status(404).json({ error: 'Game not found' });
-        res.json({ success: true });
-    } catch (error) {
-        logError('API Error (PUT /api/admin/game_library/:name):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-router.post('/game_library/delete', async (req, res) => {
-    try {
-        const { names } = req.body;
-        if (!Array.isArray(names) || names.length === 0) {
-            return res.status(400).json({ error: 'names array is required' });
-        }
-        const deleted = await GameLibraryService.deleteGames(names);
-        logInfo(`Deleted ${deleted} games from library: ${names.join(', ')}`);
-        res.json({ success: true, deleted });
-    } catch (error) {
-        logError('API Error (POST /api/admin/game_library/delete):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-router.post('/game_library/import-vps', async (req, res) => {
-    try {
-        const result = await VpsImportService.importFromVps();
-        if (req.body?.roomId) {
-            // Add imported games to room; also add auto-merge targets (existing names kept)
-            const roomNames = [...result.names];
-            for (const m of result.autoMerged) roomNames.push(m.existing);
-            await GameLibraryService.addToRoom(req.body.roomId, roomNames);
-        }
-        // Exclude auto-merged names from near-match detection (they're already handled)
-        const autoMergedNames = new Set(result.autoMerged.map(m => m.imported.toLowerCase()));
-        const nearMatchNames = result.names.filter(n => !autoMergedNames.has(n.toLowerCase()));
-        const nearMatches = await GameLibraryService.findNearMatches(nearMatchNames);
-        res.json({ success: true, imported: result.imported, total: result.total, nearMatches, autoMerged: result.autoMerged });
-    } catch (error) {
-        logError('API Error (POST /api/admin/game_library/import-vps):', error);
-        res.status(500).json({ error: error instanceof Error ? error.message : 'VPS import failed' });
-    }
-});
-
-router.post('/game_library/import-wizard', async (req, res) => {
-    try {
-        const result = await WizardImportService.importFromWizard();
-        if (req.body?.roomId) {
-            // Add imported games to room; also add auto-merge targets (existing names kept)
-            const roomNames = [...result.names];
-            for (const m of result.autoMerged) roomNames.push(m.existing);
-            await GameLibraryService.addToRoom(req.body.roomId, roomNames);
-        }
-        // Exclude auto-merged names from near-match detection (they're already handled)
-        const autoMergedNames = new Set(result.autoMerged.map(m => m.imported.toLowerCase()));
-        const nearMatchNames = result.names.filter(n => !autoMergedNames.has(n.toLowerCase()));
-        const nearMatches = await GameLibraryService.findNearMatches(nearMatchNames);
-        res.json({ success: true, imported: result.imported, total: result.total, nearMatches, autoMerged: result.autoMerged });
-    } catch (error) {
-        logError('API Error (POST /api/admin/game_library/import-wizard):', error);
-        res.status(500).json({ error: error instanceof Error ? error.message : 'Wizard import failed' });
-    }
-});
-
-// Merge two games in the library (source → target)
-router.post('/game_library/merge', async (req, res) => {
-    try {
-        const { fromName, toName } = req.body;
-        if (!fromName || !toName) return res.status(400).json({ error: 'fromName and toName are required' });
-        if (fromName === toName) return res.status(400).json({ error: 'Source and target are the same' });
-        const result = await GameLibraryService.mergeGames(fromName, toName);
-        logInfo(`Merged game "${fromName}" into "${toName}"`);
-        res.json({ success: true, ...result });
-    } catch (error) {
-        const message = error instanceof Error ? error.message : 'Merge failed';
-        logError('API Error (POST /api/admin/game_library/merge):', error);
-        res.status(500).json({ error: message });
-    }
-});
-
 // --- Style Catalogue Management ---
 
 // Multer config: memory storage, 30MB max per file (wheel PNGs / APNGs can be large)
@@ -534,17 +423,10 @@ router.get('/audit-log', async (req, res) => {
 // These kick off long-running imports in the background and return 202 immediately.
 // Frontend polls /admin/catalogue/sync-status to observe progress via sync_logs table.
 
-router.post('/catalogue/sync-vps', async (req, res) => {
-    const roomId = req.body?.roomId;
-    // Fire-and-forget: don't await the import
+router.post('/catalogue/sync-vps', async (_req, res) => {
     void (async () => {
         try {
-            const result = await VpsImportService.importFromVps();
-            if (roomId) {
-                const roomNames = [...result.names];
-                for (const m of result.autoMerged) roomNames.push(m.existing);
-                await GameLibraryService.addToRoom(roomId, roomNames);
-            }
+            await VpsImportService.importFromVps();
         } catch (error) {
             logError('Background VPS sync error:', error);
         }
@@ -552,16 +434,10 @@ router.post('/catalogue/sync-vps', async (req, res) => {
     res.status(202).json({ success: true, started: true, source: 'vps' });
 });
 
-router.post('/catalogue/sync-wizard', async (req, res) => {
-    const roomId = req.body?.roomId;
+router.post('/catalogue/sync-wizard', async (_req, res) => {
     void (async () => {
         try {
-            const result = await WizardImportService.importFromWizard();
-            if (roomId) {
-                const roomNames = [...result.names];
-                for (const m of result.autoMerged) roomNames.push(m.existing);
-                await GameLibraryService.addToRoom(roomId, roomNames);
-            }
+            await WizardImportService.importFromWizard();
         } catch (error) {
             logError('Background Wizard sync error:', error);
         }

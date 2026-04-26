@@ -1,4 +1,3 @@
-import { GameLibraryService } from './GameLibraryService.js';
 import { GlobalGameService, GlobalGameInput } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
 import { VPS_FORMAT_MAP } from '../utils/platformMapping.js';
@@ -296,17 +295,13 @@ async function downloadImagesInBackground(tables: VpsTable[]): Promise<void> {
 
 export class VpsImportService {
     /**
-     * Fetches the VPS database JSON and imports games that have table files.
-     * Writes to both legacy game_library (for existing room flows) and
-     * global_games (for global catalogue).
+     * Fetches the VPS database JSON and imports games into the global catalogue.
      */
     static async importFromVps(): Promise<{
         imported: number;
         updated: number;
         skipped: number;
         total: number;
-        names: string[];
-        autoMerged: Array<{ imported: string; existing: string }>;
     }> {
         const syncLogId = await SyncLogService.start('vps');
         const errors: string[] = [];
@@ -330,19 +325,6 @@ export class VpsImportService {
             const playable = tables.filter(t => t.name && !t.broken && t.tableFiles && t.tableFiles.length > 0);
             const cataloguable = tables.filter(t => t.name);
             logInfo(`VPS Import: ${playable.length} playable, ${cataloguable.length} catalogue entries`);
-
-            // Legacy import for game_library (backward compat)
-            const legacyGames = playable.map(t => ({
-                name: buildGameName(t),
-                aliases: t.name !== buildGameName(t) ? t.name : '',
-                style_id: '',
-                mode: 'pinball' as const,
-                css_title: '', css_initials: '', css_scores: '', css_box: '', bg_color: '',
-                platforms: JSON.stringify(extractPlatforms(t)),
-                external_url: `https://virtualpinballspreadsheet.github.io/games?game=${t.id}`,
-            }));
-
-            const legacyResult = await GameLibraryService.importGames(legacyGames);
 
             // Global catalogue import with rich metadata
             let inserted = 0;
@@ -396,7 +378,6 @@ export class VpsImportService {
             // This runs after the main import returns so the API responds quickly.
             void downloadImagesInBackground(cataloguable);
 
-            const names = legacyGames.map(g => g.name);
             logInfo(`VPS Import: global catalogue — inserted ${inserted}, updated ${updated}, skipped ${skipped}`);
 
             await SyncLogService.complete(syncLogId, {
@@ -412,8 +393,6 @@ export class VpsImportService {
                 updated,
                 skipped,
                 total: tables.length,
-                names,
-                autoMerged: legacyResult.autoMerged,
             };
         } catch (err) {
             logError('VPS Import failed:', err);

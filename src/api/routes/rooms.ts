@@ -8,7 +8,7 @@ import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireD
 import { validate } from '../validate.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema,
-    ImportGamesSchema, UpdateGameSchema, SettingsSchema,
+    SettingsSchema,
     HistoryQuerySchema, MergePlayerSchema,
     CreateRankingGroupSchema, UpdateRankingGroupSchema,
     CreateLocalAdminSchema,
@@ -2507,38 +2507,6 @@ router.patch('/:roomId/admin/games/:gameId/notes', requireAuth, requireRoomAcces
     }
 });
 
-// Game library import (room-scoped)
-router.post('/:roomId/game_library/import', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
-    try {
-        const validationResult = validate(ImportGamesSchema, req.body);
-        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-
-        const result = await GameLibraryService.importGames(validationResult.data.games);
-        // Also add to room
-        const gameNames = validationResult.data.games.map((g: any) => g.name);
-        await GameLibraryService.addToRoom(req.params.roomId as string, gameNames);
-        res.json({ success: true, imported: result.imported, autoMerged: result.autoMerged });
-    } catch (error) {
-        logError('API Error (POST rooms/:roomId/game_library/import):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-router.put('/:roomId/game_library/:name', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
-    try {
-        const originalName = decodeURIComponent(req.params.name as string);
-        const validationResult = validate(UpdateGameSchema, req.body);
-        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-
-        const updated = await GameLibraryService.updateGame(originalName, validationResult.data);
-        if (!updated) return res.status(404).json({ error: 'Game not found' });
-        res.json({ success: true });
-    } catch (error) {
-        logError('API Error (PUT rooms/:roomId/game_library/:name):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
 // Get default catalogue style for a game in room's library
 router.get('/:roomId/game_library/:name/style', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
@@ -2578,23 +2546,6 @@ router.delete('/:roomId/game_library/:name/style', requireAuth, requireRoomAcces
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/game_library/:name/style):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-router.post('/:roomId/game_library/delete', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
-    try {
-        const { names } = req.body;
-        if (!Array.isArray(names) || names.length === 0) {
-            return res.status(400).json({ error: 'names array is required' });
-        }
-        // Remove from room association
-        await GameLibraryService.removeFromRoom(req.params.roomId as string, names);
-        const deleted = await GameLibraryService.deleteGames(names);
-        logInfo(`Deleted ${deleted} games from library: ${names.join(', ')}`);
-        res.json({ success: true, deleted });
-    } catch (error) {
-        logError('API Error (POST rooms/:roomId/game_library/delete):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -3082,12 +3033,11 @@ router.put('/:roomId/game_library/:name/image', requireAuth, requireRoomAccess('
     }
 });
 
-// Get games for the "Apply to Game" picker (leaderboard games + library games)
+// Get games for the "Apply to Game" picker (leaderboard games + catalogue games)
 router.get('/:roomId/admin/games-for-picker', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
-        const { GameLibraryService } = await import('../../services/GameLibraryService.js');
 
         const leaderboards = await LeaderboardService.getActiveLeaderboards(roomId);
         const leaderboardGames = leaderboards.map(lb => ({
@@ -3097,11 +3047,14 @@ router.get('/:roomId/admin/games-for-picker', requireAuth, requireRoomAccess('ro
             gameStatus: lb.gameStatus,
         }));
 
-        const libraryGames = await GameLibraryService.getForRoom(roomId);
+        const db = await getDatabase();
+        const catalogueRows = await db.all(
+            `SELECT name FROM global_games WHERE status = 'approved' GROUP BY LOWER(name) ORDER BY name`
+        );
         const leaderboardNames = new Set(leaderboardGames.map(g => g.gameName.toLowerCase()));
-        const libraryOnly = (libraryGames as any[])
-            .filter((g: any) => !leaderboardNames.has((g.name || g.game_name || '').toLowerCase()))
-            .map((g: any) => ({ gameName: g.name || g.game_name }));
+        const libraryOnly = catalogueRows
+            .filter((g: any) => !leaderboardNames.has(String(g.name).toLowerCase()))
+            .map((g: any) => ({ gameName: g.name }));
 
         res.json({ leaderboardGames, libraryGames: libraryOnly });
     } catch (error) {

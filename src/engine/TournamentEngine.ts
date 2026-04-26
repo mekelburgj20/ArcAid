@@ -8,7 +8,6 @@ import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMention } from '../utils/discord.js';
 import { IScoredClient } from './IScoredClient.js';
-import { GameLibraryService } from '../services/GameLibraryService.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
@@ -493,16 +492,6 @@ export class TournamentEngine {
                 logError('   -> Failed to lock game on iScored (continuing):', err);
             }
 
-            // Learn styles
-            try {
-                const styles = await client.syncStyle(activeGame.iscoredId);
-                if (styles) {
-                    const updated = await GameLibraryService.updateStyles(activeGame.name, styles);
-                    if (updated) logInfo(`   -> Learned styles for ${activeGame.name}`);
-                }
-            } catch (err) {
-                logWarn('   -> Failed to learn styles (continuing):', err);
-            }
         }
 
         // --- Winner resolution: local DB is canonical (v2.2.1) ---

@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { GameLibraryService } from './GameLibraryService.js';
 import { GlobalGameService, GlobalGameInput } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
 import { logInfo, logError } from '../utils/logger.js';
@@ -307,8 +306,6 @@ export class WizardImportService {
         total: number;
         wizardCount: number;
         manualCount: number;
-        names: string[];
-        autoMerged: Array<{ imported: string; existing: string }>;
     }> {
         const syncLogId = await SyncLogService.start('wizard');
         const errors: string[] = [];
@@ -352,18 +349,6 @@ export class WizardImportService {
                 if (t.section === 'wizard_manual') flags.manual = true;
                 sectionsByIdentity.set(k, flags);
             }
-
-            // Legacy import for game_library (backward compat)
-            const legacyGames = tables.map(t => ({
-                name: t.name,
-                aliases: '',
-                style_id: '',
-                mode: 'pinball' as const,
-                css_title: '', css_initials: '', css_scores: '', css_box: '', bg_color: '',
-                platforms: JSON.stringify(platformsForTable(t)),
-                external_url: t.path ? `${GITHUB_BASE}/tree/main/${t.path.replace(/^\.\//, '')}` : null,
-            }));
-            const legacyResult = await GameLibraryService.importGames(legacyGames);
 
             // Global catalogue import with rich metadata
             let inserted = 0;
@@ -414,7 +399,6 @@ export class WizardImportService {
             // Background image download pass — same non-blocking pattern as VPS.
             void downloadWizardImagesInBackground(tables, imageMap);
 
-            const names = tables.map(t => t.name);
             logInfo(`Wizard Import: global catalogue — inserted ${inserted}, updated ${updated}, skipped ${skipped}`);
 
             await SyncLogService.complete(syncLogId, {
@@ -432,8 +416,6 @@ export class WizardImportService {
                 total: tables.length,
                 wizardCount,
                 manualCount,
-                names,
-                autoMerged: legacyResult.autoMerged,
             };
         } catch (err) {
             logError('Wizard Import failed:', err);
