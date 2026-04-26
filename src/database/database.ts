@@ -1152,6 +1152,17 @@ export async function initDatabase(): Promise<Database> {
             console.log(`[migration] 091: backfilled aliases onto ${updated} global_games row(s)`);
         } },
         { name: '092_drop_legacy_game_library_table', sql: `DROP TABLE IF EXISTS game_library` },
+        { name: '093_room_game_tags', sql: `
+            CREATE TABLE IF NOT EXISTS room_game_tags (
+                game_room_id TEXT NOT NULL,
+                global_game_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (game_room_id, global_game_id, tag)
+            );
+            CREATE INDEX IF NOT EXISTS idx_room_game_tags_room_tag
+                ON room_game_tags(game_room_id, tag);
+        ` },
     ];
 
     for (const migration of migrations) {

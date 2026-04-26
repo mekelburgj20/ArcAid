@@ -18,6 +18,8 @@ interface GameRow {
   year?: number | null;
   mode: string;
   platforms: string;
+  /** Per-room custom tags (room_game_tags). Variant-keyed via id. */
+  room_tags?: string[];
   catalogue_style_id?: string | null;
   style_header_disabled?: number;
 }
@@ -36,17 +38,20 @@ function parsePlatforms(raw: string): string[] {
   return raw.split(',').map(t => t.trim()).filter(Boolean);
 }
 
-function PlatformChips({ platforms: raw }: { platforms: string }) {
-  // v2.5.1: defense-in-depth — even after migration 089 normalizes the data,
-  // alias-fold + dedupe at render time so future drift doesn't reintroduce
-  // visual duplicates. Render the canonical displayName (e.g. "FX Classic"),
-  // not the raw id (`pinball_fx_classic`).
+function PlatformChips({ platforms: raw, roomTags }: { platforms: string; roomTags?: string[] }) {
+  // Catalogue platforms render in cyan; per-room tags (custom platforms,
+  // ADR 0008) render in amber so they're visually distinct from the global
+  // catalogue's truth.
   const list = normalizePlatformList(parsePlatforms(raw));
-  if (list.length === 0) return <span className="text-faint text-sm">None</span>;
+  const tags = (roomTags ?? []).filter(t => t && t.length > 0);
+  if (list.length === 0 && tags.length === 0) return <span className="text-faint text-sm">None</span>;
   return (
     <div className="flex gap-1 flex-wrap">
       {list.map(p => (
-        <span key={p} className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">{getPlatformDisplay(p)}</span>
+        <span key={`p-${p}`} className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">{getPlatformDisplay(p)}</span>
+      ))}
+      {tags.map(t => (
+        <span key={`t-${t}`} className="text-xs px-1.5 py-0.5 rounded bg-neon-amber/10 text-neon-amber border border-neon-amber/40" title="Room-only tag">{getPlatformDisplay(t)}</span>
       ))}
     </div>
   );
@@ -59,6 +64,164 @@ interface TournamentOption {
 
 type SortKey = 'name' | 'mode' | 'platforms' | 'rating';
 type SortDir = 'asc' | 'desc';
+
+/**
+ * Per-row tag editor. Renders existing tags as removable chips and lets the
+ * admin add new tags via free-text input or by clicking a recently-used tag
+ * from the room. Tags are normalized server-side; the displayed list is the
+ * server's canonical response.
+ */
+function TagDialog({ game, existingTags, onAdd, onRemove, onClose }: {
+  game: GameRow;
+  existingTags: string[];
+  onAdd: (tag: string) => Promise<void>;
+  onRemove: (tag: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [input, setInput] = useState('');
+  const tags = game.room_tags ?? [];
+  const suggestions = existingTags.filter(t => !tags.includes(t)).slice(0, 8);
+
+  const submit = async () => {
+    const t = input.trim();
+    if (!t) return;
+    await onAdd(t);
+    setInput('');
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md">
+        <h2 className="font-display text-lg font-bold mb-1">Tag {game.name}</h2>
+        {(game.manufacturer || game.year) && (
+          <p className="text-xs text-faint mb-4">{[game.manufacturer, game.year].filter(Boolean).join(', ')}</p>
+        )}
+        {tags.length > 0 ? (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {tags.map(t => (
+              <span key={t} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-neon-amber/10 text-neon-amber border border-neon-amber/40">
+                {getPlatformDisplay(t)}
+                <button
+                  onClick={() => onRemove(t)}
+                  className="hover:text-primary -mr-0.5"
+                  aria-label={`Remove tag ${t}`}
+                >×</button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-faint mb-3">No tags yet.</p>
+        )}
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+            placeholder="e.g. WMS"
+            maxLength={50}
+            className="flex-1 px-3 py-1.5 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan"
+            autoFocus
+          />
+          <NeonButton onClick={submit} disabled={!input.trim()}>Add</NeonButton>
+        </div>
+        {suggestions.length > 0 && (
+          <div className="mb-3">
+            <p className="text-xs text-faint mb-1">Existing tags in this room:</p>
+            <div className="flex flex-wrap gap-1">
+              {suggestions.map(t => (
+                <button
+                  key={t}
+                  onClick={() => setInput(t)}
+                  className="text-xs px-2 py-0.5 rounded border border-border text-muted hover:text-primary hover:border-border/80 transition-colors"
+                >
+                  {getPlatformDisplay(t)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end">
+          <NeonButton variant="ghost" onClick={onClose}>Done</NeonButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Bulk-tag dialog. Single tag string applied to all selected games on commit;
+ * the server endpoint INSERT-OR-IGNOREs so re-applying an existing tag is a
+ * no-op (counted in the response but harmless).
+ */
+function BulkTagDialog({ count, existingTags, onApply, onClose }: {
+  count: number;
+  existingTags: string[];
+  onApply: (tag: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [input, setInput] = useState('');
+  const [applying, setApplying] = useState(false);
+
+  const submit = async () => {
+    if (!input.trim() || applying) return;
+    setApplying(true);
+    try {
+      await onApply(input.trim());
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md">
+        <h2 className="font-display text-lg font-bold mb-2">Bulk Tag</h2>
+        <p className="text-muted text-sm mb-4">
+          Apply a tag to <span className="text-primary font-medium">{count}</span> selected
+          game{count !== 1 ? 's' : ''}. Tags appear alongside catalogue platforms and can be used
+          in tournament platform rules (e.g. "Must be available on WMS").
+        </p>
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+            placeholder="e.g. WMS"
+            maxLength={50}
+            className="flex-1 px-3 py-1.5 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan"
+            autoFocus
+            disabled={applying}
+          />
+        </div>
+        {existingTags.length > 0 && (
+          <div className="mb-3">
+            <p className="text-xs text-faint mb-1">Existing tags in this room:</p>
+            <div className="flex flex-wrap gap-1">
+              {existingTags.map(t => (
+                <button
+                  key={t}
+                  onClick={() => setInput(t)}
+                  disabled={applying}
+                  className="text-xs px-2 py-0.5 rounded border border-border text-muted hover:text-primary hover:border-border/80 transition-colors"
+                >
+                  {getPlatformDisplay(t)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <NeonButton variant="ghost" onClick={onClose} disabled={applying}>Cancel</NeonButton>
+          <NeonButton onClick={submit} disabled={!input.trim() || applying}>
+            {applying ? 'Applying…' : `Tag ${count}`}
+          </NeonButton>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Renders [Prev] [1] [2] [3] ... [N] [Next]. Truncates the middle of the
@@ -180,6 +343,20 @@ export default function GameLibrary() {
   // Inline platform add
   const [showAddPlatform, setShowAddPlatform] = useState(false);
   const [newPlatformName, setNewPlatformName] = useState('');
+
+  // Manufacturer filter (top-N as chips, full list in dropdown).
+  const [mfgFilter, setMfgFilter] = useState<Set<string>>(new Set());
+  const [showMfgPicker, setShowMfgPicker] = useState(false);
+
+  // Bulk select state — `selectedIds` keys on `global_game_id`.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Tag UX. `tagTarget` drives the per-row Tag dialog; `bulkTagOpen` drives
+  // the bulk-tag dialog when selectedIds.size > 0.
+  const [tagTarget, setTagTarget] = useState<GameRow | null>(null);
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [bulkActivateOpen, setBulkActivateOpen] = useState(false);
+  const [bulkPinOpen, setBulkPinOpen] = useState(false);
 
   // proposalCheck holds the response from POST /game_library/proposals so the
   // UI can render an inline "is this in the catalogue?" preview before submit.
@@ -493,7 +670,30 @@ export default function GameLibrary() {
   // v2.5.1: alias-fold + dedupe before building the filter pill row, so
   // legacy mixed-case data (`VPX` / `vpx`) and aliases (`FX3` /
   // `pinball_fx_classic`) collapse to one chip per real platform.
-  const allPlatforms = normalizePlatformList(games.flatMap(g => parsePlatforms(g.platforms))).sort();
+  // v2.6.x: room-tag chips (per-game custom platforms, ADR 0008) join the
+  // pill row so admins can filter by them too.
+  const allPlatforms = useMemo(() => {
+    const fromCatalogue = games.flatMap(g => parsePlatforms(g.platforms));
+    const fromTags = games.flatMap(g => g.room_tags ?? []);
+    return normalizePlatformList([...fromCatalogue, ...fromTags]).sort();
+  }, [games]);
+
+  // Manufacturer chips: top-N (by game count) + "More…" dropdown for the long
+  // tail. Catalogue has ~241 distinct manufacturers; flat chip list would be
+  // unmanageable.
+  const manufacturerStats = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const g of games) {
+      const m = g.manufacturer?.trim();
+      if (!m) continue;
+      counts.set(m, (counts.get(m) ?? 0) + 1);
+    }
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return {
+      topMfg: sorted.slice(0, 10).map(([m]) => m),
+      allMfg: sorted.map(([m, c]) => ({ name: m, count: c })),
+    };
+  }, [games]);
 
   const togglePlatform = (p: string) => {
     setPlatformFilter(prev => {
@@ -508,13 +708,22 @@ export default function GameLibrary() {
     if (!showVideoGame && g.mode === 'videogame') return false;
     if (platformFilter.size > 0) {
       // Normalize the game's platforms before comparing — handles mixed-case
-      // pre-089 data without forcing the filter to match all variants.
-      const gPlats = normalizePlatformList(parsePlatforms(g.platforms));
+      // pre-089 data without forcing the filter to match all variants. Room
+      // tags participate in the same filter dimension (ADR 0008).
+      const gPlats = normalizePlatformList([
+        ...parsePlatforms(g.platforms),
+        ...(g.room_tags ?? []),
+      ]);
       if (!gPlats.some(p => platformFilter.has(p))) return false;
+    }
+    if (mfgFilter.size > 0) {
+      if (!g.manufacturer || !mfgFilter.has(g.manufacturer)) return false;
     }
     if (search) {
       const q = search.toLowerCase();
-      return g.name.toLowerCase().includes(q) || (g.platforms || '').toLowerCase().includes(q);
+      return g.name.toLowerCase().includes(q)
+        || (g.platforms || '').toLowerCase().includes(q)
+        || (g.manufacturer || '').toLowerCase().includes(q);
     }
     return true;
   });
@@ -558,7 +767,38 @@ export default function GameLibrary() {
   // Reset to page 1 whenever the filtered/sorted set changes shape.
   useEffect(() => {
     setPage(1);
-  }, [search, showPinball, showVideoGame, platformFilter, sortKey, sortDir]);
+  }, [search, showPinball, showVideoGame, platformFilter, mfgFilter, sortKey, sortDir]);
+
+  const toggleMfg = (m: string) => {
+    setMfgFilter(prev => {
+      const next = new Set(prev);
+      if (next.has(m)) next.delete(m); else next.add(m);
+      return next;
+    });
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const togglePageSelectAll = (rows: GameRow[]) => {
+    setSelectedIds(prev => {
+      const allOnPageSelected = rows.every(r => r.id && prev.has(r.id));
+      const next = new Set(prev);
+      for (const r of rows) {
+        if (!r.id) continue;
+        if (allOnPageSelected) next.delete(r.id);
+        else next.add(r.id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
 
   const totalPages = Math.max(1, Math.ceil(sortedGames.length / ROWS_PER_PAGE));
   const currentPage = Math.min(page, totalPages);
@@ -572,6 +812,96 @@ export default function GameLibrary() {
       setSortKey(key);
       setSortDir('asc');
     }
+  };
+
+  // Bulk-tag handler — single API call (server-side INSERT OR IGNORE per id).
+  const handleBulkTag = async (tag: string) => {
+    if (!room || selectedIds.size === 0 || !tag.trim()) return;
+    try {
+      const res = await api.post<{ added: number }>(`${prefix}/games/bulk-tag`, {
+        globalGameIds: [...selectedIds], tag: tag.trim(),
+      });
+      toast(`Tagged ${res.added} game${res.added !== 1 ? 's' : ''}`, 'success');
+      setBulkTagOpen(false);
+      clearSelection();
+      fetchGames();
+    } catch (err: any) {
+      toast(err.message || 'Failed to apply tag', 'error');
+    }
+  };
+
+  // Per-row tag add/remove. Reuses single-game endpoints; updates state from
+  // the server response so the chip list mirrors persistence.
+  const handleAddTagToGame = async (g: GameRow, tag: string) => {
+    if (!room || !g.id || !tag.trim()) return;
+    try {
+      const res = await api.post<{ tags: string[] }>(`${prefix}/games/${g.id}/tags`, { tag: tag.trim() });
+      setGames(prev => prev.map(x => x.id === g.id ? { ...x, room_tags: res.tags } : x));
+      setTagTarget(prev => prev && prev.id === g.id ? { ...prev, room_tags: res.tags } : prev);
+    } catch (err: any) {
+      toast(err.message || 'Failed to add tag', 'error');
+    }
+  };
+
+  const handleRemoveTagFromGame = async (g: GameRow, tag: string) => {
+    if (!room || !g.id || !tag) return;
+    try {
+      const res = await api.delete<{ tags: string[] }>(`${prefix}/games/${g.id}/tags/${encodeURIComponent(tag)}`);
+      setGames(prev => prev.map(x => x.id === g.id ? { ...x, room_tags: res.tags } : x));
+      setTagTarget(prev => prev && prev.id === g.id ? { ...prev, room_tags: res.tags } : prev);
+    } catch (err: any) {
+      toast(err.message || 'Failed to remove tag', 'error');
+    }
+  };
+
+  // Bulk activate: loop the existing single-game endpoint with light
+  // concurrency (5 in flight) and a per-game best-effort summary.
+  const handleBulkActivate = async (tournamentId: string) => {
+    if (!room || selectedIds.size === 0) return;
+    const idToName = new Map(games.filter(g => g.id).map(g => [g.id!, g.name]));
+    const names = [...selectedIds].map(id => idToName.get(id)).filter((n): n is string => !!n);
+    let ok = 0, fail = 0;
+    const queue = [...names];
+    const worker = async () => {
+      while (queue.length) {
+        const name = queue.shift()!;
+        try {
+          await api.post(`${prefix}/tournaments/${tournamentId}/activate-game`, { gameName: name });
+          ok++;
+        } catch {
+          fail++;
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker(), worker()]);
+    toast(`Activated ${ok} game${ok !== 1 ? 's' : ''}${fail ? ` · ${fail} failed` : ''}`, fail ? 'error' : 'success');
+    setBulkActivateOpen(false);
+    clearSelection();
+  };
+
+  // Bulk pin: same loop pattern. UNIQUE-pinned-per-room collisions surface as
+  // failures in the summary rather than blocking the rest of the batch.
+  const handleBulkPin = async (createOnIScored: boolean) => {
+    if (!room || selectedIds.size === 0) return;
+    const idToName = new Map(games.filter(g => g.id).map(g => [g.id!, g.name]));
+    const names = [...selectedIds].map(id => idToName.get(id)).filter((n): n is string => !!n);
+    let ok = 0, fail = 0;
+    const queue = [...names];
+    const worker = async () => {
+      while (queue.length) {
+        const name = queue.shift()!;
+        try {
+          await api.post(`${prefix}/games/pin`, { gameName: name, createOnIScored });
+          ok++;
+        } catch {
+          fail++;
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker(), worker()]);
+    toast(`Pinned ${ok} game${ok !== 1 ? 's' : ''}${fail ? ` · ${fail} failed (already pinned?)` : ''}`, fail ? 'error' : 'success');
+    setBulkPinOpen(false);
+    clearSelection();
   };
 
   if (loading) return <LoadingState message="Loading game library..." />;
@@ -821,6 +1151,54 @@ export default function GameLibrary() {
             Video Games
           </label>
         </div>
+        {/* Manufacturer filter — top-N chips + dropdown for the long tail. */}
+        {manufacturerStats.allMfg.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="text-xs font-display uppercase tracking-wider text-muted">Manufacturer:</span>
+            {manufacturerStats.topMfg.map(m => (
+              <button
+                key={m}
+                onClick={() => toggleMfg(m)}
+                className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                  mfgFilter.has(m)
+                    ? 'bg-neon-amber/20 text-neon-amber border-neon-amber/60'
+                    : 'bg-transparent text-muted border-border hover:border-neon-amber/40 hover:text-primary'
+                }`}
+              >
+                {m}
+              </button>
+            ))}
+            <div className="relative">
+              <button
+                onClick={() => setShowMfgPicker(v => !v)}
+                className="text-xs px-2 py-0.5 rounded border border-border text-muted hover:border-neon-amber/40 hover:text-primary transition-colors"
+              >
+                More… ({manufacturerStats.allMfg.length - manufacturerStats.topMfg.length})
+              </button>
+              {showMfgPicker && (
+                <div className="absolute z-50 left-0 mt-1 w-64 max-h-64 overflow-y-auto bg-surface border border-default rounded shadow-lg">
+                  {manufacturerStats.allMfg.map(({ name, count }) => (
+                    <button
+                      key={name}
+                      onClick={() => toggleMfg(name)}
+                      className={`w-full text-left px-3 py-1 text-xs flex items-center justify-between hover:bg-raised transition-colors ${
+                        mfgFilter.has(name) ? 'text-neon-amber' : 'text-muted'
+                      }`}
+                    >
+                      <span className="truncate">{name}</span>
+                      <span className="text-faint ml-2 flex-shrink-0">{count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {mfgFilter.size > 0 && (
+              <button onClick={() => setMfgFilter(new Set())} className="text-xs text-faint hover:text-primary underline">
+                Clear
+              </button>
+            )}
+          </div>
+        )}
         {(allPlatforms.length > 0 || room) && (
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             <span className="text-xs font-display uppercase tracking-wider text-muted">Platforms:</span>
@@ -873,6 +1251,17 @@ export default function GameLibrary() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
+                {room && (
+                  <th className="px-3 py-3 text-left w-8">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all on this page"
+                      checked={pageRows.length > 0 && pageRows.every(r => r.id && selectedIds.has(r.id))}
+                      onChange={() => togglePageSelectAll(pageRows)}
+                      className="accent-neon-cyan cursor-pointer"
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-3 text-left">
                   <SortHeader label="Game" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                 </th>
@@ -893,62 +1282,77 @@ export default function GameLibrary() {
             <tbody>
               {pageRows.length === 0 ? (
                 <tr>
-                  <td colSpan={room ? 5 : 4} className="px-4 py-8 text-center text-muted">
+                  <td colSpan={room ? 6 : 4} className="px-4 py-8 text-center text-muted">
                     No games in the catalogue.
                   </td>
                 </tr>
               ) : (
-                pageRows.map((g) => (
-                  <tr key={g.id ?? `${g.name}|${g.manufacturer ?? ''}|${g.year ?? ''}`} className="border-b border-border/50 transition-colors hover:bg-raised/50">
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{g.name}</div>
-                      {(g.manufacturer || g.year) && (
-                        <div className="text-xs text-faint mt-0.5">
-                          {[g.manufacturer, g.year].filter(Boolean).join(', ')}
-                        </div>
+                pageRows.map((g) => {
+                  const isSelected = !!g.id && selectedIds.has(g.id);
+                  return (
+                    <tr key={g.id ?? `${g.name}|${g.manufacturer ?? ''}|${g.year ?? ''}`} className={`border-b border-border/50 transition-colors ${isSelected ? 'bg-neon-cyan/5' : 'hover:bg-raised/50'}`}>
+                      {room && (
+                        <td className="px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => g.id && toggleSelected(g.id)}
+                            disabled={!g.id}
+                            className="accent-neon-cyan cursor-pointer"
+                          />
+                        </td>
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded ${(g.mode || 'pinball') === 'pinball' ? 'bg-neon-amber/15 text-neon-amber' : 'bg-neon-cyan/15 text-neon-cyan'}`}>
-                        {(g.mode || 'pinball') === 'pinball' ? 'Pinball' : 'Video Game'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <PlatformChips platforms={g.platforms} />
-                    </td>
-                    {room && (
                       <td className="px-4 py-3">
-                        {(() => {
-                          const cr = communityRatings[g.name];
-                          const ur = userRatings[g.name] || 0;
-                          return (
-                            <div className="flex items-center gap-1.5">
-                              <StarRating rating={ur} onRate={(r) => handleRate(g.name, r)} />
-                              {cr && cr.rating_count > 0 && (
-                                <span className="text-xs text-muted">{cr.avg_rating} ({cr.rating_count})</span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                    )}
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        {room && <NeonButton variant="ghost" onClick={() => setActivateTarget(g.name)} className="text-xs px-2 py-1">Activate</NeonButton>}
-                        {room && <NeonButton variant="ghost" onClick={() => { setPinTarget(g.name); setPinOnIScored(true); }} className="text-xs px-2 py-1">Pin</NeonButton>}
-                        {room && (
-                          <NeonButton
-                            variant={g.catalogue_style_id ? 'secondary' : 'ghost'}
-                            onClick={() => setStyleTarget(g)}
-                            className="text-xs px-2 py-1"
-                          >
-                            Style
-                          </NeonButton>
+                        <div className="font-medium">{g.name}</div>
+                        {(g.manufacturer || g.year) && (
+                          <div className="text-xs text-faint mt-0.5">
+                            {[g.manufacturer, g.year].filter(Boolean).join(', ')}
+                          </div>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded ${(g.mode || 'pinball') === 'pinball' ? 'bg-neon-amber/15 text-neon-amber' : 'bg-neon-cyan/15 text-neon-cyan'}`}>
+                          {(g.mode || 'pinball') === 'pinball' ? 'Pinball' : 'Video Game'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <PlatformChips platforms={g.platforms} roomTags={g.room_tags} />
+                      </td>
+                      {room && (
+                        <td className="px-4 py-3">
+                          {(() => {
+                            const cr = communityRatings[g.name];
+                            const ur = userRatings[g.name] || 0;
+                            return (
+                              <div className="flex items-center gap-1.5">
+                                <StarRating rating={ur} onRate={(r) => handleRate(g.name, r)} />
+                                {cr && cr.rating_count > 0 && (
+                                  <span className="text-xs text-muted">{cr.avg_rating} ({cr.rating_count})</span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
+                      )}
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1 flex-wrap">
+                          {room && <NeonButton variant="ghost" onClick={() => setActivateTarget(g.name)} className="text-xs px-2 py-1">Activate</NeonButton>}
+                          {room && <NeonButton variant="ghost" onClick={() => { setPinTarget(g.name); setPinOnIScored(true); }} className="text-xs px-2 py-1">Pin</NeonButton>}
+                          {room && <NeonButton variant="ghost" onClick={() => setTagTarget(g)} className="text-xs px-2 py-1">Tag</NeonButton>}
+                          {room && (
+                            <NeonButton
+                              variant={g.catalogue_style_id ? 'secondary' : 'ghost'}
+                              onClick={() => setStyleTarget(g)}
+                              className="text-xs px-2 py-1"
+                            >
+                              Style
+                            </NeonButton>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -964,6 +1368,100 @@ export default function GameLibrary() {
           />
         )}
       </NeonCard>
+
+      {/* Sticky bulk-action bar — appears whenever ≥1 row is selected. */}
+      {room && selectedIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-surface border border-neon-cyan/50 rounded-lg shadow-lg px-4 py-2 flex items-center gap-2">
+          <span className="text-xs text-primary">
+            {selectedIds.size} selected
+          </span>
+          <span className="text-faint">·</span>
+          <NeonButton variant="ghost" onClick={() => setBulkTagOpen(true)} className="text-xs px-2 py-1">Tag…</NeonButton>
+          <NeonButton variant="ghost" onClick={() => setBulkActivateOpen(true)} className="text-xs px-2 py-1">Activate…</NeonButton>
+          <NeonButton variant="ghost" onClick={() => setBulkPinOpen(true)} className="text-xs px-2 py-1">Pin</NeonButton>
+          <button onClick={clearSelection} className="text-xs text-faint hover:text-primary underline ml-2">Clear</button>
+        </div>
+      )}
+
+      {/* Per-row Tag editor — chips with × + add input. */}
+      {tagTarget && (
+        <TagDialog
+          game={tagTarget}
+          existingTags={[...new Set(games.flatMap(g => g.room_tags ?? []))].sort()}
+          onAdd={(tag) => handleAddTagToGame(tagTarget, tag)}
+          onRemove={(tag) => handleRemoveTagFromGame(tagTarget, tag)}
+          onClose={() => setTagTarget(null)}
+        />
+      )}
+
+      {/* Bulk-tag prompt — single tag applied to selectedIds. */}
+      {bulkTagOpen && (
+        <BulkTagDialog
+          count={selectedIds.size}
+          existingTags={[...new Set(games.flatMap(g => g.room_tags ?? []))].sort()}
+          onApply={handleBulkTag}
+          onClose={() => setBulkTagOpen(false)}
+        />
+      )}
+
+      {/* Bulk activate — pick a tournament; sequential per-game activation. */}
+      {bulkActivateOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-sm">
+            <h2 className="font-display text-lg font-bold mb-2">Bulk Activate</h2>
+            <p className="text-muted text-sm mb-4">
+              Activate <span className="text-primary font-medium">{selectedIds.size}</span> selected
+              game{selectedIds.size !== 1 ? 's' : ''} in which tournament? Games that fail
+              tournament platform rules will be skipped.
+            </p>
+            <div className="space-y-2 mb-4">
+              {tournaments.map(t => (
+                <NeonButton
+                  key={t.id}
+                  variant="secondary"
+                  className="w-full text-left"
+                  onClick={() => handleBulkActivate(t.id)}
+                >
+                  {t.name}
+                </NeonButton>
+              ))}
+              {tournaments.length === 0 && <p className="text-faint text-sm">No active tournaments.</p>}
+            </div>
+            <NeonButton variant="ghost" onClick={() => setBulkActivateOpen(false)}>Cancel</NeonButton>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk pin — confirm + iScored toggle. */}
+      {bulkPinOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-sm">
+            <h2 className="font-display text-lg font-bold mb-2">Bulk Pin</h2>
+            <p className="text-muted text-sm mb-4">
+              Pin <span className="text-primary font-medium">{selectedIds.size}</span> game{selectedIds.size !== 1 ? 's' : ''} to the scoreboard.
+              Games already pinned in this room will be skipped.
+            </p>
+            <label className="flex items-start gap-2 mb-4 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={pinOnIScored}
+                onChange={e => setPinOnIScored(e.target.checked)}
+                className="mt-0.5 cursor-pointer accent-neon-cyan"
+              />
+              <span className="text-sm text-primary">
+                Also create on iScored
+                <span className="block text-xs text-faint">
+                  Skipped automatically if iScored isn't configured.
+                </span>
+              </span>
+            </label>
+            <div className="flex justify-end gap-2">
+              <NeonButton variant="ghost" onClick={() => setBulkPinOpen(false)}>Cancel</NeonButton>
+              <NeonButton onClick={() => handleBulkPin(pinOnIScored)}>Pin {selectedIds.size}</NeonButton>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activateTarget && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">

@@ -39,3 +39,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0005 | [Pin to Scoreboard uses `games.tournament_id IS NULL`](0005-pin-via-tournament-id-null.md) | accepted | 2026-04-21 |
 | 0006 | [Score-platform stratification](0006-score-platform-stratification.md) | accepted | 2026-04-26 |
 | 0007 | [Library = global catalogue](0007-library-equals-global-catalogue.md) | accepted | 2026-04-26 |
+| 0008 | [Per-room game tags via `room_game_tags`](0008-room-game-tags.md) | accepted | 2026-04-26 |

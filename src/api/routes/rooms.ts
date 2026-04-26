@@ -35,6 +35,7 @@ import { passesplatformRules, parsePlatformsList, resolveSubmittablePlatforms } 
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
+import { RoomGameTagsService } from '../../services/RoomGameTagsService.js';
 import { GameRoomSettingsService } from '../../services/GameRoomSettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { AdminService } from '../../services/AdminService.js';
@@ -70,12 +71,14 @@ async function ensurePlatformAllowed(opts: {
 }): Promise<string | null> {
     const db = await getDatabase();
 
-    // Resolve the game's effective platforms from the catalogue.
+    // Resolve the game's effective platforms = catalogue platforms ∪ room tags.
     const gg = await db.get(
         'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
         opts.gameName, 'approved',
     );
-    const effective: string[] = gg ? parsePlatformsList(gg.platforms || '[]') : [];
+    const cataloguePlatforms = gg ? parsePlatformsList(gg.platforms || '[]') : [];
+    const roomTags = await RoomGameTagsService.getTagsForGameName(opts.roomId, opts.gameName);
+    const effective: string[] = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
     if (effective.length === 0) {
         return 'No platforms are configured for this game.';
     }
@@ -221,14 +224,13 @@ router.get('/:roomId/leaderboard', async (req, res) => {
 });
 
 /**
- * Returns the canonical-id list of platforms that exist anywhere in the
- * approved global catalogue. Powers the tournament platform-rules picker
- * (Must / Must Not be available on). Replaces the legacy
- * `game_room_settings.PLATFORMS` static list, which had to be hand-curated
- * per room and frequently drifted from the catalogue.
+ * Returns the canonical-id list of platforms available to tournament rules
+ * in this room: catalogue platforms ∪ room-specific tags. Powers the
+ * tournament platform-rules picker (Must / Must Not be available on).
  */
-router.get('/:roomId/platforms/available', async (_req, res) => {
+router.get('/:roomId/platforms/available', async (req, res) => {
     try {
+        const roomId = req.params.roomId as string;
         const db = await getDatabase();
         const rows = await db.all(`
             SELECT DISTINCT j.value AS platform
@@ -241,6 +243,14 @@ router.get('/:roomId/platforms/available', async (_req, res) => {
         const out: string[] = [];
         for (const r of rows) {
             const id = normalizePlatform(r.platform);
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            out.push(id);
+        }
+        // Union with room-specific custom tags.
+        const tags = await RoomGameTagsService.getDistinctTagsForRoom(roomId);
+        for (const tag of tags) {
+            const id = normalizePlatform(tag);
             if (!id || seen.has(id)) continue;
             seen.add(id);
             out.push(id);
@@ -1815,6 +1825,7 @@ router.get('/:roomId/game_library/search', requireAuth, requireRoomAccess('roomI
 // of a given name appear oldest-first.
 router.get('/:roomId/game_library', async (req, res) => {
     try {
+        const roomId = req.params.roomId as string;
         const db = await getDatabase();
         const rows = await db.all(`
             SELECT
@@ -1832,6 +1843,9 @@ router.get('/:roomId/game_library', async (req, res) => {
                      COALESCE(year, 9999) ASC,
                      COALESCE(manufacturer, '') COLLATE NOCASE ASC
         `);
+        // Per-room tag map keyed by global_game_id (one query, joined client-side
+        // to avoid an N+1 LEFT JOIN against `room_game_tags`).
+        const tagMap = await RoomGameTagsService.getTagMapForRoom(roomId);
         // Shim into the GameRow shape the FE expects (extra fields are additive).
         res.json(rows.map((r: any) => ({
             id: r.id,
@@ -1842,6 +1856,7 @@ router.get('/:roomId/game_library', async (req, res) => {
             mode: r.type === 'video_game' ? 'videogame' : 'pinball',
             platforms: r.platforms || '[]',
             image_url: r.image_url || null,
+            room_tags: tagMap.get(r.id) ?? [],
             // v2.5.1 stubs — these per-row override fields lived on game_library;
             // dropped in v2.6.0. FE renders fallbacks.
             aliases: '',
@@ -1854,6 +1869,91 @@ router.get('/:roomId/game_library', async (req, res) => {
         })));
     } catch (error) {
         logError('API Error (GET rooms/:roomId/game_library):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Per-room game tags (custom platform overlay). See ADR 0008. ---
+
+router.get('/:roomId/games/:globalGameId/tags', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const globalGameId = req.params.globalGameId as string;
+        const tags = await RoomGameTagsService.getTagsForGame(roomId, globalGameId);
+        res.json({ tags });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/games/:globalGameId/tags):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/games/:globalGameId/tags', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const globalGameId = req.params.globalGameId as string;
+        const tag = typeof req.body?.tag === 'string' ? req.body.tag : '';
+        if (!tag.trim() || tag.length > 50) {
+            return res.status(400).json({ error: 'tag must be 1–50 chars' });
+        }
+        await RoomGameTagsService.addTag(roomId, globalGameId, tag);
+        res.json({ success: true, tags: await RoomGameTagsService.getTagsForGame(roomId, globalGameId) });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/games/:globalGameId/tags):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/:roomId/games/:globalGameId/tags/:tag', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const globalGameId = req.params.globalGameId as string;
+        const tag = decodeURIComponent(req.params.tag as string);
+        await RoomGameTagsService.removeTag(roomId, globalGameId, tag);
+        res.json({ success: true, tags: await RoomGameTagsService.getTagsForGame(roomId, globalGameId) });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/games/:globalGameId/tags/:tag):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/games/bulk-tag', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { globalGameIds, tag } = req.body ?? {};
+        if (!Array.isArray(globalGameIds) || globalGameIds.length === 0) {
+            return res.status(400).json({ error: 'globalGameIds must be a non-empty array' });
+        }
+        if (globalGameIds.length > 500) {
+            return res.status(400).json({ error: 'globalGameIds capped at 500 per call' });
+        }
+        if (typeof tag !== 'string' || !tag.trim() || tag.length > 50) {
+            return res.status(400).json({ error: 'tag must be 1–50 chars' });
+        }
+        const added = await RoomGameTagsService.bulkAddTag(roomId, globalGameIds, tag);
+        res.json({ success: true, added });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/games/bulk-tag):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/games/bulk-untag', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { globalGameIds, tag } = req.body ?? {};
+        if (!Array.isArray(globalGameIds) || globalGameIds.length === 0) {
+            return res.status(400).json({ error: 'globalGameIds must be a non-empty array' });
+        }
+        if (globalGameIds.length > 500) {
+            return res.status(400).json({ error: 'globalGameIds capped at 500 per call' });
+        }
+        if (typeof tag !== 'string' || !tag.trim()) {
+            return res.status(400).json({ error: 'tag is required' });
+        }
+        const removed = await RoomGameTagsService.bulkRemoveTag(roomId, globalGameIds, tag);
+        res.json({ success: true, removed });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/games/bulk-untag):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

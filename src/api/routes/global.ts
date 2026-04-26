@@ -934,14 +934,17 @@ router.get('/submit/platforms', async (req, res) => {
             return res.json({ platforms, submittable: platforms, tournamentRules: null });
         }
 
-        // Room-scoped context — tournament submit OR freeplay. The catalogue
-        // is the library now, so a single global_games lookup covers both.
+        // Room-scoped context — tournament submit OR freeplay. Effective set =
+        // catalogue platforms ∪ room-specific tags (see ADR 0008).
         if (roomId && gameName) {
             const gg = await db.get(
                 'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
                 gameName, 'approved',
             );
-            let effective: string[] = gg ? parsePlatformsList(gg.platforms || '[]') : [];
+            const cataloguePlatforms = gg ? parsePlatformsList(gg.platforms || '[]') : [];
+            const { RoomGameTagsService } = await import('../../services/RoomGameTagsService.js');
+            const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
+            let effective: string[] = [...cataloguePlatforms, ...roomTags];
             effective = normalizeAndDedupe(effective);
 
             // Active tournament narrows the picker via platform_rules.
