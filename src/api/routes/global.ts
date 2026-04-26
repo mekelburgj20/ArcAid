@@ -934,25 +934,14 @@ router.get('/submit/platforms', async (req, res) => {
             return res.json({ platforms, submittable: platforms, tournamentRules: null });
         }
 
-        // Room-scoped context — tournament submit OR freeplay.
+        // Room-scoped context — tournament submit OR freeplay. The catalogue
+        // is the library now, so a single global_games lookup covers both.
         if (roomId && gameName) {
-            // First try the room's library (covers active tournament games + room-pinned).
-            const libRow = await db.get(
-                'SELECT platforms FROM game_library WHERE LOWER(name) = LOWER(?) LIMIT 1',
-                gameName,
-            ) as { platforms: string | null } | undefined;
-
-            let effective: string[];
-            if (libRow) {
-                effective = parsePlatformsList(libRow.platforms || '[]');
-            } else {
-                // Freeplay catalogue path — game isn't in the library.
-                const gg = await db.get(
-                    'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
-                    gameName, 'approved',
-                );
-                effective = gg ? parsePlatformsList(gg.platforms || '[]') : [];
-            }
+            const gg = await db.get(
+                'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
+                gameName, 'approved',
+            );
+            let effective: string[] = gg ? parsePlatformsList(gg.platforms || '[]') : [];
             effective = normalizeAndDedupe(effective);
 
             // Active tournament narrows the picker via platform_rules.

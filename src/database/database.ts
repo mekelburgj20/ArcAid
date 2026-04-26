@@ -1151,6 +1151,7 @@ export async function initDatabase(): Promise<Database> {
             // eslint-disable-next-line no-console
             console.log(`[migration] 091: backfilled aliases onto ${updated} global_games row(s)`);
         } },
+        { name: '092_drop_legacy_game_library_table', sql: `DROP TABLE IF EXISTS game_library` },
     ];
 
     for (const migration of migrations) {
@@ -1184,30 +1185,6 @@ export async function initDatabase(): Promise<Database> {
 
     // --- Multi-room data migration (idempotent) ---
     await migrateToMultiRoom(db);
-
-    // --- Migrate tournament_types → platforms (rename + normalize) ---
-    try {
-        const rows = await db.all("SELECT name, tournament_types, platforms FROM game_library");
-        for (const row of rows) {
-            // If platforms already has data, skip
-            if (row.platforms && row.platforms !== '[]') continue;
-            // Migrate from tournament_types if it has data
-            const val = (row.tournament_types || '').trim();
-            if (!val) continue;
-            let platforms: string[];
-            if (val.startsWith('[')) {
-                platforms = JSON.parse(val);
-            } else {
-                platforms = val.split(',').map((t: string) => t.trim()).filter(Boolean);
-            }
-            await db.run(
-                'UPDATE game_library SET platforms = ? WHERE name = ?',
-                JSON.stringify(platforms), row.name
-            );
-        }
-    } catch {
-        // game_library may not have data yet — safe to ignore
-    }
 
     // --- Seed default configurable settings (INSERT OR IGNORE preserves user values) ---
     const defaultSettings = [
@@ -1290,13 +1267,6 @@ async function migrateToMultiRoom(db: Database): Promise<void> {
 
         // 4. Backfill game_room_id on ranking_groups
         await db.run('UPDATE ranking_groups SET game_room_id = ? WHERE game_room_id IS NULL', roomId);
-
-        // 5. Populate game_room_game_library with all existing game_library entries
-        await db.run(
-            `INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name)
-             SELECT ?, name FROM game_library`,
-            roomId
-        );
 
         await db.exec('COMMIT');
     } catch (err) {

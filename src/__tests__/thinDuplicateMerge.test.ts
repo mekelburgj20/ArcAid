@@ -18,7 +18,7 @@ describe('mergeThinCatalogueDuplicates (migration 078)', () => {
         await setupTestDb();
     });
 
-    it('merges a thin duplicate into its rich counterpart and repoints game_library', async () => {
+    it('merges a thin duplicate into its rich counterpart', async () => {
         const db = await getDatabase();
         // Rich counterpart — separate name/mfg/year columns, has an image.
         await db.run(
@@ -32,21 +32,12 @@ describe('mergeThinCatalogueDuplicates (migration 078)', () => {
              VALUES (?, ?, 'pinball', NULL, NULL, 'approved')`,
             'thin-nostromo', 'Alien Nostromo (Original, 2022)',
         );
-        // A library row whose FK points at the thin duplicate (typical post-069 state).
-        await db.run(
-            `INSERT INTO game_library (name, mode, global_game_id) VALUES (?, 'pinball', ?)`,
-            'Alien Nostromo (Original, 2022)', 'thin-nostromo',
-        );
 
         await mergeThinCatalogueDuplicates(db);
 
         // Thin row is gone.
         const gone = await db.get(`SELECT id FROM global_games WHERE id = 'thin-nostromo'`);
         expect(gone).toBeUndefined();
-
-        // Library FK now points at the rich row.
-        const lib = await db.get(`SELECT global_game_id FROM game_library WHERE name = 'Alien Nostromo (Original, 2022)'`);
-        expect(lib?.global_game_id).toBe('rich-nostromo');
     });
 
     it('does not merge when manufacturer differs', async () => {

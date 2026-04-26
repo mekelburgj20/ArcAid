@@ -15,8 +15,8 @@ describe('pinGameToScoreboard / unpinGameFromScoreboard', () => {
         roomId = await createTestRoom();
         const db = await getDatabase();
         await db.run(
-            `INSERT INTO game_library (name, mode) VALUES (?, ?)`,
-            'Medieval Madness', 'pinball',
+            `INSERT INTO global_games (id, name, type, status) VALUES (?, ?, 'pinball', 'approved')`,
+            'mm-test', 'Medieval Madness',
         );
         await db.run(
             `INSERT INTO game_room_game_library (game_room_id, game_name) VALUES (?, ?)`,

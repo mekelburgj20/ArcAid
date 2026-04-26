@@ -266,7 +266,7 @@ export class GlobalScoreService {
      * Resolution order for global_game_id:
      *   1. Explicit `gameId` argument → games.global_game_id
      *   2. game_room_game_library row matching (roomId, gameName)
-     *   3. game_library row matching (gameName)
+     *   3. global_games row matching (LOWER(name)) with status='approved'
      *
      * Silently skips (returns null) if:
      *   - The room has GLOBAL_SCOREBOARD_ENABLED = 'false'
@@ -342,12 +342,10 @@ export class GlobalScoreService {
             }
 
             if (!globalGameId) {
-                // Global game_library
+                // Catalogue (approved entries)
                 const row = await db.get(
-                    `SELECT gl.global_game_id, gg.name
-                     FROM game_library gl
-                     LEFT JOIN global_games gg ON gg.id = gl.global_game_id
-                     WHERE LOWER(gl.name) = LOWER(?)`,
+                    `SELECT id AS global_game_id, name FROM global_games
+                     WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                     opts.gameName
                 );
                 if (row?.global_game_id) {

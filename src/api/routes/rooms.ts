@@ -2465,9 +2465,6 @@ router.patch('/:roomId/admin/games/:gameId/display-name', requireAuth, requireRo
         const value = displayName?.trim() || null;
         await db.run('UPDATE games SET display_name = ? WHERE id = ?', value, gameId);
 
-        // Also update the game library entry if it exists
-        await db.run('UPDATE game_library SET display_name = ? WHERE name = ? COLLATE NOCASE', value, game.name);
-
         // Invalidate leaderboard cache
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         await LeaderboardService.invalidate(gameId);
