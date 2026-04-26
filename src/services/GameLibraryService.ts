@@ -18,13 +18,18 @@ interface GameData {
 
 export class GameLibraryService {
     /**
-     * Searches games in the library by name (partial, case-insensitive).
+     * Searches the catalogue by name (partial, case-insensitive). Powers the
+     * Add Game autocomplete on the per-room library page.
      */
     static async search(query: string, limit: number = 10): Promise<Array<{ name: string; mode: string; platforms: string }>> {
         const db = await getDatabase();
         return db.all(
-            'SELECT name, mode, platforms FROM game_library WHERE name LIKE ? COLLATE NOCASE LIMIT ?',
-            `%${query}%`, limit
+            `SELECT name, type AS mode, platforms FROM global_games
+             WHERE status = 'approved' AND name LIKE ? COLLATE NOCASE
+             GROUP BY LOWER(name)
+             ORDER BY name
+             LIMIT ?`,
+            `%${query}%`, limit,
         );
     }
 

@@ -7,30 +7,19 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import StarRating from '../components/StarRating';
-import ConfirmModal from '../components/ConfirmModal';
 import StylePicker from '../components/StylePicker';
 import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
 
 interface GameRow {
   name: string;
   display_name: string;
-  aliases: string;
-  style_id: string;
   mode: string;
-  css_title: string;
-  css_initials: string;
-  css_scores: string;
-  css_box: string;
-  bg_color: string;
   platforms: string;
   catalogue_style_id?: string | null;
   style_header_disabled?: number;
 }
 
-const emptyGame: GameRow = {
-  name: '', display_name: '', aliases: '', style_id: '', mode: 'pinball', css_title: '', css_initials: '',
-  css_scores: '', css_box: '', bg_color: '', platforms: ''
-};
+const emptyAddForm = { name: '', mode: 'pinball', platforms: '' };
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
 
@@ -64,7 +53,7 @@ interface TournamentOption {
   name: string;
 }
 
-type SortKey = 'name' | 'mode' | 'platforms' | 'rating' | 'style_id';
+type SortKey = 'name' | 'mode' | 'platforms' | 'rating';
 type SortDir = 'asc' | 'desc';
 
 function SortHeader({ label, sortKey, currentKey, currentDir, onSort }: {
@@ -93,14 +82,11 @@ export default function GameLibrary() {
   const [importing, setImporting] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [newGame, setNewGame] = useState<GameRow>({ ...emptyGame });
+  const [newGame, setNewGame] = useState<{ name: string; mode: string; platforms: string }>({ ...emptyAddForm });
   const [search, setSearch] = useState('');
   const [showPinball, setShowPinball] = useState(true);
   const [showVideoGame, setShowVideoGame] = useState(true);
   const [platformFilter, setPlatformFilter] = useState<Set<string>>(new Set());
-  const [editTarget, setEditTarget] = useState<GameRow | null>(null);
-  const [editGame, setEditGame] = useState<GameRow>({ ...emptyGame });
-  const [editSaving, setEditSaving] = useState(false);
   const [communityRatings, setCommunityRatings] = useState<Record<string, { avg_rating: number; rating_count: number }>>({});
   const [userRatings, setUserRatings] = useState<Record<string, number>>({});
   const [activateTarget, setActivateTarget] = useState<string | null>(null);
@@ -115,11 +101,6 @@ export default function GameLibrary() {
   // Style picker
   const [styleTarget, setStyleTarget] = useState<GameRow | null>(null);
 
-  // Selection + delete
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
   // Sorting
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -128,9 +109,10 @@ export default function GameLibrary() {
   const [showAddPlatform, setShowAddPlatform] = useState(false);
   const [newPlatformName, setNewPlatformName] = useState('');
 
-  // v2.5.0: per-room game-library proposal flow.
   // proposalCheck holds the response from POST /game_library/proposals so the
-  // UI can render the inline use_global / submit_to_global / room_only choice.
+  // UI can render an inline "is this in the catalogue?" preview before submit.
+  // After step 2 the only commit path is submit_to_global — exact/possible
+  // matches just inform the user without presenting a "link existing" action.
   type GlobalGameLite = { id: string; name: string; manufacturer?: string | null; year?: number | null; type: string; platforms?: string };
   const [proposalCheck, setProposalCheck] = useState<{
     input: { name: string; type: 'pinball' | 'video_game'; platforms: string[] };
@@ -139,18 +121,19 @@ export default function GameLibrary() {
   } | null>(null);
   const [proposalCommitting, setProposalCommitting] = useState(false);
 
-  // v2.5.0: CSV preview/commit flow.
+  // CSV preview/commit flow. Post step 2: only submit_to_global decisions
+  // matter; auto_link rows (already in catalogue) are skipped on commit.
   type PreviewBucket = 'auto_link' | 'auto_submit' | 'needs_review';
   type PreviewRow = {
     index: number;
     input: { name: string; manufacturer?: string | null; year?: number | null; type: 'pinball' | 'video_game'; platforms?: string[] };
     candidates: { exact: GlobalGameLite | null; possible: GlobalGameLite[] };
     bucket: PreviewBucket;
-    suggestedDecision: 'use_global' | 'submit_to_global' | null;
+    suggestedDecision: 'submit_to_global' | null;
   };
   const [csvPreview, setCsvPreview] = useState<{ rows: PreviewRow[]; summary: Record<PreviewBucket, number> & { total: number } } | null>(null);
-  // Per-row decisions for needs_review entries; auto_link/auto_submit use suggestedDecision.
-  const [csvDecisions, setCsvDecisions] = useState<Record<number, { decision: 'use_global' | 'room_only' | 'submit_to_global'; globalGameId?: string }>>({});
+  // Per-row decisions for needs_review entries; auto_submit uses suggestedDecision.
+  const [csvDecisions, setCsvDecisions] = useState<Record<number, { decision: 'submit_to_global' }>>({});
   const [csvCommitting, setCsvCommitting] = useState(false);
 
   const addPlatform = async () => {
@@ -200,7 +183,8 @@ export default function GameLibrary() {
 
   const selectSuggestion = (s: { name: string; mode: string; platforms: string }) => {
     const plats = parsePlatforms(s.platforms).join(', ');
-    setNewGame(prev => ({ ...prev, name: s.name, mode: s.mode, platforms: plats }));
+    const mode = s.mode === 'video_game' ? 'videogame' : (s.mode || 'pinball');
+    setNewGame(prev => ({ ...prev, name: s.name, mode, platforms: plats }));
     setShowSuggestions(false);
   };
 
@@ -324,12 +308,11 @@ export default function GameLibrary() {
           const preview = await api.post<{ rows: PreviewRow[]; summary: Record<PreviewBucket, number> & { total: number } }>(
             `${prefix}/game_library/import-csv-preview`, { games },
           );
-          // Pre-seed decisions for auto-bucketed rows from the server's suggestion.
-          const seeded: Record<number, { decision: 'use_global' | 'room_only' | 'submit_to_global'; globalGameId?: string }> = {};
+          // Pre-seed decisions for auto-submit rows. auto_link rows are
+          // already in the catalogue (which IS the library) — nothing to commit.
+          const seeded: Record<number, { decision: 'submit_to_global' }> = {};
           for (const r of preview.rows) {
-            if (r.bucket === 'auto_link' && r.candidates.exact) {
-              seeded[r.index] = { decision: 'use_global', globalGameId: r.candidates.exact.id };
-            } else if (r.bucket === 'auto_submit') {
+            if (r.bucket === 'auto_submit') {
               seeded[r.index] = { decision: 'submit_to_global' };
             }
           }
@@ -346,28 +329,29 @@ export default function GameLibrary() {
     });
   };
 
-  // v2.5.0: commit the previewed CSV. Skips rows in `needs_review` that the
-  // user hasn't picked a decision for yet.
+  // Commit the previewed CSV. Only auto_submit + needs_review rows the user
+  // marked submit_to_global are sent; auto_link rows are already in the
+  // catalogue and there's nothing to add.
   const commitCsvPreview = async () => {
     if (!csvPreview) return;
     const ready = csvPreview.rows
       .map(r => {
         const d = csvDecisions[r.index];
         if (!d) return null;
-        return { input: r.input, decision: d.decision, ...(d.globalGameId ? { globalGameId: d.globalGameId } : {}) };
+        return { input: r.input, decision: d.decision };
       })
-      .filter(Boolean) as Array<{ input: PreviewRow['input']; decision: 'use_global' | 'room_only' | 'submit_to_global'; globalGameId?: string }>;
+      .filter(Boolean) as Array<{ input: PreviewRow['input']; decision: 'submit_to_global' }>;
     if (ready.length === 0) {
-      toast('Pick a decision for at least one row', 'error');
+      toast('Nothing to submit — auto-link rows are already in the catalogue', 'error');
       return;
     }
     setCsvCommitting(true);
     try {
-      const result = await api.post<{ ok: boolean; counts: { linked: number; submitted_pending: number; room_only: number; errors: number }; errors?: Array<{ index: number; error: string }> }>(
+      const result = await api.post<{ ok: boolean; counts: { submitted_pending: number; errors: number }; errors?: Array<{ index: number; error: string }> }>(
         `${prefix}/game_library/import-csv-commit`, { games: ready },
       );
       const { counts } = result;
-      const summary = `${counts.linked} linked · ${counts.submitted_pending} pending · ${counts.room_only} room-only` + (counts.errors ? ` · ${counts.errors} failed` : '');
+      const summary = `${counts.submitted_pending} pending` + (counts.errors ? ` · ${counts.errors} failed` : '');
       toast(summary, counts.errors ? 'error' : 'success');
       setCsvPreview(null);
       setCsvDecisions({});
@@ -380,8 +364,8 @@ export default function GameLibrary() {
   };
 
   const downloadTemplate = () => {
-    const headers = ['name','aliases','style_id','mode','platforms','css_title','css_initials','css_scores','css_box','bg_color'];
-    const csv = headers.join(',') + '\n"Medieval Madness","MM","92025","pinball","AtGames,VPXS","","","","",""';
+    const headers = ['name','manufacturer','year','mode','platforms'];
+    const csv = headers.join(',') + '\n"Medieval Madness","Williams","1997","pinball","vpx,fp"';
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -391,9 +375,9 @@ export default function GameLibrary() {
     URL.revokeObjectURL(url);
   };
 
-  // v2.5.0: Add Game now runs through the proposals dedup flow. Form data
-  // is captured into `newGame`; clicking Save runs /proposals → renders an
-  // inline result panel where the user picks one of three commit paths.
+  // Add Game runs the proposals dedup preview before submit. After step 2
+  // there's only one commit path (submit_to_global); exact/possible matches
+  // are informational so the user can cancel rather than create a duplicate.
   const handleAddGame = async () => {
     if (!newGame.name.trim()) { toast('Game name required', 'error'); return; }
     if (!room) { toast('Room context required', 'error'); return; }
@@ -413,77 +397,24 @@ export default function GameLibrary() {
     }
   };
 
-  // v2.5.0: commit the user's choice from the proposal result panel.
-  // `decision` selects which endpoint to call. After success, refresh list +
-  // close the Add form.
-  const commitProposal = async (decision: 'use_global' | 'room_only' | 'submit_to_global', globalGameId?: string) => {
+  const commitProposal = async () => {
     if (!proposalCheck || !room) return;
     setProposalCommitting(true);
     try {
-      const path =
-        decision === 'use_global'
-          ? `${prefix}/game_library/use_global`
-          : decision === 'room_only'
-          ? `${prefix}/game_library/room_only`
-          : `${prefix}/game_library/submit_to_global`;
-      const body: Record<string, unknown> = decision === 'use_global'
-        ? { globalGameId }
-        : {
-            name: proposalCheck.input.name,
-            type: proposalCheck.input.type,
-            platforms: proposalCheck.input.platforms,
-          };
-      await api.post(path, body);
-      const successMsg =
-        decision === 'use_global'   ? 'Linked to existing catalogue entry'
-        : decision === 'room_only'  ? 'Added to this room only (not contributing to global catalogue)'
-        :                              'Added to room and submitted to global catalogue for review';
-      toast(successMsg, 'success');
+      await api.post(`${prefix}/game_library/submit_to_global`, {
+        name: proposalCheck.input.name,
+        type: proposalCheck.input.type,
+        platforms: proposalCheck.input.platforms,
+      });
+      toast('Submitted to global catalogue for review', 'success');
       setProposalCheck(null);
-      setNewGame({ ...emptyGame });
+      setNewGame({ ...emptyAddForm });
       setShowAddForm(false);
       fetchGames();
     } catch (err: any) {
-      toast(err.message || 'Failed to add game', 'error');
+      toast(err.message || 'Failed to submit game', 'error');
     } finally {
       setProposalCommitting(false);
-    }
-  };
-
-  const openEdit = (g: GameRow) => {
-    setEditTarget(g);
-    const plats = parsePlatforms(g.platforms).join(', ');
-    setEditGame({ ...g, platforms: plats });
-  };
-
-  const handleEditSave = async () => {
-    if (!editTarget || !editGame.name.trim()) return;
-    setEditSaving(true);
-    try {
-      await api.put(`${prefix}/game_library/${encodeURIComponent(editTarget.name)}`, editGame);
-      toast('Game updated', 'success');
-      setEditTarget(null);
-      fetchGames();
-    } catch {
-      toast('Failed to update game', 'error');
-    } finally {
-      setEditSaving(false);
-    }
-  };
-
-  const handleBulkDelete = async () => {
-    if (selected.size === 0) return;
-    setDeleting(true);
-    try {
-      const res = await api.post<{ deleted: number }>(`${prefix}/game_library/delete`, { names: [...selected] });
-      toast(`Deleted ${res.deleted} game${res.deleted !== 1 ? 's' : ''} from library`, 'success');
-      setSelected(new Set());
-      setShowDeleteConfirm(false);
-      fetchGames();
-    } catch (err: any) {
-      toast(err.message || 'Failed to delete games', 'error');
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -537,9 +468,6 @@ export default function GameLibrary() {
           cmp = ra - rb;
           break;
         }
-        case 'style_id':
-          cmp = (a.style_id || '').localeCompare(b.style_id || '');
-          break;
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -552,22 +480,6 @@ export default function GameLibrary() {
     } else {
       setSortKey(key);
       setSortDir('asc');
-    }
-  };
-
-  const toggleSelect = (name: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name); else next.add(name);
-      return next;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    if (selected.size === sortedGames.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(sortedGames.map(g => g.name)));
     }
   };
 
@@ -642,37 +554,18 @@ export default function GameLibrary() {
             </div>
             <div>
               <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Platforms</label>
-              <input type="text" placeholder="e.g. AtGames, VPXS" value={newGame.platforms} onChange={e => setNewGame({...newGame, platforms: e.target.value})} className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Style ID</label>
-              <input type="text" value={newGame.style_id} onChange={e => setNewGame({...newGame, style_id: e.target.value})} className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Aliases</label>
-              <input type="text" value={newGame.aliases} onChange={e => setNewGame({...newGame, aliases: e.target.value})} className={inputClass} />
+              <input type="text" placeholder="e.g. vpx, fp" value={newGame.platforms} onChange={e => setNewGame({...newGame, platforms: e.target.value})} className={inputClass} />
             </div>
           </div>
-          <details className="mb-4 text-muted text-sm cursor-pointer">
-            <summary className="hover:text-primary transition-colors">Advanced CSS Styling</summary>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
-              {(['css_title','css_initials','css_scores','css_box','bg_color'] as const).map(field => (
-                <div key={field}>
-                  <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">{field.replace('css_','CSS ').replace('bg_','BG ')}</label>
-                  <input type="text" value={newGame[field]} onChange={e => setNewGame({...newGame, [field]: e.target.value})} className={inputClass} />
-                </div>
-              ))}
-            </div>
-          </details>
           <NeonButton onClick={handleAddGame} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Game'}
+            {saving ? 'Checking…' : 'Check catalogue'}
           </NeonButton>
         </NeonCard>
       )}
 
-      {/* v2.5.0: proposal result panel — rendered after Add Game ran a dedup check.
-          Three states (exact match / possible matches / no candidate) each surface
-          their relevant commit choices. */}
+      {/* Proposal result panel — rendered after Add Game ran a dedup check.
+          The catalogue IS the library, so exact / possible matches are
+          informational; the only commit path left is submit_to_global. */}
       {proposalCheck && (
         <NeonCard glowColor="cyan" className="mb-4 border-l-2 border-l-neon-cyan" title={
           proposalCheck.exact ? 'Already in the catalogue' :
@@ -682,59 +575,44 @@ export default function GameLibrary() {
           {proposalCheck.exact ? (
             <>
               <p className="text-sm text-muted mb-3">
-                We found an existing catalogue entry for{' '}
-                <span className="text-primary font-medium">{proposalCheck.input.name}</span>:
+                <span className="text-primary font-medium">{proposalCheck.input.name}</span> is already in the catalogue:
               </p>
-              <div className="bg-raised/50 px-3 py-2 rounded text-sm mb-3 flex items-center justify-between">
-                <div>
-                  <span className="text-primary font-medium">{proposalCheck.exact.name}</span>
-                  {(proposalCheck.exact.manufacturer || proposalCheck.exact.year) && (
-                    <span className="text-faint ml-2">
-                      ({[proposalCheck.exact.manufacturer, proposalCheck.exact.year].filter(Boolean).join(', ')})
-                    </span>
-                  )}
-                </div>
+              <div className="bg-raised/50 px-3 py-2 rounded text-sm mb-3">
+                <span className="text-primary font-medium">{proposalCheck.exact.name}</span>
+                {(proposalCheck.exact.manufacturer || proposalCheck.exact.year) && (
+                  <span className="text-faint ml-2">
+                    ({[proposalCheck.exact.manufacturer, proposalCheck.exact.year].filter(Boolean).join(', ')})
+                  </span>
+                )}
               </div>
-              <div className="flex gap-2 flex-wrap">
-                <NeonButton onClick={() => commitProposal('use_global', proposalCheck.exact!.id)} disabled={proposalCommitting}>
-                  Yes, link this to my room
-                </NeonButton>
-                <NeonButton variant="ghost" onClick={() => setProposalCheck(null)} disabled={proposalCommitting}>
-                  Cancel
-                </NeonButton>
-              </div>
+              <p className="text-xs text-faint mb-3">
+                You can pin or activate it from the table below — no submission needed.
+              </p>
+              <NeonButton variant="ghost" onClick={() => setProposalCheck(null)} disabled={proposalCommitting}>
+                Close
+              </NeonButton>
             </>
           ) : proposalCheck.possible.length > 0 ? (
             <>
               <p className="text-sm text-muted mb-3">
-                These existing entries have similar names. Pick one to link, or add{' '}
-                <span className="text-primary font-medium">{proposalCheck.input.name}</span> as new.
+                These existing entries have similar names — confirm none of them match before submitting{' '}
+                <span className="text-primary font-medium">{proposalCheck.input.name}</span> as a new entry.
               </p>
               <div className="space-y-2 mb-3">
                 {proposalCheck.possible.map(p => (
-                  <div key={p.id} className="bg-raised/50 px-3 py-2 rounded text-sm flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <span className="text-primary font-medium">{p.name}</span>
-                      {(p.manufacturer || p.year) && (
-                        <span className="text-faint ml-2">
-                          ({[p.manufacturer, p.year].filter(Boolean).join(', ')})
-                        </span>
-                      )}
-                    </div>
-                    <NeonButton variant="secondary" className="text-xs px-2 py-1 flex-shrink-0"
-                      onClick={() => commitProposal('use_global', p.id)} disabled={proposalCommitting}>
-                      Use this one
-                    </NeonButton>
+                  <div key={p.id} className="bg-raised/50 px-3 py-2 rounded text-sm">
+                    <span className="text-primary font-medium">{p.name}</span>
+                    {(p.manufacturer || p.year) && (
+                      <span className="text-faint ml-2">
+                        ({[p.manufacturer, p.year].filter(Boolean).join(', ')})
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
               <div className="flex gap-2 flex-wrap pt-2 border-t border-border/30">
-                <span className="text-xs text-faint self-center">None of these match —</span>
-                <NeonButton variant="secondary" onClick={() => commitProposal('submit_to_global')} disabled={proposalCommitting}>
-                  Submit as new (pending review)
-                </NeonButton>
-                <NeonButton variant="ghost" onClick={() => commitProposal('room_only')} disabled={proposalCommitting}>
-                  Add room-only
+                <NeonButton variant="secondary" onClick={commitProposal} disabled={proposalCommitting}>
+                  None of these — submit as new
                 </NeonButton>
                 <div className="flex-1" />
                 <NeonButton variant="ghost" onClick={() => setProposalCheck(null)} disabled={proposalCommitting}>
@@ -747,14 +625,11 @@ export default function GameLibrary() {
               <p className="text-sm text-muted mb-3">
                 No catalogue match for{' '}
                 <span className="text-primary font-medium">{proposalCheck.input.name}</span>.
-                Submit it for review (visible to all rooms once approved), or keep it private to this room.
+                Submit it for review — once approved by a super-admin, it'll be visible to all rooms.
               </p>
               <div className="flex gap-2 flex-wrap">
-                <NeonButton onClick={() => commitProposal('submit_to_global')} disabled={proposalCommitting}>
+                <NeonButton onClick={commitProposal} disabled={proposalCommitting}>
                   Submit to global catalogue
-                </NeonButton>
-                <NeonButton variant="ghost" onClick={() => commitProposal('room_only')} disabled={proposalCommitting}>
-                  Add room-only
                 </NeonButton>
                 <div className="flex-1" />
                 <NeonButton variant="ghost" onClick={() => setProposalCheck(null)} disabled={proposalCommitting}>
@@ -793,22 +668,13 @@ export default function GameLibrary() {
                   return (
                     <div key={r.index} className="bg-raised/50 px-3 py-2 rounded text-sm">
                       <div className="font-medium text-primary mb-2">{r.input.name}</div>
-                      <div className="text-xs text-faint mb-2">Possible matches:</div>
+                      <div className="text-xs text-faint mb-2">Possible duplicates already in catalogue:</div>
                       <div className="space-y-1 mb-2">
                         {r.candidates.possible.map(p => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => setCsvDecisions(prev => ({ ...prev, [r.index]: { decision: 'use_global', globalGameId: p.id } }))}
-                            className={`w-full text-left px-2 py-1 rounded border transition-colors text-xs ${
-                              decision?.decision === 'use_global' && decision.globalGameId === p.id
-                                ? 'bg-neon-cyan/15 border-neon-cyan text-neon-cyan'
-                                : 'border-border text-muted hover:text-primary hover:border-border/80'
-                            }`}
-                          >
+                          <div key={p.id} className="px-2 py-1 rounded border border-border text-xs text-muted">
                             {p.name}
                             {(p.manufacturer || p.year) && <span className="text-faint ml-2">({[p.manufacturer, p.year].filter(Boolean).join(', ')})</span>}
-                          </button>
+                          </div>
                         ))}
                       </div>
                       <div className="flex gap-1.5 flex-wrap">
@@ -822,17 +688,6 @@ export default function GameLibrary() {
                           }`}
                         >
                           Submit as new (pending)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCsvDecisions(prev => ({ ...prev, [r.index]: { decision: 'room_only' } }))}
-                          className={`text-xs px-2 py-1 rounded border transition-colors ${
-                            decision?.decision === 'room_only'
-                              ? 'bg-neon-cyan/15 border-neon-cyan text-neon-cyan'
-                              : 'border-border text-muted hover:text-primary hover:border-border/80'
-                          }`}
-                        >
-                          Room-only
                         </button>
                         <button
                           type="button"
@@ -874,11 +729,6 @@ export default function GameLibrary() {
             <input type="checkbox" checked={showVideoGame} onChange={e => setShowVideoGame(e.target.checked)} className="accent-neon-cyan" />
             Video Games
           </label>
-          {selected.size > 0 && (
-            <NeonButton variant="danger" onClick={() => setShowDeleteConfirm(true)} className="text-xs px-3 py-1">
-              Delete Selected ({selected.size})
-            </NeonButton>
-          )}
         </div>
         {(allPlatforms.length > 0 || room) && (
           <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -928,19 +778,10 @@ export default function GameLibrary() {
           </div>
         )}
 
-        {/* Custom table with sorting + checkboxes */}
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
-                <th className="px-4 py-3 text-left w-10">
-                  <input
-                    type="checkbox"
-                    checked={sortedGames.length > 0 && selected.size === sortedGames.length}
-                    onChange={toggleSelectAll}
-                    className="accent-neon-cyan cursor-pointer"
-                  />
-                </th>
                 <th className="px-4 py-3 text-left">
                   <SortHeader label="Game" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                 </th>
@@ -955,32 +796,19 @@ export default function GameLibrary() {
                     <SortHeader label="Rating" sortKey="rating" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </th>
                 )}
-                <th className="px-4 py-3 text-left">
-                  <SortHeader label="Style ID" sortKey="style_id" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                </th>
                 <th className="px-4 py-3 text-right text-xs font-display font-bold uppercase tracking-wider text-muted"></th>
               </tr>
             </thead>
             <tbody>
               {sortedGames.length === 0 ? (
                 <tr>
-                  <td colSpan={room ? 7 : 6} className="px-4 py-8 text-center text-muted">
-                    No games in the library.
+                  <td colSpan={room ? 5 : 4} className="px-4 py-8 text-center text-muted">
+                    No games in the catalogue.
                   </td>
                 </tr>
               ) : (
                 sortedGames.map((g) => (
-                  <tr key={g.name} className={`border-b border-border/50 transition-colors ${
-                    selected.has(g.name) ? 'bg-neon-cyan/5' : 'hover:bg-raised/50'
-                  }`}>
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(g.name)}
-                        onChange={() => toggleSelect(g.name)}
-                        className="accent-neon-cyan cursor-pointer"
-                      />
-                    </td>
+                  <tr key={g.name} className="border-b border-border/50 transition-colors hover:bg-raised/50">
                     <td className="px-4 py-3">
                       <span className="font-medium">{g.name}</span>
                     </td>
@@ -1008,9 +836,6 @@ export default function GameLibrary() {
                         })()}
                       </td>
                     )}
-                    <td className="px-4 py-3">
-                      <span className="text-sm text-muted font-mono">{g.style_id || '-'}</span>
-                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         {room && <NeonButton variant="ghost" onClick={() => setActivateTarget(g.name)} className="text-xs px-2 py-1">Activate</NeonButton>}
@@ -1024,7 +849,6 @@ export default function GameLibrary() {
                             Style
                           </NeonButton>
                         )}
-                        <NeonButton variant="ghost" onClick={() => openEdit(g)} className="text-xs px-2 py-1">Edit</NeonButton>
                       </div>
                     </td>
                   </tr>
@@ -1094,70 +918,6 @@ export default function GameLibrary() {
               </NeonButton>
               <NeonButton onClick={handlePin} disabled={pinSubmitting}>
                 {pinSubmitting ? 'Pinning...' : 'Pin'}
-              </NeonButton>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDeleteConfirm && (
-        <ConfirmModal
-          title="Delete Games"
-          message={`Are you sure you want to delete ${selected.size} game${selected.size !== 1 ? 's' : ''} from the library? Active tournament games will not be affected.`}
-          confirmLabel={deleting ? 'Deleting...' : 'Delete'}
-          onConfirm={handleBulkDelete}
-          onCancel={() => setShowDeleteConfirm(false)}
-        />
-      )}
-
-      {editTarget && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <h2 className="font-display text-lg font-bold mb-4">Edit Game</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
-              <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Game Name *</label>
-                <input type="text" value={editGame.name} onChange={e => setEditGame({...editGame, name: e.target.value})} className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Display Name</label>
-                <input type="text" placeholder="Leave blank to use game name" value={editGame.display_name} onChange={e => setEditGame({...editGame, display_name: e.target.value})} className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Mode</label>
-                <select value={editGame.mode || 'pinball'} onChange={e => setEditGame({...editGame, mode: e.target.value})} className={selectClass}>
-                  <option value="pinball">Pinball</option>
-                  <option value="videogame">Video Game</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Platforms</label>
-                <input type="text" placeholder="e.g. AtGames, VPXS" value={editGame.platforms} onChange={e => setEditGame({...editGame, platforms: e.target.value})} className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Style ID</label>
-                <input type="text" value={editGame.style_id} onChange={e => setEditGame({...editGame, style_id: e.target.value})} className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">Aliases</label>
-                <input type="text" value={editGame.aliases} onChange={e => setEditGame({...editGame, aliases: e.target.value})} className={inputClass} />
-              </div>
-            </div>
-            <details className="mb-4 text-muted text-sm cursor-pointer">
-              <summary className="hover:text-primary transition-colors">Advanced CSS Styling</summary>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
-                {(['css_title','css_initials','css_scores','css_box','bg_color'] as const).map(field => (
-                  <div key={field}>
-                    <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">{field.replace('css_','CSS ').replace('bg_','BG ')}</label>
-                    <input type="text" value={editGame[field]} onChange={e => setEditGame({...editGame, [field]: e.target.value})} className={inputClass} />
-                  </div>
-                ))}
-              </div>
-            </details>
-            <div className="flex gap-3 justify-end">
-              <NeonButton variant="ghost" onClick={() => setEditTarget(null)} disabled={editSaving}>Cancel</NeonButton>
-              <NeonButton onClick={handleEditSave} disabled={editSaving || !editGame.name.trim()}>
-                {editSaving ? 'Saving...' : 'Save Changes'}
               </NeonButton>
             </div>
           </div>
