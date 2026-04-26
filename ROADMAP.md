@@ -4,6 +4,13 @@
 
 ---
 
+## Open Followups
+
+- **Style overlay re-keying** — `game_room_game_library` survived the v2.6.0 step-2 cleanup because it still carries the per-room style overlay (`catalogue_style_id`, `logo_style_id`, `bg_style_id`, `style_header_disabled`). Re-key onto a new `room_game_style_overlay (game_room_id, global_game_id, …)` table, migrate data, then drop the bridge table. Update callers in `gameCreation.ts`, `TournamentEngine`, `StyleCatalogueService`, `GameLibraryService.{set,get}RoomGameStyle`, and the StylePicker FE.
+- **Ratings re-keying** — `game_ratings` is keyed on `(game_name, user_id)`. Should re-key on `(global_game_id, user_id)` for consistency post-step-2. Plan §2h.
+
+---
+
 ## Architecture Decisions
 
 Load-bearing technical and product decisions are tracked in [`docs/decisions/`](docs/decisions/README.md). Each ADR captures the context, the choice, and the alternatives considered. Write a new ADR when a decision locks in a data shape, auth pattern, or external integration that future code will assume.

@@ -1,5 +1,13 @@
 # Step 2 — drop `game_library` and `game_room_game_library`
 
+> **Status: PARTIALLY COMPLETE — shipped as v2.6.0 on 2026-04-26.**
+>
+> All seven sub-steps (2a–2g) executed. `game_library` is dropped via migration 092. **`game_room_game_library` is NOT dropped** — the plan's column audit below missed the per-room style overlay (`catalogue_style_id`, `logo_style_id`, `bg_style_id`, `style_header_disabled`), which is still actively read by `gameCreation.ts` + `TournamentEngine` + `StyleCatalogueService` and written by `GameLibraryService.{set,get}RoomGameStyle` + the StylePicker FE. A future "style overlay re-keying" sprint will move that overlay onto a new `(game_room_id, global_game_id)` table and finally drop the bridge.
+>
+> See `CHANGELOG.md` v2.6.0 entry for the full per-step breakdown. The original plan below is preserved as historical context.
+>
+> ---
+
 ## Why this exists
 
 After v2.5.1 (library page reads `global_games` directly), the two legacy
