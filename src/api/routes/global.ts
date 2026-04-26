@@ -348,6 +348,7 @@ router.post('/submission-drafts/:stateParam', globalScoreUpload.single('photo'),
             ? Number.parseInt(String(scoreRaw), 10)
             : null;
         const excludeFromGlobal = req.body?.excludeFromGlobal === 'true' || req.body?.excludeFromGlobal === true;
+        const platform = typeof req.body?.platform === 'string' && req.body.platform.trim() ? req.body.platform.trim() : null;
 
         const photoBuffer = req.file?.buffer ?? null;
         const photoExt = req.file
@@ -363,6 +364,7 @@ router.post('/submission-drafts/:stateParam', globalScoreUpload.single('photo'),
             photoBuffer,
             photoExt,
             excludeFromGlobal,
+            platform,
         });
         res.status(201).json({ ok: true });
     } catch (error) {
@@ -446,7 +448,7 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, async (
                 draft.score,
                 discordId,
                 photoUrl ?? undefined,
-                { excludeFromGlobal: draft.excludeFromGlobal },
+                { excludeFromGlobal: draft.excludeFromGlobal, platform: draft.platform },
             );
 
             // Mirror submit-score route: upsert into submissions if an active/completed tournament game matches.
@@ -466,10 +468,11 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, async (
                         `INSERT OR REPLACE INTO submissions (
                             id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                             submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                            submitted_by_anonymous_name, merged_from_anonymous_identity_id
-                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+                            submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
+                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
                         submissionId, activeGame.id, discordId, draft.playerName, draft.score, photoUrl || null, new Date().toISOString(),
                         roomId, activeGame.tournament_id || null, discordId,
+                        draft.platform,
                     );
                     const { LeaderboardService } = await import('../../services/LeaderboardService.js');
                     await LeaderboardService.invalidate(activeGame.id);
@@ -494,6 +497,7 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, async (
                 photoMimeType,
                 originType: 'global',
                 excludeFromGlobal: draft.excludeFromGlobal,
+                platform: draft.platform,
             } as Parameters<typeof GlobalScoreService.submit>[0]);
         }
 
@@ -595,7 +599,7 @@ router.post('/submission-drafts/:stateParam/commit-as-guest', async (req, res) =
             draft.score,
             undefined, // guest submission — no Discord user id
             photoUrl ?? undefined,
-            { excludeFromGlobal: draft.excludeFromGlobal },
+            { excludeFromGlobal: draft.excludeFromGlobal, platform: draft.platform },
         );
 
         await SubmissionDraftService.consume(stateParam);
@@ -676,7 +680,10 @@ router.get('/global/games', async (req, res) => {
         const search = (req.query.search as string) || '';
         const type = (req.query.type as string) || undefined;
         const platformsRaw = (req.query.platforms as string) || '';
-        const status = (req.query.status as string) || 'approved';
+        // v2.5.0: this is a public endpoint — never honor a caller-supplied
+        // `?status=` so pending/rejected rows can't leak. Admins use
+        // `/admin/catalogue/games` (super-admin auth) for unfiltered access.
+        const status = 'approved';
         const cursor = (req.query.cursor as string) || undefined;
         const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
 
@@ -874,6 +881,98 @@ router.get('/global/me/display-name', requireDiscordUser, async (req, res) => {
 });
 
 /**
+ * GET /api/submit/platforms — resolver used by the SubmissionSheet picker.
+ *
+ * Three contexts, distinguished by query params:
+ *   - tournament/freeplay (room scope): ?roomId=X&gameName=Y
+ *       Resolves effective platforms for a game in this room (room library +
+ *       per-room custom platforms), then intersects with the active tournament's
+ *       platform_rules if there is one.
+ *   - global submit:                    ?globalGameId=Z
+ *       Returns global_games.platforms verbatim — no tournament rules apply.
+ *
+ * Response shape:
+ *   {
+ *     platforms: string[],       // game's effective platform set (pre-rule intersection)
+ *     submittable: string[],     // platforms the player can actually pick from
+ *     tournamentRules: { required: string[]; excluded: string[] } | null
+ *   }
+ *
+ * Public endpoint — no auth. The submit handlers re-validate, so an attacker
+ * pre-fetching platforms gains nothing.
+ */
+router.get('/submit/platforms', async (req, res) => {
+    try {
+        const { roomId, gameName, globalGameId } = req.query as Record<string, string | undefined>;
+        const db = await getDatabase();
+        const { parsePlatformsList, mergeEffectivePlatforms, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
+
+        // Global submit context — bare globalGameId, no room.
+        if (globalGameId && !roomId) {
+            const game = await db.get(
+                'SELECT platforms FROM global_games WHERE id = ? AND status = ? LIMIT 1',
+                globalGameId, 'approved',
+            );
+            if (!game) return res.status(404).json({ error: 'Game not found' });
+            const platforms = parsePlatformsList(game.platforms || '[]');
+            return res.json({ platforms, submittable: platforms, tournamentRules: null });
+        }
+
+        // Room-scoped context — tournament submit OR freeplay.
+        if (roomId && gameName) {
+            // First try the room's library overlay (covers active tournament games + room-pinned).
+            const grglib = await db.get(`
+                SELECT gl.platforms AS lib_platforms,
+                       grgl.custom_platforms AS room_platforms
+                FROM game_room_game_library grgl
+                JOIN game_library gl ON gl.name = grgl.game_name
+                WHERE grgl.game_room_id = ? AND LOWER(gl.name) = LOWER(?)
+                LIMIT 1
+            `, roomId, gameName) as { lib_platforms: string | null; room_platforms: string | null } | undefined;
+
+            let effective: string[];
+            if (grglib) {
+                effective = mergeEffectivePlatforms(grglib.lib_platforms, grglib.room_platforms);
+            } else {
+                // Freeplay catalogue path — game isn't in the room's curated library.
+                const gg = await db.get(
+                    'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
+                    gameName, 'approved',
+                );
+                effective = gg ? parsePlatformsList(gg.platforms || '[]') : [];
+            }
+
+            // Active tournament narrows the picker via platform_rules.
+            const activeGame = await db.get(`
+                SELECT t.platform_rules FROM games g
+                JOIN tournaments t ON t.id = g.tournament_id
+                WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ? AND g.status = 'ACTIVE'
+                LIMIT 1
+            `, gameName, roomId) as { platform_rules: string | null } | undefined;
+
+            let rules: { required: string[]; excluded: string[] } | null = null;
+            if (activeGame?.platform_rules) {
+                try {
+                    const parsed = JSON.parse(activeGame.platform_rules);
+                    rules = {
+                        required: Array.isArray(parsed.required) ? parsed.required : [],
+                        excluded: Array.isArray(parsed.excluded) ? parsed.excluded : [],
+                    };
+                } catch { /* keep rules = null */ }
+            }
+
+            const submittable = resolveSubmittablePlatforms(effective, rules);
+            return res.json({ platforms: effective, submittable, tournamentRules: rules });
+        }
+
+        return res.status(400).json({ error: 'Provide either globalGameId, OR roomId + gameName' });
+    } catch (error) {
+        logError('API Error (GET /submit/platforms):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
  * POST /api/global/scores — direct global score submission.
  * Requires Discord login, photo, and a valid approved global_game_id.
  * Body: multipart/form-data with { globalGameId, score, displayName, excludeFromGlobal?, photo }
@@ -888,6 +987,7 @@ router.post('/global/scores', requireDiscordUser, globalSubmitLimiter, globalSco
         const scoreRaw = req.body.score;
         const excludeFromGlobal = req.body.excludeFromGlobal === 'true' || req.body.excludeFromGlobal === true;
         const displayNameRaw = typeof req.body.displayName === 'string' ? req.body.displayName.trim() : '';
+        const platform = typeof req.body.platform === 'string' ? req.body.platform.trim() : '';
 
         if (!globalGameId || typeof globalGameId !== 'string') {
             return res.status(400).json({ error: 'globalGameId is required' });
@@ -902,10 +1002,22 @@ router.post('/global/scores', requireDiscordUser, globalSubmitLimiter, globalSco
         if (displayNameRaw.length > 50) {
             return res.status(400).json({ error: 'Display name must be 50 characters or fewer.' });
         }
+        if (!platform) {
+            return res.status(400).json({ error: 'platform is required' });
+        }
 
         const game = await GlobalGameService.getById(globalGameId);
         if (!game || game.status !== 'approved') {
             return res.status(404).json({ error: 'Game not found' });
+        }
+
+        // v2.5.0: validate platform is one of the game's catalogued platforms.
+        const { parsePlatformsList } = await import('../../utils/platformRules.js');
+        const gamePlatforms = parsePlatformsList(game.platforms || '[]');
+        if (!gamePlatforms.some(p => p.toUpperCase() === platform.toUpperCase())) {
+            return res.status(400).json({
+                error: `Platform "${platform}" is not catalogued for this game. Allowed: ${gamePlatforms.join(', ') || '(none)'}`,
+            });
         }
 
         // Resolve the iscored username / display name for the logged-in Discord user.
@@ -952,6 +1064,7 @@ router.post('/global/scores', requireDiscordUser, globalSubmitLimiter, globalSco
                 photoMimeType: req.file.mimetype,
                 originType: 'global',
                 excludeFromGlobal,
+                platform,
             });
 
             emitScoreNewGlobal({

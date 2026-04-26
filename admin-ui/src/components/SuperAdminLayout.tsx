@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Library, Menu, X, DoorOpen, Palette, Globe } from 'lucide-react';
+import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Library, Menu, X, DoorOpen, Palette, Globe, ClipboardList } from 'lucide-react';
 import { api, isAuthenticated, setToken } from '../lib/api';
 import LoadingState from './LoadingState';
 
@@ -10,6 +10,8 @@ export default function SuperAdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ username: string; avatar: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
+  // v2.5.0: Catalogue Approvals nav badge — refreshed on mount + every 60s.
+  const [pendingCount, setPendingCount] = useState<number>(0);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -20,6 +22,15 @@ export default function SuperAdminLayout() {
       .then(data => setCurrentUser({ username: data.username, avatar: data.avatar }))
       .catch(() => setCurrentUser(null))
       .finally(() => setLoading(false));
+
+    const fetchPending = () => {
+      api.get<{ count: number }>('/admin/catalogue/pending-count')
+        .then(r => setPendingCount(r.count || 0))
+        .catch(() => { /* nav badge is best-effort */ });
+    };
+    fetchPending();
+    const interval = setInterval(fetchPending, 60_000);
+    return () => clearInterval(interval);
   }, [navigate]);
 
   if (!isAuthenticated()) return null;
@@ -30,12 +41,13 @@ export default function SuperAdminLayout() {
     navigate('/login', { replace: true });
   };
 
-  const navItems = [
+  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; badge?: number }> = [
     { path: '/admin/dashboard', label: 'Dashboard', icon: <Home size={18} /> },
     { path: '/admin/rooms', label: 'Game Rooms', icon: <DoorOpen size={18} /> },
     { path: '/admin/library', label: 'Master Library', icon: <Library size={18} /> },
     { path: '/admin/styles', label: 'Style Catalogue', icon: <Palette size={18} /> },
     { path: '/admin/catalogue', label: 'Global Catalogue', icon: <Globe size={18} /> },
+    { path: '/admin/catalogue/approvals', label: 'Approvals', icon: <ClipboardList size={18} />, badge: pendingCount },
     { path: '/admin/backups', label: 'Backups', icon: <HardDrive size={18} /> },
     { path: '/admin/logs', label: 'Logs', icon: <Activity size={18} /> },
     { path: '/admin/settings', label: 'Global Settings', icon: <SettingsIcon size={18} /> },
@@ -88,7 +100,12 @@ export default function SuperAdminLayout() {
                 `}
               >
                 {item.icon}
-                <span>{item.label}</span>
+                <span className="flex-1">{item.label}</span>
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className="text-[10px] font-display font-bold px-1.5 py-0.5 rounded-full bg-neon-amber/20 text-neon-amber border border-neon-amber/40">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}

@@ -30,6 +30,8 @@ export interface SubmissionDraft {
     score: number | null;
     photoPath: string | null;
     excludeFromGlobal: boolean;
+    /** v2.5.0: per-score platform replayed on commit. NULL on legacy drafts. */
+    platform: string | null;
     createdAt: string;
     expiresAt: string;
 }
@@ -45,7 +47,7 @@ export class SubmissionDraftService {
     static async create(
         stateParam: string,
         target: SubmissionDraftTarget,
-        fields: { playerName?: string | null; score?: number | null; photoBuffer?: Buffer | null; photoExt?: string; excludeFromGlobal?: boolean },
+        fields: { playerName?: string | null; score?: number | null; photoBuffer?: Buffer | null; photoExt?: string; excludeFromGlobal?: boolean; platform?: string | null },
     ): Promise<void> {
         const db = await getDatabase();
         const expiresAt = new Date(Date.now() + DRAFT_TTL_MS).toISOString();
@@ -61,14 +63,15 @@ export class SubmissionDraftService {
 
         await db.run(
             `INSERT OR REPLACE INTO submission_drafts
-                (state_param, target_json, player_name, score, photo_path, exclude_from_global, created_at, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+                (state_param, target_json, player_name, score, photo_path, exclude_from_global, platform, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
             stateParam,
             JSON.stringify(target),
             fields.playerName ?? null,
             fields.score ?? null,
             photoPath,
             fields.excludeFromGlobal ? 1 : 0,
+            fields.platform ?? null,
             expiresAt,
         );
     }
@@ -77,7 +80,7 @@ export class SubmissionDraftService {
     static async get(stateParam: string): Promise<SubmissionDraft | null> {
         const db = await getDatabase();
         const row = await db.get(
-            `SELECT state_param, target_json, player_name, score, photo_path, exclude_from_global, created_at, expires_at
+            `SELECT state_param, target_json, player_name, score, photo_path, exclude_from_global, platform, created_at, expires_at
              FROM submission_drafts
              WHERE state_param = ? AND expires_at > datetime('now')`,
             stateParam,
@@ -97,6 +100,7 @@ export class SubmissionDraftService {
             score: row.score,
             photoPath: row.photo_path,
             excludeFromGlobal: !!row.exclude_from_global,
+            platform: row.platform ?? null,
             createdAt: row.created_at,
             expiresAt: row.expires_at,
         };

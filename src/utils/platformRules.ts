@@ -37,6 +37,37 @@ export function mergeEffectivePlatforms(
 }
 
 /**
+ * v2.5.0: returns the subset of `gamePlatforms` a player can pick from when
+ * submitting a score. Used by the SubmissionSheet picker and re-validated
+ * server-side at every submit handler.
+ *
+ * Rules:
+ *   - If `tournamentRules` is undefined (freeplay / global submit / no active
+ *     tournament for this game), return all of `gamePlatforms` unchanged.
+ *   - If `tournamentRules.required` is non-empty, only keep `gamePlatforms`
+ *     entries that match one of the required IDs.
+ *   - Always strip anything in `tournamentRules.excluded`.
+ *
+ * Comparison is case-insensitive so legacy stored mixed-case data still works.
+ */
+export function resolveSubmittablePlatforms(
+    gamePlatforms: string[],
+    tournamentRules?: { required: string[]; excluded: string[] } | null,
+): string[] {
+    if (!tournamentRules) return gamePlatforms;
+    const required = tournamentRules.required ?? [];
+    const excluded = tournamentRules.excluded ?? [];
+    const reqUpper = new Set(required.map(p => p.toUpperCase()));
+    const excUpper = new Set(excluded.map(p => p.toUpperCase()));
+    return gamePlatforms.filter(p => {
+        const u = p.toUpperCase();
+        if (excUpper.has(u)) return false;
+        if (required.length > 0 && !reqUpper.has(u)) return false;
+        return true;
+    });
+}
+
+/**
  * Checks if a game's platforms satisfy a tournament's platform rules.
  * Shared between Discord commands and API endpoints.
  */

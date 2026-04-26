@@ -30,6 +30,12 @@ export async function syncScoreToIScored(opts: {
     score: number;
     /** Absolute path to the persisted photo file, used only by the Playwright fallback. */
     persistentPhotoPath?: string;
+    /**
+     * v2.5.0: per-score platform — accepted for signature parity with the local
+     * persistence call sites. iScored has no platform concept, so this is
+     * pass-through-only (logged for debugging, never sent to the API).
+     */
+    platform?: string | null;
 }): Promise<void> {
     const { roomId, gameName, username, score, persistentPhotoPath } = opts;
     let tempPhotoPath: string | undefined;

@@ -50,6 +50,7 @@ const SOURCE_LABELS: Record<string, string> = {
   opdb: 'OPDB',
   igdb: 'IGDB',
   wizard: 'Wizard',
+  'steam-pinball': 'Steam Pinball',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -222,7 +223,7 @@ export default function GlobalCatalogue() {
       {/* Sync controls + health */}
       <NeonCard glowColor="magenta" className="mb-6" title="Catalogue Sync">
         <div className="flex flex-wrap gap-3 mb-4">
-          {['vps', 'wizard', 'opdb', 'igdb'].map(source => (
+          {['vps', 'wizard', 'opdb', 'igdb', 'steam-pinball'].map(source => (
             <NeonButton
               key={source}
               variant="secondary"

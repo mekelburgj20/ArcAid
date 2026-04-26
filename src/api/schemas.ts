@@ -157,16 +157,82 @@ export const CommunityScoreSchema = z.object({
     score: z.number().int().min(0),
     discord_user_id: z.string().optional(),
     photo_url: z.string().url().optional(),
+    // v2.5.0: required per-score platform tag. Picker-resolved on the client
+    // (auto-fill when game has 1 platform; required choice when 2+).
+    platform: z.string().min(1),
 });
 
 export const ScoreSubmissionSchema = z.object({
     username: z.string().min(1).max(100),
     score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0)),
+    platform: z.string().min(1),
+});
+
+/**
+ * Freeplay submission body. Multipart/form-data (multer parses files separately),
+ * so string→number / string→boolean coercion is built in via z.preprocess.
+ * Promoted from inline checks in `rooms.ts:1128` to a named schema so all three
+ * web submit paths share validation shape.
+ */
+export const FreeplayScoreSchema = z.object({
+    globalGameId: z.string().min(1),
+    username: z.string().min(1).max(100),
+    score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0)),
+    excludeGlobal: z.preprocess(
+        v => v === 'true' || v === true,
+        z.boolean(),
+    ).default(false),
+    platform: z.string().min(1),
 });
 
 export const PickGameSchema = z.object({
     tournamentId: z.string().min(1),
     gameName: z.string().min(1).max(200),
+});
+
+/**
+ * v2.5.0: input for the per-room game-library proposal flow. Used by:
+ *   - POST /:roomId/game_library/proposals       (dedup preview)
+ *   - POST /:roomId/game_library/room_only       (commit room-only override)
+ *   - POST /:roomId/game_library/submit_to_global (commit pending global submission)
+ */
+export const GameProposalSchema = z.object({
+    name: z.string().min(1).max(200),
+    manufacturer: z.string().max(100).optional(),
+    year: z.preprocess(
+        v => v === '' || v === null || v === undefined ? undefined : Number(v),
+        z.number().int().min(1900).max(2100).optional(),
+    ),
+    type: z.enum(['pinball', 'video_game']).default('pinball'),
+    platforms: z.array(z.string().min(1)).optional(),
+});
+
+/** v2.5.0: link an existing approved global_games row into the current room. */
+export const UseGlobalGameSchema = z.object({
+    globalGameId: z.string().min(1),
+});
+
+/**
+ * v2.5.0: bulk CSV preview body. Client parses CSV in-browser (existing
+ * pattern) and posts the row list as JSON. Cap at 500 rows so a malicious
+ * client can't trigger unbounded dedup work; real CSVs from rooms are
+ * typically ≤200 rows.
+ */
+export const ImportCsvPreviewSchema = z.object({
+    games: z.array(GameProposalSchema).min(1).max(500),
+});
+
+/**
+ * v2.5.0: bulk CSV commit body. Each entry carries the original input plus
+ * the user's per-row decision. `globalGameId` is required only when
+ * `decision === 'use_global'`; the server enforces this in-handler.
+ */
+export const ImportCsvCommitSchema = z.object({
+    games: z.array(z.object({
+        input: GameProposalSchema,
+        decision: z.enum(['use_global', 'room_only', 'submit_to_global']),
+        globalGameId: z.string().optional(),
+    })).min(1).max(500),
 });
 
 export const ReorderQueueSchema = z.object({

@@ -17,6 +17,11 @@ import {
     StyleUploadSchema,
     CommunityScoreSchema,
     ScoreSubmissionSchema,
+    FreeplayScoreSchema,
+    GameProposalSchema,
+    UseGlobalGameSchema,
+    ImportCsvPreviewSchema,
+    ImportCsvCommitSchema,
     GameCommentSchema,
     PickGameSchema,
     ReorderQueueSchema,
@@ -27,7 +32,7 @@ import {
 import { writeLimiter, pickLimiter } from '../rateLimit.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
-import { passesplatformRules, parsePlatformsList, mergeEffectivePlatforms } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList, mergeEffectivePlatforms, resolveSubmittablePlatforms } from '../../utils/platformRules.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
@@ -50,6 +55,72 @@ const roomAssetUpload = multer({
         }
     },
 });
+
+/**
+ * v2.5.0: server-side re-validation of the per-score `platform` field. Mirrors
+ * the picker resolution in `GET /api/submit/platforms` so a malicious client
+ * can't bypass the dropdown.
+ *
+ * Returns null when the platform is acceptable, or a user-facing error string
+ * when it isn't (handler should respond 400 with that message).
+ */
+async function ensurePlatformAllowed(opts: {
+    roomId: string;
+    gameName: string;
+    platform: string;
+}): Promise<string | null> {
+    const db = await getDatabase();
+
+    // Resolve the game's effective platforms via the same precedence the picker uses.
+    const grglib = await db.get(`
+        SELECT gl.platforms AS lib_platforms,
+               grgl.custom_platforms AS room_platforms
+        FROM game_room_game_library grgl
+        JOIN game_library gl ON gl.name = grgl.game_name
+        WHERE grgl.game_room_id = ? AND LOWER(gl.name) = LOWER(?)
+        LIMIT 1
+    `, opts.roomId, opts.gameName) as { lib_platforms: string | null; room_platforms: string | null } | undefined;
+
+    let effective: string[];
+    if (grglib) {
+        effective = mergeEffectivePlatforms(grglib.lib_platforms, grglib.room_platforms);
+    } else {
+        const gg = await db.get(
+            'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
+            opts.gameName, 'approved',
+        );
+        effective = gg ? parsePlatformsList(gg.platforms || '[]') : [];
+    }
+    if (effective.length === 0) {
+        return 'No platforms are configured for this game.';
+    }
+
+    // Active tournament narrows the picker via platform_rules.
+    const activeGame = await db.get(`
+        SELECT t.platform_rules FROM games g
+        JOIN tournaments t ON t.id = g.tournament_id
+        WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ? AND g.status = 'ACTIVE'
+        LIMIT 1
+    `, opts.gameName, opts.roomId) as { platform_rules: string | null } | undefined;
+
+    let rules: { required: string[]; excluded: string[] } | null = null;
+    if (activeGame?.platform_rules) {
+        try {
+            const parsed = JSON.parse(activeGame.platform_rules);
+            rules = {
+                required: Array.isArray(parsed.required) ? parsed.required : [],
+                excluded: Array.isArray(parsed.excluded) ? parsed.excluded : [],
+            };
+        } catch { /* keep rules = null */ }
+    }
+
+    const submittable = resolveSubmittablePlatforms(effective, rules);
+    const want = opts.platform.toUpperCase();
+    if (!submittable.some(p => p.toUpperCase() === want)) {
+        return `Platform "${opts.platform}" is not allowed for this game/tournament. Allowed: ${submittable.join(', ') || '(none)'}`;
+    }
+    return null;
+}
 
 // --- Public endpoints (no auth) ---
 
@@ -168,7 +239,18 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
     try {
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         const gameId = req.params.gameId as string;
-        const rankings = await LeaderboardService.getForGame(gameId);
+        // v2.5.0: optional ?platform=<id> filter — bypasses the cache when set.
+        const platformFilter = typeof req.query.platform === 'string' && req.query.platform.trim()
+            ? req.query.platform.trim()
+            : null;
+
+        const rankings = platformFilter
+            ? await LeaderboardService.getForGameByPlatform(gameId, platformFilter)
+            : await LeaderboardService.getForGame(gameId);
+
+        // Distinct platforms always returned so the FE can render its tab strip
+        // regardless of which view the user is currently looking at.
+        const distinctPlatforms = await LeaderboardService.getDistinctPlatforms(gameId);
 
         const db = await getDatabase();
         const game = await db.get(`
@@ -185,6 +267,8 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
             tournamentName: game?.tournament_name || 'Untracked',
             imageUrl: game?.image_url || null,
             rankings,
+            platform: platformFilter,
+            distinctPlatforms,
         });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/leaderboard/:gameId):', error);
@@ -926,11 +1010,17 @@ router.post('/:roomId/community-scores/:gameName', conditionalRequireDiscordUser
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const gameName = decodeURIComponent(req.params.gameName as string);
         const roomId = req.params.roomId as string;
-        const { username, score, discord_user_id, photo_url } = validationResult.data;
+        const { username, score, discord_user_id, photo_url, platform } = validationResult.data;
+
+        // v2.5.0: re-validate platform server-side against the game's resolved
+        // submittable set (effective platforms ∩ active tournament rules).
+        const platformError = await ensurePlatformAllowed({ roomId, gameName, platform });
+        if (platformError) return res.status(400).json({ error: platformError });
+
         // v2.2.0: anon-token plumbed for first-claim-wins.
         const rawAnonHeader = req.headers['x-user-id'];
         const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
-        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, discord_user_id, photo_url, { anonToken });
+        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, discord_user_id, photo_url, { anonToken, platform });
 
         // v2.2.2: sync to iScored when this matches an ACTIVE tournament game.
         // photo_url is a pre-existing URL (not an upload), so no persistentPhotoPath
@@ -941,6 +1031,7 @@ router.post('/:roomId/community-scores/:gameName', conditionalRequireDiscordUser
             gameName,
             username: result.displayName,
             score,
+            platform,
         });
 
         res.status(201).json(result);
@@ -1024,8 +1115,12 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const roomId = req.params.roomId as string;
         const gameName = decodeURIComponent(req.params.gameName as string);
-        const { username, score } = validationResult.data;
+        const { username, score, platform } = validationResult.data;
         const excludeFromGlobal = req.body.excludeGlobal === 'true' || req.body.excludeGlobal === true;
+
+        // v2.5.0: re-validate platform against the resolved submittable set.
+        const platformError = await ensurePlatformAllowed({ roomId, gameName, platform });
+        if (platformError) return res.status(400).json({ error: platformError });
 
         // Check if photo is required
         const requirePhoto = await GameRoomSettingsService.get(roomId, 'REQUIRE_SCORE_PHOTO');
@@ -1059,7 +1154,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
         // the resolved displayName (possibly suffixed e.g. "Bob_2").
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const result = await CommunityScoreService.submitScore(
-            roomId, gameName, username, score, req.user?.discordId, photoUrl, { excludeFromGlobal, anonToken }
+            roomId, gameName, username, score, req.user?.discordId, photoUrl, { excludeFromGlobal, anonToken, platform }
         );
         const effectiveUsername = result.displayName;
 
@@ -1088,10 +1183,10 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
                     `INSERT OR REPLACE INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                        submitted_by_anonymous_name, merged_from_anonymous_identity_id
-                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
                     submissionId, activeGame.id, 'COMMUNITY', effectiveUsername, score, photoUrl || null, new Date().toISOString(),
-                    roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
+                    roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName, platform,
                 );
                 const { LeaderboardService } = await import('../../services/LeaderboardService.js');
                 await LeaderboardService.invalidate(activeGame.id);
@@ -1108,6 +1203,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
             username: effectiveUsername,
             score,
             persistentPhotoPath,
+            platform,
         });
 
         res.status(201).json(result);
@@ -1128,15 +1224,12 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
 router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUser('roomId'), roomAssetUpload.single('photo'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
-        const { globalGameId, username, score: scoreRaw, excludeGlobal: excludeRaw } = req.body || {};
-        if (!globalGameId || !username) {
-            return res.status(400).json({ error: 'globalGameId and username are required' });
-        }
-        const score = typeof scoreRaw === 'string' ? parseInt(scoreRaw, 10) : scoreRaw;
-        if (!Number.isInteger(score) || score < 0) {
-            return res.status(400).json({ error: 'Valid positive score required' });
-        }
-        const excludeFromGlobal = excludeRaw === 'true' || excludeRaw === true;
+        // v2.5.0: switched from inline checks to FreeplayScoreSchema so all
+        // three web submit paths share validation shape (incl. required
+        // `platform` field).
+        const validationResult = validate(FreeplayScoreSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { globalGameId, username, score, excludeGlobal: excludeFromGlobal, platform } = validationResult.data;
 
         // Photo is required for freeplay (no tournament cross-check, so evidence matters)
         if (!req.file) {
@@ -1152,6 +1245,12 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         if (!globalGame) {
             return res.status(404).json({ error: 'Game not found in the global catalogue' });
         }
+
+        // v2.5.0: re-validate platform against the resolved submittable set for
+        // this game in this room (uses the canonical name, since freeplay
+        // catalogue lookups go by name not id from here on).
+        const platformError = await ensurePlatformAllowed({ roomId, gameName: globalGame.name, platform });
+        if (platformError) return res.status(400).json({ error: platformError });
 
         // Persist photo
         const ext = (req.file.mimetype === 'image/png' || req.file.mimetype === 'image/apng') ? 'png' : req.file.mimetype === 'image/webp' ? 'webp' : 'jpg';
@@ -1178,7 +1277,7 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             score,
             req.user?.discordId,
             photoUrl,
-            { excludeFromGlobal, anonToken }
+            { excludeFromGlobal, anonToken, platform }
         );
 
         // v2.2.0: use the resolved displayName (possibly suffixed) for activity
@@ -1218,10 +1317,10 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
                     `INSERT OR REPLACE INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                        submitted_by_anonymous_name, merged_from_anonymous_identity_id
-                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
                     submissionId, activeGame.id, 'COMMUNITY', effectiveUsername, score, photoUrl, new Date().toISOString(),
-                    roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
+                    roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName, platform,
                 );
                 const { LeaderboardService } = await import('../../services/LeaderboardService.js');
                 await LeaderboardService.invalidate(activeGame.id);
@@ -1237,6 +1336,7 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             username: effectiveUsername,
             score,
             persistentPhotoPath,
+            platform,
         });
 
         res.status(201).json({
@@ -1705,6 +1805,393 @@ router.get('/:roomId/game_library', async (req, res) => {
         res.json(rows);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/game_library):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// v2.5.0 — per-room game-library proposal flow (replaces the legacy
+// "Import VPS" / "Import Wizard" buttons; those duplicate global catalogue work).
+//
+// Add-Game UX: type a name → /proposals returns dedup matches (exact + possible)
+// → user picks one of three commit paths:
+//   (a) /use_global       → link to an existing approved global_games row
+//   (b) /room_only        → add ONLY to this room's library (no global submission)
+//   (c) /submit_to_global → create a pending global_games row + link from this room
+//
+// All three writes hit `game_library` (PK = name) and `game_room_game_library`
+// (FK to game_library by name). `global_game_id` is set when known; NULL for
+// the room-only override path.
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /:roomId/game_library/proposals — read-only dedup preview.
+ * Returns { exact: GlobalGame|null, possible: GlobalGame[] } so the FE can
+ * render an "is this it?" / "did you mean one of these?" UI.
+ */
+router.post('/:roomId/game_library/proposals', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(GameProposalSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { GlobalGameService } = await import('../../services/GlobalGameService.js');
+        const result = await GlobalGameService.findCandidates(validationResult.data);
+        res.json(result);
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/game_library/proposals):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /:roomId/game_library/use_global — link an approved global_games row
+ * into this room's library. Idempotent: re-running with the same globalGameId
+ * is a no-op for both the game_library row and the room link.
+ */
+router.post('/:roomId/game_library/use_global', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(UseGlobalGameSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const roomId = req.params.roomId as string;
+        const { globalGameId } = validationResult.data;
+
+        const db = await getDatabase();
+        const game = await db.get(
+            'SELECT id, name, type, platforms FROM global_games WHERE id = ? AND status = ? LIMIT 1',
+            globalGameId, 'approved',
+        );
+        if (!game) return res.status(404).json({ error: 'Game not found in the catalogue' });
+
+        // Ensure a `game_library` row exists for this name and is linked to the
+        // canonical global id. PK is `name`, so INSERT OR IGNORE then a
+        // second pass to populate global_game_id if it's still NULL.
+        await db.run(
+            `INSERT OR IGNORE INTO game_library (name, mode, platforms, global_game_id)
+             VALUES (?, ?, ?, ?)`,
+            game.name, game.type === 'video_game' ? 'videogame' : 'pinball', game.platforms || '[]', globalGameId,
+        );
+        await db.run(
+            `UPDATE game_library SET global_game_id = COALESCE(global_game_id, ?) WHERE name = ?`,
+            globalGameId, game.name,
+        );
+        await db.run(
+            `INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name, global_game_id)
+             VALUES (?, ?, ?)`,
+            roomId, game.name, globalGameId,
+        );
+
+        res.status(201).json({ ok: true, gameName: game.name, globalGameId });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/game_library/use_global):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /:roomId/game_library/room_only — add a game ONLY to this room's
+ * library, with no global_games link. User explicitly opts out of the global
+ * catalogue (e.g. for a custom mod or a one-off variant they don't want
+ * promoted). `global_game_id` stays NULL on both `game_library` and
+ * `game_room_game_library` rows.
+ */
+router.post('/:roomId/game_library/room_only', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(GameProposalSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const roomId = req.params.roomId as string;
+        const { name, type, platforms } = validationResult.data;
+
+        const db = await getDatabase();
+        await db.run(
+            `INSERT OR IGNORE INTO game_library (name, mode, platforms)
+             VALUES (?, ?, ?)`,
+            name, type === 'video_game' ? 'videogame' : 'pinball', JSON.stringify(platforms || []),
+        );
+        await db.run(
+            `INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name)
+             VALUES (?, ?)`,
+            roomId, name,
+        );
+
+        res.status(201).json({ ok: true, gameName: name, globalGameId: null });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/game_library/room_only):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /:roomId/game_library/submit_to_global — create a pending global_games
+ * row and link it into this room's library. Game is immediately usable in the
+ * room ("post-first, mod-later" — the locked decision); a super-admin reviews
+ * it via /admin/catalogue/games and approves/rejects/merges later.
+ *
+ * Returns 409 when an exact catalogue match exists — caller should re-route
+ * to /use_global instead. The proposal preview should have caught this, but
+ * we re-check server-side as a defense-in-depth measure.
+ */
+router.post('/:roomId/game_library/submit_to_global', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(GameProposalSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const roomId = req.params.roomId as string;
+        const { name, manufacturer, year, type, platforms } = validationResult.data;
+
+        const { GlobalGameService } = await import('../../services/GlobalGameService.js');
+        const candidates = await GlobalGameService.findCandidates({
+            name, manufacturer: manufacturer ?? null, year: year ?? null, type, platforms,
+        });
+        if (candidates.exact) {
+            return res.status(409).json({
+                error: 'A matching game already exists in the catalogue. Use /use_global to link it instead.',
+                exact: candidates.exact,
+            });
+        }
+
+        const db = await getDatabase();
+        // Build a pending global_games row inline (GlobalGameService.upsert
+        // would auto-mark it 'approved' — we want 'pending' here, with the
+        // submission metadata fields populated).
+        const crypto = await import('crypto');
+        const newId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const submittedByUserId = req.user?.discordId || req.user?.username || null;
+
+        await db.run(
+            `INSERT INTO global_games (
+                id, name, manufacturer, year, type, platforms, status,
+                submitted_by_user_id, submitted_by_room_id, submitted_at, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+            newId,
+            name,
+            manufacturer ?? null,
+            year ?? null,
+            type,
+            JSON.stringify(platforms || []),
+            submittedByUserId,
+            roomId,
+            now,
+            now,
+        );
+
+        // Mirror to game_library + game_room_game_library so the room can use
+        // the game immediately, before super-admin approval.
+        await db.run(
+            `INSERT OR IGNORE INTO game_library (name, mode, platforms, global_game_id)
+             VALUES (?, ?, ?, ?)`,
+            name, type === 'video_game' ? 'videogame' : 'pinball', JSON.stringify(platforms || []), newId,
+        );
+        await db.run(
+            `UPDATE game_library SET global_game_id = COALESCE(global_game_id, ?) WHERE name = ?`,
+            newId, name,
+        );
+        await db.run(
+            `INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name, global_game_id)
+             VALUES (?, ?, ?)`,
+            roomId, name, newId,
+        );
+
+        res.status(201).json({ ok: true, gameName: name, globalGameId: newId, status: 'pending' });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/game_library/submit_to_global):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /:roomId/game_library/import-csv-preview — read-only categorisation
+ * of a parsed CSV. Bins each row into one of:
+ *   - auto_link:    exact match found → commit will use_global
+ *   - auto_submit:  no match at all   → commit will submit_to_global
+ *   - needs_review: possible matches  → user picks per-row in the UI
+ *
+ * Client-side parsing pattern: the FE parses CSV in-browser (matches the
+ * existing /game_library/import flow) and posts JSON. The FE holds the
+ * preview response in memory and replays the array on commit — no
+ * server-side ephemeral session storage needed.
+ */
+router.post('/:roomId/game_library/import-csv-preview', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(ImportCsvPreviewSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { GlobalGameService } = await import('../../services/GlobalGameService.js');
+
+        type Bucket = 'auto_link' | 'auto_submit' | 'needs_review';
+        const rows = await Promise.all(validationResult.data.games.map(async (input, index) => {
+            const candidates = await GlobalGameService.findCandidates({
+                name: input.name,
+                manufacturer: input.manufacturer ?? null,
+                year: input.year ?? null,
+                type: input.type,
+                platforms: input.platforms,
+            });
+            let bucket: Bucket;
+            let suggestedDecision: 'use_global' | 'submit_to_global' | null;
+            if (candidates.exact) {
+                bucket = 'auto_link';
+                suggestedDecision = 'use_global';
+            } else if (candidates.possible.length === 0) {
+                bucket = 'auto_submit';
+                suggestedDecision = 'submit_to_global';
+            } else {
+                bucket = 'needs_review';
+                suggestedDecision = null;
+            }
+            return { index, input, candidates, bucket, suggestedDecision };
+        }));
+
+        const summary = {
+            auto_link:    rows.filter(r => r.bucket === 'auto_link').length,
+            auto_submit:  rows.filter(r => r.bucket === 'auto_submit').length,
+            needs_review: rows.filter(r => r.bucket === 'needs_review').length,
+            total:        rows.length,
+        };
+
+        res.json({ rows, summary });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/game_library/import-csv-preview):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /:roomId/game_library/import-csv-commit — applies the decisions
+ * collected from the preview UI.
+ *
+ * Per-row best-effort: a single bad row doesn't roll back the others.
+ * Returns aggregate counts plus a per-row error list when any rows failed,
+ * so the FE can offer a "retry just the failures" UX. Each successful row
+ * writes to `game_library` (PK = name) + `game_room_game_library`, and for
+ * `submit_to_global` decisions also creates a `status='pending'` global_games
+ * row. Idempotent: re-running with the same decisions on already-imported
+ * rows is safe (INSERT OR IGNORE on the linkage tables).
+ */
+router.post('/:roomId/game_library/import-csv-commit', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(ImportCsvCommitSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const roomId = req.params.roomId as string;
+        const submittedByUserId = req.user?.discordId || req.user?.username || null;
+
+        const db = await getDatabase();
+        const cryptoMod = await import('crypto');
+        const { GlobalGameService } = await import('../../services/GlobalGameService.js');
+
+        const counts = { linked: 0, submitted_pending: 0, room_only: 0, errors: 0 };
+        const errors: Array<{ index: number; error: string }> = [];
+
+        for (let i = 0; i < validationResult.data.games.length; i++) {
+            const entry = validationResult.data.games[i]!;
+            const { input, decision } = entry;
+            const mode = input.type === 'video_game' ? 'videogame' : 'pinball';
+            const platformsJson = JSON.stringify(input.platforms || []);
+
+            try {
+                if (decision === 'use_global') {
+                    if (!entry.globalGameId) throw new Error('globalGameId is required for use_global decision');
+                    const game = await db.get(
+                        'SELECT id, name, type, platforms FROM global_games WHERE id = ? AND status = ? LIMIT 1',
+                        entry.globalGameId, 'approved',
+                    );
+                    if (!game) throw new Error('Global game not found or not approved');
+                    await db.run(
+                        `INSERT OR IGNORE INTO game_library (name, mode, platforms, global_game_id)
+                         VALUES (?, ?, ?, ?)`,
+                        game.name, game.type === 'video_game' ? 'videogame' : 'pinball', game.platforms || '[]', game.id,
+                    );
+                    await db.run(
+                        `UPDATE game_library SET global_game_id = COALESCE(global_game_id, ?) WHERE name = ?`,
+                        game.id, game.name,
+                    );
+                    await db.run(
+                        `INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name, global_game_id)
+                         VALUES (?, ?, ?)`,
+                        roomId, game.name, game.id,
+                    );
+                    counts.linked++;
+                } else if (decision === 'room_only') {
+                    await db.run(
+                        `INSERT OR IGNORE INTO game_library (name, mode, platforms)
+                         VALUES (?, ?, ?)`,
+                        input.name, mode, platformsJson,
+                    );
+                    await db.run(
+                        `INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name)
+                         VALUES (?, ?)`,
+                        roomId, input.name,
+                    );
+                    counts.room_only++;
+                } else /* submit_to_global */ {
+                    // Defense-in-depth: re-check dedup at commit time. If an exact match has
+                    // appeared since the preview ran (e.g. another admin's submission), reroute
+                    // to a use_global write rather than creating a duplicate pending row.
+                    const candidates = await GlobalGameService.findCandidates({
+                        name: input.name,
+                        manufacturer: input.manufacturer ?? null,
+                        year: input.year ?? null,
+                        type: input.type,
+                        platforms: input.platforms,
+                    });
+                    if (candidates.exact && candidates.exact.status === 'approved') {
+                        await db.run(
+                            `INSERT OR IGNORE INTO game_library (name, mode, platforms, global_game_id)
+                             VALUES (?, ?, ?, ?)`,
+                            candidates.exact.name, mode, candidates.exact.platforms || '[]', candidates.exact.id,
+                        );
+                        await db.run(
+                            `UPDATE game_library SET global_game_id = COALESCE(global_game_id, ?) WHERE name = ?`,
+                            candidates.exact.id, candidates.exact.name,
+                        );
+                        await db.run(
+                            `INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name, global_game_id)
+                             VALUES (?, ?, ?)`,
+                            roomId, candidates.exact.name, candidates.exact.id,
+                        );
+                        counts.linked++;
+                        continue;
+                    }
+                    const newId = cryptoMod.randomUUID();
+                    const now = new Date().toISOString();
+                    await db.run(
+                        `INSERT INTO global_games (
+                            id, name, manufacturer, year, type, platforms, status,
+                            submitted_by_user_id, submitted_by_room_id, submitted_at, created_at
+                         ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+                        newId,
+                        input.name,
+                        input.manufacturer ?? null,
+                        input.year ?? null,
+                        input.type,
+                        platformsJson,
+                        submittedByUserId,
+                        roomId,
+                        now,
+                        now,
+                    );
+                    await db.run(
+                        `INSERT OR IGNORE INTO game_library (name, mode, platforms, global_game_id)
+                         VALUES (?, ?, ?, ?)`,
+                        input.name, mode, platformsJson, newId,
+                    );
+                    await db.run(
+                        `UPDATE game_library SET global_game_id = COALESCE(global_game_id, ?) WHERE name = ?`,
+                        newId, input.name,
+                    );
+                    await db.run(
+                        `INSERT OR IGNORE INTO game_room_game_library (game_room_id, game_name, global_game_id)
+                         VALUES (?, ?, ?)`,
+                        roomId, input.name, newId,
+                    );
+                    counts.submitted_pending++;
+                }
+            } catch (err) {
+                counts.errors++;
+                errors.push({ index: i, error: (err as Error).message });
+            }
+        }
+
+        res.json({ ok: counts.errors === 0, counts, errors: errors.length ? errors : undefined });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/game_library/import-csv-commit):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

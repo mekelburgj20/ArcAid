@@ -30,9 +30,18 @@ export const CANONICAL_PLATFORMS: Record<string, PlatformInfo> = {
     vpxs_manual: { id: 'vpxs_manual', displayName: 'VPX Standalone (Manual Install)', category: 'virtual_pinball' },
     fp:          { id: 'fp',          displayName: 'Future Pinball',     category: 'virtual_pinball' },
     bam:         { id: 'bam',         displayName: 'BAM (FP Mod)',       category: 'virtual_pinball' },
-    pinball_fx:  { id: 'pinball_fx',  displayName: 'Pinball FX',         category: 'virtual_pinball' },
-    pinball_fx3: { id: 'pinball_fx3', displayName: 'Pinball FX3',        category: 'virtual_pinball' },
-    vr:          { id: 'vr',          displayName: 'VR Pinball',         category: 'virtual_pinball' },
+    // Zen Studios — Steam DLC-driven catalogue (April 2026 rebrand).
+    // pinball_fx3 was renamed to pinball_fx_classic on Steam; pinball_fx_classic_vr
+    // was previously Pinball FX 2 VR; pinball_fx_midnight was Pinball M.
+    // Quest-only Pinball FX VR has no DLC API; tables curated manually.
+    pinball_fx:             { id: 'pinball_fx',             displayName: 'Pinball FX',            category: 'virtual_pinball' },
+    pinball_fx_classic:     { id: 'pinball_fx_classic',     displayName: 'Pinball FX Classic',    category: 'virtual_pinball' },
+    pinball_fx_classic_vr:  { id: 'pinball_fx_classic_vr',  displayName: 'Pinball FX Classic VR', category: 'virtual_pinball' },
+    pinball_fx_midnight:    { id: 'pinball_fx_midnight',    displayName: 'Pinball FX Midnight',   category: 'virtual_pinball' },
+    pinball_fx_vr:          { id: 'pinball_fx_vr',          displayName: 'Pinball FX VR',         category: 'virtual_pinball' },
+    star_wars_pinball_vr:   { id: 'star_wars_pinball_vr',   displayName: 'Star Wars Pinball VR',  category: 'virtual_pinball' },
+    zaccaria:               { id: 'zaccaria',               displayName: 'Zaccaria Pinball',      category: 'virtual_pinball' },
+    zaccaria_vr:            { id: 'zaccaria_vr',            displayName: 'Zaccaria Pinball VR',   category: 'virtual_pinball' },
 
     // Arcade & video games
     arcade:      { id: 'arcade',      displayName: 'Arcade',             category: 'arcade_video' },
@@ -68,14 +77,17 @@ const PLATFORM_ALIASES: Record<string, string> = {
     'vpxs_manual': 'vpxs_manual',
     'vpxs-manual': 'vpxs_manual',
     'vpx standalone (manual install)': 'vpxs_manual',
-    'vr': 'vr',
     'irl': 'real',
     // VPS tableFormat values
     'vpx': 'vpx',
     'vp9': 'vp9',
     'fp': 'fp',
     'fx': 'pinball_fx',
-    'fx3': 'pinball_fx3',
+    // FX3 → FX Classic rename (Zen rebrand, April 2026). VPS still emits "FX3";
+    // pre-rename storage may have 'pinball_fx3' too. Both fold forward.
+    'fx3': 'pinball_fx_classic',
+    'pinball fx3': 'pinball_fx_classic',
+    'pinball_fx3': 'pinball_fx_classic',
     'bam': 'bam',
     // Common variations
     'visual pinball x': 'vpx',
@@ -83,7 +95,22 @@ const PLATFORM_ALIASES: Record<string, string> = {
     'vpx standalone': 'vpxs',
     'future pinball': 'fp',
     'pinball fx': 'pinball_fx',
-    'pinball fx3': 'pinball_fx3',
+    // Zen Steam pinball products (current + historical names)
+    'pinball fx classic': 'pinball_fx_classic',
+    'pinball fx classic vr': 'pinball_fx_classic_vr',
+    'pinball fx 2 vr': 'pinball_fx_classic_vr',
+    'pinball fx2 vr': 'pinball_fx_classic_vr',
+    'fx 2 vr': 'pinball_fx_classic_vr',
+    'pinball fx midnight': 'pinball_fx_midnight',
+    'pinball m': 'pinball_fx_midnight',
+    'pinball_m': 'pinball_fx_midnight',
+    'pinball fx vr': 'pinball_fx_vr',
+    'star wars pinball vr': 'star_wars_pinball_vr',
+    // Zaccaria
+    'zaccaria': 'zaccaria',
+    'zaccaria pinball': 'zaccaria',
+    'zaccaria vr': 'zaccaria_vr',
+    'zaccaria pinball vr': 'zaccaria_vr',
     'real machine': 'real',
     'physical': 'real',
     'playstation': 'ps1',
@@ -157,7 +184,9 @@ export const VPS_FORMAT_MAP: Record<string, string> = {
     'VP9': 'vp9',
     'FP':  'fp',
     'FX':  'pinball_fx',
-    'FX3': 'pinball_fx3',
+    // FX3 was renamed to Pinball FX Classic on Steam (Zen rebrand, April 2026).
+    // VPS still emits "FX3"; we normalize forward at import time.
+    'FX3': 'pinball_fx_classic',
     'BAM': 'bam',
 };
 
@@ -169,7 +198,18 @@ export const PLATFORM_GROUPS = [
     },
     {
         label: 'Virtual Pinball',
-        platforms: ['vpx', 'vp9', 'vpxs', 'vpxs_manual', 'fp', 'bam', 'pinball_fx', 'pinball_fx3', 'vr'],
+        platforms: [
+            'vpx', 'vp9', 'vpxs', 'vpxs_manual', 'fp', 'bam',
+            'pinball_fx', 'pinball_fx_classic', 'pinball_fx_classic_vr',
+            'pinball_fx_midnight', 'pinball_fx_vr', 'star_wars_pinball_vr',
+            'zaccaria', 'zaccaria_vr',
+        ],
+    },
+    {
+        // VR is a sub-grouping of Virtual Pinball — same IDs may also appear
+        // in the Virtual Pinball group for non-VR-aware filter UI.
+        label: 'VR',
+        platforms: ['pinball_fx_vr', 'pinball_fx_classic_vr', 'star_wars_pinball_vr', 'zaccaria_vr'],
     },
     {
         label: 'Arcade & Video Games',

@@ -96,8 +96,6 @@ export default function GameLibrary() {
   const [editTarget, setEditTarget] = useState<GameRow | null>(null);
   const [editGame, setEditGame] = useState<GameRow>({ ...emptyGame });
   const [editSaving, setEditSaving] = useState(false);
-  const [vpsImporting, setVpsImporting] = useState(false);
-  const [wizardImporting, setWizardImporting] = useState(false);
   const [communityRatings, setCommunityRatings] = useState<Record<string, { avg_rating: number; rating_count: number }>>({});
   const [userRatings, setUserRatings] = useState<Record<string, number>>({});
   const [activateTarget, setActivateTarget] = useState<string | null>(null);
@@ -112,10 +110,6 @@ export default function GameLibrary() {
   // Style picker
   const [styleTarget, setStyleTarget] = useState<GameRow | null>(null);
 
-  // Near-match warnings from imports
-  const [nearMatches, setNearMatches] = useState<Array<{ imported: string; existing: string }>>([]);
-  const [merging, setMerging] = useState(false);
-
   // Selection + delete
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -128,6 +122,31 @@ export default function GameLibrary() {
   // Inline platform add
   const [showAddPlatform, setShowAddPlatform] = useState(false);
   const [newPlatformName, setNewPlatformName] = useState('');
+
+  // v2.5.0: per-room game-library proposal flow.
+  // proposalCheck holds the response from POST /game_library/proposals so the
+  // UI can render the inline use_global / submit_to_global / room_only choice.
+  type GlobalGameLite = { id: string; name: string; manufacturer?: string | null; year?: number | null; type: string; platforms?: string };
+  const [proposalCheck, setProposalCheck] = useState<{
+    input: { name: string; type: 'pinball' | 'video_game'; platforms: string[] };
+    exact: GlobalGameLite | null;
+    possible: GlobalGameLite[];
+  } | null>(null);
+  const [proposalCommitting, setProposalCommitting] = useState(false);
+
+  // v2.5.0: CSV preview/commit flow.
+  type PreviewBucket = 'auto_link' | 'auto_submit' | 'needs_review';
+  type PreviewRow = {
+    index: number;
+    input: { name: string; manufacturer?: string | null; year?: number | null; type: 'pinball' | 'video_game'; platforms?: string[] };
+    candidates: { exact: GlobalGameLite | null; possible: GlobalGameLite[] };
+    bucket: PreviewBucket;
+    suggestedDecision: 'use_global' | 'submit_to_global' | null;
+  };
+  const [csvPreview, setCsvPreview] = useState<{ rows: PreviewRow[]; summary: Record<PreviewBucket, number> & { total: number } } | null>(null);
+  // Per-row decisions for needs_review entries; auto_link/auto_submit use suggestedDecision.
+  const [csvDecisions, setCsvDecisions] = useState<Record<number, { decision: 'use_global' | 'room_only' | 'submit_to_global'; globalGameId?: string }>>({});
+  const [csvCommitting, setCsvCommitting] = useState(false);
 
   const addPlatform = async () => {
     const name = newPlatformName.trim().toUpperCase();
@@ -275,27 +294,84 @@ export default function GameLibrary() {
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          // Normalize: map legacy 'tournament_types' column to 'platforms',
-          // and convert comma-separated strings to JSON arrays
+          // v2.5.0: shape rows to match GameProposalSchema (name + optional
+          // mfg/year/type/platforms). Legacy CSVs may still have a
+          // `tournament_types` column where modern ones use `platforms`.
           const games = (results.data as Record<string, string>[]).map(row => {
-            const raw = row.platforms || (row as any).tournament_types || '';
-            if (raw) {
-              const list = parsePlatforms(raw);
-              row.platforms = JSON.stringify(list);
+            const platformsRaw = row.platforms || (row as any).tournament_types || '';
+            const platforms = platformsRaw ? parsePlatforms(platformsRaw) : [];
+            const yearStr = row.year || '';
+            const yearNum = yearStr.trim() ? parseInt(yearStr, 10) : undefined;
+            return {
+              name: (row.name || '').trim(),
+              type: row.mode === 'videogame' ? 'video_game' as const : 'pinball' as const,
+              manufacturer: row.manufacturer?.trim() || undefined,
+              year: Number.isFinite(yearNum) ? yearNum : undefined,
+              platforms: platforms.length ? platforms : undefined,
+            };
+          }).filter(g => g.name);
+          if (games.length === 0) {
+            toast('CSV had no usable rows', 'error');
+            return;
+          }
+          // Run dedup preview server-side. The FE keeps the response and the
+          // user's per-row decisions in memory; commit replays them as a JSON array.
+          const preview = await api.post<{ rows: PreviewRow[]; summary: Record<PreviewBucket, number> & { total: number } }>(
+            `${prefix}/game_library/import-csv-preview`, { games },
+          );
+          // Pre-seed decisions for auto-bucketed rows from the server's suggestion.
+          const seeded: Record<number, { decision: 'use_global' | 'room_only' | 'submit_to_global'; globalGameId?: string }> = {};
+          for (const r of preview.rows) {
+            if (r.bucket === 'auto_link' && r.candidates.exact) {
+              seeded[r.index] = { decision: 'use_global', globalGameId: r.candidates.exact.id };
+            } else if (r.bucket === 'auto_submit') {
+              seeded[r.index] = { decision: 'submit_to_global' };
             }
-            return row;
-          });
-          await api.post(`${prefix}/game_library/import`, { games });
-          toast(`Imported ${results.data.length} games`, 'success');
-          fetchGames();
-        } catch {
-          toast('Import failed', 'error');
+          }
+          setCsvPreview(preview);
+          setCsvDecisions(seeded);
+          toast(`Preview ready: ${preview.summary.total} rows`, 'success');
+        } catch (err: any) {
+          toast(err.message || 'Preview failed', 'error');
         } finally {
           setImporting(false);
           e.target.value = '';
         }
       }
     });
+  };
+
+  // v2.5.0: commit the previewed CSV. Skips rows in `needs_review` that the
+  // user hasn't picked a decision for yet.
+  const commitCsvPreview = async () => {
+    if (!csvPreview) return;
+    const ready = csvPreview.rows
+      .map(r => {
+        const d = csvDecisions[r.index];
+        if (!d) return null;
+        return { input: r.input, decision: d.decision, ...(d.globalGameId ? { globalGameId: d.globalGameId } : {}) };
+      })
+      .filter(Boolean) as Array<{ input: PreviewRow['input']; decision: 'use_global' | 'room_only' | 'submit_to_global'; globalGameId?: string }>;
+    if (ready.length === 0) {
+      toast('Pick a decision for at least one row', 'error');
+      return;
+    }
+    setCsvCommitting(true);
+    try {
+      const result = await api.post<{ ok: boolean; counts: { linked: number; submitted_pending: number; room_only: number; errors: number }; errors?: Array<{ index: number; error: string }> }>(
+        `${prefix}/game_library/import-csv-commit`, { games: ready },
+      );
+      const { counts } = result;
+      const summary = `${counts.linked} linked · ${counts.submitted_pending} pending · ${counts.room_only} room-only` + (counts.errors ? ` · ${counts.errors} failed` : '');
+      toast(summary, counts.errors ? 'error' : 'success');
+      setCsvPreview(null);
+      setCsvDecisions({});
+      fetchGames();
+    } catch (err: any) {
+      toast(err.message || 'Commit failed', 'error');
+    } finally {
+      setCsvCommitting(false);
+    }
   };
 
   const downloadTemplate = () => {
@@ -310,19 +386,62 @@ export default function GameLibrary() {
     URL.revokeObjectURL(url);
   };
 
+  // v2.5.0: Add Game now runs through the proposals dedup flow. Form data
+  // is captured into `newGame`; clicking Save runs /proposals → renders an
+  // inline result panel where the user picks one of three commit paths.
   const handleAddGame = async () => {
     if (!newGame.name.trim()) { toast('Game name required', 'error'); return; }
+    if (!room) { toast('Room context required', 'error'); return; }
     setSaving(true);
     try {
-      await api.post(`${prefix}/game_library/import`, { games: [newGame] });
-      setNewGame({ ...emptyGame });
-      setShowAddForm(false);
-      toast('Game added', 'success');
-      fetchGames();
-    } catch {
-      toast('Failed to save game', 'error');
+      const type = newGame.mode === 'videogame' ? 'video_game' : 'pinball';
+      const platforms = parsePlatforms(newGame.platforms);
+      const result = await api.post<{ exact: GlobalGameLite | null; possible: GlobalGameLite[] }>(
+        `${prefix}/game_library/proposals`,
+        { name: newGame.name.trim(), type, platforms },
+      );
+      setProposalCheck({ input: { name: newGame.name.trim(), type, platforms }, ...result });
+    } catch (err: any) {
+      toast(err.message || 'Could not check the catalogue', 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // v2.5.0: commit the user's choice from the proposal result panel.
+  // `decision` selects which endpoint to call. After success, refresh list +
+  // close the Add form.
+  const commitProposal = async (decision: 'use_global' | 'room_only' | 'submit_to_global', globalGameId?: string) => {
+    if (!proposalCheck || !room) return;
+    setProposalCommitting(true);
+    try {
+      const path =
+        decision === 'use_global'
+          ? `${prefix}/game_library/use_global`
+          : decision === 'room_only'
+          ? `${prefix}/game_library/room_only`
+          : `${prefix}/game_library/submit_to_global`;
+      const body: Record<string, unknown> = decision === 'use_global'
+        ? { globalGameId }
+        : {
+            name: proposalCheck.input.name,
+            type: proposalCheck.input.type,
+            platforms: proposalCheck.input.platforms,
+          };
+      await api.post(path, body);
+      const successMsg =
+        decision === 'use_global'   ? 'Linked to existing catalogue entry'
+        : decision === 'room_only'  ? 'Added to this room only (not contributing to global catalogue)'
+        :                              'Added to room and submitted to global catalogue for review';
+      toast(successMsg, 'success');
+      setProposalCheck(null);
+      setNewGame({ ...emptyGame });
+      setShowAddForm(false);
+      fetchGames();
+    } catch (err: any) {
+      toast(err.message || 'Failed to add game', 'error');
+    } finally {
+      setProposalCommitting(false);
     }
   };
 
@@ -454,38 +573,6 @@ export default function GameLibrary() {
           <NeonButton onClick={() => setShowAddForm(!showAddForm)}>
             {showAddForm ? 'Cancel' : 'Add Game'}
           </NeonButton>
-          <NeonButton variant="secondary" onClick={async () => {
-            setVpsImporting(true);
-            try {
-              const res = await api.post<{ imported: number; total: number; nearMatches?: Array<{ imported: string; existing: string }>; autoMerged?: Array<{ imported: string; existing: string }> }>('/admin/game_library/import-vps', { roomId: room?.roomId });
-              const mergeMsg = res.autoMerged?.length ? ` (${res.autoMerged.length} auto-merged)` : '';
-              toast(`Imported ${res.imported} games from VPS${mergeMsg}`, 'success');
-              if (res.nearMatches && res.nearMatches.length > 0) setNearMatches(res.nearMatches);
-              fetchGames();
-            } catch (err: any) {
-              toast(err.message || 'VPS import failed', 'error');
-            } finally {
-              setVpsImporting(false);
-            }
-          }} disabled={vpsImporting}>
-            {vpsImporting ? 'Importing VPS...' : 'Import from VPS'}
-          </NeonButton>
-          <NeonButton variant="secondary" onClick={async () => {
-            setWizardImporting(true);
-            try {
-              const res = await api.post<{ imported: number; total: number; nearMatches?: Array<{ imported: string; existing: string }>; autoMerged?: Array<{ imported: string; existing: string }> }>('/admin/game_library/import-wizard', { roomId: room?.roomId });
-              const mergeMsg = res.autoMerged?.length ? ` (${res.autoMerged.length} auto-merged)` : '';
-              toast(`Imported ${res.imported} VPXS Wizard tables${mergeMsg}`, 'success');
-              if (res.nearMatches && res.nearMatches.length > 0) setNearMatches(res.nearMatches);
-              fetchGames();
-            } catch (err: any) {
-              toast(err.message || 'Wizard import failed', 'error');
-            } finally {
-              setWizardImporting(false);
-            }
-          }} disabled={wizardImporting}>
-            {wizardImporting ? 'Importing Wizard...' : 'Import VPXS Wizard'}
-          </NeonButton>
           <label htmlFor="csv-upload" className="cursor-pointer">
             <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" id="csv-upload" disabled={importing} />
             <span className={`
@@ -573,47 +660,191 @@ export default function GameLibrary() {
         </NeonCard>
       )}
 
-      {/* Near-match warnings from imports */}
-      {nearMatches.length > 0 && (
-        <NeonCard glowColor="amber" className="mb-4 border-l-2 border-l-neon-amber" title="Possible Duplicates Detected">
-          <p className="text-sm text-muted mb-3">
-            The following imported games have similar names to existing entries. They may be duplicates with minor formatting differences (e.g. commas). You can merge them to combine platforms.
-          </p>
-          <div className="space-y-2">
-            {nearMatches.map((m, i) => (
-              <div key={i} className="flex items-center gap-3 text-sm bg-raised/50 px-3 py-2 rounded">
-                <div className="flex-1 min-w-0">
-                  <span className="text-neon-amber font-display">{m.imported}</span>
-                  <span className="text-faint mx-2">&rarr;</span>
-                  <span className="text-primary">{m.existing}</span>
+      {/* v2.5.0: proposal result panel — rendered after Add Game ran a dedup check.
+          Three states (exact match / possible matches / no candidate) each surface
+          their relevant commit choices. */}
+      {proposalCheck && (
+        <NeonCard glowColor="cyan" className="mb-4 border-l-2 border-l-neon-cyan" title={
+          proposalCheck.exact ? 'Already in the catalogue' :
+          proposalCheck.possible.length > 0 ? 'Possible duplicates' :
+          'New game — submit to catalogue?'
+        }>
+          {proposalCheck.exact ? (
+            <>
+              <p className="text-sm text-muted mb-3">
+                We found an existing catalogue entry for{' '}
+                <span className="text-primary font-medium">{proposalCheck.input.name}</span>:
+              </p>
+              <div className="bg-raised/50 px-3 py-2 rounded text-sm mb-3 flex items-center justify-between">
+                <div>
+                  <span className="text-primary font-medium">{proposalCheck.exact.name}</span>
+                  {(proposalCheck.exact.manufacturer || proposalCheck.exact.year) && (
+                    <span className="text-faint ml-2">
+                      ({[proposalCheck.exact.manufacturer, proposalCheck.exact.year].filter(Boolean).join(', ')})
+                    </span>
+                  )}
                 </div>
-                <NeonButton
-                  variant="secondary"
-                  className="text-xs px-2 py-1 flex-shrink-0"
-                  disabled={merging}
-                  onClick={async () => {
-                    if (!confirm(`Merge "${m.imported}" into "${m.existing}"? This will combine platforms and remove the duplicate.`)) return;
-                    setMerging(true);
-                    try {
-                      await api.post('/admin/game_library/merge', { fromName: m.imported, toName: m.existing });
-                      toast(`Merged "${m.imported}" into "${m.existing}"`, 'success');
-                      setNearMatches(prev => prev.filter((_, idx) => idx !== i));
-                      fetchGames();
-                    } catch (err: any) {
-                      toast(err.message || 'Merge failed', 'error');
-                    } finally {
-                      setMerging(false);
-                    }
-                  }}
-                >
-                  Merge
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <NeonButton onClick={() => commitProposal('use_global', proposalCheck.exact!.id)} disabled={proposalCommitting}>
+                  Yes, link this to my room
+                </NeonButton>
+                <NeonButton variant="ghost" onClick={() => setProposalCheck(null)} disabled={proposalCommitting}>
+                  Cancel
                 </NeonButton>
               </div>
-            ))}
+            </>
+          ) : proposalCheck.possible.length > 0 ? (
+            <>
+              <p className="text-sm text-muted mb-3">
+                These existing entries have similar names. Pick one to link, or add{' '}
+                <span className="text-primary font-medium">{proposalCheck.input.name}</span> as new.
+              </p>
+              <div className="space-y-2 mb-3">
+                {proposalCheck.possible.map(p => (
+                  <div key={p.id} className="bg-raised/50 px-3 py-2 rounded text-sm flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-primary font-medium">{p.name}</span>
+                      {(p.manufacturer || p.year) && (
+                        <span className="text-faint ml-2">
+                          ({[p.manufacturer, p.year].filter(Boolean).join(', ')})
+                        </span>
+                      )}
+                    </div>
+                    <NeonButton variant="secondary" className="text-xs px-2 py-1 flex-shrink-0"
+                      onClick={() => commitProposal('use_global', p.id)} disabled={proposalCommitting}>
+                      Use this one
+                    </NeonButton>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 flex-wrap pt-2 border-t border-border/30">
+                <span className="text-xs text-faint self-center">None of these match —</span>
+                <NeonButton variant="secondary" onClick={() => commitProposal('submit_to_global')} disabled={proposalCommitting}>
+                  Submit as new (pending review)
+                </NeonButton>
+                <NeonButton variant="ghost" onClick={() => commitProposal('room_only')} disabled={proposalCommitting}>
+                  Add room-only
+                </NeonButton>
+                <div className="flex-1" />
+                <NeonButton variant="ghost" onClick={() => setProposalCheck(null)} disabled={proposalCommitting}>
+                  Cancel
+                </NeonButton>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted mb-3">
+                No catalogue match for{' '}
+                <span className="text-primary font-medium">{proposalCheck.input.name}</span>.
+                Submit it for review (visible to all rooms once approved), or keep it private to this room.
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                <NeonButton onClick={() => commitProposal('submit_to_global')} disabled={proposalCommitting}>
+                  Submit to global catalogue
+                </NeonButton>
+                <NeonButton variant="ghost" onClick={() => commitProposal('room_only')} disabled={proposalCommitting}>
+                  Add room-only
+                </NeonButton>
+                <div className="flex-1" />
+                <NeonButton variant="ghost" onClick={() => setProposalCheck(null)} disabled={proposalCommitting}>
+                  Cancel
+                </NeonButton>
+              </div>
+            </>
+          )}
+        </NeonCard>
+      )}
+
+      {/* v2.5.0: CSV preview panel — categorized rows + per-row decision UI. */}
+      {csvPreview && (
+        <NeonCard glowColor="cyan" className="mb-4 border-l-2 border-l-neon-cyan" title={`CSV Preview · ${csvPreview.summary.total} rows`}>
+          <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
+            <div className="bg-raised/50 px-3 py-2 rounded">
+              <div className="text-faint text-xs uppercase tracking-wider">Auto-link</div>
+              <div className="text-neon-green font-display text-lg">{csvPreview.summary.auto_link}</div>
+            </div>
+            <div className="bg-raised/50 px-3 py-2 rounded">
+              <div className="text-faint text-xs uppercase tracking-wider">Auto-submit</div>
+              <div className="text-neon-cyan font-display text-lg">{csvPreview.summary.auto_submit}</div>
+            </div>
+            <div className="bg-raised/50 px-3 py-2 rounded">
+              <div className="text-faint text-xs uppercase tracking-wider">Needs review</div>
+              <div className="text-neon-amber font-display text-lg">{csvPreview.summary.needs_review}</div>
+            </div>
           </div>
-          <div className="mt-3">
-            <NeonButton variant="ghost" className="text-xs" onClick={() => setNearMatches([])}>
-              Dismiss All
+
+          {csvPreview.summary.needs_review > 0 && (
+            <div className="mb-4">
+              <p className="text-xs text-muted mb-2">Pick a decision for each ambiguous row:</p>
+              <div className="space-y-2">
+                {csvPreview.rows.filter(r => r.bucket === 'needs_review').map(r => {
+                  const decision = csvDecisions[r.index];
+                  return (
+                    <div key={r.index} className="bg-raised/50 px-3 py-2 rounded text-sm">
+                      <div className="font-medium text-primary mb-2">{r.input.name}</div>
+                      <div className="text-xs text-faint mb-2">Possible matches:</div>
+                      <div className="space-y-1 mb-2">
+                        {r.candidates.possible.map(p => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setCsvDecisions(prev => ({ ...prev, [r.index]: { decision: 'use_global', globalGameId: p.id } }))}
+                            className={`w-full text-left px-2 py-1 rounded border transition-colors text-xs ${
+                              decision?.decision === 'use_global' && decision.globalGameId === p.id
+                                ? 'bg-neon-cyan/15 border-neon-cyan text-neon-cyan'
+                                : 'border-border text-muted hover:text-primary hover:border-border/80'
+                            }`}
+                          >
+                            {p.name}
+                            {(p.manufacturer || p.year) && <span className="text-faint ml-2">({[p.manufacturer, p.year].filter(Boolean).join(', ')})</span>}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => setCsvDecisions(prev => ({ ...prev, [r.index]: { decision: 'submit_to_global' } }))}
+                          className={`text-xs px-2 py-1 rounded border transition-colors ${
+                            decision?.decision === 'submit_to_global'
+                              ? 'bg-neon-cyan/15 border-neon-cyan text-neon-cyan'
+                              : 'border-border text-muted hover:text-primary hover:border-border/80'
+                          }`}
+                        >
+                          Submit as new (pending)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCsvDecisions(prev => ({ ...prev, [r.index]: { decision: 'room_only' } }))}
+                          className={`text-xs px-2 py-1 rounded border transition-colors ${
+                            decision?.decision === 'room_only'
+                              ? 'bg-neon-cyan/15 border-neon-cyan text-neon-cyan'
+                              : 'border-border text-muted hover:text-primary hover:border-border/80'
+                          }`}
+                        >
+                          Room-only
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCsvDecisions(prev => { const n = { ...prev }; delete n[r.index]; return n; })}
+                          className="text-xs px-2 py-1 rounded border border-border text-faint hover:text-muted transition-colors"
+                        >
+                          Skip
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2 flex-wrap">
+            <NeonButton onClick={commitCsvPreview} disabled={csvCommitting}>
+              {csvCommitting ? 'Importing…' : `Import ${Object.keys(csvDecisions).length} rows`}
+            </NeonButton>
+            <NeonButton variant="ghost" onClick={() => { setCsvPreview(null); setCsvDecisions({}); }} disabled={csvCommitting}>
+              Cancel
             </NeonButton>
           </div>
         </NeonCard>

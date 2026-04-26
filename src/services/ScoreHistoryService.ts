@@ -17,6 +17,13 @@ export class ScoreHistoryService {
         source: 'tournament' | 'community' | 'sync';
         tournamentId?: string | null;
         anonymousName?: string | null;
+        /**
+         * v2.5.0: per-score platform stratification. Required at the API boundary
+         * for new submissions; nullable here because the sync poller may not have
+         * a platform unless `tournament.iscored_default_platform` is set, and
+         * legacy callers pre-v2.5.0 don't pass it.
+         */
+        platform?: string | null;
     }) {
         const db = await getDatabase();
 
@@ -59,12 +66,13 @@ export class ScoreHistoryService {
             `INSERT INTO score_history (
                 game_name, game_room_id, game_id, iscored_username, discord_user_id, score, photo_url, source,
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                submitted_by_anonymous_name, merged_from_anonymous_identity_id
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
             params.gameName, params.gameRoomId, params.gameId || null,
             params.username, params.discordUserId || 'SYSTEM',
             params.score, params.photoUrl || null, params.source,
-            params.gameRoomId, submittedTournamentId, submittedByUserId, submittedByAnonymousName
+            params.gameRoomId, submittedTournamentId, submittedByUserId, submittedByAnonymousName,
+            params.platform ?? null,
         );
 
         // Sprint 6.5: any Discord-authenticated score establishes room membership.

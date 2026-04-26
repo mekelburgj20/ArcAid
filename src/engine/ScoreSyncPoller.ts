@@ -179,8 +179,11 @@ export class ScoreSyncPoller {
 
             // Scope the lookup to rooms that share this account, so two
             // accounts using overlapping GameIDs don't cross-talk.
+            // v2.5.0: pull tournament.iscored_default_platform so every synced
+            // submission gets stamped with the admin-chosen fallback (NULL is
+            // fine — leaderboard will render those rows as "Platform unknown").
             const localGame = await db.get(
-                `SELECT g.id, g.tournament_id, g.name, t.game_room_id
+                `SELECT g.id, g.tournament_id, g.name, t.game_room_id, t.iscored_default_platform AS platform
                  FROM games g
                  JOIN tournaments t ON t.id = g.tournament_id
                  WHERE g.iscored_id = ? AND t.game_room_id IN (${placeholders})`,
@@ -216,16 +219,17 @@ export class ScoreSyncPoller {
                         INSERT INTO submissions (
                             id, game_id, iscored_username, score, timestamp, discord_user_id,
                             submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                            submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                            submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
                         ON CONFLICT(id) DO UPDATE SET
                             score = excluded.score,
                             discord_user_id = excluded.discord_user_id,
-                            iscored_username = excluded.iscored_username
+                            iscored_username = excluded.iscored_username,
+                            platform = COALESCE(excluded.platform, submissions.platform)
                     `, syncId, localGame.id, resolvedName, scoreValue, new Date().toISOString(), discordUserId,
                         localGame.game_room_id || null, localGame.tournament_id || null,
-                        submittedByUserId, submittedByAnonymousName);
+                        submittedByUserId, submittedByAnonymousName, localGame.platform ?? null);
 
                     changedGameIds.add(localGame.id);
                     logDebug(`ScoreSyncPoller[${creds.gameroomName}]: ${existing ? 'updated' : 'new'} score for ${resolvedName}${resolvedName !== score.name ? ` (alias of ${score.name})` : ''} on "${gameData.gameName}": ${scoreValue.toLocaleString()}`);
@@ -243,6 +247,7 @@ export class ScoreSyncPoller {
                                 source: 'sync',
                                 tournamentId: localGame.tournament_id,
                                 anonymousName: submittedByAnonymousName,
+                                platform: localGame.platform ?? null,
                             });
 
                             import('../services/LobbyFeedGenerator.js').then(({ LobbyFeedGenerator }) => {
@@ -263,6 +268,7 @@ export class ScoreSyncPoller {
                                 score: scoreValue,
                                 tournamentId: localGame.tournament_id,
                                 submittedByAnonymousName: submittedByAnonymousName ?? undefined,
+                                platform: localGame.platform ?? null,
                             });
                             if (fanOut) {
                                 const { emitScoreNewGlobal } = await import('../api/websocket.js');

@@ -11,6 +11,12 @@ interface RankedEntry {
   discord_user_id: string;
   iscored_username: string;
   score: number;
+  /**
+   * v2.5.0: per-row platform stamp. `null` for legacy rows the backfill
+   * couldn't disambiguate (multi-platform games). `undefined` if a stale
+   * cache returned a row without the field — treated the same as `null`.
+   */
+  platform?: string | null;
 }
 
 interface GameLeaderboard {
@@ -108,6 +114,13 @@ export default function GameDetail() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
 
+  // v2.5.0: per-platform leaderboard tabs.
+  // - selectedPlatform === null  → "All" view (uses leaderboard.rankings as-is, with NULL-platform rows demoted to a tail section)
+  // - selectedPlatform === 'X'   → filtered view, fetched from /leaderboard/:gameId?platform=X
+  const [distinctPlatforms, setDistinctPlatforms] = useState<string[]>([]);
+  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
+  const [filteredRankings, setFilteredRankings] = useState<RankedEntry[] | null>(null);
+
   // Full game score history
   const [gameHistory, setGameHistory] = useState<ScoreHistoryEntry[]>([]);
   const [showGameHistory, setShowGameHistory] = useState(false);
@@ -179,6 +192,21 @@ export default function GameDetail() {
             .then(r => r.ok ? r.json() : {})
             .then(setScoreCounts)
             .catch(() => {});
+          // v2.5.0: pull distinct platforms separately so the "All" view can
+          // render the segmented tab strip. Bulk leaderboard list endpoint
+          // doesn't include this; the per-game endpoint does.
+          fetch(`/api/rooms/${roomId}/leaderboard/${match.gameId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then((data: { distinctPlatforms?: string[]; rankings?: RankedEntry[] } | null) => {
+              if (!data) return;
+              if (Array.isArray(data.distinctPlatforms)) setDistinctPlatforms(data.distinctPlatforms);
+              // The per-game endpoint also returns a fresher rankings array
+              // that's been recomputed post-cache-flush, so prefer it.
+              if (Array.isArray(data.rankings) && data.rankings.length > 0) {
+                setLeaderboard(prev => prev ? { ...prev, rankings: data.rankings! } : prev);
+              }
+            })
+            .catch(() => {});
         }
       })
       .catch(() => {});
@@ -205,6 +233,26 @@ export default function GameDetail() {
       })
       .catch(() => {});
   }, [name, roomId]);
+
+  // v2.5.0: fetch platform-filtered rankings whenever the user picks a
+  // non-"All" tab. "All" uses the unfiltered rankings already in `leaderboard`.
+  useEffect(() => {
+    if (!roomId || !leaderboard?.gameId || !selectedPlatform) {
+      setFilteredRankings(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?platform=${encodeURIComponent(selectedPlatform)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { rankings?: RankedEntry[] } | null) => {
+        if (cancelled) return;
+        setFilteredRankings(Array.isArray(data?.rankings) ? data!.rankings! : []);
+      })
+      .catch(() => {
+        if (!cancelled) setFilteredRankings([]);
+      });
+    return () => { cancelled = true; };
+  }, [roomId, leaderboard?.gameId, selectedPlatform]);
 
   const loadCommunityData = (rid: string, gameName: string) => {
     fetch(`/api/rooms/${rid}/community-scores/${encodeURIComponent(gameName)}`)
@@ -419,39 +467,39 @@ export default function GameDetail() {
         {activeTab === 'leaderboard' && (
           <>
             {/* Active Leaderboard */}
-            {leaderboard && leaderboard.rankings.length > 0 && (
-              <div className="mb-8">
-                <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Current Leaderboard</h2>
-                <div className="bg-surface border border-border rounded-lg overflow-hidden">
-                  <div className="flex items-center justify-between px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 text-center">Rank</span>
-                      <span>Player</span>
-                    </div>
-                    <span>Score</span>
-                  </div>
-                  {leaderboard.rankings.map((entry) => {
-                    const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
-                    return (
+            {leaderboard && leaderboard.rankings.length > 0 && (() => {
+              // v2.5.0: pick the rendered ranking set based on the active platform tab.
+              // "All" splits NULL-platform rows into a tail section (re-numbered locally
+              // so ranks are visually contiguous within each subsection).
+              const baseRankings = selectedPlatform ? (filteredRankings ?? []) : leaderboard.rankings;
+              const tagged = selectedPlatform
+                ? baseRankings
+                : baseRankings.filter(e => e.platform);
+              const untagged = selectedPlatform
+                ? []
+                : baseRankings.filter(e => !e.platform);
+              const renderRow = (entry: RankedEntry, displayRank: number) => {
+                const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
+                return (
                     /* v2.2.0 fix: discord_user_id is "SYSTEM" / "ANON" / "COMMUNITY"
                        for guest submissions, so two anon players collide on the
                        React key and the reconciler drops a row. rank+username is
                        always unique within a leaderboard. */
-                    <div key={`${entry.rank}-${entry.iscored_username.toLowerCase()}`}>
+                    <div key={`${displayRank}-${entry.iscored_username.toLowerCase()}`}>
                       <div
                         className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
-                          entry.rank === 1 ? 'bg-neon-amber/8' : ''
+                          displayRank === 1 ? 'bg-neon-amber/8' : ''
                         } ${hasMultiple ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
                         onClick={hasMultiple ? () => togglePlayerHistory(entry.iscored_username) : undefined}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
-                            entry.rank === 1 ? 'text-neon-amber text-lg' :
-                            entry.rank === 2 ? 'text-neon-cyan' :
-                            entry.rank === 3 ? 'text-neon-green' :
+                            displayRank === 1 ? 'text-neon-amber text-lg' :
+                            displayRank === 2 ? 'text-neon-cyan' :
+                            displayRank === 3 ? 'text-neon-green' :
                             'text-faint'
                           }`}>
-                            {entry.rank}
+                            {displayRank}
                           </span>
                           {/* v2.2.6: clicking the username goes to player
                               stats. stopPropagation so the row-click expand
@@ -463,10 +511,18 @@ export default function GameDetail() {
                           >
                             {entry.iscored_username}
                           </Link>
+                          {/* v2.5.0: per-row platform badge in the "All" view; in
+                              per-platform views every row would show the same
+                              chip, so we omit it. */}
+                          {!selectedPlatform && entry.platform && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan font-display tracking-wide flex-shrink-0">
+                              {entry.platform}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`font-display font-bold flex-shrink-0 ${
-                            entry.rank === 1 ? 'text-neon-amber text-lg' : 'text-primary'
+                            displayRank === 1 ? 'text-neon-amber text-lg' : 'text-primary'
                           }`}>
                             {entry.score.toLocaleString()}
                           </span>
@@ -536,10 +592,72 @@ export default function GameDetail() {
                       )}
                     </div>
                   );
-                  })}
+              };
+
+              return (
+                <div className="mb-8">
+                  <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Current Leaderboard</h2>
+                  {/* v2.5.0: platform-stratified tabs. Hidden when the game has
+                      ≤1 distinct platform across submitted scores — degrades
+                      cleanly to the legacy single-table view. */}
+                  {distinctPlatforms.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPlatform(null)}
+                        className={`text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer ${
+                          selectedPlatform === null
+                            ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
+                            : 'border-border text-muted hover:text-primary hover:border-border/80'
+                        }`}
+                      >
+                        All
+                      </button>
+                      {distinctPlatforms.map(p => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setSelectedPlatform(p)}
+                          className={`text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer ${
+                            selectedPlatform === p
+                              ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
+                              : 'border-border text-muted hover:text-primary hover:border-border/80'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="bg-surface border border-border rounded-lg overflow-hidden">
+                    <div className="flex items-center justify-between px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+                      <div className="flex items-center gap-3">
+                        <span className="w-8 text-center">Rank</span>
+                        <span>Player</span>
+                      </div>
+                      <span>Score</span>
+                    </div>
+                    {tagged.length === 0 && untagged.length === 0 ? (
+                      <p className="text-muted text-sm text-center py-6">
+                        {selectedPlatform ? `No scores yet on ${selectedPlatform}.` : 'No scores yet.'}
+                      </p>
+                    ) : (
+                      <>
+                        {tagged.map((entry, i) => renderRow(entry, i + 1))}
+                        {untagged.length > 0 && (
+                          <>
+                            <div className="bg-deep/30 px-5 py-2 border-t border-border/30 text-[10px] text-faint uppercase tracking-wider">
+                              Platform unknown
+                            </div>
+                            {untagged.map((entry, i) => renderRow(entry, tagged.length + i + 1))}
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Record Holder */}
             {stats?.allTimeHighPlayer && (

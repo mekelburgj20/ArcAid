@@ -1047,6 +1047,69 @@ export async function initDatabase(): Promise<Database> {
              WHERE key = 'SYNC_ALERT_CHANNEL_ID'
                AND value = '1467561374040461527';
         ` },
+        // --- v2.5.0: VR + Steam-pinball platform taxonomy expansion ---
+        { name: '083_rename_fx3_to_fx_classic', handler: async (db) => {
+            const { renameFx3ToFxClassic } = await import('./migrations/platformTaxonomyExpansion.js');
+            await renameFx3ToFxClassic(db);
+        } },
+        { name: '084_add_platform_to_score_tables', sql: `
+            -- v2.5.0: per-score platform stratification. Pinball FX VR Medieval
+            -- Madness is a different scoring surface than a real machine, and
+            -- tournaments need to be able to require/exclude platforms. Column
+            -- nullable in SQL (legacy rows survive); required at the API boundary
+            -- via Zod for new submissions.
+            ALTER TABLE submissions       ADD COLUMN platform TEXT;
+            ALTER TABLE score_history     ADD COLUMN platform TEXT;
+            ALTER TABLE community_scores  ADD COLUMN platform TEXT;
+            ALTER TABLE global_scores     ADD COLUMN platform TEXT;
+
+            -- Composite indexes match the leaderboard query shape:
+            --   "scores for game X on platform Y, ordered by score".
+            CREATE INDEX IF NOT EXISTS idx_submissions_game_platform   ON submissions(game_id, platform);
+            CREATE INDEX IF NOT EXISTS idx_score_history_game_platform ON score_history(game_id, platform);
+            CREATE INDEX IF NOT EXISTS idx_community_game_platform     ON community_scores(game_name, game_room_id, platform);
+            CREATE INDEX IF NOT EXISTS idx_global_scores_game_platform ON global_scores(global_game_id, platform);
+
+            -- Tournament-scoped fallback for iScored-polled scores. iScored has
+            -- no platform concept, so admins can pick a default that gets stamped
+            -- on synced submissions. NULL = leave score's platform NULL (renders
+            -- as "Platform unknown" in the leaderboard).
+            ALTER TABLE tournaments ADD COLUMN iscored_default_platform TEXT;
+
+            -- OAuth-handoff drafts now also carry the picker selection so the
+            -- post-login commit can replay it through the platform-required
+            -- submit endpoints without re-prompting the user.
+            ALTER TABLE submission_drafts ADD COLUMN platform TEXT;
+        ` },
+        { name: '085_backfill_score_platforms', handler: async (db) => {
+            const { backfillScorePlatforms } = await import('./migrations/platformTaxonomyExpansion.js');
+            await backfillScorePlatforms(db);
+        } },
+        { name: '086_cache_bust_for_platform_aware_rankings', sql: `
+            -- v2.5.0: RankedEntry now carries a per-row platform field. Cached
+            -- leaderboard JSON blobs from before this release have no platform
+            -- key, so the GameDetail tabs would render every row as "Platform
+            -- unknown" until natural cache invalidation kicked in. Flush both
+            -- caches so the next read recomputes with the new shape.
+            DELETE FROM leaderboard_cache;
+            DELETE FROM global_leaderboard_cache;
+        ` },
+        { name: '087_global_games_pending_status', sql: `
+            -- v2.5.0: per-room "submit to global catalogue for super-admin
+            -- approval" flow. global_games.status was already a plain TEXT
+            -- column with no CHECK constraint (default 'approved'), so we
+            -- just need three new columns to track the proposer + when, plus
+            -- a partial index for the approval queue read pattern.
+            ALTER TABLE global_games ADD COLUMN submitted_by_user_id TEXT;
+            ALTER TABLE global_games ADD COLUMN submitted_by_room_id TEXT;
+            ALTER TABLE global_games ADD COLUMN submitted_at TEXT;
+            -- Partial index — narrow because the approval queue UI lists ONLY
+            -- pending rows ordered by submission time. idx_global_games_status
+            -- already exists from the v2.4.0 sprint (see CREATE TABLE block).
+            CREATE INDEX IF NOT EXISTS idx_global_games_pending
+                ON global_games(status, submitted_at)
+                WHERE status = 'pending';
+        ` },
     ];
 
     for (const migration of migrations) {

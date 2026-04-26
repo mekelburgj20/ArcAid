@@ -41,6 +41,11 @@ export const submitscore: Command = {
                 .setDescription('Your iScored username (if different from mapping)')
                 .setRequired(false)
         )
+        .addStringOption(option =>
+            option.setName('platform')
+                .setDescription('Platform you played on (auto-filled when the game has only one)')
+                .setRequired(false)
+        )
         .addBooleanOption(option =>
             option.setName('exclude_global')
                 .setDescription('Don\'t post this score to the global ArcAid scoreboard')
@@ -89,6 +94,7 @@ export const submitscore: Command = {
         const score = interaction.options.getInteger('score', true);
         const photo = interaction.options.getAttachment('photo', true);
         let username = interaction.options.getString('username');
+        let platform = interaction.options.getString('platform') || undefined;
         const excludeGlobal = interaction.options.getBoolean('exclude_global') || false;
 
         // Validate score is a positive integer
@@ -111,6 +117,69 @@ export const submitscore: Command = {
             if (!game || !game.iscored_id) {
                 await interaction.editReply(`Could not find an active ${term.game} named '${gameName}' linked to iScored.`);
                 return;
+            }
+
+            // v2.5.0: resolve submittable platforms for this game in this room.
+            // If the game has 1 submittable platform, auto-fill. If 2+ and the
+            // user didn't pass `platform`, reply ephemerally with valid choices
+            // so they can re-run. If `platform` was passed, validate it.
+            const { parsePlatformsList, mergeEffectivePlatforms, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
+            const grglib = await db.get(`
+                SELECT gl.platforms AS lib_platforms,
+                       grgl.custom_platforms AS room_platforms
+                FROM game_room_game_library grgl
+                JOIN game_library gl ON gl.name = grgl.game_name
+                WHERE grgl.game_room_id = ? AND LOWER(gl.name) = LOWER(?)
+                LIMIT 1
+            `, game.game_room_id, gameName);
+            let effectivePlatforms: string[] = [];
+            if (grglib) {
+                effectivePlatforms = mergeEffectivePlatforms(grglib.lib_platforms, grglib.room_platforms);
+            } else {
+                const gg = await db.get(
+                    'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
+                    gameName, 'approved',
+                );
+                if (gg) effectivePlatforms = parsePlatformsList(gg.platforms || '[]');
+            }
+            let platformRules: { required: string[]; excluded: string[] } | null = null;
+            const tournamentRow = await db.get(
+                'SELECT platform_rules FROM tournaments WHERE id = ?',
+                game.tournament_id,
+            );
+            if (tournamentRow?.platform_rules) {
+                try {
+                    const parsed = JSON.parse(tournamentRow.platform_rules);
+                    platformRules = {
+                        required: Array.isArray(parsed.required) ? parsed.required : [],
+                        excluded: Array.isArray(parsed.excluded) ? parsed.excluded : [],
+                    };
+                } catch { /* ignore */ }
+            }
+            const submittablePlatforms = resolveSubmittablePlatforms(effectivePlatforms, platformRules);
+            if (submittablePlatforms.length === 0) {
+                await interaction.editReply(`No platforms are configured for **${gameName}**. Ask an admin to set them up.`);
+                return;
+            }
+            if (!platform) {
+                if (submittablePlatforms.length === 1) {
+                    platform = submittablePlatforms[0];
+                } else {
+                    await interaction.editReply(
+                        `**${gameName}** can be played on multiple platforms. Re-run /submit-score with \`platform:\` set to one of: ${submittablePlatforms.join(', ')}.`,
+                    );
+                    return;
+                }
+            } else {
+                const want = platform.toUpperCase();
+                const matched = submittablePlatforms.find(p => p.toUpperCase() === want);
+                if (!matched) {
+                    await interaction.editReply(
+                        `Platform "${platform}" is not allowed for **${gameName}**. Allowed: ${submittablePlatforms.join(', ')}.`,
+                    );
+                    return;
+                }
+                platform = matched; // normalize casing
             }
 
             // Resolve username: explicit param > saved mapping > auto-map from Discord display name
@@ -158,12 +227,12 @@ export const submitscore: Command = {
                     `INSERT INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                        submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
                      )
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                     ON CONFLICT(id) DO UPDATE SET score = MAX(score, excluded.score), discord_user_id = excluded.discord_user_id, photo_url = excluded.photo_url`,
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                     ON CONFLICT(id) DO UPDATE SET score = MAX(score, excluded.score), discord_user_id = excluded.discord_user_id, photo_url = excluded.photo_url, platform = excluded.platform`,
                     `${game.id}-${username!.toLowerCase()}`, game.id, interaction.user.id, username, score, photo.url, new Date().toISOString(),
-                    game.game_room_id || null, game.tournament_id || null, submittedByUserId, submittedByAnonymousName
+                    game.game_room_id || null, game.tournament_id || null, submittedByUserId, submittedByAnonymousName, platform,
                 );
 
                 // Log to score history
@@ -174,6 +243,7 @@ export const submitscore: Command = {
                     score, photoUrl: photo.url, source: 'tournament',
                     tournamentId: game.tournament_id,
                     anonymousName: submittedByAnonymousName,
+                    platform,
                 });
 
                 // Invalidate leaderboard cache
@@ -207,6 +277,7 @@ export const submitscore: Command = {
                         excludeFromGlobal: excludeGlobal,
                         tournamentId: game.tournament_id,
                         submittedByAnonymousName: submittedByAnonymousName ?? undefined,
+                        platform,
                     });
                     if (fanOut && !excludeGlobal) {
                         const { emitScoreNewGlobal } = await import('../../api/websocket.js');

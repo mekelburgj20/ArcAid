@@ -24,7 +24,7 @@ export class CommunityScoreService {
         score: number,
         discordUserId?: string,
         photoUrl?: string,
-        options?: { excludeFromGlobal?: boolean; anonToken?: string | null }
+        options?: { excludeFromGlobal?: boolean; anonToken?: string | null; platform?: string | null }
     ) {
         const db = await getDatabase();
 
@@ -57,10 +57,10 @@ export class CommunityScoreService {
             `INSERT INTO community_scores (
                 game_name, game_room_id, iscored_username, discord_user_id, score, photo_url,
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                submitted_by_anonymous_name, merged_from_anonymous_identity_id
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?)`,
             gameName, gameRoomId, effectiveUsername, discordUserId || 'ANON', score, photoUrl || null,
-            gameRoomId, submittedByUserId, submittedByAnonymousName
+            gameRoomId, submittedByUserId, submittedByAnonymousName, options?.platform ?? null,
         );
 
         // Also log to unified score history
@@ -68,6 +68,7 @@ export class CommunityScoreService {
             gameName, gameRoomId, username: effectiveUsername,
             discordUserId, score, photoUrl,
             source: 'community',
+            platform: options?.platform ?? null,
         });
 
         // Fire-and-forget lobby feed event
@@ -89,6 +90,7 @@ export class CommunityScoreService {
             score,
             photoUrl,
             excludeFromGlobal: options?.excludeFromGlobal,
+            platform: options?.platform ?? null,
         });
 
         if (fanOut && !options?.excludeFromGlobal) {

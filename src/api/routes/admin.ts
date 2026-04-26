@@ -2,6 +2,7 @@ import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { logInfo, logError } from '../../utils/logger.js';
+import { getDatabase } from '../../database/database.js';
 import { requireAuth, requireSuperAdmin } from '../middleware.js';
 import { validate } from '../validate.js';
 import {
@@ -600,6 +601,25 @@ router.post('/catalogue/sync-igdb', async (_req, res) => {
     res.status(202).json({ success: true, started: true, source: 'igdb' });
 });
 
+/**
+ * v2.5.0: Steam Pinball catalogue sync (Zen Studios + Zaccaria).
+ * Pulls DLC lists from six Steam apps, expands curated packs into their
+ * constituent table names, applies skip-list, upserts each as a global_games
+ * row tagged with the canonical platform. No env-var pre-flight — Steam's
+ * appdetails endpoint is anonymous.
+ */
+router.post('/catalogue/sync-steam-pinball', async (_req, res) => {
+    void (async () => {
+        try {
+            const { SteamPinballImportService } = await import('../../services/SteamPinballImportService.js');
+            await SteamPinballImportService.importAll();
+        } catch (error) {
+            logError('Background Steam Pinball sync error:', error);
+        }
+    })();
+    res.status(202).json({ success: true, started: true, source: 'steam-pinball' });
+});
+
 // Catalogue browse & management
 router.get('/catalogue/games', async (req, res) => {
     try {
@@ -653,7 +673,7 @@ router.put('/catalogue/games/:id', async (req, res) => {
 router.patch('/catalogue/games/:id/status', async (req, res) => {
     try {
         const { status } = req.body;
-        if (!['approved', 'pending_review', 'rejected'].includes(status)) {
+        if (!['approved', 'pending', 'rejected'].includes(status)) {
             return res.status(400).json({ error: 'Invalid status' });
         }
         const discordId = (req as any).user?.discordId;
@@ -685,6 +705,145 @@ router.delete('/catalogue/games/:id', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/admin/catalogue/games/:id):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// v2.5.0 — super-admin Catalogue Approval queue.
+// Surfaces pending global_games rows submitted via the per-room proposal flow.
+// Approve / Reject / Merge actions repoint room references via the existing
+// GlobalGameService.merge primitive when consolidating duplicates.
+// ---------------------------------------------------------------------------
+
+/** GET /admin/catalogue/pending — list pending submissions joined with room + submitter. */
+router.get('/catalogue/pending', async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+        const cursor = (req.query.cursor as string) || null;
+        const db = await getDatabase();
+        const rows = await db.all(`
+            SELECT
+                gg.id, gg.name, gg.manufacturer, gg.year, gg.type, gg.platforms,
+                gg.submitted_by_user_id, gg.submitted_by_room_id, gg.submitted_at,
+                gr.name as submitted_by_room_name, gr.slug as submitted_by_room_slug,
+                um.iscored_username as submitted_by_username
+            FROM global_games gg
+            LEFT JOIN game_rooms gr ON gr.id = gg.submitted_by_room_id
+            LEFT JOIN user_mappings um ON um.discord_user_id = gg.submitted_by_user_id
+            WHERE gg.status = 'pending'
+              ${cursor ? 'AND gg.submitted_at < ?' : ''}
+            ORDER BY gg.submitted_at DESC
+            LIMIT ?
+        `, ...(cursor ? [cursor, limit + 1] : [limit + 1]));
+        const hasMore = rows.length > limit;
+        const data = rows.slice(0, limit).map((r: any) => ({
+            ...r,
+            platforms: JSON.parse(r.platforms || '[]'),
+        }));
+        res.json({
+            data,
+            hasMore,
+            nextCursor: hasMore ? data[data.length - 1]?.submitted_at : null,
+        });
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/pending):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** GET /admin/catalogue/pending-count — single integer for the nav badge. */
+router.get('/catalogue/pending-count', async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const row = await db.get(`SELECT COUNT(*) as count FROM global_games WHERE status = 'pending'`);
+        res.json({ count: row?.count ?? 0 });
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/pending-count):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /admin/catalogue/pending/:gameId/approve — flip status to 'approved'. */
+router.post('/catalogue/pending/:gameId/approve', async (req, res) => {
+    try {
+        const gameId = req.params.gameId as string;
+        const db = await getDatabase();
+        const game = await db.get(`SELECT id, status FROM global_games WHERE id = ?`, gameId);
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        if (game.status !== 'pending') {
+            return res.status(409).json({ error: `Game is ${game.status}, not pending` });
+        }
+        const reviewerId = req.user?.discordId || req.user?.username || 'admin';
+        await db.run(
+            `UPDATE global_games SET status = 'approved', reviewed_by = ? WHERE id = ?`,
+            reviewerId, gameId,
+        );
+        res.json({ ok: true, gameId, status: 'approved' });
+    } catch (error) {
+        logError('API Error (POST /api/admin/catalogue/pending/:gameId/approve):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /admin/catalogue/pending/:gameId/reject — flip status to 'rejected'.
+ * Body may include `{ reason: string }` for the audit trail. The rejected row
+ * stays in the catalogue (status='rejected', not deleted) so the proposing
+ * room's `game_library.global_game_id` reference doesn't dangle. Public reads
+ * filter rejected rows out — the room's library entry continues to function.
+ */
+router.post('/catalogue/pending/:gameId/reject', async (req, res) => {
+    try {
+        const gameId = req.params.gameId as string;
+        const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+        const db = await getDatabase();
+        const game = await db.get(`SELECT id, status FROM global_games WHERE id = ?`, gameId);
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        if (game.status !== 'pending') {
+            return res.status(409).json({ error: `Game is ${game.status}, not pending` });
+        }
+        const reviewerId = req.user?.discordId || req.user?.username || 'admin';
+        await db.run(
+            `UPDATE global_games SET status = 'rejected', reviewed_by = ? WHERE id = ?`,
+            reviewerId, gameId,
+        );
+        // Note: the auditLog middleware automatically captures actor + IP +
+        // correlation_id + sanitized request body (which includes `reason`).
+        res.json({ ok: true, gameId, status: 'rejected', reason: reason || null });
+    } catch (error) {
+        logError('API Error (POST /api/admin/catalogue/pending/:gameId/reject):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /admin/catalogue/pending/:gameId/merge_into/:targetGameId — treat the
+ * pending entry as a duplicate of an approved game. Reuses
+ * GlobalGameService.merge to repoint room references + delete the pending row.
+ * Refuses to merge into a non-approved target (would orphan the wrong way).
+ */
+router.post('/catalogue/pending/:gameId/merge_into/:targetGameId', async (req, res) => {
+    try {
+        const gameId = req.params.gameId as string;
+        const targetGameId = req.params.targetGameId as string;
+        if (gameId === targetGameId) return res.status(400).json({ error: 'gameId and targetGameId must differ' });
+        const db = await getDatabase();
+        const pending = await db.get(`SELECT id, status FROM global_games WHERE id = ?`, gameId);
+        if (!pending) return res.status(404).json({ error: 'Pending game not found' });
+        if (pending.status !== 'pending') {
+            return res.status(409).json({ error: `Source is ${pending.status}, not pending` });
+        }
+        const target = await db.get(`SELECT id, status FROM global_games WHERE id = ?`, targetGameId);
+        if (!target) return res.status(404).json({ error: 'Target game not found' });
+        if (target.status !== 'approved') {
+            return res.status(400).json({ error: 'Target must be an approved game' });
+        }
+        const result = await GlobalGameService.merge(targetGameId, gameId);
+        // auditLog middleware records the merge automatically with full body.
+        res.json({ ok: true, mergedFrom: gameId, mergedInto: targetGameId, scoresMoved: result.scoresMoved });
+    } catch (error) {
+        logError('API Error (POST /api/admin/catalogue/pending/:gameId/merge_into/:targetGameId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

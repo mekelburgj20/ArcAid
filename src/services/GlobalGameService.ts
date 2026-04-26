@@ -173,7 +173,20 @@ export class GlobalGameService {
      *        • Year agrees within ±1 (null on either side is OK)
      *      Anything else → insert a new row. Normalized-name alone is never sufficient.
      */
-    static async upsert(input: GlobalGameInput): Promise<{ id: string; action: 'inserted' | 'updated' | 'skipped' }> {
+    /**
+     * v2.5.0: read-only dedup walker. Returns the same `existing` candidate
+     * that `upsert` would resolve to (via the 4-step hierarchy), plus the full
+     * set of normalized-name matches so callers (e.g. the per-room proposal
+     * preview) can surface a "did you mean one of these?" list to the user.
+     *
+     * Mirrors `upsert`'s dedup semantics exactly — pulled out so both the
+     * write path and the new read-only proposal path consult the same logic.
+     * Keep in sync with `upsert`'s remaining lines.
+     */
+    private static async resolveDedupCandidates(input: GlobalGameInput): Promise<{
+        existing: GlobalGame | undefined;
+        nameMatches: GlobalGame[];
+    }> {
         const db = await getDatabase();
         const inputType = input.type || 'pinball';
 
@@ -186,7 +199,7 @@ export class GlobalGameService {
         // 2. Cross-type guard
         if (existing && existing.type !== inputType) {
             logWarn(
-                `upsert: external ID match but type differs (existing=${existing.type}, input=${inputType}, name="${input.name}"). Refusing to merge across types — inserting new row.`
+                `dedup: external ID match but type differs (existing=${existing.type}, input=${inputType}, name="${input.name}"). Refusing to merge across types.`
             );
             existing = undefined;
         }
@@ -228,10 +241,9 @@ export class GlobalGameService {
         // concrete match exists do we fall back to the NULL-tolerant check
         // — keeps "sole thin candidate" merges working without letting a
         // thin row shadow a real rich row.
+        const nameMatches = (await this.findByNormalizedName(input.name))
+            .filter(g => g.type === inputType);
         if (!existing) {
-            const nameMatches = (await this.findByNormalizedName(input.name))
-                .filter(g => g.type === inputType);
-
             const nonConflicting = nameMatches.filter(g => !this.hasExternalIdConflict(input, g));
 
             const inputMfg = (input.manufacturer || '').trim().toLowerCase();
@@ -307,6 +319,36 @@ export class GlobalGameService {
                 }
             }
         }
+
+        return { existing, nameMatches };
+    }
+
+    /**
+     * v2.5.0: public read-only dedup preview. Used by the per-room proposal
+     * flow to show a user "did this game already exist?" before they commit
+     * a write. Returns the same `existing` candidate `upsert` would resolve
+     * to (the "exact" match) plus all *other* same-type name-normalized
+     * matches as `possible` for the user to review.
+     *
+     * No writes. Safe to call from public-facing proposal preview routes.
+     */
+    static async findCandidates(input: GlobalGameInput): Promise<{
+        exact: GlobalGame | null;
+        possible: GlobalGame[];
+    }> {
+        const { existing, nameMatches } = await this.resolveDedupCandidates(input);
+        const exact = existing ?? null;
+        const possible = exact
+            ? nameMatches.filter(g => g.id !== exact.id)
+            : nameMatches;
+        return { exact, possible };
+    }
+
+    static async upsert(input: GlobalGameInput): Promise<{ id: string; action: 'inserted' | 'updated' | 'skipped' }> {
+        const db = await getDatabase();
+        const inputType = input.type || 'pinball';
+
+        const { existing } = await this.resolveDedupCandidates(input);
 
         if (existing) {
             // Update: merge platforms, fill missing fields
@@ -578,7 +620,7 @@ export class GlobalGameService {
             SELECT
                 COUNT(*) as total,
                 COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) as approved,
-                COALESCE(SUM(CASE WHEN status = 'pending_review' THEN 1 ELSE 0 END), 0) as pending,
+                COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pending,
                 COALESCE(SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END), 0) as rejected
             FROM global_games
         `);

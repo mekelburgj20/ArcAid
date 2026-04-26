@@ -21,6 +21,12 @@ export interface GlobalScoreInput {
     submittedDuringTournamentId?: string | null;
     submittedByUserId?: string | null;
     submittedByAnonymousName?: string | null;
+    /**
+     * v2.5.0: per-score platform stratification. NULL is allowed for legacy
+     * sync rows / pre-v2.5.0 callers; new submissions enforce non-null at the
+     * API boundary via Zod.
+     */
+    platform?: string | null;
 }
 
 export interface GlobalScore {
@@ -117,8 +123,8 @@ export class GlobalScoreService {
                 photo_url, origin_type, origin_game_room_id, origin_game_id,
                 exclude_from_global, submitted_at,
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                submitted_by_anonymous_name, merged_from_anonymous_identity_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
             id,
             input.globalGameId,
             input.playerId,
@@ -133,7 +139,8 @@ export class GlobalScoreService {
             submittedFromRoomId,
             input.submittedDuringTournamentId ?? null,
             submittedByUserId,
-            submittedByAnonymousName
+            submittedByAnonymousName,
+            input.platform ?? null,
         );
 
         // Invalidate cached leaderboards for this game (global + all room scopes).
@@ -280,6 +287,8 @@ export class GlobalScoreService {
         excludeFromGlobal?: boolean;
         tournamentId?: string | null;
         submittedByAnonymousName?: string | null;
+        /** v2.5.0: per-score platform; NULL when source has no platform (sync). */
+        platform?: string | null;
     }): Promise<{ globalScoreId: string; globalGameId: string; gameName: string } | null> {
         try {
             // v2.2.0: guest submissions never reach global. The Global Leaderboard's
@@ -388,6 +397,7 @@ export class GlobalScoreService {
                 submittedFromRoomId: opts.gameRoomId,
                 submittedDuringTournamentId: opts.tournamentId ?? null,
                 submittedByAnonymousName: opts.submittedByAnonymousName ?? undefined,
+                platform: opts.platform ?? null,
             });
 
             // Patch in the photo_url from the room's storage (submit() only handles buffer uploads)

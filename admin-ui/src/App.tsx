@@ -19,6 +19,7 @@ import Backups from './pages/Backups';
 import Logs from './pages/Logs';
 import StyleCatalogue from './pages/StyleCatalogue';
 import GlobalCatalogue from './pages/GlobalCatalogue';
+import CatalogueApproval from './pages/CatalogueApproval';
 
 // Pages — Room Admin (reused existing)
 import Dashboard from './pages/Dashboard';
@@ -114,6 +115,7 @@ function App() {
           <Route path="library" element={<GameLibrary />} />
           <Route path="styles" element={<StyleCatalogue />} />
           <Route path="catalogue" element={<GlobalCatalogue />} />
+          <Route path="catalogue/approvals" element={<CatalogueApproval />} />
           <Route path="backups" element={<Backups />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<GlobalSettings />} />

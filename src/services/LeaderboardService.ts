@@ -21,6 +21,12 @@ export interface RankedEntry {
     iscored_username: string;
     score: number;
     avatar_hash?: string | null;
+    /**
+     * v2.5.0: per-score platform stratification. `null` for legacy rows that
+     * couldn't be backfilled (multi-platform games where the platform a player
+     * actually used is unknowable retroactively).
+     */
+    platform?: string | null;
 }
 
 export class LeaderboardService {
@@ -64,12 +70,14 @@ export class LeaderboardService {
                 COALESCE(um.discord_user_id, best.discord_user_id) as discord_user_id,
                 best.iscored_username,
                 best.score,
+                best.platform,
                 um.avatar_hash
             FROM (
                 SELECT
                     iscored_username,
                     discord_user_id,
                     score,
+                    platform,
                     ROW_NUMBER() OVER (
                         PARTITION BY LOWER(iscored_username)
                         ORDER BY score DESC, created_at ASC
@@ -97,6 +105,7 @@ export class LeaderboardService {
             iscored_username: e.iscored_username || 'Unknown',
             score: e.score,
             avatar_hash: e.avatar_hash || null,
+            platform: e.platform || null,
         }));
 
         // Cache the result
@@ -121,6 +130,97 @@ export class LeaderboardService {
         }
 
         return await this.recalculate(gameId);
+    }
+
+    /**
+     * v2.5.0: same shape as getForGame but filtered to a specific platform.
+     * Bypasses the cache because the cache stores the unfiltered "All" view —
+     * a player's all-time best may be on a different platform than the one
+     * being queried, so post-cache JS filtering would mis-rank.
+     *
+     * Best-score-per-player is recomputed from `score_history` with an extra
+     * `WHERE platform = ?` clause inside the partitioned scan. Platform
+     * comparison is case-insensitive to tolerate mixed-case legacy data.
+     */
+    static async getForGameByPlatform(gameId: string, platform: string): Promise<RankedEntry[]> {
+        const db = await getDatabase();
+        const gameMeta = await db.get(`
+            SELECT g.id, g.name, g.tournament_id, t.game_room_id
+            FROM games g
+            LEFT JOIN tournaments t ON t.id = g.tournament_id
+            WHERE g.id = ?
+        `, gameId);
+        if (!gameMeta) return [];
+
+        const entries = await db.all(`
+            SELECT
+                COALESCE(um.discord_user_id, best.discord_user_id) as discord_user_id,
+                best.iscored_username,
+                best.score,
+                best.platform,
+                um.avatar_hash
+            FROM (
+                SELECT
+                    iscored_username,
+                    discord_user_id,
+                    score,
+                    platform,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY LOWER(iscored_username)
+                        ORDER BY score DESC, created_at ASC
+                    ) as rn
+                FROM score_history
+                WHERE game_room_id = ?
+                  AND submitted_during_tournament_id = ?
+                  AND LOWER(game_name) = LOWER(?)
+                  AND orphaned_at IS NULL
+                  AND UPPER(platform) = UPPER(?)
+            ) best
+            LEFT JOIN user_mappings um ON (
+                um.discord_user_id = best.discord_user_id
+                OR (best.discord_user_id LIKE 'iscored:%'
+                    AND LOWER(um.iscored_username) = LOWER(best.iscored_username))
+            )
+            WHERE best.rn = 1
+            ORDER BY best.score DESC
+        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name, platform);
+
+        return entries.map((e: any, i: number) => ({
+            rank: i + 1,
+            discord_user_id: e.discord_user_id,
+            iscored_username: e.iscored_username || 'Unknown',
+            score: e.score,
+            avatar_hash: e.avatar_hash || null,
+            platform: e.platform || null,
+        }));
+    }
+
+    /**
+     * v2.5.0: returns the distinct set of platforms present on this game's
+     * leaderboard (within the active tournament window). Used by the FE to
+     * decide which platform tabs to render on the GameDetail leaderboard.
+     */
+    static async getDistinctPlatforms(gameId: string): Promise<string[]> {
+        const db = await getDatabase();
+        const gameMeta = await db.get(`
+            SELECT g.name, g.tournament_id, t.game_room_id
+            FROM games g
+            LEFT JOIN tournaments t ON t.id = g.tournament_id
+            WHERE g.id = ?
+        `, gameId);
+        if (!gameMeta) return [];
+
+        const rows = await db.all(`
+            SELECT DISTINCT platform
+            FROM score_history
+            WHERE game_room_id = ?
+              AND submitted_during_tournament_id = ?
+              AND LOWER(game_name) = LOWER(?)
+              AND orphaned_at IS NULL
+              AND platform IS NOT NULL
+            ORDER BY platform ASC
+        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name);
+        return rows.map((r: any) => r.platform).filter(Boolean);
     }
 
     /**

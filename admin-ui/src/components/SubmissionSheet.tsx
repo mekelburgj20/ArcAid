@@ -120,6 +120,11 @@ export default function SubmissionSheet({
     const [photoFile, setPhotoFile] = useState<File | null>(null);
     const [photoPreview, setPhotoPreview] = useState<string | null>(null);
     const [excludeFromGlobal, setExcludeFromGlobal] = useState(false);
+    // v2.5.0: per-score platform stratification. `null` until the resolver
+    // endpoint replies. `[]` means the resolver returned no submittable
+    // platforms (game has no platforms or active tournament excluded all).
+    const [submittablePlatforms, setSubmittablePlatforms] = useState<string[] | null>(null);
+    const [platform, setPlatform] = useState<string>('');
     const [phase, setPhase] = useState<Phase>(() => {
         if (commitDraftState) return 'committingDraft';
         // v2.0.1: pre-form login gate when room requires auth and viewer isn't authenticated.
@@ -151,6 +156,37 @@ export default function SubmissionSheet({
             if (photoPreview) URL.revokeObjectURL(photoPreview);
         };
     }, [photoPreview]);
+
+    // v2.5.0: fetch the submittable platform set from the resolver endpoint.
+    // - tournament/freeplay: scoped by roomId+gameName, intersected with
+    //   active tournament rules.
+    // - global: read straight from global_games.platforms.
+    // Resolver runs once on mount per target.
+    useEffect(() => {
+        if (commitDraftState) return; // draft-commit path skips the form entirely.
+        let cancelled = false;
+        (async () => {
+            const params = new URLSearchParams();
+            if (target.kind === 'global') {
+                params.set('globalGameId', target.globalGameId);
+            } else {
+                params.set('roomId', target.roomId);
+                params.set('gameName', target.gameName);
+            }
+            try {
+                const res = await fetch(`/api/submit/platforms?${params.toString()}`);
+                const data = await res.json().catch(() => ({}));
+                if (cancelled) return;
+                const list: string[] = Array.isArray(data?.submittable) ? data.submittable : [];
+                setSubmittablePlatforms(list);
+                // Auto-fill when the picker has only one option.
+                if (list.length === 1) setPlatform(list[0]);
+            } catch {
+                if (!cancelled) setSubmittablePlatforms([]);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [target, commitDraftState]);
 
     // Sprint 10 OAuth-return flow: commit a server-stored draft and close.
     useEffect(() => {
@@ -218,12 +254,14 @@ export default function SubmissionSheet({
         const scoreNum = parseInt(score, 10);
         if (!trimmedName || isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
+        if (!platform) return; // v2.5.0: picker hasn't been resolved yet — guard against stray click.
 
         setPhase('submitting');
         setMessage(null);
         try {
             const formData = new FormData();
             formData.append('score', String(scoreNum));
+            formData.append('platform', platform);
             if (photoFile) formData.append('photo', photoFile);
 
             let url = '';
@@ -368,6 +406,9 @@ export default function SubmissionSheet({
             formData.append('score', String(scoreNum));
             if (photoFile) formData.append('photo', photoFile);
             if (excludeFromGlobal) formData.append('excludeFromGlobal', 'true');
+            // v2.5.0: stash the chosen platform so the post-OAuth commit handler
+            // can replay it through the same submit endpoint that now requires it.
+            if (platform) formData.append('platform', platform);
             const res = await fetch(`/api/submission-drafts/${encodeURIComponent(stateParam)}`, {
                 method: 'POST',
                 body: formData,
@@ -420,8 +461,11 @@ export default function SubmissionSheet({
     const needsPhoto = photoRequired(target);
     const cooldown = isCooldownLocked(target);
     const submitting = phase === 'submitting' || phase === 'checkingCollision' || phase === 'committingDraft';
+    // v2.5.0: picker must be resolved AND platform chosen before we allow submit.
+    const platformsResolved = submittablePlatforms !== null;
+    const platformChosen = platform.trim() !== '';
     const canSubmit = playerName.trim() && score && !isNaN(parseInt(score, 10)) && parseInt(score, 10) >= 0
-        && (!needsPhoto || !!photoFile) && !submitting;
+        && (!needsPhoto || !!photoFile) && platformsResolved && platformChosen && !submitting;
     const nameLabel = target.kind === 'global' ? 'Display Name' : 'Player Name';
 
     return (
@@ -648,6 +692,42 @@ export default function SubmissionSheet({
                                         </button>
                                     )}
                                 </div>
+                            </div>
+
+                            {/* v2.5.0: per-score platform picker. Renders in three states:
+                                - resolving: shimmer text while /api/submit/platforms loads
+                                - 1 platform: read-only chip (auto-filled, locked)
+                                - 2+ platforms: required dropdown
+                                If the resolver returned []  show an error — game has no platforms. */}
+                            <div>
+                                <label className="text-xs text-faint block mb-1">Platform</label>
+                                {submittablePlatforms === null ? (
+                                    <div className="px-3 py-2 bg-raised border border-border rounded text-faint text-sm italic">
+                                        Loading platforms…
+                                    </div>
+                                ) : submittablePlatforms.length === 0 ? (
+                                    <div className="px-3 py-2 bg-neon-amber/10 border border-neon-amber/30 rounded text-neon-amber text-xs">
+                                        No platforms configured for this game. Submission is blocked — ask an admin.
+                                    </div>
+                                ) : submittablePlatforms.length === 1 ? (
+                                    <div className="px-3 py-2 bg-raised border border-border/60 rounded text-primary text-sm flex items-center gap-2">
+                                        <span className="px-2 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan text-xs font-display">
+                                            {submittablePlatforms[0]}
+                                        </span>
+                                        <span className="text-faint text-xs">(only platform for this game)</span>
+                                    </div>
+                                ) : (
+                                    <select
+                                        value={platform}
+                                        onChange={e => setPlatform(e.target.value)}
+                                        className="w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+                                    >
+                                        <option value="" disabled>Choose the platform you played on…</option>
+                                        {submittablePlatforms.map(p => (
+                                            <option key={p} value={p}>{p}</option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
 
                             <div>
