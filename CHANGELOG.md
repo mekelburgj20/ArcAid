@@ -6,6 +6,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.5.2] — 2026-04-26
+
+**Patch.** Game library page showed duplicate platform tags per game (`fp` AND `FP`, `vpx` AND `VPX`, `pinball_fx_classic` AND `FX3`). Migration 083 only rewrote the literal `pinball_fx3` token; case mismatches and aliases survived in `global_games.platforms` / `game_library.platforms` JSON arrays.
+
+- **Migration 089** — one-time normalization sweep. Walks every JSON platform array (`global_games.platforms`, `game_library.platforms`, `game_room_game_library.custom_platforms`, `tournaments.platform_rules`) and folds each entry through `normalizePlatform()`. Dedupes case-insensitively. Production landed: 2733 `global_games` rows, 2813 `game_library` rows, 4 tournament rule rows normalized. Idempotent.
+- **`GameLibrary.tsx`** — defense-in-depth at render time. `PlatformChips` alias-folds + dedupes via `normalizePlatformList()` then renders `getPlatformDisplay(id)` (e.g. "FX Classic" instead of `pinball_fx_classic`). Filter pill row above the grid does the same. Filter match logic normalizes the game's raw list so filtering works on pre-089 data too.
+
+SW `CACHE_NAME` → `arcaid-v18`.
+
+---
+
+## [2.5.1] — 2026-04-26
+
+**Feature + patch.** Per-room library page reads from `global_games WHERE status='approved'` directly — every room sees the full approved catalogue. The legacy `game_room_game_library` curation overlay is no longer consulted for the list view. This is "step 1" of a two-step cleanup; step 2 (drop the legacy `game_library` / `game_room_game_library` tables, move aliases onto `global_games`, simplify proposal endpoints) is documented in `tmp/step-2-cleanup-plan.md`. Tournaments still pick from `game_library` for now — out of scope for step 1.
+
+Three platform-display bugs fixed:
+
+- **Submission picker showed raw IDs and case-mismatch duplicates.** `/api/submit/platforms` resolver now alias-folds + dedupes via `normalizePlatform()` server-side; `SubmissionSheet` renders display names from a new FE-side `admin-ui/src/lib/platforms.ts` helper. Same treatment applied to `GameDetail` tabs and per-row platform badges.
+- **Display names shortened** for the Zen Studios FX family + Zaccaria: `"Pinball FX Classic"` → `"FX Classic"`, etc. Catalogue IDs unchanged. Display-only — no DB migration.
+- **Global game detail page now has a Platform column** on the cross-room leaderboard. `GlobalLeaderboardService.recalculate` SELECTs `gs.platform`, propagates through `GlobalRankedEntry`, renders as a chip. Migration 088 flushes both leaderboard caches so existing entries pick up the platform field on next read.
+
+SW `CACHE_NAME` → `arcaid-v17`.
+
+---
+
+## [2.5.0] — 2026-04-26
+
+**Feature.** VR + Steam-pinball platform taxonomy expansion, score-platform stratification, per-room contribution flow rationalization. Coordinated bundle — score-platform is required end-to-end, so partial deploys would reject every submission.
+
+**Platform taxonomy.** Adds 7 canonical IDs: `pinball_fx_classic` (replaces `pinball_fx3`, Zen rebrand), `pinball_fx_classic_vr`, `pinball_fx_midnight`, `pinball_fx_vr`, `star_wars_pinball_vr`, `zaccaria`, `zaccaria_vr`. Removed legacy `pinball_fx3` + generic `vr` bucket. New `'VR'` `PLATFORM_GROUPS` quick-pick. `PLATFORM_ALIASES` + `VPS_FORMAT_MAP` fold pre-rebrand names forward.
+
+**Steam Pinball importer.** `SteamPinballImportService` pulls DLC lists from six Steam apps. Curated `PACK_CONTENTS` map (78 packs → 220 table entries) baked in via `steamPinballPackContents.ts`; pack DLCs expand into per-table upserts rather than landing as a single pack-named row. Skip-list catches Volume/Pack/Bundle/Tables/VR/Soundtrack/Editor/Mode entries. `cleanTableName` strips ™/®/©/℠ + wrapping quotes. `findSuffixVariantMatch` folds "X" / "X Pinball" duplicates pre-upsert. 1100ms inter-fetch throttle; 30s back-off on HTTP 429. Production import: 152 imported / 198 updated / 78 packs expanded / 0 errors. Admin route: `POST /api/admin/catalogue/sync-steam-pinball`. UI: new "Steam Pinball" button on `/admin/catalogue`.
+
+**Score-platform stratification.** Required `platform` field on `submissions`, `score_history`, `community_scores`, `global_scores` (column nullable in SQL for legacy rows; required at the API boundary via Zod). New `resolveSubmittablePlatforms(gamePlatforms, tournamentRules?)` helper — game's effective platforms ∩ active tournament rules. Server-side `ensurePlatformAllowed` re-validates at every submit handler. `SubmissionSheet` picker: read-only chip when 1 platform, required dropdown when 2+. Discord `/submit-score` auto-fills when 1, rejects with valid-choices reply when 2+. `ScoreSyncPoller` stamps `tournament.iscored_default_platform` on synced rows. Leaderboard endpoint accepts `?platform=<id>`; per-game distinct-platform list returned for the GameDetail tab strip. RankedEntry carries per-row platform; "All" view shows platform badges + demotes NULL-platform rows to a "Platform unknown" tail.
+
+**Per-room contribution flow.** Removed legacy "Import from VPS" / "Import VPXS Wizard" buttons from the per-room game library page (server endpoints kept for now). New `GlobalGameService.findCandidates` (read-only dedup walker, extracted from `upsert`) powers four new per-room routes: `/game_library/proposals`, `/use_global`, `/room_only`, `/submit_to_global`. Add Game UX renders an inline result panel (exact / possible / no-match) with the three commit choices. CSV import switched to two-step preview/commit: `/import-csv-preview` categorizes rows into `auto_link` / `auto_submit` / `needs_review`; FE renders bucketed preview with per-row decision UI; `/import-csv-commit` applies decisions per-row best-effort.
+
+**Super-admin Catalogue Approvals.** `GET /admin/catalogue/pending` (joined with submitter + room), `/pending-count` (nav badge polled every 60s), `POST /pending/:id/approve`, `/reject` (audited reason), `/merge_into/:targetId` (delegates to `GlobalGameService.merge`). New `CatalogueApproval.tsx` page; nav badge in `SuperAdminLayout`.
+
+**Visibility hardening.** Public `GET /global/games` hard-codes `status='approved'` (was honoring `?status=` query — leak risk). Aligned `'pending_review'` stub references to `'pending'` across `getCounts` + status PATCH validator.
+
+**Migrations 083–087.**
+- 083 — rename `pinball_fx3` → `pinball_fx_classic` across `global_games`, `game_library`, `game_room_game_library`, tournament `platform_rules`. Production landed: 102 `global_games` rows + 99 `game_library` rows.
+- 084 — `ALTER TABLE … ADD COLUMN platform TEXT` on submissions/score_history/community_scores/global_scores + composite indexes; `tournaments.iscored_default_platform`; `submission_drafts.platform`.
+- 085 — backfill platform on legacy score rows where the source game has exactly 1 platform; multi-platform rows stay NULL. Production: resolved 62 submissions / 9 score_history / 67 community_scores; left NULL: 18 / 80 / 10 / 23 (multi-platform games).
+- 086 — flush `leaderboard_cache` + `global_leaderboard_cache` for the new platform-bearing `RankedEntry` shape.
+- 087 — `global_games.{submitted_by_user_id, submitted_by_room_id, submitted_at}` + partial index on `(status, submitted_at) WHERE status='pending'`.
+
+**Bug surfaced + fixed inline:** four sites used `JOIN game_library gl ON gl.id = grgl.game_library_id` — but `game_library`'s PK is `name` and the FK column is `game_name`. Would have failed at runtime on first `docker compose up`.
+
+SW `CACHE_NAME` → `arcaid-v16`.
+
+---
+
 ## [2.4.16] — 2026-04-25
 
 **Patch.** Catalogue UX + diagnostics.
