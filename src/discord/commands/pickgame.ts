@@ -62,8 +62,12 @@ export const pickgame: Command = {
                 }
             }
 
-            // Fetch the shared Game Library for autocomplete.
-            const rows = await db.all("SELECT name, mode, platforms FROM game_library");
+            // Fetch the catalogue for autocomplete (one row per name).
+            const rows = await db.all(`
+                SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms
+                FROM global_games WHERE status = 'approved'
+                GROUP BY LOWER(name)
+            `);
 
             let choices = rows;
 
@@ -148,9 +152,7 @@ export const pickgame: Command = {
                 return;
             }
 
-            // Look up style_id from game_library
-            const gameLibEntry = await db.get('SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
-            const styleId = gameLibEntry?.style_id || undefined;
+            const styleId: string | undefined = undefined;
 
             // Determine if we should activate immediately or queue
             const maxSlots = tournament.max_active_games ?? 1;

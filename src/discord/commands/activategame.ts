@@ -38,7 +38,9 @@ export const activategame: Command = {
                 .slice(0, 25);
             await interaction.respond(filtered.map((name: string) => ({ name, value: name })));
         } else if (focusedOption.name === 'game_name') {
-            const rows = await db.all("SELECT name FROM game_library");
+            const rows = await db.all(
+                `SELECT name FROM global_games WHERE status = 'approved' GROUP BY LOWER(name) ORDER BY name`
+            );
             const filtered = rows
                 .map(r => r.name)
                 .filter((name: string) => name.toLowerCase().includes(focusedOption.value.toLowerCase()))
@@ -67,7 +69,7 @@ export const activategame: Command = {
             try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
             if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
                 const gameLibRow = await db.get(
-                    `SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE`,
+                    `SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                     gameName,
                 );
                 const gamePlatforms = parsePlatformsList(gameLibRow?.platforms || '[]');
@@ -80,9 +82,7 @@ export const activategame: Command = {
             const term = getTerminology(tournament.mode);
             const engine = TournamentEngine.getInstance();
 
-            // Look up style_id from game_library
-            const gameLibEntry = await db.get('SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
-            const styleId = gameLibEntry?.style_id || undefined;
+            const styleId: string | undefined = undefined;
 
             await interaction.editReply(`Creating **${gameName}** on iScored... This may take a moment.`);
 

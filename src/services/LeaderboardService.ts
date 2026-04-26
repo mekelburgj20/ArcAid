@@ -263,12 +263,10 @@ export class LeaderboardService {
         const roomParams = gameRoomId ? [gameRoomId] : [];
 
         // 1. All ACTIVE games always show
-        // v2.0.2: three-level globalGameId resolution so card title → /games/:id?from=:slug
-        // routes correctly even when the games/library column wasn't populated during
-        // tournament setup. Resolution order:
-        //   a. games.global_game_id          (explicit per-game link)
-        //   b. game_library.global_game_id   (library-level link)
-        //   c. global_games.id via case-insensitive name match (approved only)
+        // v2.0.2: two-level globalGameId resolution so card title → /games/:id?from=:slug
+        // routes correctly. Resolution order:
+        //   a. games.global_game_id     (explicit per-game link)
+        //   b. global_games.id via case-insensitive name match (approved only)
         // Matches the resolution used by All Games search.
         const activeGames = await db.all(`
             SELECT g.id, g.name as game_name, g.display_name, g.status, t.name as tournament_name, t.type as tournament_type,
@@ -277,19 +275,14 @@ export class LeaderboardService {
                    COALESCE(g.display_order, t.display_order, 9999) as display_order,
                    -- v2.4.0: pinned games are those with no tournament attribution.
                    CASE WHEN g.tournament_id IS NULL THEN 1 ELSE 0 END as is_pinned,
-                   -- v2.0.3: image fallback hierarchy — game_library.image_url,
-                   -- then global_games (local → wheel → url) so tournament cards
-                   -- get a default image when neither the room admin nor the
-                   -- tournament curator set a style background.
-                   COALESCE(gl.image_url, gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
+                   COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                    g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                    g.tournament_id, g.external_url, g.notes,
-                   COALESCE(g.global_game_id, gl.global_game_id, gg.id) as global_game_id,
+                   COALESCE(g.global_game_id, gg.id) as global_game_id,
                    sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                    sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
-            LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
             LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
             LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
             LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
@@ -323,14 +316,13 @@ export class LeaderboardService {
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, g.display_name, g.status, ? as tournament_name, ? as tournament_type,
                            ? as display_order,
-                           COALESCE(gl.image_url, gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
+                           COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                            g.external_url, g.notes,
-                           COALESCE(g.global_game_id, gl.global_game_id, gg.id) as global_game_id,
+                           COALESCE(g.global_game_id, gg.id) as global_game_id,
                            sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                            sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
                     FROM games g
-                    LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
                     LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
                     LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
                     LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
@@ -344,14 +336,13 @@ export class LeaderboardService {
                 const completed = await db.all(`
                     SELECT g.id, g.name as game_name, g.display_name, g.status, ? as tournament_name, ? as tournament_type,
                            ? as display_order,
-                           COALESCE(gl.image_url, gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
+                           COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                            g.external_url, g.notes,
-                           COALESCE(g.global_game_id, gl.global_game_id, gg.id) as global_game_id,
+                           COALESCE(g.global_game_id, gg.id) as global_game_id,
                            sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                            sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
                     FROM games g
-                    LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
                     LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
                     LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
                     LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id

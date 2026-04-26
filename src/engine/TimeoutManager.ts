@@ -312,8 +312,12 @@ export class TimeoutManager {
 
             const eligibilityDays = tournament.eligibility_days ?? 120;
 
-            // Get games matching tournament mode + platform rules from the shared library.
-            const libraryGames = await db.all('SELECT name, style_id, mode, platforms FROM game_library');
+            // Get games matching tournament mode + platform rules from the catalogue.
+            const libraryGames = await db.all(`
+                SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms
+                FROM global_games WHERE status = 'approved'
+                GROUP BY LOWER(name)
+            `);
             const modeAndPlatformMatches = libraryGames.filter(g => {
                 // Mode must match
                 if (g.mode !== tournament.mode) return false;

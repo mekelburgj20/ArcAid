@@ -116,12 +116,10 @@ export class TournamentEngine {
                     libraryEntry.catalogue_style_id, libraryEntry.logo_style_id, libraryEntry.bg_style_id, libraryEntry.style_header_disabled, game.id
                 );
             }
-            // Apply display_name and external_url from global library (exact match first, then prefix match for names with manufacturer suffix)
+            // Apply display_name and external_url from the catalogue.
             const libGame = await db.get(
-                'SELECT display_name, external_url FROM game_library WHERE name = ? COLLATE NOCASE',
-                gameName
-            ) || await db.get(
-                'SELECT display_name, external_url FROM game_library WHERE ? LIKE name || \'%\' COLLATE NOCASE ORDER BY LENGTH(name) DESC LIMIT 1',
+                `SELECT display_name, external_url FROM global_games
+                 WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                 gameName
             );
             if (libGame?.display_name || libGame?.external_url) {
@@ -405,17 +403,10 @@ export class TournamentEngine {
                 let newIscoredId: string | null = null;
                 if (client && !queuedRow.iscored_id) {
                     try {
-                        const libraryEntry = await db.get(
-                            'SELECT style_id, css_title, css_initials, css_scores, css_box, bg_color FROM game_library WHERE name = ? COLLATE NOCASE',
-                            queuedRow.name
-                        );
-                        const styleId = libraryEntry?.style_id || queuedRow.style_id || undefined;
+                        const styleId = queuedRow.style_id || undefined;
                         newIscoredId = await client.createGame(queuedRow.name, styleId);
                         await client.setGameTags(newIscoredId, tournamentRow.type);
                         await client.setGameStatus(newIscoredId, { locked: false, hidden: false });
-                        if (newIscoredId && libraryEntry && (libraryEntry.css_title || libraryEntry.css_box || libraryEntry.bg_color)) {
-                            try { await client.applyStyle(newIscoredId, libraryEntry); } catch {}
-                        }
                     } catch (err) {
                         logError(`Failed to create extra queued game on iScored: ${queuedRow.name}`, err);
                     }
@@ -701,22 +692,13 @@ export class TournamentEngine {
 
             // Handle iScored for the queued game
             if (client) {
-                const libraryEntry = await db.get(
-                    'SELECT style_id, css_title, css_initials, css_scores, css_box, bg_color FROM game_library WHERE name = ? COLLATE NOCASE',
-                    queuedRow.name
-                );
-
                 if (!queuedRow.iscored_id) {
                     try {
-                        const styleId = libraryEntry?.style_id || queuedRow.style_id || undefined;
+                        const styleId = queuedRow.style_id || undefined;
                         newIscoredId = await client.createGame(queuedRow.name, styleId);
                         await client.setGameTags(newIscoredId, tournamentRow.type);
                         await client.setGameStatus(newIscoredId, { locked: false, hidden: false });
                         logInfo(`   -> Created on iScored: ${queuedRow.name} (ID: ${newIscoredId})`);
-
-                        if (newIscoredId && libraryEntry && (libraryEntry.css_title || libraryEntry.css_box || libraryEntry.bg_color)) {
-                            try { await client.applyStyle(newIscoredId, libraryEntry); } catch {}
-                        }
                     } catch (err) {
                         logError('   -> Failed to create queued game on iScored (continuing):', err);
                     }
@@ -945,8 +927,12 @@ export class TournamentEngine {
 
         const eligibilityDays = tournamentRow.eligibility_days ?? 120;
 
-        // Get the library (shared catalogue — per-room curation removed in step 2).
-        const libraryGames = await db.all('SELECT name, style_id, mode, platforms FROM game_library');
+        // Get the catalogue (one row per name — variants collapsed for autopick).
+        const libraryGames = await db.all(`
+            SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms
+            FROM global_games WHERE status = 'approved'
+            GROUP BY LOWER(name)
+        `);
 
         // Filter by mode + platform rules
         const eligible = libraryGames.filter((g: any) => {
@@ -995,19 +981,12 @@ export class TournamentEngine {
         // Create on iScored if client available
         let iscoredId: string | null = null;
         if (client) {
-            const libraryEntry = await db.get(
-                'SELECT style_id, css_title, css_initials, css_scores, css_box, bg_color FROM game_library WHERE name = ? COLLATE NOCASE',
-                pick.name
-            );
             try {
-                const styleId = libraryEntry?.style_id || pick.style_id || undefined;
+                const styleId = pick.style_id || undefined;
                 iscoredId = await client.createGame(pick.name, styleId);
                 await client.setGameTags(iscoredId, tournamentRow.type);
                 await client.setGameStatus(iscoredId, { locked: false, hidden: false });
                 logInfo(`   -> Created on iScored: ${pick.name} (ID: ${iscoredId})`);
-                if (iscoredId && libraryEntry && (libraryEntry.css_title || libraryEntry.css_box || libraryEntry.bg_color)) {
-                    try { await client.applyStyle(iscoredId, libraryEntry); } catch {}
-                }
             } catch (err) {
                 logError('   -> Failed to create auto-picked game on iScored (continuing):', err);
             }
@@ -1015,8 +994,11 @@ export class TournamentEngine {
 
         // Create game record as ACTIVE immediately
         const gameId = uuidv4();
-        // Propagate display_name and style defaults from library
-        const libRow = await db.get('SELECT display_name FROM game_library WHERE name = ? COLLATE NOCASE', pick.name);
+        // Propagate display_name from catalogue.
+        const libRow = await db.get(
+            `SELECT display_name FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
+            pick.name,
+        );
         let catalogueStyleId: string | null = null;
         let logoStyleId: string | null = null;
         let bgStyleId: string | null = null;

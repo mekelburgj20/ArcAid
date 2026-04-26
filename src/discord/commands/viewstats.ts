@@ -22,8 +22,10 @@ export const viewstats: Command = {
         const focused = interaction.options.getFocused();
         const db = await getDatabase();
 
-        // Suggest from game_library (all known games)
-        const rows = await db.all('SELECT DISTINCT name FROM game_library ORDER BY name');
+        // Suggest from the catalogue (all approved games).
+        const rows = await db.all(
+            `SELECT name FROM global_games WHERE status = 'approved' GROUP BY LOWER(name) ORDER BY name`
+        );
         const filtered = rows
             .map(r => r.name)
             .filter(name => name.toLowerCase().includes(focused.toLowerCase()))

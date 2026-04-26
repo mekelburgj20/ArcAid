@@ -32,8 +32,10 @@ export const viewselection: Command = {
                 message += `*None*\n`;
             }
 
-            // Also show some from game library as available
-            const library = await db.all(`SELECT name FROM game_library LIMIT 10`);
+            // Also show some from the catalogue as available
+            const library = await db.all(
+                `SELECT name FROM global_games WHERE status = 'approved' GROUP BY LOWER(name) ORDER BY name LIMIT 10`
+            );
             if (library.length > 0) {
                 message += `\n**Available to Pick (Sample):**\n`;
                 library.forEach(l => {

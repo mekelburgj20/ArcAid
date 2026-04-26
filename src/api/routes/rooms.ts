@@ -71,22 +71,12 @@ async function ensurePlatformAllowed(opts: {
 }): Promise<string | null> {
     const db = await getDatabase();
 
-    // Resolve the game's effective platforms via the same precedence the picker uses.
-    const libRow = await db.get(
-        'SELECT platforms FROM game_library WHERE LOWER(name) = LOWER(?) LIMIT 1',
-        opts.gameName,
-    ) as { platforms: string | null } | undefined;
-
-    let effective: string[];
-    if (libRow) {
-        effective = parsePlatformsList(libRow.platforms || '[]');
-    } else {
-        const gg = await db.get(
-            'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
-            opts.gameName, 'approved',
-        );
-        effective = gg ? parsePlatformsList(gg.platforms || '[]') : [];
-    }
+    // Resolve the game's effective platforms from the catalogue.
+    const gg = await db.get(
+        'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
+        opts.gameName, 'approved',
+    );
+    const effective: string[] = gg ? parsePlatformsList(gg.platforms || '[]') : [];
     if (effective.length === 0) {
         return 'No platforms are configured for this game.';
     }
@@ -250,10 +240,11 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
 
         const db = await getDatabase();
         const game = await db.get(`
-            SELECT g.name as game_name, t.name as tournament_name, gl.image_url
+            SELECT g.name as game_name, t.name as tournament_name,
+                   COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) AS image_url
             FROM games g
             LEFT JOIN tournaments t ON g.tournament_id = t.id
-            LEFT JOIN game_library gl ON g.name = gl.name COLLATE NOCASE
+            LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
             WHERE g.id = ?
         `, gameId);
 
@@ -359,7 +350,7 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
         lookbackDate.setDate(lookbackDate.getDate() - eligibilityDays);
         const lookbackString = lookbackDate.toISOString();
 
-        // Get all games in this room's curated library, filtered by tournament platform rules
+        // Get all approved catalogue games filtered by tournament platform rules.
         let platformFilter = '';
         const platformParams: string[] = [];
         try {
@@ -367,28 +358,26 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             const required: string[] = rules.required || [];
             const excluded: string[] = rules.excluded || [];
             if (required.length > 0) {
-                // Game must be available on at least one required platform
-                platformFilter += ` AND (${required.map(() => `gl.platforms LIKE ?`).join(' OR ')})`;
+                platformFilter += ` AND (${required.map(() => `gg.platforms LIKE ?`).join(' OR ')})`;
                 for (const p of required) {
                     platformParams.push(`%${p}%`);
                 }
             }
             if (excluded.length > 0) {
-                // Game must NOT be available on any excluded platform
                 for (const p of excluded) {
-                    platformFilter += ` AND gl.platforms NOT LIKE ?`;
+                    platformFilter += ` AND gg.platforms NOT LIKE ?`;
                     platformParams.push(`%${p}%`);
                 }
             }
         } catch { /* no platform filtering */ }
 
         const libraryGames = await db.all(`
-            SELECT gl.name
-            FROM game_library gl
-            JOIN game_room_game_library grgl ON grgl.game_name = gl.name AND grgl.game_room_id = ?
-            WHERE 1=1${platformFilter}
-            ORDER BY gl.name
-        `, roomId, ...platformParams);
+            SELECT MIN(gg.name) AS name
+            FROM global_games gg
+            WHERE gg.status = 'approved'${platformFilter}
+            GROUP BY LOWER(gg.name)
+            ORDER BY name
+        `, ...platformParams);
 
         // Get recently played games in this tournament within the lookback window
         const recentGames = await db.all(`
@@ -566,12 +555,13 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
         const pickEnabled = await PickAwardGate.isEnabled(tournament.game_room_id, tournament.id);
         if (!pickEnabled) return res.status(403).json({ error: 'Game picks are disabled in this room' });
 
-        // 2. Look up game in library.
+        // 2. Look up game in catalogue.
         const gameLibEntry = await db.get(
-            `SELECT name, mode, platforms, style_id FROM game_library WHERE name = ? COLLATE NOCASE`,
+            `SELECT name, type AS mode, platforms FROM global_games
+             WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
             gameName,
         );
-        if (!gameLibEntry) return res.status(404).json({ error: `Game "${gameName}" not found in the library` });
+        if (!gameLibEntry) return res.status(404).json({ error: `Game "${gameName}" not found in the catalogue` });
 
         // 3. Check mode match
         if (gameLibEntry.mode !== tournament.mode) {
@@ -1456,13 +1446,8 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
                 WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
             `, roomId, game.game_name);
 
-            const globalLib = await db.get(`
-                SELECT global_game_id, display_name, image_url
-                FROM game_library WHERE LOWER(name) = LOWER(?)
-            `, game.game_name);
-
             const catalogueGame = await db.get(
-                "SELECT id, local_image_path, wheel_image_path, image_url FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1",
+                "SELECT id, local_image_path, wheel_image_path, image_url, display_name FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1",
                 game.game_name
             );
 
@@ -1490,14 +1475,14 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
                 }
             }
 
-            const globalGameId = roomLib?.global_game_id || globalLib?.global_game_id || catalogueGame?.id || null;
-            const imageUrl = catalogueGame?.local_image_path || catalogueGame?.wheel_image_path || catalogueGame?.image_url || globalLib?.image_url || null;
+            const globalGameId = roomLib?.global_game_id || catalogueGame?.id || null;
+            const imageUrl = catalogueGame?.local_image_path || catalogueGame?.wheel_image_path || catalogueGame?.image_url || null;
 
             return {
                 // Card-compatible fields (GameLeaderboard shape)
                 gameId: globalGameId || `community_${game.game_name}`,
                 gameName: game.game_name,
-                displayName: globalLib?.display_name || null,
+                displayName: catalogueGame?.display_name || null,
                 tournamentName: '', // v2.0.1 — no user-facing "Community" label; cards hide when empty.
                 tournamentType: 'community',
                 imageUrl,
@@ -2446,7 +2431,7 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
         if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
             const gameLibRow = await db.get(
-                `SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE`,
+                `SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                 gameName,
             );
             const gamePlatforms = parsePlatformsList(gameLibRow?.platforms || '[]');
@@ -2458,8 +2443,7 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         const { TournamentEngine } = await import('../../engine/TournamentEngine.js');
         const engine = TournamentEngine.getInstance();
 
-        const gameLibEntry = await db.get('SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', gameName);
-        const styleId = gameLibEntry?.style_id || undefined;
+        const styleId: string | undefined = undefined;
 
         let iscoredId: string | undefined;
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
@@ -2536,18 +2520,14 @@ router.post('/:roomId/games/pin', requireAuth, requireRoomAccess('roomId'), asyn
             return res.status(400).json({ error: 'iScoredTags must be an array of strings' });
         }
 
-        // Validate the game exists in the library (or per-room overlay) to prevent
-        // typo pins whose card would render without an image/identity.
+        // Validate the game exists in the catalogue to prevent typo pins.
         const db = await getDatabase();
         const exists = await db.get(
-            `SELECT 1 FROM game_library gl WHERE gl.name = ? COLLATE NOCASE
-             UNION
-             SELECT 1 FROM global_games gg WHERE gg.name = ? COLLATE NOCASE AND gg.status = 'approved'
-             LIMIT 1`,
-            gameName, gameName,
+            `SELECT 1 FROM global_games WHERE name = ? COLLATE NOCASE AND status = 'approved' LIMIT 1`,
+            gameName,
         );
         if (!exists) {
-            return res.status(404).json({ error: `Game "${gameName}" not found in library or catalogue — pin the canonical name` });
+            return res.status(404).json({ error: `Game "${gameName}" not found in the catalogue — pin the canonical name` });
         }
 
         try {
@@ -4020,10 +4000,7 @@ router.post('/:roomId/admin/game-states/:gameId/sync-iscored', requireAuth, requ
                     await db.run('UPDATE games SET iscored_id = NULL WHERE id = ?', gameId);
                     break;
                 case 'create': {
-                    const libraryEntry = await db.get(
-                        'SELECT style_id FROM game_library WHERE name = ? COLLATE NOCASE', game.name
-                    );
-                    const styleId = libraryEntry?.style_id || game.style_id || undefined;
+                    const styleId = game.style_id || undefined;
                     const newId = await client.createGame(game.name, styleId);
                     await db.run('UPDATE games SET iscored_id = ? WHERE id = ?', newId, gameId);
                     break;

@@ -61,21 +61,25 @@ export async function pinGameToScoreboard(opts: PinGameOptions): Promise<PinGame
     // --- 1) Resolve global_game_id + enrich from catalogue / room library ---
     const { GlobalGameService } = await import('../services/GlobalGameService.js');
 
-    // Read room library entry (if curated) — drives style + type defaults.
-    const libEntry = await db.get(
-        `SELECT gl.name, gl.mode, gl.style_id, gl.display_name AS lib_display_name,
-                gl.external_url AS lib_external_url, gl.global_game_id AS lib_global_game_id,
-                grgl.catalogue_style_id, grgl.logo_style_id, grgl.bg_style_id,
-                grgl.style_header_disabled, grgl.global_game_id AS room_global_game_id
-         FROM game_library gl
-         LEFT JOIN game_room_game_library grgl
-            ON grgl.game_name = gl.name AND grgl.game_room_id = ?
-         WHERE gl.name = ? COLLATE NOCASE`,
-        opts.roomId, opts.gameName,
+    // Read catalogue entry — drives type/display defaults. The room's per-game
+    // style overlay (game_room_game_library) survives until 2e drops the table.
+    const catEntry = await db.get(
+        `SELECT id, type, display_name AS lib_display_name, external_url AS lib_external_url
+         FROM global_games
+         WHERE LOWER(name) = LOWER(?) AND status = 'approved'
+         LIMIT 1`,
+        opts.gameName,
     );
+    const styleOverlay = await db.get(
+        `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled
+         FROM game_room_game_library
+         WHERE game_name = ? COLLATE NOCASE AND game_room_id = ?`,
+        opts.gameName, opts.roomId,
+    );
+    const libEntry = catEntry && styleOverlay ? { ...catEntry, ...styleOverlay } : (catEntry || styleOverlay);
 
-    const type = libEntry?.mode === 'video_game' ? 'video_game' : 'pinball';
-    let globalGameId: string | null = libEntry?.room_global_game_id ?? libEntry?.lib_global_game_id ?? null;
+    const type = catEntry?.type === 'video_game' ? 'video_game' : 'pinball';
+    let globalGameId: string | null = catEntry?.id ?? null;
     if (!globalGameId) {
         const { id } = await GlobalGameService.upsert({
             name: opts.gameName,
@@ -88,7 +92,7 @@ export async function pinGameToScoreboard(opts: PinGameOptions): Promise<PinGame
     // --- 2) Insert games row (tournament_id NULL, game_room_id set) ---
     const displayName = libEntry?.lib_display_name ?? null;
     const externalUrl = libEntry?.lib_external_url ?? null;
-    const styleId = libEntry?.style_id ?? null;
+    const styleId: string | null = null;
 
     await db.run(
         `INSERT INTO games (

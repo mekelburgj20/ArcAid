@@ -124,20 +124,11 @@ export const submitscore: Command = {
             // user didn't pass `platform`, reply ephemerally with valid choices
             // so they can re-run. If `platform` was passed, validate it.
             const { parsePlatformsList, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
-            const libRow = await db.get(
-                'SELECT platforms FROM game_library WHERE LOWER(name) = LOWER(?) LIMIT 1',
-                gameName,
+            const gg = await db.get(
+                'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
+                gameName, 'approved',
             );
-            let effectivePlatforms: string[] = [];
-            if (libRow) {
-                effectivePlatforms = parsePlatformsList(libRow.platforms || '[]');
-            } else {
-                const gg = await db.get(
-                    'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
-                    gameName, 'approved',
-                );
-                if (gg) effectivePlatforms = parsePlatformsList(gg.platforms || '[]');
-            }
+            const effectivePlatforms: string[] = gg ? parsePlatformsList(gg.platforms || '[]') : [];
             let platformRules: { required: string[]; excluded: string[] } | null = null;
             const tournamentRow = await db.get(
                 'SELECT platform_rules FROM tournaments WHERE id = ?',
