@@ -83,6 +83,31 @@ export class RoomGameTagsService {
     }
 
     /**
+     * Per-game-name tag map for batched lookups. Joins `room_game_tags` →
+     * `global_games` and groups by lowercased name (unioning tags across
+     * variants of the same name). Used by tournament autopick / autocomplete
+     * paths to avoid N+1 lookups when filtering the full catalogue.
+     */
+    static async getTagMapByGameNameForRoom(roomId: string): Promise<Map<string, string[]>> {
+        const db = await getDatabase();
+        const rows = await db.all(
+            `SELECT LOWER(gg.name) AS name_key, rgt.tag
+             FROM room_game_tags rgt
+             JOIN global_games gg ON gg.id = rgt.global_game_id
+             WHERE rgt.game_room_id = ?`,
+            roomId,
+        ) as Array<{ name_key: string; tag: string }>;
+        const map = new Map<string, string[]>();
+        for (const r of rows) {
+            const list = map.get(r.name_key) ?? [];
+            if (!list.includes(r.tag)) list.push(r.tag);
+            map.set(r.name_key, list);
+        }
+        for (const list of map.values()) list.sort();
+        return map;
+    }
+
+    /**
      * Returns the union of all tags applied to ANY catalogue variant of the
      * given game name in this room. Used by tournament-rules + submission
      * platform validation (which key on gameName, not globalGameId).

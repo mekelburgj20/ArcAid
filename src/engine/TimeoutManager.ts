@@ -318,13 +318,21 @@ export class TimeoutManager {
                 FROM global_games WHERE status = 'approved'
                 GROUP BY LOWER(name)
             `);
+            // Pre-load room tag map for batched lookup (no N+1 in filter).
+            let tagMap: Map<string, string[]> = new Map();
+            if (tournament.game_room_id) {
+                const { RoomGameTagsService } = await import('../services/RoomGameTagsService.js');
+                tagMap = await RoomGameTagsService.getTagMapByGameNameForRoom(tournament.game_room_id);
+            }
             const modeAndPlatformMatches = libraryGames.filter(g => {
                 if (g.mode !== tournament.mode) return false;
                 // v2.6.x: `excluded` is a submission-level filter only; the
-                // game-level gate checks `required` exclusively.
+                // game-level gate checks `required` exclusively against
+                // catalogue ∪ room tags.
                 if (platformRules.required.length === 0) return true;
-                const gamePlatforms = parsePlatformsList(g.platforms || '[]');
-                const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
+                const cataloguePlatforms = parsePlatformsList(g.platforms || '[]');
+                const tags = tagMap.get(g.name.toLowerCase()) || [];
+                const upperPlatforms = [...cataloguePlatforms, ...tags].map((p: string) => p.toUpperCase());
                 return platformRules.required.some(
                     (rp: string) => upperPlatforms.includes(rp.toUpperCase())
                 );

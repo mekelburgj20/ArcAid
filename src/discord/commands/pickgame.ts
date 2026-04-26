@@ -69,6 +69,16 @@ export const pickgame: Command = {
                 GROUP BY LOWER(name)
             `);
 
+            // Pre-load this room's tag map (name → tags) so the platform-rule
+            // filter unions room tags into each game's effective platforms.
+            // Single query — much cheaper than per-game lookup at autocomplete
+            // latencies.
+            let tagMap: Map<string, string[]> = new Map();
+            if (tournamentRoomId) {
+                const { RoomGameTagsService } = await import('../../services/RoomGameTagsService.js');
+                tagMap = await RoomGameTagsService.getTagMapByGameNameForRoom(tournamentRoomId);
+            }
+
             let choices = rows;
 
             // Filter by tournament mode
@@ -78,7 +88,9 @@ export const pickgame: Command = {
 
             // Filter by platform rules
             choices = choices.filter(r => {
-                const gamePlatforms = parsePlatformsList(r.platforms || '[]');
+                const cataloguePlatforms = parsePlatformsList(r.platforms || '[]');
+                const tags = tagMap.get(r.name.toLowerCase()) || [];
+                const gamePlatforms = [...cataloguePlatforms, ...tags];
                 return passesplatformRules(gamePlatforms, platformRules);
             });
 

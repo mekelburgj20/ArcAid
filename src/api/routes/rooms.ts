@@ -609,11 +609,13 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
             return res.status(400).json({ error: `Game mode "${gameLibEntry.mode}" does not match tournament mode "${tournament.mode}"` });
         }
 
-        // 4. Check platform rules
+        // 4. Check platform rules. Game's effective platforms = catalogue ∪ room tags.
         let platformRules = { required: [] as string[], excluded: [] as string[] };
         try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
 
-        const gamePlatforms = parsePlatformsList(gameLibEntry.platforms || '[]');
+        const cataloguePlatforms = parsePlatformsList(gameLibEntry.platforms || '[]');
+        const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
+        const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
 
         if (!passesplatformRules(gamePlatforms, platformRules)) {
             const restrictedText = (JSON.parse(tournament.platform_rules || '{}') as any).restrictedText;
@@ -2416,7 +2418,7 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         const tournament = await db.get('SELECT id, name, type, mode, discord_channel_id, game_room_id, platform_rules FROM tournaments WHERE id = ?', tournamentId);
         if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-        // Enforce platform rules.
+        // Enforce platform rules. Game's effective platforms = catalogue ∪ room tags.
         let platformRules = { required: [] as string[], excluded: [] as string[] };
         try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
         if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
@@ -2424,7 +2426,9 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
                 `SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                 gameName,
             );
-            const gamePlatforms = parsePlatformsList(gameLibRow?.platforms || '[]');
+            const cataloguePlatforms = parsePlatformsList(gameLibRow?.platforms || '[]');
+            const roomTags = await RoomGameTagsService.getTagsForGameName(tournament.game_room_id, gameName);
+            const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
             if (!passesplatformRules(gamePlatforms, platformRules)) {
                 return res.status(400).json({ error: `Game "${gameName}" does not meet this tournament's platform requirements` });
             }

@@ -934,14 +934,24 @@ export class TournamentEngine {
             GROUP BY LOWER(name)
         `);
 
+        // Pre-load this room's tag map (single query) so the platform-rule
+        // filter can union room tags into each game's effective platforms
+        // without N+1 lookups.
+        let tagMap: Map<string, string[]> = new Map();
+        if (tournamentRow.game_room_id) {
+            const { RoomGameTagsService } = await import('../services/RoomGameTagsService.js');
+            tagMap = await RoomGameTagsService.getTagMapByGameNameForRoom(tournamentRow.game_room_id);
+        }
+
         // Filter by mode + platform rules. v2.6.x: `excluded` is a submission-
         // level filter only (see `passesplatformRules` JSDoc); game-level gate
-        // checks `required` exclusively.
+        // checks `required` exclusively, against catalogue ∪ room tags.
         const eligible = libraryGames.filter((g: any) => {
             if (g.mode !== tournamentRow.mode) return false;
             if (platformRules.required.length === 0) return true;
-            const gamePlatforms = parsePlatformsList(g.platforms || '[]');
-            const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
+            const cataloguePlatforms = parsePlatformsList(g.platforms || '[]');
+            const tags = tagMap.get(g.name.toLowerCase()) || [];
+            const upperPlatforms = [...cataloguePlatforms, ...tags].map((p: string) => p.toUpperCase());
             return platformRules.required.some((rp: string) => upperPlatforms.includes(rp.toUpperCase()));
         });
 

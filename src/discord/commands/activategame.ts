@@ -64,7 +64,7 @@ export const activategame: Command = {
                 return;
             }
 
-            // Enforce platform rules.
+            // Enforce platform rules. Game's effective platforms = catalogue ∪ room tags.
             let platformRules = { required: [] as string[], excluded: [] as string[] };
             try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
             if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
@@ -72,7 +72,10 @@ export const activategame: Command = {
                     `SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                     gameName,
                 );
-                const gamePlatforms = parsePlatformsList(gameLibRow?.platforms || '[]');
+                const cataloguePlatforms = parsePlatformsList(gameLibRow?.platforms || '[]');
+                const { RoomGameTagsService } = await import('../../services/RoomGameTagsService.js');
+                const roomTags = await RoomGameTagsService.getTagsForGameName(tournament.game_room_id, gameName);
+                const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
                 if (!passesplatformRules(gamePlatforms, platformRules)) {
                     await interaction.editReply(`**${gameName}** does not meet the platform requirements for **${tournamentName}**.`);
                     return;
