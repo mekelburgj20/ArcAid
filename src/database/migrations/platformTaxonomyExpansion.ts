@@ -9,6 +9,7 @@ import type { Database } from 'sqlite';
  * Ordering (enforced by the migrations array):
  *   083 → renameFx3ToFxClassic
  *   085 → backfillScorePlatforms
+ *   089 → normalizeAllPlatformArrays
  */
 
 function log(line: string): void {
@@ -268,4 +269,94 @@ export async function backfillScorePlatforms(db: Database): Promise<void> {
         await db.exec('ROLLBACK');
         throw err;
     }
+}
+
+/**
+ * Migration 089 — sweep every JSON platform array and fold legacy mixed-case
+ * + alias values onto canonical IDs. Dedupes the resulting array.
+ *
+ * Background: data accumulated before v2.5.0 has entries like `FP` AND `fp`
+ * AND `VPX` AND `vpx` AND `FX3` AND `pinball_fx_classic` all stored as
+ * separate strings inside one game's `platforms` array. Migration 083 only
+ * rewrote the literal `pinball_fx3` token; case mismatches and alias
+ * variants survived. This sweep runs every entry through `normalizePlatform`
+ * (the same alias map used by the submission picker) and dedupes
+ * case-insensitively.
+ *
+ * Tables touched:
+ *   - global_games.platforms                    (JSON array)
+ *   - game_library.platforms                    (JSON array)
+ *   - game_room_game_library.custom_platforms   (JSON array)
+ *   - tournaments.platform_rules                (JSON object: required[]/excluded[])
+ *
+ * Idempotent — re-running is a no-op (canonical IDs alias-fold to themselves).
+ */
+export async function normalizeAllPlatformArrays(db: Database): Promise<void> {
+    const { normalizePlatform } = await import('../../utils/platformMapping.js');
+
+    function foldArray(arr: unknown): { changed: boolean; out: string[] } {
+        if (!Array.isArray(arr)) return { changed: false, out: [] };
+        const seen = new Set<string>();
+        const out: string[] = [];
+        let changed = false;
+        for (const v of arr) {
+            if (typeof v !== 'string') { changed = true; continue; }
+            const id = normalizePlatform(v);
+            if (!id) { changed = true; continue; }
+            if (seen.has(id)) { changed = true; continue; }
+            if (id !== v) changed = true;
+            seen.add(id);
+            out.push(id);
+        }
+        return { changed, out };
+    }
+
+    type ArrayColumn = { table: string; column: string };
+    const arrayColumns: ArrayColumn[] = [
+        { table: 'global_games',           column: 'platforms' },
+        { table: 'game_library',           column: 'platforms' },
+        { table: 'game_room_game_library', column: 'custom_platforms' },
+    ];
+
+    for (const { table, column } of arrayColumns) {
+        const rows = (await db.all(
+            `SELECT rowid AS rid, ${column} AS json FROM ${table} WHERE ${column} IS NOT NULL AND ${column} != '[]'`,
+        )) as Array<{ rid: number; json: string | null }>;
+        let n = 0;
+        for (const row of rows) {
+            let parsed: unknown;
+            try { parsed = JSON.parse(row.json ?? '[]'); } catch { continue; }
+            const { changed, out } = foldArray(parsed);
+            if (changed) {
+                await db.run(
+                    `UPDATE ${table} SET ${column} = ? WHERE rowid = ?`,
+                    JSON.stringify(out),
+                    row.rid,
+                );
+                n++;
+            }
+        }
+        log(`089: ${table}.${column} — normalized ${n} row(s)`);
+    }
+
+    // tournaments.platform_rules — JSON object with `required` and `excluded` arrays.
+    const trows = (await db.all(
+        `SELECT rowid AS rid, platform_rules AS json FROM tournaments WHERE platform_rules IS NOT NULL AND platform_rules != '{}'`,
+    )) as Array<{ rid: number; json: string | null }>;
+    let nt = 0;
+    for (const row of trows) {
+        let parsed: { required?: unknown; excluded?: unknown } = {};
+        try { parsed = JSON.parse(row.json ?? '{}'); } catch { continue; }
+        const req = foldArray(parsed.required);
+        const exc = foldArray(parsed.excluded);
+        if (req.changed || exc.changed) {
+            await db.run(
+                `UPDATE tournaments SET platform_rules = ? WHERE rowid = ?`,
+                JSON.stringify({ ...parsed, required: req.out, excluded: exc.out }),
+                row.rid,
+            );
+            nt++;
+        }
+    }
+    log(`089: tournaments.platform_rules — normalized ${nt} row(s)`);
 }

@@ -1120,6 +1120,10 @@ export async function initDatabase(): Promise<Database> {
             DELETE FROM leaderboard_cache;
             DELETE FROM global_leaderboard_cache;
         ` },
+        { name: '089_normalize_all_platform_arrays', handler: async (db) => {
+            const { normalizeAllPlatformArrays } = await import('./migrations/platformTaxonomyExpansion.js');
+            await normalizeAllPlatformArrays(db);
+        } },
     ];
 
     for (const migration of migrations) {

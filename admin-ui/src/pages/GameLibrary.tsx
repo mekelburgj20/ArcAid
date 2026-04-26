@@ -9,6 +9,7 @@ import LoadingState from '../components/LoadingState';
 import StarRating from '../components/StarRating';
 import ConfirmModal from '../components/ConfirmModal';
 import StylePicker from '../components/StylePicker';
+import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
 
 interface GameRow {
   name: string;
@@ -43,12 +44,16 @@ function parsePlatforms(raw: string): string[] {
 }
 
 function PlatformChips({ platforms: raw }: { platforms: string }) {
-  const list = parsePlatforms(raw);
+  // v2.5.1: defense-in-depth — even after migration 089 normalizes the data,
+  // alias-fold + dedupe at render time so future drift doesn't reintroduce
+  // visual duplicates. Render the canonical displayName (e.g. "FX Classic"),
+  // not the raw id (`pinball_fx_classic`).
+  const list = normalizePlatformList(parsePlatforms(raw));
   if (list.length === 0) return <span className="text-faint text-sm">None</span>;
   return (
     <div className="flex gap-1 flex-wrap">
       {list.map(p => (
-        <span key={p} className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">{p}</span>
+        <span key={p} className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">{getPlatformDisplay(p)}</span>
       ))}
     </div>
   );
@@ -482,7 +487,10 @@ export default function GameLibrary() {
     }
   };
 
-  const allPlatforms = [...new Set(games.flatMap(g => parsePlatforms(g.platforms)))].sort();
+  // v2.5.1: alias-fold + dedupe before building the filter pill row, so
+  // legacy mixed-case data (`VPX` / `vpx`) and aliases (`FX3` /
+  // `pinball_fx_classic`) collapse to one chip per real platform.
+  const allPlatforms = normalizePlatformList(games.flatMap(g => parsePlatforms(g.platforms))).sort();
 
   const togglePlatform = (p: string) => {
     setPlatformFilter(prev => {
@@ -496,7 +504,9 @@ export default function GameLibrary() {
     if (!showPinball && (g.mode || 'pinball') === 'pinball') return false;
     if (!showVideoGame && g.mode === 'videogame') return false;
     if (platformFilter.size > 0) {
-      const gPlats = parsePlatforms(g.platforms);
+      // Normalize the game's platforms before comparing — handles mixed-case
+      // pre-089 data without forcing the filter to match all variants.
+      const gPlats = normalizePlatformList(parsePlatforms(g.platforms));
       if (!gPlats.some(p => platformFilter.has(p))) return false;
     }
     if (search) {
@@ -883,7 +893,7 @@ export default function GameLibrary() {
                     : 'bg-transparent text-muted border-border hover:border-neon-cyan/40 hover:text-primary'
                 }`}
               >
-                {p}
+                {getPlatformDisplay(p)}
               </button>
             ))}
             {platformFilter.size > 0 && (
