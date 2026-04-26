@@ -220,6 +220,38 @@ router.get('/:roomId/leaderboard', async (req, res) => {
     }
 });
 
+/**
+ * Returns the canonical-id list of platforms that exist anywhere in the
+ * approved global catalogue. Powers the tournament platform-rules picker
+ * (Must / Must Not be available on). Replaces the legacy
+ * `game_room_settings.PLATFORMS` static list, which had to be hand-curated
+ * per room and frequently drifted from the catalogue.
+ */
+router.get('/:roomId/platforms/available', async (_req, res) => {
+    try {
+        const db = await getDatabase();
+        const rows = await db.all(`
+            SELECT DISTINCT j.value AS platform
+            FROM global_games gg, json_each(gg.platforms) j
+            WHERE gg.status = 'approved' AND j.value != ''
+            ORDER BY platform
+        `) as Array<{ platform: string }>;
+        const { normalizePlatform } = await import('../../utils/platformMapping.js');
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const r of rows) {
+            const id = normalizePlatform(r.platform);
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            out.push(id);
+        }
+        res.json({ platforms: out.sort() });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/platforms/available):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
     try {
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');

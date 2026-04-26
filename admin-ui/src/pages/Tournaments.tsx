@@ -164,13 +164,18 @@ export default function Tournaments() {
     }
   };
 
+  // Catalogue-derived list of platforms available in this room. Replaces the
+  // legacy `game_room_settings.PLATFORMS` static list (often drifted from the
+  // catalogue, hence the "No platforms configured" empty state on the create
+  // form when the setting was unset). The endpoint returns canonical IDs;
+  // TournamentFormFields renders them via `getPlatformDisplay`.
   const fetchPlatforms = async () => {
     try {
-      const settings = await api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`);
-      if (settings.PLATFORMS) {
-        try { setPlatforms(JSON.parse(settings.PLATFORMS)); } catch {}
-      }
-    } catch {}
+      const data = await api.get<{ platforms: string[] }>(`/rooms/${room.roomId}/platforms/available`);
+      setPlatforms(data.platforms || []);
+    } catch {
+      // Silent fail keeps the create form responsive even if the endpoint hiccups.
+    }
   };
 
   const fetchActiveGames = async () => {
@@ -179,15 +184,6 @@ export default function Tournaments() {
     } catch {}
   };
 
-  const handleAddPlatform = async (name: string) => {
-    const updated = [...platforms, name];
-    setPlatforms(updated);
-    try {
-      await api.put(`/rooms/${room.roomId}/settings`, { PLATFORMS: JSON.stringify(updated) });
-    } catch {
-      toast('Failed to save platform', 'error');
-    }
-  };
 
   const handleReorderLineup = async () => {
     setReordering(true);
@@ -369,7 +365,6 @@ export default function Tournaments() {
           state={createForm.state}
           set={createForm.set}
           platforms={platforms}
-          onAddPlatform={handleAddPlatform}
         />
         <NeonButton onClick={handleCreate} disabled={!createForm.state.name.trim() || !createForm.state.tag.trim()}>
           Create Tournament
@@ -525,7 +520,6 @@ export default function Tournaments() {
               state={editForm.state}
               set={editForm.set}
               platforms={platforms}
-              onAddPlatform={handleAddPlatform}
             />
             <div className="flex gap-3 justify-end">
               <NeonButton variant="ghost" onClick={() => setEditTarget(null)} disabled={editSaving}>Cancel</NeonButton>

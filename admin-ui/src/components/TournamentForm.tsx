@@ -1,6 +1,7 @@
 import { useReducer, useState } from 'react';
 import ScheduleBuilder from './ScheduleBuilder';
 import { InfoTip } from './Tooltip';
+import { getPlatformDisplay } from '../lib/platforms';
 
 // --- Types ---
 
@@ -155,7 +156,7 @@ function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
                 rules.required.includes(p)
                   ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
                   : 'bg-raised border-border text-muted hover:border-neon-cyan/50'
-              }`}>{p}</button>
+              }`}>{getPlatformDisplay(p)}</button>
           ))}
           {platforms.length === 0 && <span className="text-faint text-xs">No platforms configured.</span>}
         </div>
@@ -171,7 +172,7 @@ function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
                 rules.excluded.includes(p)
                   ? 'bg-neon-magenta/20 border-neon-magenta text-neon-magenta'
                   : 'bg-raised border-border text-muted hover:border-neon-magenta/50'
-              }`}>{p}</button>
+              }`}>{getPlatformDisplay(p)}</button>
           ))}
         </div>
       </div>
