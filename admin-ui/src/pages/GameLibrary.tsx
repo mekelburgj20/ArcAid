@@ -688,6 +688,26 @@ export default function GameLibrary() {
     });
   };
 
+  // Search parser: extract a `YYYY-YYYY` year-range token (with optional
+  // whitespace around the hyphen) and treat the rest as a plain substring
+  // query. Both clauses AND together. Strict pattern (4-digit years in
+  // [1900, 2100]) so we don't accidentally consume a hyphen inside a real
+  // game title.
+  const parsedSearch = useMemo(() => {
+    const raw = search.trim();
+    if (!raw) return { minYear: null as number | null, maxYear: null as number | null, text: '' };
+    const m = raw.match(/(?:^|\s)(\d{4})\s*-\s*(\d{4})(?=\s|$)/);
+    if (m) {
+      const a = parseInt(m[1], 10);
+      const b = parseInt(m[2], 10);
+      if (a >= 1900 && a <= 2100 && b >= 1900 && b <= 2100) {
+        const remainder = (raw.slice(0, m.index ?? 0) + raw.slice((m.index ?? 0) + m[0].length)).trim();
+        return { minYear: Math.min(a, b), maxYear: Math.max(a, b), text: remainder };
+      }
+    }
+    return { minYear: null, maxYear: null, text: raw };
+  }, [search]);
+
   const filteredGames = games.filter(g => {
     if (!showPinball && (g.mode || 'pinball') === 'pinball') return false;
     if (!showVideoGame && g.mode === 'videogame') return false;
@@ -701,8 +721,11 @@ export default function GameLibrary() {
       ]);
       if (!gPlats.some(p => platformFilter.has(p))) return false;
     }
-    if (search) {
-      const q = search.toLowerCase();
+    if (parsedSearch.minYear !== null && parsedSearch.maxYear !== null) {
+      if (g.year == null || g.year < parsedSearch.minYear || g.year > parsedSearch.maxYear) return false;
+    }
+    if (parsedSearch.text) {
+      const q = parsedSearch.text.toLowerCase();
       // Plain substring search across every metadata field a user might
       // reasonably know. Multi-word queries naturally disambiguate
       // ("Williams Electronics" vs designer "Steve Williams").
@@ -717,7 +740,7 @@ export default function GameLibrary() {
         ...(g.table_authors ?? []),
         ...(g.catalogue_aliases ?? []),
       ].join(' ').toLowerCase();
-      return hay.includes(q);
+      if (!hay.includes(q)) return false;
     }
     return true;
   });
@@ -1128,11 +1151,22 @@ export default function GameLibrary() {
             <input
               type="text" placeholder="Search games..." value={search} onChange={e => setSearch(e.target.value)}
               className={`${inputClass} max-w-sm`}
-              title="Searches name, manufacturer, year, designers, themes, table authors, aliases, platforms, and room tags"
+              title="Substring match across name, manufacturer, year, designers, themes, table authors, aliases, platforms, and room tags. Use a year range like 2001-2020."
             />
             <p className="text-[11px] text-faint mt-1">
-              Searches name, manufacturer, year, designers, themes, table authors, aliases, platforms, and room tags.
+              Searches name, manufacturer, year, designers, themes, table authors, aliases, platforms, and room tags. Year range: <code className="px-1 py-px rounded bg-raised text-muted">2001-2020</code>.
             </p>
+            {(parsedSearch.minYear !== null || parsedSearch.text !== search.trim()) && (
+              <p className="text-[11px] text-neon-cyan mt-1">
+                {parsedSearch.minYear !== null && (
+                  <span>Year {parsedSearch.minYear}–{parsedSearch.maxYear}</span>
+                )}
+                {parsedSearch.minYear !== null && parsedSearch.text && <span className="text-faint"> · </span>}
+                {parsedSearch.text && (
+                  <span>matching "<span className="text-primary">{parsedSearch.text}</span>"</span>
+                )}
+              </p>
+            )}
           </div>
           <label className="flex items-center gap-1.5 text-sm text-muted cursor-pointer">
             <input type="checkbox" checked={showPinball} onChange={e => setShowPinball(e.target.checked)} className="accent-neon-amber" />
