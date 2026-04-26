@@ -191,9 +191,8 @@ export const PickGameSchema = z.object({
 });
 
 /**
- * v2.5.0: input for the per-room game-library proposal flow. Used by:
+ * Input for the per-room game-library proposal flow. Used by:
  *   - POST /:roomId/game_library/proposals       (dedup preview)
- *   - POST /:roomId/game_library/room_only       (commit room-only override)
  *   - POST /:roomId/game_library/submit_to_global (commit pending global submission)
  */
 export const GameProposalSchema = z.object({
@@ -207,31 +206,24 @@ export const GameProposalSchema = z.object({
     platforms: z.array(z.string().min(1)).optional(),
 });
 
-/** v2.5.0: link an existing approved global_games row into the current room. */
-export const UseGlobalGameSchema = z.object({
-    globalGameId: z.string().min(1),
-});
-
 /**
- * v2.5.0: bulk CSV preview body. Client parses CSV in-browser (existing
- * pattern) and posts the row list as JSON. Cap at 500 rows so a malicious
- * client can't trigger unbounded dedup work; real CSVs from rooms are
- * typically ≤200 rows.
+ * Bulk CSV preview body. Client parses CSV in-browser and posts the row
+ * list as JSON. Cap at 500 rows so a malicious client can't trigger
+ * unbounded dedup work; real CSVs from rooms are typically ≤200 rows.
  */
 export const ImportCsvPreviewSchema = z.object({
     games: z.array(GameProposalSchema).min(1).max(500),
 });
 
 /**
- * v2.5.0: bulk CSV commit body. Each entry carries the original input plus
- * the user's per-row decision. `globalGameId` is required only when
- * `decision === 'use_global'`; the server enforces this in-handler.
+ * Bulk CSV commit body. Each entry carries the original input. After step 2
+ * the only valid decision is submit_to_global; auto_link rows are skipped
+ * client-side because the catalogue IS the library.
  */
 export const ImportCsvCommitSchema = z.object({
     games: z.array(z.object({
         input: GameProposalSchema,
-        decision: z.enum(['use_global', 'room_only', 'submit_to_global']),
-        globalGameId: z.string().optional(),
+        decision: z.literal('submit_to_global'),
     })).min(1).max(500),
 });
 
