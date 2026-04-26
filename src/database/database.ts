@@ -1163,6 +1163,43 @@ export async function initDatabase(): Promise<Database> {
             CREATE INDEX IF NOT EXISTS idx_room_game_tags_room_tag
                 ON room_game_tags(game_room_id, tag);
         ` },
+        { name: '094_legacy_vr_tag_cleanup', handler: async (db) => {
+            // Pre-v2.5.0 the catalogue used a generic `vr` token for any VR
+            // variant. v2.5.0 added specific ids (`pinball_fx_classic_vr`,
+            // `pinball_fx_vr`, etc.) but a handful of VPS-imported rows still
+            // carry the bare token. For each: if the row also has
+            // `pinball_fx_classic` (i.e., it's a Williams/Bally Zen FX line
+            // table), promote `vr` → `pinball_fx_classic_vr`. Strip the bare
+            // `vr` regardless (FX VR adds happen via FxVrImportService, not
+            // this migration). Idempotent.
+            const rows = await db.all(`
+                SELECT id, platforms FROM global_games
+                WHERE platforms LIKE '%"vr"%'
+            `) as Array<{ id: string; platforms: string | null }>;
+            let promoted = 0;
+            let stripped = 0;
+            for (const row of rows) {
+                let platforms: string[] = [];
+                try {
+                    const parsed = JSON.parse(row.platforms || '[]');
+                    if (Array.isArray(parsed)) platforms = parsed.filter((x: any) => typeof x === 'string');
+                } catch { continue; }
+                if (!platforms.includes('vr')) continue;
+                const hasFxClassic = platforms.includes('pinball_fx_classic');
+                const next = platforms.filter(p => p !== 'vr');
+                if (hasFxClassic && !next.includes('pinball_fx_classic_vr')) {
+                    next.push('pinball_fx_classic_vr');
+                    promoted++;
+                }
+                stripped++;
+                await db.run(
+                    `UPDATE global_games SET platforms = ? WHERE id = ?`,
+                    JSON.stringify(next), row.id,
+                );
+            }
+            // eslint-disable-next-line no-console
+            console.log(`[migration] 094: stripped bare 'vr' from ${stripped} row(s); promoted ${promoted} to pinball_fx_classic_vr`);
+        } },
     ];
 
     for (const migration of migrations) {

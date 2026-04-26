@@ -496,6 +496,24 @@ router.post('/catalogue/sync-steam-pinball', async (_req, res) => {
     res.status(202).json({ success: true, started: true, source: 'steam-pinball' });
 });
 
+/**
+ * Pinball FX VR catalogue tagger. Walks the curated FX_VR_TABLES list and
+ * applies `pinball_fx_vr` to matching `global_games` rows. No external HTTP
+ * (the source list is baked in from tmp/fx-vr-tables-draft.md), so this
+ * runs in seconds — but we still 202-and-poll to match the admin sync UX.
+ */
+router.post('/catalogue/sync-fx-vr', async (_req, res) => {
+    void (async () => {
+        try {
+            const { FxVrImportService } = await import('../../services/FxVrImportService.js');
+            await FxVrImportService.applyTags();
+        } catch (error) {
+            logError('Background FX VR sync error:', error);
+        }
+    })();
+    res.status(202).json({ success: true, started: true, source: 'fx-vr' });
+});
+
 // Catalogue browse & management
 router.get('/catalogue/games', async (req, res) => {
     try {
