@@ -20,6 +20,11 @@ interface GameRow {
   platforms: string;
   /** Per-room custom tags (room_game_tags). Variant-keyed via id. */
   room_tags?: string[];
+  /** VPS catalogue metadata — searchable from the search bar. */
+  designers?: string[];
+  themes?: string[];
+  table_authors?: string[];
+  catalogue_aliases?: string[];
   catalogue_style_id?: string | null;
   style_header_disabled?: number;
 }
@@ -343,10 +348,6 @@ export default function GameLibrary() {
   // Inline platform add
   const [showAddPlatform, setShowAddPlatform] = useState(false);
   const [newPlatformName, setNewPlatformName] = useState('');
-
-  // Manufacturer filter (top-N as chips, full list in dropdown).
-  const [mfgFilter, setMfgFilter] = useState<Set<string>>(new Set());
-  const [showMfgPicker, setShowMfgPicker] = useState(false);
 
   // Bulk select state — `selectedIds` keys on `global_game_id`.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -678,22 +679,6 @@ export default function GameLibrary() {
     return normalizePlatformList([...fromCatalogue, ...fromTags]).sort();
   }, [games]);
 
-  // Manufacturer chips: top-N (by game count) + "More…" dropdown for the long
-  // tail. Catalogue has ~241 distinct manufacturers; flat chip list would be
-  // unmanageable.
-  const manufacturerStats = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const g of games) {
-      const m = g.manufacturer?.trim();
-      if (!m) continue;
-      counts.set(m, (counts.get(m) ?? 0) + 1);
-    }
-    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return {
-      topMfg: sorted.slice(0, 10).map(([m]) => m),
-      allMfg: sorted.map(([m, c]) => ({ name: m, count: c })),
-    };
-  }, [games]);
 
   const togglePlatform = (p: string) => {
     setPlatformFilter(prev => {
@@ -716,14 +701,23 @@ export default function GameLibrary() {
       ]);
       if (!gPlats.some(p => platformFilter.has(p))) return false;
     }
-    if (mfgFilter.size > 0) {
-      if (!g.manufacturer || !mfgFilter.has(g.manufacturer)) return false;
-    }
     if (search) {
       const q = search.toLowerCase();
-      return g.name.toLowerCase().includes(q)
-        || (g.platforms || '').toLowerCase().includes(q)
-        || (g.manufacturer || '').toLowerCase().includes(q);
+      // Plain substring search across every metadata field a user might
+      // reasonably know. Multi-word queries naturally disambiguate
+      // ("Williams Electronics" vs designer "Steve Williams").
+      const hay = [
+        g.name,
+        g.manufacturer || '',
+        String(g.year || ''),
+        g.platforms || '',
+        ...(g.room_tags ?? []),
+        ...(g.designers ?? []),
+        ...(g.themes ?? []),
+        ...(g.table_authors ?? []),
+        ...(g.catalogue_aliases ?? []),
+      ].join(' ').toLowerCase();
+      return hay.includes(q);
     }
     return true;
   });
@@ -767,15 +761,7 @@ export default function GameLibrary() {
   // Reset to page 1 whenever the filtered/sorted set changes shape.
   useEffect(() => {
     setPage(1);
-  }, [search, showPinball, showVideoGame, platformFilter, mfgFilter, sortKey, sortDir]);
-
-  const toggleMfg = (m: string) => {
-    setMfgFilter(prev => {
-      const next = new Set(prev);
-      if (next.has(m)) next.delete(m); else next.add(m);
-      return next;
-    });
-  };
+  }, [search, showPinball, showVideoGame, platformFilter, sortKey, sortDir]);
 
   const toggleSelected = (id: string) => {
     setSelectedIds(prev => {
@@ -1137,11 +1123,17 @@ export default function GameLibrary() {
       )}
 
       <NeonCard>
-        <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-4">
-          <input
-            type="text" placeholder="Search games..." value={search} onChange={e => setSearch(e.target.value)}
-            className={`${inputClass} max-w-sm`}
-          />
+        <div className="flex flex-wrap items-end gap-3 sm:gap-4 mb-4">
+          <div className="flex flex-col">
+            <input
+              type="text" placeholder="Search games..." value={search} onChange={e => setSearch(e.target.value)}
+              className={`${inputClass} max-w-sm`}
+              title="Searches name, manufacturer, year, designers, themes, table authors, aliases, platforms, and room tags"
+            />
+            <p className="text-[11px] text-faint mt-1">
+              Searches name, manufacturer, year, designers, themes, table authors, aliases, platforms, and room tags.
+            </p>
+          </div>
           <label className="flex items-center gap-1.5 text-sm text-muted cursor-pointer">
             <input type="checkbox" checked={showPinball} onChange={e => setShowPinball(e.target.checked)} className="accent-neon-amber" />
             Pinball
@@ -1151,54 +1143,6 @@ export default function GameLibrary() {
             Video Games
           </label>
         </div>
-        {/* Manufacturer filter — top-N chips + dropdown for the long tail. */}
-        {manufacturerStats.allMfg.length > 0 && (
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <span className="text-xs font-display uppercase tracking-wider text-muted">Manufacturer:</span>
-            {manufacturerStats.topMfg.map(m => (
-              <button
-                key={m}
-                onClick={() => toggleMfg(m)}
-                className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                  mfgFilter.has(m)
-                    ? 'bg-neon-amber/20 text-neon-amber border-neon-amber/60'
-                    : 'bg-transparent text-muted border-border hover:border-neon-amber/40 hover:text-primary'
-                }`}
-              >
-                {m}
-              </button>
-            ))}
-            <div className="relative">
-              <button
-                onClick={() => setShowMfgPicker(v => !v)}
-                className="text-xs px-2 py-0.5 rounded border border-border text-muted hover:border-neon-amber/40 hover:text-primary transition-colors"
-              >
-                More… ({manufacturerStats.allMfg.length - manufacturerStats.topMfg.length})
-              </button>
-              {showMfgPicker && (
-                <div className="absolute z-50 left-0 mt-1 w-64 max-h-64 overflow-y-auto bg-surface border border-default rounded shadow-lg">
-                  {manufacturerStats.allMfg.map(({ name, count }) => (
-                    <button
-                      key={name}
-                      onClick={() => toggleMfg(name)}
-                      className={`w-full text-left px-3 py-1 text-xs flex items-center justify-between hover:bg-raised transition-colors ${
-                        mfgFilter.has(name) ? 'text-neon-amber' : 'text-muted'
-                      }`}
-                    >
-                      <span className="truncate">{name}</span>
-                      <span className="text-faint ml-2 flex-shrink-0">{count}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {mfgFilter.size > 0 && (
-              <button onClick={() => setMfgFilter(new Set())} className="text-xs text-faint hover:text-primary underline">
-                Clear
-              </button>
-            )}
-          </div>
-        )}
         {(allPlatforms.length > 0 || room) && (
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             <span className="text-xs font-display uppercase tracking-wider text-muted">Platforms:</span>

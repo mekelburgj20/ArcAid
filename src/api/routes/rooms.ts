@@ -1827,6 +1827,9 @@ router.get('/:roomId/game_library', async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const db = await getDatabase();
+        // SELECT also pulls the JSON metadata fields used for the FE's free-
+        // text search bar (designers, themes, table_authors, aliases). They
+        // ship as parsed arrays so the FE doesn't double-parse per row.
         const rows = await db.all(`
             SELECT
                 id,
@@ -1836,6 +1839,10 @@ router.get('/:roomId/game_library', async (req, res) => {
                 manufacturer,
                 year,
                 platforms,
+                designers,
+                themes,
+                table_authors,
+                aliases,
                 COALESCE(local_image_path, wheel_image_path, image_url) AS image_url
             FROM global_games
             WHERE status = 'approved'
@@ -1846,6 +1853,13 @@ router.get('/:roomId/game_library', async (req, res) => {
         // Per-room tag map keyed by global_game_id (one query, joined client-side
         // to avoid an N+1 LEFT JOIN against `room_game_tags`).
         const tagMap = await RoomGameTagsService.getTagMapForRoom(roomId);
+        const parseJsonArray = (raw: any): string[] => {
+            if (!raw) return [];
+            try {
+                const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                return Array.isArray(v) ? v.filter((x: any) => typeof x === 'string' && x) : [];
+            } catch { return []; }
+        };
         // Shim into the GameRow shape the FE expects (extra fields are additive).
         res.json(rows.map((r: any) => ({
             id: r.id,
@@ -1857,6 +1871,10 @@ router.get('/:roomId/game_library', async (req, res) => {
             platforms: r.platforms || '[]',
             image_url: r.image_url || null,
             room_tags: tagMap.get(r.id) ?? [],
+            designers: parseJsonArray(r.designers),
+            themes: parseJsonArray(r.themes),
+            table_authors: parseJsonArray(r.table_authors),
+            catalogue_aliases: parseJsonArray(r.aliases),
             // v2.5.1 stubs — these per-row override fields lived on game_library;
             // dropped in v2.6.0. FE renders fallbacks.
             aliases: '',
