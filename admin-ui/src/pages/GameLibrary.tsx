@@ -11,8 +11,11 @@ import StylePicker from '../components/StylePicker';
 import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
 
 interface GameRow {
+  id?: string;
   name: string;
   display_name: string;
+  manufacturer?: string | null;
+  year?: number | null;
   mode: string;
   platforms: string;
   catalogue_style_id?: string | null;
@@ -20,6 +23,7 @@ interface GameRow {
 }
 
 const emptyAddForm = { name: '', mode: 'pinball', platforms: '' };
+const ROWS_PER_PAGE = 100;
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
 
@@ -55,6 +59,71 @@ interface TournamentOption {
 
 type SortKey = 'name' | 'mode' | 'platforms' | 'rating';
 type SortDir = 'asc' | 'desc';
+
+/**
+ * Renders [Prev] [1] [2] [3] ... [N] [Next]. Truncates the middle of the
+ * page list with an ellipsis when the total is large; always shows page 1,
+ * the last page, the current page, and the two neighbors of current.
+ */
+function Pagination({ page, totalPages, onPageChange, total, pageStart, pageEnd }: {
+  page: number;
+  totalPages: number;
+  onPageChange: (p: number) => void;
+  total: number;
+  pageStart: number;
+  pageEnd: number;
+}) {
+  if (totalPages <= 1) {
+    return <p className="text-faint text-xs mt-3">{total} game{total !== 1 ? 's' : ''}</p>;
+  }
+
+  const pageNums: Array<number | 'ellipsis'> = [];
+  const window = new Set<number>([1, totalPages, page, page - 1, page + 1]);
+  for (let i = 1; i <= totalPages; i++) {
+    if (window.has(i)) pageNums.push(i);
+  }
+  // Insert ellipsis where there's a gap.
+  const withGaps: Array<number | 'ellipsis'> = [];
+  for (let i = 0; i < pageNums.length; i++) {
+    withGaps.push(pageNums[i]);
+    const next = pageNums[i + 1];
+    if (typeof next === 'number' && typeof pageNums[i] === 'number' && next - (pageNums[i] as number) > 1) {
+      withGaps.push('ellipsis');
+    }
+  }
+
+  const btnClass = (active: boolean, disabled: boolean) =>
+    `text-xs px-2.5 py-1 rounded border transition-colors ${
+      disabled ? 'border-border/40 text-faint cursor-not-allowed'
+      : active ? 'bg-neon-cyan/15 border-neon-cyan text-neon-cyan'
+      : 'border-border text-muted hover:text-primary hover:border-border/80'
+    }`;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
+      <p className="text-faint text-xs">
+        Showing {pageStart + 1}–{pageEnd} of {total}
+      </p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onPageChange(page - 1)} disabled={page <= 1} className={btnClass(false, page <= 1)}>
+          Prev
+        </button>
+        {withGaps.map((p, i) =>
+          p === 'ellipsis' ? (
+            <span key={`e${i}`} className="px-1.5 text-faint text-xs">…</span>
+          ) : (
+            <button key={p} onClick={() => onPageChange(p)} className={btnClass(p === page, false)}>
+              {p}
+            </button>
+          )
+        )}
+        <button onClick={() => onPageChange(page + 1)} disabled={page >= totalPages} className={btnClass(false, page >= totalPages)}>
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function SortHeader({ label, sortKey, currentKey, currentDir, onSort }: {
   label: string; sortKey: SortKey; currentKey: SortKey; currentDir: SortDir; onSort: (k: SortKey) => void;
@@ -104,6 +173,9 @@ export default function GameLibrary() {
   // Sorting
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  // Pagination
+  const [page, setPage] = useState(1);
 
   // Inline platform add
   const [showAddPlatform, setShowAddPlatform] = useState(false);
@@ -447,25 +519,34 @@ export default function GameLibrary() {
     return true;
   });
 
-  // Sorted games
+  // Sorted games. localeCompare uses { sensitivity: 'base' } so the FE order
+  // matches the server's `COLLATE NOCASE` (case-insensitive). Variants of a
+  // shared name fall back to (year, manufacturer) so e.g. all "Carnival"
+  // entries render adjacent and oldest-first.
   const sortedGames = useMemo(() => {
     const sorted = [...filteredGames];
+    const cmpStr = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' });
     sorted.sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
         case 'name':
-          cmp = a.name.localeCompare(b.name);
+          cmp = cmpStr(a.name, b.name);
+          if (cmp === 0) cmp = (a.year ?? 9999) - (b.year ?? 9999);
+          if (cmp === 0) cmp = cmpStr(a.manufacturer || '', b.manufacturer || '');
           break;
         case 'mode':
-          cmp = (a.mode || 'pinball').localeCompare(b.mode || 'pinball');
+          cmp = cmpStr(a.mode || 'pinball', b.mode || 'pinball');
+          if (cmp === 0) cmp = cmpStr(a.name, b.name);
           break;
         case 'platforms':
-          cmp = (a.platforms || '').localeCompare(b.platforms || '');
+          cmp = cmpStr(a.platforms || '', b.platforms || '');
+          if (cmp === 0) cmp = cmpStr(a.name, b.name);
           break;
         case 'rating': {
           const ra = communityRatings[a.name]?.avg_rating ?? 0;
           const rb = communityRatings[b.name]?.avg_rating ?? 0;
           cmp = ra - rb;
+          if (cmp === 0) cmp = cmpStr(a.name, b.name);
           break;
         }
       }
@@ -473,6 +554,16 @@ export default function GameLibrary() {
     });
     return sorted;
   }, [filteredGames, sortKey, sortDir, communityRatings]);
+
+  // Reset to page 1 whenever the filtered/sorted set changes shape.
+  useEffect(() => {
+    setPage(1);
+  }, [search, showPinball, showVideoGame, platformFilter, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedGames.length / ROWS_PER_PAGE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * ROWS_PER_PAGE;
+  const pageRows = sortedGames.slice(pageStart, pageStart + ROWS_PER_PAGE);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -800,17 +891,22 @@ export default function GameLibrary() {
               </tr>
             </thead>
             <tbody>
-              {sortedGames.length === 0 ? (
+              {pageRows.length === 0 ? (
                 <tr>
                   <td colSpan={room ? 5 : 4} className="px-4 py-8 text-center text-muted">
                     No games in the catalogue.
                   </td>
                 </tr>
               ) : (
-                sortedGames.map((g) => (
-                  <tr key={g.name} className="border-b border-border/50 transition-colors hover:bg-raised/50">
+                pageRows.map((g) => (
+                  <tr key={g.id ?? `${g.name}|${g.manufacturer ?? ''}|${g.year ?? ''}`} className="border-b border-border/50 transition-colors hover:bg-raised/50">
                     <td className="px-4 py-3">
-                      <span className="font-medium">{g.name}</span>
+                      <div className="font-medium">{g.name}</div>
+                      {(g.manufacturer || g.year) && (
+                        <div className="text-xs text-faint mt-0.5">
+                          {[g.manufacturer, g.year].filter(Boolean).join(', ')}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded ${(g.mode || 'pinball') === 'pinball' ? 'bg-neon-amber/15 text-neon-amber' : 'bg-neon-cyan/15 text-neon-cyan'}`}>
@@ -857,7 +953,16 @@ export default function GameLibrary() {
             </tbody>
           </table>
         </div>
-        <p className="text-faint text-xs mt-3">{filteredGames.length} game{filteredGames.length !== 1 ? 's' : ''}</p>
+        {sortedGames.length > 0 && (
+          <Pagination
+            page={currentPage}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            total={sortedGames.length}
+            pageStart={pageStart}
+            pageEnd={Math.min(pageStart + ROWS_PER_PAGE, sortedGames.length)}
+          />
+        )}
       </NeonCard>
 
       {activateTarget && (
