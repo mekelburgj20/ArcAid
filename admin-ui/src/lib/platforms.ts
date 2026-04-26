@@ -98,13 +98,15 @@ export function normalizePlatform(raw: string): string {
 }
 
 /**
- * Display name for a canonical id (or any alias). Falls back to the raw
- * input when the platform isn't in the registry.
+ * Display name for a canonical id (or any alias). Known canonicals render
+ * with their curated label (e.g. "Visual Pinball X"). Unknown / legacy
+ * tokens (`fx2`, `vr`, etc.) fall back to an uppercased form so chips read
+ * "FX2" / "VR" rather than the raw lowercase id.
  */
 export function getPlatformDisplay(raw: string | null | undefined): string {
     if (!raw) return '';
     const id = normalizePlatform(raw);
-    return DISPLAY_NAMES[id] || raw;
+    return DISPLAY_NAMES[id] || raw.toUpperCase();
 }
 
 /**
