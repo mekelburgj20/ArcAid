@@ -24,16 +24,21 @@ Output Format: Present your final output in the following structure:
 Relevant Documentation:
 
 **Active (update regularly):**
-- `README.md` — Public-facing feature list, URL structure, commands, config, tech stack
+- `README.md` — Public-facing functional summary: what the app is, what it can do (Features), how to use it (Quick Start, URL Structure, Auth, Discord Commands, Configuration, Tech Stack, Deployment). Carries a one-line CHANGELOG pointer; do NOT add version-specific sections.
+- `CHANGELOG.md` — **Single source of truth** for release history. Per-version entry in Keep-a-Changelog format with full detail (problem, fix, files touched, migration notes, SW cache bumps). Bumped with every release.
 - `ROADMAP.md` — Completed work, future plans, sprint history
 - `SPRINT_STATUS.md` — Live progress tracker, last session notes, blockers
 - `CLAUDE.md` (ArcAid root) — Architecture tables, key patterns, database schema, session checklist
 - `../CLAUDE.md` (parent repo root) — Repository overview, architecture tables shared across projects
-- `CHANGELOG.md` — Per-version summary (Keep-a-Changelog format). Bumped with every release; each entry links to the per-version README.
-- `releases/v*/README.md` — Per-version release notes with full detail (problem, fix, files touched, upgrade/rollback). One directory per tagged version.
 - `docs/decisions/` — Architecture Decision Records (ADRs). One file per load-bearing decision. Index in `docs/decisions/README.md`; template in `0000-template.md`.
+- `docs/step-2-cleanup-plan.md` — Active multi-step plan documents kept in `docs/` once they outgrow `tmp/` and need to survive in git for the next agent.
+- `docs/VIDEO-TUTORIAL-SCRIPT.md` — Video tutorial scripts, episode list, B-roll checklist, production standards
+- `docs/HOW-TO-GUIDE.md` — End-user how-to documentation
 - `admin-ui/public/sw.js` — PWA service worker. `CACHE_NAME` **must** be bumped every UI-visible release so installed clients pick up the new bundle.
 - `package.json` — `version` field; bump with every release alongside CHANGELOG and SW cache.
+
+**Retired (do not maintain):**
+- `releases/v*/README.md` — per-version release notes. Historical archive only (v2.0.0 → v2.2.8). v2.3.0+ release detail lives in `CHANGELOG.md`. See `releases/README.md` for the retirement context.
 
 **Reference (update occasionally):**
 - `.claude/commands/deploy.md` — Production deployment checklist slash command

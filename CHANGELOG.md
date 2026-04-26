@@ -1,6 +1,6 @@
 # Changelog
 
-Each release has a dedicated notes file in `releases/`. This index is a scannable summary; the per-version files have the full breakdown.
+This file is the single source of truth for ArcAid release history. The legacy `releases/v*/README.md` per-version-directory convention was retired as of v2.3.0 — see [`releases/README.md`](releases/README.md) for context.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follows [SemVer](https://semver.org/).
 
@@ -19,7 +19,7 @@ SW `CACHE_NAME` → `arcaid-v18`.
 
 ## [2.5.1] — 2026-04-26
 
-**Feature + patch.** Per-room library page reads from `global_games WHERE status='approved'` directly — every room sees the full approved catalogue. The legacy `game_room_game_library` curation overlay is no longer consulted for the list view. This is "step 1" of a two-step cleanup; step 2 (drop the legacy `game_library` / `game_room_game_library` tables, move aliases onto `global_games`, simplify proposal endpoints) is documented in `tmp/step-2-cleanup-plan.md`. Tournaments still pick from `game_library` for now — out of scope for step 1.
+**Feature + patch.** Per-room library page reads from `global_games WHERE status='approved'` directly — every room sees the full approved catalogue. The legacy `game_room_game_library` curation overlay is no longer consulted for the list view. This is "step 1" of a two-step cleanup; step 2 (drop the legacy `game_library` / `game_room_game_library` tables, move aliases onto `global_games`, simplify proposal endpoints) is documented in `docs/step-2-cleanup-plan.md`. Tournaments still pick from `game_library` for now — out of scope for step 1.
 
 Three platform-display bugs fixed:
 
