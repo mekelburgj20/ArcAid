@@ -14,9 +14,9 @@ export interface PlatformInfo {
 export const CANONICAL_PLATFORMS: Record<string, PlatformInfo> = {
     // Physical pinball
     real:        { id: 'real',        displayName: 'Real Machine',       category: 'physical' },
-    atgames:     { id: 'atgames',     displayName: 'AtGames Legends',    category: 'physical' },
-    atgames_hd:  { id: 'atgames_hd',  displayName: 'AtGames Legends HD', category: 'physical' },
-    atgames_4k:  { id: 'atgames_4k',  displayName: 'AtGames Legends 4K', category: 'physical' },
+    atgames:     { id: 'atgames',     displayName: 'AtGames',    category: 'physical' },
+    atgames_hd:  { id: 'atgames_hd',  displayName: 'AtGames HD', category: 'physical' },
+    atgames_4k:  { id: 'atgames_4k',  displayName: 'AtGames 4K', category: 'physical' },
 
     // Virtual pinball
     vpx:         { id: 'vpx',         displayName: 'Visual Pinball X',   category: 'virtual_pinball' },
