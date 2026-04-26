@@ -29,7 +29,11 @@ Relevant Documentation:
 - `SPRINT_STATUS.md` — Live progress tracker, last session notes, blockers
 - `CLAUDE.md` (ArcAid root) — Architecture tables, key patterns, database schema, session checklist
 - `../CLAUDE.md` (parent repo root) — Repository overview, architecture tables shared across projects
-- `docs/decisions/` — Architecture Decision Records (ADRs). One file per load-bearing decision.
+- `CHANGELOG.md` — Per-version summary (Keep-a-Changelog format). Bumped with every release; each entry links to the per-version README.
+- `releases/v*/README.md` — Per-version release notes with full detail (problem, fix, files touched, upgrade/rollback). One directory per tagged version.
+- `docs/decisions/` — Architecture Decision Records (ADRs). One file per load-bearing decision. Index in `docs/decisions/README.md`; template in `0000-template.md`.
+- `admin-ui/public/sw.js` — PWA service worker. `CACHE_NAME` **must** be bumped every UI-visible release so installed clients pick up the new bundle.
+- `package.json` — `version` field; bump with every release alongside CHANGELOG and SW cache.
 
 **Reference (update occasionally):**
 - `.claude/commands/deploy.md` — Production deployment checklist slash command

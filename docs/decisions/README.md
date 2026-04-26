@@ -34,3 +34,6 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 |---|---|---|---|
 | 0001 | [Device-specific scoreboard preferences](0001-device-specific-preferences.md) | accepted | 2026-04-12 |
 | 0002 | [Decoupled logo consumption paths](0002-decoupled-logo-paths.md) | accepted | 2026-04-14 |
+| 0003 | [At-rest encryption for sensitive settings](0003-at-rest-secret-encryption.md) | accepted | 2026-04-19 |
+| 0004 | [Catalogue identity is `(name, type, manufacturer, year)`](0004-catalogue-identity-index.md) | accepted | 2026-04-21 |
+| 0005 | [Pin to Scoreboard uses `games.tournament_id IS NULL`](0005-pin-via-tournament-id-null.md) | accepted | 2026-04-21 |

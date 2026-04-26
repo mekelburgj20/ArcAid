@@ -390,6 +390,77 @@ Manual test playbook: `tmp/manual-test-playbook-v2.2.3.md` (up to v2.2.7 checkpo
 
 ---
 
+## v2.2.15 — Settings reorg + Identity moves (COMPLETE, shipped 2026-04-18)
+
+- [x] Room Settings sections reordered: Theme → Scoreboard Display → Scoreboard Branding → Kiosk → Game Room → Integrations → Discord → Users → iScored.
+- [x] "Refresh Schedules" button moved to bottom of Tournaments page; "System Actions" header removed.
+- [x] Merge / Rename Player moved from Settings to the Identity admin page (`/:slug/admin/identity`).
+- [x] Platforms management removed from Settings — covered by the `+` button next to Platforms in the Game Library row editor.
+- [x] Discord admin "user not found" error now surfaces a distinct 400 with actionable text.
+- [x] Default scoreboard display picker shows new card styles first; legacy styles behind "Show legacy styles" expander.
+
+---
+
+## v2.3.0 — Per-room integrations + at-rest secret encryption (COMPLETE, shipped 2026-04-19)
+
+- [x] **Per-room iScored / Discord** — Discord guild ID, admin role ID, announcement channel ID, and iScored credentials moved from global to per-room `game_room_settings`. Each room can independently connect to its own Discord guild and iScored account, or disable either via `DISCORD_ENABLED` / `ISCORED_ENABLED` flags.
+- [x] **At-rest encryption** — `src/utils/secrets.ts` AES-GCM pipeline keyed off `SECRETS_KEY` env. `ENCRYPTED_SETTING_KEYS` allowlist (initially `ISCORED_PASSWORD`). `SettingsService` and `GameRoomSettingsService` consult `isEncryptedKey()` for encrypt-on-write / decrypt-on-read. `maskEncryptedValues` returns `[ENCRYPTED]` on `GET /admin/settings` so the UI never round-trips ciphertext. `npm run generate-secrets-key` mints a fresh key.
+- [x] **Discord plumbing fixes** (v2.3.1–v2.3.3) — gate slash commands and DMs on per-room `DISCORD_ENABLED`; exclude Discord-disabled rooms from cross-room queries; exclude orphan (no-tournament) games from `/list-active`.
+
+---
+
+## v2.4.0 — Catalogue Unification + Pin to Scoreboard (COMPLETE, shipped 2026-04-21)
+
+8 phases (A–H), 9 migrations (068–076), 30 new tests (89 → 119).
+
+**Catalogue unification:**
+- [x] **Backfill** — Migration 069 populates `global_game_id` on `games`, `game_library`, `game_room_game_library`. Idempotent, transactional, type-aware (resolves video_game vs pinball via `tournaments.mode`). Pre-sprint fill rates 0% / 0% / 51% → ~100% across the board.
+- [x] **UNIQUE INDEX `idx_global_games_name_type`** (migration 068) closes the read-check-insert race in `GlobalGameService.upsert`. Later replaced by composite `idx_global_games_identity` (migration 080) to allow same-name pinballs from different manufacturers.
+- [x] **Orphan cleanup** (migration 070) — deleted 5 legacy pinned games (Walking Dead, Spider-Man, Iron Maiden, 24, Game of Thrones) with `tournament_id=NULL`. Cascades submissions/score_history/global_scores `game_id` to NULL before DELETE.
+- [x] **Per-room overlay** (migration 071) — `game_room_game_library.custom_platforms` (JSON, unioned with global) + `display_name` (override).
+- [x] **Query migration** — high-impact joins switched to FK-based: `rooms.ts` library JOIN, `GameLibraryService` room-library queries, `GlobalScoreService` fan-out short-circuits, `LeaderboardService` + `DashboardService` style-resolution. Cache bust (migration 072) on `leaderboard_cache` + `global_leaderboard_cache`.
+
+**Pin to Scoreboard:**
+- [x] **Schema** — `games.game_room_id` (migration 073, denormalized + backfilled from tournaments), `games.display_order` (migration 076). Unique partial index `idx_games_pinned_unique` (migration 074) prevents double-pin per room.
+- [x] **Cascade on unpin** — application-level via the helper. `UPDATE submissions SET game_id = NULL` (and same for score_history, global_scores.origin_game_id) before the DELETE. Score history preserved.
+- [x] **`createGameWithIScoredSync()` shared helper** (`src/engine/gameCreation.ts`). Returns `{ gameId, iscoredStatus, iscoredId? }`. `TournamentEngine` refactored to use it at three call sites; new Pin endpoint also uses it.
+- [x] **UI** — Pin button on Game Library row actions opens modal with iScored mirroring + global-scoreboard exclusion checkboxes. "Pinned" section on Game States page parallel to Active/Queued/Completed. Inline display-order editor.
+- [x] **Visual** — `BannerCard`, `ShowcaseCard`, `MinimalCard` render a subtle "Pinned" chip when `isPinned: true`.
+
+**Rankings & Stats audit:** Pinned games naturally excluded from `RankingService.computeRankings` (it's tournament-scoped). `StatsService` casual metrics include pinned scores; tournament-tagged metrics don't.
+
+---
+
+## v2.4.1–v2.4.15 — Catalogue dedup saga (COMPLETE, shipped 2026-04-21 → 2026-04-24)
+
+15 patches over 4 days as iterative imports surfaced deeper layers of the dedup logic. Final state has 119/119 tests passing.
+
+- [x] **v2.4.1** — Migration 068 auto-merges legacy duplicate `(name, type)` groups instead of aborting (prod had 112 groups; without auto-merge the UNIQUE INDEX creation aborted).
+- [x] **v2.4.2** — Multi-pass merge loop (3 passes max) catches duplicates of duplicates. Diagnostic logging for residuals.
+- [x] **v2.4.3** — Migration 069 backfill uses strict `LOWER(name)+type` exact-match helper instead of `GlobalGameService.upsert` (which collapsed multiple distinct names to the same key).
+- [x] **v2.4.4** — Migration order fix: 077 (drop NOT NULL on `submissions.game_id`) now runs before 070 (orphan cleanup).
+- [x] **v2.4.5** — All Games tab: catalogue card link target → room game detail (when mapped); rows with no image hidden by default.
+- [x] **v2.4.6–v2.4.7** — Migrations 078/079 merge thin backfilled catalogue duplicates (`Bluey (Original, 2021)` thin row + `Bluey` rich row patterns).
+- [x] **v2.4.8** — Migration 080 swaps `idx_global_games_name_type` for composite `idx_global_games_identity` on `(LOWER(name), type, LOWER(COALESCE(mfg,'')), COALESCE(year,0))`. Lets Stern Batman 2008 + Data East Batman 1991 coexist.
+- [x] **v2.4.9** — Removed stale `SYNC_ALERT_CHANNEL_ID` from seed; migration 081 scrubs prod.
+- [x] **v2.4.10** — Step-4 two-tier match: concrete (mfg+year-agreeing) preferred over loose (NULL-tolerant). Migration 082 re-runs thin-duplicate merger.
+- [x] **v2.4.11** — Step-4 concrete uses exact year match (not ±1 tolerance). Multi-concrete tie-breaker prefers richest row (most external IDs, oldest `created_at`).
+- [x] **v2.4.12** — `findByNormalizedName` rewritten to drop SQL `LIKE` prefilter — full-table scan + JS-side normalize compare. The `LIKE '%firstword%'` prefilter used the *normalized* (punctuation-stripped) first word against *raw* names, so `"gilligans"` couldn't match stored `"Gilligan's Island"` because the apostrophe broke the substring.
+- [x] **v2.4.13** — Wizard import section-aware tagging: `vpxs` for auto-install, `vpxs_manual` for Manual Install Tables. Tournament platform rules can require reliability. SpongeBob no-parens edge case: loose-path richest-row tie-breaker.
+- [x] **v2.4.14** — Per-tournament scheduler logs gain `[room-slug]` prefix. Super-admin Dashboard adds Activity Log link per room card.
+- [x] **v2.4.15** — Step-4 concrete-path filters against full `nameMatches` (not `nonConflicting`) to handle VPS re-indexing. Pinball machines have a single canonical `(name, mfg, year)` identity, so a divergent vps_id just means the source re-indexed itself.
+
+---
+
+## v2.4.16 — Catalogue UX + diagnostics (COMPLETE, shipped 2026-04-25)
+
+- [x] **`formatLogArg()` writes `Error.stack` to file** instead of `{}`. Pre-fix every `logError(msg, err)` site silently lost detail because `Error.message` and `.stack` are non-enumerable and the file logger used `JSON.stringify`. Console output was unaffected (Node's `util.inspect` handles Error specially), so the bug only surfaced in the rotating file (and the admin Logs viewer that reads it).
+- [x] **OPDB / IGDB sync routes return 400 upfront** when credentials are missing. Was 202 → swallowed background failure → opaque `{}` log line.
+- [x] **Global Settings → Configuration** gains `OPDB_API_KEY`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` fields. Masked inputs + reveal toggle on the secrets. `OPDB_API_KEY` and `TWITCH_CLIENT_SECRET` added to `ENCRYPTED_SETTING_KEYS` allowlist.
+- [x] **VPS importer split** into `playable` (legacy game_library — unchanged) and `cataloguable` (any VPS entry with a name → global_games + image-download pass). Broken-flagged tables (Bluey, Britney Spears, etc.) — they have user-submitted scores and valid metadata + images upstream — now populate the global catalogue.
+
+---
+
 ## Future
 
 ### Player Self-Service + Moderation

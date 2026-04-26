@@ -49,6 +49,20 @@
 - **11 UI themes** — Arcade, Dark, Light, Backglass, CRT Green, Plasma, Cabinet, Silverball, Wizard, Playfield, Marquee — admin theme per-user, public theme per-room
 - **Public pages** — Scoreboard, player profiles, game details, and game availability — no login required
 - **Mobile-responsive** — Full functionality on phones and tablets
+- **Pin to Scoreboard** — Room admins can pin any catalogue game to the room scoreboard without creating a tournament; optional one-step iScored mirroring; pinned games render with a "Pinned" chip and stay active until manually unpinned
+- **At-rest secret encryption** — `iScored` passwords, OPDB API key, and Twitch client secret stored encrypted (AES-GCM) using a `SECRETS_KEY` from the host environment; allowlist-driven so a typo can't silently land in plaintext
+- **Per-room iScored / Discord configuration** — Each game room connects independently to its own Discord guild and iScored account, or disables either integration; settings live in `game_room_settings`
+- **OPDB / IGDB catalogue imports** — Bulk import pinball machines from OPDB and arcade/console games from IGDB (via Twitch OAuth) directly from the global catalogue page; UI fields for the API keys live in Global Settings → Configuration
+- **Wizard auto vs manual tagging** — VPXS Wizard imports distinguish `vpxs` (auto-install, verified) from `vpxs_manual` (Manual Install Tables — hit-or-miss on AtGames Standalone) so tournament platform rules can require reliability
+
+### v2.4.0 — Catalogue Unification + Pin to Scoreboard (2026-04-21)
+- **Unified catalogue identity.** Every relevant row links to a canonical `global_games.id`. Identity resolved through the FK rather than name-based JOINs (with name-based COALESCE fallbacks kept as defense in depth). Per-room overlay supports `custom_platforms` (e.g. WMS league) and `display_name` overrides without touching the shared catalogue.
+- **Pin to Scoreboard.** Pinned games render with a "Pinned" chip on Banner/Showcase/Minimal cards, stay active until unpinned, don't contribute to cross-tournament rankings, and survive maintenance cycles. Schema: `games.tournament_id IS NULL` is the canonical pinned-row signal.
+- **4-step dedup hierarchy.** `GlobalGameService.upsert` resolves identity via: external ID → cross-type guard → IPDB URL → normalized name. Composite UNIQUE INDEX on `(LOWER(name), type, LOWER(COALESCE(mfg,'')), COALESCE(year,0))` lets same-name pinballs from different manufacturers (Stern Batman 2008 vs Data East Batman 1991) coexist while rejecting true duplicates.
+
+### v2.3.0 — Per-room integrations + at-rest encryption (2026-04-19)
+- **Per-room iScored / Discord** — Discord guild ID, admin role ID, announcement channel ID, and iScored credentials moved from global to per-room `game_room_settings`.
+- **At-rest secret encryption** — AES-GCM encryption pipeline keyed off `SECRETS_KEY`; `ENCRYPTED_SETTING_KEYS` allowlist controls what's encrypted; `maskEncryptedValues` returns a `[ENCRYPTED]` placeholder on `GET /admin/settings`.
 
 ### v2.1.0 — Tournament scoring + Stats Combo (2026-04-18)
 - **Tournament leaderboards read from `score_history`** filtered by `submitted_during_tournament_id` — best-during-the-window wins, no longer tied to all-time personal best. Lower-than-PB scores during a tournament window count correctly.
