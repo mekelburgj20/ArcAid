@@ -29,9 +29,13 @@ function log(line: string): void {
  * Walks every JSON column that may contain platform identifiers:
  *   - global_games.platforms                    (JSON array)
  *   - game_library.platforms                    (JSON array)
- *   - games.platforms                           (JSON array)
  *   - game_room_game_library.custom_platforms   (JSON array)
  *   - tournaments.platform_rules                (JSON object: { required[], excluded[] })
+ *
+ * The `games` table does NOT carry its own platforms — games inherit them
+ * transitively via `game.name → game_library.platforms` (or via
+ * `game.global_game_id → global_games.platforms`). Rewriting game_library +
+ * global_games is sufficient to cover game rows.
  *
  * Idempotent: running twice is a no-op (no rows match `LIKE '%pinball_fx3%'`
  * after the first pass).
@@ -68,7 +72,6 @@ export async function renameFx3ToFxClassic(db: Database): Promise<void> {
     const arrayColumns: ArrayColumn[] = [
         { table: 'global_games',           column: 'platforms' },
         { table: 'game_library',           column: 'platforms' },
-        { table: 'games',                  column: 'platforms' },
         { table: 'game_room_game_library', column: 'custom_platforms' },
     ];
 
@@ -127,8 +130,8 @@ export async function renameFx3ToFxClassic(db: Database): Promise<void> {
  * triggers a bulk re-tag (a follow-up tool, not in this bundle).
  *
  * Source-game lookup per table:
- *   - submissions       → games.platforms via submissions.game_id
- *   - score_history     → games.platforms via score_history.game_id
+ *   - submissions       → game_library.platforms via games.name (case-insensitive)
+ *   - score_history     → game_library.platforms via games.name (case-insensitive)
  *                         (rows with NULL game_id stay NULL — those are
  *                         community-source entries; the equivalent rows in
  *                         community_scores carry the platform.)
@@ -137,29 +140,35 @@ export async function renameFx3ToFxClassic(db: Database): Promise<void> {
  *                                                 game_room_game_library.custom_platforms)
  *                         keyed on (game_room_id, game_name).
  *
+ * Note: the `games` table has no `platforms` column of its own. Games inherit
+ * via the joined library row (PK = name). The submissions/score_history
+ * backfill therefore joins games → game_library to read platforms.
+ *
  * Wrapped in a single transaction so a partial failure rolls back cleanly.
  * Idempotent — re-running is a no-op (only updates rows where platform IS NULL).
  */
 export async function backfillScorePlatforms(db: Database): Promise<void> {
     await db.exec('BEGIN');
     try {
-        // submissions — pure SQL via JSON1 (json_array_length / json_extract).
+        // submissions — join games → game_library by name to read platforms.
         const sub = await db.run(`
             UPDATE submissions
                SET platform = (
-                   SELECT json_extract(games.platforms, '$[0]')
-                   FROM games
-                   WHERE games.id = submissions.game_id
-                     AND games.platforms IS NOT NULL
-                     AND json_array_length(games.platforms) = 1
+                   SELECT json_extract(gl.platforms, '$[0]')
+                   FROM games g
+                   JOIN game_library gl ON LOWER(gl.name) = LOWER(g.name)
+                   WHERE g.id = submissions.game_id
+                     AND gl.platforms IS NOT NULL
+                     AND json_array_length(gl.platforms) = 1
                )
              WHERE platform IS NULL
                AND game_id IS NOT NULL
                AND EXISTS (
-                   SELECT 1 FROM games
-                   WHERE games.id = submissions.game_id
-                     AND games.platforms IS NOT NULL
-                     AND json_array_length(games.platforms) = 1
+                   SELECT 1 FROM games g
+                   JOIN game_library gl ON LOWER(gl.name) = LOWER(g.name)
+                   WHERE g.id = submissions.game_id
+                     AND gl.platforms IS NOT NULL
+                     AND json_array_length(gl.platforms) = 1
                )
         `);
         log(`085: submissions — resolved ${sub.changes ?? 0}`);
@@ -170,19 +179,21 @@ export async function backfillScorePlatforms(db: Database): Promise<void> {
         const shByGameId = await db.run(`
             UPDATE score_history
                SET platform = (
-                   SELECT json_extract(games.platforms, '$[0]')
-                   FROM games
-                   WHERE games.id = score_history.game_id
-                     AND games.platforms IS NOT NULL
-                     AND json_array_length(games.platforms) = 1
+                   SELECT json_extract(gl.platforms, '$[0]')
+                   FROM games g
+                   JOIN game_library gl ON LOWER(gl.name) = LOWER(g.name)
+                   WHERE g.id = score_history.game_id
+                     AND gl.platforms IS NOT NULL
+                     AND json_array_length(gl.platforms) = 1
                )
              WHERE platform IS NULL
                AND game_id IS NOT NULL
                AND EXISTS (
-                   SELECT 1 FROM games
-                   WHERE games.id = score_history.game_id
-                     AND games.platforms IS NOT NULL
-                     AND json_array_length(games.platforms) = 1
+                   SELECT 1 FROM games g
+                   JOIN game_library gl ON LOWER(gl.name) = LOWER(g.name)
+                   WHERE g.id = score_history.game_id
+                     AND gl.platforms IS NOT NULL
+                     AND json_array_length(gl.platforms) = 1
                )
         `);
         log(`085: score_history (via game_id) — resolved ${shByGameId.changes ?? 0}`);
