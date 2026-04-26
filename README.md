@@ -4,6 +4,8 @@
 
 **Production:** [arcaid.app](https://arcaid.app)
 
+**Release notes:** see [CHANGELOG.md](CHANGELOG.md) for the full version history.
+
 ## Features
 
 - **Multi-tenant game rooms** — Each room has its own tournaments, leaderboards, admins, settings, and iScored account
@@ -54,42 +56,6 @@
 - **Per-room iScored / Discord configuration** — Each game room connects independently to its own Discord guild and iScored account, or disables either integration; settings live in `game_room_settings`
 - **OPDB / IGDB catalogue imports** — Bulk import pinball machines from OPDB and arcade/console games from IGDB (via Twitch OAuth) directly from the global catalogue page; UI fields for the API keys live in Global Settings → Configuration
 - **Wizard auto vs manual tagging** — VPXS Wizard imports distinguish `vpxs` (auto-install, verified) from `vpxs_manual` (Manual Install Tables — hit-or-miss on AtGames Standalone) so tournament platform rules can require reliability
-
-### v2.5.0–v2.5.2 — VR + Steam-pinball taxonomy + score-platform stratification + library = catalogue (2026-04-26)
-- **7 new platform IDs** — `pinball_fx_classic` (Zen rebrand of `pinball_fx3`), `pinball_fx_classic_vr`, `pinball_fx_midnight`, `pinball_fx_vr`, `star_wars_pinball_vr`, `zaccaria`, `zaccaria_vr`. New `'VR'` quick-pick group in tournament rules. Aliases fold pre-rebrand names (`fx3` / `Pinball FX3` / `pinball_fx3`) forward at import time.
-- **Steam Pinball importer** — pulls DLC lists from Pinball FX Classic, Pinball FX, Pinball FX Classic VR, Pinball FX Midnight, Zaccaria, and Star Wars Pinball VR. Curated `PACK_CONTENTS` map (78 packs → 220 tables) expands packs into per-table catalogue entries rather than landing as a single "Williams™ Volume 6"-style row. Skip-list catches non-table DLCs (Volume packs, soundtracks, mode unlocks, VR entitlements).
-- **Score-platform stratification** — every score now records the platform it was set on. Submission picker shows a read-only chip when a game has 1 platform; required dropdown when 2+. Tournament platform rules narrow the picker (e.g. "VR only" tournaments only show VR platforms). Game detail leaderboards have an `All / FX Classic / VPX / VR …` tab strip; "All" view shows per-row platform badges and demotes Platform-unknown rows to a tail section. Discord `/submit-score` auto-fills when a game has 1 platform; rejects with valid-choices reply when 2+.
-- **Per-room library = global catalogue.** Game library pages now show all approved catalogue games — no per-room curation step. Admins gate access at tournament-creation time. Legacy "Import VPS" / "Import VPXS Wizard" buttons removed from the per-room library; they were duplicating work the global catalogue already does.
-- **Catalogue contribution flow** — Add Game and Import CSV both run user input through a dedup preview (`/proposals` / `/import-csv-preview`). Three commit paths: link to existing approved entry, submit as new pending entry for super-admin review, or add room-only without contributing to the global catalogue. CSV preview shows auto-link / auto-submit / needs-review buckets with per-row decisions.
-- **Super-admin Catalogue Approvals page** at `/admin/catalogue/approvals` — pending submissions list with per-row Approve / Reject (with audited reason) / Merge into existing actions. Nav badge with pending count (refreshes every 60s).
-- **Display-name shortening** — Zen/Zaccaria platforms render as `FX Classic`, `FX VR`, `Zaccaria`, `SW Pinball VR` instead of the verbose original names. Catalogue IDs unchanged; this is display-only.
-
-### v2.4.0 — Catalogue Unification + Pin to Scoreboard (2026-04-21)
-- **Unified catalogue identity.** Every relevant row links to a canonical `global_games.id`. Identity resolved through the FK rather than name-based JOINs (with name-based COALESCE fallbacks kept as defense in depth). Per-room overlay supports `custom_platforms` (e.g. WMS league) and `display_name` overrides without touching the shared catalogue.
-- **Pin to Scoreboard.** Pinned games render with a "Pinned" chip on Banner/Showcase/Minimal cards, stay active until unpinned, don't contribute to cross-tournament rankings, and survive maintenance cycles. Schema: `games.tournament_id IS NULL` is the canonical pinned-row signal.
-- **4-step dedup hierarchy.** `GlobalGameService.upsert` resolves identity via: external ID → cross-type guard → IPDB URL → normalized name. Composite UNIQUE INDEX on `(LOWER(name), type, LOWER(COALESCE(mfg,'')), COALESCE(year,0))` lets same-name pinballs from different manufacturers (Stern Batman 2008 vs Data East Batman 1991) coexist while rejecting true duplicates.
-
-### v2.3.0 — Per-room integrations + at-rest encryption (2026-04-19)
-- **Per-room iScored / Discord** — Discord guild ID, admin role ID, announcement channel ID, and iScored credentials moved from global to per-room `game_room_settings`.
-- **At-rest secret encryption** — AES-GCM encryption pipeline keyed off `SECRETS_KEY`; `ENCRYPTED_SETTING_KEYS` allowlist controls what's encrypted; `maskEncryptedValues` returns a `[ENCRYPTED]` placeholder on `GET /admin/settings`.
-
-### v2.1.0 — Tournament scoring + Stats Combo (2026-04-18)
-- **Tournament leaderboards read from `score_history`** filtered by `submitted_during_tournament_id` — best-during-the-window wins, no longer tied to all-time personal best. Lower-than-PB scores during a tournament window count correctly.
-- **Multi-score inline expand** — click a username on Game Detail leaderboard to drop down a sparkline + "This tournament" / "All time" split of their submissions, with source tags and proof-photo links per row.
-- **Stats page Combo** — 4-card overview row at the top of `/:slug/stats` (plays this week / active players / hottest game / latest submission) above the existing Players / Games tabs.
-
-### v2.2.x — Identity correctness + cabinet redesign (2026-04-19 → 2026-04-21)
-- **First-claim-wins identity** — whoever uses a name first in a room owns it; later arrivals auto-suffix to `Bob_2`, `Bob_3`. Works symmetrically for Discord and anon users. Anon identity keyed on a per-browser localStorage token so re-submits stay sticky; multiple names per browser allowed.
-- **Pre-submit collision prompt** — when a guest types a name that's already claimed, `SubmissionSheet` surfaces an editable prompt with the server's suggested alternative before committing.
-- **Global fan-out gate** — guest submissions never reach `/scoreboard`. Every row on Global has a verified Discord ID behind it.
-- **Safe-by-default login** — new rooms get `REQUIRE_DISCORD_LOGIN=true` by default. Existing rooms unaffected; admins opt in per-room.
-- **Auth in guest-allowed rooms** — logged-in users' submissions attribute to their Discord identity even when the room allows guest play.
-- **Unified iScored sync** — all three web submission paths (tournament card, freeplay, legacy community endpoint) sync to iScored identically when the target is an active tournament game.
-- **Winner resolution from local DB** — the bot announces whoever's on top of the room's scoreboard (not iScored), and handles anon winners with a "claim your account" message instead of a broken `@mention`.
-- **Scoreboard click routing** — clicking a tournament card title goes to Room Game Detail; usernames everywhere are links to player stats; `+` expand icons actually expand inline (no accidental navigation).
-- **Human-readable Picks URL** — `/:slug/picks?t=daily_grind` (was `?t=<uuid>`).
-- **Mystery Award cabinet redesign** — `TournamentPoolTopper` component renders above the backbox as a pinball cabinet topper (orange LED glow, drop-down overlays the backbox). Fire + Queue buttons are always visible as circular pinball-cabinet buttons; Queue grayed until a game is revealed.
-- **Post-login lands on the Lobby** — `/:slug/lobby` is the default return path after Discord OAuth from room pages.
 
 ## Quick Start
 
