@@ -514,6 +514,26 @@ router.post('/catalogue/sync-fx-vr', async (_req, res) => {
     res.status(202).json({ success: true, started: true, source: 'fx-vr' });
 });
 
+/**
+ * AtGames Legends Pinball catalogue tagger. Pulls column A of the curated
+ * Google Sheet (no API key required — public CSV export endpoint) and
+ * applies `atgames` to matching `global_games` rows. Creates new rows for
+ * names not yet in the catalogue. Mirrors the FX VR + Steam Pinball sync
+ * UX (202 + poll) since the network fetch + per-row upsert can take 30s+
+ * for a few-hundred-row sheet.
+ */
+router.post('/catalogue/sync-atgames', async (_req, res) => {
+    void (async () => {
+        try {
+            const { AtGamesImportService } = await import('../../services/AtGamesImportService.js');
+            await AtGamesImportService.applyTags();
+        } catch (error) {
+            logError('Background AtGames sync error:', error);
+        }
+    })();
+    res.status(202).json({ success: true, started: true, source: 'atgames' });
+});
+
 // Catalogue browse & management
 router.get('/catalogue/games', async (req, res) => {
     try {
