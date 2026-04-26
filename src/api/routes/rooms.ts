@@ -2435,14 +2435,22 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
 
         const styleId: string | undefined = undefined;
 
+        // v2.6.x: use per-room creds (with env fallback inside the helper) so
+        // activate/deactivate paths agree on which iScored account they're
+        // hitting. Pre-fix this used `new IScoredClient()` which ignored
+        // per-room config and went straight to env, allowing activations to
+        // succeed against env creds while later deactivations failed against
+        // misconfigured per-room creds — leaving orphaned games on iScored.
         let iscoredId: string | undefined;
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
         const iscoredSetting = await GameRoomSettingsService.get(req.params.roomId as string, 'ISCORED_ENABLED');
         const iscoredEnabled = iscoredSetting !== 'false';
-        const hasCredentials = iscoredEnabled && !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
+        const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+        const creds = iscoredEnabled ? await getIScoredCredsForRoom(req.params.roomId as string) : null;
+        const hasCredentials = !!creds;
         if (hasCredentials) {
             const { IScoredClient } = await import('../../engine/IScoredClient.js');
-            const client = new IScoredClient();
+            const client = new IScoredClient({ username: creds.username, password: creds.password });
             try {
                 await client.connect();
                 iscoredId = await client.createGame(gameName, styleId);
@@ -2558,6 +2566,45 @@ router.delete('/:roomId/games/pinned/:gameId', requireAuth, requireRoomAccess('r
         res.json(result);
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/games/pinned/:gameId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * Validate this room's iScored credentials with a quick login attempt.
+ * Returns `{ ok: true }` on success or `{ ok: false, error }` on auth failure.
+ * 200 status either way — auth failure is a valid response, not a server error.
+ *
+ * Login is the slow path (Playwright, ~10–20s with retry). Caller should
+ * disable the button while in flight.
+ */
+router.post('/:roomId/iscored/validate', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(roomId);
+        if (!creds) {
+            return res.json({
+                ok: false,
+                error: 'No iScored credentials configured for this room (and no environment fallback set).',
+            });
+        }
+        const { IScoredClient } = await import('../../engine/IScoredClient.js');
+        const client = new IScoredClient({ username: creds.username, password: creds.password });
+        try {
+            await client.connect();
+            res.json({ ok: true, username: creds.username });
+        } catch (err) {
+            res.json({
+                ok: false,
+                username: creds.username,
+                error: err instanceof Error ? err.message : 'Login failed',
+            });
+        } finally {
+            await client.disconnect();
+        }
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/iscored/validate):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

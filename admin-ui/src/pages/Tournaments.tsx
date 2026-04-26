@@ -202,10 +202,28 @@ export default function Tournaments() {
     if (!deactivateTarget) return;
     setDeactivating(true);
     try {
-      await api.post(`/rooms/${room.roomId}/games/${deactivateTarget.id}/deactivate`, { dbOnly });
-      toast(`${deactivateTarget.name} deactivated${dbOnly ? ' (DB only)' : ''}`, 'success');
+      const result = await api.post<{
+        success: boolean;
+        gameName: string;
+        tournamentName: string;
+        iscoredStatus?: 'locked' | 'failed' | 'shared' | 'skipped';
+        iscoredError?: string;
+      }>(`/rooms/${room.roomId}/games/${deactivateTarget.id}/deactivate`, { dbOnly });
+      const name = deactivateTarget.name;
+      if (dbOnly) {
+        toast(`${name} deactivated (DB only — iScored untouched)`, 'success');
+      } else if (result.iscoredStatus === 'locked') {
+        toast(`${name} deactivated and locked on iScored`, 'success');
+      } else if (result.iscoredStatus === 'shared') {
+        toast(`${name} deactivated (iScored game still active in another tournament — left unlocked)`, 'success');
+      } else if (result.iscoredStatus === 'failed') {
+        toast(`${name} deactivated locally — iScored lock failed (${result.iscoredError ?? 'unknown'}). Manually lock on iScored or fix credentials.`, 'error');
+      } else {
+        toast(`${name} deactivated (iScored not configured)`, 'success');
+      }
       setDeactivateTarget(null);
-      fetchActiveGames();
+      await fetchActiveGames();
+      await fetchTournaments();
     } catch (err: any) {
       toast(err.message || 'Failed to deactivate game', 'error');
     } finally {

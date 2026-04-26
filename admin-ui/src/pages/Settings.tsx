@@ -16,6 +16,53 @@ import ScoreboardPreview from '../components/ScoreboardPreview';
 import ImageCropper from '../components/ImageCropper';
 import { getTitleStyleClass, getTitleSizeClass } from '../components/ScoreboardComponents';
 
+/**
+ * Validate-credentials button for the iScored Configuration card. Hits the
+ * `/iscored/validate` endpoint which performs a quick Playwright login to
+ * the room's iScored account (10–20s with retry). Useful for debugging
+ * "activation works but deactivation fails" scenarios where env-fallback
+ * creds work but per-room creds are misconfigured.
+ */
+function IScoredCredentialsCheck() {
+  const room = useRoom();
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; username?: string; error?: string } | null>(null);
+
+  const run = async () => {
+    setChecking(true);
+    setResult(null);
+    try {
+      const res = await api.post<{ ok: boolean; username?: string; error?: string }>(
+        `/rooms/${room.roomId}/iscored/validate`, {},
+      );
+      setResult(res);
+    } catch (err: any) {
+      setResult({ ok: false, error: err?.message || 'Validation request failed' });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-3">
+      <NeonButton variant="secondary" onClick={run} disabled={checking}>
+        {checking ? 'Validating…' : 'Validate Credentials'}
+      </NeonButton>
+      {result && (
+        result.ok ? (
+          <span className="text-xs text-neon-green">
+            ✓ Logged in as <span className="font-mono">{result.username}</span>
+          </span>
+        ) : (
+          <span className="text-xs text-neon-magenta">
+            ✗ {result.error}{result.username ? ` (tried: ${result.username})` : ''}
+          </span>
+        )
+      )}
+    </div>
+  );
+}
+
 interface LocalAdmin {
   id: string;
   username: string;
@@ -1030,9 +1077,12 @@ export default function Settings() {
               </div>
             )}
             {category === 'iScored' && (
-              <div className="mb-3 px-3 py-2 rounded border border-neon-cyan/20 bg-neon-cyan/5 text-xs text-muted">
-                Per-room iScored account. All three fields must be set together to override the server default — partial config is treated as disabled. The password is encrypted at rest. To disconnect this room from iScored entirely, toggle <strong>iScored Integration</strong> off in Integrations. Avoid swapping accounts mid-tournament — existing games still reference the old iScored IDs.
-              </div>
+              <>
+                <div className="mb-3 px-3 py-2 rounded border border-neon-cyan/20 bg-neon-cyan/5 text-xs text-muted">
+                  Per-room iScored account. All three fields must be set together to override the server default — partial config is treated as disabled. The password is encrypted at rest. To disconnect this room from iScored entirely, toggle <strong>iScored Integration</strong> off in Integrations. Avoid swapping accounts mid-tournament — existing games still reference the old iScored IDs.
+                </div>
+                <IScoredCredentialsCheck />
+              </>
             )}
             <div className="space-y-3">
               {entries.map(([key, value]) => {

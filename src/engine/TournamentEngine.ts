@@ -168,7 +168,7 @@ export class TournamentEngine {
      * Only locks on iScored if no other ACTIVE game shares the same iscored_id.
      * Scores/submissions are preserved.
      */
-    public async deactivateGame(gameId: string, dbOnly: boolean = false): Promise<{ gameName: string; tournamentName: string }> {
+    public async deactivateGame(gameId: string, dbOnly: boolean = false): Promise<{ gameName: string; tournamentName: string; iscoredStatus: 'locked' | 'failed' | 'shared' | 'skipped'; iscoredError?: string }> {
         const db = await getDatabase();
 
         const row = await db.get(
@@ -185,6 +185,13 @@ export class TournamentEngine {
         // - Game has an iScored ID
         // - No other ACTIVE game shares this iScored ID
         // - Room has iScored credentials (per-room → env fallback)
+        //
+        // The iScored outcome is bubbled up to the API response so the FE can
+        // surface a partial-success state ("Deactivated locally; iScored lock
+        // failed — manual cleanup needed"). Pre-v2.6.x this failure was logged
+        // and silently swallowed, leaving orphaned games on iScored.
+        let iscoredStatus: 'locked' | 'failed' | 'shared' | 'skipped' = 'skipped';
+        let iscoredError: string | undefined;
         if (!dbOnly && row.iscored_id) {
             const otherActive = await db.get(
                 `SELECT id FROM games WHERE iscored_id = ? AND status = 'ACTIVE' AND id != ?`,
@@ -193,6 +200,7 @@ export class TournamentEngine {
 
             if (otherActive) {
                 logInfo(`Skipping iScored lock — another active game shares iscored_id ${row.iscored_id}`);
+                iscoredStatus = 'shared';
             } else {
                 const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
                 const creds = await getIScoredCredsForRoom(row.game_room_id);
@@ -202,8 +210,11 @@ export class TournamentEngine {
                         await client.connect();
                         await client.setGameStatus(row.iscored_id, { locked: true });
                         logInfo(`Locked on iScored: ${row.name} (${row.iscored_id})`);
+                        iscoredStatus = 'locked';
                     } catch (err) {
                         logError('Failed to lock game on iScored (continuing with DB update):', err);
+                        iscoredStatus = 'failed';
+                        iscoredError = err instanceof Error ? err.message : String(err);
                     } finally {
                         await client.disconnect();
                     }
@@ -216,9 +227,9 @@ export class TournamentEngine {
             'UPDATE games SET status = ?, end_date = ? WHERE id = ?',
             'COMPLETED', new Date().toISOString(), gameId
         );
-        logInfo(`Deactivated game: ${row.name} (tournament: ${row.tournament_name})${dbOnly ? ' [DB only]' : ''}`);
+        logInfo(`Deactivated game: ${row.name} (tournament: ${row.tournament_name})${dbOnly ? ' [DB only]' : ''} (iScored: ${iscoredStatus})`);
 
-        return { gameName: row.name, tournamentName: row.tournament_name };
+        return { gameName: row.name, tournamentName: row.tournament_name, iscoredStatus, iscoredError };
     }
 
     /**
