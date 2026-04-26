@@ -319,29 +319,15 @@ export class TimeoutManager {
                 GROUP BY LOWER(name)
             `);
             const modeAndPlatformMatches = libraryGames.filter(g => {
-                // Mode must match
                 if (g.mode !== tournament.mode) return false;
-
+                // v2.6.x: `excluded` is a submission-level filter only; the
+                // game-level gate checks `required` exclusively.
+                if (platformRules.required.length === 0) return true;
                 const gamePlatforms = parsePlatformsList(g.platforms || '[]');
                 const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
-
-                // Required: game must have at least one required platform
-                if (platformRules.required.length > 0) {
-                    const hasRequired = platformRules.required.some(
-                        (rp: string) => upperPlatforms.includes(rp.toUpperCase())
-                    );
-                    if (!hasRequired) return false;
-                }
-
-                // Excluded: game must not have any excluded platform
-                if (platformRules.excluded.length > 0) {
-                    const hasExcluded = platformRules.excluded.some(
-                        (ep: string) => upperPlatforms.includes(ep.toUpperCase())
-                    );
-                    if (hasExcluded) return false;
-                }
-
-                return true;
+                return platformRules.required.some(
+                    (rp: string) => upperPlatforms.includes(rp.toUpperCase())
+                );
             });
 
             // Filter by eligibility — batch query instead of per-game check

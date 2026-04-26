@@ -923,18 +923,15 @@ export class TournamentEngine {
             GROUP BY LOWER(name)
         `);
 
-        // Filter by mode + platform rules
+        // Filter by mode + platform rules. v2.6.x: `excluded` is a submission-
+        // level filter only (see `passesplatformRules` JSDoc); game-level gate
+        // checks `required` exclusively.
         const eligible = libraryGames.filter((g: any) => {
             if (g.mode !== tournamentRow.mode) return false;
+            if (platformRules.required.length === 0) return true;
             const gamePlatforms = parsePlatformsList(g.platforms || '[]');
             const upperPlatforms = gamePlatforms.map((p: string) => p.toUpperCase());
-            if (platformRules.required.length > 0) {
-                if (!platformRules.required.some((rp: string) => upperPlatforms.includes(rp.toUpperCase()))) return false;
-            }
-            if (platformRules.excluded.length > 0) {
-                if (platformRules.excluded.some((ep: string) => upperPlatforms.includes(ep.toUpperCase()))) return false;
-            }
-            return true;
+            return platformRules.required.some((rp: string) => upperPlatforms.includes(rp.toUpperCase()));
         });
 
         // Filter by cooldown

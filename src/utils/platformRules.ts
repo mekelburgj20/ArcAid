@@ -68,24 +68,23 @@ export function resolveSubmittablePlatforms(
 }
 
 /**
- * Checks if a game's platforms satisfy a tournament's platform rules.
- * Shared between Discord commands and API endpoints.
+ * Game-level gate for tournament platform rules.
+ *
+ * As of v2.6.x, `excluded` is a SUBMISSION-LEVEL filter only — it strips
+ * platforms from the picker (`resolveSubmittablePlatforms`) and rejects
+ * matching submissions in `ensurePlatformAllowed`, but no longer rejects
+ * the game from the tournament's eligible set. A game with platforms
+ * `[real, vpx]` and a tournament rule of `excluded = [real]` is admissible
+ * to the tournament; only "real" submissions are blocked.
+ *
+ * This function therefore checks `required` only. Game must list at least
+ * one required platform; empty `required` means any game qualifies.
  */
 export function passesplatformRules(
     gamePlatforms: string[],
     rules: { required: string[]; excluded: string[] }
 ): boolean {
+    if (rules.required.length === 0) return true;
     const upper = gamePlatforms.map(p => p.toUpperCase());
-
-    if (rules.required.length > 0) {
-        const hasRequired = rules.required.some(rp => upper.includes(rp.toUpperCase()));
-        if (!hasRequired) return false;
-    }
-
-    if (rules.excluded.length > 0) {
-        const hasExcluded = rules.excluded.some(ep => upper.includes(ep.toUpperCase()));
-        if (hasExcluded) return false;
-    }
-
-    return true;
+    return rules.required.some(rp => upper.includes(rp.toUpperCase()));
 }

@@ -163,7 +163,7 @@ function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
       </div>
       <div>
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
-          Not allowed on <span className="text-faint">(game cannot be on these)</span>
+          Not allowed on <span className="text-faint">(blocks score submissions, not game selection)</span>
         </label>
         <div className="flex flex-wrap gap-2">
           {platforms.map(p => (
