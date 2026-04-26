@@ -122,6 +122,18 @@ function NumberStepper({ value, onChange, min = 0 }: { value: number; onChange: 
   );
 }
 
+/**
+ * Detects platforms that are simultaneously required AND excluded — a
+ * contradiction that admits games but rejects every submission. Returns the
+ * canonical-id list of conflicting platforms (case-insensitive compare).
+ * Exported so tournament Create / Save handlers can gate on it as well.
+ */
+export function getPlatformRuleConflicts(rules: PlatformRules): string[] {
+  if (rules.required.length === 0 || rules.excluded.length === 0) return [];
+  const exc = new Set(rules.excluded.map(p => p.toUpperCase()));
+  return rules.required.filter(p => exc.has(p.toUpperCase()));
+}
+
 function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
   platforms: string[];
   rules: PlatformRules;
@@ -129,6 +141,7 @@ function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
   onAddPlatform?: (name: string) => void;
 }) {
   const [newPlatform, setNewPlatform] = useState('');
+  const conflicts = getPlatformRuleConflicts(rules);
 
   const toggle = (list: 'required' | 'excluded', p: string) => {
     const current = rules[list];
@@ -175,6 +188,11 @@ function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
               }`}>{getPlatformDisplay(p)}</button>
           ))}
         </div>
+        {conflicts.length > 0 && (
+          <p className="mt-2 text-xs text-neon-magenta">
+            {conflicts.map(getPlatformDisplay).join(', ')} can't be both required and not allowed — every submission would be rejected.
+          </p>
+        )}
       </div>
       {onAddPlatform && (
         <div>

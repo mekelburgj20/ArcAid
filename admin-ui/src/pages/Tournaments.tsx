@@ -15,6 +15,7 @@ import TournamentFormFields, {
   parseCadence,
   parsePlatformRules,
   parseCleanupRule,
+  getPlatformRuleConflicts,
   type TournamentFormState,
 } from '../components/TournamentForm';
 
@@ -366,7 +367,14 @@ export default function Tournaments() {
           set={createForm.set}
           platforms={platforms}
         />
-        <NeonButton onClick={handleCreate} disabled={!createForm.state.name.trim() || !createForm.state.tag.trim()}>
+        <NeonButton
+          onClick={handleCreate}
+          disabled={
+            !createForm.state.name.trim()
+            || !createForm.state.tag.trim()
+            || getPlatformRuleConflicts(createForm.state.platformRules).length > 0
+          }
+        >
           Create Tournament
         </NeonButton>
       </NeonCard>
@@ -523,7 +531,15 @@ export default function Tournaments() {
             />
             <div className="flex gap-3 justify-end">
               <NeonButton variant="ghost" onClick={() => setEditTarget(null)} disabled={editSaving}>Cancel</NeonButton>
-              <NeonButton onClick={handleEditSave} disabled={editSaving || !editForm.state.name.trim() || !editForm.state.tag.trim()}>
+              <NeonButton
+                onClick={handleEditSave}
+                disabled={
+                  editSaving
+                  || !editForm.state.name.trim()
+                  || !editForm.state.tag.trim()
+                  || getPlatformRuleConflicts(editForm.state.platformRules).length > 0
+                }
+              >
                 {editSaving ? 'Saving...' : 'Save Changes'}
               </NeonButton>
             </div>
