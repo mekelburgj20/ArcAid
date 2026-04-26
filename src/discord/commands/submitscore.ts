@@ -123,18 +123,14 @@ export const submitscore: Command = {
             // If the game has 1 submittable platform, auto-fill. If 2+ and the
             // user didn't pass `platform`, reply ephemerally with valid choices
             // so they can re-run. If `platform` was passed, validate it.
-            const { parsePlatformsList, mergeEffectivePlatforms, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
-            const grglib = await db.get(`
-                SELECT gl.platforms AS lib_platforms,
-                       grgl.custom_platforms AS room_platforms
-                FROM game_room_game_library grgl
-                JOIN game_library gl ON gl.name = grgl.game_name
-                WHERE grgl.game_room_id = ? AND LOWER(gl.name) = LOWER(?)
-                LIMIT 1
-            `, game.game_room_id, gameName);
+            const { parsePlatformsList, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
+            const libRow = await db.get(
+                'SELECT platforms FROM game_library WHERE LOWER(name) = LOWER(?) LIMIT 1',
+                gameName,
+            );
             let effectivePlatforms: string[] = [];
-            if (grglib) {
-                effectivePlatforms = mergeEffectivePlatforms(grglib.lib_platforms, grglib.room_platforms);
+            if (libRow) {
+                effectivePlatforms = parsePlatformsList(libRow.platforms || '[]');
             } else {
                 const gg = await db.get(
                     'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',

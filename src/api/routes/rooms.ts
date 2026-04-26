@@ -32,7 +32,7 @@ import {
 import { writeLimiter, pickLimiter } from '../rateLimit.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import { IScoredClient } from '../../engine/IScoredClient.js';
-import { passesplatformRules, parsePlatformsList, mergeEffectivePlatforms, resolveSubmittablePlatforms } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList, resolveSubmittablePlatforms } from '../../utils/platformRules.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
@@ -72,18 +72,14 @@ async function ensurePlatformAllowed(opts: {
     const db = await getDatabase();
 
     // Resolve the game's effective platforms via the same precedence the picker uses.
-    const grglib = await db.get(`
-        SELECT gl.platforms AS lib_platforms,
-               grgl.custom_platforms AS room_platforms
-        FROM game_room_game_library grgl
-        JOIN game_library gl ON gl.name = grgl.game_name
-        WHERE grgl.game_room_id = ? AND LOWER(gl.name) = LOWER(?)
-        LIMIT 1
-    `, opts.roomId, opts.gameName) as { lib_platforms: string | null; room_platforms: string | null } | undefined;
+    const libRow = await db.get(
+        'SELECT platforms FROM game_library WHERE LOWER(name) = LOWER(?) LIMIT 1',
+        opts.gameName,
+    ) as { platforms: string | null } | undefined;
 
     let effective: string[];
-    if (grglib) {
-        effective = mergeEffectivePlatforms(grglib.lib_platforms, grglib.room_platforms);
+    if (libRow) {
+        effective = parsePlatformsList(libRow.platforms || '[]');
     } else {
         const gg = await db.get(
             'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
@@ -570,15 +566,10 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
         const pickEnabled = await PickAwardGate.isEnabled(tournament.game_room_id, tournament.id);
         if (!pickEnabled) return res.status(403).json({ error: 'Game picks are disabled in this room' });
 
-        // 2. Look up game in library AND the room's per-room overlay (custom_platforms).
+        // 2. Look up game in library.
         const gameLibEntry = await db.get(
-            `SELECT gl.name, gl.mode, gl.platforms, gl.style_id,
-                    grgl.custom_platforms AS room_custom_platforms
-             FROM game_library gl
-             LEFT JOIN game_room_game_library grgl
-                ON grgl.game_name = gl.name AND grgl.game_room_id = ?
-             WHERE gl.name = ? COLLATE NOCASE`,
-            roomId, gameName,
+            `SELECT name, mode, platforms, style_id FROM game_library WHERE name = ? COLLATE NOCASE`,
+            gameName,
         );
         if (!gameLibEntry) return res.status(404).json({ error: `Game "${gameName}" not found in the library` });
 
@@ -587,14 +578,11 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
             return res.status(400).json({ error: `Game mode "${gameLibEntry.mode}" does not match tournament mode "${tournament.mode}"` });
         }
 
-        // 4. Check platform rules (effective = library + per-room custom)
+        // 4. Check platform rules
         let platformRules = { required: [] as string[], excluded: [] as string[] };
         try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
 
-        const gamePlatforms = mergeEffectivePlatforms(
-            gameLibEntry.platforms,
-            gameLibEntry.room_custom_platforms,
-        );
+        const gamePlatforms = parsePlatformsList(gameLibEntry.platforms || '[]');
 
         if (!passesplatformRules(gamePlatforms, platformRules)) {
             const restrictedText = (JSON.parse(tournament.platform_rules || '{}') as any).restrictedText;
@@ -2453,19 +2441,15 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         const tournament = await db.get('SELECT id, name, type, mode, discord_channel_id, game_room_id, platform_rules FROM tournaments WHERE id = ?', tournamentId);
         if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-        // Enforce platform rules — effective = library + per-room custom.
+        // Enforce platform rules.
         let platformRules = { required: [] as string[], excluded: [] as string[] };
         try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
         if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
             const gameLibRow = await db.get(
-                `SELECT gl.platforms, grgl.custom_platforms AS room_custom
-                 FROM game_library gl
-                 LEFT JOIN game_room_game_library grgl
-                    ON grgl.game_name = gl.name AND grgl.game_room_id = ?
-                 WHERE gl.name = ? COLLATE NOCASE`,
-                tournament.game_room_id, gameName,
+                `SELECT platforms FROM game_library WHERE name = ? COLLATE NOCASE`,
+                gameName,
             );
-            const gamePlatforms = mergeEffectivePlatforms(gameLibRow?.platforms, gameLibRow?.room_custom);
+            const gamePlatforms = parsePlatformsList(gameLibRow?.platforms || '[]');
             if (!passesplatformRules(gamePlatforms, platformRules)) {
                 return res.status(400).json({ error: `Game "${gameName}" does not meet this tournament's platform requirements` });
             }
@@ -2765,33 +2749,6 @@ router.put('/:roomId/game_library/:name/style', requireAuth, requireRoomAccess('
         res.json({ success: true });
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/game_library/:name/style):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-// Per-room overlay fields (v2.4.0): custom_platforms (additive tags like "WMS")
-// and display_name override. Either field is optional; omitted fields are left
-// unchanged. Passing null/[] clears that field.
-router.put('/:roomId/game_library/:name/overlay', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
-    try {
-        const gameName = decodeURIComponent(req.params.name as string);
-        const roomId = req.params.roomId as string;
-        const { customPlatforms, displayName } = req.body ?? {};
-        if (customPlatforms !== undefined) {
-            if (!Array.isArray(customPlatforms) || customPlatforms.some(x => typeof x !== 'string')) {
-                return res.status(400).json({ error: 'customPlatforms must be an array of strings' });
-            }
-            await GameLibraryService.setRoomCustomPlatforms(roomId, gameName, customPlatforms);
-        }
-        if (displayName !== undefined) {
-            if (displayName !== null && typeof displayName !== 'string') {
-                return res.status(400).json({ error: 'displayName must be a string or null' });
-            }
-            await GameLibraryService.setRoomDisplayName(roomId, gameName, displayName);
-        }
-        res.json({ success: true });
-    } catch (error) {
-        logError('API Error (PUT rooms/:roomId/game_library/:name/overlay):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

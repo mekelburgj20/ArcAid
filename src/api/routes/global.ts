@@ -905,7 +905,7 @@ router.get('/submit/platforms', async (req, res) => {
     try {
         const { roomId, gameName, globalGameId } = req.query as Record<string, string | undefined>;
         const db = await getDatabase();
-        const { parsePlatformsList, mergeEffectivePlatforms, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
+        const { parsePlatformsList, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
         const { normalizePlatform } = await import('../../utils/platformMapping.js');
 
         // v2.5.1: alias-fold + dedupe so the picker never shows VPX/vpx/vpxs
@@ -936,21 +936,17 @@ router.get('/submit/platforms', async (req, res) => {
 
         // Room-scoped context — tournament submit OR freeplay.
         if (roomId && gameName) {
-            // First try the room's library overlay (covers active tournament games + room-pinned).
-            const grglib = await db.get(`
-                SELECT gl.platforms AS lib_platforms,
-                       grgl.custom_platforms AS room_platforms
-                FROM game_room_game_library grgl
-                JOIN game_library gl ON gl.name = grgl.game_name
-                WHERE grgl.game_room_id = ? AND LOWER(gl.name) = LOWER(?)
-                LIMIT 1
-            `, roomId, gameName) as { lib_platforms: string | null; room_platforms: string | null } | undefined;
+            // First try the room's library (covers active tournament games + room-pinned).
+            const libRow = await db.get(
+                'SELECT platforms FROM game_library WHERE LOWER(name) = LOWER(?) LIMIT 1',
+                gameName,
+            ) as { platforms: string | null } | undefined;
 
             let effective: string[];
-            if (grglib) {
-                effective = mergeEffectivePlatforms(grglib.lib_platforms, grglib.room_platforms);
+            if (libRow) {
+                effective = parsePlatformsList(libRow.platforms || '[]');
             } else {
-                // Freeplay catalogue path — game isn't in the room's curated library.
+                // Freeplay catalogue path — game isn't in the library.
                 const gg = await db.get(
                     'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
                     gameName, 'approved',

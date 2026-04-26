@@ -44,8 +44,8 @@ export interface PinGameOptions {
  *   - `global_game_id` is resolved via `GlobalGameService.upsert` so the row
  *     takes part in global-scoreboard fan-out immediately.
  *
- * Per-room overlay fields (custom_platforms, display_name) are inherited at
- * render-time from `game_room_game_library`; no copy-on-insert needed.
+ * Per-game style overlays are pulled from `game_room_game_library` at insert
+ * time. Custom platforms / display-name overlays were dropped in step 2c.
  *
  * iScored mirroring:
  *   - creds resolved via `getIScoredCredsForRoom` (per-room → env fallback).
@@ -66,8 +66,7 @@ export async function pinGameToScoreboard(opts: PinGameOptions): Promise<PinGame
         `SELECT gl.name, gl.mode, gl.style_id, gl.display_name AS lib_display_name,
                 gl.external_url AS lib_external_url, gl.global_game_id AS lib_global_game_id,
                 grgl.catalogue_style_id, grgl.logo_style_id, grgl.bg_style_id,
-                grgl.style_header_disabled, grgl.global_game_id AS room_global_game_id,
-                grgl.display_name AS room_display_name
+                grgl.style_header_disabled, grgl.global_game_id AS room_global_game_id
          FROM game_library gl
          LEFT JOIN game_room_game_library grgl
             ON grgl.game_name = gl.name AND grgl.game_room_id = ?
@@ -87,7 +86,7 @@ export async function pinGameToScoreboard(opts: PinGameOptions): Promise<PinGame
     }
 
     // --- 2) Insert games row (tournament_id NULL, game_room_id set) ---
-    const displayName = libEntry?.room_display_name ?? libEntry?.lib_display_name ?? null;
+    const displayName = libEntry?.lib_display_name ?? null;
     const externalUrl = libEntry?.lib_external_url ?? null;
     const styleId = libEntry?.style_id ?? null;
 
