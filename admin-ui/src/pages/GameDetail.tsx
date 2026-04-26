@@ -4,6 +4,7 @@ import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
 import SubmissionSheet from '../components/SubmissionSheet';
 import { api } from '../lib/api';
+import { getPlatformDisplay } from '../lib/platforms';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
 
 interface RankedEntry {
@@ -516,7 +517,7 @@ export default function GameDetail() {
                               chip, so we omit it. */}
                           {!selectedPlatform && entry.platform && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan font-display tracking-wide flex-shrink-0">
-                              {entry.platform}
+                              {getPlatformDisplay(entry.platform)}
                             </span>
                           )}
                         </div>
@@ -624,7 +625,7 @@ export default function GameDetail() {
                               : 'border-border text-muted hover:text-primary hover:border-border/80'
                           }`}
                         >
-                          {p}
+                          {getPlatformDisplay(p)}
                         </button>
                       ))}
                     </div>

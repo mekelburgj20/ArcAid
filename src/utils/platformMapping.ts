@@ -34,14 +34,14 @@ export const CANONICAL_PLATFORMS: Record<string, PlatformInfo> = {
     // pinball_fx3 was renamed to pinball_fx_classic on Steam; pinball_fx_classic_vr
     // was previously Pinball FX 2 VR; pinball_fx_midnight was Pinball M.
     // Quest-only Pinball FX VR has no DLC API; tables curated manually.
-    pinball_fx:             { id: 'pinball_fx',             displayName: 'Pinball FX',            category: 'virtual_pinball' },
-    pinball_fx_classic:     { id: 'pinball_fx_classic',     displayName: 'Pinball FX Classic',    category: 'virtual_pinball' },
-    pinball_fx_classic_vr:  { id: 'pinball_fx_classic_vr',  displayName: 'Pinball FX Classic VR', category: 'virtual_pinball' },
-    pinball_fx_midnight:    { id: 'pinball_fx_midnight',    displayName: 'Pinball FX Midnight',   category: 'virtual_pinball' },
-    pinball_fx_vr:          { id: 'pinball_fx_vr',          displayName: 'Pinball FX VR',         category: 'virtual_pinball' },
-    star_wars_pinball_vr:   { id: 'star_wars_pinball_vr',   displayName: 'Star Wars Pinball VR',  category: 'virtual_pinball' },
-    zaccaria:               { id: 'zaccaria',               displayName: 'Zaccaria Pinball',      category: 'virtual_pinball' },
-    zaccaria_vr:            { id: 'zaccaria_vr',            displayName: 'Zaccaria Pinball VR',   category: 'virtual_pinball' },
+    pinball_fx:             { id: 'pinball_fx',             displayName: 'FX',            category: 'virtual_pinball' },
+    pinball_fx_classic:     { id: 'pinball_fx_classic',     displayName: 'FX Classic',    category: 'virtual_pinball' },
+    pinball_fx_classic_vr:  { id: 'pinball_fx_classic_vr',  displayName: 'FX Classic VR', category: 'virtual_pinball' },
+    pinball_fx_midnight:    { id: 'pinball_fx_midnight',    displayName: 'FX Midnight',   category: 'virtual_pinball' },
+    pinball_fx_vr:          { id: 'pinball_fx_vr',          displayName: 'FX VR',         category: 'virtual_pinball' },
+    star_wars_pinball_vr:   { id: 'star_wars_pinball_vr',   displayName: 'SW Pinball VR', category: 'virtual_pinball' },
+    zaccaria:               { id: 'zaccaria',               displayName: 'Zaccaria',      category: 'virtual_pinball' },
+    zaccaria_vr:            { id: 'zaccaria_vr',            displayName: 'Zaccaria VR',   category: 'virtual_pinball' },
 
     // Arcade & video games
     arcade:      { id: 'arcade',      displayName: 'Arcade',             category: 'arcade_video' },

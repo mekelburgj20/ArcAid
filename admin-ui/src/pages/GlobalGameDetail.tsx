@@ -9,6 +9,7 @@ import SubmissionSheet from '../components/SubmissionSheet';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import DiscordLoginButton from '../components/DiscordLoginButton';
+import { getPlatformDisplay } from '../lib/platforms';
 
 interface GlobalGame {
   id: string;
@@ -54,6 +55,8 @@ interface RankingEntry {
   origin_room_short_tag: string | null;
   avatar_hash: string | null;
   score_id: string;
+  /** v2.5.1 — per-row platform stamp; null for legacy multi-platform rows. */
+  platform: string | null;
 }
 
 interface Room {
@@ -528,6 +531,7 @@ export default function GlobalGameDetail() {
                     <th className="px-3 py-2 w-12">#</th>
                     <th className="px-3 py-2">Player</th>
                     <th className="px-3 py-2 text-right">Score</th>
+                    <th className="px-3 py-2 hidden sm:table-cell">Platform</th>
                     <th className="px-3 py-2 hidden sm:table-cell">Room</th>
                     <th className="px-3 py-2 hidden md:table-cell">Date</th>
                     <th className="px-3 py-2 w-10"></th>
@@ -550,6 +554,15 @@ export default function GlobalGameDetail() {
                       </td>
                       <td className="px-3 py-2 text-right font-mono font-semibold text-neon-cyan" title={entry.score.toLocaleString()}>
                         {formatScore(entry.score)}
+                      </td>
+                      <td className="px-3 py-2 text-xs hidden sm:table-cell">
+                        {entry.platform ? (
+                          <span className="px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan font-display tracking-wide whitespace-nowrap">
+                            {getPlatformDisplay(entry.platform)}
+                          </span>
+                        ) : (
+                          <span className="text-faint">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-xs text-muted hidden sm:table-cell">
                         {entry.origin_type === 'global' ? (

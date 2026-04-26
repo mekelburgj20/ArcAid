@@ -906,6 +906,22 @@ router.get('/submit/platforms', async (req, res) => {
         const { roomId, gameName, globalGameId } = req.query as Record<string, string | undefined>;
         const db = await getDatabase();
         const { parsePlatformsList, mergeEffectivePlatforms, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
+        const { normalizePlatform } = await import('../../utils/platformMapping.js');
+
+        // v2.5.1: alias-fold + dedupe so the picker never shows VPX/vpx/vpxs
+        // duplicates. Stored data may have legacy mixed-case strings; client
+        // surfaces should only ever see canonical IDs.
+        const normalizeAndDedupe = (raw: string[]): string[] => {
+            const seen = new Set<string>();
+            const out: string[] = [];
+            for (const p of raw) {
+                const id = normalizePlatform(p);
+                if (!id || seen.has(id)) continue;
+                seen.add(id);
+                out.push(id);
+            }
+            return out;
+        };
 
         // Global submit context — bare globalGameId, no room.
         if (globalGameId && !roomId) {
@@ -914,7 +930,7 @@ router.get('/submit/platforms', async (req, res) => {
                 globalGameId, 'approved',
             );
             if (!game) return res.status(404).json({ error: 'Game not found' });
-            const platforms = parsePlatformsList(game.platforms || '[]');
+            const platforms = normalizeAndDedupe(parsePlatformsList(game.platforms || '[]'));
             return res.json({ platforms, submittable: platforms, tournamentRules: null });
         }
 
@@ -941,6 +957,7 @@ router.get('/submit/platforms', async (req, res) => {
                 );
                 effective = gg ? parsePlatformsList(gg.platforms || '[]') : [];
             }
+            effective = normalizeAndDedupe(effective);
 
             // Active tournament narrows the picker via platform_rules.
             const activeGame = await db.get(`

@@ -3,6 +3,7 @@ import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserX } from 'lucide
 import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { getPlatformDisplay } from '../lib/platforms';
 
 /**
  * Unified submission sheet (Sprint 3 + Sprint 10, plan §10 / §13 / §15).
@@ -712,7 +713,7 @@ export default function SubmissionSheet({
                                 ) : submittablePlatforms.length === 1 ? (
                                     <div className="px-3 py-2 bg-raised border border-border/60 rounded text-primary text-sm flex items-center gap-2">
                                         <span className="px-2 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan text-xs font-display">
-                                            {submittablePlatforms[0]}
+                                            {getPlatformDisplay(submittablePlatforms[0])}
                                         </span>
                                         <span className="text-faint text-xs">(only platform for this game)</span>
                                     </div>
@@ -724,7 +725,7 @@ export default function SubmissionSheet({
                                     >
                                         <option value="" disabled>Choose the platform you played on…</option>
                                         {submittablePlatforms.map(p => (
-                                            <option key={p} value={p}>{p}</option>
+                                            <option key={p} value={p}>{getPlatformDisplay(p)}</option>
                                         ))}
                                     </select>
                                 )}

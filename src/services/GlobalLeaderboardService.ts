@@ -18,6 +18,12 @@ export interface GlobalRankedEntry {
     origin_room_short_tag: string | null;
     avatar_hash: string | null;
     score_id: string;
+    /**
+     * v2.5.1: per-row platform stamp shown on the Global Scoreboard's per-game
+     * leaderboard. `null` for legacy rows (multi-platform games where a
+     * specific platform couldn't be inferred at backfill time).
+     */
+    platform: string | null;
 }
 
 /**
@@ -56,6 +62,7 @@ export class GlobalLeaderboardService {
                 best.submitted_at,
                 best.origin_type,
                 best.origin_game_room_id,
+                best.platform,
                 gr.name as origin_room_name,
                 gr.slug as origin_room_slug,
                 gr.logo_url as origin_room_logo_url,
@@ -71,6 +78,7 @@ export class GlobalLeaderboardService {
                     gs.submitted_at,
                     gs.origin_type,
                     gs.origin_game_room_id,
+                    gs.platform,
                     ROW_NUMBER() OVER (
                         PARTITION BY LOWER(COALESCE(gs.iscored_username, gs.discord_user_id))
                         ORDER BY gs.score DESC, gs.submitted_at ASC
@@ -84,7 +92,8 @@ export class GlobalLeaderboardService {
                         photo_url,
                         submitted_at,
                         origin_type,
-                        origin_game_room_id
+                        origin_game_room_id,
+                        platform
                     FROM global_scores
                     WHERE global_game_id = ?
                       AND deleted_at IS NULL
@@ -122,6 +131,7 @@ export class GlobalLeaderboardService {
             origin_room_short_tag: e.origin_room_short_tag || null,
             avatar_hash: e.avatar_hash || null,
             score_id: e.score_id,
+            platform: e.platform || null,
         }));
 
         await db.run(

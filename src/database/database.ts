@@ -1110,6 +1110,16 @@ export async function initDatabase(): Promise<Database> {
                 ON global_games(status, submitted_at)
                 WHERE status = 'pending';
         ` },
+        { name: '088_cache_bust_for_platform_on_global_rankings', sql: `
+            -- v2.5.1: GlobalRankedEntry now carries a per-row platform field.
+            -- Cache entries written by recalcs that happened between v2.5.0
+            -- deploy and v2.5.1 don't have the platform field, so the new
+            -- "Platform" column on the global game detail leaderboard would
+            -- render blank for every cached row. Flush both caches so the
+            -- next read recomputes with the new shape.
+            DELETE FROM leaderboard_cache;
+            DELETE FROM global_leaderboard_cache;
+        ` },
     ];
 
     for (const migration of migrations) {

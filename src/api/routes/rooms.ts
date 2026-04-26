@@ -1798,11 +1798,53 @@ router.get('/:roomId/game_library/search', requireAuth, requireRoomAccess('roomI
     }
 });
 
-// Game library (room-scoped view)
+// Game library (room-scoped view).
+//
+// v2.5.1: rooms no longer maintain a curated subset — every room sees the full
+// approved global catalogue. The legacy game_room_game_library overlay
+// (custom_platforms / display_name) is no longer consulted for the list view.
+// Tournaments still pick from `game_library` for now; that path is unchanged
+// and is the subject of a separate cleanup (see plan: step-2-cleanup-plan.md).
+//
+// Row shape stays compatible with the existing FE so GameLibrary.tsx didn't
+// have to change. Fields that don't exist on global_games are stubbed (aliases,
+// css_*, bg_color, style_id) — those were per-room render overrides that we're
+// dropping; the per-game card style now comes from style_catalogue/global_games
+// directly via the scoreboard config pipeline.
 router.get('/:roomId/game_library', async (req, res) => {
     try {
-        const rows = await GameLibraryService.getForRoom(req.params.roomId as string);
-        res.json(rows);
+        const db = await getDatabase();
+        const rows = await db.all(`
+            SELECT
+                id,
+                name,
+                COALESCE(display_name, name) AS display_name,
+                type,
+                manufacturer,
+                year,
+                platforms,
+                COALESCE(local_image_path, wheel_image_path, image_url) AS image_url
+            FROM global_games
+            WHERE status = 'approved'
+            ORDER BY name COLLATE NOCASE ASC
+        `);
+        // Shim into the GameRow shape the FE expects.
+        res.json(rows.map((r: any) => ({
+            name: r.name,
+            display_name: r.display_name,
+            mode: r.type === 'video_game' ? 'videogame' : 'pinball',
+            platforms: r.platforms || '[]',
+            image_url: r.image_url || null,
+            // v2.5.1 stubs — these per-row override fields lived on game_library;
+            // the catalogue-as-library shift drops them. FE renders fallbacks.
+            aliases: '',
+            style_id: '',
+            css_title: '',
+            css_initials: '',
+            css_scores: '',
+            css_box: '',
+            bg_color: '',
+        })));
     } catch (error) {
         logError('API Error (GET rooms/:roomId/game_library):', error);
         res.status(500).json({ error: 'Internal Server Error' });

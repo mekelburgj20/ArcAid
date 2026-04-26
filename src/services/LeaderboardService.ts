@@ -199,6 +199,10 @@ export class LeaderboardService {
      * v2.5.0: returns the distinct set of platforms present on this game's
      * leaderboard (within the active tournament window). Used by the FE to
      * decide which platform tabs to render on the GameDetail leaderboard.
+     *
+     * v2.5.1: normalizes raw stored values via PLATFORM_ALIASES + dedupes,
+     * so legacy mixed-case data (`VPX` / `vpx`, `FX3` / `pinball_fx_classic`)
+     * collapses to a single canonical id per real platform.
      */
     static async getDistinctPlatforms(gameId: string): Promise<string[]> {
         const db = await getDatabase();
@@ -220,7 +224,17 @@ export class LeaderboardService {
               AND platform IS NOT NULL
             ORDER BY platform ASC
         `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name);
-        return rows.map((r: any) => r.platform).filter(Boolean);
+
+        const { normalizePlatform } = await import('../utils/platformMapping.js');
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const r of rows) {
+            const id = normalizePlatform((r as { platform: string }).platform);
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            out.push(id);
+        }
+        return out;
     }
 
     /**
