@@ -56,7 +56,7 @@ None — no schema or data changes. Behavior shift is deliberate: tournaments pr
 
 ---
 
-## [2.7.0] — 2026-04-27
+## [2.7.0] — 2026-04-26
 
 **Multi-arc release.** Per-room game tagging (ADR 0008), tournament platform-rules semantics shift, two new catalogue sync sources (Pinball FX VR + AtGames Sheet), library bulk operations + search overhaul, iScored credentials hardening, ScoreSyncPoller log-spam fix.
 

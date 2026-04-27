@@ -79,6 +79,20 @@ Each importer feeds the same `GlobalGameService.upsert` path so the dedup hierar
 - **FX VR** — Pinball FX VR (Meta Quest standalone) catalogue tagger. `tmp/fx-vr-tables-draft.md` (gitignored) → `tmp/emit-fx-vr-data-ts.js` → `src/services/fxVrPackContents.ts`. 39 tables across 17 packs. Tags `pinball_fx_vr`. v2.7.0.
 - **AtGames** — pulls column A of a curated Google Sheet (public CSV export, no API key). Always tags `atgames` + one `atgames_<variant>` per detected cabinet (HD/4K/Micro/HDP/ALU/Mini/Gamer/Core) extracted from columns H/I/J/K. v2.7.0.
 
+### Refreshing curated importers
+
+Three importers (Steam Pinball, FX VR, AtGames Sheet) follow the same pattern: a hand-curated source-of-truth lives in `tmp/` (gitignored), an emitter script generates a typed TS data module that's committed to `src/services/`, and an import service consumes it. To add new entries:
+
+| Importer | Source-of-truth (gitignored) | Emitter | Committed data module | Refresh cadence |
+|---|---|---|---|---|
+| **Steam Pinball** | `tmp/pack-contents-draft.md` | manual edit + commit `steamPinballPackContents.ts` | `src/services/steamPinballPackContents.ts` | **No defined go-forward path** — initial 220 tables across 78 packs were curated in v2.5.0; updating when Zen/Zaccaria add DLC requires re-deriving the pack list and regenerating by hand. |
+| **FX VR** | `tmp/fx-vr-tables-draft.md` (39 tables, 17 packs) | `node tmp/emit-fx-vr-data-ts.js > src/services/fxVrPackContents.ts` | `src/services/fxVrPackContents.ts` | Edit the draft to add tables/packs as Zen ships them, regenerate, click "Sync FX VR" on the Catalogue admin page. |
+| **AtGames Sheet** | the user's public Google Sheet (no local draft file) | none — fetched live at sync time | none committed | Edit the sheet, click "Sync AtGames" on the Catalogue admin page. |
+
+For Steam Pinball specifically: when a Steam app gains a new DLC pack, the current process is to hand-add it to `steamPinballPackContents.ts` along with its tables. A future "regenerate from Steam app metadata" tool would help but isn't built — the curation step (deciding which tables count, applying display-name normalization) is partly judgment-based.
+
+Endpoints: `POST /admin/catalogue/sync-steam-pinball`, `POST /admin/catalogue/sync-fx-vr`, `POST /admin/catalogue/sync-atgames`. All three use `GlobalGameService.upsert` so the dedup hierarchy keeps the catalogue clean across re-runs (idempotent).
+
 ## Platform taxonomy
 
 Canonical IDs live in `src/utils/platformMapping.ts` (BE) **and** `admin-ui/src/lib/platforms.ts` (FE). When adding/changing a platform, update both — the FE has its own copy of `CANONICAL_PLATFORMS` + `PLATFORM_ALIASES`. Forgetting causes silent FE/BE drift. Display label fallback uppercases unknown ids (`fx2` → `FX2`).
