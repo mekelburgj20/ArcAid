@@ -91,7 +91,14 @@ Categories: physical (`real`, `atgames` + 8 variants), virtual_pinball (Visual P
 
 ## Platform stratification
 
-`platform` is required at the API boundary on `submissions`/`score_history`/`community_scores`/`global_scores` (column nullable in SQL for legacy rows). `resolveSubmittablePlatforms(gamePlatforms, tournamentRules?)` in `platformRules.ts` returns the picker set (game's effective platforms ∩ active tournament rules). `SubmissionSheet` reads via `GET /api/submit/platforms`; one platform → read-only chip; 2+ → required dropdown. Discord `/submit-score` auto-fills when 1, prompts when 2+. Server re-validates at every submit handler (`ensurePlatformAllowed`). `/leaderboard/:gameId?platform=X` returns `distinctPlatforms[]` for the GameDetail tab strip. See ADR 0006.
+`platform` is required at the API boundary on `submissions`/`score_history`/`community_scores`/`global_scores` (column nullable in SQL for legacy rows). **Two orthogonal axes:**
+
+- **`required` ("Must be available on") → game-level eligibility ONLY.** `passesplatformRules(gamePlatforms, rules)` checks game has at least one required platform; decides which games qualify for the tournament. Does NOT restrict which platforms can submit scores.
+- **`excluded` ("Not allowed on") → submission-level filter ONLY.** `resolveSubmittablePlatforms(gamePlatforms, tournamentRules?)` returns the picker set as `gamePlatforms − excluded` (required is intentionally not applied here). Does NOT restrict game eligibility.
+
+Example: WHO dunnit on `[vpx, vpxs, real, fx, fx_vr, atgames]`. Tournament Must=`[atgames]`, NotAllowed=`[]`. Game qualifies (has atgames). Picker shows all 6 platforms — player may submit a vpx, vpxs, real, fx, fx_vr, or atgames score.
+
+`SubmissionSheet` reads via `GET /api/submit/platforms` which returns `{ platforms, submittable, tournamentRules }`. One platform → read-only chip; 2+ → required dropdown. Chip caption disambiguates with `fullGamePlatforms.length > 1` → "(only platform allowed by this tournament)" else "(only platform for this game)". Discord `/submit-score` auto-fills when 1, prompts when 2+. Server re-validates at every submit handler (`ensurePlatformAllowed`, also strict-excluded-only). `/leaderboard/:gameId?platform=X` returns `distinctPlatforms[]` for the GameDetail tab strip. See ADR 0006.
 
 **When adding/changing a platform:** update `src/utils/platformMapping.ts` AND mirror to `admin-ui/src/lib/platforms.ts` (FE has its own copy of `CANONICAL_PLATFORMS` + `PLATFORM_ALIASES`). Forgetting causes silent FE/BE drift.
 

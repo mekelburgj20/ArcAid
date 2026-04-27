@@ -37,16 +37,22 @@ export function mergeEffectivePlatforms(
 }
 
 /**
- * v2.5.0: returns the subset of `gamePlatforms` a player can pick from when
- * submitting a score. Used by the SubmissionSheet picker and re-validated
- * server-side at every submit handler.
+ * Returns the subset of `gamePlatforms` a player can pick from when submitting
+ * a score. Used by the SubmissionSheet picker and re-validated server-side at
+ * every submit handler.
  *
- * Rules:
+ * Rules (as of v2.7.x — orthogonal-axes semantics):
  *   - If `tournamentRules` is undefined (freeplay / global submit / no active
  *     tournament for this game), return all of `gamePlatforms` unchanged.
- *   - If `tournamentRules.required` is non-empty, only keep `gamePlatforms`
- *     entries that match one of the required IDs.
- *   - Always strip anything in `tournamentRules.excluded`.
+ *   - Strip anything in `tournamentRules.excluded` ("Not allowed on" — the
+ *     submission-level filter).
+ *   - `tournamentRules.required` ("Must be available on") is INTENTIONALLY
+ *     ignored here. Required is a *game-level* eligibility gate enforced by
+ *     `passesplatformRules` — it decides which games qualify for a tournament,
+ *     not which platforms can score in one. A game admitted under a Must rule
+ *     is fully scorable on any of its catalogue platforms (modulo NotAllowed).
+ *     E.g. WHO dunnit is on [vpx, vpxs, real, fx, fx_vr, atgames]; a tournament
+ *     with Must=[atgames] still accepts vpx submissions for it.
  *
  * Comparison is case-insensitive so legacy stored mixed-case data still works.
  */
@@ -55,30 +61,27 @@ export function resolveSubmittablePlatforms(
     tournamentRules?: { required: string[]; excluded: string[] } | null,
 ): string[] {
     if (!tournamentRules) return gamePlatforms;
-    const required = tournamentRules.required ?? [];
     const excluded = tournamentRules.excluded ?? [];
-    const reqUpper = new Set(required.map(p => p.toUpperCase()));
+    if (excluded.length === 0) return gamePlatforms;
     const excUpper = new Set(excluded.map(p => p.toUpperCase()));
-    return gamePlatforms.filter(p => {
-        const u = p.toUpperCase();
-        if (excUpper.has(u)) return false;
-        if (required.length > 0 && !reqUpper.has(u)) return false;
-        return true;
-    });
+    return gamePlatforms.filter(p => !excUpper.has(p.toUpperCase()));
 }
 
 /**
- * Game-level gate for tournament platform rules.
+ * Game-level gate for tournament platform rules — decides whether a game
+ * qualifies for a tournament. (Submission-level filtering is the job of
+ * `resolveSubmittablePlatforms`.)
  *
- * As of v2.6.x, `excluded` is a SUBMISSION-LEVEL filter only — it strips
- * platforms from the picker (`resolveSubmittablePlatforms`) and rejects
- * matching submissions in `ensurePlatformAllowed`, but no longer rejects
- * the game from the tournament's eligible set. A game with platforms
- * `[real, vpx]` and a tournament rule of `excluded = [real]` is admissible
- * to the tournament; only "real" submissions are blocked.
+ * Two orthogonal axes:
+ *   - `required` ("Must be available on") is checked here: game must list at
+ *     least one required platform. Empty `required` means any game qualifies.
+ *   - `excluded` ("Not allowed on") is INTENTIONALLY ignored here — see ADR
+ *     0006 + the JSDoc on `resolveSubmittablePlatforms` for rationale.
  *
- * This function therefore checks `required` only. Game must list at least
- * one required platform; empty `required` means any game qualifies.
+ * Example: WHO dunnit is on [vpx, vpxs, real, atgames]. Tournament rule
+ * `required = [atgames], excluded = [real]`:
+ *   - `passesplatformRules`: TRUE (game has atgames → admissible)
+ *   - `resolveSubmittablePlatforms`: [vpx, vpxs, atgames] (real stripped)
  */
 export function passesplatformRules(
     gamePlatforms: string[],
