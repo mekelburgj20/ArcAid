@@ -6,6 +6,122 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.8.0] — 2026-04-27
+
+**Identity merge forward-attribution + Discord-style display names.** Two-part feature shipped together. Closes the long-standing gap where admin "merge anonymous identity → Discord user" only retrofitted historical rows; future iScored scores under the same nickname continued to land as anonymous synthetic IDs.
+
+### Forward attribution
+
+- `MergeService.recordMerge` now writes a `user_mappings` row inside the merge transaction, so the next `ScoreSyncPoller` cycle attributes new scores under the merged nickname to the target Discord user automatically.
+- `MergeService.reverseMerge` cleans up: drops the `user_mappings` alias row + re-anonymizes any post-merge auto-attributed rows that aren't in the original snapshot. Restores the pre-merge state across all four score tables.
+- `user_mappings` schema now many-to-one (one Discord user can hold many iScored aliases): dropped the `discord_user_id` PRIMARY KEY, added `UNIQUE(iscored_username COLLATE NOCASE)`, added `created_at`. Migration 095 detects and refuses to run if any case-only collisions exist on existing rows.
+- New helper `fetchAvatarHash` in `src/utils/discord.ts` — best-effort Discord REST call; called after merge to seed the user's avatar cache.
+- Mapping-conflict pre-check in `recordMerge` surfaces a `MAPPING_CONFLICT` typed error when the alias is already owned by a different Discord user, so the admin sees a clean message instead of a 500.
+
+### Discord-style display names
+
+- New `user_profiles` table (one row per Discord user). Holds the user-chosen `display_name` plus the avatar cache. Globally unique display name, case-insensitive, also collision-checked against other users' iScored aliases.
+- New `UserProfileService` (validate, upsert, batch-lookup, availability check).
+- New `/account/settings` page (admin-ui). Display-name input with debounced availability check, read-only avatar preview, list of linked iScored aliases. Linked from the user menu dropdown.
+- New `/api/users/me/profile` (GET/PATCH) and `/api/users/me/profile/check-display-name` (GET).
+- Leaderboards collapse-by-Discord-user: `LeaderboardService.recalculate`, `getForGameByPlatform`, `GlobalLeaderboardService.recalculate`, and the cross-game top-N helper now `PARTITION BY COALESCE(submitted_by_user_id, 'iscored:'||LOWER(iscored_username))`. Multi-alias users render as one row per game; anon rows still partition per-name.
+- All leaderboard responses + ranking groups + Stats overview now ship `display_name` alongside `iscored_username`. FE renders `display_name` when set, falls back to `iscored_username`.
+- `LobbyFeedGenerator` resolves display name for new-#1 / rank-change / score-posted / friend-score event titles + `rankDethroned` / `friendScore` DMs.
+- `TournamentEngine` winner announcement embeds + picker-assigned ticker use the user-chosen display name.
+- Avatar cache moved from `user_mappings.avatar_hash` to `user_profiles.avatar_hash`. `auth.ts` Discord OAuth callback now writes the new column. Existing leaderboard reads now pull avatar from `user_profiles` via `discord_user_id` (with `user_mappings` still resolving `iscored:*` synthetic IDs).
+
+### Behavior changes
+
+- **`/map-user` Discord command** changes from "replace this user's mapping" to "add an alias for this user." With many-to-one mappings the old replacement semantic no longer makes sense. Errors if the name is already mapped to a different user. A `/unmap-user` companion command is deferred.
+- All `user_mappings` UPSERT call sites (auth.ts, global.ts, mapuser.ts, submitscore.ts, IdentityManager.ts) switched conflict key from `discord_user_id` to `iscored_username`. The intent of each call site is unchanged: "register this alias for this user; if the name is already taken, leave it alone."
+
+### Tests
+
+- `MergeService.test.ts` — coverage for forward-attribution write, MAPPING_CONFLICT, idempotent re-merge, case-insensitive collision check, reverseMerge cleanup, and a regression check for the v2.7.x freeze-gate fix.
+- `UserProfileService.test.ts` — display-name validation, uniqueness rules, own-alias allowance, batch lookup.
+
+### Migration
+
+- **095** — `user_mappings` rebuild + `user_profiles` create + backfill. Aborts with a clear error if pre-existing case-only collisions are present.
+
+---
+
+## [2.7.2] — 2026-04-27
+
+**Duplicate dethrone DM root cause + Deactivate/Delete admin split.** Bug fix arc that grew into a small admin-UX refactor when the simple "always delete on deactivate" first cut turned out wrong for normal end-of-round semantics.
+
+### Bug
+
+User received two identical `rankDethroned` Discord DMs for the same WHO dunnit submission on rtx_pinball at 2026-04-27 02:56 UTC. Same score (96,814,400), same dethroner (PBW2023), 763ms apart.
+
+Forensics: two `games` rows shared an `iscored_id = "95570"` — one ACTIVE in **Daily Grind**, one COMPLETED in **Weekly Grind - VR**. Both were created when WHO dunnit was activated in two different tournaments; the older row never had its iScored game deleted (just locked under the legacy contract), so the newer activation's `IScoredClient.createGame` reused the existing iScored entity.
+
+When PBW2023 submitted via web `/submit-score` (anonymous), the route inserted into `submissions` keyed on the Daily Grind row's `game_id`. `CommunityScoreService.submitScore` fired `LobbyFeedGenerator.onScoreSubmitted` once → DM #1. Then the SyncPoller pulled the score back from iScored: its `db.get` lookup matched the *Weekly Grind* row first (no `ORDER BY`, no status filter), found no `submissions` entry under that `game_id`, treated the score as new, and fired `onScoreSubmitted` a second time → DM #2.
+
+### Fix
+
+Two architectural changes plus one admin-UX addition, shipped across three commits.
+
+**Fix B — `7c7cf8b8` — SyncPoller deterministic lookup.** `ScoreSyncPoller.pollOneAccount` now orders by `CASE g.status WHEN 'ACTIVE' THEN 0 WHEN 'COMPLETED' THEN 1 ELSE 2 END, g.created_at DESC LIMIT 1`. With this in place, the poller always picks the same row the web/Discord routes pick, regardless of how many legacy rows share an `iscored_id`. This alone neutralizes the duplicate-DM bug for the existing prod data — it's the correctness fix.
+
+**First-cut Fix A (reverted) — `7c7cf8b8`.** Deactivation hard-deleted the iScored game and NULLed `iscored_id` on the games row. This killed the structural cause but turned out wrong for normal end-of-round behavior — admins still want history visible on iScored after a round closes; deletion belongs to the rare "wrong game in wrong tournament" case. Reverted in `aef1d0ff`.
+
+**Final Fix A — `aef1d0ff` — Deactivate vs Delete split.** Two distinct admin actions on an ACTIVE game:
+
+| Action | iScored | ArcAid `games` row | Use case |
+|---|---|---|---|
+| **Deactivate** | `setGameStatus({ locked: true })` | status=COMPLETED, `iscored_id` retained | Normal end-of-round / cron rotation |
+| **Delete** | `deleteGame()` | DELETE FROM games, scores orphaned per ADR 0005 | Wrong game in wrong tournament |
+
+Both run a new `TournamentEngine.finalSyncScoresForGame()` helper first — pulls iScored scores into `submissions` + `score_history` so anything submitted between the last poll cycle and the action is captured before destruction. The helper does **not** fire `LobbyFeedGenerator.onScoreSubmitted` (data capture only, no live events).
+
+`processSlotMaintenance()` (cron rotation) follows the same lock+sync contract as admin Deactivate. Keeping `iscored_id` non-NULL on COMPLETED rows lets `runCleanup` (cleanup_rule retain/scheduled/immediate) find them later.
+
+**Retained-completed admin section — `bd58481c`.** Daily Grind on rtx_pinball uses `cleanup_rule.mode = 'scheduled'`, which keeps every COMPLETED game on the public scoreboard until the Wednesday cleanup cron. Pre-fix, an admin who deactivated a game with no scores had no UI affordance to remove it before that scheduled run. New endpoint `GET /api/rooms/:roomId/games/retained-completed` mirrors `LeaderboardService.getActiveLeaderboards`'s retention logic (capped at 100 rows per tournament for `scheduled` mode). Tournaments admin page now renders a "Retained Completed Games" card below Active Games with a Delete button per row, reusing the same type-to-confirm dialog and the new `DELETE /api/rooms/:roomId/games/:id` endpoint.
+
+### Architecture
+
+`TournamentEngine.deleteGameCompletely(gameId, opts?)` is the new destructive variant. Steps: final-sync → `deleteGame()` on iScored (shared-`iscored_id` guarded) → orphan local scores (`UPDATE submissions/score_history SET game_id = NULL`, `UPDATE global_scores SET origin_game_id = NULL`) → `DELETE FROM games`. Score *records* are preserved per the ADR 0005 cascade pattern so player personal history survives a "wrong game" delete.
+
+The `finalSyncScoresForGame()` helper is shared by `deactivateGame()`, `processSlotMaintenance()`, and `deleteGameCompletely()`. It pulls via `IScoredApiClient.getGameScores` (HTTP, fast), respects `player_aliases` + `user_mappings` exactly like the live SyncPoller, and uses `iscored:<name>` synthetic discord_user_ids for unmapped iScored users.
+
+The duplicate-DM bug had two layers:
+1. **Root cause** — iScored game IDs got reused across `games` rows because the legacy "lock on deactivate" never deleted them. Cleared structurally for new flows by the Deactivate-vs-Delete split (Delete cleans iScored when an admin chooses to; Deactivate locks but keeps the link, and the SyncPoller's `ORDER BY` handles the legacy reuse case).
+2. **Surface fault** — SyncPoller's non-deterministic `db.get` could pick the wrong row when an `iscored_id` was shared. Fixed by Fix B's `ORDER BY`.
+
+Both layers shipped — Fix B is the correctness patch, Fix A is the structural cleanup.
+
+### Files
+
+Backend:
+- `src/engine/ScoreSyncPoller.ts` — `ORDER BY` status pref + `created_at DESC LIMIT 1` on the per-account local-game lookup
+- `src/engine/TournamentEngine.ts` — `deactivateGame()` rewritten (lock + final-sync, keeps `iscored_id`); `processSlotMaintenance()` follows the same contract; new `deleteGameCompletely()` method; new private `finalSyncScoresForGame()` helper
+- `src/api/routes/rooms.ts` — new `DELETE /:roomId/games/:id` route → `deleteGameCompletely`; new `GET /:roomId/games/retained-completed` route mirroring `LeaderboardService` retention logic
+- `src/discord/commands/deactivategame.ts` — embed wording reverted to "locked on iScored"; surfaces `finalSyncedScores` count
+
+Frontend:
+- `admin-ui/src/pages/Tournaments.tsx` — new "Retained Completed Games" `NeonCard`; new "Delete" button on Active Games rows; new type-to-confirm dialog; broadened `deleteGameTarget` state to a structural `DeletableGame` type so both ActiveGame and RetainedCompletedGame work; deactivate toast wording updated to reflect lock semantics + captured-late-scores suffix
+- `admin-ui/public/sw.js` — `CACHE_NAME` bumped `arcaid-v34` → `arcaid-v37` (three bumps across the v2.7.2 cycle)
+
+Docs:
+- `CLAUDE.md` — "iScored integration" section now documents the Deactivate vs Delete contract, `finalSyncScoresForGame` semantics, and the SyncPoller `ORDER BY` defense
+- `CHANGELOG.md` — this entry
+- `package.json` — `version: 2.7.2`
+
+Note: commit `e28cdb81` (between `7c7cf8b8` and `aef1d0ff`) was a user-authored fix for a `MergeService` query referencing a non-existent `tournaments.end_date` column — the query was rewritten to derive a completion timestamp from `MAX(games.end_date) WHERE status='COMPLETED'` for the tournament. Unrelated to the dethrone-DM arc but bundled into the same release window.
+
+### Migration notes
+
+None — no schema or data changes.
+
+One-off prod cleanup: a "Spooky Retro" games row (deactivated under the first-cut "always delete" version of v2.7.2) was sitting on the public scoreboard with no admin affordance to remove it. Deleted via `docker exec arcaid node -e ... TournamentEngine.getInstance().deleteGameCompletely('5fab0c5e-…')` — `iScored: skipped` (admin had already cleared it manually), 0 scores orphaned. Future occurrences of this scenario are now self-service via the Retained Completed Games card.
+
+### Open followups
+
+None new from this arc. Existing items in `ROADMAP.md` (style overlay re-keying, ScoreSyncPoller adaptive backoff, fetch-agent self-heal on N consecutive failures) are unaffected.
+
+---
+
 ## [2.7.1] — 2026-04-26
 
 **Tournament platform-rules orthogonality (ADR 0009).** Patch release fixing a submission-picker bug surfaced after v2.7.0 deploy.

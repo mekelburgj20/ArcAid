@@ -1051,10 +1051,14 @@ router.post('/global/scores', requireDiscordUser, globalSubmitLimiter, globalSco
             if (clash) {
                 return res.status(409).json({ error: 'That display name is already taken. Pick another.' });
             }
+            // user_mappings is now many-to-one. The pre-check above already rejected
+            // the case where this name is owned by a different Discord user, so a
+            // conflict here only fires when this same user has already claimed the
+            // alias — DO NOTHING is a clean no-op.
             await db.run(
                 `INSERT INTO user_mappings (discord_user_id, iscored_username)
                  VALUES (?, ?)
-                 ON CONFLICT(discord_user_id) DO UPDATE SET iscored_username = excluded.iscored_username`,
+                 ON CONFLICT(iscored_username) DO NOTHING`,
                 req.user!.discordId, displayNameRaw
             );
         }

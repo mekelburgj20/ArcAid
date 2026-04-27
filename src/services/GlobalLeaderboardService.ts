@@ -5,6 +5,8 @@ export interface GlobalRankedEntry {
     rank: number;
     discord_user_id: string;
     iscored_username: string;
+    /** User-chosen global display name (from `user_profiles.display_name`); null when unset. */
+    display_name?: string | null;
     score: number;
     photo_url: string | null;
     submitted_at: string;
@@ -51,11 +53,12 @@ export class GlobalLeaderboardService {
         const roomParams = isGlobal ? [] : [scope];
 
         // Pull all non-deleted scores for the game, pick best per player, enrich with avatar + room name.
-        // Case-insensitive grouping on iscored_username mirrors LeaderboardService pattern.
+        // Partition collapses by submitted_by_user_id when set (Discord-linked aliases combine
+        // into one entry); falls back to per-name partition for anon rows.
         const rows = await db.all(`
             SELECT
                 best.score_id,
-                best.discord_user_id,
+                COALESCE(best.submitted_by_user_id, um.discord_user_id, best.discord_user_id) as discord_user_id,
                 best.iscored_username,
                 best.score,
                 best.photo_url,
@@ -67,11 +70,13 @@ export class GlobalLeaderboardService {
                 gr.slug as origin_room_slug,
                 gr.logo_url as origin_room_logo_url,
                 gr.short_tag as origin_room_short_tag,
-                um.avatar_hash
+                up.display_name,
+                up.avatar_hash
             FROM (
                 SELECT
                     gs.id as score_id,
                     gs.discord_user_id,
+                    gs.submitted_by_user_id,
                     gs.iscored_username,
                     gs.score,
                     gs.photo_url,
@@ -80,13 +85,14 @@ export class GlobalLeaderboardService {
                     gs.origin_game_room_id,
                     gs.platform,
                     ROW_NUMBER() OVER (
-                        PARTITION BY LOWER(COALESCE(gs.iscored_username, gs.discord_user_id))
+                        PARTITION BY COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.discord_user_id)))
                         ORDER BY gs.score DESC, gs.submitted_at ASC
                     ) as rn
                 FROM (
                     SELECT
                         id,
                         player_id as discord_user_id,
+                        submitted_by_user_id,
                         iscored_username,
                         score,
                         photo_url,
@@ -104,13 +110,10 @@ export class GlobalLeaderboardService {
             ) best
             LEFT JOIN game_rooms gr ON gr.id = best.origin_game_room_id
             LEFT JOIN user_mappings um ON (
-                -- v2.0.1: username fallback limited to iScored-synced rows so anonymous
-                -- submissions whose typed name matches a user_mapping don't leak the
-                -- real user's avatar. See v2.0.0 F.20 regression.
-                um.discord_user_id = best.discord_user_id
-                OR (best.discord_user_id LIKE 'iscored:%'
-                    AND LOWER(um.iscored_username) = LOWER(best.iscored_username))
+                best.discord_user_id LIKE 'iscored:%'
+                AND LOWER(um.iscored_username) = LOWER(best.iscored_username)
             )
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(best.submitted_by_user_id, um.discord_user_id)
             WHERE best.rn = 1
             GROUP BY best.score_id
             ORDER BY best.score DESC, best.submitted_at ASC
@@ -120,6 +123,7 @@ export class GlobalLeaderboardService {
             rank: i + 1,
             discord_user_id: e.discord_user_id,
             iscored_username: e.iscored_username || 'Unknown',
+            display_name: e.display_name || null,
             score: e.score,
             photo_url: e.photo_url || null,
             submitted_at: e.submitted_at,
@@ -370,16 +374,18 @@ export class GlobalLeaderboardService {
                 gr.slug as origin_room_slug,
                 gr.logo_url as origin_room_logo_url,
                 gr.short_tag as origin_room_short_tag,
-                um.avatar_hash
+                up.display_name,
+                up.avatar_hash
             FROM (
                 SELECT
                     gs.global_game_id,
                     gs.player_id as discord_user_id,
+                    gs.submitted_by_user_id,
                     gs.iscored_username,
                     gs.score,
                     gs.origin_game_room_id,
                     ROW_NUMBER() OVER (
-                        PARTITION BY gs.global_game_id, LOWER(COALESCE(gs.iscored_username, gs.player_id))
+                        PARTITION BY gs.global_game_id, COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.player_id)))
                         ORDER BY gs.score DESC
                     ) as player_rn
                 FROM global_scores gs
@@ -391,11 +397,10 @@ export class GlobalLeaderboardService {
             ) ranked
             LEFT JOIN game_rooms gr ON gr.id = ranked.origin_game_room_id
             LEFT JOIN user_mappings um ON (
-                -- v2.0.1: same username-fallback narrowing as recalculate() above.
-                um.discord_user_id = ranked.discord_user_id
-                OR (ranked.discord_user_id LIKE 'iscored:%'
-                    AND LOWER(um.iscored_username) = LOWER(ranked.iscored_username))
+                ranked.discord_user_id LIKE 'iscored:%'
+                AND LOWER(um.iscored_username) = LOWER(ranked.iscored_username)
             )
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(ranked.submitted_by_user_id, um.discord_user_id)
             WHERE ranked.player_rn = 1
             ORDER BY ranked.global_game_id, ranked.score DESC
         `, ...gameIds, ...roomParams);
@@ -403,6 +408,7 @@ export class GlobalLeaderboardService {
         // Group by game and take top N per game
         const result: Record<string, Array<{
             iscored_username: string;
+            display_name: string | null;
             score: number;
             avatar_hash: string | null;
             discord_user_id: string;
@@ -416,6 +422,7 @@ export class GlobalLeaderboardService {
             if (result[gid].length < topN) {
                 result[gid].push({
                     iscored_username: row.iscored_username || 'Unknown',
+                    display_name: row.display_name || null,
                     score: row.score,
                     avatar_hash: row.avatar_hash || null,
                     discord_user_id: row.discord_user_id,

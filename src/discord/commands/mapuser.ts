@@ -32,15 +32,30 @@ export const mapuser: Command = {
 
         const db = await getDatabase();
         try {
+            // user_mappings is many-to-one as of v2.x: one Discord user can hold
+            // multiple iScored aliases. /map-user now ADDS an alias rather than
+            // replacing one. Reject if the name is already mapped to a different
+            // Discord user.
+            const existing = await db.get<{ discord_user_id: string }>(
+                `SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)`,
+                iscoredName
+            );
+            if (existing && existing.discord_user_id !== targetUser.id) {
+                await interaction.reply({
+                    content: `iScored name **${iscoredName}** is already mapped to a different Discord user (<@${existing.discord_user_id}>). Have them remove it first.`,
+                    ephemeral: true,
+                });
+                return;
+            }
             await db.run(
-                `INSERT INTO user_mappings (discord_user_id, iscored_username) 
-                 VALUES (?, ?) 
-                 ON CONFLICT(discord_user_id) DO UPDATE SET iscored_username = excluded.iscored_username`,
+                `INSERT INTO user_mappings (discord_user_id, iscored_username)
+                 VALUES (?, ?)
+                 ON CONFLICT(iscored_username) DO NOTHING`,
                 targetUser.id, iscoredName
             );
 
             logInfo(`User mapped: ${iscoredName} -> ${targetUser.tag}`);
-            await interaction.reply(`Successfully mapped iScored username **${iscoredName}** to Discord user <@${targetUser.id}>.`);
+            await interaction.reply(`Added iScored alias **${iscoredName}** for <@${targetUser.id}>.`);
         } catch (error) {
             logError('Error mapping user:', error);
             await interaction.reply({ content: 'An error occurred while mapping the user.', ephemeral: true });

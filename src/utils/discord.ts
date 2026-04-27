@@ -119,6 +119,24 @@ export async function sendChannelEmbed(channelId: string, embed: EmbedBuilder): 
 }
 
 /**
+ * Best-effort fetch of a Discord user's current avatar hash. Returns null on
+ * any failure (user left guild, bot lacks intent, REST error). Caller decides
+ * whether the failure is fatal — for caching it usually isn't.
+ */
+export async function fetchAvatarHash(discordUserId: string): Promise<string | null> {
+    const token = process.env.DISCORD_BOT_TOKEN;
+    if (!token) return null;
+    try {
+        const rest = new REST({ version: '10' }).setToken(token);
+        const user = await rest.get(Routes.user(discordUserId)) as { avatar?: string | null };
+        return user.avatar ?? null;
+    } catch (err) {
+        logError(`fetchAvatarHash: failed to fetch user ${discordUserId}:`, err);
+        return null;
+    }
+}
+
+/**
  * Returns a Discord mention `<@userId>` if mentions are enabled for the room,
  * otherwise returns the fallback display name (plain text, no ping).
  */

@@ -19,6 +19,11 @@ export interface RankedEntry {
     rank: number;
     discord_user_id: string;
     iscored_username: string;
+    /**
+     * User-chosen global display name (from `user_profiles.display_name`).
+     * Null when the user hasn't picked one — FE falls back to iscored_username.
+     */
+    display_name?: string | null;
     score: number;
     avatar_hash?: string | null;
     /**
@@ -63,23 +68,29 @@ export class LeaderboardService {
         }
 
         // Best-score-per-player from score_history for this tournament window.
-        // ROW_NUMBER lets us keep the winning row's photo_url + discord_user_id
-        // without a separate JOIN back to the same table.
+        // PARTITION collapses by submitted_by_user_id (Discord linkage) when set,
+        // else by anon name — so a user with multiple aliases under one Discord
+        // ID renders as one leaderboard row, while pure-anon submissions still
+        // partition per-name. ROW_NUMBER picks the highest-scoring row in the
+        // partition; its iscored_username is the displayed alias when no
+        // user_profiles.display_name is set.
         const entries = await db.all(`
             SELECT
-                COALESCE(um.discord_user_id, best.discord_user_id) as discord_user_id,
+                COALESCE(best.submitted_by_user_id, um.discord_user_id, best.discord_user_id) as discord_user_id,
                 best.iscored_username,
                 best.score,
                 best.platform,
-                um.avatar_hash
+                up.display_name,
+                up.avatar_hash
             FROM (
                 SELECT
                     iscored_username,
                     discord_user_id,
+                    submitted_by_user_id,
                     score,
                     platform,
                     ROW_NUMBER() OVER (
-                        PARTITION BY LOWER(iscored_username)
+                        PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
                         ORDER BY score DESC, created_at ASC
                     ) as rn
                 FROM score_history
@@ -89,12 +100,12 @@ export class LeaderboardService {
                   AND orphaned_at IS NULL
             ) best
             LEFT JOIN user_mappings um ON (
-                -- v2.0.1: username-fallback limited to iScored-synced rows so
-                -- anonymous submissions don't leak avatars.
-                um.discord_user_id = best.discord_user_id
-                OR (best.discord_user_id LIKE 'iscored:%'
-                    AND LOWER(um.iscored_username) = LOWER(best.iscored_username))
+                -- iscored:* synthetic ids resolve to a real Discord user via
+                -- user_mappings.iscored_username (case-insensitive).
+                best.discord_user_id LIKE 'iscored:%'
+                AND LOWER(um.iscored_username) = LOWER(best.iscored_username)
             )
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(best.submitted_by_user_id, um.discord_user_id)
             WHERE best.rn = 1
             ORDER BY best.score DESC
         `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name);
@@ -103,6 +114,7 @@ export class LeaderboardService {
             rank: i + 1,
             discord_user_id: e.discord_user_id,
             iscored_username: e.iscored_username || 'Unknown',
+            display_name: e.display_name || null,
             score: e.score,
             avatar_hash: e.avatar_hash || null,
             platform: e.platform || null,
@@ -154,19 +166,21 @@ export class LeaderboardService {
 
         const entries = await db.all(`
             SELECT
-                COALESCE(um.discord_user_id, best.discord_user_id) as discord_user_id,
+                COALESCE(best.submitted_by_user_id, um.discord_user_id, best.discord_user_id) as discord_user_id,
                 best.iscored_username,
                 best.score,
                 best.platform,
-                um.avatar_hash
+                up.display_name,
+                up.avatar_hash
             FROM (
                 SELECT
                     iscored_username,
                     discord_user_id,
+                    submitted_by_user_id,
                     score,
                     platform,
                     ROW_NUMBER() OVER (
-                        PARTITION BY LOWER(iscored_username)
+                        PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
                         ORDER BY score DESC, created_at ASC
                     ) as rn
                 FROM score_history
@@ -177,10 +191,10 @@ export class LeaderboardService {
                   AND UPPER(platform) = UPPER(?)
             ) best
             LEFT JOIN user_mappings um ON (
-                um.discord_user_id = best.discord_user_id
-                OR (best.discord_user_id LIKE 'iscored:%'
-                    AND LOWER(um.iscored_username) = LOWER(best.iscored_username))
+                best.discord_user_id LIKE 'iscored:%'
+                AND LOWER(um.iscored_username) = LOWER(best.iscored_username)
             )
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(best.submitted_by_user_id, um.discord_user_id)
             WHERE best.rn = 1
             ORDER BY best.score DESC
         `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name, platform);
@@ -189,6 +203,7 @@ export class LeaderboardService {
             rank: i + 1,
             discord_user_id: e.discord_user_id,
             iscored_username: e.iscored_username || 'Unknown',
+            display_name: e.display_name || null,
             score: e.score,
             avatar_hash: e.avatar_hash || null,
             platform: e.platform || null,

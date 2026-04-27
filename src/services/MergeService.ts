@@ -287,7 +287,23 @@ export class MergeService {
             frozen_tournament_ids_at_merge: fresh.frozenTournamentIdsAtMerge,
         };
 
+        // Pre-check forward-attribution mapping collision OUTSIDE the transaction
+        // so the admin sees a clean MAPPING_CONFLICT error rather than the txn
+        // failing late on the UNIQUE constraint.
+        const existingMapping = await db.get<{ discord_user_id: string }>(
+            `SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)`,
+            fresh.anonymousNickname,
+        );
+        if (existingMapping && existingMapping.discord_user_id !== input.targetDiscordUserId) {
+            const err = new Error(
+                `MAPPING_CONFLICT: iScored name "${fresh.anonymousNickname}" is already mapped to a different Discord user`,
+            );
+            (err as Error & { code?: string }).code = 'MAPPING_CONFLICT';
+            throw err;
+        }
+
         await db.run('BEGIN');
+        let mergeId: number;
         try {
             const result = await db.run(
                 `INSERT INTO merge_records (anonymous_identity_id, target_discord_user_id, admin_discord_user_id, score_ids_snapshot, reason)
@@ -298,7 +314,7 @@ export class MergeService {
                 JSON.stringify(snapshot),
                 input.reason ?? null,
             );
-            const mergeId = result.lastID as number;
+            mergeId = result.lastID as number;
 
             // Bulk UPDATEs. SQLite doesn't accept array bindings in IN (...) so we build placeholders.
             const apply = async (
@@ -327,15 +343,50 @@ export class MergeService {
                 `UPDATE anonymous_identities SET status = 'merged' WHERE id = ?`,
                 input.anonymousIdentityId,
             );
-            await db.run('COMMIT');
 
-            await invalidateCaches();
-            logInfo(`MergeService.recordMerge: merge ${mergeId} — ${fresh.totalMovingRows} rows → ${input.targetDiscordUserId}`);
-            return { mergeId, movedRows: fresh.totalMovingRows };
+            // Forward-attribution: register the iScored alias under the Discord
+            // user so future ScoreSyncPoller cycles auto-attribute scores under
+            // this nickname. No-op if the alias is already on the same user.
+            await db.run(
+                `INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)
+                 ON CONFLICT(iscored_username) DO NOTHING`,
+                input.targetDiscordUserId,
+                fresh.anonymousNickname,
+            );
+
+            // Ensure user_profiles row exists for the target user so display_name
+            // and avatar_hash have a home (idempotent).
+            await db.run(
+                `INSERT OR IGNORE INTO user_profiles (discord_user_id) VALUES (?)`,
+                input.targetDiscordUserId,
+            );
+
+            await db.run('COMMIT');
         } catch (err) {
             await db.run('ROLLBACK');
             throw err;
         }
+
+        // Best-effort avatar refresh. Network call kept OUTSIDE the txn so a
+        // slow/failing Discord lookup never holds SQLite or fails the merge.
+        try {
+            const { fetchAvatarHash } = await import('../utils/discord.js');
+            const avatarHash = await fetchAvatarHash(input.targetDiscordUserId);
+            if (avatarHash) {
+                await db.run(
+                    `UPDATE user_profiles
+                     SET avatar_hash = ?, avatar_fetched_at = datetime('now'), updated_at = datetime('now')
+                     WHERE discord_user_id = ?`,
+                    avatarHash, input.targetDiscordUserId,
+                );
+            }
+        } catch (err) {
+            logError('MergeService.recordMerge: avatar fetch failed (non-fatal)', err);
+        }
+
+        await invalidateCaches();
+        logInfo(`MergeService.recordMerge: merge ${mergeId} — ${fresh.totalMovingRows} rows → ${input.targetDiscordUserId}; alias '${fresh.anonymousNickname}' linked`);
+        return { mergeId, movedRows: fresh.totalMovingRows };
     }
 
     /**
@@ -449,6 +500,17 @@ export class MergeService {
         const db = await getDatabase();
         const preview = await this.previewReversal(input.mergeId);
 
+        // Need the anon nickname to undo forward-attribution writes.
+        const idRow = await db.get<{ server_nickname: string }>(
+            `SELECT ai.server_nickname
+             FROM merge_records mr
+             JOIN anonymous_identities ai ON ai.id = mr.anonymous_identity_id
+             WHERE mr.id = ?`,
+            input.mergeId,
+        );
+        const nickname = idRow?.server_nickname ?? null;
+        const targetDiscordUserId = preview.targetDiscordUserId;
+
         await db.run('BEGIN');
         try {
             const undo = async (
@@ -470,6 +532,46 @@ export class MergeService {
             await undo('community_scores', preview.willReturn.community_scores);
             await undo('score_history', preview.willReturn.score_history);
             await undo('global_scores', preview.willReturn.global_scores);
+
+            // Re-anonymize rows that landed under this user via the forward-
+            // attribution mapping (auto-attributed by ScoreSyncPoller, NOT by
+            // the merge transaction itself — they're absent from the snapshot).
+            // Scope by nickname + user + merged_from_anonymous_identity_id IS NULL
+            // so we only touch auto-attributed rows, never the originally-merged
+            // ones (those were just handled by the undo() pass above).
+            //
+            // global_scores uses player_id (not discord_user_id) for the synthetic
+            // 'iscored:*' marker; the other three tables use discord_user_id.
+            let reAnonymized = 0;
+            if (nickname && targetDiscordUserId) {
+                const reAnonTables: Array<{ table: string; idCol: string }> = [
+                    { table: 'submissions',      idCol: 'discord_user_id' },
+                    { table: 'community_scores', idCol: 'discord_user_id' },
+                    { table: 'score_history',    idCol: 'discord_user_id' },
+                    { table: 'global_scores',    idCol: 'player_id' },
+                ];
+                for (const { table, idCol } of reAnonTables) {
+                    const result = await db.run(
+                        `UPDATE ${table}
+                         SET submitted_by_user_id = NULL,
+                             submitted_by_anonymous_name = ?,
+                             ${idCol} = 'iscored:' || iscored_username
+                         WHERE LOWER(iscored_username) = LOWER(?)
+                           AND submitted_by_user_id = ?
+                           AND merged_from_anonymous_identity_id IS NULL`,
+                        nickname, nickname, targetDiscordUserId,
+                    );
+                    reAnonymized += (result.changes ?? 0);
+                }
+
+                // Drop the alias row. Scoped by both columns so other aliases
+                // belonging to the same Discord user remain intact.
+                await db.run(
+                    `DELETE FROM user_mappings
+                     WHERE discord_user_id = ? AND LOWER(iscored_username) = LOWER(?)`,
+                    targetDiscordUserId, nickname,
+                );
+            }
 
             await db.run(
                 `UPDATE merge_records
@@ -499,7 +601,7 @@ export class MergeService {
             await db.run('COMMIT');
 
             await invalidateCaches();
-            logInfo(`MergeService.reverseMerge: merge ${input.mergeId} reversed — ${preview.totalReturningRows} rows returned, ${preview.totalStayingRows} stayed (frozen)`);
+            logInfo(`MergeService.reverseMerge: merge ${input.mergeId} reversed — ${preview.totalReturningRows} rows returned, ${preview.totalStayingRows} stayed (frozen), ${reAnonymized} forward-attributed rows re-anonymized`);
             return { reversed: true, returned: preview.totalReturningRows, staying: preview.totalStayingRows };
         } catch (err) {
             await db.run('ROLLBACK');

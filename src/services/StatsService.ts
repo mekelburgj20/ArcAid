@@ -540,6 +540,7 @@ export class StatsService {
             SELECT
                 LOWER(s.iscored_username) as player_key,
                 COALESCE(um.iscored_username, s.iscored_username) as iscored_username,
+                up.display_name,
                 CASE WHEN MAX(CASE WHEN s.discord_user_id != 'SYSTEM' THEN s.discord_user_id END) IS NOT NULL
                      THEN MAX(CASE WHEN s.discord_user_id != 'SYSTEM' THEN s.discord_user_id END)
                      ELSE s.discord_user_id
@@ -549,6 +550,7 @@ export class StatsService {
             JOIN games g ON s.game_id = g.id
             ${roomJoin}
             LEFT JOIN user_mappings um ON LOWER(s.iscored_username) = LOWER(um.iscored_username)
+            LEFT JOIN user_profiles up ON up.discord_user_id = um.discord_user_id
             WHERE g.status IN ('COMPLETED', 'HIDDEN')
             ${roomWhere}
             GROUP BY LOWER(s.iscored_username)
@@ -710,6 +712,8 @@ export class StatsService {
                          ELSE s.discord_user_id
                     END as discord_user_id,
                     COALESCE(um.iscored_username, s.iscored_username) as iscored_username,
+                    up.display_name,
+                    up.avatar_hash,
                     COUNT(DISTINCT s.game_id) as games_played,
                     MAX(s.score) as best_score,
                     ROUND(AVG(s.score)) as avg_score
@@ -717,6 +721,7 @@ export class StatsService {
                 JOIN games g ON s.game_id = g.id
                 JOIN tournaments t ON g.tournament_id = t.id
                 LEFT JOIN user_mappings um ON LOWER(s.iscored_username) = LOWER(um.iscored_username)
+                LEFT JOIN user_profiles up ON up.discord_user_id = um.discord_user_id
                 WHERE t.game_room_id = ?
                 GROUP BY LOWER(s.iscored_username)
                 ORDER BY best_score DESC
@@ -730,11 +735,14 @@ export class StatsService {
                      ELSE s.discord_user_id
                 END as discord_user_id,
                 COALESCE(um.iscored_username, s.iscored_username) as iscored_username,
+                up.display_name,
+                up.avatar_hash,
                 COUNT(DISTINCT s.game_id) as games_played,
                 MAX(s.score) as best_score,
                 ROUND(AVG(s.score)) as avg_score
             FROM submissions s
             LEFT JOIN user_mappings um ON LOWER(s.iscored_username) = LOWER(um.iscored_username)
+            LEFT JOIN user_profiles up ON up.discord_user_id = um.discord_user_id
             GROUP BY LOWER(s.iscored_username)
             ORDER BY best_score DESC
         `);

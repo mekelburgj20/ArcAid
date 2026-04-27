@@ -18,6 +18,8 @@ export interface RankingGroup {
 export interface OverallRanking {
     rank: number;
     iscored_username: string;
+    /** User-chosen global display name; null when unset (FE falls back to iscored_username). */
+    display_name?: string | null;
     discord_user_id: string;
     total_points: number;
     games_played: number;
@@ -272,33 +274,41 @@ export class RankingService {
                 .map(p => p.discord_user_id)
                 .filter(id => !isSyntheticId(id))
         )];
+        // Pull avatar + display_name from user_profiles (keyed by discord_user_id).
         const avatarMap = new Map<string, string>(); // keyed by discord_user_id
+        const displayNameMap = new Map<string, string>(); // keyed by discord_user_id
         if (discordIds.length > 0) {
             const ph = discordIds.map(() => '?').join(',');
-            const avatarRows = await db.all(
-                `SELECT discord_user_id, avatar_hash FROM user_mappings WHERE discord_user_id IN (${ph})`,
+            const profileRows = await db.all(
+                `SELECT discord_user_id, display_name, avatar_hash FROM user_profiles WHERE discord_user_id IN (${ph})`,
                 ...discordIds
             );
-            for (const row of avatarRows) {
-                if (row.avatar_hash) {
-                    avatarMap.set(row.discord_user_id, row.avatar_hash);
-                }
+            for (const row of profileRows) {
+                if (row.avatar_hash) avatarMap.set(row.discord_user_id, row.avatar_hash);
+                if (row.display_name) displayNameMap.set(row.discord_user_id, row.display_name);
             }
         }
-        // Fallback: look up by username only for iScored-synced rows. Truly
-        // anonymous submissions (COMMUNITY/ANON) never fall back.
+        // iScored-synced fallback: resolve iscored_username → discord_user_id via
+        // user_mappings, then JOIN to user_profiles for the avatar + display_name.
         const usernamesFallback = [...playerData.values()]
             .filter(p => canUseUsernameFallback(p.discord_user_id))
             .map(p => p.iscored_username.toLowerCase());
-        const userAvatarMap = new Map<string, { discord_user_id: string; avatar_hash: string }>();
+        const userAvatarMap = new Map<string, { discord_user_id: string; avatar_hash: string; display_name: string | null }>();
         if (usernamesFallback.length > 0) {
             const ph2 = usernamesFallback.map(() => '?').join(',');
             const rows2 = await db.all(
-                `SELECT iscored_username, discord_user_id, avatar_hash FROM user_mappings WHERE LOWER(iscored_username) IN (${ph2}) AND avatar_hash IS NOT NULL`,
+                `SELECT um.iscored_username, um.discord_user_id, up.avatar_hash, up.display_name
+                 FROM user_mappings um
+                 LEFT JOIN user_profiles up ON up.discord_user_id = um.discord_user_id
+                 WHERE LOWER(um.iscored_username) IN (${ph2})`,
                 ...usernamesFallback
             );
             for (const row of rows2) {
-                userAvatarMap.set(row.iscored_username.toLowerCase(), { discord_user_id: row.discord_user_id, avatar_hash: row.avatar_hash });
+                userAvatarMap.set(row.iscored_username.toLowerCase(), {
+                    discord_user_id: row.discord_user_id,
+                    avatar_hash: row.avatar_hash || '',
+                    display_name: row.display_name || null,
+                });
             }
         }
 
@@ -306,13 +316,15 @@ export class RankingService {
         const results: OverallRanking[] = [];
         for (const [, player] of playerData) {
             const gamesPlayed = player.games.length;
-            // Resolve avatar: try discord_user_id first, then username fallback
+            // Resolve avatar + display_name: try discord_user_id first, then username fallback
             let resolvedDiscordId = player.discord_user_id;
             let resolvedAvatar: string | null = avatarMap.get(player.discord_user_id) || null;
-            if (!resolvedAvatar) {
+            let resolvedDisplayName: string | null = displayNameMap.get(player.discord_user_id) || null;
+            if (!resolvedAvatar || !resolvedDisplayName) {
                 const fb = userAvatarMap.get(player.iscored_username.toLowerCase());
                 if (fb) {
-                    resolvedAvatar = fb.avatar_hash;
+                    if (!resolvedAvatar && fb.avatar_hash) resolvedAvatar = fb.avatar_hash;
+                    if (!resolvedDisplayName && fb.display_name) resolvedDisplayName = fb.display_name;
                     if (isSyntheticId(resolvedDiscordId)) resolvedDiscordId = fb.discord_user_id;
                 }
             }
@@ -327,6 +339,7 @@ export class RankingService {
                 results.push({
                     rank: 0, // assigned after sorting
                     iscored_username: player.iscored_username,
+                    display_name: resolvedDisplayName,
                     discord_user_id: resolvedDiscordId,
                     total_points: Math.round(avgRank * 100) / 100, // 2 decimal places
                     games_played: gamesPlayed,
@@ -341,6 +354,7 @@ export class RankingService {
                 results.push({
                     rank: 0,
                     iscored_username: player.iscored_username,
+                    display_name: resolvedDisplayName,
                     discord_user_id: resolvedDiscordId,
                     total_points: totalPoints,
                     games_played: gamesPlayed,

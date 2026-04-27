@@ -59,6 +59,9 @@ import GlobalGameDetail from './pages/GlobalGameDetail';
 // Pages — Social
 import Friends from './pages/Friends';
 
+// Pages — Account
+import AccountSettings from './pages/AccountSettings';
+
 // Pages — Auth
 import RoomLogin from './pages/RoomLogin';
 import DiscordCallback from './pages/DiscordCallback';
@@ -148,6 +151,9 @@ function App() {
 
         {/* Friends (global, requires Discord login) */}
         <Route path="/friends" element={<ViewerAuthProvider><Friends /></ViewerAuthProvider>} />
+
+        {/* Account settings (global, requires Discord login) */}
+        <Route path="/account/settings" element={<ViewerAuthProvider><AccountSettings /></ViewerAuthProvider>} />
 
         {/* My Rooms (global, requires Discord login) */}
         <Route path="/my-rooms" element={<ViewerAuthProvider><MyRooms /></ViewerAuthProvider>} />

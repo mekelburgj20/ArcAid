@@ -17,6 +17,7 @@ import authRouter from './routes/auth.js';
 import roomsRouter from './routes/rooms.js';
 import adminRouter from './routes/admin.js';
 import globalRouter from './routes/global.js';
+import usersRouter from './routes/users.js';
 
 export const serverEvents = new EventEmitter();
 
@@ -103,6 +104,7 @@ export function startApiServer(port: number = 3001) {
     app.use('/api/auth', authRouter);
     app.use('/api/rooms', roomsRouter);
     app.use('/api/admin', adminRouter);
+    app.use('/api/users', usersRouter);
     app.use('/api', globalRouter);
 
     // --- Backward Compatibility Aliases ---

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown } from 'lucide-react';
+import { Building2, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown } from 'lucide-react';
 
 interface DiscordUser {
   discordId: string;
@@ -163,6 +163,16 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
             >
               <Users size={14} />
               Friends
+            </Link>
+            <Link
+              role="menuitem"
+              tabIndex={-1}
+              to="/account/settings"
+              onClick={() => setOpen(false)}
+              className={menuItemClass}
+            >
+              <UserIcon size={14} />
+              Account settings
             </Link>
             {showScoreboardPrefs && (
               <button

@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { LobbyFeedService } from './LobbyFeedService.js';
 import { NotificationService } from './NotificationService.js';
+import { UserProfileService } from './UserProfileService.js';
 import { logError } from '../utils/logger.js';
 
 interface ScoreSubmittedParams {
@@ -21,6 +22,13 @@ export class LobbyFeedGenerator {
     static async onScoreSubmitted(params: ScoreSubmittedParams): Promise<void> {
         try {
             const { gameRoomId, gameName, username, score, discordUserId } = params;
+
+            // Resolve the user-chosen global display name when the submitter is
+            // Discord-linked; otherwise fall back to the iScored alias. All
+            // user-facing strings below render `displayName`.
+            const displayName = discordUserId
+                ? (await UserProfileService.getDisplayName(discordUserId)) ?? username
+                : username;
 
             // Check which event types are enabled for this room
             const enabledTypes = await LobbyFeedService.getEnabledTypes(gameRoomId);
@@ -71,10 +79,10 @@ export class LobbyFeedGenerator {
                     gameRoomId,
                     type: 'new_high_score',
                     icon: undefined,
-                    title: `${username} posted ${formattedScore} on ${gameName} — new room #1!`,
+                    title: `${displayName} posted ${formattedScore} on ${gameName} — new room #1!`,
                     playerId: discordUserId,
                     gameName,
-                    metadata: { score, username },
+                    metadata: { score, username: displayName },
                 });
 
                 // Notify dethroned #1 player via DM
@@ -90,7 +98,7 @@ export class LobbyFeedGenerator {
                         NotificationService.notify({
                             userId: dethronedMapping.discord_user_id,
                             type: 'rankDethroned',
-                            message: `You've been dethroned on **${gameName}**! ${username} posted ${formattedScore} to claim #1.${link ? `\n${link}` : ''}`,
+                            message: `You've been dethroned on **${gameName}**! ${displayName} posted ${formattedScore} to claim #1.${link ? `\n${link}` : ''}`,
                         }).catch(() => {});
                     }
                 }
@@ -100,10 +108,10 @@ export class LobbyFeedGenerator {
                     gameRoomId,
                     type: 'rank_change',
                     icon: undefined,
-                    title: `${username} climbed to #${currentRank} on ${gameName}`,
+                    title: `${displayName} climbed to #${currentRank} on ${gameName}`,
                     playerId: discordUserId,
                     gameName,
-                    metadata: { score, newRank: currentRank, username },
+                    metadata: { score, newRank: currentRank, username: displayName },
                 });
             }
 
@@ -113,10 +121,10 @@ export class LobbyFeedGenerator {
                     gameRoomId,
                     type: 'score_posted',
                     icon: undefined,
-                    title: `${username} submitted ${formattedScore} on ${gameName}`,
+                    title: `${displayName} submitted ${formattedScore} on ${gameName}`,
                     playerId: discordUserId,
                     gameName,
-                    metadata: { score, username },
+                    metadata: { score, username: displayName },
                 });
             }
 
@@ -134,7 +142,7 @@ export class LobbyFeedGenerator {
                                 gameRoomId,
                                 type: 'friend_score',
                                 icon: undefined,
-                                title: `Your friend ${username} posted ${formattedScore} on ${gameName}`,
+                                title: `Your friend ${displayName} posted ${formattedScore} on ${gameName}`,
                                 playerId: discordUserId,
                                 gameName,
                                 targetUserId: friendId,
@@ -145,7 +153,7 @@ export class LobbyFeedGenerator {
                             NotificationService.notify({
                                 userId: friendId,
                                 type: 'friendScore',
-                                message: `Your friend **${username}** just posted **${formattedScore}** on **${gameName}**!`,
+                                message: `Your friend **${displayName}** just posted **${formattedScore}** on **${gameName}**!`,
                             }).catch(() => {});
                         }
                     }).catch(() => {});

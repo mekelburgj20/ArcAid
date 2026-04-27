@@ -145,26 +145,34 @@ router.post('/discord/callback', async (req, res) => {
             ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
             : null;
 
-        // Store avatar hash in user_mappings if the user has a mapping
+        // Cache avatar hash in user_profiles. Upsert so a row exists for every
+        // user who has logged in (display_name stays NULL until they pick one).
         if (user.avatar) {
             const db = await getDatabase();
             const existing = await db.get(
-                'SELECT avatar_hash FROM user_mappings WHERE discord_user_id = ?', user.id
+                'SELECT avatar_hash FROM user_profiles WHERE discord_user_id = ?', user.id
             );
-            if (existing && existing.avatar_hash !== user.avatar) {
-                await db.run(
-                    'UPDATE user_mappings SET avatar_hash = ? WHERE discord_user_id = ?',
-                    user.avatar, user.id
-                );
-                // Avatar changed — invalidate leaderboard cache so cards pick up new avatar
-                await LeaderboardService.invalidateAll();
-            } else if (existing && !existing.avatar_hash) {
-                await db.run(
-                    'UPDATE user_mappings SET avatar_hash = ? WHERE discord_user_id = ?',
-                    user.avatar, user.id
-                );
+            const changed = !existing || existing.avatar_hash !== user.avatar;
+            await db.run(
+                `INSERT INTO user_profiles (discord_user_id, avatar_hash, avatar_fetched_at)
+                 VALUES (?, ?, datetime('now'))
+                 ON CONFLICT(discord_user_id) DO UPDATE SET
+                    avatar_hash = excluded.avatar_hash,
+                    avatar_fetched_at = excluded.avatar_fetched_at,
+                    updated_at = datetime('now')`,
+                user.id, user.avatar
+            );
+            if (changed) {
                 await LeaderboardService.invalidateAll();
             }
+        } else {
+            // Even without an avatar, ensure the user_profiles row exists so
+            // display_name can be set later.
+            const db = await getDatabase();
+            await db.run(
+                `INSERT OR IGNORE INTO user_profiles (discord_user_id) VALUES (?)`,
+                user.id
+            );
         }
 
         // 1. Check super_admins table

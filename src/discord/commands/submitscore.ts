@@ -181,7 +181,7 @@ export const submitscore: Command = {
                     await db.run(
                         `INSERT INTO user_mappings (discord_user_id, iscored_username)
                          VALUES (?, ?)
-                         ON CONFLICT(discord_user_id) DO UPDATE SET iscored_username = excluded.iscored_username`,
+                         ON CONFLICT(iscored_username) DO NOTHING`,
                         interaction.user.id, username
                     );
                     logInfo(`Auto-mapped user: ${username} -> ${interaction.user.tag}`);

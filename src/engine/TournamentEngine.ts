@@ -948,7 +948,12 @@ export class TournamentEngine {
                 .setColor(color)
                 .setTimestamp();
 
-            const displayName = winnerId ? await formatUserMention(winnerId, winnerIscoredName || 'Unknown', tournamentRow.game_room_id) : (winnerIscoredName ? `\`${winnerIscoredName}\`` : null);
+            // Resolve user-chosen display name when set (falls back to iScored alias).
+            const winnerDisplayName = winnerId
+                ? await (await import('../services/UserProfileService.js')).UserProfileService.getDisplayName(winnerId).catch(() => null)
+                : null;
+            const winnerLabel = winnerDisplayName || winnerIscoredName || 'Unknown';
+            const displayName = winnerId ? await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id) : (winnerIscoredName ? `\`${winnerIscoredName}\`` : null);
             let desc = `**Closed:** ${activeGame.name}`;
             if (displayName) {
                 desc += `\n**Winner:** ${displayName}`;
@@ -1100,11 +1105,18 @@ export class TournamentEngine {
                 }
             }
 
+            // Resolve user-chosen display name once for all subsequent embed/ticker
+            // copy. Fall back to iScored alias when unset.
+            const winnerDisplayName = winnerId
+                ? await (await import('../services/UserProfileService.js')).UserProfileService.getDisplayName(winnerId).catch(() => null)
+                : null;
+            const winnerLabel = winnerDisplayName || winnerIscoredName || 'Unknown';
+
             // Pick-award gate off — emit plain "Congrats" embed (no pick flow, no DM).
             // Next-game selection still honors auto_pick and manual admin paths below.
             if (!pickAwardEnabled && winnerId && channelId) {
                 const color = getTournamentColor(tournamentRow.type);
-                const winnerMention = await formatUserMention(winnerId, winnerIscoredName || 'Unknown', tournamentRow.game_room_id);
+                const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
                 const embed = new EmbedBuilder()
                     .setTitle('Congrats!')
                     .setDescription(`${winnerMention} — great ${term.game}! Thanks for playing.`)
@@ -1132,7 +1144,7 @@ export class TournamentEngine {
 
                 if (channelId) {
                     const color = getTournamentColor(tournamentRow.type);
-                    const winnerMention = await formatUserMention(winnerId, winnerIscoredName || 'Unknown', tournamentRow.game_room_id);
+                    const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
                     const embed = new EmbedBuilder()
                         .setTitle(`No ${term.game} Queued`)
                         .setDescription(`${winnerMention} — you won! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game}.`)
@@ -1144,7 +1156,7 @@ export class TournamentEngine {
 
                 emitPickerAssigned({
                     tournamentName: tournamentRow.name,
-                    pickerName: winnerIscoredName || 'Unknown',
+                    pickerName: winnerLabel,
                     deadline: new Date(Date.now() + (tournamentRow.winner_pick_window_min ?? 60) * 60000).toISOString(),
                 });
 

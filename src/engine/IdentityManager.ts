@@ -70,7 +70,8 @@ export class IdentityManager {
                 if (match) {
                     logInfo(`   Auto-mapped: iScored '${iscoredName}' -> Discord ${match.username} (${match.matchedField})`);
                     await db.run(
-                        `INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)`,
+                        `INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)
+                         ON CONFLICT(iscored_username) DO NOTHING`,
                         match.discordUserId, iscoredName
                     );
                 } else {

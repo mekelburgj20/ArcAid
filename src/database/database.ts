@@ -1200,6 +1200,79 @@ export async function initDatabase(): Promise<Database> {
             // eslint-disable-next-line no-console
             console.log(`[migration] 094: stripped bare 'vr' from ${stripped} row(s); promoted ${promoted} to pinball_fx_classic_vr`);
         } },
+        { name: '095_user_mappings_many_to_one_and_user_profiles', handler: async (db) => {
+            // Sprint: forward-attribution merge + Discord-style display names.
+            // Rebuild user_mappings to allow many iScored aliases per Discord user
+            // (previously discord_user_id was the PRIMARY KEY — strict 1:1).
+            // Add user_profiles table to hold the user-chosen global display name
+            // and the avatar cache (moved off user_mappings so it stays single-row
+            // per Discord user).
+            //
+            // Pre-flight: if any existing user_mappings rows collide case-
+            // insensitively on iscored_username, abort with a clear error so the
+            // operator can resolve before retrying. Case-only dupes are rare in
+            // practice (iScored canonicalizes case) but we refuse to silently
+            // pick a winner.
+            const collisions = await db.all(`
+                SELECT LOWER(iscored_username) AS lc, COUNT(*) AS n,
+                       GROUP_CONCAT(iscored_username, ' / ') AS variants,
+                       GROUP_CONCAT(discord_user_id, ', ') AS owners
+                FROM user_mappings
+                GROUP BY LOWER(iscored_username)
+                HAVING n > 1
+            `) as Array<{ lc: string; n: number; variants: string; owners: string }>;
+            if (collisions.length > 0) {
+                const detail = collisions.map(c => `  • ${c.variants} (owners: ${c.owners})`).join('\n');
+                throw new Error(
+                    `[migration 095] user_mappings has ${collisions.length} case-only iscored_username collision(s). ` +
+                    `Resolve manually before upgrading:\n${detail}`,
+                );
+            }
+
+            // Rebuild user_mappings: drop discord_user_id PK, add UNIQUE on
+            // iscored_username (case-insensitive), add created_at.
+            await db.exec(`
+                CREATE TABLE user_mappings_new (
+                    discord_user_id TEXT NOT NULL,
+                    iscored_username TEXT NOT NULL,
+                    avatar_hash TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(iscored_username COLLATE NOCASE)
+                );
+                INSERT INTO user_mappings_new (discord_user_id, iscored_username, avatar_hash)
+                    SELECT discord_user_id, iscored_username, avatar_hash FROM user_mappings;
+                DROP TABLE user_mappings;
+                ALTER TABLE user_mappings_new RENAME TO user_mappings;
+                CREATE INDEX IF NOT EXISTS idx_user_mappings_discord ON user_mappings(discord_user_id);
+            `);
+
+            // user_profiles: one row per Discord user. display_name is global
+            // and case-insensitively unique (partial unique index excludes NULL
+            // so the column can be unset). avatar_hash + avatar_fetched_at move
+            // off user_mappings to keep them single-row per user.
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    discord_user_id TEXT PRIMARY KEY,
+                    display_name TEXT,
+                    avatar_hash TEXT,
+                    avatar_fetched_at TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now'))
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_user_profiles_display_name
+                    ON user_profiles(LOWER(display_name)) WHERE display_name IS NOT NULL;
+            `);
+
+            // Backfill: one user_profiles row per unique discord_user_id, picking
+            // any avatar_hash (they were 1:1 before, so MAX is just the value).
+            // display_name stays NULL so users pick their own on first visit.
+            await db.exec(`
+                INSERT OR IGNORE INTO user_profiles (discord_user_id, avatar_hash)
+                SELECT discord_user_id, MAX(avatar_hash)
+                FROM user_mappings
+                GROUP BY discord_user_id
+            `);
+        } },
     ];
 
     for (const migration of migrations) {
