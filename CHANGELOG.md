@@ -6,6 +6,117 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.7.0] — 2026-04-27
+
+**Multi-arc release.** Per-room game tagging (ADR 0008), tournament platform-rules semantics shift, two new catalogue sync sources (Pinball FX VR + AtGames Sheet), library bulk operations + search overhaul, iScored credentials hardening, ScoreSyncPoller log-spam fix.
+
+### Per-room game tagging — ADR 0008
+
+New `room_game_tags(game_room_id, global_game_id, tag)` table. Variant-keyed via `global_games.id` so the FE's variant rows tag independently. Tags are lowercased + trimmed on write; rendered via `getPlatformDisplay` (uppercase fallback for non-canonical tokens like "WMS"). Distinct from the surviving (deprecated) `game_room_game_library` overlay so the eventual style-overlay re-keying doesn't have to touch tags.
+
+Read paths union catalogue platforms with room tags everywhere a game-level platform check happens:
+- `ensurePlatformAllowed` (submission-level)
+- `/api/submit/platforms` resolver
+- `/:roomId/platforms/available` (tournament rules picker)
+- `/:roomId/game_library` returns `room_tags: string[]` per row
+- Web pick-game route, admin activate-game route
+- Discord `/activate-game`, `/pick-game` autocomplete
+- `TournamentEngine.autoPickAndActivate` (tournament rotation auto-pick)
+- `TimeoutManager` fallback auto-pick
+
+Endpoints (all under `/api/rooms/:roomId/`): `GET /games/:globalGameId/tags`, `POST /games/:globalGameId/tags`, `DELETE /games/:globalGameId/tags/:tag`, `POST /games/bulk-tag` (cap 500), `POST /games/bulk-untag`.
+
+`RoomGameTagsService.getTagMapByGameNameForRoom(roomId)` powers the autopick / autocomplete batch lookups (single SQL JOIN, no N+1).
+
+Migration 093 inline. See ADR 0008 for the rationale.
+
+### Tournament platform-rules semantics shift
+
+`Not allowed on` was previously a game-level rejection ("game with this platform tag won't enter the tournament"). It's now a **submission-level filter only** ("the score's selected platform can't be in this list — game itself can still be picked"). `Must be available on` stays a game-level gate (game must list at least one required platform).
+
+The shift required:
+- `passesplatformRules` drops the `excluded` clause (game-level gate checks `required` only).
+- `TournamentEngine` autopick + `TimeoutManager` fallback autopick filters drop the inline excluded check.
+- Tournament form's "Not allowed on" subtitle copy: "(blocks score submissions, not game selection)".
+- Inline validator catches the contradictory case: same platform in both `Must` and `Not Allowed` → error chip + Create/Save buttons disabled. `getPlatformRuleConflicts` exported helper.
+
+Backwards-compat note: existing tournaments with `excluded=[X]` under the old semantics silently begin admitting games that carry X. Behavior shift is deliberate.
+
+### Pinball FX VR catalogue tagger
+
+Hand-curated source-of-truth (`tmp/fx-vr-tables-draft.md`, gitignored) → emitted TS data module (`src/services/fxVrPackContents.ts`, committed) → `FxVrImportService.applyTags()`. 39 tables across 17 packs (Williams Vols 1/2/3/9/10 + Tomb Raider + Universal Monsters + Scared Stiff + Elvira + Charlie Brown + Godzilla vs Kong + Bethesda + Universal TV Classics + 5 standalone titles + 3 base FX VR Zen originals).
+
+Service uses `GlobalGameService.upsert` so real-machine recreations (Theatre of Magic, etc.) merge `pinball_fx_vr` into existing VPS-imported rows without clobbering manufacturer/year, and Zen originals (Sky Pirates: Treasures of the Clouds, etc.) auto-create with `imported_from='fx-vr'`. Idempotent.
+
+Migration 094 cleans up the legacy bare `vr` token (3 prod rows: Monster Bash, Indiana Jones, Theatre of Magic) — promotes to `pinball_fx_classic_vr` if `pinball_fx_classic` was already present, then strips the bare token.
+
+Admin endpoint `POST /admin/catalogue/sync-fx-vr` + button on the Catalogue page. Refresh cycle: edit `tmp/fx-vr-tables-draft.md`, regenerate via `node tmp/emit-fx-vr-data-ts.js > src/services/fxVrPackContents.ts`, click "Sync FX VR".
+
+### AtGames catalogue sync from curated Google Sheet
+
+`AtGamesImportService` pulls column A of the user's curated availability sheet (`https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=...`, no API key — public CSV export). Same upsert pattern as FX VR.
+
+Phase 2 extension parses cabinet variants from columns H/I/J/K (per-porter-studio cells with values like `HD`, `4K`, `Micro`, `HDP`, `ALU`, `Mini`, `Gamer`, `Core`). Strips `(most)` / `(some)` parentheticals; skips leading-paren `(coming soon)` cells; skips non-cabinet tokens (Steam, Pinball Arcade, Mobile, Xbox, etc.). Always-tag invariant: every row in column A gets the broad `atgames` tag plus one `atgames_<variant>` per detected cabinet (deduped).
+
+Six new canonical platform IDs: `atgames_micro`, `atgames_hdp`, `atgames_alu`, `atgames_mini`, `atgames_gamer`, `atgames_core`. HD + 4K already existed. Display labels shortened: "AtGames Legends" → "AtGames" (and HD/4K variants). Mirrored across `src/utils/platformMapping.ts` (BE) and `admin-ui/src/lib/platforms.ts` (FE).
+
+Tiny inline CSV parser in the service (no `papaparse` backend dep). Unicode-quote normalization (`’` → `'`) so curly-quoted sheet names match catalogue rows that store straight quotes. Studio attribution via column A fill color skipped per user direction — HTML export path is achievable later if a use case appears.
+
+Endpoint `POST /admin/catalogue/sync-atgames` + button. Production result: 260 rows updated, 0 created (every sheet name matched an existing VPS-imported catalogue row).
+
+### Library page — bulk ops + manufacturer filter (initial) + search overhaul
+
+**Bulk select** — checkbox column on the library table, header checkbox toggles "select all on this page" with selection persisting across pagination. Sticky bottom action bar when ≥1 row is selected: `Tag…` / `Activate…` / `Pin` / `Clear`. Bulk tag uses the new `bulk-tag` endpoint (single SQL multi-insert). Bulk activate + pin use 5-way concurrent worker loops over the existing single-game endpoints with best-effort summary toasts.
+
+**Per-row Tag button** next to Activate/Pin/Style. Opens a dialog with chip-style remove + add input + suggestions from existing room tags.
+
+**Tag chips** render in amber (distinct from cyan catalogue platform chips) so room-only tags are visually separable from catalogue truth.
+
+**Search bar** rewritten:
+- Substring match across `name`, `manufacturer`, `year`, `platforms`, `room_tags`, `designers`, `themes`, `table_authors`, `catalogue_aliases`. (Server endpoint extended to ship `designers` / `themes` / `table_authors` / `catalogue_aliases` — VPS catalogue metadata that wasn't in the FE response before.)
+- Inline year-range syntax: `2001-2020` (with optional whitespace around the hyphen). `Williams 2001-2020` ANDs the range with the substring query. Strict `\d{4}-\d{4}` pattern in `[1900, 2100]` so we don't consume hyphens in real game titles.
+- Live preview line shows what the parser extracted vs. substring-matched.
+- Hint text under the input lists every searched field.
+
+**Manufacturer chip-row filter was added then removed in the same release.** Initial design overshot; user wanted smarter search instead. Reverted in favor of the search-bar metadata expansion above.
+
+**Variant disambiguation on the library row** (post-step-2 follow-up): catalogue rows for "Carnival" (4 variants: Bally 1948, Bally 1957, Sega 1971, Playmatic 1977) now show a sub-line `Manufacturer, Year` to visually distinguish. Server returns `id`, `manufacturer`, `year` per row; FE keys React rows by `id` to fix the duplicate-key reconciliation glitch causing the "alphabet restart" symptom users were seeing.
+
+**Client-side pagination** (100 rows/page, `[Prev] [1] [2] … [N] [Next]` with truncation). Resets to page 1 on filter/search/sort change. Search/filter/sort still operate over the full dataset; only the render is paged.
+
+`PlatformChips` got an uppercase fallback for unknown platform IDs: `fx2` → `FX2`, bare `vr` → `VR` (until cleanup migration kills these legacy tokens).
+
+### iScored credentials hardening
+
+**Bug**: admin would activate a game (worked), then deactivate the game (silently failed to lock on iScored — game orphaned). Cause: activate handler used `new IScoredClient()` (env fallback creds), deactivate handler used `getIScoredCredsForRoom()` (per-room creds). When per-room creds were misconfigured, only deactivate failed.
+
+**Fixes**:
+- Activate handler now uses `getIScoredCredsForRoom()` like every other path. If per-room creds are wrong, activate fails visibly upfront — before the DB row is created — instead of papering over with env fallback.
+- `TournamentEngine.deactivateGame` return signature gains `iscoredStatus: 'locked' | 'failed' | 'shared' | 'skipped'` plus `iscoredError`. FE renders four distinct toasts so admins know whether iScored was locked, skipped intentionally (DB-only), still active in another tournament, or failed (with the error).
+- `IScoredClient.connect` classifies login-timeout failures: detects whether the Log In button is still visible after the userDropdown wait fails, and throws either `"iScored rejected the credentials (wrong username or password)."` or `"iScored login timed out — possible rate limit, iScored slow/down, or login page changed."` — replacing the raw Playwright `locator.waitFor: Timeout 15000ms exceeded waiting for #userDropdown` dump.
+- New `POST /api/rooms/:roomId/iscored/validate` endpoint runs a quick login attempt and reports `{ ok, username, error }`. New `IScoredCredentialsCheck` component on Settings → iScored renders a `Validate Credentials` button + green-check / red-x result inline. Useful for pre-flighting credential issues.
+
+### ScoreSyncPoller — per-account error suppression
+
+After a 14-minute iScored API outage produced 32 consecutive identical `TimeoutError` log lines, found two bugs:
+
+1. **Per-account errors logged unconditionally.** Outer `poll()` catch had suppression (logs first 3, suppresses thereafter), but `pollOneAccount` failures were caught at the per-account level inside the for-loop and logged on every cycle.
+2. **`_lastPollSucceeded` was always `true`.** Set after the per-account loop completed regardless of per-account outcomes.
+
+Fixes:
+- New `accountConsecutiveErrors: Map<gameroomName, number>` mirrors the outer counter at per-account scope. Logs first 3 errors per account, suppresses thereafter, logs a `recovered after N failure(s)` line when an account that was failing succeeds.
+- `_lastPollSucceeded` reflects whether at least one account succeeded.
+
+Not in scope (next step if needed): adaptive backoff during sustained outages (currently still hits iScored every 5s during outage, just doesn't log it).
+
+### Build + deploy
+
+SW `CACHE_NAME` walked v20 → v33 across 11 UI-visible commits. Backend tsc clean throughout. Admin-ui vite build clean. **109/109 tests pass.**
+
+Migrations 090 (alias column), 091 (alias backfill), 092 (DROP TABLE game_library), 093 (room_game_tags), 094 (legacy `vr` cleanup) all idempotent. New canonical platform IDs require no DB migration (platforms are JSON-array TEXT).
+
+---
+
 ## [2.6.0] — 2026-04-26
 
 **Refactor.** Step-2 cleanup of the legacy `game_library` table and the `game_room_game_library` overlay reads. Completes the "library = global catalogue" arc started in v2.5.1 — tournaments, Discord autocomplete, leaderboard image fallback, and the per-room library page now all read from `global_games` directly. Plan: `docs/step-2-cleanup-plan.md`. Shipped in 7 sequential commits (2c → 2a → 2b → 2g → 2d → 2f → 2e), each independently buildable.

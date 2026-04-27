@@ -16,7 +16,7 @@
 - **Discord player login** — Public page visitors can log in via Discord to pick/queue games directly from the Game Picks page
 - **Discord bot** — Full slash command suite for players (submit scores, check stats) and admins (force rotations, manage games)
 - **Cross-tournament rankings** — Ranking groups with 4 scoring methods
-- **Game library imports** — Bulk import from Virtual Pinball Spreadsheet (VPS) and VPXS Wizard Tables
+- **Game library imports** — Bulk import from Virtual Pinball Spreadsheet (VPS), VPXS Wizard Tables, OPDB, IGDB (via Twitch OAuth), Steam Pinball (Zen + Zaccaria DLC catalogues), Pinball FX VR (curated), and AtGames (curated Google Sheet sync)
 - **Admin invite system** — One-time invite links with optional Discord DM delivery for onboarding room admins
 - **Community scores** — Submit scores outside tournaments; per-game community leaderboards
 - **Game tips & comments** — Player-submitted tips and comments on each game
@@ -24,6 +24,9 @@
 - **Style catalogue** — iScored visual styles imported or uploaded, assigned per game
 - **Kiosk mode** — Auto-refreshing scoreboard display for TV/kiosk use (no nav, configurable refresh interval)
 - **Game merge tool** — Consolidate duplicate games across all tables; auto-merge near-duplicates during import (comma-variant names)
+- **Per-room game tags** — Tag any catalogue game with custom labels (e.g. "WMS") via the per-row Tag button or bulk action bar; tags participate in tournament platform rules so a `Must = [WMS]` tournament requirement narrows to just your tagged set
+- **Library bulk operations** — Multi-select game rows then bulk-tag, bulk-activate (in a tournament), or bulk-pin to scoreboard. Selection persists across pagination
+- **Smart library search** — Single search box matches across name, manufacturer, year, designers, themes, table authors, aliases, platforms, and room tags. Inline year-range syntax: `2001-2020` or `Williams 2001-2020`
 - **Audit logging** — Admin action tracking with full history
 - **Public stats page** — Enhanced player metrics: average finish, top 5%, champion streak
 - **Session persistence** — Login pages auto-redirect if a valid JWT exists (24h expiry)
@@ -56,6 +59,9 @@
 - **Per-room iScored / Discord configuration** — Each game room connects independently to its own Discord guild and iScored account, or disables either integration; settings live in `game_room_settings`
 - **OPDB / IGDB catalogue imports** — Bulk import pinball machines from OPDB and arcade/console games from IGDB (via Twitch OAuth) directly from the global catalogue page; UI fields for the API keys live in Global Settings → Configuration
 - **Wizard auto vs manual tagging** — VPXS Wizard imports distinguish `vpxs` (auto-install, verified) from `vpxs_manual` (Manual Install Tables — hit-or-miss on AtGames Standalone) so tournament platform rules can require reliability
+- **Validate iScored Credentials** — One-click button on Settings → iScored runs a quick login attempt and reports green-check (success) or red-x (with the actual error: "rejected the credentials" vs "login timed out")
+- **Tournament platform-rules contradiction validator** — Inline warning + Create/Save button disable when the same platform is in both `Must be available on` and `Not allowed on` (every submission would be rejected — phantom tournament prevention)
+- **AtGames cabinet variants** — 8 specific AtGames cabinet platforms (HD, 4K, Micro, HDP, ALU, Mini, Gamer, Core) for tournaments scoped to a specific cabinet tier
 
 ## Quick Start
 

@@ -8,6 +8,10 @@
 
 - **Style overlay re-keying** — `game_room_game_library` survived the v2.6.0 step-2 cleanup because it still carries the per-room style overlay (`catalogue_style_id`, `logo_style_id`, `bg_style_id`, `style_header_disabled`). Re-key onto a new `room_game_style_overlay (game_room_id, global_game_id, …)` table, migrate data, then drop the bridge table. Update callers in `gameCreation.ts`, `TournamentEngine`, `StyleCatalogueService`, `GameLibraryService.{set,get}RoomGameStyle`, and the StylePicker FE.
 - **Ratings re-keying** — `game_ratings` is keyed on `(game_name, user_id)`. Should re-key on `(global_game_id, user_id)` for consistency post-step-2. Plan §2h.
+- **ScoreSyncPoller adaptive backoff** — v2.7.0 added per-account error suppression so logs aren't spammed during iScored outages, but the poller still hits iScored every 5s during an outage. Add a "bump interval to 60s after 5 consecutive failures, restore on first success" mode to cut wasted requests by ~12x during sustained outages.
+- **Force-recreate fetch agent on N consecutive ScoreSyncPoller failures** — the 14-min outage on 2026-04-27 was cleared by a container restart, suggesting an undici keep-alive connection got stuck. Adding a one-line agent reset on Nth consecutive failure could self-heal without restart.
+- **Studio attribution from AtGames sheet** — column A fill color (Green=AtGames, Red=FarSight, Yellow=Magic Pixel, Blue=Zen Studios) tells which studio ported each game to AtGames. Skipped in v2.7.0 per user direction; revisit if a "filter by porter studio" use case emerges. HTML export path is feasible (~50 lines, no new deps).
+- **Tunable iScored API timeout** — currently hardcoded 15s in `IScoredApiClient.getAllScores`. Promote to a Global Settings field if 15s turns out too aggressive.
 
 ---
 

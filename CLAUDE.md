@@ -63,8 +63,27 @@ All web submission paths (`/submit-score`, `/freeplay-score`, `/community-scores
 - Composite UNIQUE INDEX `idx_global_games_identity` on `(LOWER(name), type, LOWER(COALESCE(manufacturer,'')), COALESCE(year,0))`. Same-name pinballs from different manufacturers coexist; true `(name, type, mfg, year)` dupes reject. See ADR 0004.
 - **Library = global catalogue.** As of v2.6.0 the legacy `game_library` table is dropped (migration 092). Tournament activation, the per-room library page, autopick, Discord autocomplete, and leaderboard image fallback all read from `global_games WHERE status='approved'` directly. See ADR 0007.
 - **`game_room_game_library` survives** (post-v2.6.0) for one purpose only: per-game style overlay (`catalogue_style_id`, `logo_style_id`, `bg_style_id`, `style_header_disabled`) keyed on `(game_room_id, game_name)`. The `custom_platforms` and `display_name` overlay columns are unread (column kept for now). Future cleanup will re-key the surviving overlay onto a `(game_room_id, global_game_id)` table and drop this one too.
+- **Per-room game tags** live in a separate table `room_game_tags(game_room_id, global_game_id, tag)` — variant-keyed via `global_games.id`. Game's effective platforms = catalogue platforms ∪ room tags. UNION applied across `ensurePlatformAllowed`, `/api/submit/platforms`, `/:roomId/platforms/available`, library list response, web pick-game, admin activate-game, Discord activate/pick autocomplete, autopick paths. `RoomGameTagsService.getTagMapByGameNameForRoom` is the batched-lookup helper. Migration 093. See ADR 0008.
 - **Pending-approval flow:** room admins propose new globals via `POST /:roomId/game_library/submit_to_global` (`status='pending'`); super-admins approve/reject/merge at `/admin/catalogue/approvals`. Public `GET /global/games` hard-codes `status='approved'`.
 - **`GlobalGameService.findCandidates(input)`** is the read-only dedup walker (extracted from `upsert`'s hierarchy) powering the per-room contribution proposal endpoints.
+
+## Catalogue importers
+
+Each importer feeds the same `GlobalGameService.upsert` path so the dedup hierarchy keeps the catalogue clean. Admin endpoints under `/api/admin/catalogue/sync-<source>`; FE buttons on `/admin/catalogue`.
+
+- **VPS** (Virtual Pinball Spreadsheet) — primary pinball metadata source. Fetches the VPS database JSON, splits into `playable` + `cataloguable` filters, downloads images. Background image-download pass after the metadata pass returns.
+- **VPXS Wizard** — README parser, splits `wizard_auto` (verified VPXS) from `wizard_manual` (Manual Install Tables). Tags `vpxs` vs `vpxs_manual` accordingly.
+- **OPDB** — pinball metadata + manufacturer/year data. Requires `OPDB_API_KEY` env var.
+- **IGDB** — arcade/console games via Twitch OAuth. Requires `TWITCH_CLIENT_ID` + `TWITCH_CLIENT_SECRET`.
+- **Steam Pinball** — Zen + Zaccaria DLC catalogues across six Steam apps. `tmp/pack-contents-draft.md` source-of-truth → `src/services/steamPinballPackContents.ts` (committed). Curated `PACK_CONTENTS` map expands DLCs into per-table upserts. v2.5.0.
+- **FX VR** — Pinball FX VR (Meta Quest standalone) catalogue tagger. `tmp/fx-vr-tables-draft.md` (gitignored) → `tmp/emit-fx-vr-data-ts.js` → `src/services/fxVrPackContents.ts`. 39 tables across 17 packs. Tags `pinball_fx_vr`. v2.7.0.
+- **AtGames** — pulls column A of a curated Google Sheet (public CSV export, no API key). Always tags `atgames` + one `atgames_<variant>` per detected cabinet (HD/4K/Micro/HDP/ALU/Mini/Gamer/Core) extracted from columns H/I/J/K. v2.7.0.
+
+## Platform taxonomy
+
+Canonical IDs live in `src/utils/platformMapping.ts` (BE) **and** `admin-ui/src/lib/platforms.ts` (FE). When adding/changing a platform, update both — the FE has its own copy of `CANONICAL_PLATFORMS` + `PLATFORM_ALIASES`. Forgetting causes silent FE/BE drift. Display label fallback uppercases unknown ids (`fx2` → `FX2`).
+
+Categories: physical (`real`, `atgames` + 8 variants), virtual_pinball (Visual Pinball X/9, VPX Standalone + manual, Future Pinball, BAM, Pinball FX family + classic + classic VR + midnight + VR, Star Wars Pinball VR, Zaccaria + VR), arcade_video (NES/SNES/Genesis/etc.).
 
 ## Pin-to-scoreboard
 
