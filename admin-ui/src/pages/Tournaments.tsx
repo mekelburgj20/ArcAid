@@ -131,6 +131,9 @@ export default function Tournaments() {
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
   const [deactivateTarget, setDeactivateTarget] = useState<ActiveGame | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+  const [deleteGameTarget, setDeleteGameTarget] = useState<ActiveGame | null>(null);
+  const [deleteGameConfirm, setDeleteGameConfirm] = useState('');
+  const [deletingGame, setDeletingGame] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [styleTarget, setStyleTarget] = useState<ActiveGame | null>(null);
@@ -206,7 +209,7 @@ export default function Tournaments() {
         success: boolean;
         gameName: string;
         tournamentName: string;
-        iscoredStatus?: 'deleted' | 'failed' | 'shared' | 'skipped';
+        iscoredStatus?: 'locked' | 'failed' | 'shared' | 'skipped';
         iscoredError?: string;
         finalSyncedScores?: number;
       }>(`/rooms/${room.roomId}/games/${deactivateTarget.id}/deactivate`, { dbOnly });
@@ -215,12 +218,12 @@ export default function Tournaments() {
       const capturedSuffix = captured > 0 ? ` (captured ${captured} late score${captured === 1 ? '' : 's'})` : '';
       if (dbOnly) {
         toast(`${name} deactivated (DB only — iScored untouched)`, 'success');
-      } else if (result.iscoredStatus === 'deleted') {
-        toast(`${name} deactivated and removed from iScored${capturedSuffix}`, 'success');
+      } else if (result.iscoredStatus === 'locked') {
+        toast(`${name} deactivated and locked on iScored${capturedSuffix}`, 'success');
       } else if (result.iscoredStatus === 'shared') {
-        toast(`${name} deactivated (iScored game still active in another tournament — left in place)`, 'success');
+        toast(`${name} deactivated (iScored game still active in another tournament — left unlocked)`, 'success');
       } else if (result.iscoredStatus === 'failed') {
-        toast(`${name} deactivated locally — iScored delete failed (${result.iscoredError ?? 'unknown'}). Remove it manually on iScored.`, 'error');
+        toast(`${name} deactivated locally — iScored lock failed (${result.iscoredError ?? 'unknown'}). Lock it manually on iScored or use Delete.`, 'error');
       } else {
         toast(`${name} deactivated (iScored not configured)`, 'success');
       }
@@ -231,6 +234,50 @@ export default function Tournaments() {
       toast(err.message || 'Failed to deactivate game', 'error');
     } finally {
       setDeactivating(false);
+    }
+  };
+
+  // Destructive variant of Deactivate. Use only when the game was activated
+  // for the wrong tournament (or otherwise should never have existed). Final-
+  // syncs scores, deletes from iScored, orphans local scores (preserves
+  // player history per ADR 0005), DELETEs the games row.
+  const handleDeleteGame = async () => {
+    if (!deleteGameTarget) return;
+    setDeletingGame(true);
+    try {
+      const result = await api.delete<{
+        success: boolean;
+        gameName: string;
+        tournamentName: string | null;
+        iscoredStatus?: 'deleted' | 'failed' | 'shared' | 'skipped';
+        iscoredError?: string;
+        finalSyncedScores?: number;
+        scoresOrphaned?: { submissions: number; scoreHistory: number; globalScores: number };
+      }>(`/rooms/${room.roomId}/games/${deleteGameTarget.id}`);
+      const name = deleteGameTarget.name;
+      const captured = result.finalSyncedScores ?? 0;
+      const capturedSuffix = captured > 0 ? ` (captured ${captured} late score${captured === 1 ? '' : 's'})` : '';
+      const orphaned = result.scoresOrphaned;
+      const orphanSuffix = orphaned && (orphaned.submissions || orphaned.scoreHistory || orphaned.globalScores)
+        ? ` Orphaned ${orphaned.submissions}/${orphaned.scoreHistory}/${orphaned.globalScores} score rows (sub/hist/global) — player history preserved.`
+        : '';
+      if (result.iscoredStatus === 'deleted') {
+        toast(`${name} deleted from ArcAid and iScored${capturedSuffix}.${orphanSuffix}`, 'success');
+      } else if (result.iscoredStatus === 'shared') {
+        toast(`${name} deleted from ArcAid (iScored game still active in another tournament — left in place).${orphanSuffix}`, 'success');
+      } else if (result.iscoredStatus === 'failed') {
+        toast(`${name} deleted from ArcAid — iScored delete failed (${result.iscoredError ?? 'unknown'}). Remove it manually on iScored.`, 'error');
+      } else {
+        toast(`${name} deleted from ArcAid (iScored not configured).${orphanSuffix}`, 'success');
+      }
+      setDeleteGameTarget(null);
+      setDeleteGameConfirm('');
+      await fetchActiveGames();
+      await fetchTournaments();
+    } catch (err: any) {
+      toast(err.message || 'Failed to delete game', 'error');
+    } finally {
+      setDeletingGame(false);
     }
   };
 
@@ -372,6 +419,7 @@ export default function Tournaments() {
                   setStyleTarget(g);
                 }} className="text-xs px-2 py-1">Style</NeonButton>
                 <NeonButton variant="danger" onClick={() => setDeactivateTarget(g)} className="text-xs px-2 py-1">Deactivate</NeonButton>
+                <NeonButton variant="danger" onClick={() => { setDeleteGameTarget(g); setDeleteGameConfirm(''); }} className="text-xs px-2 py-1">Delete</NeonButton>
               </div>
             ), className: 'text-right' },
           ]}
@@ -412,7 +460,7 @@ export default function Tournaments() {
           <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md">
             <h2 className="font-display text-lg font-bold mb-2">Deactivate Game</h2>
             <p className="text-muted text-sm mb-4">
-              Deactivate <span className="text-primary font-medium">"{deactivateTarget.name}"</span> from {deactivateTarget.tournament_name}? Scores are preserved.
+              Deactivate <span className="text-primary font-medium">"{deactivateTarget.name}"</span> from {deactivateTarget.tournament_name}? Scores are preserved and the iScored game stays visible (locked, no new submissions).
             </p>
             <div className="space-y-2 mb-4">
               <NeonButton
@@ -435,6 +483,46 @@ export default function Tournaments() {
             <NeonButton variant="ghost" onClick={() => setDeactivateTarget(null)} disabled={deactivating}>
               Cancel
             </NeonButton>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Game Confirm — destructive, type-to-confirm */}
+      {deleteGameTarget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-red-500/40 rounded-lg p-6 w-full max-w-md">
+            <h2 className="font-display text-lg font-bold mb-2 text-red-400">Delete Game</h2>
+            <p className="text-muted text-sm mb-2">
+              Permanently remove <span className="text-primary font-medium">"{deleteGameTarget.name}"</span> from <span className="text-primary font-medium">{deleteGameTarget.tournament_name}</span>?
+            </p>
+            <ul className="text-xs text-muted list-disc ml-5 mb-4 space-y-1">
+              <li>Late iScored scores (if any) are pulled into ArcAid first.</li>
+              <li>The game is removed from iScored (unless another active tournament shares it).</li>
+              <li>The games row is deleted from ArcAid; player score rows are orphaned (kept for personal history).</li>
+            </ul>
+            <p className="text-xs text-muted mb-2">Use this only when the game was activated in the wrong tournament. For a normal end-of-round, use Deactivate.</p>
+            <p className="text-xs mb-1">Type <span className="font-mono text-red-300">{deleteGameTarget.name}</span> to confirm:</p>
+            <input
+              type="text"
+              autoFocus
+              value={deleteGameConfirm}
+              onChange={(e) => setDeleteGameConfirm(e.target.value)}
+              className="w-full bg-bg border border-border rounded px-3 py-1 text-sm font-mono mb-4"
+              placeholder={deleteGameTarget.name}
+            />
+            <div className="flex gap-2">
+              <NeonButton
+                variant="danger"
+                className="flex-1"
+                onClick={handleDeleteGame}
+                disabled={deletingGame || deleteGameConfirm !== deleteGameTarget.name}
+              >
+                {deletingGame ? 'Deleting...' : 'Delete game permanently'}
+              </NeonButton>
+              <NeonButton variant="ghost" onClick={() => { setDeleteGameTarget(null); setDeleteGameConfirm(''); }} disabled={deletingGame}>
+                Cancel
+              </NeonButton>
+            </div>
           </div>
         </div>
       )}

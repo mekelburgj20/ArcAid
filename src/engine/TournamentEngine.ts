@@ -164,28 +164,30 @@ export class TournamentEngine {
     }
 
     /**
-     * Deactivates an active game — marks COMPLETED in DB.
+     * Deactivates an active game — locks on iScored (preserving the historical
+     * record) and marks COMPLETED in DB. Pairs with `deleteGameCompletely()`,
+     * which is the destructive variant for "wrong game in wrong tournament"
+     * scenarios.
      *
-     * v2.7.x cleanup contract (replaces the legacy lock-on-deactivate flow):
-     *   1. Pull a final score snapshot from iScored via the REST API and write
-     *      any missing/higher rows into submissions + score_history. Captures
-     *      anything submitted between the last poll cycle and the deactivation.
-     *   2. Delete the iScored game (only when no other ACTIVE games row shares
-     *      the same iscored_id — preserves the legacy "shared" guard).
-     *   3. NULL the iscored_id on this games row so the SyncPoller can never
-     *      re-match an iScored entity to a deactivated row.
-     *   4. Mark the row COMPLETED.
-     *
-     * Step 3 is what kills the duplicate-DM bug: when two tournaments accrue a
-     * shared iscored_id (legacy data), keeping the link on a COMPLETED row lets
-     * the poller pick that row in `db.get` and treat every iScored score as new.
-     * See ScoreSyncPoller's `ORDER BY` comment + the WHO dunnit incident on
-     * 2026-04-27 for the full forensics.
+     * Flow:
+     *   1. `finalSyncScoresForGame()` pulls iScored scores into submissions +
+     *      score_history so anything submitted between the last poll cycle
+     *      and this deactivation is captured.
+     *   2. `setGameStatus({ locked: true })` on iScored — the game stays
+     *      visible there for historical browsing but accepts no new scores.
+     *      Skipped (`'shared'`) when another ACTIVE games row shares the
+     *      iscored_id, since locking would block the other tournament.
+     *   3. Mark COMPLETED. **`iscored_id` is intentionally KEPT non-NULL** so
+     *      `runCleanup` (cleanup_rule retain/scheduled/immediate) can find
+     *      this row later. The duplicate-DM bug that motivated the v2.7.x
+     *      cleanup contract is now killed by the SyncPoller's `ORDER BY` —
+     *      see `ScoreSyncPoller.pollOneAccount` (Fix B for the WHO dunnit /
+     *      rtx_pinball incident, 2026-04-27).
      */
     public async deactivateGame(gameId: string, dbOnly: boolean = false): Promise<{
         gameName: string;
         tournamentName: string;
-        iscoredStatus: 'deleted' | 'failed' | 'shared' | 'skipped';
+        iscoredStatus: 'locked' | 'failed' | 'shared' | 'skipped';
         iscoredError?: string;
         finalSyncedScores?: number;
     }> {
@@ -201,7 +203,7 @@ export class TournamentEngine {
         if (!row) throw new Error('Game not found');
         if (row.status !== 'ACTIVE') throw new Error(`Game is not active (status: ${row.status})`);
 
-        let iscoredStatus: 'deleted' | 'failed' | 'shared' | 'skipped' = 'skipped';
+        let iscoredStatus: 'locked' | 'failed' | 'shared' | 'skipped' = 'skipped';
         let iscoredError: string | undefined;
         let finalSyncedScores: number | undefined;
 
@@ -212,33 +214,33 @@ export class TournamentEngine {
             );
 
             if (otherActive) {
-                // Another ACTIVE games row still owns this iScored entity — leave
-                // iScored alone; that tournament will clean it up when it closes.
-                logInfo(`Skipping iScored delete — another active game shares iscored_id ${row.iscored_id}`);
+                // Another ACTIVE row owns this iScored entity — locking would
+                // block its tournament too. Leave iScored alone.
+                logInfo(`Skipping iScored lock — another active game shares iscored_id ${row.iscored_id}`);
                 iscoredStatus = 'shared';
             } else {
-                // Step 1: capture pending scores BEFORE iScored deletes them.
+                // Capture pending scores so anything that landed on iScored
+                // since the last poll cycle is mirrored locally before lock.
                 try {
                     finalSyncedScores = await this.finalSyncScoresForGame(row);
                     if (finalSyncedScores > 0) {
-                        logInfo(`Final-synced ${finalSyncedScores} score(s) for ${row.name} before iScored delete`);
+                        logInfo(`Final-synced ${finalSyncedScores} score(s) for ${row.name} before iScored lock`);
                     }
                 } catch (err) {
-                    logError(`Final sync failed for ${row.name} (continuing with delete):`, err);
+                    logError(`Final sync failed for ${row.name} (continuing with lock):`, err);
                 }
 
-                // Step 2: delete the iScored game.
                 const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
                 const creds = await getIScoredCredsForRoom(row.game_room_id);
                 if (creds) {
                     const client = new IScoredClient({ username: creds.username, password: creds.password });
                     try {
                         await client.connect();
-                        await client.deleteGame(row.iscored_id, row.name);
-                        logInfo(`Deleted on iScored: ${row.name} (${row.iscored_id})`);
-                        iscoredStatus = 'deleted';
+                        await client.setGameStatus(row.iscored_id, { locked: true });
+                        logInfo(`Locked on iScored: ${row.name} (${row.iscored_id})`);
+                        iscoredStatus = 'locked';
                     } catch (err) {
-                        logError('Failed to delete game on iScored (continuing with DB update):', err);
+                        logError('Failed to lock game on iScored (continuing with DB update):', err);
                         iscoredStatus = 'failed';
                         iscoredError = err instanceof Error ? err.message : String(err);
                     } finally {
@@ -248,11 +250,8 @@ export class TournamentEngine {
             }
         }
 
-        // Steps 3+4: drop the iScored link and mark COMPLETED. Done together so
-        // the row never spends a window in a (COMPLETED, iscored_id=set) state
-        // where the SyncPoller could still match it.
         await db.run(
-            'UPDATE games SET status = ?, end_date = ?, iscored_id = NULL WHERE id = ?',
+            'UPDATE games SET status = ?, end_date = ? WHERE id = ?',
             'COMPLETED', new Date().toISOString(), gameId
         );
         const syncSuffix = finalSyncedScores ? `, captured ${finalSyncedScores}` : '';
@@ -264,6 +263,118 @@ export class TournamentEngine {
             iscoredStatus,
             iscoredError,
             finalSyncedScores,
+        };
+    }
+
+    /**
+     * Destructive removal: pairs with `deactivateGame()` for the case where a
+     * game was activated for the wrong tournament (or otherwise should never
+     * have existed). Final-syncs scores, deletes from iScored, orphans the
+     * local scores (sets game_id = NULL on submissions/score_history and
+     * origin_game_id = NULL on global_scores), then DELETEs the games row.
+     *
+     * Score *records* are preserved (orphaned, not deleted) so the player who
+     * submitted to the wrong-tournament game still keeps their entry in their
+     * personal history — matches the unpin/cascade pattern in ADR 0005.
+     *
+     * Status guard: caller-controlled. Default behavior allows ACTIVE,
+     * COMPLETED, and QUEUED — anything except already-HIDDEN. Use
+     * `requireActive: true` to restrict to ACTIVE rows.
+     */
+    public async deleteGameCompletely(
+        gameId: string,
+        opts: { requireActive?: boolean } = {},
+    ): Promise<{
+        gameName: string;
+        tournamentName: string | null;
+        iscoredStatus: 'deleted' | 'failed' | 'shared' | 'skipped';
+        iscoredError?: string;
+        finalSyncedScores?: number;
+        scoresOrphaned: { submissions: number; scoreHistory: number; globalScores: number };
+    }> {
+        const db = await getDatabase();
+
+        const row = await db.get(
+            `SELECT g.*, t.name as tournament_name, t.game_room_id, t.iscored_default_platform
+             FROM games g LEFT JOIN tournaments t ON g.tournament_id = t.id
+             WHERE g.id = ?`,
+            gameId,
+        );
+        if (!row) throw new Error('Game not found');
+        if (opts.requireActive && row.status !== 'ACTIVE') {
+            throw new Error(`Game is not active (status: ${row.status})`);
+        }
+
+        let iscoredStatus: 'deleted' | 'failed' | 'shared' | 'skipped' = 'skipped';
+        let iscoredError: string | undefined;
+        let finalSyncedScores: number | undefined;
+
+        if (row.iscored_id) {
+            const otherActive = await db.get(
+                `SELECT id FROM games WHERE iscored_id = ? AND status = 'ACTIVE' AND id != ?`,
+                row.iscored_id, gameId,
+            );
+            if (otherActive) {
+                logInfo(`Skipping iScored delete — another active game shares iscored_id ${row.iscored_id}`);
+                iscoredStatus = 'shared';
+            } else {
+                // Capture pending scores even on a "wrong game" delete — the
+                // submitter probably still wants their entry preserved in
+                // personal history.
+                try {
+                    finalSyncedScores = await this.finalSyncScoresForGame(row);
+                    if (finalSyncedScores > 0) {
+                        logInfo(`Final-synced ${finalSyncedScores} score(s) for ${row.name} before iScored delete`);
+                    }
+                } catch (err) {
+                    logError(`Final sync failed for ${row.name} (continuing with delete):`, err);
+                }
+
+                const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+                const creds = row.game_room_id ? await getIScoredCredsForRoom(row.game_room_id) : null;
+                if (creds) {
+                    const client = new IScoredClient({ username: creds.username, password: creds.password });
+                    try {
+                        await client.connect();
+                        await client.deleteGame(row.iscored_id, row.name);
+                        logInfo(`Deleted on iScored: ${row.name} (${row.iscored_id})`);
+                        iscoredStatus = 'deleted';
+                    } catch (err) {
+                        logError('Failed to delete game on iScored (continuing with DB delete):', err);
+                        iscoredStatus = 'failed';
+                        iscoredError = err instanceof Error ? err.message : String(err);
+                    } finally {
+                        await client.disconnect();
+                    }
+                }
+            }
+        }
+
+        // Orphan local scores (cascade pattern from ADR 0005 — preserve player
+        // history, just sever the FK).
+        const subRes = await db.run('UPDATE submissions SET game_id = NULL WHERE game_id = ?', gameId);
+        const histRes = await db.run('UPDATE score_history SET game_id = NULL WHERE game_id = ?', gameId);
+        const globalRes = await db.run('UPDATE global_scores SET origin_game_id = NULL WHERE origin_game_id = ?', gameId);
+        await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', gameId);
+        await db.run('DELETE FROM games WHERE id = ?', gameId);
+
+        const scoresOrphaned = {
+            submissions: subRes.changes ?? 0,
+            scoreHistory: histRes.changes ?? 0,
+            globalScores: globalRes.changes ?? 0,
+        };
+        const orphanSuffix = (scoresOrphaned.submissions || scoresOrphaned.scoreHistory || scoresOrphaned.globalScores)
+            ? `, orphaned ${scoresOrphaned.submissions}/${scoresOrphaned.scoreHistory}/${scoresOrphaned.globalScores} (sub/hist/global)`
+            : '';
+        logInfo(`Deleted game completely: ${row.name} (tournament: ${row.tournament_name ?? 'pinned'}) (iScored: ${iscoredStatus}${orphanSuffix})`);
+
+        return {
+            gameName: row.name,
+            tournamentName: row.tournament_name ?? null,
+            iscoredStatus,
+            iscoredError,
+            finalSyncedScores,
+            scoresOrphaned,
         };
     }
 
@@ -653,9 +764,10 @@ export class TournamentEngine {
 
         // --- iScored housekeeping for this slot ---
         // v2.7.x: matches the deactivateGame contract — capture pending iScored
-        // scores into submissions, then delete the iScored game (when not shared
-        // with another ACTIVE row). The COMPLETED update below also NULLs the
-        // iscored_id so the SyncPoller can never re-match this row.
+        // scores into submissions, then LOCK the iScored game so it stays
+        // visible historically but accepts no new scores. Actual deletion is
+        // delegated to runCleanup (cleanup_rule retain/scheduled/immediate),
+        // which respects per-tournament retention policy.
         if (activeGame.iscoredId) {
             try {
                 const captured = await this.finalSyncScoresForGame({
@@ -667,7 +779,7 @@ export class TournamentEngine {
                     iscored_default_platform: tournamentRow.iscored_default_platform ?? null,
                 });
                 if (captured > 0) {
-                    logInfo(`   -> Final-synced ${captured} score(s) from iScored before delete`);
+                    logInfo(`   -> Final-synced ${captured} score(s) from iScored before lock`);
                 }
             } catch (err) {
                 logError('   -> Final sync from iScored failed (continuing):', err);
@@ -679,13 +791,13 @@ export class TournamentEngine {
                     activeGame.iscoredId, activeGame.id,
                 );
                 if (otherActive) {
-                    logInfo(`   -> Skipping iScored delete — another active game shares iscored_id ${activeGame.iscoredId}`);
+                    logInfo(`   -> Skipping iScored lock — another active game shares iscored_id ${activeGame.iscoredId}`);
                 } else {
                     try {
-                        await client.deleteGame(activeGame.iscoredId, activeGame.name);
-                        logInfo(`   -> Deleted on iScored: ${activeGame.name}`);
+                        await client.setGameStatus(activeGame.iscoredId, { locked: true });
+                        logInfo(`   -> Locked on iScored: ${activeGame.name}`);
                     } catch (err) {
-                        logError('   -> Failed to delete game on iScored (continuing):', err);
+                        logError('   -> Failed to lock game on iScored (continuing):', err);
                     }
                 }
             }
@@ -763,12 +875,13 @@ export class TournamentEngine {
             logWarn('   -> No scores found in local DB or iScored.');
         }
 
-        // --- Mark active game COMPLETED + drop iScored link ---
-        // NULLing iscored_id is what prevents the SyncPoller from re-matching
-        // this row after the iScored game is gone (or, in the 'shared' case,
-        // after another tournament's row takes over the iScored entity).
+        // --- Mark active game COMPLETED ---
+        // iscored_id is intentionally KEPT non-NULL so runCleanup
+        // (cleanup_rule retain/scheduled/immediate) can find this row later.
+        // The duplicate-DM bug is now killed by the SyncPoller's ORDER BY
+        // status pref + recency (see ScoreSyncPoller Fix B comment).
         await db.run(
-            'UPDATE games SET status = ?, end_date = ?, iscored_id = NULL WHERE id = ?',
+            'UPDATE games SET status = ?, end_date = ? WHERE id = ?',
             'COMPLETED', new Date().toISOString(), activeGame.id
         );
         logInfo(`   -> Marked COMPLETED in DB: ${activeGame.name}`);

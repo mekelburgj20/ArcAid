@@ -7,7 +7,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 export const deactivategame: Command = {
     data: new SlashCommandBuilder()
         .setName('deactivate-game')
-        .setDescription('(Admin) Deactivate an active game — captures pending scores, deletes on iScored, marks completed.')
+        .setDescription('(Admin) Deactivate an active game — captures pending scores, locks on iScored, marks completed.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addStringOption(option =>
             option.setName('game')
@@ -48,14 +48,14 @@ export const deactivategame: Command = {
 
             logInfo(`Admin ${interaction.user.tag} deactivated ${result.gameName} from ${result.tournamentName}`);
             const captured = result.finalSyncedScores ?? 0;
-            const capturedSuffix = captured > 0 ? ` Captured ${captured} late score${captured === 1 ? '' : 's'} from iScored before deletion.` : '';
+            const capturedSuffix = captured > 0 ? ` Captured ${captured} late score${captured === 1 ? '' : 's'} from iScored before lock.` : '';
             let iScoredLine: string;
-            if (result.iscoredStatus === 'deleted') {
-                iScoredLine = 'Removed from iScored.';
+            if (result.iscoredStatus === 'locked') {
+                iScoredLine = 'Locked on iScored (game stays visible, no new submissions).';
             } else if (result.iscoredStatus === 'shared') {
-                iScoredLine = 'iScored game left in place (still active in another tournament).';
+                iScoredLine = 'iScored game left unlocked (still active in another tournament).';
             } else if (result.iscoredStatus === 'failed') {
-                iScoredLine = `iScored delete failed (${result.iscoredError ?? 'unknown'}). Remove it manually on iScored.`;
+                iScoredLine = `iScored lock failed (${result.iscoredError ?? 'unknown'}). Lock it manually on iScored.`;
             } else {
                 iScoredLine = 'iScored not configured for this room.';
             }

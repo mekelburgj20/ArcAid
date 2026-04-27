@@ -2629,6 +2629,50 @@ router.post('/:roomId/games/:id/deactivate', requireAuth, requireRoomAccess('roo
     }
 });
 
+// Destructive removal — pairs with deactivate. Use when a game was activated
+// in the wrong tournament (or otherwise should never have existed).
+// Final-syncs scores, deletes from iScored, orphans local scores (preserves
+// player history per ADR 0005), and DELETEs the games row. Scoped to the room
+// so admins can only remove games inside rooms they manage.
+router.delete('/:roomId/games/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.id as string;
+        const db = await getDatabase();
+
+        // Verify the game lives in this room (via tournament join, or via
+        // games.game_room_id for pinned rows that have no tournament_id).
+        const game = await db.get(`
+            SELECT g.id, g.status,
+                   COALESCE(t.game_room_id, g.game_room_id) AS resolved_room_id
+            FROM games g LEFT JOIN tournaments t ON t.id = g.tournament_id
+            WHERE g.id = ?
+        `, gameId);
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        if (game.resolved_room_id !== roomId) {
+            return res.status(404).json({ error: 'Game not found in this room' });
+        }
+
+        const { TournamentEngine } = await import('../../engine/TournamentEngine.js');
+        const engine = TournamentEngine.getInstance();
+        const result = await engine.deleteGameCompletely(gameId);
+
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        await RoomEventService.log(roomId, 'game_deleted', {
+            gameName: result.gameName,
+            tournamentName: result.tournamentName,
+            iscoredStatus: result.iscoredStatus,
+            scoresOrphaned: result.scoresOrphaned,
+        });
+
+        res.json({ success: true, ...result });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Internal Server Error';
+        logError('API Error (DELETE rooms/:roomId/games/:id):', error);
+        res.status(400).json({ error: message });
+    }
+});
+
 // Active games list
 router.get('/:roomId/games/active', async (req, res) => {
     try {
