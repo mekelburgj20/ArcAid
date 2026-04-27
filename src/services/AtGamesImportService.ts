@@ -73,6 +73,46 @@ function normalizeName(s: string): string {
         .trim();
 }
 
+/**
+ * AtGames cabinet identifier → canonical platform ID. Sheet cells in
+ * columns H/I/J/K (one per porter studio) carry these tokens, sometimes
+ * with parenthetical suffixes like "(most)" or "(some)" — stripped before
+ * lookup. Cells starting with "(" (e.g. "(HDP soon)") indicate "coming
+ * soon" — caller filters those out.
+ */
+const CABINET_ID_BY_TOKEN: Record<string, string> = {
+    'HD':    'atgames_hd',
+    '4K':    'atgames_4k',
+    'MICRO': 'atgames_micro',
+    'HDP':   'atgames_hdp',
+    'ALU':   'atgames_alu',
+    'MINI':  'atgames_mini',
+    'GAMER': 'atgames_gamer',
+    'CORE':  'atgames_core',
+};
+
+/**
+ * Extract a single cabinet variant ID from a sheet cell. Returns null when:
+ *  - cell is blank
+ *  - cell starts with "(" — game's "coming soon" to that cabinet, not yet
+ *    shipped (e.g. "(HDP soon)")
+ *  - leading token is non-AtGames-cabinet (Steam, Pinball Arcade, etc.)
+ */
+function extractCabinetVariant(raw: string): string | null {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith('(')) return null;
+    // Strip trailing parenthetical: "Mini (most)" → "Mini".
+    const stripped = trimmed.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    return CABINET_ID_BY_TOKEN[stripped.toUpperCase()] ?? null;
+}
+
+// Column indices (0-based). Sheet layout per user clarification:
+//   A=name · B/C=2025 play · D/E/F=2026 play · G=padding ·
+//   H=AtGames porter · I=FarSight · J=Magic Pixel · K=Zen Studios
+const COL_NAME = 0;
+const COLS_PORTER_STUDIOS = [7, 8, 9, 10] as const; // H, I, J, K
+
 export class AtGamesImportService {
     static async applyTags(): Promise<{ created: number; updated: number; skipped: number; total: number }> {
         const syncLogId = await SyncLogService.start('atgames');
@@ -91,19 +131,35 @@ export class AtGamesImportService {
                 transformResponse: [(d) => d],
             });
             const rows = parseCsv(res.data);
-            // Skip header (row 0) + any row whose column A is blank.
-            const names = rows.slice(1)
-                .map(r => normalizeName(r[0] || ''))
-                .filter(n => n.length > 0);
+            // Skip row 0 (header "All Tables A to Z" / year-cluster labels) and
+            // row 1 (sub-header — studio names AtGames/FarSight/Magic Pixel/Zen).
+            const games = rows.slice(2)
+                .map(r => ({
+                    name: normalizeName(r[COL_NAME] || ''),
+                    cabinetCells: COLS_PORTER_STUDIOS.map(i => r[i] ?? ''),
+                }))
+                .filter(g => g.name.length > 0);
 
-            logInfo(`AtGames sync: ${names.length} names extracted from sheet`);
+            logInfo(`AtGames sync: ${games.length} names extracted from sheet`);
 
-            for (const name of names) {
+            for (const game of games) {
                 try {
+                    // Always tag with the broad `atgames`. Then add specific
+                    // cabinet variants extracted from the four porter-studio
+                    // columns (deduped). Tournament rules requiring `atgames`
+                    // match every row; rules requiring `atgames_4k` narrow to
+                    // only 4K-cabinet games.
+                    const variants = new Set<string>();
+                    for (const cell of game.cabinetCells) {
+                        const id = extractCabinetVariant(cell);
+                        if (id) variants.add(id);
+                    }
+                    const platforms = ['atgames', ...variants];
+
                     const result = await GlobalGameService.upsert({
-                        name,
+                        name: game.name,
                         type: 'pinball',
-                        platforms: ['atgames'],
+                        platforms,
                         status: 'approved',
                         imported_from: 'atgames',
                     });
@@ -111,7 +167,7 @@ export class AtGamesImportService {
                     else if (result.action === 'updated') updated++;
                     else skipped++;
                 } catch (err) {
-                    errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+                    errors.push(`${game.name}: ${err instanceof Error ? err.message : String(err)}`);
                 }
             }
 
@@ -125,7 +181,7 @@ export class AtGamesImportService {
             });
 
             logInfo(`AtGames Import: ${created} created, ${updated} updated, ${skipped} skipped, ${errors.length} errored`);
-            return { created, updated, skipped, total: names.length };
+            return { created, updated, skipped, total: games.length };
         } catch (err) {
             logError('AtGames Import failed:', err);
             await SyncLogService.complete(syncLogId, {

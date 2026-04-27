@@ -11,10 +11,16 @@
  */
 
 const DISPLAY_NAMES: Record<string, string> = {
-    real:        'Real Machine',
-    atgames:     'AtGames',
-    atgames_hd:  'AtGames HD',
-    atgames_4k:  'AtGames 4K',
+    real:          'Real Machine',
+    atgames:       'AtGames',
+    atgames_hd:    'AtGames HD',
+    atgames_4k:    'AtGames 4K',
+    atgames_micro: 'AtGames Micro',
+    atgames_hdp:   'AtGames HDP',
+    atgames_alu:   'AtGames ALU',
+    atgames_mini:  'AtGames Mini',
+    atgames_gamer: 'AtGames Gamer',
+    atgames_core:  'AtGames Core',
 
     vpx:         'Visual Pinball X',
     vp9:         'Visual Pinball 9',

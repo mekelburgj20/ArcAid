@@ -13,10 +13,16 @@ export interface PlatformInfo {
 /** Full canonical platform registry */
 export const CANONICAL_PLATFORMS: Record<string, PlatformInfo> = {
     // Physical pinball
-    real:        { id: 'real',        displayName: 'Real Machine',       category: 'physical' },
-    atgames:     { id: 'atgames',     displayName: 'AtGames',    category: 'physical' },
-    atgames_hd:  { id: 'atgames_hd',  displayName: 'AtGames HD', category: 'physical' },
-    atgames_4k:  { id: 'atgames_4k',  displayName: 'AtGames 4K', category: 'physical' },
+    real:           { id: 'real',           displayName: 'Real Machine',    category: 'physical' },
+    atgames:        { id: 'atgames',        displayName: 'AtGames',         category: 'physical' },
+    atgames_hd:     { id: 'atgames_hd',     displayName: 'AtGames HD',      category: 'physical' },
+    atgames_4k:     { id: 'atgames_4k',     displayName: 'AtGames 4K',      category: 'physical' },
+    atgames_micro:  { id: 'atgames_micro',  displayName: 'AtGames Micro',   category: 'physical' },
+    atgames_hdp:    { id: 'atgames_hdp',    displayName: 'AtGames HDP',     category: 'physical' },
+    atgames_alu:    { id: 'atgames_alu',    displayName: 'AtGames ALU',     category: 'physical' },
+    atgames_mini:   { id: 'atgames_mini',   displayName: 'AtGames Mini',    category: 'physical' },
+    atgames_gamer:  { id: 'atgames_gamer',  displayName: 'AtGames Gamer',   category: 'physical' },
+    atgames_core:   { id: 'atgames_core',   displayName: 'AtGames Core',    category: 'physical' },
 
     // Virtual pinball
     vpx:         { id: 'vpx',         displayName: 'Visual Pinball X',   category: 'virtual_pinball' },
