@@ -204,11 +204,21 @@ export class ScoreSyncPoller {
             // v2.5.0: pull tournament.iscored_default_platform so every synced
             // submission gets stamped with the admin-chosen fallback (NULL is
             // fine — leaderboard will render those rows as "Platform unknown").
+            // v2.7.x: ORDER BY status pref + recency makes the row choice
+            // deterministic when (legacy) two games rows in the same room
+            // share an iscored_id. Without this, db.get could pick a stale
+            // COMPLETED row that has no submissions for the player and treat
+            // every iScored score as new — that fired a second copy of every
+            // dethrone DM. Pre-fix incident: WHO dunnit / rtx_pinball,
+            // 2026-04-27.
             const localGame = await db.get(
                 `SELECT g.id, g.tournament_id, g.name, t.game_room_id, t.iscored_default_platform AS platform
                  FROM games g
                  JOIN tournaments t ON t.id = g.tournament_id
-                 WHERE g.iscored_id = ? AND t.game_room_id IN (${placeholders})`,
+                 WHERE g.iscored_id = ? AND t.game_room_id IN (${placeholders})
+                 ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 WHEN 'COMPLETED' THEN 1 ELSE 2 END,
+                          g.created_at DESC
+                 LIMIT 1`,
                 gameData.GameID, ...roomIds,
             );
             if (!localGame) continue;

@@ -55,7 +55,9 @@ All web submission paths (`/submit-score`, `/freeplay-score`, `/community-scores
 
 ## iScored integration
 
-`IScoredApiClient` (HTTP, fast) is the default for score read/write. `IScoredClient` (Playwright) is required for game management — lock/hide/create/delete — and is the fallback when the API can't satisfy a call. `ISCORED_API_ENABLED` gates the path. `ScoreSyncPoller` runs continuous background sync (default 30s) with pause/resume during maintenance. Settings hot-reload through `SettingsService`.
+`IScoredApiClient` (HTTP, fast) is the default for score read/write. `IScoredClient` (Playwright) is required for game management — hide/create/delete — and is the fallback when the API can't satisfy a call. `ISCORED_API_ENABLED` gates the path. `ScoreSyncPoller` runs continuous background sync (default 30s) with pause/resume during maintenance. Settings hot-reload through `SettingsService`.
+
+**Deactivation contract (v2.7.x).** Both `TournamentEngine.deactivateGame()` (admin) and `processSlotMaintenance()` (cron rotation) follow the same four steps when a row leaves ACTIVE: (1) `finalSyncScoresForGame()` pulls iScored scores into `submissions` + `score_history` to capture anything that arrived after the last poll cycle, (2) `IScoredClient.deleteGame()` removes the iScored entity (skipped only if another ACTIVE games row still shares the same `iscored_id` — surfaced as `iscoredStatus: 'shared'`), (3) the `UPDATE games` to status='COMPLETED' also sets `iscored_id = NULL`, (4) the SyncPoller's lookup (`g.iscored_id = ?`) can no longer match this row. NULLing the link in step 3 is what kills the duplicate-DM bug — pre-fix, two games rows could share an `iscored_id` (created when an iScored game was reused after the lock-only deactivate), and the poller's `db.get` could pick the stale COMPLETED row, see no matching `submissions` entry, and re-fire `LobbyFeedGenerator.onScoreSubmitted` for every poll cycle. The SyncPoller lookup also sorts by status pref + recency as a defense-in-depth for any legacy rows that still share an `iscored_id`. See WHO dunnit / rtx_pinball incident, 2026-04-27.
 
 ## Catalogue (global_games)
 

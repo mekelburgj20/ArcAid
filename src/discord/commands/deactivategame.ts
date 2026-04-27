@@ -7,7 +7,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 export const deactivategame: Command = {
     data: new SlashCommandBuilder()
         .setName('deactivate-game')
-        .setDescription('(Admin) Deactivate an active game — locks on iScored and marks completed.')
+        .setDescription('(Admin) Deactivate an active game — captures pending scores, deletes on iScored, marks completed.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addStringOption(option =>
             option.setName('game')
@@ -47,9 +47,21 @@ export const deactivategame: Command = {
             const result = await engine.deactivateGame(gameId);
 
             logInfo(`Admin ${interaction.user.tag} deactivated ${result.gameName} from ${result.tournamentName}`);
+            const captured = result.finalSyncedScores ?? 0;
+            const capturedSuffix = captured > 0 ? ` Captured ${captured} late score${captured === 1 ? '' : 's'} from iScored before deletion.` : '';
+            let iScoredLine: string;
+            if (result.iscoredStatus === 'deleted') {
+                iScoredLine = 'Removed from iScored.';
+            } else if (result.iscoredStatus === 'shared') {
+                iScoredLine = 'iScored game left in place (still active in another tournament).';
+            } else if (result.iscoredStatus === 'failed') {
+                iScoredLine = `iScored delete failed (${result.iscoredError ?? 'unknown'}). Remove it manually on iScored.`;
+            } else {
+                iScoredLine = 'iScored not configured for this room.';
+            }
             const embed = new EmbedBuilder()
                 .setTitle('Game Deactivated')
-                .setDescription(`**${result.gameName}** has been deactivated from **${result.tournamentName}**.\nScores have been preserved. The game is locked on iScored.`)
+                .setDescription(`**${result.gameName}** has been deactivated from **${result.tournamentName}**.\nScores have been preserved.${capturedSuffix} ${iScoredLine}`)
                 .setColor(0xFF6B6B)
                 .setFooter({ text: `Deactivated by ${interaction.user.displayName}` })
                 .setTimestamp();

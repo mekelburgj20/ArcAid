@@ -206,18 +206,21 @@ export default function Tournaments() {
         success: boolean;
         gameName: string;
         tournamentName: string;
-        iscoredStatus?: 'locked' | 'failed' | 'shared' | 'skipped';
+        iscoredStatus?: 'deleted' | 'failed' | 'shared' | 'skipped';
         iscoredError?: string;
+        finalSyncedScores?: number;
       }>(`/rooms/${room.roomId}/games/${deactivateTarget.id}/deactivate`, { dbOnly });
       const name = deactivateTarget.name;
+      const captured = result.finalSyncedScores ?? 0;
+      const capturedSuffix = captured > 0 ? ` (captured ${captured} late score${captured === 1 ? '' : 's'})` : '';
       if (dbOnly) {
         toast(`${name} deactivated (DB only — iScored untouched)`, 'success');
-      } else if (result.iscoredStatus === 'locked') {
-        toast(`${name} deactivated and locked on iScored`, 'success');
+      } else if (result.iscoredStatus === 'deleted') {
+        toast(`${name} deactivated and removed from iScored${capturedSuffix}`, 'success');
       } else if (result.iscoredStatus === 'shared') {
-        toast(`${name} deactivated (iScored game still active in another tournament — left unlocked)`, 'success');
+        toast(`${name} deactivated (iScored game still active in another tournament — left in place)`, 'success');
       } else if (result.iscoredStatus === 'failed') {
-        toast(`${name} deactivated locally — iScored lock failed (${result.iscoredError ?? 'unknown'}). Manually lock on iScored or fix credentials.`, 'error');
+        toast(`${name} deactivated locally — iScored delete failed (${result.iscoredError ?? 'unknown'}). Remove it manually on iScored.`, 'error');
       } else {
         toast(`${name} deactivated (iScored not configured)`, 'success');
       }
