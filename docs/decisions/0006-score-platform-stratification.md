@@ -49,3 +49,7 @@ Backfill for legacy rows (migration 085) is best-effort: if the source game has 
 - **Normalize platform on read only (no submit-time field).** Rejected — leaves no per-score record of what was actually played. The picker is the *user* affirming "I played this on X"; a heuristic-from-game-platforms fallback can't replicate that.
 - **Separate `score_platforms` table joined at read time.** Rejected — adds a join to every leaderboard read and every score-detail page for a 1:1 relationship that fits as a column. The composite indexes (`idx_*_game_platform`) cover the query shape we actually use.
 - **Per-game-instance default platform (no per-score override).** Rejected — many catalogue games have 2+ platforms (Medieval Madness exists in real, VPX, FX Classic, FX VR). The whole point is that a single game has multiple scoring surfaces; the score record has to capture which one.
+
+## Notes
+
+- **2026-04-26 clarification (ADR 0009).** This ADR's Decision section originally described the picker as `gamePlatforms ∩ required − excluded`. That conflated two orthogonal axes; in practice `Must` is a game-level eligibility gate and `NotAllowed` is a submission-level filter. The corrected resolver is `gamePlatforms − excluded`. See [ADR 0009](0009-tournament-platform-rules-orthogonal.md). The platform-stratification decision (every score row carries `platform`, plus the picker UX) is unchanged — this ADR is not formally superseded.

@@ -24,7 +24,7 @@
 - **Style catalogue** — iScored visual styles imported or uploaded, assigned per game
 - **Kiosk mode** — Auto-refreshing scoreboard display for TV/kiosk use (no nav, configurable refresh interval)
 - **Game merge tool** — Consolidate duplicate games across all tables; auto-merge near-duplicates during import (comma-variant names)
-- **Per-room game tags** — Tag any catalogue game with custom labels (e.g. "WMS") via the per-row Tag button or bulk action bar; tags participate in tournament platform rules so a `Must = [WMS]` tournament requirement narrows to just your tagged set
+- **Per-room game tags** — Tag any catalogue game with custom labels (e.g. "WMS") via the per-row Tag button or bulk action bar; tags participate in tournament platform rules so a `Must = [WMS]` tournament admits only games tagged WMS in this room
 - **Library bulk operations** — Multi-select game rows then bulk-tag, bulk-activate (in a tournament), or bulk-pin to scoreboard. Selection persists across pagination
 - **Smart library search** — Single search box matches across name, manufacturer, year, designers, themes, table authors, aliases, platforms, and room tags. Inline year-range syntax: `2001-2020` or `Williams 2001-2020`
 - **Audit logging** — Admin action tracking with full history
@@ -225,7 +225,7 @@ middleware redacts them from request bodies.
 | Type/Tag | Short code used as iScored tag prefix (e.g., DG, WG-VPXS) |
 | Mode | `pinball` or `videogame` — controls terminology throughout |
 | Schedule | Daily / Weekly / Monthly (1st–31st or Last day) with time and timezone |
-| Platform Rules | Required/excluded platforms for game eligibility |
+| Platform Rules | `Must be available on` (game-level eligibility — game must list ≥1 required platform) and `Not allowed on` (submission-level filter — score's selected platform can't be in this list). Two orthogonal axes — see ADR 0009 |
 | Cleanup Rule | What happens to completed games: immediate hide, retain last N, or scheduled cron |
 | Max Active Games | How many games can be active simultaneously (1–10) |
 | Discord Channel | Override announcement channel per tournament |

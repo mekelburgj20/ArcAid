@@ -6,6 +6,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.7.1] — 2026-04-26
+
+**Tournament platform-rules orthogonality (ADR 0009).** Patch release fixing a submission-picker bug surfaced after v2.7.0 deploy.
+
+### Bug
+
+Player attempting to submit a VPX score for **WHO dunnit** (catalogue + room tags = 6 platforms: vpx, vpxs, real, pinball_fx, pinball_fx_vr, atgames) under the **Daily Grind** tournament (`Must = [atgames]`, `NotAllowed = []`) saw only AtGames in the picker — captioned "(only platform for this game)".
+
+The game *is* multi-platform; the tournament rule's `Must` clause was incorrectly narrowing the submission picker. Per the user-clarified semantics, `Must` is purely a game-level eligibility gate ("this game qualifies for the tournament") — once a game is admitted, scores from any of its platforms count (modulo `Not allowed on`).
+
+### Fix
+
+Two commits, FE + BE:
+
+- **`9dc58ad4` (FE)** — `SubmissionSheet` now also tracks `data.platforms` (full pre-rule set) from `/api/submit/platforms` into `fullGamePlatforms` state. The single-platform chip caption disambiguates: `fullGamePlatforms.length > 1` → "(only platform allowed by this tournament)" else "(only platform for this game)". SW `CACHE_NAME` → `arcaid-v34`.
+- **`faf86557` (BE)** — `resolveSubmittablePlatforms` drops the `required` clause. Returns `gamePlatforms − excluded`, period. `passesplatformRules` (game-level gate) unchanged — still checks `required` only. The two helpers now enforce one axis each, no overlap. JSDoc on both helpers rewritten to spell out the orthogonal-axes contract. `ensurePlatformAllowed` (server-side validator) inherits the corrected behavior through the same helper.
+
+### Architecture
+
+ADR 0009 — **Tournament platform rules are orthogonal axes**:
+
+| Rule | Helper | Axis |
+|---|---|---|
+| `required` ("Must") | `passesplatformRules` | Game-level eligibility ONLY |
+| `excluded` ("NotAllowed") | `resolveSubmittablePlatforms` | Submission-level filter ONLY |
+
+Worked example: WHO dunnit on `[vpx, vpxs, real, fx, fx_vr, atgames]`, tournament `Must=[atgames], NotAllowed=[]`:
+- `passesplatformRules` → TRUE (game has atgames → admissible)
+- `resolveSubmittablePlatforms` → all 6 platforms (nothing excluded)
+- Picker: 6-option dropdown. Player submits any.
+
+ADR 0006 (platform stratification) is not formally superseded — its core decision (every score row carries `platform`; per-game picker UX) is intact. The Decision section's "∩ required" phrase is now stale; ADR 0006 has a Notes section pointing at 0009 for the corrected resolver semantics.
+
+### Files
+
+- `src/utils/platformRules.ts` — `resolveSubmittablePlatforms` simplified; both helpers' JSDoc rewritten
+- `admin-ui/src/components/SubmissionSheet.tsx` — `fullGamePlatforms` state + caption disambiguation
+- `admin-ui/public/sw.js` — `CACHE_NAME` → `arcaid-v34`
+- `CLAUDE.md` — Platform stratification section rewritten with two-axis table + worked example
+- `README.md` — feature blurb + Tournament Settings table corrected to reflect orthogonality
+- `docs/decisions/0009-tournament-platform-rules-orthogonal.md` — new ADR (full Context / Decision / Consequences / Alternatives)
+- `docs/decisions/0006-score-platform-stratification.md` — Notes section pointing at 0009
+- `docs/decisions/README.md` — index entry
+
+### Migration notes
+
+None — no schema or data changes. Behavior shift is deliberate: tournaments previously created with `Must=[X]` expecting it to lock submissions to platform X will now accept all of an admitted game's platforms. Admins wanting a hard submission lock should use `NotAllowed` for the platforms they want to block.
+
+---
+
 ## [2.7.0] — 2026-04-27
 
 **Multi-arc release.** Per-room game tagging (ADR 0008), tournament platform-rules semantics shift, two new catalogue sync sources (Pinball FX VR + AtGames Sheet), library bulk operations + search overhaul, iScored credentials hardening, ScoreSyncPoller log-spam fix.
