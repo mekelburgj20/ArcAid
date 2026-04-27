@@ -189,15 +189,20 @@ export class MergeService {
         const tournamentMeta = new Map<string, { name: string; completedAt: string }>();
         if (allTournamentIds.size > 0) {
             const placeholders = [...allTournamentIds].map(() => '?').join(',');
+            // tournaments has no end_date column — recurring rotations end at the slot level (games.end_date).
+            // Freeze gate: !is_active matches the spec's "completed". Display timestamp: most recent COMPLETED
+            // games.end_date for the tournament, falling back to tournaments.created_at if no slots ever closed.
             const tRows = await db.all(
-                `SELECT id, name, end_date, start_date, is_active FROM tournaments WHERE id IN (${placeholders})`,
+                `SELECT t.id, t.name, t.is_active, t.created_at,
+                        (SELECT MAX(g.end_date) FROM games g WHERE g.tournament_id = t.id AND g.status = 'COMPLETED') AS last_game_end_date
+                 FROM tournaments t
+                 WHERE t.id IN (${placeholders})`,
                 ...[...allTournamentIds],
             );
             for (const t of tRows) {
-                const completed = !t.is_active && !!t.end_date;
-                if (completed) {
+                if (!t.is_active) {
                     frozenIds.add(t.id);
-                    tournamentMeta.set(t.id, { name: t.name, completedAt: t.end_date });
+                    tournamentMeta.set(t.id, { name: t.name, completedAt: t.last_game_end_date ?? t.created_at });
                 }
             }
         }
@@ -373,13 +378,16 @@ export class MergeService {
         if (snapshotTournamentIds.size > 0) {
             const placeholders = [...snapshotTournamentIds].map(() => '?').join(',');
             const tRows = await db.all(
-                `SELECT id, name, end_date, is_active FROM tournaments WHERE id IN (${placeholders})`,
+                `SELECT t.id, t.name, t.is_active, t.created_at,
+                        (SELECT MAX(g.end_date) FROM games g WHERE g.tournament_id = t.id AND g.status = 'COMPLETED') AS last_game_end_date
+                 FROM tournaments t
+                 WHERE t.id IN (${placeholders})`,
                 ...[...snapshotTournamentIds],
             );
             for (const t of tRows) {
-                if (!t.is_active && t.end_date) {
+                if (!t.is_active) {
                     frozenNow.add(t.id);
-                    tournamentMeta.set(t.id, { name: t.name, completedAt: t.end_date });
+                    tournamentMeta.set(t.id, { name: t.name, completedAt: t.last_game_end_date ?? t.created_at });
                 }
             }
         }
