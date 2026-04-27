@@ -23,6 +23,13 @@ export class ScoreSyncPoller {
     private consecutiveErrors = 0;
     private _lastPollSucceeded = false;
     private _pollCount = 0;
+    /**
+     * Per-account consecutive failure tally. Mirrors the outer
+     * `consecutiveErrors` suppression so an iScored outage that affects one
+     * account doesn't spam the logs every poll cycle. Reset to 0 on first
+     * successful pollOneAccount for that account.
+     */
+    private accountConsecutiveErrors = new Map<string, number>();
 
     static getInstance(): ScoreSyncPoller {
         if (!ScoreSyncPoller.instance) {
@@ -111,16 +118,31 @@ export class ScoreSyncPoller {
             }
 
             const changedGameIds = new Set<string>();
+            let anyAccountSucceeded = false;
 
             for (const [, { creds, roomIds }] of accounts) {
                 if (!creds) continue;
                 try {
                     await this.pollOneAccount(db, creds, roomIds, mappingMap, aliasMap, changedGameIds);
+                    anyAccountSucceeded = true;
+                    const prior = this.accountConsecutiveErrors.get(creds.gameroomName) ?? 0;
+                    if (prior > 0) {
+                        logInfo(`ScoreSyncPoller: account ${creds.gameroomName} recovered after ${prior} failure(s)`);
+                    }
+                    this.accountConsecutiveErrors.set(creds.gameroomName, 0);
                 } catch (accountErr) {
-                    logError(`ScoreSyncPoller: account ${creds.gameroomName} poll failed:`, accountErr);
+                    const errs = (this.accountConsecutiveErrors.get(creds.gameroomName) ?? 0) + 1;
+                    this.accountConsecutiveErrors.set(creds.gameroomName, errs);
+                    if (errs <= 3) {
+                        logError(`ScoreSyncPoller: account ${creds.gameroomName} poll failed:`, accountErr);
+                    } else if (errs === 4) {
+                        logError(`ScoreSyncPoller: account ${creds.gameroomName} poll failed (suppressing further errors until recovery):`, accountErr);
+                    }
                 }
             }
-            this._lastPollSucceeded = true;
+            // Pre-fix bug: this was unconditionally set to true regardless of
+            // per-account outcomes. Now reflects whether ANY account succeeded.
+            this._lastPollSucceeded = anyAccountSucceeded || accounts.size === 0;
 
             // Invalidate leaderboard cache for changed games
             if (changedGameIds.size > 0) {
