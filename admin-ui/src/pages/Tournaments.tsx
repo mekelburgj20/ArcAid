@@ -76,6 +76,22 @@ interface ActiveGame {
   style_header_disabled: number;
 }
 
+interface RetainedCompletedGame {
+  id: string;
+  name: string;
+  display_name: string | null;
+  tournament_id: string;
+  tournament_name: string;
+  tournament_type: string;
+  iscored_id: string | null;
+  status: 'COMPLETED';
+  end_date: string;
+}
+
+/** Minimal shape used by the Delete dialog — both ActiveGame and
+ *  RetainedCompletedGame are structurally compatible. */
+type DeletableGame = { id: string; name: string; tournament_name: string };
+
 /** Convert form state to API payload */
 function toPayload(state: TournamentFormState, extra: Record<string, any> = {}) {
   return {
@@ -129,9 +145,10 @@ export default function Tournaments() {
   const [editTarget, setEditTarget] = useState<Tournament | null>(null);
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
+  const [retainedCompleted, setRetainedCompleted] = useState<RetainedCompletedGame[]>([]);
   const [deactivateTarget, setDeactivateTarget] = useState<ActiveGame | null>(null);
   const [deactivating, setDeactivating] = useState(false);
-  const [deleteGameTarget, setDeleteGameTarget] = useState<ActiveGame | null>(null);
+  const [deleteGameTarget, setDeleteGameTarget] = useState<DeletableGame | null>(null);
   const [deleteGameConfirm, setDeleteGameConfirm] = useState('');
   const [deletingGame, setDeletingGame] = useState(false);
   const [reordering, setReordering] = useState(false);
@@ -185,6 +202,12 @@ export default function Tournaments() {
   const fetchActiveGames = async () => {
     try {
       setActiveGames(await api.get<ActiveGame[]>(`/rooms/${room.roomId}/games/active`));
+    } catch {}
+  };
+
+  const fetchRetainedCompleted = async () => {
+    try {
+      setRetainedCompleted(await api.get<RetainedCompletedGame[]>(`/rooms/${room.roomId}/games/retained-completed`));
     } catch {}
   };
 
@@ -273,6 +296,7 @@ export default function Tournaments() {
       setDeleteGameTarget(null);
       setDeleteGameConfirm('');
       await fetchActiveGames();
+      await fetchRetainedCompleted();
       await fetchTournaments();
     } catch (err: any) {
       toast(err.message || 'Failed to delete game', 'error');
@@ -281,7 +305,7 @@ export default function Tournaments() {
     }
   };
 
-  useEffect(() => { fetchTournaments(); fetchPlatforms(); fetchActiveGames(); }, []);
+  useEffect(() => { fetchTournaments(); fetchPlatforms(); fetchActiveGames(); fetchRetainedCompleted(); }, []);
 
   const handleCreate = async () => {
     if (!createForm.state.name.trim() || !createForm.state.tag.trim()) return;
@@ -426,6 +450,45 @@ export default function Tournaments() {
           data={activeGames}
           keyExtractor={g => g.id}
           emptyMessage="No active games."
+        />
+      </NeonCard>
+
+      {/* Retained Completed Games — sit on the public scoreboard until the
+          tournament's cleanup_rule fires (mode='scheduled' or 'retain' count>0).
+          Surfaces them so admins can Delete one before the scheduled cleanup. */}
+      <NeonCard title="Retained Completed Games" className="mb-6">
+        <p className="text-xs text-muted mb-3">
+          Completed games still visible on the public scoreboard. They'll be removed automatically by the tournament's scheduled cleanup; use Delete to remove one now (e.g. an end-of-round game with no scores you'd rather not display).
+        </p>
+        <DataTable<RetainedCompletedGame>
+          columns={[
+            { key: 'name', header: 'Game', render: g => (
+              <div>
+                <span className="font-medium">{g.display_name || g.name}</span>
+                {g.display_name && <span className="text-xs text-faint ml-1">({g.name})</span>}
+              </div>
+            )},
+            { key: 'tournament_name', header: 'Tournament', render: g => (
+              <div className="flex items-center gap-2">
+                <TournamentBadge type={g.tournament_type} />
+                <span className="text-muted">{g.tournament_name}</span>
+              </div>
+            )},
+            { key: 'end_date', header: 'Ended', render: g => (
+              <span className="text-sm text-muted">{g.end_date ? new Date(g.end_date).toLocaleString() : '—'}</span>
+            )},
+            { key: 'iscored_id', header: 'iScored', render: g => (
+              <span className={`text-xs ${g.iscored_id ? 'text-neon-green' : 'text-faint'}`}>{g.iscored_id ? 'Linked (locked)' : 'Cleared'}</span>
+            )},
+            { key: 'actions', header: '', render: g => (
+              <div className="flex justify-end gap-1">
+                <NeonButton variant="danger" onClick={() => { setDeleteGameTarget(g); setDeleteGameConfirm(''); }} className="text-xs px-2 py-1">Delete</NeonButton>
+              </div>
+            ), className: 'text-right' },
+          ]}
+          data={retainedCompleted}
+          keyExtractor={g => g.id}
+          emptyMessage="No retained completed games on the public scoreboard."
         />
       </NeonCard>
 

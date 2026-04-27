@@ -2629,6 +2629,54 @@ router.post('/:roomId/games/:id/deactivate', requireAuth, requireRoomAccess('roo
     }
 });
 
+// COMPLETED games that still appear on the public scoreboard because their
+// tournament's cleanup_rule retains them (mode='scheduled' or mode='retain'
+// with count>0). Surfaces them so admins can Delete one before the scheduled
+// cleanup fires — otherwise a deactivated game with no scores can sit on the
+// scoreboard indefinitely with no admin affordance to remove it. Mirrors the
+// retention logic in LeaderboardService.getActiveLeaderboards.
+router.get('/:roomId/games/retained-completed', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const db = await getDatabase();
+
+        const tournaments = await db.all(
+            `SELECT id, name, type, cleanup_rule, COALESCE(display_order, 9999) AS display_order
+             FROM tournaments WHERE is_active = 1 AND game_room_id = ?`,
+            roomId,
+        );
+
+        const rows: any[] = [];
+        for (const t of tournaments as Array<{ id: string; name: string; type: string; cleanup_rule: string }>) {
+            let rule: { mode?: string; count?: number } = { mode: 'retain', count: 0 };
+            try { rule = JSON.parse(t.cleanup_rule || '{}'); } catch {}
+
+            if (rule.mode === 'immediate' || (rule.mode === 'retain' && (rule.count || 0) === 0)) continue;
+
+            // Hard cap on scheduled mode so a long-running tournament with
+            // years of history doesn't dump everything into the admin table.
+            const limit = rule.mode === 'retain' ? (rule.count || 0) : 100;
+            const games = await db.all(
+                `SELECT g.id, g.name, g.display_name, g.status, g.iscored_id, g.end_date,
+                        ? AS tournament_id, ? AS tournament_name, ? AS tournament_type
+                 FROM games g
+                 WHERE g.tournament_id = ? AND g.status = 'COMPLETED'
+                 ORDER BY g.end_date DESC
+                 LIMIT ?`,
+                t.id, t.name, t.type, t.id, limit,
+            );
+            rows.push(...games);
+        }
+
+        // Most recently ended first across tournaments.
+        rows.sort((a, b) => (b.end_date || '').localeCompare(a.end_date || ''));
+        res.json(rows);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/games/retained-completed):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Destructive removal — pairs with deactivate. Use when a game was activated
 // in the wrong tournament (or otherwise should never have existed).
 // Final-syncs scores, deletes from iScored, orphans local scores (preserves
