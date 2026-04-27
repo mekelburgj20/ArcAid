@@ -8,6 +8,8 @@ interface Friend {
   friend_user_id: string;
   friend_discord_username: string | null;
   iscored_username: string | null;
+  /** v2.8.0: friend's chosen global display name. */
+  display_name: string | null;
   avatar_hash: string | null;
   created_at: string;
 }
@@ -155,14 +157,14 @@ export default function Friends() {
                   />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-neon-cyan/10 border border-border flex items-center justify-center text-[10px] font-bold text-neon-cyan">
-                    {(f.friend_discord_username || f.iscored_username || '?').charAt(0).toUpperCase()}
+                    {(f.display_name || f.friend_discord_username || f.iscored_username || '?').charAt(0).toUpperCase()}
                   </div>
                 )}
 
-                {/* Info */}
+                {/* Info — v2.8.0: prefer chosen display_name. */}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-primary truncate">
-                    {f.iscored_username || f.friend_discord_username || f.friend_user_id}
+                    {f.display_name || f.iscored_username || f.friend_discord_username || f.friend_user_id}
                   </p>
                   {f.friend_discord_username && f.iscored_username && f.friend_discord_username !== f.iscored_username && (
                     <p className="text-[10px] text-faint truncate">{f.friend_discord_username}</p>

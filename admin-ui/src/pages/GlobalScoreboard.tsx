@@ -13,6 +13,8 @@ import DiscordLoginButton from '../components/DiscordLoginButton';
 
 interface TopScoreEntry {
   iscored_username: string;
+  /** v2.8.0: user-chosen global display name. Renders in place of iscored_username when set. */
+  display_name?: string | null;
   score: number;
   avatar_hash: string | null;
   discord_user_id: string;
@@ -457,13 +459,13 @@ function PodiumSlot({ entry, rank, large }: { entry?: TopScoreEntry; rank: numbe
         <>
           <div className="flex items-center gap-1 max-w-full">
             <PlayerAvatar
-              username={entry.iscored_username}
+              username={entry.display_name || entry.iscored_username}
               discordUserId={entry.discord_user_id}
               avatarHash={entry.avatar_hash}
               size={avatarSize}
             />
             <span className={`font-semibold truncate ${large ? 'text-xs' : 'text-[11px]'}`}>
-              {entry.iscored_username}
+              {entry.display_name || entry.iscored_username}
             </span>
             {entry.origin_room_slug && (
               <RoomTag
@@ -549,12 +551,12 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
               <div key={e.discord_user_id + e.iscored_username} className="flex items-center gap-1.5 text-[11px]">
                 <span className="text-muted w-4 text-right font-mono">{i + 4}.</span>
                 <PlayerAvatar
-                  username={e.iscored_username}
+                  username={e.display_name || e.iscored_username}
                   discordUserId={e.discord_user_id}
                   avatarHash={e.avatar_hash}
                   size={16}
                 />
-                <span className="truncate flex-1">{e.iscored_username}</span>
+                <span className="truncate flex-1">{e.display_name || e.iscored_username}</span>
                 {e.origin_room_slug && (
                   <RoomTag
                     shortTag={e.origin_room_short_tag || e.origin_room_slug}

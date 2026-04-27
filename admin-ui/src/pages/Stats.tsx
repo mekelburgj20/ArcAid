@@ -10,6 +10,8 @@ import LoadingState from '../components/LoadingState';
 interface PlayerSummary {
   discord_user_id: string;
   iscored_username: string | null;
+  /** v2.8.0: user-chosen global display name. */
+  display_name?: string | null;
   games_played: number;
   best_score: number;
   avg_score: number;
@@ -85,7 +87,7 @@ export default function Stats() {
           onClick={() => viewPlayer(item.discord_user_id)}
           className="text-neon-cyan hover:underline bg-transparent border-none cursor-pointer font-medium"
         >
-          {item.iscored_username || item.discord_user_id}
+          {item.display_name || item.iscored_username || item.discord_user_id}
         </button>
       ),
     },

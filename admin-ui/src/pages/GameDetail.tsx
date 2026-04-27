@@ -11,6 +11,8 @@ interface RankedEntry {
   rank: number;
   discord_user_id: string;
   iscored_username: string;
+  /** v2.8.0: user-chosen global display name. */
+  display_name?: string | null;
   score: number;
   /**
    * v2.5.0: per-row platform stamp. `null` for legacy rows the backfill
@@ -56,6 +58,8 @@ interface PlayerGameStats {
 
 interface CommunityLeaderboardEntry {
   iscored_username: string;
+  /** v2.8.0: user-chosen global display name. */
+  display_name?: string | null;
   best_score: number;
   times_played: number;
   last_played: string;
@@ -64,6 +68,8 @@ interface CommunityLeaderboardEntry {
 interface CommunityHistoryEntry {
   id: number;
   iscored_username: string;
+  /** v2.8.0: user-chosen global display name. */
+  display_name?: string | null;
   score: number;
   created_at: string;
 }
@@ -80,6 +86,8 @@ interface GameComment {
 interface ScoreHistoryEntry {
   id: number;
   iscored_username: string;
+  /** v2.8.0: user-chosen global display name. */
+  display_name?: string | null;
   score: number;
   source: 'tournament' | 'community' | 'sync';
   created_at: string;
@@ -93,6 +101,8 @@ interface ScoreHistoryEntry {
 interface GamePlayerRanking {
   rank: number;
   iscored_username: string;
+  /** v2.8.0: user-chosen global display name. */
+  display_name?: string | null;
   best_score: number;
   times_played: number;
   last_played: string;
@@ -510,7 +520,7 @@ export default function GameDetail() {
                             onClick={e => e.stopPropagation()}
                             className="font-medium truncate no-underline text-primary hover:text-neon-cyan transition-colors"
                           >
-                            {entry.iscored_username}
+                            {entry.display_name || entry.iscored_username}
                           </Link>
                           {/* v2.5.0: per-row platform badge in the "All" view; in
                               per-platform views every row would show the same
@@ -727,7 +737,7 @@ export default function GameDetail() {
                       </div>
                       {gameHistory.map(h => (
                         <div key={h.id} className="flex items-center justify-between px-5 py-2.5 border-b border-border/20 last:border-0 text-sm">
-                          <span className="font-medium truncate">{h.iscored_username}</span>
+                          <span className="font-medium truncate">{h.display_name || h.iscored_username}</span>
                           <div className="flex items-center gap-6">
                             <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                               h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
@@ -793,7 +803,7 @@ export default function GameDetail() {
                         }`}>
                           {i + 1}
                         </span>
-                        <span className="font-medium truncate">{entry.iscored_username}</span>
+                        <span className="font-medium truncate">{entry.display_name || entry.iscored_username}</span>
                       </div>
                       <div className="flex items-center gap-6">
                         <span className="text-muted text-sm">{entry.times_played}</span>
@@ -822,7 +832,7 @@ export default function GameDetail() {
                       className="flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <span className="font-medium truncate">{entry.iscored_username}</span>
+                        <span className="font-medium truncate">{entry.display_name || entry.iscored_username}</span>
                         <span className="flex items-center gap-1 text-faint text-xs">
                           <Clock size={12} />
                           {new Date(entry.created_at).toLocaleDateString()}
@@ -962,7 +972,7 @@ export default function GameDetail() {
                           {p.rank}
                         </span>
                         <span className={`text-sm truncate ${playerName === p.iscored_username && playerStats ? 'text-neon-cyan font-medium' : 'text-primary'}`}>
-                          {p.iscored_username}
+                          {p.display_name || p.iscored_username}
                         </span>
                       </div>
                       <span className={`font-display font-bold text-sm flex-shrink-0 ${

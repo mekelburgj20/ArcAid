@@ -43,6 +43,8 @@ interface RankingEntry {
   rank: number;
   discord_user_id: string;
   iscored_username: string;
+  /** v2.8.0: user-chosen global display name. Renders in place of iscored_username when set. */
+  display_name?: string | null;
   score: number;
   photo_url: string | null;
   submitted_at: string;
@@ -544,12 +546,12 @@ export default function GlobalGameDetail() {
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
                           <PlayerAvatar
-                            username={entry.iscored_username}
+                            username={entry.display_name || entry.iscored_username}
                             discordUserId={entry.discord_user_id}
                             avatarHash={entry.avatar_hash}
                             size={24}
                           />
-                          <span className="truncate">{entry.iscored_username}</span>
+                          <span className="truncate">{entry.display_name || entry.iscored_username}</span>
                         </div>
                       </td>
                       <td className="px-3 py-2 text-right font-mono font-semibold text-neon-cyan" title={entry.score.toLocaleString()}>

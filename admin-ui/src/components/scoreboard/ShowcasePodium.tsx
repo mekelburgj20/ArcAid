@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Minus } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
-import { PlayerAvatar } from '../ScoreboardComponents';
+import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 import { TrophyIcon } from '../../assets/icons/ThemedIcons';
@@ -112,7 +112,7 @@ function PodiumSlot({
             {/* Avatar + Username row */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, marginBottom: 4, maxWidth: '100%' }}>
               <PlayerAvatar
-                username={entry.iscored_username}
+                username={playerName(entry)}
                 discordUserId={entry.discord_user_id}
                 avatarHash={entry.avatar_hash}
                 size={avatarSize}
@@ -132,7 +132,7 @@ function PodiumSlot({
                     pointerEvents: 'auto',
                   }}
                 >
-                  {entry.iscored_username}
+                  {playerName(entry)}
                 </Link>
               ) : (
                 <span style={{
@@ -143,7 +143,7 @@ function PodiumSlot({
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
                 }}>
-                  {entry.iscored_username}
+                  {playerName(entry)}
                 </span>
               )}
             </div>

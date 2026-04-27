@@ -14,8 +14,19 @@ export interface RankedEntry {
   rank: number;
   discord_user_id: string;
   iscored_username: string;
+  /** v2.8.0: user-chosen global display name. Renders in place of iscored_username when set. */
+  display_name?: string | null;
   score: number;
   avatar_hash?: string | null;
+}
+
+/**
+ * Resolves the user-facing player name. Use everywhere a player name renders.
+ * Matching/keying logic should still use `iscored_username` (stable identifier);
+ * only display strings should call this.
+ */
+export function playerName(e: { iscored_username: string; display_name?: string | null }): string {
+  return e.display_name || e.iscored_username;
 }
 
 export interface GameLeaderboard {
@@ -55,6 +66,8 @@ export interface RankingGroupData {
   rankings: Array<{
     rank: number;
     iscored_username: string;
+    /** v2.8.0: user-chosen global display name. */
+    display_name?: string | null;
     discord_user_id?: string;
     total_points: number;
     games_played: number;
@@ -607,8 +620,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           <span className={`font-display font-bold ${rankColor}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>
                             {entry.rank}
                           </span>
-                          <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-                          <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{entry.iscored_username}</span>
+                          <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
+                          <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</span>
                         </div>
                         <span
                           className={`font-display font-bold mt-0.5 ${scoreColor}`}
@@ -631,8 +644,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${rankColor}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>
                             {entry.rank}
                           </span>
-                          <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
-                          <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{entry.iscored_username}</span>
+                          <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
+                          <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span
@@ -804,9 +817,9 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
             <span className={`font-display font-bold text-sm w-5 text-left flex-shrink-0 tabular-nums ${rankColor(entry.rank)}`}>
               {entry.rank}
             </span>
-            <PlayerAvatar username={entry.iscored_username} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={24} />
+            <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={24} />
             <div className="flex-1 min-w-0">
-              <div className="text-sm text-secondary truncate">{entry.iscored_username}</div>
+              <div className="text-sm text-secondary truncate">{playerName(entry)}</div>
               <div className="flex items-center gap-2">
                 <span className={`text-sm font-bold tabular-nums ${entry.rank === 1 ? 'text-neon-amber' : 'text-primary'}`}>
                   {scoreDisplay(entry)}

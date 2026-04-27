@@ -643,7 +643,7 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
                       }`}>
                         {entry.rank}
                       </span>
-                      <span className="text-xs truncate">{entry.iscored_username}</span>
+                      <span className="text-xs truncate">{entry.display_name || entry.iscored_username}</span>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <span className={`font-display font-bold text-xs ${

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
-import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass } from '../ScoreboardComponents';
+import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 
@@ -185,18 +185,20 @@ export default function MinimalCard({
                       {entry.rank}
                     </span>
                     <PlayerAvatar
-                      username={entry.iscored_username}
+                      username={playerName(entry)}
                       discordUserId={entry.discord_user_id}
                       avatarHash={entry.avatar_hash}
                       size={22}
                     />
-                    {/* v2.2.10: username → player stats Link */}
+                    {/* v2.2.10: username → player stats Link.
+                        v2.8.1: route still uses iscored_username for stable URLs;
+                        display renders chosen display_name. */}
                     <Link
                       to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
                       onClick={e => e.stopPropagation()}
                       className="flex-1 text-sm truncate text-secondary no-underline hover:text-neon-cyan transition-colors"
                     >
-                      {entry.iscored_username}
+                      {playerName(entry)}
                     </Link>
                     <span
                       className={`text-sm font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}

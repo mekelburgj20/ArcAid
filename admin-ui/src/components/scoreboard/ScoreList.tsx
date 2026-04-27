@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Plus, Minus } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
-import { PlayerAvatar } from '../ScoreboardComponents';
+import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 
 interface ScoreListProps {
@@ -85,13 +85,15 @@ export default function ScoreList({
 
               {/* Avatar */}
               <PlayerAvatar
-                username={entry.iscored_username}
+                username={playerName(entry)}
                 discordUserId={entry.discord_user_id}
                 avatarHash={entry.avatar_hash}
                 size={20}
               />
 
-              {/* Name — v2.2.10: Link to player stats when slug available */}
+              {/* Name — v2.2.10: Link to player stats when slug available.
+                  v2.8.1: route still uses iscored_username for stable URLs;
+                  display renders chosen display_name. */}
               {slug ? (
                 <Link
                   to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
@@ -108,7 +110,7 @@ export default function ScoreList({
                     pointerEvents: 'auto',
                   }}
                 >
-                  {entry.iscored_username}
+                  {playerName(entry)}
                 </Link>
               ) : (
                 <span style={{
@@ -120,7 +122,7 @@ export default function ScoreList({
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
                 }}>
-                  {entry.iscored_username}
+                  {playerName(entry)}
                 </span>
               )}
 

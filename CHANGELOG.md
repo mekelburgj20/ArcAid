@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.8.1] — 2026-04-27
+
+**FE polish: render user-chosen display_name in scoreboard cards.** The v2.8.0 BE work shipped `display_name` alongside `iscored_username` in every leaderboard, ranking, and stats response, but the FE components were still rendering raw `iscored_username`. After saving a display name on `/account/settings`, users saw their old iScored alias on every public surface.
+
+- New `playerName(entry)` helper exported from `ScoreboardComponents` — single resolution rule (`display_name || iscored_username`) used across components. Match/key/route logic deliberately keeps using `iscored_username` for stable identifiers.
+- Display substituted in: `BannerCard`, `MinimalCard`, `ScoreList`, `ShowcasePodium`, `ScoreboardComponents` (compact/horizontal/ranking-group rows), `Leaderboard`, `GameDetail` (tournament leaderboard, score history, community board, recent submissions, player rankings list), `GlobalScoreboard` (podium + spillover list), `GlobalGameDetail` (rankings table), `Stats`, `PublicStats`, `Rankings`, `Friends`.
+- `RankedEntry`, `RankingGroupData.rankings[]`, plus the local interfaces in `GlobalScoreboard`, `GlobalGameDetail`, `GameDetail`, `PublicStats`, `Rankings`, `Stats`, `Friends` all now carry an optional `display_name` field.
+- `FriendsService.getFriends` LEFT JOINs `user_profiles` so the friends list pulls each friend's `display_name` and `avatar_hash` (replacing the old `user_mappings.avatar_hash` source). Many-to-one mapping handled by `MIN(m.iscored_username)` + GROUP BY.
+
+### Known still-pending
+- `LandingPage` recent-scores card still renders the iScored alias (its `display_name` field already serves the *game* name; needs a separate `player_display_name` field added to the BE response).
+- `PublicStats` "Latest submission" overview card on the Stats overview row (`StatsService.getOverview`) doesn't include `display_name` yet.
+
+Both are minor non-leaderboard surfaces; rolled into a future v2.8.2 cleanup.
+
+---
+
 ## [2.8.0] — 2026-04-27
 
 **Identity merge forward-attribution + Discord-style display names.** Two-part feature shipped together. Closes the long-standing gap where admin "merge anonymous identity → Discord user" only retrofitted historical rows; future iScored scores under the same nickname continued to land as anonymous synthetic IDs.

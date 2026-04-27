@@ -30,6 +30,8 @@ interface Tournament {
 interface OverallRanking {
   rank: number;
   iscored_username: string;
+  /** v2.8.0: user-chosen global display name. */
+  display_name?: string | null;
   total_points: number;
   games_played: number;
   breakdown: Array<{ game_name: string; game_rank: number; points: number }>;
@@ -403,7 +405,7 @@ export default function Rankings() {
                               }`}>
                                 {r.rank}
                               </td>
-                              <td className="py-2 pr-3 text-primary">{r.iscored_username}</td>
+                              <td className="py-2 pr-3 text-primary">{r.display_name || r.iscored_username}</td>
                               <td className={`py-2 pr-3 text-right font-display font-bold ${
                                 r.rank === 1 ? 'text-neon-amber' : 'text-primary'
                               }`}>

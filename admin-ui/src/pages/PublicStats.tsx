@@ -5,6 +5,8 @@ import { Trophy, Flame, Users, Gamepad2, Zap, Clock } from 'lucide-react';
 interface PlayerSummary {
   discord_user_id: string;
   iscored_username: string | null;
+  /** v2.8.0: user-chosen global display name. */
+  display_name?: string | null;
   games_played: number;
   wins: number;
   avg_finish_position: number;
@@ -195,7 +197,7 @@ export default function PublicStats() {
                 <span className="text-center">Wins</span>
               </div>
               {filteredPlayers.map((p, i) => {
-                const name = p.iscored_username || `User ${p.discord_user_id.slice(-4)}`;
+                const name = p.display_name || p.iscored_username || `User ${p.discord_user_id.slice(-4)}`;
                 return (
                   <Link
                     key={p.iscored_username || p.discord_user_id}

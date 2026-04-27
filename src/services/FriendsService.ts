@@ -6,6 +6,8 @@ export interface Friend {
     friend_user_id: string;
     friend_discord_username: string | null;
     iscored_username: string | null;
+    /** v2.8.0: friend's chosen global display name (from user_profiles). */
+    display_name: string | null;
     avatar_hash: string | null;
     status: string;
     created_at: string;
@@ -64,12 +66,18 @@ export class FriendsService {
 
     static async getFriends(userId: string): Promise<Friend[]> {
         const db = await getDatabase();
+        // m.iscored_username may be one of several aliases; use MIN as a stable
+        // representative (one row per friend Discord ID). avatar_hash + display_name
+        // come from user_profiles (single-row per Discord ID, no ambiguity).
         return db.all(`
             SELECT f.id, f.friend_user_id, f.friend_discord_username, f.status, f.created_at,
-                   m.iscored_username, m.avatar_hash
+                   MIN(m.iscored_username) AS iscored_username,
+                   up.avatar_hash, up.display_name
             FROM friendships f
             LEFT JOIN user_mappings m ON m.discord_user_id = f.friend_user_id
+            LEFT JOIN user_profiles up ON up.discord_user_id = f.friend_user_id
             WHERE f.user_id = ? AND f.status = 'active'
+            GROUP BY f.id, f.friend_user_id, f.friend_discord_username, f.status, f.created_at, up.avatar_hash, up.display_name
             ORDER BY f.created_at DESC
         `, userId);
     }
