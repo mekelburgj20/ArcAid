@@ -125,6 +125,13 @@ export default function SubmissionSheet({
     // endpoint replies. `[]` means the resolver returned no submittable
     // platforms (game has no platforms or active tournament excluded all).
     const [submittablePlatforms, setSubmittablePlatforms] = useState<string[] | null>(null);
+    /**
+     * Full pre-rule platform set for the game (catalogue ∪ room tags). Used
+     * only to disambiguate the single-platform chip's caption: "only platform
+     * for this game" (game truly has one) vs "only platform allowed by this
+     * tournament" (game has many, tournament rules narrowed to one).
+     */
+    const [fullGamePlatforms, setFullGamePlatforms] = useState<string[]>([]);
     const [platform, setPlatform] = useState<string>('');
     const [phase, setPhase] = useState<Phase>(() => {
         if (commitDraftState) return 'committingDraft';
@@ -179,7 +186,9 @@ export default function SubmissionSheet({
                 const data = await res.json().catch(() => ({}));
                 if (cancelled) return;
                 const list: string[] = Array.isArray(data?.submittable) ? data.submittable : [];
+                const fullList: string[] = Array.isArray(data?.platforms) ? data.platforms : [];
                 setSubmittablePlatforms(list);
+                setFullGamePlatforms(fullList);
                 // Auto-fill when the picker has only one option.
                 if (list.length === 1) setPlatform(list[0]);
             } catch {
@@ -715,7 +724,11 @@ export default function SubmissionSheet({
                                         <span className="px-2 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan text-xs font-display">
                                             {getPlatformDisplay(submittablePlatforms[0])}
                                         </span>
-                                        <span className="text-faint text-xs">(only platform for this game)</span>
+                                        <span className="text-faint text-xs">
+                                            {fullGamePlatforms.length > 1
+                                                ? '(only platform allowed by this tournament)'
+                                                : '(only platform for this game)'}
+                                        </span>
                                     </div>
                                 ) : (
                                     <select
