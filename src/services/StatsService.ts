@@ -813,7 +813,7 @@ export class StatsService {
         totalPlaysWeek: number;
         activePlayersWeek: number;
         hottestGame: { name: string; submissions: number } | null;
-        latestSubmission: { iscored_username: string; score: number; game_name: string; created_at: string } | null;
+        latestSubmission: { iscored_username: string; display_name: string | null; score: number; game_name: string; created_at: string } | null;
     }> {
         const db = await getDatabase();
         const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -836,10 +836,19 @@ export class StatsService {
              LIMIT 1`,
             gameRoomId, weekAgo,
         );
-        const latest = await db.get<{ iscored_username: string; score: number; game_name: string; created_at: string }>(
-            `SELECT iscored_username, score, game_name, created_at FROM score_history
-             WHERE game_room_id = ? AND orphaned_at IS NULL
-             ORDER BY created_at DESC
+        // v2.8.2: pull display_name so the FE renders the user's chosen name.
+        // submitted_by_user_id is the definitive Discord linkage; user_mappings
+        // resolves iscored:* synthetic ids; user_profiles holds the chosen name.
+        const latest = await db.get<{ iscored_username: string; display_name: string | null; score: number; game_name: string; created_at: string }>(
+            `SELECT sh.iscored_username, sh.score, sh.game_name, sh.created_at, up.display_name
+             FROM score_history sh
+             LEFT JOIN user_mappings um ON (
+                sh.discord_user_id LIKE 'iscored:%'
+                AND LOWER(um.iscored_username) = LOWER(sh.iscored_username)
+             )
+             LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(sh.submitted_by_user_id, um.discord_user_id)
+             WHERE sh.game_room_id = ? AND sh.orphaned_at IS NULL
+             ORDER BY sh.created_at DESC
              LIMIT 1`,
             gameRoomId,
         );
@@ -849,7 +858,7 @@ export class StatsService {
             activePlayersWeek: players?.total ?? 0,
             hottestGame: hottest ? { name: hottest.game_name, submissions: hottest.submissions } : null,
             latestSubmission: latest
-                ? { iscored_username: latest.iscored_username, score: latest.score, game_name: latest.game_name, created_at: latest.created_at }
+                ? { iscored_username: latest.iscored_username, display_name: latest.display_name ?? null, score: latest.score, game_name: latest.game_name, created_at: latest.created_at }
                 : null,
         };
     }

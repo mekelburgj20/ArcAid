@@ -26,7 +26,7 @@ interface StatsOverview {
   totalPlaysWeek: number;
   activePlayersWeek: number;
   hottestGame: { name: string; submissions: number } | null;
-  latestSubmission: { iscored_username: string; score: number; game_name: string; created_at: string } | null;
+  latestSubmission: { iscored_username: string; display_name: string | null; score: number; game_name: string; created_at: string } | null;
 }
 
 type View = 'players' | 'games';
@@ -132,7 +132,7 @@ export default function PublicStats() {
               ? abbreviateScore(overview.latestSubmission.score)
               : '—'}
             sub={overview?.latestSubmission
-              ? `${overview.latestSubmission.iscored_username} · ${formatRelative(overview.latestSubmission.created_at)}`
+              ? `${overview.latestSubmission.display_name || overview.latestSubmission.iscored_username} · ${formatRelative(overview.latestSubmission.created_at)}`
               : null}
             truncate
           />

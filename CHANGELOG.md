@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.8.2] — 2026-04-28
+
+**Display-name on the two surfaces deferred from v2.8.1.** Closes the v2.8.1 loose ends.
+
+- **`GET /api/global/recent-scores`** (LandingPage ticker) now returns `player_display_name` alongside the existing game-level `display_name`. SQL pulls from `user_profiles` joined via `COALESCE(submitted_by_user_id, um.discord_user_id, gs.player_id)` so attributed-by-merge rows resolve correctly. FE `RecentScore` interface adds `player_display_name`; `ScoreTickerCard` renders the chosen name with a `playerLabel` fallback to `iscored_username`.
+- **`StatsService.getRoomOverview`** (`/:roomId/stats/overview`) latest-submission card now includes `display_name`. Same JOIN pattern (`user_mappings` for iscored:* synthetic ids → `user_profiles` for the chosen name). `PublicStats` overview card renders display_name when set.
+
+No schema changes. No new tests; both are read-only display tweaks covered by manual verification.
+
+---
+
 ## [2.8.1] — 2026-04-27
 
 **FE polish: render user-chosen display_name in scoreboard cards.** The v2.8.0 BE work shipped `display_name` alongside `iscored_username` in every leaderboard, ranking, and stats response, but the FE components were still rendering raw `iscored_username`. After saving a display name on `/account/settings`, users saw their old iScored alias on every public surface.

@@ -19,6 +19,9 @@ interface RecentScore {
   id: string;
   score: number;
   iscored_username: string;
+  /** v2.8.2: player's chosen global display name. (`display_name` on this interface
+   * is the *game's* display name — keep them distinct.) */
+  player_display_name: string | null;
   submitted_at: string;
   discord_user_id: string;
   global_game_id: string;
@@ -259,10 +262,11 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
   const [avatarError, setAvatarError] = useState(false);
   const hasAvatar = score.discord_user_id && score.avatar_hash && !avatarError;
 
-  // Initials fallback
-  const initial = (score.iscored_username || '?')[0].toUpperCase();
-  const hue = score.iscored_username
-    ? score.iscored_username.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 360
+  // Initials fallback (v2.8.2: prefer chosen display_name).
+  const playerLabel = score.player_display_name || score.iscored_username || '?';
+  const initial = playerLabel[0].toUpperCase();
+  const hue = playerLabel
+    ? playerLabel.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 360
     : 200;
 
   return (
@@ -395,7 +399,7 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
               overflow: 'hidden',
               textOverflow: 'ellipsis',
             }}>
-              {score.iscored_username}
+              {playerLabel}
             </span>
           </div>
           <span style={{

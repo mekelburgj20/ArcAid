@@ -759,17 +759,17 @@ router.get('/global/recent-scores', async (req, res) => {
                 gg.local_image_path,
                 gg.wheel_image_path,
                 gg.image_url,
-                um.avatar_hash
+                up.avatar_hash,
+                up.display_name as player_display_name
             FROM global_scores gs
             JOIN global_games gg ON gg.id = gs.global_game_id
             LEFT JOIN user_mappings um ON (
-                -- v2.0.1: username fallback limited to iScored-synced rows so
-                -- anonymous community submissions don't inherit a real user's
-                -- avatar via a case-insensitive nickname match.
-                um.discord_user_id = gs.player_id
-                OR (gs.player_id LIKE 'iscored:%'
-                    AND LOWER(um.iscored_username) = LOWER(gs.iscored_username))
+                -- iscored:* synthetic ids resolve to a real Discord user via
+                -- user_mappings.iscored_username (case-insensitive).
+                gs.player_id LIKE 'iscored:%'
+                AND LOWER(um.iscored_username) = LOWER(gs.iscored_username)
             )
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(gs.submitted_by_user_id, um.discord_user_id, gs.player_id)
             WHERE gs.deleted_at IS NULL
               AND gs.orphaned_at IS NULL
               AND gs.exclude_from_global = 0
