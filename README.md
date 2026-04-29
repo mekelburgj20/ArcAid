@@ -8,6 +8,8 @@
 
 ## Features
 
+- **Discord-style player identity** — Logged-in players pick a globally-unique display name at `/account/settings` that renders on every leaderboard, ranking, stats page, lobby feed event, and Discord DM/announcement. Multiple iScored aliases collapse into one player row per game when linked to the same Discord user (via the admin Identity Merge tool); the chosen display name is the one shown
+- **Forward-attribution merge** — When a room admin merges an anonymous nickname into a Discord user via `/:slug/admin/identity`, future iScored sync events under that name auto-attribute to the Discord user (via `user_mappings`). Reverse-merge cleanly undoes both historical and forward attribution
 - **Multi-tenant game rooms** — Each room has its own tournaments, leaderboards, admins, settings, and iScored account
 - **Automated tournament rotation** — Daily, Weekly, Monthly (including last-day-of-month), or custom cron schedules
 - **iScored integration** — REST API for score sync (preferred) with Playwright fallback for game management. Continuous background polling keeps leaderboards in sync across all submission methods (web, iScored, Discord)
@@ -106,6 +108,7 @@ npm run dev            # Vite dev server with HMR
 | `/:slug/lobby` | Live activity feed + announcements + community shelf. Default post-login landing page. |
 | `/friends` | Friends list (global, requires Discord login). |
 | `/my-rooms` | Rooms you've submitted in (global, requires Discord login). |
+| `/account/settings` | Account settings — pick your global display name, view linked iScored aliases (global, requires Discord login). |
 | `/:slug/freeplay` | Freeplay (browse catalogue, submit scores for any game) |
 | `/:slug/submit/:gameId` | Standalone score submission (QR code target) |
 | `/:slug/stats` | Public enhanced stats (avg finish, top 5%, champion streak) |
@@ -137,7 +140,7 @@ npm run dev            # Vite dev server with HMR
 | `/list-winners` | Hall of fame — recent tournament winners |
 | `/view-selection` | Show queued games and what's next in the lineup |
 | `/pick-game` | Nominated picker selects the next game (shows eligible games only) |
-| `/map-user` | Link your Discord account to your iScored username |
+| `/map-user` | Add an iScored username as an alias of your Discord account. As of v2.8.0 this is **additive** — one Discord user can hold many iScored aliases; the command errors if the name is owned by a different user |
 | `/create-backup` | Trigger a database backup |
 | `/sync-state` | Reconcile local DB with live iScored data |
 

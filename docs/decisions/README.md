@@ -41,3 +41,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0007 | [Library = global catalogue](0007-library-equals-global-catalogue.md) | accepted | 2026-04-26 |
 | 0008 | [Per-room game tags via `room_game_tags`](0008-room-game-tags.md) | accepted | 2026-04-26 |
 | 0009 | [Tournament platform rules are orthogonal (game-level vs submission-level)](0009-tournament-platform-rules-orthogonal.md) | accepted | 2026-04-26 |
+| 0010 | [User identity layer: many-to-one `user_mappings` + `user_profiles` display names](0010-user-identity-and-display-names.md) | accepted | 2026-04-28 |
