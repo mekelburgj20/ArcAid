@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import NeonCard from './NeonCard';
-import { CheckCircle2, Circle, ChevronRight } from 'lucide-react';
+import { CheckCircle2, Circle, ChevronRight, X } from 'lucide-react';
 
 interface SetupChecklistProps {
   roomId: string;
@@ -18,6 +18,13 @@ interface ChecklistItem {
 
 const DISMISSED_KEY = (roomId: string) => `arcaid-setup-dismissed-${roomId}`;
 
+const isFlagOn = (settings: Record<string, string>, key: string): boolean => {
+  // Default-on: missing/undefined treated as enabled. Matches the
+  // server-side `isDiscordEnabledForRoom` semantics (`raw !== 'false'`).
+  const v = settings[key];
+  return v !== 'false';
+};
+
 export default function SetupChecklist({ roomId, roomSlug }: SetupChecklistProps) {
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,56 +39,50 @@ export default function SetupChecklist({ roomId, roomSlug }: SetupChecklistProps
 
     const fetchData = async () => {
       try {
-        const [settings, tournaments, libraryRaw] = await Promise.all([
+        const [settings, tournaments] = await Promise.all([
           api.get<Record<string, string>>(`/rooms/${roomId}/settings`),
           api.get<unknown[]>(`/rooms/${roomId}/tournaments`),
-          api.get<unknown>(`/rooms/${roomId}/game_library`),
         ]);
-
-        const games: unknown[] = Array.isArray(libraryRaw)
-          ? libraryRaw
-          : Array.isArray((libraryRaw as any)?.items)
-            ? (libraryRaw as any).items
-            : [];
 
         const checklist: ChecklistItem[] = [
           {
+            label: 'Tournament configured',
+            complete: tournaments.length > 0,
+            link: `/${roomSlug}/admin/tournaments`,
+            linkLabel: 'Create tournament',
+          },
+        ];
+
+        if (isFlagOn(settings, 'DISCORD_ENABLED')) {
+          checklist.push({
             label: 'Discord configured',
             complete:
               !!(settings['DISCORD_GUILD_ID']?.trim()) &&
               !!(settings['DISCORD_ANNOUNCEMENT_CHANNEL_ID']?.trim()),
             link: `/${roomSlug}/admin/settings`,
             linkLabel: 'Configure',
-          },
-          {
+          });
+        }
+
+        if (isFlagOn(settings, 'ISCORED_ENABLED')) {
+          checklist.push({
             label: 'iScored configured',
             complete:
               !!(settings['ISCORED_USERNAME']?.trim()) &&
               !!(settings['ISCORED_PUBLIC_URL']?.trim()),
             link: `/${roomSlug}/admin/settings`,
             linkLabel: 'Configure',
-          },
-          {
-            label: 'Games imported',
-            complete: games.length > 0,
-            link: `/${roomSlug}/admin/library`,
-            linkLabel: 'Import games',
-          },
-          {
-            label: 'Tournament created',
-            complete: tournaments.length > 0,
-            link: `/${roomSlug}/admin/tournaments`,
-            linkLabel: 'Create tournament',
-          },
-          {
-            label: 'Timezone set',
-            complete: !!(settings['BOT_TIMEZONE']?.trim()),
-            link: `/${roomSlug}/admin/settings`,
-            linkLabel: 'Configure',
-          },
-        ];
+          });
+        }
 
-        setItems(checklist);
+        const allComplete = checklist.every((i) => i.complete);
+        if (allComplete) {
+          // Once everything is green, persist and never show again.
+          localStorage.setItem(DISMISSED_KEY(roomId), 'true');
+          setDismissed(true);
+        } else {
+          setItems(checklist);
+        }
       } catch {
         // If fetching fails, don't show the checklist
         setDismissed(true);
@@ -96,7 +97,6 @@ export default function SetupChecklist({ roomId, roomSlug }: SetupChecklistProps
   if (dismissed || loading) return null;
 
   const completedCount = items.filter((i) => i.complete).length;
-  const allComplete = completedCount === items.length;
 
   const handleDismiss = () => {
     localStorage.setItem(DISMISSED_KEY(roomId), 'true');
@@ -109,9 +109,19 @@ export default function SetupChecklist({ roomId, roomSlug }: SetupChecklistProps
         <h3 className="font-display text-sm font-bold uppercase tracking-wider text-neon-cyan">
           Setup Progress
         </h3>
-        <span className="text-xs text-muted">
-          {completedCount} / {items.length} complete
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted">
+            {completedCount} / {items.length} complete
+          </span>
+          <button
+            onClick={handleDismiss}
+            className="flex items-center gap-1 text-xs text-muted hover:text-neon-cyan transition-colors"
+            title="Hide this checklist permanently"
+          >
+            <X className="w-3 h-3" />
+            Hide forever
+          </button>
+        </div>
       </div>
 
       {/* Progress bar */}
@@ -122,50 +132,33 @@ export default function SetupChecklist({ roomId, roomSlug }: SetupChecklistProps
         />
       </div>
 
-      {allComplete ? (
-        <div className="text-center py-4">
-          <p className="text-neon-green font-semibold mb-1">
-            All set! Your room is fully configured.
-          </p>
-          <p className="text-muted text-sm mb-4">
-            You can always adjust settings from the admin pages.
-          </p>
-          <button
-            onClick={handleDismiss}
-            className="px-4 py-2 rounded border border-neon-cyan/40 text-neon-cyan text-sm hover:bg-neon-cyan/10 transition-colors"
-          >
-            Dismiss
-          </button>
-        </div>
-      ) : (
-        <ul className="space-y-2">
-          {items.map((item) => (
-            <li key={item.label}>
-              <Link
-                to={item.link}
-                className="flex items-center gap-3 px-3 py-2 rounded bg-raised border border-border hover:border-neon-cyan/30 transition-colors group"
+      <ul className="space-y-2">
+        {items.map((item) => (
+          <li key={item.label}>
+            <Link
+              to={item.link}
+              className="flex items-center gap-3 px-3 py-2 rounded bg-raised border border-border hover:border-neon-cyan/30 transition-colors group"
+            >
+              {item.complete ? (
+                <CheckCircle2 className="w-5 h-5 text-neon-green flex-shrink-0" />
+              ) : (
+                <Circle className="w-5 h-5 text-neon-amber flex-shrink-0" />
+              )}
+              <span
+                className={`flex-1 text-sm ${item.complete ? 'text-muted line-through' : 'text-primary'}`}
               >
-                {item.complete ? (
-                  <CheckCircle2 className="w-5 h-5 text-neon-green flex-shrink-0" />
-                ) : (
-                  <Circle className="w-5 h-5 text-neon-amber flex-shrink-0" />
-                )}
-                <span
-                  className={`flex-1 text-sm ${item.complete ? 'text-muted line-through' : 'text-primary'}`}
-                >
-                  {item.label}
+                {item.label}
+              </span>
+              {!item.complete && (
+                <span className="flex items-center gap-1 text-xs text-neon-cyan opacity-0 group-hover:opacity-100 transition-opacity">
+                  {item.linkLabel}
+                  <ChevronRight className="w-3 h-3" />
                 </span>
-                {!item.complete && (
-                  <span className="flex items-center gap-1 text-xs text-neon-cyan opacity-0 group-hover:opacity-100 transition-opacity">
-                    {item.linkLabel}
-                    <ChevronRight className="w-3 h-3" />
-                  </span>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+              )}
+            </Link>
+          </li>
+        ))}
+      </ul>
     </NeonCard>
   );
 }

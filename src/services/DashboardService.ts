@@ -13,6 +13,7 @@ interface ActiveTournamentInfo {
     leader_name: string | null;
     leader_score: number | null;
     participants: number;
+    next_rotation_at: string | null;
 }
 
 interface RecentWinner {
@@ -23,12 +24,6 @@ interface RecentWinner {
     winner_score: number | null;
 }
 
-interface NextRotation {
-    tournament_id: string;
-    tournament_name: string;
-    next_fire_time: string | null;
-}
-
 interface DashboardData {
     activeTournaments: ActiveTournamentInfo[];
     recentWinners: RecentWinner[];
@@ -36,7 +31,7 @@ interface DashboardData {
         botOnline: boolean;
         setupComplete: boolean;
     };
-    nextRotations: NextRotation[];
+    uniquePlayersAcrossTournaments: number;
 }
 
 export async function getDashboardData(gameRoomId?: string): Promise<DashboardData> {
@@ -61,9 +56,14 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
         WHERE t.is_active = 1${roomFilter}
     `, ...roomParams);
 
-    // For each active game, find the leader (top submission)
-    // Also count unique participants across visible games per cleanup_rule
+    // For each active game, find the leader (top submission).
+    // Also count unique participants across visible games per cleanup_rule.
+    // Accumulate every visible game id so we can compute the cross-tournament
+    // distinct-player count in a single query at the end.
     const activeTournaments: ActiveTournamentInfo[] = [];
+    const allVisibleGameIds: string[] = [];
+    const envTz = process.env.BOT_TIMEZONE || 'America/Chicago';
+
     for (const row of activeGames) {
         let leaderName: string | null = null;
         let leaderScore: number | null = null;
@@ -123,6 +123,24 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
             `, ...visibleGameIds);
             participants = participantRow?.count || 0;
         }
+        allVisibleGameIds.push(...visibleGameIds);
+
+        // Resolve next rotation time per tournament. Each tournament owns its
+        // timezone via cadence.timezone; the env fallback only kicks in for
+        // legacy rows without one.
+        let nextRotationAt: string | null = null;
+        try {
+            if (row.cadence) {
+                const cadenceObj = JSON.parse(row.cadence);
+                if (cadenceObj.cron) {
+                    const tz = cadenceObj.timezone || envTz;
+                    const expr = CronExpressionParser.parse(cadenceObj.cron, { tz });
+                    nextRotationAt = expr.next().toISOString();
+                }
+            }
+        } catch (e) {
+            logError(`Failed to parse cron for tournament ${row.tournament_name}:`, e);
+        }
 
         activeTournaments.push({
             tournament_id: row.tournament_id,
@@ -135,7 +153,23 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
             leader_name: leaderName,
             leader_score: leaderScore,
             participants,
+            next_rotation_at: nextRotationAt,
         });
+    }
+
+    // Single pass for the cross-tournament distinct-player count. Sum-of-
+    // per-tournament participants double-counts players active in multiple
+    // tournaments, so we re-run COUNT(DISTINCT) over the union of visible
+    // game ids.
+    let uniquePlayersAcrossTournaments = 0;
+    if (allVisibleGameIds.length > 0) {
+        const placeholders = allVisibleGameIds.map(() => '?').join(',');
+        const row = await db.get(`
+            SELECT COUNT(DISTINCT LOWER(s.iscored_username)) AS count
+            FROM submissions s
+            WHERE s.game_id IN (${placeholders})
+        `, ...allVisibleGameIds);
+        uniquePlayersAcrossTournaments = row?.count || 0;
     }
 
     // Recent winners — last 10 completed games
@@ -182,35 +216,10 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
     const setupComplete = setupRow?.value === 'true';
     const botOnline = !!(process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_CLIENT_ID);
 
-    // Next rotation times
-    const nextRotations: NextRotation[] = [];
-    const tz = process.env.BOT_TIMEZONE || 'America/Chicago';
-
-    for (const t of activeTournaments) {
-        let nextFireTime: string | null = null;
-        try {
-            if (t.cadence) {
-                const cadenceObj = JSON.parse(t.cadence);
-                if (cadenceObj.cron) {
-                    const expr = CronExpressionParser.parse(cadenceObj.cron, { tz });
-                    nextFireTime = expr.next().toISOString();
-                }
-            }
-        } catch (e) {
-            logError(`Failed to parse cron for tournament ${t.tournament_name}:`, e);
-        }
-
-        nextRotations.push({
-            tournament_id: t.tournament_id,
-            tournament_name: t.tournament_name,
-            next_fire_time: nextFireTime,
-        });
-    }
-
     return {
         activeTournaments,
         recentWinners,
         systemHealth: { botOnline, setupComplete },
-        nextRotations,
+        uniquePlayersAcrossTournaments,
     };
 }

@@ -16,7 +16,7 @@ interface DashboardData {
     start_date: string;
     leader_name?: string;
     leader_score?: number;
-    next_rotation?: string;
+    next_rotation_at?: string | null;
     participants?: number;
   }>;
   recentWinners: Array<{
@@ -30,12 +30,29 @@ interface DashboardData {
     botOnline: boolean;
     setupComplete: boolean;
   };
+  uniquePlayersAcrossTournaments?: number;
+}
+
+function formatCountdown(targetIso: string | null | undefined, now: number): string | null {
+  if (!targetIso) return null;
+  const target = new Date(targetIso).getTime();
+  if (Number.isNaN(target)) return null;
+  const diff = target - now;
+  if (diff <= 0) return 'rotating now…';
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}d ${hours % 24}h`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return '<1m';
 }
 
 export default function Dashboard() {
   const room = useRoom();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     api.get<DashboardData>(`/rooms/${room.roomId}/dashboard`)
@@ -52,6 +69,12 @@ export default function Dashboard() {
         }).catch(() => {});
       });
   }, [room.roomId]);
+
+  // Tick every 30s so countdown labels stay fresh without a per-card timer.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   if (!data && !error) return <LoadingState message="Loading dashboard..." />;
 
@@ -81,8 +104,8 @@ export default function Dashboard() {
             <span className="font-display font-bold text-neon-cyan">{data?.activeTournaments.length ?? 0}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-muted text-sm">Participants:</span>
-            <span className="font-display font-bold text-neon-green">{data?.activeTournaments.reduce((sum, t) => sum + (t.participants ?? 0), 0) ?? 0}</span>
+            <span className="text-muted text-sm">Active Players:</span>
+            <span className="font-display font-bold text-neon-green">{data?.uniquePlayersAcrossTournaments ?? 0}</span>
           </div>
         </div>
       </NeonCard>
@@ -92,30 +115,37 @@ export default function Dashboard() {
         <div className="mb-6">
           <h2 className="font-display text-sm font-bold uppercase tracking-wider text-muted mb-3">Active Now</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {data.activeTournaments.map((t, i) => (
-              <NeonCard key={i} glowColor="cyan">
-                <div className="flex items-center justify-between mb-3">
-                  <TournamentBadge type={t.tournament_type} />
-                  <StatusBadge status="ACTIVE" />
-                </div>
-                <h3 className="font-bold text-lg mb-1">{t.game_name}</h3>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-muted text-sm">{t.tournament_name}</p>
-                  {t.participants != null && t.participants > 0 && (
-                    <span className="text-xs text-muted"><span className="font-display font-bold text-neon-green">{t.participants}</span> participants</span>
-                  )}
-                </div>
-                {t.leader_name && (
-                  <div className="flex items-center justify-between pt-3 border-t border-border">
-                    <span className="text-muted text-sm">Leader: <span className="text-primary">{t.leader_name}</span></span>
-                    {t.leader_score != null && <ScoreDisplay score={t.leader_score} size="sm" />}
+            {data.activeTournaments.map((t, i) => {
+              const countdown = formatCountdown(t.next_rotation_at, now);
+              return (
+                <NeonCard key={i} glowColor="cyan">
+                  <div className="flex items-center justify-between mb-3">
+                    <TournamentBadge type={t.tournament_type} />
+                    <StatusBadge status="ACTIVE" />
                   </div>
-                )}
-                {t.next_rotation && (
-                  <p className="text-faint text-xs mt-2">Next rotation: {t.next_rotation}</p>
-                )}
-              </NeonCard>
-            ))}
+                  <h3 className="font-bold text-lg mb-1">{t.game_name}</h3>
+                  <p className="text-muted text-sm mb-3">{t.tournament_name}</p>
+                  <div className="grid grid-cols-2 gap-2 mb-3 text-xs">
+                    <div className="bg-raised border border-border rounded px-2 py-1.5">
+                      <div className="text-faint uppercase tracking-wider mb-0.5">Players</div>
+                      <div className="font-display font-bold text-neon-green text-base">{t.participants ?? 0}</div>
+                    </div>
+                    <div className="bg-raised border border-border rounded px-2 py-1.5">
+                      <div className="text-faint uppercase tracking-wider mb-0.5">Time Left</div>
+                      <div className="font-display font-bold text-neon-amber text-base">
+                        {countdown ?? <span className="text-faint font-normal">—</span>}
+                      </div>
+                    </div>
+                  </div>
+                  {t.leader_name && (
+                    <div className="flex items-center justify-between pt-3 border-t border-border">
+                      <span className="text-muted text-sm">Leader: <span className="text-primary">{t.leader_name}</span></span>
+                      {t.leader_score != null && <ScoreDisplay score={t.leader_score} size="sm" />}
+                    </div>
+                  )}
+                </NeonCard>
+              );
+            })}
           </div>
         </div>
       )}

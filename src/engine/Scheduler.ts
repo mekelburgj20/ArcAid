@@ -218,6 +218,8 @@ export class Scheduler {
                                     userId: u.discord_user_id,
                                     type: 'tournamentStarting',
                                     message: `**${t.name}** rotates in ~${mins} minutes — get your scores in!${link ? `\n${link}` : ''}`,
+                                    roomId: t.game_room_id,
+                                    tournamentId: t.id,
                                 }).catch(() => {});
                             } catch { /* skip malformed prefs */ }
                         }
