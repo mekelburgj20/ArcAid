@@ -6,6 +6,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.9.0] — 2026-04-29
+
+**Per-row score moderation + multi-slot picker correctness.** Two user-visible features and two latent-bug fixes that surfaced during the same arc, shipped as a single minor.
+
+### Score moderation
+
+Players were able to self-delete on the **Global** scoreboard's GameDetail page (`DELETE /api/me/global-scores/:scoreId`) but had no equivalent for room-scoped scores. Room admins had a backend endpoint (`DELETE /api/rooms/:roomId/admin/games/:gameId/submissions/:submissionId`) but its only UI was on the legacy `AdminGameCard` rendering path which doesn't render once `SCOREBOARD_STYLE` is set — i.e. dead code in production for everyone using the v2.x card system.
+
+- **Player self-delete + admin per-row delete on `GameDetail.tsx`.** Trash icon appears on hover next to each `score_history` row in the per-player history expand, gated client-side by decoded JWT claims (`role`, `gameRoomIds`, `discordId`). Server-side authorization in the new endpoint independently re-checks. Restricted to `source IN ('tournament','sync')` rows — community-source delete needs a `community_scores` cascade that isn't built yet.
+- **Admin "Manage Scores" modal on the Leaderboard page.** New "Scores" button in `AdminCardWrapper` (alongside Style/Notes/Name/Remove) opens a modal listing per-player submissions with delete buttons. Targets the existing admin endpoint (now fixed — see below).
+- **Latent bug: existing admin endpoint didn't actually remove the score from the leaderboard.** Tournament leaderboards have read `score_history` filtered by `submitted_during_tournament_id` since v2.1.0, but the admin delete endpoint only ran `DELETE FROM submissions`. Cache invalidation re-computed from `score_history` on next render and the score reappeared. Fix: cascade to `score_history` rows matching `(game_room_id, iscored_username, game_id-or-game_name)`.
+- **Latent bug: pinned games were 404'ing.** The verification query in the admin endpoint used `INNER JOIN tournaments` — pinned rows (`tournament_id IS NULL`, ADR 0005) didn't match. Switched to `LEFT JOIN tournaments` with an `ownedByRoom` check that accepts either `tournaments.game_room_id` or `games.game_room_id`.
+- **New per-row endpoint: `DELETE /api/rooms/:roomId/score-history/:historyId`.** `requireDiscordUser` + per-row authorization (`super_admin` OR `room_admin` for this room OR `submitted_by_user_id === viewer.discordId`). Recomputes the corresponding `submissions` row from remaining `score_history` (`ORDER BY score DESC, created_at ASC LIMIT 1` — preserves the timestamp of the displayed highest score) — deletes if no rows left, else updates `score`+`timestamp`.
+- **Sync-resistant tombstone (migration 096).** New `deleted_score_suppressions(game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)` table. Both delete endpoints write a tombstone (`MAX(existing, deleted_score)` on conflict so repeat deletes never lower the threshold). `ScoreSyncPoller.pollOneAccount` bulk-loads the suppression map per game and skips `score <= suppressed_score` before the existing `>` check — new higher scores still flow through, deleted scores stay deleted across poll cycles. iScored has no per-score delete API, so without this the sync poller would re-import deleted scores within ~30s. Caveat documented: the iScored side keeps the entry; admins must clean up manually until the iScored cascade lands (ROADMAP).
+
+### Cron race fix
+
+Daily Grind on rtx_pinball had `0 22 * * *` maintenance + `0 22 * * 3` cleanup. On Wednesdays both cron tasks fired at the same instant, with no serialization between them. Cleanup's first SELECT ran before maintenance had completed today's active game; one game per Wed survived as `COMPLETED`-but-not-`HIDDEN` until next week's cleanup. Black Knight 2000 on 2026-04-29 was the latest casualty.
+
+- **Fix.** When `runMaintenanceWork` finishes the slot loop, if `cleanupRule.mode === 'scheduled'` AND the cleanup cron's `min/hour/dom/mon/dow` would all match right now in its timezone, run cleanup inline. The separate cleanup cron is left registered — it still fires (idempotent: zero `COMPLETED` rows left after the inline pass).
+- **New helper.** `TournamentEngine.cleanupCronMatchesNow(cron, tz)` — small private cron-field matcher supporting `*`, single integers, comma lists (`1,3,5`), and inclusive ranges (`1-5`). That's the full set the codebase uses; no `step` values, no named weekdays, no `L` (the maintenance cron's `L`-handling is in `Scheduler.resolveCron`).
+- **`emitLeaderboardUpdated` now broadcasts globally.** The function existed but was never called and was scoped to `io.to('game:gameId')` — no FE page joins per-game rooms, so it would have reached zero clients. Both delete endpoints now emit globally so other open Scoreboard / admin Leaderboard / Game Detail tabs repaint without a manual reload.
+
+### Multi-slot picker correctness
+
+When one user won multiple slots in a single maintenance run (e.g. Weekly Grind - VPXS `max=2` with the same player on top of both), we emitted exactly **one** `[Pending Pick]` placeholder + **one** turn-to-pick DM, collapsing the wins. Symptom on rtx_pinball 2026-04-29: user won X-Men Wolverine LE + CSI in one rotation; only one slot got refilled, the other sat empty.
+
+- **Dedup rescoped.** Was `(tournament_id, picker_discord_id)`, now `(tournament_id, picker_discord_id, won_game_id)`. Each slot win emits its own placeholder + DM; re-runs of maintenance for the same `(tournament, winner, won_game)` still no-op.
+- **DM + embed copy now names the won game.** Channel embed: `Pick Needed — {gameName}` / *"you won {gameName}! Use /pick-game within X minutes to select the next game for this slot."* DM: *"You won {gameName} in {tournamentName} — it's your turn to pick the next game for that slot."* Players who win multiple slots get one set per slot, each clearly labeled with which slot they're filling.
+- **`/pick-status` API extended.** Now returns `pick_slot_id`, `won_game_id`, `won_game_name` per pending pick. `Picks.tsx` uses `pick_slot_id` for stable React keys (was `tournament_id`, which collided on multi-slot pendings) and renders `won {game}` next to the tournament name.
+- **Discord `/pick-game` now fulfils placeholders.** Pre-fix the command branched only on `hasOpenSlot` — never checked for an outstanding `[Pending Pick]`. Effects: with an open slot, the placeholder dangled as stale `QUEUED`; with all slots full, the new game appended to the queue tail while the placeholder sat at the front, so the next rotation activated nothing useful and the user waited an extra round. Three branches now mirror the web `/pick-game` route:
+  - **Pending + slots full** → `UPDATE` the placeholder's name + style_id (keeps `queue_order = NULL`, sorts ahead of explicit queue games via `processSlotMaintenance`'s `ORDER BY queue_order ASC, rowid ASC`).
+  - **Open slot (with or without pending)** → create on iScored, drop placeholder if present, `activateGame` — all in one txn.
+  - **No pending + slots full** → `queueGame` (unchanged, appends to tail).
+- **Embed adds a third "queuedFromPick" path** so the user can tell whether their pick jumped the queue (won-pick reward) vs landed at the tail (regular queue).
+
+### Files
+
+- `src/api/routes/rooms.ts` — admin endpoint cascade + pinned-game support, new per-row endpoint, websocket emit, `/pick-status` extended
+- `src/services/ScoreHistoryService.ts` — `getPlayerGameHistory` returns `submitted_by_user_id`
+- `src/api/websocket.ts` — `emitLeaderboardUpdated` global broadcast
+- `src/database/database.ts` — migration 096 (`deleted_score_suppressions`)
+- `src/engine/ScoreSyncPoller.ts` — suppression check before insert (matches both `resolvedName` and original iScored name post-alias)
+- `src/engine/TournamentEngine.ts` — picker dedup rescoped, embed/DM copy, inline-cleanup-on-overlap, `cleanupCronMatchesNow` helper
+- `src/discord/commands/pickgame.ts` — three-branch fulfillment matching the web route
+- `admin-ui/src/pages/GameDetail.tsx` — viewer claims decode, `ScoreHistoryRow` trash icon, `handleDeleteScoreHistory`
+- `admin-ui/src/pages/Leaderboard.tsx` — `ManageScoresModal`, `Scores` button on `AdminCardWrapper`
+- `admin-ui/src/pages/Picks.tsx` — `PendingPick` interface gains `pick_slot_id` / `won_game_id` / `won_game_name`; row keying + render
+- `admin-ui/public/sw.js` — `CACHE_NAME` walked `arcaid-v42` → `arcaid-v43` → `arcaid-v44`
+
+### Migration notes
+
+- **096 (`deleted_score_suppressions`)** — idempotent, runs on container start. No backfill (forward-looking).
+- No data migrations, no breaking schema changes. Pre-existing `[Pending Pick]` rows that were dangled by the old Discord `/pick-game` path will be cleared by `TimeoutManager.fallbackToAutoSelection()`'s orphan sweep at their pick-window expiry (default 60min).
+
+### Tests
+
+129/129 passing. No new test files this release — handlers exercise paths already covered by route smoke tests; the cron-field matcher is a small private helper best verified by inline-cleanup behaviour next Wed at 22:00 Central.
+
+### Known followups (in ROADMAP)
+
+- **iScored per-score delete (true cascade)** — current model suppresses re-import on our side only; iScored's public page keeps the deleted entry until manual cleanup.
+- **Parallel iScored Playwright sessions step on each other on Wed 22:00** — multiple maintenance/cleanup runs spin up concurrent sessions against the same iScored account; symptom 2026-04-29: WG-VPXS cleanup logged `Game 'CSI' not found in dropdown. Skipping delete.` for both CSI and X-Men Wolverine LE despite the DB marking them HIDDEN.
+
+---
+
 ## [2.8.2] — 2026-04-28
 
 **Display-name on the two surfaces deferred from v2.8.1.** Closes the v2.8.1 loose ends.

@@ -23,6 +23,8 @@
 - **Community scores** — Submit scores outside tournaments; per-game community leaderboards
 - **Game tips & comments** — Player-submitted tips and comments on each game
 - **Score history tracking** — Expandable per-player submission history on leaderboards
+- **Per-row score moderation** — Players delete their own room-scoped scores from the per-player history expand on Game Detail; room admins delete any score from the same UI or via the "Manage Scores" modal on each scoreboard card. Sync-resistant: a tombstone table keeps the next iScored poll cycle from re-importing what was just removed
+- **Per-slot picker prompts** — In multi-slot tournaments (e.g. Weekly Grind - VPXS `max=2`), each slot win emits its own pick prompt + Discord DM naming the specific game won, so a player who sweeps two slots gets two clearly-labeled prompts to fill
 - **Style catalogue** — iScored visual styles imported or uploaded, assigned per game
 - **Kiosk mode** — Auto-refreshing scoreboard display for TV/kiosk use (no nav, configurable refresh interval)
 - **Game merge tool** — Consolidate duplicate games across all tables; auto-merge near-duplicates during import (comma-variant names)
