@@ -100,11 +100,15 @@ export function emitPickerAssigned(data: { tournamentName: string; pickerName: s
 }
 
 /**
- * Emit a leaderboard:updated event to the specific game room only.
+ * Emit a leaderboard:updated event globally. Scoreboard.tsx and Leaderboard.tsx
+ * (admin) both subscribe with `socket.on('leaderboard:updated', refresh)` —
+ * they listen globally because they show many games at once and don't join
+ * per-game rooms. Game Detail listens too. A global broadcast is cheap and
+ * keeps every open page in sync after a moderator/self delete.
  */
 export function emitLeaderboardUpdated(data: { gameId: string }) {
     if (!io) return;
-    io.to(`game:${data.gameId}`).emit('leaderboard:updated', data);
+    io.emit('leaderboard:updated', data);
 }
 
 /**

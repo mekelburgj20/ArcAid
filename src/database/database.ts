@@ -1273,6 +1273,25 @@ export async function initDatabase(): Promise<Database> {
                 GROUP BY discord_user_id
             `);
         } },
+        { name: '096_deleted_score_suppressions', sql: `
+            -- Tombstone table consulted by ScoreSyncPoller to keep deleted
+            -- scores from being re-imported on the next iScored sync. iScored
+            -- has no per-score delete API, so when an admin or player deletes
+            -- a score in ArcAid the iScored side keeps the entry — without
+            -- this, the next ~30s poll cycle re-creates the score_history
+            -- row and the deletion is undone. The poller skips inserting a
+            -- score whose value <= the suppressed value for the same
+            -- (game_id, lower(username)).
+            CREATE TABLE IF NOT EXISTS deleted_score_suppressions (
+                game_id TEXT NOT NULL,
+                iscored_username_lower TEXT NOT NULL,
+                suppressed_score INTEGER NOT NULL,
+                deleted_at TEXT NOT NULL DEFAULT (datetime('now')),
+                deleted_by_user_id TEXT,
+                PRIMARY KEY (game_id, iscored_username_lower)
+            );
+            CREATE INDEX IF NOT EXISTS idx_deleted_score_suppressions_game ON deleted_score_suppressions(game_id);
+        ` },
     ];
 
     for (const migration of migrations) {

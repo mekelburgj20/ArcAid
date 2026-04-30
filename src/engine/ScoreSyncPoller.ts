@@ -232,6 +232,19 @@ export class ScoreSyncPoller {
                 existingMap.set(r.id, { score: r.score, discord_user_id: r.discord_user_id });
             }
 
+            // Tombstones from admin/player deletes. iScored has no per-score
+            // delete API so the score is still on iScored — this table tells
+            // us "don't re-import anything <= the suppressed value." A new
+            // higher score (legit re-submit) still flows through.
+            const suppressionRows = await db.all(
+                'SELECT iscored_username_lower, suppressed_score FROM deleted_score_suppressions WHERE game_id = ?',
+                localGame.id,
+            );
+            const suppressionMap = new Map<string, number>();
+            for (const r of suppressionRows) {
+                suppressionMap.set(r.iscored_username_lower, r.suppressed_score);
+            }
+
             for (const score of gameData.scores) {
                 const scoreValue = parseInt(String(score.score).replace(/[^0-9-]/g, ''), 10);
                 if (isNaN(scoreValue)) continue;
@@ -239,6 +252,13 @@ export class ScoreSyncPoller {
                 const resolvedName = aliasMap.get(score.name.toLowerCase()) || score.name;
                 const syncId = `${localGame.id}-${resolvedName.toLowerCase()}`;
                 const existing = existingMap.get(syncId);
+
+                // Skip if the deletion tombstone covers this score. Match by
+                // both the original iScored name AND the post-alias resolved
+                // name so suppression survives later /map-user mappings.
+                const suppressed = suppressionMap.get(resolvedName.toLowerCase())
+                    ?? suppressionMap.get(score.name.toLowerCase());
+                if (suppressed !== undefined && scoreValue <= suppressed) continue;
 
                 if (!existing || scoreValue > existing.score) {
                     const discordUserId = mappingMap.get(resolvedName.toLowerCase()) || mappingMap.get(score.name.toLowerCase()) || `iscored:${resolvedName}`;

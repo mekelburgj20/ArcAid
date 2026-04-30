@@ -969,6 +969,115 @@ router.get('/:roomId/score-history/game/:gameId', async (req, res) => {
     }
 });
 
+// Delete a single score event. Authorization is per-row:
+//   - super_admin → any row in any room
+//   - room_admin  → any row in a room they admin
+//   - player      → only rows they own (submitted_by_user_id matches their discordId)
+// Restricted to source IN ('tournament','sync') — community deletes need a
+// separate cascade into community_scores that isn't built yet. After deletion
+// we recompute the corresponding submissions row from the remaining
+// score_history (delete if none left, else update score+timestamp). The
+// leaderboard cache for this game is invalidated either way.
+router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const historyId = parseInt(req.params.historyId as string, 10);
+        if (!Number.isFinite(historyId)) return res.status(400).json({ error: 'Invalid history id' });
+
+        const db = await getDatabase();
+        const row = await db.get(
+            `SELECT id, game_room_id, game_id, game_name, iscored_username, score,
+                    source, submitted_by_user_id
+             FROM score_history WHERE id = ?`,
+            historyId
+        );
+        if (!row) return res.status(404).json({ error: 'Score not found' });
+        if (row.game_room_id !== roomId) return res.status(404).json({ error: 'Score not found in this room' });
+        if (row.source !== 'tournament' && row.source !== 'sync') {
+            return res.status(400).json({ error: 'Only tournament/sync scores can be deleted via this endpoint' });
+        }
+
+        const isSuper = req.user!.role === 'super_admin';
+        const isRoomAdmin = req.user!.role === 'room_admin' && req.user!.gameRoomIds.includes(roomId);
+        const isOwner = !!row.submitted_by_user_id && row.submitted_by_user_id === req.user!.discordId;
+        if (!isSuper && !isRoomAdmin && !isOwner) {
+            return res.status(403).json({ error: 'You can only delete your own scores' });
+        }
+
+        await db.run('DELETE FROM score_history WHERE id = ?', historyId);
+
+        // Tombstone for the sync poller (see deleted_score_suppressions doc).
+        // We suppress at MAX(existing, deleted_score) so a player who deletes
+        // their 5000, then their 4000, doesn't accidentally lower the
+        // threshold and let iScored re-import the 5000 on the next poll.
+        if (row.game_id && (row.source === 'sync' || row.source === 'tournament')) {
+            await db.run(
+                `INSERT INTO deleted_score_suppressions
+                    (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
+                 VALUES (?, LOWER(?), ?, datetime('now'), ?)
+                 ON CONFLICT(game_id, iscored_username_lower) DO UPDATE SET
+                    suppressed_score = MAX(suppressed_score, excluded.suppressed_score),
+                    deleted_at = datetime('now'),
+                    deleted_by_user_id = excluded.deleted_by_user_id`,
+                row.game_id, row.iscored_username, row.score,
+                req.user!.discordId || req.user!.username || 'self'
+            );
+        }
+
+        // Recompute the submissions row for this (game, player). Submissions is
+        // best-per-player-per-game; sync+tournament sources both feed it. We
+        // grab score+created_at from the same row (highest score, earliest
+        // timestamp on tie) so the submissions timestamp continues to reflect
+        // when the *displayed* score was set, not just the latest activity.
+        if (row.game_id) {
+            const submissionId = `${row.game_id}-${(row.iscored_username as string).toLowerCase()}`;
+            const remaining = await db.get(
+                `SELECT score, created_at
+                 FROM score_history
+                 WHERE game_id = ?
+                   AND LOWER(iscored_username) = LOWER(?)
+                   AND orphaned_at IS NULL
+                   AND source IN ('tournament','sync')
+                 ORDER BY score DESC, created_at ASC
+                 LIMIT 1`,
+                row.game_id, row.iscored_username
+            );
+            if (remaining) {
+                await db.run(
+                    `UPDATE submissions SET score = ?, timestamp = ? WHERE id = ?`,
+                    remaining.score, remaining.created_at, submissionId
+                );
+            } else {
+                await db.run('DELETE FROM submissions WHERE id = ?', submissionId);
+            }
+            const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+            await LeaderboardService.invalidate(row.game_id);
+            const { emitLeaderboardUpdated } = await import('../websocket.js');
+            emitLeaderboardUpdated({ gameId: row.game_id });
+        }
+
+        // Activity log: only when an admin used this. Self-delete is mundane
+        // and would noise up the room timeline.
+        if (isSuper || isRoomAdmin) {
+            const { RoomEventService } = await import('../../services/RoomEventService.js');
+            RoomEventService.log(roomId, 'score_deleted', {
+                gameId: row.game_id,
+                gameName: row.game_name,
+                player: row.iscored_username,
+                score: row.score,
+                historyId,
+                actor: isSuper ? 'super_admin' : 'room_admin',
+            }).catch(() => {});
+        }
+
+        logInfo(`score_history#${historyId} deleted by ${req.user!.role}=${req.user!.discordId} (player ${row.iscored_username}, score ${row.score}, game ${row.game_id || row.game_name})`);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/score-history/:historyId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.get('/:roomId/stats/game/:name', async (req, res) => {
     try {
         const { StatsService } = await import('../../services/StatsService.js');
@@ -3397,7 +3506,11 @@ router.post('/:roomId/admin/styles/upload', requireAuth, requireRoomAccess('room
     }
 });
 
-// Delete a score submission (admin only)
+// Wipe a player's record on a game (admin). Removes the submissions row and
+// every matching score_history row so the tournament leaderboard recompute
+// (which reads score_history filtered by submitted_during_tournament_id since
+// v2.1.0) actually reflects the deletion. Works on tournament games AND
+// pin-to-scoreboard games (tournament_id IS NULL — ADR 0005).
 router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
@@ -3405,14 +3518,18 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
         const submissionId = req.params.submissionId as string;
         const db = await getDatabase();
 
-        // Verify game belongs to this room
+        // Verify game belongs to this room. LEFT JOIN tournaments so pinned
+        // rows (tournament_id IS NULL) match via games.game_room_id directly.
         const game = await db.get(
-            `SELECT g.id FROM games g
-             JOIN tournaments t ON g.tournament_id = t.id
-             WHERE g.id = ? AND t.game_room_id = ?`,
-            gameId, roomId
+            `SELECT g.id, g.name, g.game_room_id, g.tournament_id, t.game_room_id as tournament_room_id
+             FROM games g
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
+             WHERE g.id = ?`,
+            gameId
         );
-        if (!game) return res.status(404).json({ error: 'Game not found in this room' });
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        const ownedByRoom = game.tournament_room_id === roomId || game.game_room_id === roomId;
+        if (!ownedByRoom) return res.status(404).json({ error: 'Game not found in this room' });
 
         // Verify submission exists and belongs to this game
         const submission = await db.get(
@@ -3421,12 +3538,42 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
         );
         if (!submission) return res.status(404).json({ error: 'Submission not found' });
 
-        // Delete the submission
+        // Delete the submissions row + all matching score_history rows. Without
+        // the score_history sweep the tournament leaderboard recompute (reads
+        // score_history) puts the score right back on next render.
         await db.run('DELETE FROM submissions WHERE id = ?', submissionId);
+        const historyDelete = await db.run(
+            `DELETE FROM score_history
+             WHERE game_room_id = ?
+               AND LOWER(iscored_username) = LOWER(?)
+               AND (game_id = ? OR (game_id IS NULL AND LOWER(game_name) = LOWER(?)))`,
+            roomId, submission.iscored_username, gameId, game.name
+        );
 
-        // Invalidate leaderboard cache
+        // Tombstone for the sync poller. Without this, the next iScored poll
+        // (~30s) re-creates the score because iScored still holds the player's
+        // best. submission.score IS that best (submissions tracks
+        // best-per-player-per-game). We MAX against any existing suppression
+        // so repeat admin deletions never lower the threshold.
+        await db.run(
+            `INSERT INTO deleted_score_suppressions
+                (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
+             VALUES (?, LOWER(?), ?, datetime('now'), ?)
+             ON CONFLICT(game_id, iscored_username_lower) DO UPDATE SET
+                suppressed_score = MAX(suppressed_score, excluded.suppressed_score),
+                deleted_at = datetime('now'),
+                deleted_by_user_id = excluded.deleted_by_user_id`,
+            gameId, submission.iscored_username, submission.score,
+            req.user!.discordId || req.user!.username || 'admin'
+        );
+
+        // Invalidate leaderboard cache + broadcast so every open Scoreboard /
+        // admin Leaderboard / Game Detail page repaints without a manual
+        // reload.
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         await LeaderboardService.invalidate(gameId);
+        const { emitLeaderboardUpdated } = await import('../websocket.js');
+        emitLeaderboardUpdated({ gameId });
 
         // Log activity event
         const { RoomEventService } = await import('../../services/RoomEventService.js');
@@ -3434,9 +3581,10 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
             gameId,
             player: submission.iscored_username,
             score: submission.score,
+            historyRowsRemoved: historyDelete.changes ?? 0,
         }).catch(() => {});
 
-        logInfo(`Admin deleted submission ${submissionId} (${submission.iscored_username}: ${submission.score}) from game ${gameId}`);
+        logInfo(`Admin deleted submission ${submissionId} (${submission.iscored_username}: ${submission.score}) from game ${gameId}; ${historyDelete.changes ?? 0} history rows removed`);
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admin/games/:gameId/submissions/:submissionId):', error);

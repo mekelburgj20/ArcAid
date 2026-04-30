@@ -1,11 +1,35 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
 import SubmissionSheet from '../components/SubmissionSheet';
 import { api } from '../lib/api';
 import { getPlatformDisplay } from '../lib/platforms';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
+
+/** Decode a player JWT and pull the role + gameRoomIds claims. The viewer
+ *  could be a player, room_admin, or super_admin — public-page tokens carry
+ *  whichever role the user actually has. Returns null on missing/invalid. */
+function decodeViewerClaims(token: string | null): {
+  role: 'player' | 'room_admin' | 'super_admin';
+  gameRoomIds: string[];
+  discordId: string | null;
+} | null {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return {
+      role: (payload.role as 'player' | 'room_admin' | 'super_admin') || 'player',
+      gameRoomIds: Array.isArray(payload.gameRoomIds) ? payload.gameRoomIds : [],
+      discordId: (payload.discordId as string) || null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 interface RankedEntry {
   rank: number;
@@ -96,6 +120,9 @@ interface ScoreHistoryEntry {
   tournament_id?: string | null;
   tournament_name?: string | null;
   tournament_active?: 0 | 1 | null;
+  /** Discord id of the submitter; null for guest/anon rows. Used to gate
+   *  player self-delete on this row. */
+  submitted_by_user_id?: string | null;
 }
 
 interface GamePlayerRanking {
@@ -112,6 +139,8 @@ type Tab = 'leaderboard' | 'community' | 'tips' | 'player-stats';
 
 export default function GameDetail() {
   const { slug, name } = useParams<{ slug: string; name: string }>();
+  const { playerToken } = useViewerAuth();
+  const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
@@ -327,6 +356,74 @@ export default function GameDetail() {
       });
       loadComments(roomId, name);
     } catch {}
+  };
+
+  /** Delete one score_history row. Server gates: admin OR row owner. We
+   *  optimistically drop the row from the expanded view, then refresh the
+   *  leaderboard since the deleted score may have been this player's best. */
+  const handleDeleteScoreHistory = async (entry: ScoreHistoryEntry) => {
+    if (!roomId || !playerToken) return;
+    if (!confirm(`Delete this score (${entry.score.toLocaleString()})?`)) return;
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/score-history/${entry.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Failed to delete score');
+        return;
+      }
+      setPlayerHistory(prev => prev.filter(h => h.id !== entry.id));
+      // The leaderboard / per-player rankings may have shifted (this could
+      // have been the player's best). Refetch the small ones inline so the
+      // page reflects the change immediately even before the websocket
+      // `leaderboard:updated` broadcast lands.
+      if (leaderboard?.gameId) {
+        fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}`)
+          .then(r => r.ok ? r.json() : null)
+          .then((data: { rankings?: RankedEntry[] } | null) => {
+            if (data?.rankings) {
+              setLeaderboard(prev => prev ? { ...prev, rankings: data.rankings! } : prev);
+            }
+          })
+          .catch(() => {});
+        // scoreCounts gates the ▼ expand icon on each leaderboard row; if the
+        // deleted row dropped a player below the >1 threshold, the icon
+        // should disappear.
+        fetch(`/api/rooms/${roomId}/score-counts/${leaderboard.gameId}`)
+          .then(r => r.ok ? r.json() : {})
+          .then(setScoreCounts)
+          .catch(() => {});
+        // Platform-filtered view is fetched separately and isn't refreshed
+        // by setting `leaderboard.rankings`; nudge the effect to re-run.
+        if (selectedPlatform) {
+          fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?platform=${encodeURIComponent(selectedPlatform)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then((data: { rankings?: RankedEntry[] } | null) => {
+              setFilteredRankings(Array.isArray(data?.rankings) ? data!.rankings! : []);
+            })
+            .catch(() => {});
+        }
+      }
+      fetch(`/api/rooms/${roomId}/stats/game/${encodeURIComponent(name as string)}/players`)
+        .then(r => r.ok ? r.json() : [])
+        .then(setGamePlayerRankings)
+        .catch(() => {});
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete score');
+    }
+  };
+
+  /** Whether the viewer can delete `entry`. Admin can delete any
+   *  tournament/sync row; player can delete only their own rows. Community
+   *  rows are server-rejected for now (no community_scores cascade). */
+  const canDeleteScoreHistory = (entry: ScoreHistoryEntry): boolean => {
+    if (entry.source !== 'tournament' && entry.source !== 'sync') return false;
+    if (!viewerClaims || !roomId) return false;
+    if (viewerClaims.role === 'super_admin') return true;
+    if (viewerClaims.role === 'room_admin' && viewerClaims.gameRoomIds.includes(roomId)) return true;
+    return !!entry.submitted_by_user_id && entry.submitted_by_user_id === viewerClaims.discordId;
   };
 
   const handleRate = async (rating: number) => {
@@ -576,7 +673,12 @@ export default function GameDetail() {
                                       </p>
                                       <div className="space-y-1">
                                         {activeEntries.map(h => (
-                                          <ScoreHistoryRow key={h.id} h={h} />
+                                          <ScoreHistoryRow
+                                            key={h.id}
+                                            h={h}
+                                            canDelete={canDeleteScoreHistory(h)}
+                                            onDelete={() => handleDeleteScoreHistory(h)}
+                                          />
                                         ))}
                                       </div>
                                     </div>
@@ -588,7 +690,12 @@ export default function GameDetail() {
                                       </p>
                                       <div className="space-y-1">
                                         {otherEntries.map(h => (
-                                          <ScoreHistoryRow key={h.id} h={h} />
+                                          <ScoreHistoryRow
+                                            key={h.id}
+                                            h={h}
+                                            canDelete={canDeleteScoreHistory(h)}
+                                            onDelete={() => handleDeleteScoreHistory(h)}
+                                          />
                                         ))}
                                       </div>
                                     </div>
@@ -1119,10 +1226,16 @@ export default function GameDetail() {
 }
 
 /** v2.1.0 — one row in the expanded score-history view. Keeps the visual
-    consistent between "This tournament" + "All time" groupings. */
-function ScoreHistoryRow({ h }: { h: ScoreHistoryEntry }) {
+    consistent between "This tournament" + "All time" groupings. Trash icon
+    appears when `canDelete` is true (admin viewing any row, or player viewing
+    their own row); kept hover-only to avoid visual noise on the common case. */
+function ScoreHistoryRow({ h, canDelete, onDelete }: {
+  h: ScoreHistoryEntry;
+  canDelete: boolean;
+  onDelete: () => void;
+}) {
   return (
-    <div className="flex items-center justify-between text-sm">
+    <div className="flex items-center justify-between text-sm group">
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-muted">{h.score.toLocaleString()}</span>
         <span className={`text-[10px] px-1.5 py-0.5 rounded ${
@@ -1136,7 +1249,19 @@ function ScoreHistoryRow({ h }: { h: ScoreHistoryEntry }) {
           </a>
         )}
       </div>
-      <span className="text-faint text-xs whitespace-nowrap">{new Date(h.created_at).toLocaleDateString()}</span>
+      <div className="flex items-center gap-2">
+        <span className="text-faint text-xs whitespace-nowrap">{new Date(h.created_at).toLocaleDateString()}</span>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="opacity-0 group-hover:opacity-100 text-red-400/60 hover:text-red-400 transition-all cursor-pointer"
+            title="Delete this score"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

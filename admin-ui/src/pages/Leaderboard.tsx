@@ -45,6 +45,7 @@ export default function Leaderboard() {
   const [notesTarget, setNotesTarget] = useState<GameLeaderboard | null>(null);
   const [notesInput, setNotesInput] = useState('');
   const [notesSaving, setNotesSaving] = useState(false);
+  const [manageScoresTarget, setManageScoresTarget] = useState<GameLeaderboard | null>(null);
 
   const loadData = () => {
     api.get<GameLeaderboard[]>(`/rooms/${room.roomId}/leaderboard`)
@@ -206,7 +207,7 @@ export default function Leaderboard() {
               >
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="grid">
-                    <AdminCardWrapper lb={lb} onStyleClick={handleStyleClick} onEditDisplayName={handleEditDisplayName} onDeleteGame={setDeleteTarget} onEditNotes={handleEditNotes}>
+                    <AdminCardWrapper lb={lb} onStyleClick={handleStyleClick} onEditDisplayName={handleEditDisplayName} onDeleteGame={setDeleteTarget} onEditNotes={handleEditNotes} onManageScores={setManageScoresTarget}>
                       {useNewCards ? (
                         <CardRouter
                           lb={lb} slug={room.roomSlug || ''}
@@ -234,7 +235,7 @@ export default function Leaderboard() {
               <div className={`flex pb-2 ${useNewCards ? '' : 'gap-3 sm:gap-5'}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, 75vw)` }}>
-                    <AdminCardWrapper lb={lb} onStyleClick={handleStyleClick} onEditDisplayName={handleEditDisplayName} onDeleteGame={setDeleteTarget} onEditNotes={handleEditNotes}>
+                    <AdminCardWrapper lb={lb} onStyleClick={handleStyleClick} onEditDisplayName={handleEditDisplayName} onDeleteGame={setDeleteTarget} onEditNotes={handleEditNotes} onManageScores={setManageScoresTarget}>
                       {useNewCards ? (
                         <CardRouter
                           lb={lb} slug={room.roomSlug || ''}
@@ -386,6 +387,17 @@ export default function Leaderboard() {
         </div>
       )}
 
+      {/* Manage Scores modal — admin per-player delete on the new card style.
+          Mirrors the inline trash UI legacy AdminGameCard had on hover. */}
+      {manageScoresTarget && (
+        <ManageScoresModal
+          lb={manageScoresTarget}
+          roomId={room.roomId}
+          onClose={() => setManageScoresTarget(null)}
+          onDeleted={() => { loadData(); loadRankings(); }}
+        />
+      )}
+
       {/* Style Picker for leaderboard games */}
       {styleTarget && (
         <StylePicker
@@ -448,13 +460,14 @@ export default function Leaderboard() {
   );
 }
 
-function AdminCardWrapper({ lb, children, onStyleClick, onEditDisplayName, onDeleteGame, onEditNotes }: {
+function AdminCardWrapper({ lb, children, onStyleClick, onEditDisplayName, onDeleteGame, onEditNotes, onManageScores }: {
   lb: GameLeaderboard;
   children: React.ReactNode;
   onStyleClick: (lb: GameLeaderboard) => void;
   onEditDisplayName: (lb: GameLeaderboard) => void;
   onDeleteGame: (lb: GameLeaderboard) => void;
   onEditNotes: (lb: GameLeaderboard) => void;
+  onManageScores: (lb: GameLeaderboard) => void;
 }) {
   return (
     <div className="relative group">
@@ -470,6 +483,9 @@ function AdminCardWrapper({ lb, children, onStyleClick, onEditDisplayName, onDel
           </NeonButton>
           <NeonButton variant={lb.catalogueStyleId ? 'secondary' : 'ghost'} onClick={() => onStyleClick(lb)} className="text-[10px] px-1.5 py-0.5">
             Style
+          </NeonButton>
+          <NeonButton variant="ghost" onClick={() => onManageScores(lb)} className="text-[10px] px-1.5 py-0.5" title="Manage submitted scores">
+            Scores
           </NeonButton>
           <NeonButton variant="ghost" onClick={() => onDeleteGame(lb)} className="text-[10px] px-1.5 py-0.5 text-red-400/60 hover:text-red-400">
             <Trash2 size={11} />
@@ -686,6 +702,96 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
             })}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Modal listing all submissions on a game with admin-delete buttons. Used
+ *  by the new card path (Banner/Showcase/Minimal) which doesn't have inline
+ *  per-row admin chrome. Calls the existing admin "wipe player from game"
+ *  endpoint, which now (post-fix) also cascades to score_history so the
+ *  deletion sticks across the leaderboard recompute. */
+function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
+  lb: GameLeaderboard;
+  roomId: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const { toast } = useToast();
+  const [submissions, setSubmissions] = useState<Submission[] | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const load = () => {
+    setSubmissions(null);
+    api.get<Submission[]>(`/rooms/${roomId}/leaderboard/${lb.gameId}/submissions`)
+      .then(rows => {
+        rows.sort((a, b) => b.score - a.score);
+        setSubmissions(rows);
+      })
+      .catch(() => setSubmissions([]));
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [lb.gameId]);
+
+  const handleDelete = async (sub: Submission) => {
+    if (!confirm(`Delete ${sub.iscored_username}'s score (${sub.score.toLocaleString()})? This wipes the row from the leaderboard and removes their score history for this game.`)) return;
+    setDeletingId(sub.id);
+    try {
+      await api.delete(`/rooms/${roomId}/admin/games/${lb.gameId}/submissions/${encodeURIComponent(sub.id)}`);
+      toast(`Deleted: ${sub.iscored_username} (${sub.score.toLocaleString()})`, 'success');
+      setSubmissions(prev => prev ? prev.filter(s => s.id !== sub.id) : prev);
+      onDeleted();
+    } catch (err: any) {
+      toast(err.message || 'Failed to delete score', 'error');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-surface border border-border rounded-lg w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-border/50">
+          <h2 className="font-display text-lg font-bold mb-0.5">Manage Scores</h2>
+          <p className="text-xs text-muted">{lb.displayName || lb.gameName} · {lb.tournamentName}</p>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {submissions === null ? (
+            <p className="text-faint text-sm text-center py-8">Loading...</p>
+          ) : submissions.length === 0 ? (
+            <p className="text-muted text-sm text-center py-8">No submissions yet.</p>
+          ) : (
+            <div className="divide-y divide-border/30">
+              {submissions.map((sub, i) => (
+                <div key={sub.id} className="flex items-center justify-between px-5 py-2.5 group hover:bg-raised/30 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`font-display font-bold text-xs w-6 text-center flex-shrink-0 ${
+                      i === 0 ? 'text-neon-amber' : i === 1 ? 'text-neon-cyan' : i === 2 ? 'text-neon-green' : 'text-faint'
+                    }`}>{i + 1}</span>
+                    <span className="text-sm truncate">{sub.iscored_username}</span>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="font-display font-bold text-sm">{sub.score.toLocaleString()}</span>
+                    <span className="text-faint text-[10px] w-20 text-right">{new Date(sub.timestamp).toLocaleDateString()}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(sub)}
+                      disabled={deletingId === sub.id}
+                      className="text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-30"
+                      title="Delete score (wipes player from this game)"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-border/50 flex justify-end">
+          <NeonButton variant="ghost" onClick={onClose}>Close</NeonButton>
+        </div>
       </div>
     </div>
   );
