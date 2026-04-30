@@ -728,7 +728,16 @@ export class TournamentEngine {
             logWarn('Failed to reorder iScored lineup after maintenance:', err);
         }
 
-        // Run cleanup for 'immediate' and 'retain' modes
+        // Run cleanup for 'immediate' and 'retain' modes inline. For 'scheduled'
+        // mode, run cleanup inline IFF the cleanup cron's minute/hour/dom/dow
+        // fields would all match right now in the cleanup's timezone — i.e. the
+        // separate scheduled cleanup cron would also be firing this minute. This
+        // eliminates the race on overlapping crons (e.g. maintenance `0 22 * * *`
+        // + cleanup `0 22 * * 3` — Wed 22:00 fired both, cleanup's SELECT ran
+        // before maintenance had completed today's active game, leaving the just-
+        // completed game stuck in COMPLETED until next Wed). The separate
+        // scheduled cleanup cron still fires; it'll just find zero COMPLETED rows
+        // because we already hid them — idempotent, no harm.
         let cleanupRule: CleanupRule = { mode: 'retain', count: 0 };
         try { cleanupRule = JSON.parse(tournamentRow.cleanup_rule || '{}'); } catch {}
         if (cleanupRule.mode === 'immediate' || cleanupRule.mode === 'retain') {
@@ -737,7 +746,63 @@ export class TournamentEngine {
             } catch (err) {
                 logWarn(`Failed to run cleanup for ${tournamentRow.name}:`, err);
             }
+        } else if (cleanupRule.mode === 'scheduled' && this.cleanupCronMatchesNow(cleanupRule.cron, cleanupRule.timezone)) {
+            try {
+                logInfo(`Running scheduled cleanup inline (cron overlaps with this maintenance run)`);
+                await this.runCleanup(tournamentId, { mode: 'immediate' });
+            } catch (err) {
+                logWarn(`Failed to run inline scheduled cleanup for ${tournamentRow.name}:`, err);
+            }
         }
+    }
+
+    /**
+     * Returns true if the given 5-field cron expression's minute/hour/day-of-
+     * month/month/day-of-week fields all match the current moment in `tz`.
+     * Used to detect "the scheduled cleanup cron would fire right now," so
+     * maintenance can run cleanup inline and avoid the race with the parallel
+     * cleanup cron task.
+     *
+     * Supports `*`, single integers, comma-separated lists (`1,3,5`), and
+     * inclusive ranges (`1-5`). That's the full set used by maintenance and
+     * cleanup crons in this codebase — no step values, no `L`, no named
+     * weekdays. If the expression is malformed, returns false (better to skip
+     * inline cleanup than to fire it incorrectly; the separate cron is still
+     * registered).
+     */
+    private cleanupCronMatchesNow(cron: string, tz?: string): boolean {
+        const timezone = tz || process.env.BOT_TIMEZONE || 'America/Chicago';
+        const parts = cron.trim().split(/\s+/);
+        if (parts.length !== 5) return false;
+        const minF = parts[0]!;
+        const hourF = parts[1]!;
+        const domF = parts[2]!;
+        const monF = parts[3]!;
+        const dowF = parts[4]!;
+
+        // Build a "now in tz" Date. Same idiom used elsewhere in Scheduler.ts.
+        const now = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }));
+        const matchField = (field: string, value: number): boolean => {
+            if (field === '*') return true;
+            for (const part of field.split(',')) {
+                if (part.includes('-')) {
+                    const range = part.split('-').map(s => parseInt(s, 10));
+                    const lo = range[0];
+                    const hi = range[1];
+                    if (lo !== undefined && hi !== undefined && Number.isFinite(lo) && Number.isFinite(hi) && value >= lo && value <= hi) return true;
+                } else {
+                    const n = parseInt(part, 10);
+                    if (Number.isFinite(n) && value === n) return true;
+                }
+            }
+            return false;
+        };
+
+        return matchField(minF, now.getMinutes())
+            && matchField(hourF, now.getHours())
+            && matchField(domF, now.getDate())
+            && matchField(monF, now.getMonth() + 1)
+            && matchField(dowF, now.getDay());
     }
 
     /**
