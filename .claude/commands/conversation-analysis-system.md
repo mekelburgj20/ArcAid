@@ -42,7 +42,8 @@ Relevant Documentation:
 
 **Reference (update occasionally):**
 - `.claude/commands/deploy.md` — Production deployment checklist slash command
-- `.claude/commands/update-docs.md` — Documentation update slash command
+- `.claude/commands/update-docs.md` — Mid-sprint doc audit slash command (drift detection, ADR check). **Does NOT bump versions or roll release-arc copy** — that's `/release-docs`.
+- `.claude/commands/release-docs.md` — Per-release doc sweep slash command (`/release-docs <version>`). Bumps `package.json`, appends `CHANGELOG.md`, rolls `SPRINT_STATUS.md` arc markers (`<!-- LATEST_ARC_START -->` / `<!-- LATEST_ARC_END -->`), bumps `admin-ui/public/sw.js` `CACHE_NAME`.
 - `.claude/commands/review-orchestrator.md` — Multi-pass review orchestrator
 - `.claude/commands/review-ux.md` — UX review agent
 - `.claude/commands/review-design-fidelity.md` — Design fidelity review agent

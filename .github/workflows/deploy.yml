@@ -3,6 +3,16 @@ name: Deploy to Hetzner
 on:
   push:
     branches: [main]
+    paths-ignore:
+      # Doc-only commits don't need a Hetzner rebuild — these files aren't
+      # served by the running app. paths-ignore only suppresses the workflow
+      # when *every* changed file matches; mixed code+doc commits still
+      # deploy. Use workflow_dispatch to force a deploy after a doc-only push.
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - '.claude/**'
+      - 'releases/**'
   workflow_dispatch:
 
 env:

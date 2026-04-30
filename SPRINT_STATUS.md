@@ -11,6 +11,9 @@
 
 - **Trigger:** the user says **"Resume"** (per `ArcAid/CLAUDE.md` Session Start Checklist). Not "Continue".
 - **Current version:** **v2.9.0** — deployed to production 2026-04-29.
+
+<!-- LATEST_ARC_START — /release-docs replaces everything between this marker and LATEST_ARC_END with the new arc, prepending the displaced text into the "Earlier arc (v<previous>)" block below. -->
+
 - **Most recent arc (v2.9.0 — per-row score moderation + multi-slot picker correctness):**
   - **Score moderation gap.** Players had self-delete on the **Global** scoreboard (`DELETE /api/me/global-scores/:scoreId`) but no equivalent for room-scoped scores. Room admins had a backend endpoint (`DELETE /api/rooms/:roomId/admin/games/:gameId/submissions/:submissionId`) but its only UI was on the legacy `AdminGameCard` rendering path which doesn't render once `SCOREBOARD_STYLE` is set — i.e. dead code in production for everyone using the v2.x card system.
   - **Player + admin per-row delete on `GameDetail.tsx`.** Trash icon appears on hover next to each `score_history` row in the per-player history expand. FE gates by decoded JWT claims (`role`, `gameRoomIds`, `discordId`); BE re-checks. Restricted to `source IN ('tournament','sync')`.
@@ -26,6 +29,9 @@
   - **Docs.** CHANGELOG v2.9.0 entry. CLAUDE.md "Score system & identity" section gains the per-row moderation + tombstone subsection; "Patterns worth knowing" gains per-slot picker dedup, Discord pick-game fulfillment, cleanup-race-fix entries. ROADMAP gains two iScored followups (per-score delete cascade + parallel Playwright session interference). SW `CACHE_NAME` walked `arcaid-v42` → `v43` → `v44` across the four deploys in this arc.
   - **Deferred (in ROADMAP Open Followups).** iScored per-score delete (true cascade) — needs DOM details for the iScored admin UI's per-score delete flow. Parallel iScored Playwright sessions step on each other on Wed 22:00 — caller logs success regardless of `deleteGame()` short-circuiting on "not found in dropdown"; symptom 2026-04-29 left CSI + X-Men Wolverine LE on iScored after WG-VPXS cleanup despite the DB marking them HIDDEN.
 - **Build state:** backend `tsc` clean, admin-ui `vite build` clean, **129/129 tests pass**. SW `CACHE_NAME` → `arcaid-v44`.
+
+<!-- LATEST_ARC_END -->
+
 - **Earlier arc (v2.8.0 → v2.8.2 — identity merge forward-attribution + Discord-style display names):**
   - **Original gap (v2.8.0).** Admin Identity-merge re-attributed history but did nothing forward-looking. Future iScored sync of "PBW2023" continued landing as `iscored:PBW2023` — anonymous synthetic. `MergeService.recordMerge` only updated the four score tables and flipped `anonymous_identities.status`; it never wrote to `user_mappings` (the table `ScoreSyncPoller` reads at every poll).
   - **Forward attribution (v2.8.0).** `MergeService.recordMerge` now INSERTs into `user_mappings` inside the merge transaction with a pre-flight `MAPPING_CONFLICT` check. After commit, a best-effort `fetchAvatarHash` (new helper in `src/utils/discord.ts`) seeds `user_profiles.avatar_hash`. `reverseMerge` cleans up: drops the alias row + re-anonymizes any post-merge auto-attributed rows that aren't in the snapshot (special-cases `global_scores.player_id` vs the other tables' `discord_user_id`).
