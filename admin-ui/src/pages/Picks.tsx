@@ -42,10 +42,17 @@ interface AvailabilityData {
 }
 
 interface PendingPick {
+  /** Unique id of the picker placeholder row — needed for React keys when
+   *  one user holds multiple pending picks for the same tournament. */
+  pick_slot_id: string;
   tournament_id: string;
   tournament_name: string;
   picker_type: string;
   picker_designated_at: string;
+  /** The COMPLETED game row this pick is the reward for. NULL only on legacy
+   *  rows from before per-slot DMs (pre-fix collapsed multi-slot wins). */
+  won_game_id?: string | null;
+  won_game_name?: string | null;
 }
 
 interface QueuedGame {
@@ -341,10 +348,13 @@ export default function Picks() {
           </div>
           <div className="divide-y divide-border/20">
             {pickStatus.pendingPicks.map(p => (
-              <div key={`pending-${p.tournament_id}`} className="flex items-center justify-between px-4 py-2.5">
+              <div key={`pending-${p.pick_slot_id}`} className="flex items-center justify-between px-4 py-2.5">
                 <div className="flex items-center gap-2 min-w-0">
                   <Crosshair size={14} className="text-neon-green flex-shrink-0" />
                   <span className="text-xs text-muted truncate">{p.tournament_name}</span>
+                  {p.won_game_name && (
+                    <span className="text-xs text-faint truncate">· won <span className="text-neon-amber">{p.won_game_name}</span></span>
+                  )}
                 </div>
                 <span className="text-xs text-neon-green font-medium flex-shrink-0">Awaiting your pick</span>
               </div>

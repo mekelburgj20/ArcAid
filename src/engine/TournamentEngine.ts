@@ -1160,14 +1160,20 @@ export class TournamentEngine {
                 return;
             }
 
-            // Guard: if this winner already has a pending pick slot, don't create another
+            // Guard: if this winner already has a pending pick for THIS won game,
+            // don't create another. Pre-fix this was scoped to
+            // (tournament, winner) only, which collapsed multi-slot wins
+            // (e.g. Weekly Grind - VPXS max=2: same player winning both slots
+            // got one pick prompt). Scoping by won_game_id lets each slot win
+            // emit its own picker slot + DM, while a re-run of maintenance for
+            // the same (tournament, winner, won_game) still no-ops.
             if (winnerId) {
                 const existingPickerSlot = await db.get(
-                    `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND picker_discord_id = ?`,
-                    tournamentId, winnerId
+                    `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND picker_discord_id = ? AND won_game_id = ?`,
+                    tournamentId, winnerId, activeGame.id
                 );
                 if (existingPickerSlot) {
-                    logInfo(`   -> Winner <@${winnerId}> already has a pending pick slot. Skipping duplicate.`);
+                    logInfo(`   -> Winner <@${winnerId}> already has a pending pick slot for game ${activeGame.name}. Skipping duplicate.`);
                     return;
                 }
             }
@@ -1213,8 +1219,8 @@ export class TournamentEngine {
                     const color = getTournamentColor(tournamentRow.type);
                     const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
                     const embed = new EmbedBuilder()
-                        .setTitle(`No ${term.game} Queued`)
-                        .setDescription(`${winnerMention} — you won! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game}.`)
+                        .setTitle(`Pick Needed — ${activeGame.name}`)
+                        .setDescription(`${winnerMention} — you won **${activeGame.name}**! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game} for this slot.`)
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
                         .setTimestamp();
@@ -1227,14 +1233,17 @@ export class TournamentEngine {
                     deadline: new Date(Date.now() + (tournamentRow.winner_pick_window_min ?? 60) * 60000).toISOString(),
                 });
 
-                // Notify winner it's their turn to pick
+                // Notify winner it's their turn to pick. Per-slot DM — when a
+                // user wins multiple slots in one maintenance run, they get one
+                // turn-to-pick DM per won game so they know exactly which slot
+                // each pick fulfills.
                 import('../services/NotificationService.js').then(({ NotificationService }) => {
                     db.get('SELECT slug FROM game_rooms WHERE id = ?', tournamentRow.game_room_id).then((r: any) => {
                         const link = r?.slug ? NotificationService.buildLink(r.slug, '/picks') : '';
                         NotificationService.notify({
                             userId: winnerId!,
                             type: 'turnToPick',
-                            message: `It's your turn to pick in **${tournamentRow.name}**! You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` or pick from the web.${link ? `\n${link}` : ''}`,
+                            message: `You won **${activeGame.name}** in **${tournamentRow.name}** — it's your turn to pick the next ${term.game} for that slot. You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` or pick from the web.${link ? `\n${link}` : ''}`,
                             roomId: tournamentRow.game_room_id,
                             tournamentId,
                         }).catch(() => {});

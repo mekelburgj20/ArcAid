@@ -536,13 +536,20 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
         const roomId = req.params.roomId as string;
         const discordId = req.user!.discordId!;
 
-        // Unfulfilled win picks (placeholder name)
+        // Unfulfilled win picks (placeholder name). LEFT JOIN to the won game
+        // so the FE can render which slot each pending pick is for — one user
+        // can hold multiple pending picks per tournament when winning multiple
+        // slots in a single maintenance run (e.g. WG-VPXS max=2).
         const pendingPicks = await db.all(`
-            SELECT g.tournament_id, t.name as tournament_name, g.picker_type, g.picker_designated_at
+            SELECT g.id as pick_slot_id, g.tournament_id, t.name as tournament_name,
+                   g.picker_type, g.picker_designated_at,
+                   g.won_game_id, COALESCE(won.display_name, won.name) as won_game_name
             FROM games g
             JOIN tournaments t ON g.tournament_id = t.id
+            LEFT JOIN games won ON won.id = g.won_game_id
             WHERE t.game_room_id = ? AND g.status = 'QUEUED'
               AND g.name = '[Pending Pick]' AND g.picker_discord_id = ?
+            ORDER BY g.picker_designated_at ASC, g.rowid ASC
         `, roomId, discordId);
 
         // Named queued games picked by this user
