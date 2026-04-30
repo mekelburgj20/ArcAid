@@ -171,8 +171,33 @@ export const pickgame: Command = {
             const activeGames = await engine.getActiveGames(tournament.id);
             const hasOpenSlot = activeGames.length < maxSlots;
 
-            if (hasOpenSlot) {
-                // Slot available — create on iScored and activate immediately
+            // Find an outstanding pick reward this user can fulfil. ORDER BY
+            // picker_designated_at ASC matches the FIFO contract from the web
+            // /pick-game route — the oldest [Pending Pick] for this user gets
+            // filled first, so per-slot wins are consumed in win order.
+            const pendingPick = await db.get(
+                `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED'
+                   AND name = '[Pending Pick]' AND picker_discord_id = ?
+                 ORDER BY picker_designated_at ASC, rowid ASC LIMIT 1`,
+                tournament.id, interaction.user.id,
+            );
+
+            let outcome: 'activated' | 'queued' | 'queuedFromPick';
+
+            if (pendingPick && !hasOpenSlot) {
+                // Pending pick + slots full — repurpose the placeholder. queue_order
+                // stays NULL on the row so it sorts ahead of explicit queue games
+                // and activates first at next maintenance.
+                await db.run(
+                    `UPDATE games SET name = ?, style_id = ? WHERE id = ?`,
+                    gameName, styleId || null, pendingPick.id,
+                );
+                outcome = 'queuedFromPick';
+            } else if (hasOpenSlot) {
+                // Slot available — create on iScored and activate immediately. If a
+                // [Pending Pick] placeholder exists for this user/tournament, drop
+                // it inside the same txn so the win is fulfilled (web /pick-game
+                // mirrors this); otherwise it dangles as a stale QUEUED row.
                 await interaction.editReply(`Creating **${gameName}** on iScored... This may take a moment.`);
 
                 const client = new IScoredClient();
@@ -188,29 +213,37 @@ export const pickgame: Command = {
 
                 await db.exec('BEGIN TRANSACTION');
                 try {
+                    if (pendingPick) {
+                        await db.run('DELETE FROM games WHERE id = ?', pendingPick.id);
+                    }
                     await engine.activateGame(tournament.id, gameName, styleId, iscoredId, false);
                     await db.exec('COMMIT');
                 } catch (dbError) {
                     await db.exec('ROLLBACK');
                     throw dbError;
                 }
+                outcome = 'activated';
             } else {
-                // All slots full — queue the game (no iScored creation yet, happens at maintenance)
+                // No pending pick + slots full — queue the game (no iScored
+                // creation yet, happens at maintenance).
                 await engine.queueGame(tournament.id, gameName, styleId, undefined, interaction.user.id);
+                outcome = 'queued';
             }
 
-            logInfo(`User ${interaction.user.tag} picked ${gameName} for ${tournamentName}`);
+            logInfo(`User ${interaction.user.tag} picked ${gameName} for ${tournamentName} (${outcome})`);
 
             // Reorder iScored lineup in background
-            if (hasOpenSlot) {
+            if (outcome === 'activated') {
                 engine.reorderIScoredLineup().catch(() => {});
             }
 
             const color = getTournamentColor(tournament.type);
 
-            const statusText = hasOpenSlot
+            const statusText = outcome === 'activated'
                 ? `**${gameName}** is now active for the **${tournamentName}** tournament — play immediately!`
-                : `**${gameName}** has been queued for the **${tournamentName}** tournament.`;
+                : outcome === 'queuedFromPick'
+                    ? `**${gameName}** will activate next for **${tournamentName}** — your won pick slot will fill at the next rotation.`
+                    : `**${gameName}** has been queued for the **${tournamentName}** tournament.`;
 
             const embed = new EmbedBuilder()
                 .setTitle(`${term.game} Picked!`)
