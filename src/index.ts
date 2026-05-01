@@ -87,8 +87,13 @@ async function bootstrap() {
         //    so it's safe to start even when env-level ISCORED_PUBLIC_URL is
         //    absent — rooms with their own creds still get polled. The poller
         //    itself no-ops when no rooms have iScored enabled.
+        //
+        //    The 10s tick is the cadence at which we check iScored's static
+        //    notification .txt file per account; the costly getAllScores call
+        //    only fires when that file has changed (or every backstop window,
+        //    default 10 min, controlled by ISCORED_API_POLL_BACKSTOP_MS).
         if (process.env.ISCORED_API_ENABLED !== 'false') {
-            const intervalSec = parseInt(process.env.ISCORED_API_POLL_INTERVAL || '30', 10);
+            const intervalSec = parseInt(process.env.ISCORED_API_POLL_INTERVAL || '10', 10);
             ScoreSyncPoller.getInstance().start(intervalSec * 1000);
         }
 

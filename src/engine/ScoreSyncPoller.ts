@@ -1,9 +1,14 @@
 import { logInfo, logError, logWarn, logDebug } from '../utils/logger.js';
 import { IScoredApiClient, IScoredApiGameScores } from './IScoredApiClient.js';
+import { IScoredNotificationGate } from './IScoredNotificationGate.js';
 import { getDatabase } from '../database/database.js';
 import { normalizeSubmitterUserId } from '../services/SubmissionContextService.js';
 
-const DEFAULT_INTERVAL_MS = 30_000; // 30 seconds
+// Tick cadence for the notification-file gate. The actual `getAllScores` call
+// is gated inside `IScoredNotificationGate.shouldSync` so most ticks are a
+// single static .txt fetch. See `IScoredNotificationGate` doc-comment for the
+// background (Daniel Reynolds → Justin Mekelburg, 2026-04-29).
+const DEFAULT_INTERVAL_MS = 10_000; // 10 seconds
 
 /**
  * Polls the iScored API on a configurable interval to keep ArcAid leaderboards
@@ -30,6 +35,7 @@ export class ScoreSyncPoller {
      * successful pollOneAccount for that account.
      */
     private accountConsecutiveErrors = new Map<string, number>();
+    private gate = new IScoredNotificationGate();
 
     static getInstance(): ScoreSyncPoller {
         if (!ScoreSyncPoller.instance) {
@@ -120,10 +126,30 @@ export class ScoreSyncPoller {
             const changedGameIds = new Set<string>();
             let anyAccountSucceeded = false;
 
-            for (const [, { creds, roomIds }] of accounts) {
+            for (const [accountKey, { creds, roomIds }] of accounts) {
                 if (!creds) continue;
                 try {
-                    await this.pollOneAccount(db, creds, roomIds, mappingMap, aliasMap, changedGameIds);
+                    // Gate the expensive getAllScores call behind iScored's
+                    // notification .txt file. Most ticks are a single static
+                    // text fetch; we only run pollOneAccount when the file
+                    // body actually changed (or the backstop interval has
+                    // elapsed, or discovery hasn't resolved a roomID yet).
+                    const roomId = await this.gate.resolveRoomId(
+                        accountKey,
+                        creds.gameroomName,
+                        creds.source === 'env',
+                    );
+                    const notifValue = roomId ? await this.gate.fetchNotification(roomId) : null;
+                    const decision = this.gate.shouldSync(accountKey, notifValue, !!roomId);
+
+                    if (decision.run) {
+                        logDebug(`ScoreSyncPoller[${creds.gameroomName}]: full sync (${decision.reason})`);
+                        await this.pollOneAccount(db, creds, roomIds, mappingMap, aliasMap, changedGameIds);
+                        this.gate.markSynced(accountKey, notifValue);
+                    } else {
+                        logDebug(`ScoreSyncPoller[${creds.gameroomName}]: skip (${decision.reason})`);
+                    }
+
                     anyAccountSucceeded = true;
                     const prior = this.accountConsecutiveErrors.get(creds.gameroomName) ?? 0;
                     if (prior > 0) {

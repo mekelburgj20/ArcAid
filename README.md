@@ -192,7 +192,7 @@ middleware redacts them from request bodies.
 | Max Log Lines | Maximum log lines returned by the API |
 | Backup Retention Days | How many days to keep automatic backups |
 | iScored API Enabled | Use iScored REST API for score sync instead of Playwright (default: true) |
-| iScored API Poll Interval | How often to poll iScored for new scores in seconds (default: 30, hot-reloads on save) |
+| iScored API Poll Interval | How often to check iScored's notification file for changes in seconds (default: 10, hot-reloads on save). The expensive `getAllScores` call only fires when the notification file changes, plus a backstop sync every 10 min (`ISCORED_API_POLL_BACKSTOP_MS`). |
 
 ### Per-Room Settings (Room Admin)
 | Setting | Description |

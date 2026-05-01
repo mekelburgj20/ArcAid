@@ -68,7 +68,9 @@ All web submission paths (`/submit-score`, `/freeplay-score`, `/community-scores
 
 ## iScored integration
 
-`IScoredApiClient` (HTTP, fast) is the default for score read/write. `IScoredClient` (Playwright) is required for game management — hide/create/delete — and is the fallback when the API can't satisfy a call. `ISCORED_API_ENABLED` gates the path. `ScoreSyncPoller` runs continuous background sync (default 30s) with pause/resume during maintenance. Settings hot-reload through `SettingsService`.
+`IScoredApiClient` (HTTP, fast) is the default for score read/write. `IScoredClient` (Playwright) is required for game management — hide/create/delete — and is the fallback when the API can't satisfy a call. `ISCORED_API_ENABLED` gates the path. `ScoreSyncPoller` runs continuous background sync (default 10s tick) with pause/resume during maintenance. Settings hot-reload through `SettingsService`.
+
+**Notification-gated polling (v2.10.0).** Each tick fetches iScored's static `/notifications/rooms/room_<roomID>.txt` per account; the expensive `getAllScores` call only fires when the body changed (or the 10 min backstop elapsed). `IScoredNotificationGate` owns the cache + decision. roomID is auto-discovered from the public `roomCommands.php?c=getRoomInfo&user=<slug>` endpoint at first poll (not under `/api/`, undocumented but used by iScored's own room iframe); `ISCORED_ROOM_ID` env overrides for the env-fallback account only. Discovery failure → one-time WARN + degrade to backstop-only polling for that account. Backstop interval configurable via `ISCORED_API_POLL_BACKSTOP_MS` (default 600000). Background: Daniel Reynolds (iScored) → Justin, 2026-04-29: 500K queries/month vs. 10 actual scores entered prompted the change.
 
 **Deactivate vs. Delete (v2.7.x).** Two distinct admin actions on an ACTIVE game, both surfaced on the Tournaments admin page:
 
