@@ -6,6 +6,7 @@ import GamePickerModal from '../components/GamePickerModal';
 import ImageCropper from '../components/ImageCropper';
 import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
+import { resizeImageToMaxBox } from '../lib/imageResize';
 import { RoomContext } from '../contexts/RoomContext';
 
 interface Style {
@@ -370,16 +371,20 @@ function UploadModal({ uploadPath, onClose, onUploaded }: { uploadPath: string; 
 
   const MAX_SIZE = 30 * 1024 * 1024; // 30 MB
 
-  const handleBgSelect = (file: File | null) => {
+  const handleBgSelect = async (file: File | null) => {
     if (!file) { setBgFile(null); setBgPreview(null); return; }
     if (file.size > MAX_SIZE) {
       toast('Background image must be under 30 MB', 'error');
       return;
     }
-    // Open cropper
-    const url = URL.createObjectURL(file);
-    setCropperSrc(url);
-    setCropperTarget('bg');
+    // Backgrounds skip the cropper — live render uses CSS cover.
+    try {
+      const blob = await resizeImageToMaxBox(file, 1920, 1920);
+      setBgFile(new File([blob], 'background.png', { type: 'image/png' }));
+      setBgPreview(URL.createObjectURL(blob));
+    } catch (err: any) {
+      toast(err?.message || 'Image processing failed', 'error');
+    }
   };
 
   const handleHeaderSelect = (file: File | null) => {

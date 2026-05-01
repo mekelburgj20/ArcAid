@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, X, Image, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import NeonButton from './NeonButton';
 import ImageCropper from './ImageCropper';
+import { resizeImageToMaxBox } from '../lib/imageResize';
 import { api } from '../lib/api';
 
 interface Style {
@@ -306,7 +307,7 @@ function UploadForm({ uploadPath, gameName, onUploaded, onCancel }: {
   const [cropperTarget, setCropperTarget] = useState<'bg' | 'header' | null>(null);
   const [identifierShape, setIdentifierShape] = useState<'square' | 'wide'>('square');
 
-  const handleFileSelect = (file: File | null, target: 'bg' | 'header') => {
+  const handleFileSelect = async (file: File | null, target: 'bg' | 'header') => {
     if (!file) {
       if (target === 'bg') { setBgFile(null); setBgPreview(null); }
       else { setHeaderFile(null); setHeaderPreview(null); }
@@ -314,6 +315,17 @@ function UploadForm({ uploadPath, gameName, onUploaded, onCancel }: {
     }
     if (file.size > MAX_UPLOAD_SIZE) {
       setError('Image must be under 30 MB');
+      return;
+    }
+    if (target === 'bg') {
+      // Backgrounds skip the cropper — live render uses CSS cover.
+      try {
+        const blob = await resizeImageToMaxBox(file, 1920, 1920);
+        setBgFile(new File([blob], 'background.png', { type: 'image/png' }));
+        setBgPreview(URL.createObjectURL(blob));
+      } catch (err: any) {
+        setError(err?.message || 'Image processing failed');
+      }
       return;
     }
     setCropperSrc(URL.createObjectURL(file));

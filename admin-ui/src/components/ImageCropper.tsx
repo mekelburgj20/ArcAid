@@ -78,7 +78,7 @@ export default function ImageCropper({ imageSrc, aspectRatio, maxOutputWidth, on
           <span className="text-xs text-muted w-10">Zoom</span>
           <input
             type="range"
-            min={1}
+            min={0.25}
             max={3}
             step={0.05}
             value={zoom}

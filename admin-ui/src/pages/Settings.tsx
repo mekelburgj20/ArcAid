@@ -14,6 +14,7 @@ import type { PresetDefinition } from '../components/PresetSelector';
 import StyleThemePicker from '../components/scoreboard/StyleThemePicker';
 import ScoreboardPreview from '../components/ScoreboardPreview';
 import ImageCropper from '../components/ImageCropper';
+import { resizeImageToMaxBox } from '../lib/imageResize';
 import { getTitleStyleClass, getTitleSizeClass } from '../components/ScoreboardComponents';
 
 /**
@@ -500,12 +501,7 @@ export default function Settings() {
     setSettings(prev => ({ ...prev, ...preset.settings }));
   };
 
-  const handleBrandingCropConfirm = async (blob: Blob) => {
-    const target = brandingCropTarget;
-    setBrandingCropSrc(null);
-    setBrandingCropTarget(null);
-    if (!target) return;
-
+  const uploadBrandingImage = async (target: 'bg' | 'logo', blob: Blob) => {
     const endpoint = target === 'bg' ? 'background' : 'logo';
     const setUploading = target === 'bg' ? setUploadingBg : setUploadingLogo;
     setUploading(true);
@@ -526,6 +522,14 @@ export default function Settings() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleBrandingCropConfirm = async (blob: Blob) => {
+    const target = brandingCropTarget;
+    setBrandingCropSrc(null);
+    setBrandingCropTarget(null);
+    if (!target) return;
+    await uploadBrandingImage(target, blob);
   };
 
   const handleBrandingCropCancel = () => {
@@ -1233,13 +1237,20 @@ export default function Settings() {
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
                     disabled={uploadingBg}
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       e.target.value = '';
-                      const url = URL.createObjectURL(file);
-                      setBrandingCropSrc(url);
-                      setBrandingCropTarget('bg');
+                      // Backgrounds skip the cropper — the live render uses
+                      // CSS background-size: cover, which adapts any aspect
+                      // to any viewport. We just resize to a sane bounding
+                      // box (1920×1920) preserving aspect.
+                      try {
+                        const blob = await resizeImageToMaxBox(file, 1920, 1920);
+                        await uploadBrandingImage('bg', blob);
+                      } catch (err: any) {
+                        toast(err?.message || 'Image processing failed', 'error');
+                      }
                     }}
                     className="hidden"
                   />
