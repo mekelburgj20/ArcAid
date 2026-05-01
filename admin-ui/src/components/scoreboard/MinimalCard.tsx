@@ -5,6 +5,7 @@ import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
+import { qrBottomMetrics } from '../../lib/scoreboardConfig';
 
 interface MinimalCardProps {
   lb: GameLeaderboard;
@@ -91,10 +92,10 @@ export default function MinimalCard({
   })();
 
   const showQr = qrMode !== 'disabled';
-  const qrBottomOverhang = showQr && qrPosition === 'bottom-center' ? qrSize * 0.8 : 0;
+  const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition);
 
   return (
-    <div style={{ position: 'relative', maxWidth: 380, marginBottom: qrBottomOverhang || undefined }}>
+    <div style={{ position: 'relative', maxWidth: 380, marginBottom: qrMetrics.overhang || undefined }}>
       {/* QR code — top-right, above the card */}
       {showQr && qrPosition === 'top-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
@@ -238,7 +239,7 @@ export default function MinimalCard({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border/30 px-5 flex justify-between items-start relative z-[1]" style={{ paddingTop: 10, paddingBottom: showQr && qrPosition === 'bottom-center' ? Math.round(qrSize * 0.25) + 10 : 10 }}>
+      <div className="border-t border-border/30 px-5 flex justify-between items-start relative z-[1]" style={{ paddingTop: 10, paddingBottom: 10 + qrMetrics.footerExtra }}>
         <a href={`/${slug}/games/${encodeURIComponent(lb.gameName)}`} className="text-xs text-accent hover:text-accent/80 transition-colors">
           Full Leaderboard &rarr;
         </a>
@@ -254,9 +255,9 @@ export default function MinimalCard({
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}
-      {/* QR code — bottom-center with 15% overhang */}
+      {/* QR code — bottom-center, peeks ~10px above the card bottom */}
       {showQr && qrPosition === 'bottom-center' && (
-        <div style={{ position: 'absolute', bottom: -(qrSize * 0.80), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
+        <div style={{ position: 'absolute', bottom: -qrMetrics.overhang, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}

@@ -115,6 +115,38 @@ export function getCardWidth(style: ScoreboardStyle): number {
   return STYLE_WIDTHS[style] || STYLE_WIDTHS.banner;
 }
 
+/**
+ * Geometry for `bottom-center` QR placement on game cards. The QR floats
+ * across the card's bottom edge: most of it hangs below the card, a small
+ * "peek" pokes into the card.
+ *
+ * Returns:
+ *   - `overhang`     px below the card baseline (used for marginBottom AND
+ *                    `bottom: -overhang` on the absolutely-positioned QR)
+ *   - `peek`         px of QR visible inside the card (informational)
+ *   - `footerExtra`  extra bottom padding for the footer to clear the peek
+ *
+ * The peek is the smaller of (a) 10px and (b) 20% of qrSize. The 20% cap
+ * preserves the prior visual for small QR sizes (default 24 → 4.8px peek);
+ * the 10px cap keeps medium/large QRs from eating score rows.
+ */
+const QR_BOTTOM_MAX_PEEK_PX = 10;
+export function qrBottomMetrics(
+  qrSize: number,
+  qrEnabled: boolean,
+  qrPosition: string,
+): { overhang: number; peek: number; footerExtra: number } {
+  if (!qrEnabled || qrPosition !== 'bottom-center' || qrSize <= 0) {
+    return { overhang: 0, peek: 0, footerExtra: 0 };
+  }
+  const peek = Math.min(QR_BOTTOM_MAX_PEEK_PX, qrSize * 0.2);
+  return {
+    overhang: qrSize - peek,
+    peek,
+    footerExtra: Math.round(peek) + 4,
+  };
+}
+
 // ═══════════════════════════════════════════
 // Legacy config (kept temporarily for old GameCard)
 // ═══════════════════════════════════════════

@@ -9,6 +9,7 @@ import ScoreList from './ScoreList';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { CircuitBoardBackground, GlowNodes, ScanlineOverlay, PodiumBackground } from './neonCircuitAssets';
+import { qrBottomMetrics } from '../../lib/scoreboardConfig';
 
 interface ShowcaseCardProps {
   lb: GameLeaderboard;
@@ -95,10 +96,10 @@ export default function ShowcaseCard({
   const floatPadTop = 42;
 
   // Bottom-center QR needs extra bottom margin so next card isn't overlapped
-  const qrBottomOverhang = qrMode !== 'disabled' && qrPosition === 'bottom-center' ? qrSize * 0.8 : 0;
+  const qrMetrics = qrBottomMetrics(qrSize, qrMode !== 'disabled', qrPosition);
 
   return (
-    <div style={{ position: 'relative', paddingTop: floatPadTop, maxWidth: '100%', marginBottom: qrBottomOverhang || undefined }}>
+    <div style={{ position: 'relative', paddingTop: floatPadTop, maxWidth: '100%', marginBottom: qrMetrics.overhang || undefined }}>
       {/* Google Fonts */}
       <link rel="stylesheet" href={theme.googleFontsUrl} />
 
@@ -343,7 +344,7 @@ export default function ShowcaseCard({
           {/* Footer */}
           <div style={{
             borderTop: `1px solid ${cardBgFill ? 'rgba(255,255,255,0.15)' : theme.footerBorder}`,
-            padding: `10px 24px ${qrMode !== 'disabled' && qrPosition === 'bottom-center' ? Math.round(qrSize * 0.25) + 10 : 10}px 24px`,
+            padding: `10px 24px ${10 + qrMetrics.footerExtra}px 24px`,
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'flex-start',
@@ -373,7 +374,7 @@ export default function ShowcaseCard({
       {/* QR code — outside the card shell, above or below */}
       {qrMode !== 'disabled' && (
         qrPosition === 'bottom-center' ? (
-          <div style={{ position: 'absolute', bottom: -(qrSize * 0.80), left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
+          <div style={{ position: 'absolute', bottom: -qrMetrics.overhang, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
             <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
           </div>
         ) : qrPosition === 'bottom-right' ? (
