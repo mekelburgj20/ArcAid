@@ -1,7 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { v4 as uuidv4 } from 'uuid';
 import { logError, logInfo, logWarn } from '../utils/logger.js';
-import { IScoredClient } from './IScoredClient.js';
+import { IScoredSessionRegistry } from './IScoredSessionRegistry.js';
 import { getIScoredCredsForRoom } from '../utils/iscoredCreds.js';
 
 /**
@@ -123,24 +123,23 @@ export async function pinGameToScoreboard(opts: PinGameOptions): Promise<PinGame
         return { gameId, name: opts.gameName, iscoredStatus: 'skipped', iscoredId: null };
     }
 
-    const client = new IScoredClient({ username: creds.username, password: creds.password });
     try {
-        await client.connect();
-        const iscoredId = await client.createGame(opts.gameName, styleId ?? undefined);
-        if (opts.iScoredTags && opts.iScoredTags.length > 0) {
-            try { await client.setGameTags(iscoredId, opts.iScoredTags.join(',')); } catch (tagErr) {
-                logWarn(`Pin: tag set failed for ${iscoredId} — pin kept, tags skipped`, tagErr);
+        const iscoredId = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+            const id = await client.createGame(opts.gameName, styleId ?? undefined);
+            if (opts.iScoredTags && opts.iScoredTags.length > 0) {
+                try { await client.setGameTags(id, opts.iScoredTags.join(',')); } catch (tagErr) {
+                    logWarn(`Pin: tag set failed for ${id} — pin kept, tags skipped`, tagErr);
+                }
             }
-        }
-        try { await client.setGameStatus(iscoredId, { locked: false, hidden: false }); } catch { /* non-fatal */ }
+            try { await client.setGameStatus(id, { locked: false, hidden: false }); } catch { /* non-fatal */ }
+            return id;
+        });
         await db.run('UPDATE games SET iscored_id = ? WHERE id = ?', iscoredId, gameId);
         logInfo(`Pin: iScored game created (${iscoredId}) for local game ${gameId}`);
         return { gameId, name: opts.gameName, iscoredStatus: 'created', iscoredId };
     } catch (err) {
         logError(`Pin: iScored mirroring failed for "${opts.gameName}" — local row kept`, err);
         return { gameId, name: opts.gameName, iscoredStatus: 'failed', iscoredId: null };
-    } finally {
-        await client.disconnect();
     }
 }
 
@@ -168,16 +167,19 @@ export async function unpinGameFromScoreboard(opts: {
     if (opts.deleteOnIScored && row.iscored_id) {
         const creds = await getIScoredCredsForRoom(opts.roomId);
         if (creds) {
-            const client = new IScoredClient({ username: creds.username, password: creds.password });
             try {
-                await client.connect();
-                await client.deleteGame(row.iscored_id, row.name);
-                iscoredStatus = 'deleted';
+                const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
+                    client.deleteGame(row.iscored_id, row.name),
+                );
+                if (deleted) {
+                    iscoredStatus = 'deleted';
+                } else {
+                    logWarn(`Unpin: iScored delete skipped for ${row.iscored_id} (not in dropdown). Local row will still be removed.`);
+                    iscoredStatus = 'failed';
+                }
             } catch (err) {
                 logError(`Unpin: iScored delete failed for ${row.iscored_id}`, err);
                 iscoredStatus = 'failed';
-            } finally {
-                await client.disconnect();
             }
         }
     }

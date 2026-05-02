@@ -5,7 +5,7 @@ import { getTerminology } from '../utils/terminology.js';
 import { Game } from '../types/index.js';
 import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMention } from '../utils/discord.js';
 import { TournamentEngine } from './TournamentEngine.js';
-import { IScoredClient } from './IScoredClient.js';
+// IScoredClient construction is owned by IScoredSessionRegistry.
 import { v4 as uuidv4 } from 'uuid';
 import { parsePlatformsList } from '../utils/platformRules.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
@@ -376,22 +376,27 @@ export class TimeoutManager {
             logInfo(`Auto-selected: ${pick.name} for ${tournament.name}`);
 
             // Create on iScored if credentials are available (per-room → env fallback).
+            // Routes through IScoredSessionRegistry so this fallback path can't
+            // contend with concurrent maintenance fires on the same account
+            // (the timeout cron `* * * * *` overlaps with maintenance crons by
+            // design — picker timeouts naturally fire after a maintenance run
+            // that just created the picker slot).
             let iscoredId: string | null = null;
             const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
             const creds = await getIScoredCredsForRoom(tournament.game_room_id);
 
             if (creds) {
-                const client = new IScoredClient({ username: creds.username, password: creds.password });
+                const { IScoredSessionRegistry } = await import('./IScoredSessionRegistry.js');
                 try {
-                    await client.connect();
-                    iscoredId = await client.createGame(pick.name, pick.style_id || undefined);
-                    await client.setGameTags(iscoredId, tournament.type);
-                    await client.setGameStatus(iscoredId, { locked: false, hidden: false });
+                    iscoredId = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                        const id = await client.createGame(pick.name, pick.style_id || undefined);
+                        await client.setGameTags(id, tournament.type);
+                        await client.setGameStatus(id, { locked: false, hidden: false });
+                        return id;
+                    });
                     logInfo(`   -> Created on iScored: ${pick.name} (ID: ${iscoredId})`);
                 } catch (err) {
                     logError('   -> Failed to create auto-selected game on iScored:', err);
-                } finally {
-                    await client.disconnect();
                 }
             }
 

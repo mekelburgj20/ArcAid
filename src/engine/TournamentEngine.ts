@@ -8,6 +8,8 @@ import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getTerminology } from '../utils/terminology.js';
 import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMention } from '../utils/discord.js';
 import { IScoredClient } from './IScoredClient.js';
+import { IScoredSessionRegistry } from './IScoredSessionRegistry.js';
+import { IScoredCreds } from '../utils/iscoredCreds.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
@@ -233,18 +235,16 @@ export class TournamentEngine {
                 const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
                 const creds = await getIScoredCredsForRoom(row.game_room_id);
                 if (creds) {
-                    const client = new IScoredClient({ username: creds.username, password: creds.password });
                     try {
-                        await client.connect();
-                        await client.setGameStatus(row.iscored_id, { locked: true });
+                        await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                            await client.setGameStatus(row.iscored_id, { locked: true });
+                        });
                         logInfo(`Locked on iScored: ${row.name} (${row.iscored_id})`);
                         iscoredStatus = 'locked';
                     } catch (err) {
                         logError('Failed to lock game on iScored (continuing with DB update):', err);
                         iscoredStatus = 'failed';
                         iscoredError = err instanceof Error ? err.message : String(err);
-                    } finally {
-                        await client.disconnect();
                     }
                 }
             }
@@ -333,18 +333,24 @@ export class TournamentEngine {
                 const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
                 const creds = row.game_room_id ? await getIScoredCredsForRoom(row.game_room_id) : null;
                 if (creds) {
-                    const client = new IScoredClient({ username: creds.username, password: creds.password });
                     try {
-                        await client.connect();
-                        await client.deleteGame(row.iscored_id, row.name);
-                        logInfo(`Deleted on iScored: ${row.name} (${row.iscored_id})`);
-                        iscoredStatus = 'deleted';
+                        const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
+                            client.deleteGame(row.iscored_id, row.name),
+                        );
+                        if (deleted) {
+                            logInfo(`Deleted on iScored: ${row.name} (${row.iscored_id})`);
+                            iscoredStatus = 'deleted';
+                        } else {
+                            // Game wasn't in iScored's dropdown — local row still
+                            // gets deleted, but iScored side stayed (orphan).
+                            logWarn(`iScored delete skipped for ${row.name} (${row.iscored_id}): not in dropdown.`);
+                            iscoredStatus = 'failed';
+                            iscoredError = 'Game not found in iScored dropdown — iScored entity may need manual cleanup.';
+                        }
                     } catch (err) {
                         logError('Failed to delete game on iScored (continuing with DB delete):', err);
                         iscoredStatus = 'failed';
                         iscoredError = err instanceof Error ? err.message : String(err);
-                    } finally {
-                        await client.disconnect();
                     }
                 }
             }
@@ -598,13 +604,38 @@ export class TournamentEngine {
         poller.pause();
 
         try {
-            await this.runMaintenanceWork(tournamentId);
+            // Resolve creds upfront so we can route the entire run through
+            // IScoredSessionRegistry. The registry serializes per-account
+            // operations end-to-end: parallel cron fires on the same iScored
+            // account share a single Playwright session, eliminating the
+            // dropdown-state-flipping contention that caused silent
+            // "not found in dropdown" delete failures (see ROADMAP entry,
+            // 2026-04-29 incident).
+            const db = await getDatabase();
+            const tournamentRow = await db.get(
+                'SELECT game_room_id FROM tournaments WHERE id = ?',
+                tournamentId,
+            );
+            const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+            const creds = await getIScoredCredsForRoom(tournamentRow?.game_room_id);
+
+            if (creds) {
+                await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
+                    this.runMaintenanceWork(tournamentId, client, creds),
+                );
+            } else {
+                await this.runMaintenanceWork(tournamentId, null, null);
+            }
         } finally {
             poller.resume();
         }
     }
 
-    private async runMaintenanceWork(tournamentId: string): Promise<void> {
+    private async runMaintenanceWork(
+        tournamentId: string,
+        client: IScoredClient | null,
+        creds: IScoredCreds | null,
+    ): Promise<void> {
         const db = await getDatabase();
         const tournamentRow = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
         if (!tournamentRow) throw new Error(`Tournament ${tournamentId} not found.`);
@@ -630,26 +661,9 @@ export class TournamentEngine {
             return;
         }
 
-        const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
-        const creds = await getIScoredCredsForRoom(tournamentRow.game_room_id);
-        const hasIscoredCredentials = !!creds;
-        const hasPublicUrl = !!creds?.publicUrl;
-
         // Process each active game slot independently.
         // Each active game pairs with the next available queued game (FIFO).
         const queuedQueue = [...queuedRows]; // mutable copy to consume from
-
-        // Open one iScored session for all operations
-        let client: IScoredClient | null = null;
-        if (creds) {
-            client = new IScoredClient({ username: creds.username, password: creds.password });
-            try {
-                await client.connect();
-            } catch (err) {
-                logError('Failed to connect iScored session for maintenance:', err);
-                client = null;
-            }
-        }
 
         try {
             for (const activeGame of activeGames) {
@@ -714,16 +728,20 @@ export class TournamentEngine {
                 slotsAvailable--;
             }
         } finally {
-            if (client) {
-                try { await client.disconnect(); } catch {}
-            }
+            // Session lifecycle is owned by IScoredSessionRegistry; we never
+            // disconnect the client here. The registry holds it for an idle
+            // TTL so consecutive batch members reuse the same Playwright page.
         }
 
         logInfo(`Maintenance complete for ${tournamentRow.name}`);
 
-        // Reorder iScored lineup based on tournament display_order
+        // Reorder iScored lineup based on tournament display_order. Scope to
+        // this room only — pre-fix this scanned every room's lineup on every
+        // maintenance fire, which was wasteful (running 5 weeklies on the same
+        // room re-ordered the same lineup 5 times). Pass the shared client so
+        // the reorder reuses the registry-managed session.
         try {
-            await this.reorderIScoredLineup();
+            await this.reorderIScoredLineup(tournamentRow.game_room_id ?? undefined, client);
         } catch (err) {
             logWarn('Failed to reorder iScored lineup after maintenance:', err);
         }
@@ -737,19 +755,20 @@ export class TournamentEngine {
         // before maintenance had completed today's active game, leaving the just-
         // completed game stuck in COMPLETED until next Wed). The separate
         // scheduled cleanup cron still fires; it'll just find zero COMPLETED rows
-        // because we already hid them — idempotent, no harm.
+        // because we already hid them — idempotent, no harm. Pass the shared
+        // client so cleanup reuses the maintenance session.
         let cleanupRule: CleanupRule = { mode: 'retain', count: 0 };
         try { cleanupRule = JSON.parse(tournamentRow.cleanup_rule || '{}'); } catch {}
         if (cleanupRule.mode === 'immediate' || cleanupRule.mode === 'retain') {
             try {
-                await this.runCleanup(tournamentId, cleanupRule);
+                await this.runCleanup(tournamentId, cleanupRule, client, creds);
             } catch (err) {
                 logWarn(`Failed to run cleanup for ${tournamentRow.name}:`, err);
             }
         } else if (cleanupRule.mode === 'scheduled' && this.cleanupCronMatchesNow(cleanupRule.cron, cleanupRule.timezone)) {
             try {
                 logInfo(`Running scheduled cleanup inline (cron overlaps with this maintenance run)`);
-                await this.runCleanup(tournamentId, { mode: 'immediate' });
+                await this.runCleanup(tournamentId, { mode: 'immediate' }, client, creds);
             } catch (err) {
                 logWarn(`Failed to run inline scheduled cleanup for ${tournamentRow.name}:`, err);
             }
@@ -1466,7 +1485,12 @@ export class TournamentEngine {
      * - immediate / retain(0): hide all completed games
      * - retain(N): keep the N most recent completed games visible, hide the rest
      */
-    public async runCleanup(tournamentId: string, rule?: CleanupRule): Promise<void> {
+    public async runCleanup(
+        tournamentId: string,
+        rule?: CleanupRule,
+        sharedClient?: IScoredClient | null,
+        sharedCreds?: IScoredCreds | null,
+    ): Promise<void> {
         const db = await getDatabase();
 
         if (!rule) {
@@ -1488,27 +1512,38 @@ export class TournamentEngine {
         const toHide = completed.slice(retainCount);
         if (toHide.length === 0) return;
 
-        // Resolve iScored creds for this tournament's room (per-room → env fallback).
+        // Resolve creds. When called from runMaintenanceWork the caller
+        // already has both the registry-managed client and the creds — reuse
+        // them. When called standalone (runScheduledCleanup or admin), look
+        // up creds and acquire a session via the registry.
         const tournamentRow = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
-        const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
-        const creds = await getIScoredCredsForRoom(tournamentRow?.game_room_id);
+        let creds: IScoredCreds | null = sharedCreds ?? null;
+        if (!sharedClient && sharedCreds === undefined) {
+            const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+            creds = await getIScoredCredsForRoom(tournamentRow?.game_room_id);
+        }
 
-        if (creds) {
-            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
-            const client = new IScoredClient({ username: creds.username, password: creds.password });
-            await client.connect();
-            try {
-                for (const game of toHide) {
-                    try {
-                        await client.deleteGame(game.iscored_id, game.name);
+        const deleteAll = async (client: IScoredClient): Promise<void> => {
+            for (const game of toHide) {
+                try {
+                    const deleted = await client.deleteGame(game.iscored_id, game.name);
+                    if (deleted) {
                         logInfo(`   -> Deleted from iScored: ${game.name}`);
-                    } catch (err) {
-                        logWarn(`   -> Failed to delete ${game.name} from iScored:`, err);
+                    } else {
+                        logWarn(`   -> Cleanup skipped ${game.name} on iScored (not in dropdown). Local row will still be marked HIDDEN.`);
                     }
+                } catch (err) {
+                    logWarn(`   -> Failed to delete ${game.name} from iScored:`, err);
                 }
-            } finally {
-                await client.disconnect();
             }
+        };
+
+        if (sharedClient) {
+            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored (shared session)`);
+            await deleteAll(sharedClient);
+        } else if (creds) {
+            logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
+            await IScoredSessionRegistry.getInstance().withSession(creds, deleteAll);
         } else {
             logInfo(`Cleanup for tournament ${tournamentId}: marking ${toHide.length} completed game(s) as HIDDEN (iScored disabled for room)`);
         }
@@ -1585,7 +1620,10 @@ export class TournamentEngine {
      *
      * If `gameRoomId` is provided, restricts the operation to that room only.
      */
-    public async reorderIScoredLineup(gameRoomId?: string): Promise<void> {
+    public async reorderIScoredLineup(
+        gameRoomId?: string,
+        sharedClient?: IScoredClient | null,
+    ): Promise<void> {
         const db = await getDatabase();
 
         const query = `
@@ -1621,12 +1659,18 @@ export class TournamentEngine {
                 continue;
             }
             logInfo(`Reordering iScored lineup for room ${roomId ?? '(unassigned)'}: ${orderedIds.length} games on account ${creds.gameroomName}`);
-            const client = new IScoredClient({ username: creds.username, password: creds.password });
-            await client.connect();
-            try {
-                await client.repositionLineup(orderedIds);
-            } finally {
-                await client.disconnect();
+
+            // If the caller already holds a session for this room's account,
+            // reuse it. Otherwise route through the registry so we don't open
+            // a parallel session contending with concurrent maintenance.
+            const sharedAccountMatches = sharedClient
+                && roomId === gameRoomId; // shared client is scoped to caller's room
+            if (sharedAccountMatches && sharedClient) {
+                await sharedClient.repositionLineup(orderedIds);
+            } else {
+                await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                    await client.repositionLineup(orderedIds);
+                });
             }
         }
     }

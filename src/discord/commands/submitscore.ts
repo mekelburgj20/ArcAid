@@ -8,7 +8,7 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logInfo, logError } from '../../utils/logger.js';
-import { IScoredClient } from '../../engine/IScoredClient.js';
+// IScoredClient construction is owned by IScoredSessionRegistry.
 import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
@@ -198,14 +198,18 @@ export const submitscore: Command = {
             await fs.writeFile(tempPhotoPath, buffer);
 
             try {
-                // Submit to iScored
-                const client = new IScoredClient();
-                await client.connect();
-                try {
-                    await client.submitScore(game.iscored_id, username!, score, tempPhotoPath);
-                } finally {
-                    await client.disconnect();
+                // Submit to iScored — route through registry so this can't
+                // race with parallel maintenance fires on the same account.
+                const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+                const creds = await getIScoredCredsForRoom(game.game_room_id);
+                if (!creds) {
+                    await interaction.editReply('No iScored credentials configured. Cannot submit.');
+                    return;
                 }
+                const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+                await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                    await client.submitScore(game.iscored_id, username!, score, tempPhotoPath);
+                });
 
                 // Record internally (use sync-compatible ID so sync won't create a duplicate)
                 const submittedByUserId = normalizeSubmitterUserId(interaction.user.id);

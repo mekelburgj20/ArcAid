@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
 import { Command } from './index.js';
 import { logError, logInfo, logWarn } from '../../utils/logger.js';
-import { IScoredClient } from '../../engine/IScoredClient.js';
+// IScoredClient construction is owned by IScoredSessionRegistry.
 import { IScoredApiClient } from '../../engine/IScoredApiClient.js';
 import { getDatabase } from '../../database/database.js';
 import { TOURNAMENT_TAG_KEYS, MANAGED_TAGS } from '../../utils/config.js';
@@ -21,57 +21,63 @@ export const syncstate: Command = {
             const useApi = process.env.ISCORED_API_ENABLED !== 'false';
 
             // 1. Game state reconciliation (Playwright — needs lock/hide status from admin dashboard)
-            const iscored = new IScoredClient();
-            await iscored.connect();
-
-            const allIscoredGames = await iscored.getAllGames();
-            logInfo(`   -> Found ${allIscoredGames.length} total games on iScored.`);
+            const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+            const creds = await getIScoredCredsForRoom(null);
+            if (!creds) {
+                await interaction.editReply('No iScored credentials configured (env fallback missing). Cannot sync.');
+                return;
+            }
+            const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
 
             let managedCount = 0;
             let manualCount = 0;
+            let allIscoredGames: any[] = [];
 
-            for (const iscoredGame of allIscoredGames) {
-                let targetTournamentType: string | null = null;
-                for (const [type, tag] of Object.entries(TOURNAMENT_TAG_KEYS)) {
-                    if (iscoredGame.tags?.some(t => t.toUpperCase() === tag.toUpperCase()) ||
-                        iscoredGame.name.toUpperCase().endsWith(' ' + type.toUpperCase())) {
-                        targetTournamentType = type;
-                        break;
-                    }
-                }
+            await IScoredSessionRegistry.getInstance().withSession(creds, async (iscored) => {
+                allIscoredGames = await iscored.getAllGames();
+                logInfo(`   -> Found ${allIscoredGames.length} total games on iScored.`);
 
-                let localGame = await db.get('SELECT * FROM games WHERE iscored_id = ?', iscoredGame.id);
-
-                if (!localGame) {
-                    logInfo(`   -> Discovering NEW game: ${iscoredGame.name} (ID: ${iscoredGame.id})`);
-
-                    let tournamentId: string | null = null;
-                    if (targetTournamentType) {
-                        const tournament = await db.get('SELECT id FROM tournaments WHERE type = ?', targetTournamentType);
-                        tournamentId = tournament?.id || null;
+                for (const iscoredGame of allIscoredGames) {
+                    let targetTournamentType: string | null = null;
+                    for (const [type, tag] of Object.entries(TOURNAMENT_TAG_KEYS)) {
+                        if (iscoredGame.tags?.some((t: string) => t.toUpperCase() === tag.toUpperCase()) ||
+                            iscoredGame.name.toUpperCase().endsWith(' ' + type.toUpperCase())) {
+                            targetTournamentType = type;
+                            break;
+                        }
                     }
 
-                    localGame = {
-                        id: uuidv4(),
-                        tournament_id: tournamentId,
-                        name: iscoredGame.name,
-                        iscored_id: iscoredGame.id,
-                        status: iscoredGame.isHidden ? 'HIDDEN' : (iscoredGame.isLocked ? 'COMPLETED' : 'ACTIVE')
-                    };
+                    let localGame = await db.get('SELECT * FROM games WHERE iscored_id = ?', iscoredGame.id);
 
-                    await db.run(
-                        'INSERT INTO games (id, tournament_id, name, iscored_id, status) VALUES (?, ?, ?, ?, ?)',
-                        localGame.id, localGame.tournament_id, localGame.name, localGame.iscored_id, localGame.status
-                    );
-                } else {
-                    const newStatus = iscoredGame.isHidden ? 'HIDDEN' : (iscoredGame.isLocked ? 'COMPLETED' : 'ACTIVE');
-                    await db.run('UPDATE games SET status = ?, name = ? WHERE iscored_id = ?', newStatus, iscoredGame.name, iscoredGame.id);
+                    if (!localGame) {
+                        logInfo(`   -> Discovering NEW game: ${iscoredGame.name} (ID: ${iscoredGame.id})`);
+
+                        let tournamentId: string | null = null;
+                        if (targetTournamentType) {
+                            const tournament = await db.get('SELECT id FROM tournaments WHERE type = ?', targetTournamentType);
+                            tournamentId = tournament?.id || null;
+                        }
+
+                        localGame = {
+                            id: uuidv4(),
+                            tournament_id: tournamentId,
+                            name: iscoredGame.name,
+                            iscored_id: iscoredGame.id,
+                            status: iscoredGame.isHidden ? 'HIDDEN' : (iscoredGame.isLocked ? 'COMPLETED' : 'ACTIVE')
+                        };
+
+                        await db.run(
+                            'INSERT INTO games (id, tournament_id, name, iscored_id, status) VALUES (?, ?, ?, ?, ?)',
+                            localGame.id, localGame.tournament_id, localGame.name, localGame.iscored_id, localGame.status
+                        );
+                    } else {
+                        const newStatus = iscoredGame.isHidden ? 'HIDDEN' : (iscoredGame.isLocked ? 'COMPLETED' : 'ACTIVE');
+                        await db.run('UPDATE games SET status = ?, name = ? WHERE iscored_id = ?', newStatus, iscoredGame.name, iscoredGame.id);
+                    }
+
+                    if (targetTournamentType) managedCount++; else manualCount++;
                 }
-
-                if (targetTournamentType) managedCount++; else manualCount++;
-            }
-
-            await iscored.disconnect();
+            });
 
             // 2. Score sync — API preferred (one call), Playwright fallback (per-game scraping)
             let scoresSynced = 0;
@@ -223,11 +229,13 @@ async function syncScoresViaPlaywright(db: any, allIscoredGames: any[]): Promise
     const publicUrl = process.env.ISCORED_PUBLIC_URL;
     if (!publicUrl) return 0;
 
-    const iscored = new IScoredClient();
-    await iscored.connect();
+    const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+    const creds = await getIScoredCredsForRoom(null);
+    if (!creds) return 0;
+    const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
     let scoresSynced = 0;
 
-    try {
+    return await IScoredSessionRegistry.getInstance().withSession(creds, async (iscored) => {
         for (const iscoredGame of allIscoredGames) {
             if (iscoredGame.isHidden) continue;
 
@@ -313,9 +321,6 @@ async function syncScoresViaPlaywright(db: any, allIscoredGames: any[]): Promise
 
             scoresSynced += scores.length;
         }
-    } finally {
-        await iscored.disconnect();
-    }
-
-    return scoresSynced;
+        return scoresSynced;
+    });
 }

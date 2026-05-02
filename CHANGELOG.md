@@ -6,6 +6,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.10.0] — unreleased
+
+**Per-account iScored session registry.** Eliminates the parallel-Playwright-session contention that caused silent `deleteGame` no-ops at Wed 22:00 maintenance fires. Resolves the open ROADMAP entry from the 2026-04-29 incident (CSI / X-Men Wolverine LE / Paranormal / Attack from Mars stayed visible on iScored despite local DB being marked HIDDEN).
+
+### Root cause
+
+iScored treats one logged-in user as one browser session. When 4 weeklies + Daily Grind fire maintenance at the same minute on `rtx_pinball` — all sharing the `mekelburgj@gmail.com` iScored account — each path used to construct its own `IScoredClient`. Multiple Playwright contexts on the same iScored account contend over server-side state. Symptom: the `<select id="selectGame">` dropdown gets repopulated mid-call between `navigateToGamesTab()` and the option lookup, `IScoredClient.deleteGame` finds zero matching options at line 692, logs `Game '<name>' not found in dropdown. Skipping delete.`, and returns. The caller then logged `Deleted from iScored: <name>` regardless because `deleteGame` returned `void` — failure was indistinguishable from success.
+
+### Architectural fix
+
+- **New `IScoredSessionRegistry` (`src/engine/IScoredSessionRegistry.ts`).** Singleton with `withSession(creds, fn)` API. Calls for the same iScored account chain serially: only one `fn` callback runs at a time per account. The underlying `IScoredClient` is held open across consecutive calls within a 1.5s idle TTL so cron-fire batches reuse the same Playwright login (saves ~3-9s per fire when 5 tournaments share an account).
+- **All iScored mutations route through the registry.** Refactored every direct `new IScoredClient()` call site to use `withSession()`: `TournamentEngine` (runMaintenance, runCleanup, runScheduledCleanup, deactivateGame, deleteGameCompletely, reorderIScoredLineup), `TimeoutManager.fallbackToAutoSelection`, `gameCreation.{pinGameToScoreboard,unpinGameFromScoreboard}`, `IScoredSubmitSync`, the four `rooms.ts` admin endpoints, the `admin.ts` backup endpoint, and the four Discord commands (`/activate-game`, `/pick-game`, `/submit-score`, `/sync-state`). The only construction site is now `IScoredSessionRegistry.acquireClient`.
+- **Inline cleanup reuses the maintenance client.** Pre-fix, `runMaintenanceWork` opened one client for slot processing then `runCleanup` opened another — two sequential Playwright sessions per maintenance run, even within a single tournament. Now the same client threads through. `runCleanup` accepts an optional `(sharedClient, sharedCreds)` pair; when present it skips its own registry acquisition.
+- **`reorderIScoredLineup` scoped to one room.** Pre-fix, every maintenance fire reordered every room's lineup (5 weeklies on rtx_pinball = 5× redundant reorders of the same lineup). Now it accepts `(gameRoomId?, sharedClient?)`; the maintenance flow passes its own room and shared client, and the function only reorders that room. Standalone calls preserve the iterate-all-rooms behavior.
+
+### Honest `deleteGame` return value
+
+- **`IScoredClient.deleteGame` now returns `Promise<boolean>`.** Returns `false` when the dropdown short-circuit fires (no matching option), `true` when the delete confirmation modal was driven through. Throws on actual errors.
+- **All callers branch on the result.** `runCleanup` logs `-> Cleanup skipped <name> on iScored (not in dropdown). Local row will still be marked HIDDEN.` instead of the false `Deleted from iScored: <name>`. `deleteGameCompletely` sets `iscoredStatus: 'failed'` with an actionable error (`Game not found in iScored dropdown — iScored entity may need manual cleanup.`) so admin UI surfaces the orphan rather than reporting a fake success.
+
+### Behavior carried forward
+
+- **Per-tournament maintenance mutex** (`maintenanceLocks` in `TournamentEngine`) is preserved — guards re-entry within the same tournament. Cross-tournament serialization is now handled by the registry instead.
+- **`ScoreSyncPoller.pause()/resume()`** is preserved at the `runMaintenanceInternal` level. Concurrent maintenance fires for different tournaments still pause/resume the poller; the registry serialization means the work itself is sequential, so the pause window is well-defined.
+- **`runMaintenanceWork` v2.9.0 inline cleanup behavior** is preserved (cleanup-cron-matches-now still fires inline). Now load-bearing for fewer reasons since registry serialization solves the original race, but kept for belt-and-suspenders.
+
+### Tests
+
+- Build clean (`tsc` + `vite build`), **129/129 tests pass**. No new test files — the registry's chain logic is small and best validated by the next Wed 22:00 maintenance run; the fan-out through every iScored caller is covered by existing route smoke tests.
+
+### Migration / rollout
+
+- **No DB schema changes.**
+- **No frontend changes.** SW `CACHE_NAME` does NOT need a bump — backend-only refactor.
+- **Backwards-compatible deploy.** Drop-in replacement; old code paths and new code paths produce identical correct outputs in the single-fire case. The fix is observable only at concurrent-fire moments (Wed 22:00, Thu/last-day-of-month 22:00 for rtx_pinball).
+
+---
+
 ## [2.9.0] — 2026-04-29
 
 **Per-row score moderation + multi-slot picker correctness.** Two user-visible features and two latent-bug fixes that surfaced during the same arc, shipped as a single minor.

@@ -178,24 +178,32 @@ router.get('/backups', async (req, res) => {
 router.post('/backups', async (req, res) => {
     try {
         const { BackupManager } = await import('../../engine/BackupManager.js');
-        const { IScoredClient } = await import('../../engine/IScoredClient.js');
+        const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
         const manager = BackupManager.getInstance();
-        const client = new IScoredClient();
-        const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
-        if (hasCredentials) {
-            try { await client.connect(); } catch { /* proceed without iScored */ }
+        // Backups currently use only the env-fallback iScored account (legacy
+        // global config). When per-room backups are added, this should iterate
+        // accounts via the registry.
+        const creds = await getIScoredCredsForRoom(null);
+        const runBackup = async (client: import('../../engine/IScoredClient.js').IScoredClient | null) => {
+            const backupPath = await manager.createBackup(client!);
+            return backupPath;
+        };
+        let backupPath: string | null = null;
+        if (creds) {
+            const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+            backupPath = await IScoredSessionRegistry.getInstance().withSession(creds, (client) => runBackup(client));
+        } else {
+            // No iScored creds — pass null and let BackupManager skip the live
+            // iScored capture step. (createBackup currently expects a client;
+            // a future cleanup should make it accept null directly.)
+            const { IScoredClient } = await import('../../engine/IScoredClient.js');
+            const stub = new IScoredClient();
+            backupPath = await manager.createBackup(stub);
         }
-        try {
-            const backupPath = await manager.createBackup(client);
-            if (backupPath) {
-                res.json({ success: true, path: backupPath });
-            } else {
-                res.status(500).json({ error: 'Backup failed' });
-            }
-        } finally {
-            if (hasCredentials) {
-                try { await client.disconnect(); } catch { /* ignore */ }
-            }
+        if (backupPath) {
+            res.json({ success: true, path: backupPath });
+        } else {
+            res.status(500).json({ error: 'Backup failed' });
         }
     } catch (error) {
         logError('API Error (POST /api/admin/backups):', error);

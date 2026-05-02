@@ -677,8 +677,16 @@ export class IScoredClient {
     /**
      * Deletes a game from iScored via the Games tab.
      * Selects the game, clicks Delete, confirms the modal.
+     *
+     * Returns `true` when the delete confirmation modal was driven through to
+     * completion. Returns `false` when the game wasn't present in the
+     * `<select id="selectGame">` dropdown — a no-op skip path that callers
+     * must distinguish from real success (the game is still on iScored,
+     * something needs to retry or surface the failure). Throws on actual
+     * errors during the delete flow.
      */
-    public async deleteGame(gameId: string, gameName?: string): Promise<void> {
+    public async deleteGame(gameId: string, gameName?: string): Promise<boolean> {
+        let deleted = false;
         await this.withScreenshotOnFailure('deleteGame', async () => {
             if (!this.page) throw new Error('Client not connected.');
 
@@ -742,7 +750,9 @@ export class IScoredClient {
             await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
 
             logInfo(`Game '${gameName || gameId}' deleted from iScored.`);
+            deleted = true;
         }, 2);
+        return deleted;
     }
 
     /**

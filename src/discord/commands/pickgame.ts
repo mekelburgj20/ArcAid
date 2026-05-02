@@ -4,7 +4,7 @@ import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
-import { IScoredClient } from '../../engine/IScoredClient.js';
+// IScoredClient construction is owned by IScoredSessionRegistry.
 import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
 import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
@@ -200,16 +200,19 @@ export const pickgame: Command = {
                 // mirrors this); otherwise it dangles as a stale QUEUED row.
                 await interaction.editReply(`Creating **${gameName}** on iScored... This may take a moment.`);
 
-                const client = new IScoredClient();
-                await client.connect();
-                let iscoredId: string;
-                try {
-                    iscoredId = await client.createGame(gameName, styleId);
-                    await client.setGameTags(iscoredId, tournament.type);
-                    await client.setGameStatus(iscoredId, { locked: false, hidden: false });
-                } finally {
-                    await client.disconnect();
+                const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+                const creds = await getIScoredCredsForRoom(tournament.game_room_id);
+                if (!creds) {
+                    await interaction.editReply('No iScored credentials configured for this tournament. Cannot activate.');
+                    return;
                 }
+                const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+                const iscoredId = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                    const id = await client.createGame(gameName, styleId);
+                    await client.setGameTags(id, tournament.type);
+                    await client.setGameStatus(id, { locked: false, hidden: false });
+                    return id;
+                });
 
                 await db.exec('BEGIN TRANSACTION');
                 try {

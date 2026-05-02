@@ -30,7 +30,8 @@ import {
 } from '../schemas.js';
 import { writeLimiter, pickLimiter } from '../rateLimit.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
-import { IScoredClient } from '../../engine/IScoredClient.js';
+// IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
+// sessions via the registry, never directly.
 import { passesplatformRules, parsePlatformsList, resolveSubmittablePlatforms } from '../../utils/platformRules.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
@@ -691,14 +692,16 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
 
                 let iscoredId: string | undefined;
                 if (hasCredentials) {
-                    const client = new IScoredClient();
-                    await client.connect();
-                    try {
-                        iscoredId = await client.createGame(gameLibEntry.name, styleId);
-                        await client.setGameTags(iscoredId, tournament.type);
-                        await client.setGameStatus(iscoredId, { locked: false, hidden: false });
-                    } finally {
-                        await client.disconnect();
+                    const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+                    const credsForPick = await getIScoredCredsForRoom(roomId);
+                    if (credsForPick) {
+                        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+                        iscoredId = await IScoredSessionRegistry.getInstance().withSession(credsForPick, async (client) => {
+                            const id = await client.createGame(gameLibEntry.name, styleId);
+                            await client.setGameTags(id, tournament.type);
+                            await client.setGameStatus(id, { locked: false, hidden: false });
+                            return id;
+                        });
                     }
                 }
 
@@ -706,9 +709,9 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
                 await db.run('DELETE FROM games WHERE id = ?', pendingPick.id);
                 await engine.activateGame(tournamentId, gameLibEntry.name, styleId, iscoredId, false);
 
-                // Reorder iScored lineup in background
+                // Reorder iScored lineup in background, scoped to this room.
                 if (hasCredentials) {
-                    engine.reorderIScoredLineup().catch(() => {});
+                    engine.reorderIScoredLineup(roomId).catch(() => {});
                 }
 
                 logInfo(`Web pick (activated): ${req.user!.username} picked ${gameLibEntry.name} for ${tournament.name}`);
@@ -2569,16 +2572,13 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         const creds = iscoredEnabled ? await getIScoredCredsForRoom(req.params.roomId as string) : null;
         const hasCredentials = !!creds;
         if (hasCredentials) {
-            const { IScoredClient } = await import('../../engine/IScoredClient.js');
-            const client = new IScoredClient({ username: creds.username, password: creds.password });
-            try {
-                await client.connect();
-                iscoredId = await client.createGame(gameName, styleId);
-                await client.setGameTags(iscoredId, tournament.type);
-                await client.setGameStatus(iscoredId, { locked: false, hidden: false });
-            } finally {
-                await client.disconnect();
-            }
+            const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+            iscoredId = await IScoredSessionRegistry.getInstance().withSession(creds!, async (client) => {
+                const id = await client.createGame(gameName, styleId);
+                await client.setGameTags(id, tournament.type);
+                await client.setGameStatus(id, { locked: false, hidden: false });
+                return id;
+            });
         }
 
         await db.exec('BEGIN TRANSACTION');
@@ -2709,10 +2709,11 @@ router.post('/:roomId/iscored/validate', requireAuth, requireRoomAccess('roomId'
                 error: 'No iScored credentials configured for this room (and no environment fallback set).',
             });
         }
-        const { IScoredClient } = await import('../../engine/IScoredClient.js');
-        const client = new IScoredClient({ username: creds.username, password: creds.password });
+        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
         try {
-            await client.connect();
+            // Driving an empty fn through the registry exercises the same
+            // connect path as real work; if creds are bad, withSession throws.
+            await IScoredSessionRegistry.getInstance().withSession(creds, async () => {});
             res.json({ ok: true, username: creds.username });
         } catch (err) {
             res.json({
@@ -2720,8 +2721,6 @@ router.post('/:roomId/iscored/validate', requireAuth, requireRoomAccess('roomId'
                 username: creds.username,
                 error: err instanceof Error ? err.message : 'Login failed',
             });
-        } finally {
-            await client.disconnect();
         }
     } catch (error) {
         logError('API Error (POST rooms/:roomId/iscored/validate):', error);
@@ -4014,20 +4013,23 @@ router.patch('/:roomId/admin/game-states/:gameId/status', requireAuth, requireRo
 
         // Sync to iScored if requested
         if (parsed.syncIScored && game.iscored_id) {
-            const client = new IScoredClient();
-            try {
-                await client.connect();
-                if (parsed.status === 'ACTIVE') {
-                    await client.setGameStatus(game.iscored_id, { locked: false, hidden: false });
-                } else if (parsed.status === 'COMPLETED') {
-                    await client.setGameStatus(game.iscored_id, { locked: true });
-                } else if (parsed.status === 'HIDDEN') {
-                    await client.setGameStatus(game.iscored_id, { hidden: true });
+            const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+            const creds = await getIScoredCredsForRoom(roomId);
+            if (creds) {
+                try {
+                    const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+                    await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                        if (parsed.status === 'ACTIVE') {
+                            await client.setGameStatus(game.iscored_id, { locked: false, hidden: false });
+                        } else if (parsed.status === 'COMPLETED') {
+                            await client.setGameStatus(game.iscored_id, { locked: true });
+                        } else if (parsed.status === 'HIDDEN') {
+                            await client.setGameStatus(game.iscored_id, { hidden: true });
+                        }
+                    });
+                } catch (err) {
+                    logError(`Failed to sync game ${gameId} to iScored:`, err);
                 }
-            } catch (err) {
-                logError(`Failed to sync game ${gameId} to iScored:`, err);
-            } finally {
-                await client.disconnect();
             }
         }
 
@@ -4107,15 +4109,18 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
             const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
             const creds = await getIScoredCredsForRoom(roomId);
             if (creds) {
-                const client = new IScoredClient({ username: creds.username, password: creds.password });
                 try {
-                    await client.connect();
-                    await client.deleteGame(game.iscored_id);
-                    logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
+                    const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+                    const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
+                        client.deleteGame(game.iscored_id, game.name),
+                    );
+                    if (deleted) {
+                        logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
+                    } else {
+                        logWarn(`iScored delete skipped for ${game.name} (${game.iscored_id}): not in dropdown.`);
+                    }
                 } catch (err) {
                     logError(`Failed to delete game ${gameId} from iScored:`, err);
-                } finally {
-                    await client.disconnect();
                 }
             }
         }
@@ -4160,16 +4165,23 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
 
         // Clean up on iScored if the game has an iScored ID
         if (game.iscored_id) {
-            const client = new IScoredClient();
-            try {
-                await client.connect();
-                await client.deleteGame(game.iscored_id);
-                logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
-            } catch (err) {
-                logError(`Failed to delete game ${gameId} from iScored:`, err);
-                // Continue with local deletion even if iScored fails
-            } finally {
-                await client.disconnect();
+            const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+            const creds = await getIScoredCredsForRoom(roomId);
+            if (creds) {
+                try {
+                    const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+                    const deleted = await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
+                        client.deleteGame(game.iscored_id, game.name),
+                    );
+                    if (deleted) {
+                        logInfo(`Deleted game from iScored: ${game.name} (${game.iscored_id})`);
+                    } else {
+                        logWarn(`iScored delete skipped for ${game.name} (${game.iscored_id}): not in dropdown.`);
+                    }
+                } catch (err) {
+                    logError(`Failed to delete game ${gameId} from iScored:`, err);
+                    // Continue with local deletion even if iScored fails
+                }
             }
         }
 
@@ -4211,32 +4223,44 @@ router.post('/:roomId/admin/game-states/:gameId/sync-iscored', requireAuth, requ
         `, gameId, roomId);
         if (!game) return res.status(404).json({ error: 'Game not found in this room' });
 
-        const client = new IScoredClient();
-        try {
-            await client.connect();
-
+        const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(roomId);
+        if (!creds) {
+            return res.status(400).json({ error: 'No iScored credentials configured for this room.' });
+        }
+        // Hoist the iscored_id requirement check out of the withSession
+        // callback — throwing inside the registry callback would propagate as a
+        // generic 500, so do the validation up here and return 400 cleanly.
+        const requiresIscoredId =
+            parsed.action === 'lock' || parsed.action === 'unlock'
+            || parsed.action === 'hide' || parsed.action === 'unhide'
+            || parsed.action === 'delete';
+        if (requiresIscoredId && !game.iscored_id) {
+            return res.status(400).json({ error: 'Game has no iScored ID' });
+        }
+        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+        await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
             switch (parsed.action) {
                 case 'lock':
-                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
                     await client.setGameStatus(game.iscored_id, { locked: true });
                     break;
                 case 'unlock':
-                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
                     await client.setGameStatus(game.iscored_id, { locked: false, hidden: false });
                     break;
                 case 'hide':
-                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
                     await client.setGameStatus(game.iscored_id, { hidden: true });
                     break;
                 case 'unhide':
-                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
                     await client.setGameStatus(game.iscored_id, { hidden: false });
                     break;
-                case 'delete':
-                    if (!game.iscored_id) return res.status(400).json({ error: 'Game has no iScored ID' });
-                    await client.deleteGame(game.iscored_id);
+                case 'delete': {
+                    const deleted = await client.deleteGame(game.iscored_id, game.name);
+                    if (!deleted) {
+                        logWarn(`iScored delete skipped for ${game.name} (${game.iscored_id}): not in dropdown.`);
+                    }
                     await db.run('UPDATE games SET iscored_id = NULL WHERE id = ?', gameId);
                     break;
+                }
                 case 'create': {
                     const styleId = game.style_id || undefined;
                     const newId = await client.createGame(game.name, styleId);
@@ -4244,9 +4268,7 @@ router.post('/:roomId/admin/game-states/:gameId/sync-iscored', requireAuth, requ
                     break;
                 }
             }
-        } finally {
-            await client.disconnect();
-        }
+        });
 
         const { RoomEventService } = await import('../../services/RoomEventService.js');
         await RoomEventService.log(roomId, 'iscored_sync', { gameName: game.name, action: parsed.action });

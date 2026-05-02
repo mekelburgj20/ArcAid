@@ -76,15 +76,11 @@ export async function syncScoreToIScored(opts: {
                 fs.copyFileSync(persistentPhotoPath, tempPhotoPath);
             }
 
-            const { IScoredClient } = await import('../engine/IScoredClient.js');
-            const client = new IScoredClient({ username: creds.username, password: creds.password });
-            await client.connect();
-            try {
+            const { IScoredSessionRegistry } = await import('../engine/IScoredSessionRegistry.js');
+            await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
                 await client.submitScore(activeGame.iscored_id, username, score, tempPhotoPath);
-                logInfo(`iScored Playwright sync: submitted score for "${gameName}" by ${username}`);
-            } finally {
-                await client.disconnect();
-            }
+            });
+            logInfo(`iScored Playwright sync: submitted score for "${gameName}" by ${username}`);
         }
     } catch (err) {
         logError(`iScored sync failed for "${gameName}" by ${username}:`, err);

@@ -4,7 +4,7 @@ import { getDatabase } from '../../database/database.js';
 import { getTerminology } from '../../utils/terminology.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
-import { IScoredClient } from '../../engine/IScoredClient.js';
+// IScoredClient construction is owned by IScoredSessionRegistry.
 import { getTournamentColor } from '../../utils/discord.js';
 import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
 
@@ -89,19 +89,18 @@ export const activategame: Command = {
 
             await interaction.editReply(`Creating **${gameName}** on iScored... This may take a moment.`);
 
-            // Create game on iScored if credentials available
+            // Create game on iScored if credentials available (per-room → env fallback).
             let iscoredId: string | undefined;
-            const hasCredentials = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
-            if (hasCredentials) {
-                const client = new IScoredClient();
-                try {
-                    await client.connect();
-                    iscoredId = await client.createGame(gameName, styleId);
-                    await client.setGameTags(iscoredId, tournament.type);
-                    await client.setGameStatus(iscoredId, { locked: false, hidden: false });
-                } finally {
-                    await client.disconnect();
-                }
+            const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+            const creds = await getIScoredCredsForRoom(tournament.game_room_id);
+            if (creds) {
+                const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+                iscoredId = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                    const id = await client.createGame(gameName, styleId);
+                    await client.setGameTags(id, tournament.type);
+                    await client.setGameStatus(id, { locked: false, hidden: false });
+                    return id;
+                });
             }
 
             // Activate in DB without completing existing active games
