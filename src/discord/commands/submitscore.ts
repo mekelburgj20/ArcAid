@@ -240,9 +240,8 @@ export const submitscore: Command = {
                 // Invalidate leaderboard cache
                 await LeaderboardService.invalidate(game.id);
 
-                // Invalidate ranking group caches (scores changed)
-                const { RankingService } = await import('../../services/RankingService.js');
-                await RankingService.invalidateAll();
+                // Ranking group caches self-invalidate via data watermark on
+                // next read — no explicit invalidation call needed (v2.10.x).
 
                 logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
 

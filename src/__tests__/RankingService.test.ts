@@ -240,4 +240,154 @@ describe('RankingService', () => {
             expect(row).toBeUndefined();
         });
     });
+
+    describe('cache watermark auto-invalidation', () => {
+        // These tests prove the cache self-invalidates on data changes —
+        // no caller needs to remember to invoke invalidate(). Each scenario
+        // mutates the underlying data and verifies the next getRankings()
+        // call reflects the change.
+
+        it('reflects newly inserted scores without an explicit invalidate', async () => {
+            const roomId = await createTestRoom();
+            const tId = await createTestTournament(roomId);
+            const gameId = await createTestGame(tId, { status: 'COMPLETED' });
+            await createTestSubmission(gameId, { username: 'Alice', score: 1000 });
+
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Watermark Insert',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [tId],
+                game_room_id: roomId,
+            });
+
+            // First read populates the cache.
+            const initial = await RankingService.getRankings(groupId);
+            expect(initial).toHaveLength(1);
+            expect(initial[0]!.iscored_username).toBe('Alice');
+
+            // Add a new score directly — no invalidate() call.
+            await createTestSubmission(gameId, { username: 'Bob', score: 2000 });
+
+            // Next read should auto-detect the change via watermark and recompute.
+            const after = await RankingService.getRankings(groupId);
+            expect(after).toHaveLength(2);
+            // Bob's higher score wins #1.
+            expect(after[0]!.iscored_username).toBe('Bob');
+            expect(after[1]!.iscored_username).toBe('Alice');
+        });
+
+        it('drops games when status flips to HIDDEN (post-maintenance scenario)', async () => {
+            const roomId = await createTestRoom();
+            const tId = await createTestTournament(roomId);
+            const game1 = await createTestGame(tId, { name: 'G1', status: 'COMPLETED' });
+            const game2 = await createTestGame(tId, { name: 'G2', status: 'COMPLETED' });
+            await createTestSubmission(game1, { username: 'Alice', score: 1000 });
+            await createTestSubmission(game2, { username: 'Alice', score: 500 });
+
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Watermark Hide',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [tId],
+                game_room_id: roomId,
+            });
+
+            const initial = await RankingService.getRankings(groupId);
+            expect(initial).toHaveLength(1);
+            expect(initial[0]!.breakdown).toHaveLength(2); // Both games count.
+
+            // Simulate post-maintenance cleanup hiding game2 — no invalidate().
+            const { getDatabase } = await import('../database/database.js');
+            const db = await getDatabase();
+            await db.run(`UPDATE games SET status = 'HIDDEN' WHERE id = ?`, game2);
+
+            // Watermark detects eligible_games count drop, recomputes.
+            const after = await RankingService.getRankings(groupId);
+            expect(after).toHaveLength(1);
+            expect(after[0]!.breakdown).toHaveLength(1); // Only G1 remains.
+            expect(after[0]!.breakdown[0]!.game_name).toBe('G1');
+        });
+
+        it('reflects score deletions without an explicit invalidate', async () => {
+            const roomId = await createTestRoom();
+            const tId = await createTestTournament(roomId);
+            const gameId = await createTestGame(tId, { status: 'COMPLETED' });
+            await createTestSubmission(gameId, { username: 'Alice', score: 1000 });
+            await createTestSubmission(gameId, { username: 'Bob', score: 2000 });
+
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Watermark Delete',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [tId],
+                game_room_id: roomId,
+            });
+
+            const initial = await RankingService.getRankings(groupId);
+            expect(initial).toHaveLength(2);
+
+            // Admin "wipe player from game" path — DELETE on submissions.
+            const { getDatabase } = await import('../database/database.js');
+            const db = await getDatabase();
+            await db.run(
+                `DELETE FROM submissions WHERE game_id = ? AND LOWER(iscored_username) = ?`,
+                gameId, 'bob',
+            );
+
+            const after = await RankingService.getRankings(groupId);
+            expect(after).toHaveLength(1);
+            expect(after[0]!.iscored_username).toBe('Alice');
+        });
+
+        it('returns the same cached object when nothing has changed (no recompute)', async () => {
+            const roomId = await createTestRoom();
+            const tId = await createTestTournament(roomId);
+            const gameId = await createTestGame(tId, { status: 'COMPLETED' });
+            await createTestSubmission(gameId, { username: 'Alice', score: 1000 });
+
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Watermark Stable',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [tId],
+                game_room_id: roomId,
+            });
+
+            await RankingService.getRankings(groupId);
+
+            // Capture cache.generated_at — if a recompute happens, it bumps.
+            const { getDatabase } = await import('../database/database.js');
+            const db = await getDatabase();
+            const before = await db.get<{ generated_at: string }>(
+                'SELECT generated_at FROM ranking_groups_cache WHERE ranking_group_id = ?',
+                groupId,
+            );
+
+            // Wait briefly so a real recompute would land a different timestamp.
+            await new Promise(resolve => setTimeout(resolve, 30));
+
+            await RankingService.getRankings(groupId);
+
+            const after = await db.get<{ generated_at: string }>(
+                'SELECT generated_at FROM ranking_groups_cache WHERE ranking_group_id = ?',
+                groupId,
+            );
+
+            // No data changes → watermark matches → cache untouched.
+            expect(after?.generated_at).toBe(before?.generated_at);
+        });
+    });
 });

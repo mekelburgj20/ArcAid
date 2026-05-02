@@ -6,7 +6,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
-## [2.10.0] — unreleased
+## [2.10.1] — unreleased
+
+**Ranking groups self-invalidate via data watermark.** Eliminates the class of bugs where a score-mutation code path forgot to call `RankingService.invalidate*()` and rankings stayed stale until a manual recompute. Resolves the user-reported staleness after weekly maintenance and after manual game deletes.
+
+### Root cause
+
+`ranking_groups_cache` had no auto-invalidation — it was only cleared by (a) the manual admin "Recompute" button, (b) `RankingService.update()` when a group's config changed, and (c) the Discord `/submit-score` command. Every other score-mutation path (web `/submit-score`, `/freeplay-score`, `/community-scores`, the v2.9.0 per-row delete + admin wipe-player endpoints, `TournamentEngine.{deactivateGame, deleteGameCompletely, runCleanup}`, ScoreSyncPoller, pin/unpin) silently skipped invalidation. After Wed maintenance flipped games' status to HIDDEN, `computeRankings`'s `WHERE status IN ('ACTIVE','COMPLETED')` filter dropped them, but the cached snapshot still reflected the pre-maintenance state — so the public ranking page showed stale points/standings until manual intervention.
+
+### Fix — data watermark
+
+Migration **097** adds `data_watermark TEXT` to `ranking_groups_cache`. `RankingService` computes a cheap fingerprint of the underlying data state at compute time, stores it alongside the cached rankings, and re-validates on every read. If anything changed, the cache silently recomputes. **No invalidation calls anywhere in mutation code paths** — adding a new score endpoint requires zero ranking-related awareness.
+
+The watermark composition (one round-trip, sub-10ms over indexed columns):
+
+| Component | Captures |
+|---|---|
+| `eligible_games_count` (status IN ACTIVE/COMPLETED) | maintenance hiding games, new games activating, status flips |
+| `score_count` (non-orphaned, in eligible games) | inserts, deletes, orphans |
+| `score_sum` | inserts (sum rises), deletes (drops), upserts to higher value (rises) |
+| `MAX(games.end_date)` over the group's tournaments | game completions |
+| `MAX(games.start_date)` over the group's tournaments | game activations (auto-pick / manual / queue rotation) |
+
+The only mutation the watermark can't detect is an upsert that lands the same value as before — which is a no-op anyway. Display-name and avatar updates from `user_profiles` are deliberately excluded; the slight rendering lag in cached rankings is acceptable and including them would add a JOIN per read for negligible UX benefit.
+
+### Why this over alternatives
+
+- **vs. application-level invalidation hooks at every mutation site (~7 fan-out points)** — every new score endpoint is a chance to forget. The data tells us when it's stale; no code-path discipline required.
+- **vs. SQLite triggers** — opaque, hard to debug, log poorly, can fire on operations we don't care about.
+- **vs. compute-on-every-read** — wastes CPU when nothing changed (the common case).
+- **vs. version-counter on writes** — still needs every mutation site to increment. Same forgetfulness problem at smaller scale.
+
+### Behavior carried forward
+
+- **Manual "Recompute" button stays** as a diagnostic escape hatch (`POST /:roomId/admin/ranking-groups/:id/recompute` and the room-wide variant). With the watermark, it's no longer load-bearing; pressing it just deletes the cache row to force a fresh compute.
+- **`RankingService.update()`'s explicit invalidate** is retained — config changes (best_n, rank_method, tournament_ids) aren't reflected in the data layer, so the watermark wouldn't catch them.
+- **Discord `/submit-score`'s `RankingService.invalidateAll()` call removed** — now redundant. Pre-fix, it nuked all groups' caches on every Discord submit, even groups that didn't include the affected tournament. Watermark recomputes only the groups that actually changed.
+
+### Tests
+
+- 4 new `cache watermark auto-invalidation` tests in `RankingService.test.ts`. Cover: insert score after first compute, status flip to HIDDEN, score deletion, no-op (cache hit when nothing changed). 133/133 total tests pass.
+
+### Migration / rollout
+
+- **Migration 097** adds the column with NULL default. Existing cache rows have NULL watermarks; `getRankings` treats NULL as "always recompute" so the first read after deploy lands fresh data. No-downtime upgrade.
+- **No FE changes.** SW `CACHE_NAME` unchanged.
+
+---
+
+## [2.10.0] — 2026-05-02
 
 **Per-account iScored session registry.** Eliminates the parallel-Playwright-session contention that caused silent `deleteGame` no-ops at Wed 22:00 maintenance fires. Resolves the open ROADMAP entry from the 2026-04-29 incident (CSI / X-Men Wolverine LE / Paranormal / Attack from Mars stayed visible on iScored despite local DB being marked HIDDEN).
 

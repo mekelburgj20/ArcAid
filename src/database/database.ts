@@ -1292,6 +1292,18 @@ export async function initDatabase(): Promise<Database> {
             );
             CREATE INDEX IF NOT EXISTS idx_deleted_score_suppressions_game ON deleted_score_suppressions(game_id);
         ` },
+
+        // Watermark-based cache validation for ranking_groups_cache. The
+        // cache stores a fingerprint of the underlying data state at compute
+        // time; on read, RankingService recomputes the fingerprint and
+        // invalidates if it differs. Eliminates the class of bugs where a
+        // score-mutation code path forgot to call RankingService.invalidate*()
+        // — the data tells us when it's stale instead. Existing cache rows
+        // get NULL watermark, which never matches a freshly-computed one, so
+        // the first read after deploy forces a recompute (intentional).
+        { name: '097_ranking_groups_cache_watermark', sql: `
+            ALTER TABLE ranking_groups_cache ADD COLUMN data_watermark TEXT;
+        ` },
     ];
 
     for (const migration of migrations) {
