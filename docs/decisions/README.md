@@ -43,3 +43,5 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0009 | [Tournament platform rules are orthogonal (game-level vs submission-level)](0009-tournament-platform-rules-orthogonal.md) | accepted | 2026-04-26 |
 | 0010 | [User identity layer: many-to-one `user_mappings` + `user_profiles` display names](0010-user-identity-and-display-names.md) | accepted | 2026-04-28 |
 | 0011 | [Deleted-score suppression tombstone for sync-resistant moderation](0011-deleted-score-suppression-tombstone.md) | accepted | 2026-04-30 |
+| 0012 | [Per-account iScored Playwright session serialization via `IScoredSessionRegistry`](0012-iscored-session-registry.md) | accepted | 2026-05-02 |
+| 0013 | [Cache validation via data watermark (no manual `invalidate()` in mutation paths)](0013-cache-watermark-validation.md) | accepted | 2026-05-02 |

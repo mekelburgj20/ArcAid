@@ -32,7 +32,7 @@
   - **Tests.** 129/129 passing. No new tests added — the registry's chain logic is small (~40 lines, single-file), and the production validation point is the next concurrent-fire moment (Wed 2026-05-06 22:00 Central or earlier under cron-collision conditions).
   - **No DB / FE changes.** Backend-only refactor. SW `CACHE_NAME` does NOT bump.
   - **One-off prod cleanup pending.** Paranormal (iScored ID 95735) and Attack from Mars (95586) are currently iScored orphans (visible there, no local DB row) from the pre-fix bug. Need manual delete via iScored UI as `mekelburgj@gmail.com` — user has accepted ownership. The fix prevents future occurrences but doesn't reconcile existing orphans.
-- **Build state:** backend `tsc` clean, **133/133 tests pass** (+4 watermark tests in v2.10.1). Admin UI not built (no FE changes). SW `CACHE_NAME` unchanged at `arcaid-v44`.
+- **Build state:** backend `tsc` clean, **133/133 tests pass** (+4 watermark tests in v2.10.1). Admin UI not built (no FE changes). SW `CACHE_NAME` at `arcaid-v47` — unchanged across the v2.10.x backend-only arc; the v44 → v45 → v46 → v47 walk happened in three FE polish commits between v2.9.0 deploy and v2.10.0 deploy (cropper aspect-ratio drop, QR peek tightening, admin-leaderboard hover-button fix).
 
 <!-- LATEST_ARC_END -->
 
