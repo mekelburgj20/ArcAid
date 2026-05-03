@@ -8,6 +8,7 @@ import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import StarRating from '../components/StarRating';
 import StylePicker from '../components/StylePicker';
+import GameInfoModal from '../components/GameInfoModal';
 import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
 
 interface GameRow {
@@ -41,6 +42,41 @@ function parsePlatforms(raw: string): string[] {
     if (Array.isArray(parsed)) return parsed;
   } catch {}
   return raw.split(',').map(t => t.trim()).filter(Boolean);
+}
+
+/**
+ * When a row matched the search but the query doesn't appear in its name,
+ * surface which field caused the match so admins aren't surprised when
+ * "Attack" pulls in a medieval pinball because a table author is
+ * "Franattack50". Returns null for the obvious case (name match) or no
+ * query — in those cases the row needs no annotation.
+ */
+function getMatchReason(g: GameRow, query: string): { field: string; value: string } | null {
+  if (!query) return null;
+  const q = query.toLowerCase();
+  if ((g.name || '').toLowerCase().includes(q)) return null;
+  if ((g.display_name || '').toLowerCase().includes(q)) return null;
+  if ((g.manufacturer || '').toLowerCase().includes(q)) {
+    return { field: 'manufacturer', value: g.manufacturer! };
+  }
+  if (String(g.year || '').includes(q)) {
+    return { field: 'year', value: String(g.year) };
+  }
+  const lists: Array<{ field: string; items: string[] | undefined }> = [
+    { field: 'theme', items: g.themes },
+    { field: 'designer', items: g.designers },
+    { field: 'table author', items: g.table_authors },
+    { field: 'alias', items: g.catalogue_aliases },
+    { field: 'tag', items: g.room_tags },
+  ];
+  for (const { field, items } of lists) {
+    const hit = (items ?? []).find(x => x.toLowerCase().includes(q));
+    if (hit) return { field, value: hit };
+  }
+  if ((g.platforms || '').toLowerCase().includes(q)) {
+    return { field: 'platform', value: g.platforms };
+  }
+  return null;
 }
 
 function PlatformChips({ platforms: raw, roomTags }: { platforms: string; roomTags?: string[] }) {
@@ -355,6 +391,7 @@ export default function GameLibrary() {
   // Tag UX. `tagTarget` drives the per-row Tag dialog; `bulkTagOpen` drives
   // the bulk-tag dialog when selectedIds.size > 0.
   const [tagTarget, setTagTarget] = useState<GameRow | null>(null);
+  const [infoTarget, setInfoTarget] = useState<GameRow | null>(null);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
   const [bulkActivateOpen, setBulkActivateOpen] = useState(false);
   const [bulkPinOpen, setBulkPinOpen] = useState(false);
@@ -1267,6 +1304,7 @@ export default function GameLibrary() {
               ) : (
                 pageRows.map((g) => {
                   const isSelected = !!g.id && selectedIds.has(g.id);
+                  const matchReason = parsedSearch.text ? getMatchReason(g, parsedSearch.text) : null;
                   return (
                     <tr key={g.id ?? `${g.name}|${g.manufacturer ?? ''}|${g.year ?? ''}`} className={`border-b border-border/50 transition-colors ${isSelected ? 'bg-neon-cyan/5' : 'hover:bg-raised/50'}`}>
                       {room && (
@@ -1281,10 +1319,25 @@ export default function GameLibrary() {
                         </td>
                       )}
                       <td className="px-4 py-3">
-                        <div className="font-medium">{g.name}</div>
+                        {g.id ? (
+                          <button
+                            onClick={() => setInfoTarget(g)}
+                            title="View catalogue details"
+                            className="font-medium text-left bg-transparent border-0 p-0 cursor-pointer text-primary hover:text-neon-cyan hover:underline transition-colors"
+                          >
+                            {g.name}
+                          </button>
+                        ) : (
+                          <div className="font-medium">{g.name}</div>
+                        )}
                         {(g.manufacturer || g.year) && (
                           <div className="text-xs text-faint mt-0.5">
                             {[g.manufacturer, g.year].filter(Boolean).join(', ')}
+                          </div>
+                        )}
+                        {matchReason && (
+                          <div className="text-xs text-neon-amber/70 mt-0.5 italic">
+                            matched {matchReason.field}: "{matchReason.value}"
                           </div>
                         )}
                       </td>
@@ -1359,6 +1412,17 @@ export default function GameLibrary() {
           <NeonButton variant="ghost" onClick={() => setBulkPinOpen(true)} className="text-xs px-2 py-1">Pin</NeonButton>
           <button onClick={clearSelection} className="text-xs text-faint hover:text-primary underline ml-2">Clear</button>
         </div>
+      )}
+
+      {/* Catalogue detail popup — opened by clicking a row's title. */}
+      {infoTarget && infoTarget.id && (
+        <GameInfoModal
+          gameId={infoTarget.id}
+          seedName={infoTarget.name}
+          seedManufacturer={infoTarget.manufacturer ?? null}
+          seedYear={infoTarget.year ?? null}
+          onClose={() => setInfoTarget(null)}
+        />
       )}
 
       {/* Per-row Tag editor — chips with × + add input. */}
