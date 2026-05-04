@@ -204,7 +204,7 @@ export const GameCommentSchema = z.object({
 });
 
 export const UpdateGameStateSchema = z.object({
-    status: z.enum(['QUEUED', 'ACTIVE', 'COMPLETED', 'HIDDEN']),
+    status: z.enum(['QUEUED', 'ACTIVE', 'COMPLETED', 'ARCHIVED']),
     syncIScored: z.boolean().default(false),
     confirm: z.literal(true),
 });

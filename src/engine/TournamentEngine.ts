@@ -278,7 +278,7 @@ export class TournamentEngine {
      * personal history — matches the unpin/cascade pattern in ADR 0005.
      *
      * Status guard: caller-controlled. Default behavior allows ACTIVE,
-     * COMPLETED, and QUEUED — anything except already-HIDDEN. Use
+     * COMPLETED, and QUEUED — anything except already-ARCHIVED. Use
      * `requireActive: true` to restrict to ACTIVE rows.
      */
     public async deleteGameCompletely(
@@ -1530,7 +1530,7 @@ export class TournamentEngine {
                     if (deleted) {
                         logInfo(`   -> Deleted from iScored: ${game.name}`);
                     } else {
-                        logWarn(`   -> Cleanup skipped ${game.name} on iScored (not in dropdown). Local row will still be marked HIDDEN.`);
+                        logWarn(`   -> Cleanup skipped ${game.name} on iScored (not in dropdown). Local row will still be marked ARCHIVED.`);
                     }
                 } catch (err) {
                     logWarn(`   -> Failed to delete ${game.name} from iScored:`, err);
@@ -1545,13 +1545,16 @@ export class TournamentEngine {
             logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
             await IScoredSessionRegistry.getInstance().withSession(creds, deleteAll);
         } else {
-            logInfo(`Cleanup for tournament ${tournamentId}: marking ${toHide.length} completed game(s) as HIDDEN (iScored disabled for room)`);
+            logInfo(`Cleanup for tournament ${tournamentId}: marking ${toHide.length} completed game(s) as ARCHIVED (iScored disabled for room)`);
         }
 
-        // Always mark as HIDDEN in DB regardless of iScored
+        // Always mark as ARCHIVED in DB regardless of iScored. ARCHIVED is the
+        // post-cleanup terminal state — the row is kept as a historical anchor
+        // for score_history attribution (Stats and Ranking services read from
+        // status IN ('COMPLETED', 'ARCHIVED')).
         const roomId = tournamentRow?.game_room_id;
         for (const game of toHide) {
-            await db.run('UPDATE games SET status = ? WHERE id = ?', 'HIDDEN', game.id);
+            await db.run('UPDATE games SET status = ? WHERE id = ?', 'ARCHIVED', game.id);
 
             // Clean up score photos for this game
             if (roomId) {

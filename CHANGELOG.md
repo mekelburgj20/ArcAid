@@ -6,6 +6,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.10.2] — unreleased
+
+**Rename game status `HIDDEN` → `ARCHIVED`.** The pre-rename name conflicted with iScored's own "Hidden" concept (game still in lineup, soft-hidden from scoreboard). ArcAid's value actually means "post-cleanup, kept locally as a historical anchor for score attribution." `ARCHIVED` captures that intent.
+
+### Migration 098
+
+```sql
+UPDATE games SET status = 'ARCHIVED' WHERE status = 'HIDDEN';
+```
+
+Idempotent. No CHECK constraint to update — the column is plain TEXT.
+
+### Code surface touched
+
+Pure mechanical rename of the string literal across:
+- `GameStatus` type union (`src/types/index.ts`)
+- `UpdateGameStateSchema` Zod enum (`src/api/schemas.ts`)
+- `TournamentEngine.runCleanup`, log messages, and the doc comment on `deleteGameCompletely` (`src/engine/TournamentEngine.ts`)
+- 14 `('COMPLETED', 'HIDDEN')` clauses in `StatsService` queries
+- `RankingService` test that simulated post-maintenance hiding
+- The two `iscoredGame.isHidden ? 'HIDDEN' : ...` mappings in `/sync-state` (Discord)
+- The admin status-change endpoint at `rooms.ts` (`PATCH /:roomId/admin/game-states/:gameId/status`)
+- `GameStates.tsx` filter chips + badge map and `StatusBadge.tsx`
+
+### UX: ARCHIVED chip + ALL excludes archive
+
+The Game States page's "ALL" chip used to silently include archived rows, but no chip targeted ARCHIVED specifically — so a room with cleaned-up tournaments would show `ACTIVE (0) QUEUED (0) COMPLETED (0)` next to a populated table, which is what surfaced this rename in the first place. Now:
+
+- ALL = ACTIVE + QUEUED + COMPLETED only (matches the page's "rescue" intent)
+- New ARCHIVED chip with its own count
+- Every chip displays its count, including ALL
+- Frontend always fetches every status; chip filtering is client-side so counts stay accurate regardless of which chip is active
+
+### Behavior preserved
+
+- The `setGameStatus(..., { hidden: true })` call to iScored when an admin sets status=ARCHIVED with `syncIScored=true` is unchanged. iScored's API still calls this "hidden"; we just don't conflate the names locally.
+- `Stats` and `Ranking` services continue to read from rows in `('COMPLETED', 'ARCHIVED')`, so historical leaderboards stay coherent across the rename.
+
+---
+
 ## [2.10.1] — unreleased
 
 **Ranking groups self-invalidate via data watermark.** Eliminates the class of bugs where a score-mutation code path forgot to call `RankingService.invalidate*()` and rankings stayed stale until a manual recompute. Resolves the user-reported staleness after weekly maintenance and after manual game deletes.

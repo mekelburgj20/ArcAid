@@ -38,7 +38,7 @@ export interface Tournament {
     runnerupPickWindowMin: number;
 }
 
-export type GameStatus = 'QUEUED' | 'ACTIVE' | 'COMPLETED' | 'HIDDEN';
+export type GameStatus = 'QUEUED' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED';
 
 export interface Game {
     id: string;

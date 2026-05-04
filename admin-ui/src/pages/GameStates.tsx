@@ -25,13 +25,17 @@ interface GameState {
   tournament_id: string;
 }
 
-type StatusFilter = 'ALL' | 'ACTIVE' | 'QUEUED' | 'COMPLETED' | 'HIDDEN';
+type StatusFilter = 'ALL' | 'ACTIVE' | 'QUEUED' | 'COMPLETED' | 'ARCHIVED';
+
+// ALL is "currently meaningful states" — explicitly excludes ARCHIVED
+// (post-cleanup historical anchors). ARCHIVED has its own chip so the page
+// can still surface them, but the default rescue-page view stays focused.
 
 const STATUS_BADGES: Record<string, { color: string }> = {
   ACTIVE:    { color: 'bg-neon-green/20 text-neon-green border-neon-green/30' },
   QUEUED:    { color: 'bg-neon-amber/20 text-neon-amber border-neon-amber/30' },
   COMPLETED: { color: 'bg-muted/20 text-muted border-border' },
-  HIDDEN:    { color: 'bg-red-500/20 text-red-400 border-red-500/30' },
+  ARCHIVED:  { color: 'bg-faint/15 text-faint border-faint/30' },
 };
 
 function formatDate(iso: string | null): string {
@@ -60,9 +64,9 @@ export default function GameStates() {
 
   const fetchGames = async () => {
     try {
-      const data = await api.get<GameState[]>(
-        `/rooms/${room.roomId}/admin/game-states${filter !== 'ALL' ? `?status=${filter}` : ''}`
-      );
+      // Always pull every status; filter chips operate client-side so the
+      // count next to each chip is accurate regardless of the active filter.
+      const data = await api.get<GameState[]>(`/rooms/${room.roomId}/admin/game-states`);
       setGames(data);
     } catch {
       setMessage({ text: 'Failed to load games', type: 'error' });
@@ -74,7 +78,13 @@ export default function GameStates() {
   useEffect(() => {
     setLoading(true);
     fetchGames();
-  }, [room.roomId, filter]);
+  }, [room.roomId]);
+
+  // ALL excludes ARCHIVED (post-cleanup historical anchors). The ARCHIVED
+  // chip is the way in if the admin wants to see them.
+  const displayedGames = filter === 'ALL'
+    ? games.filter(g => g.status !== 'ARCHIVED')
+    : games.filter(g => g.status === filter);
 
   useEffect(() => {
     api.get<{ id: string; name: string }[]>(`/rooms/${room.roomId}/tournaments`)
@@ -261,20 +271,24 @@ export default function GameStates() {
 
       {/* Filter bar */}
       <div className="flex gap-2 mb-4 flex-wrap">
-        {(['ALL', 'ACTIVE', 'QUEUED', 'COMPLETED'] as StatusFilter[]).map(f => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`text-xs px-3 py-1.5 rounded border transition-colors cursor-pointer ${
-              filter === f
-                ? 'border-neon-cyan text-neon-cyan bg-neon-cyan/10'
-                : 'border-border text-muted hover:border-neon-cyan/40'
-            }`}
-          >
-            {f}
-            {f !== 'ALL' && ` (${games.filter(g => g.status === f).length})`}
-          </button>
-        ))}
+        {(['ALL', 'ACTIVE', 'QUEUED', 'COMPLETED', 'ARCHIVED'] as StatusFilter[]).map(f => {
+          const count = f === 'ALL'
+            ? games.filter(g => g.status !== 'ARCHIVED').length
+            : games.filter(g => g.status === f).length;
+          return (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`text-xs px-3 py-1.5 rounded border transition-colors cursor-pointer ${
+                filter === f
+                  ? 'border-neon-cyan text-neon-cyan bg-neon-cyan/10'
+                  : 'border-border text-muted hover:border-neon-cyan/40'
+              }`}
+            >
+              {f} ({count})
+            </button>
+          );
+        })}
       </div>
 
       {/* Force Maintenance */}
@@ -298,7 +312,7 @@ export default function GameStates() {
 
       {/* Games table */}
       <NeonCard>
-        {games.length === 0 ? (
+        {displayedGames.length === 0 ? (
           <p className="text-muted text-sm py-8 text-center">No games found.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -315,7 +329,7 @@ export default function GameStates() {
                 </tr>
               </thead>
               <tbody>
-                {games.map(game => {
+                {displayedGames.map(game => {
                   const badge = STATUS_BADGES[game.status] || STATUS_BADGES.COMPLETED;
                   const isPhantom = game.name === '[Pending Pick]';
                   const isLoading = actionLoading === game.id;

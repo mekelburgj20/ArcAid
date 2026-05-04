@@ -76,7 +76,7 @@ export async function initDatabase(): Promise<Database> {
             name TEXT NOT NULL,
             iscored_id TEXT, -- Link to iScored game ID
             style_id TEXT,   -- iScored style ID
-            status TEXT NOT NULL DEFAULT 'ACTIVE', -- 'QUEUED', 'ACTIVE', 'COMPLETED', 'HIDDEN'
+            status TEXT NOT NULL DEFAULT 'ACTIVE', -- 'QUEUED', 'ACTIVE', 'COMPLETED', 'ARCHIVED' (was 'HIDDEN' pre-v2.10.2)
             picker_discord_id TEXT,
             picker_type TEXT,
             picker_designated_at TEXT,
@@ -1303,6 +1303,17 @@ export async function initDatabase(): Promise<Database> {
         // the first read after deploy forces a recompute (intentional).
         { name: '097_ranking_groups_cache_watermark', sql: `
             ALTER TABLE ranking_groups_cache ADD COLUMN data_watermark TEXT;
+        ` },
+
+        // v2.10.2: rename status enum value HIDDEN -> ARCHIVED. The pre-rename
+        // name conflicted with iScored's own "Hidden" concept (game still in
+        // lineup, soft-hidden from scoreboard) — ArcAid's value actually means
+        // "post-cleanup, kept locally as a historical anchor for score
+        // attribution." ARCHIVED captures that intent. No CHECK constraint to
+        // update; the schema column is plain TEXT. Idempotent re-run is a
+        // no-op once all rows are converted.
+        { name: '098_rename_hidden_status_to_archived', sql: `
+            UPDATE games SET status = 'ARCHIVED' WHERE status = 'HIDDEN';
         ` },
     ];
 

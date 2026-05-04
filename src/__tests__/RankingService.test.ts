@@ -280,7 +280,7 @@ describe('RankingService', () => {
             expect(after[1]!.iscored_username).toBe('Alice');
         });
 
-        it('drops games when status flips to HIDDEN (post-maintenance scenario)', async () => {
+        it('drops games when status flips to ARCHIVED (post-maintenance scenario)', async () => {
             const roomId = await createTestRoom();
             const tId = await createTestTournament(roomId);
             const game1 = await createTestGame(tId, { name: 'G1', status: 'COMPLETED' });
@@ -303,10 +303,10 @@ describe('RankingService', () => {
             expect(initial).toHaveLength(1);
             expect(initial[0]!.breakdown).toHaveLength(2); // Both games count.
 
-            // Simulate post-maintenance cleanup hiding game2 — no invalidate().
+            // Simulate post-maintenance cleanup archiving game2 — no invalidate().
             const { getDatabase } = await import('../database/database.js');
             const db = await getDatabase();
-            await db.run(`UPDATE games SET status = 'HIDDEN' WHERE id = ?`, game2);
+            await db.run(`UPDATE games SET status = 'ARCHIVED' WHERE id = ?`, game2);
 
             // Watermark detects eligible_games count drop, recomputes.
             const after = await RankingService.getRankings(groupId);

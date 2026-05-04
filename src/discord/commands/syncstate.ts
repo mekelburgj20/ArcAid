@@ -63,7 +63,7 @@ export const syncstate: Command = {
                             tournament_id: tournamentId,
                             name: iscoredGame.name,
                             iscored_id: iscoredGame.id,
-                            status: iscoredGame.isHidden ? 'HIDDEN' : (iscoredGame.isLocked ? 'COMPLETED' : 'ACTIVE')
+                            status: iscoredGame.isHidden ? 'ARCHIVED' : (iscoredGame.isLocked ? 'COMPLETED' : 'ACTIVE')
                         };
 
                         await db.run(
@@ -71,7 +71,7 @@ export const syncstate: Command = {
                             localGame.id, localGame.tournament_id, localGame.name, localGame.iscored_id, localGame.status
                         );
                     } else {
-                        const newStatus = iscoredGame.isHidden ? 'HIDDEN' : (iscoredGame.isLocked ? 'COMPLETED' : 'ACTIVE');
+                        const newStatus = iscoredGame.isHidden ? 'ARCHIVED' : (iscoredGame.isLocked ? 'COMPLETED' : 'ACTIVE');
                         await db.run('UPDATE games SET status = ?, name = ? WHERE iscored_id = ?', newStatus, iscoredGame.name, iscoredGame.id);
                     }
 

@@ -3968,7 +3968,7 @@ router.get('/:roomId/admin/game-states', requireAuth, requireRoomAccess('roomId'
                 WHEN 'ACTIVE' THEN 1
                 WHEN 'QUEUED' THEN 2
                 WHEN 'COMPLETED' THEN 3
-                WHEN 'HIDDEN' THEN 4
+                WHEN 'ARCHIVED' THEN 4
               END,
               g.start_date DESC, g.queue_order ASC
         `;
@@ -4023,7 +4023,10 @@ router.patch('/:roomId/admin/game-states/:gameId/status', requireAuth, requireRo
                             await client.setGameStatus(game.iscored_id, { locked: false, hidden: false });
                         } else if (parsed.status === 'COMPLETED') {
                             await client.setGameStatus(game.iscored_id, { locked: true });
-                        } else if (parsed.status === 'HIDDEN') {
+                        } else if (parsed.status === 'ARCHIVED') {
+                            // ARCHIVED is the local terminal state. When the
+                            // admin opts in to syncIScored, ask iScored to soft-
+                            // hide the entry (gentlest cleanup; doesn't delete).
                             await client.setGameStatus(game.iscored_id, { hidden: true });
                         }
                     });
