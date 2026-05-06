@@ -1324,24 +1324,43 @@ export async function initDatabase(): Promise<Database> {
         // and vpxs_manual variants of the same game. Pattern matches
         // 2-5-char all-caps initialism followed by Original or MOD.
         // Real manufacturer names (Williams, Stern, etc.) are untouched.
+        //
+        // Conflict handling: when stripping the prefix would collide with an
+        // existing row at the same (name, type, year) — i.e. there's already
+        // both "Original" and "VPW Original" rows for the same game — the
+        // UPDATE violates idx_global_games_identity. We catch the constraint
+        // error per-row, leave the prefixed row in place, and surface the
+        // count in the log. Admin resolves via the catalogue Merge UI.
         { name: '099_strip_team_prefix_from_manufacturer', handler: async (db) => {
             const rows = await db.all<Array<{ id: string; manufacturer: string | null }>>(
                 `SELECT id, manufacturer FROM global_games WHERE manufacturer IS NOT NULL`
             );
             let updated = 0;
+            let collisions = 0;
             for (const row of rows) {
                 if (!row.manufacturer) continue;
                 const m = row.manufacturer.trim().match(/^[A-Z]{2,5}\s+(Original|MOD)$/i);
-                if (m) {
+                if (!m) continue;
+                try {
                     await db.run(
                         `UPDATE global_games SET manufacturer = ? WHERE id = ?`,
                         m[1], row.id
                     );
                     updated++;
+                } catch (e: unknown) {
+                    const err = e as { code?: string };
+                    if (err?.code === 'SQLITE_CONSTRAINT') {
+                        collisions++;
+                    } else {
+                        throw e;
+                    }
                 }
             }
             // eslint-disable-next-line no-console
-            console.log(`[migration] 099: stripped team prefix from ${updated} global_games row(s)`);
+            console.log(
+                `[migration] 099: stripped team prefix from ${updated} global_games row(s); ` +
+                `${collisions} skipped due to duplicate-collision (resolve via catalogue Merge UI)`
+            );
         } },
     ];
 
