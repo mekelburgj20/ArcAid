@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
-import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink } from 'lucide-react';
+import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge } from 'lucide-react';
 
 interface GlobalGame {
   id: string;
@@ -79,6 +79,7 @@ export default function GlobalCatalogue() {
   const [filterSource, setFilterSource] = useState('');
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<{ source: string; message: string } | null>(null);
+  const [mergeSource, setMergeSource] = useState<GlobalGame | null>(null);
 
   const loadData = useCallback(async () => {
     setLoadError(null);
@@ -204,6 +205,10 @@ export default function GlobalCatalogue() {
       console.error('Failed to delete game:', err);
       setLoadError(err instanceof Error ? err.message : 'Failed to delete game');
     }
+  };
+
+  const handleMergeOpen = (game: GlobalGame) => {
+    setMergeSource(game);
   };
 
   if (loading) return <LoadingState message="Loading catalogue..." />;
@@ -344,6 +349,7 @@ export default function GlobalCatalogue() {
               onToggle={() => setExpandedGame(expandedGame === game.id ? null : game.id)}
               onStatusChange={handleStatusChange}
               onDelete={handleDelete}
+              onMerge={handleMergeOpen}
             />
           ))}
           {games.length === 0 && !loadError && (
@@ -365,6 +371,17 @@ export default function GlobalCatalogue() {
           </div>
         )}
       </NeonCard>
+
+      {mergeSource && (
+        <MergeModal
+          source={mergeSource}
+          onClose={() => setMergeSource(null)}
+          onComplete={async () => {
+            setMergeSource(null);
+            await loadData();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -391,12 +408,14 @@ function GameRow({
   onToggle,
   onStatusChange,
   onDelete,
+  onMerge,
 }: {
   game: GlobalGame;
   expanded: boolean;
   onToggle: () => void;
   onStatusChange: (id: string, status: string) => void;
   onDelete: (id: string) => void;
+  onMerge: (game: GlobalGame) => void;
 }) {
   const platforms: string[] = JSON.parse(game.platforms || '[]');
   const statusBadge = {
@@ -453,7 +472,7 @@ function GameRow({
             </a>
           )}
 
-          <div className="flex gap-2 pt-2">
+          <div className="flex gap-2 pt-2 flex-wrap">
             {game.status !== 'approved' && (
               <NeonButton variant="primary" onClick={() => onStatusChange(game.id, 'approved')} className="text-xs py-1 px-3 flex items-center gap-1">
                 <Check size={12} /> Approve
@@ -464,6 +483,9 @@ function GameRow({
                 <X size={12} /> Reject
               </NeonButton>
             )}
+            <NeonButton variant="secondary" onClick={() => onMerge(game)} className="text-xs py-1 px-3 flex items-center gap-1">
+              <GitMerge size={12} /> Merge into…
+            </NeonButton>
             <NeonButton variant="danger" onClick={() => onDelete(game.id)} className="text-xs py-1 px-3 flex items-center gap-1">
               <Trash2 size={12} /> Delete
             </NeonButton>
@@ -495,4 +517,203 @@ function formatDate(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+/**
+ * Merge dialog. The clicked row is the SOURCE; the admin picks a target from
+ * a search-driven candidate list. The source is deleted on commit and its
+ * content (download URLs, themes, designers, table authors, features,
+ * description, images) is unioned onto the target via GlobalGameService.merge.
+ *
+ * UX guidance shown in the modal: pick the row WITH the external IDs as
+ * target — the merge primitive only fills target gaps from source, so picking
+ * the rich row as source loses iScored sync hooks (vps_id / opdb_id).
+ */
+function MergeModal({
+  source,
+  onClose,
+  onComplete,
+}: {
+  source: GlobalGame;
+  onClose: () => void;
+  onComplete: () => void;
+}) {
+  const [search, setSearch] = useState(source.name);
+  const [candidates, setCandidates] = useState<GlobalGame[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<GlobalGame | null>(null);
+
+  // Esc closes
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // Debounced search against the same endpoint the catalogue list uses.
+  useEffect(() => {
+    const term = search.trim();
+    if (!term) { setCandidates([]); return; }
+    const handle = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await api.get<{ data: GlobalGame[] }>(
+          '/admin/catalogue/games' + buildQuery({ search: term, limit: '25' })
+        );
+        // Hide the source itself from the candidate list.
+        setCandidates((res.data || []).filter(g => g.id !== source.id));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Search failed');
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [search, source.id]);
+
+  const runMerge = async () => {
+    if (!confirmTarget) return;
+    setMerging(true);
+    setError(null);
+    try {
+      await api.post('/admin/catalogue/games/merge', {
+        targetId: confirmTarget.id,
+        sourceId: source.id,
+      });
+      onComplete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Merge failed');
+      setMerging(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="bg-surface border border-border rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between p-5 border-b border-border sticky top-0 bg-surface z-10">
+          <div>
+            <h2 className="font-display text-xl font-bold text-primary">Merge into…</h2>
+            <p className="text-sm text-muted mt-1">
+              Source: <span className="text-primary">{source.name}</span>
+              {source.manufacturer && <> ({source.manufacturer}{source.year ? `, ${source.year}` : ''})</>}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer p-1 -mr-1 -mt-1"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="text-xs text-muted bg-raised/40 border border-border rounded p-3">
+            <p className="mb-1">
+              <span className="text-neon-amber font-medium">Pick the row WITH external IDs (vps_id, opdb_id, ipdb_url) as the target.</span>
+            </p>
+            <p>
+              The source is deleted; its data is unioned onto target. Platforms,
+              themes, designers, table authors, download/tutorial/rules URLs all
+              merge. Target keeps its name, manufacturer, year, and existing IDs.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs text-muted block mb-1">Find target</label>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              autoFocus
+              placeholder="Search by name…"
+              className="w-full bg-surface-alt border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-neon-cyan"
+            />
+          </div>
+
+          {error && (
+            <div className="text-sm p-2 rounded bg-red-900/30 text-red-300 border border-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            {searching && <p className="text-muted text-xs">Searching…</p>}
+            {!searching && candidates.length === 0 && search.trim() && (
+              <p className="text-muted text-xs">No other rows match.</p>
+            )}
+            {candidates.map(c => {
+              const platforms: string[] = JSON.parse(c.platforms || '[]');
+              const ids = [
+                c.vps_id ? `vps:${c.vps_id.slice(0, 6)}…` : null,
+                c.opdb_id ? `opdb:${c.opdb_id.slice(0, 6)}…` : null,
+                c.igdb_id ? `igdb:${c.igdb_id}` : null,
+              ].filter(Boolean);
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setConfirmTarget(c)}
+                  className="w-full text-left bg-surface-alt rounded border border-border p-3 hover:border-neon-cyan/40 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{c.name}</span>
+                    {c.manufacturer && (
+                      <span className="text-muted text-xs">
+                        ({c.manufacturer}{c.year ? `, ${c.year}` : ''})
+                      </span>
+                    )}
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-surface text-muted ml-auto">
+                      {c.imported_from || 'manual'}
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted mt-1 flex gap-3 flex-wrap">
+                    {platforms.length > 0 && <span>platforms: {platforms.join(', ')}</span>}
+                    {ids.length > 0 && (
+                      <span className="text-neon-cyan">{ids.join(' · ')}</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {confirmTarget && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4"
+            onClick={e => { if (e.target === e.currentTarget && !merging) setConfirmTarget(null); }}
+          >
+            <div className="bg-surface border border-border rounded-lg shadow-2xl w-full max-w-md p-5">
+              <h3 className="font-display text-lg font-bold mb-2">Confirm merge</h3>
+              <p className="text-sm text-muted mb-4">
+                Merge <span className="text-primary font-medium">{source.name}</span>
+                {' '}into <span className="text-primary font-medium">{confirmTarget.name}</span>?
+              </p>
+              <p className="text-xs text-muted mb-4">
+                Source row will be deleted. Scores, library links, ratings,
+                comments, and tags move to target. Target's external IDs are
+                preserved; gaps fill from source.
+              </p>
+              <div className="flex justify-end gap-2">
+                <NeonButton variant="ghost" onClick={() => setConfirmTarget(null)} disabled={merging}>
+                  Cancel
+                </NeonButton>
+                <NeonButton variant="danger" onClick={runMerge} disabled={merging}>
+                  {merging ? 'Merging…' : 'Merge'}
+                </NeonButton>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

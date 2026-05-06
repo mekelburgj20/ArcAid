@@ -1315,6 +1315,34 @@ export async function initDatabase(): Promise<Database> {
         { name: '098_rename_hidden_status_to_archived', sql: `
             UPDATE games SET status = 'ARCHIVED' WHERE status = 'HIDDEN';
         ` },
+
+        // v2.11.0: strip community team-attribution prefix from existing
+        // global_games.manufacturer values. The Wizard README format writes
+        // "VPW Original" / "VPDB MOD" to credit the team that built the
+        // digital recreation, but VPS stores the same machine with plain
+        // "Original" / "MOD" — the mismatch was blocking dedup between vpx
+        // and vpxs_manual variants of the same game. Pattern matches
+        // 2-5-char all-caps initialism followed by Original or MOD.
+        // Real manufacturer names (Williams, Stern, etc.) are untouched.
+        { name: '099_strip_team_prefix_from_manufacturer', handler: async (db) => {
+            const rows = await db.all<Array<{ id: string; manufacturer: string | null }>>(
+                `SELECT id, manufacturer FROM global_games WHERE manufacturer IS NOT NULL`
+            );
+            let updated = 0;
+            for (const row of rows) {
+                if (!row.manufacturer) continue;
+                const m = row.manufacturer.trim().match(/^[A-Z]{2,5}\s+(Original|MOD)$/i);
+                if (m) {
+                    await db.run(
+                        `UPDATE global_games SET manufacturer = ? WHERE id = ?`,
+                        m[1], row.id
+                    );
+                    updated++;
+                }
+            }
+            // eslint-disable-next-line no-console
+            console.log(`[migration] 099: stripped team prefix from ${updated} global_games row(s)`);
+        } },
     ];
 
     for (const migration of migrations) {

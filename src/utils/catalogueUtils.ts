@@ -23,6 +23,15 @@ const PUNCTUATION = /[^\w\s-]/g;
 const MULTI_SPACE = /\s+/g;
 
 /**
+ * Hyphen surrounded by whitespace — almost always a separator (e.g.
+ * "Ace Ventura - Pet Detective" vs "Ace Ventura Pet Detective"). Replaced
+ * with a single space before the rest of the pipeline. Hyphens between
+ * letters ("Spider-Man", "X-Men") have no surrounding whitespace and are
+ * untouched.
+ */
+const SEPARATOR_HYPHEN = /\s+-\s+/g;
+
+/**
  * Normalizes a game name for dedup matching.
  *
  * Algorithm:
@@ -45,6 +54,11 @@ export function normalizeGameName(name: string): string {
 
     // Strip edition suffixes
     result = result.replace(EDITION_SUFFIXES, '');
+
+    // Collapse whitespace-surrounded hyphens to a single space (separator
+    // case). Run before PUNCTUATION so the hyphen is gone before the
+    // hyphen-preserving punctuation regex sees it.
+    result = result.replace(SEPARATOR_HYPHEN, ' ');
 
     // Strip punctuation except hyphens
     result = result.replace(PUNCTUATION, '');

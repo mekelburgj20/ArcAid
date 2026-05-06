@@ -275,6 +275,23 @@ async function downloadWizardImagesInBackground(
 }
 
 /**
+ * Strips a community team-attribution prefix from a manufacturer string when
+ * the underlying value is just "Original" or "MOD". The README writes things
+ * like "VPW Original" or "VPDB MOD" to credit the team that built the digital
+ * recreation, but VPS stores the same machine with manufacturer="Original" /
+ * "MOD". The mismatch was preventing dedup from collapsing vpx + vpxs_manual
+ * variants of the same game.
+ *
+ * Restricts to short all-caps initialisms (2-5 chars) followed by Original or
+ * MOD so real manufacturer names like "Williams" or "Stern" are untouched.
+ */
+function stripTeamPrefix(mfg: string | undefined): string | undefined {
+    if (!mfg) return mfg;
+    const m = mfg.trim().match(/^[A-Z]{2,5}\s+(Original|MOD)$/i);
+    return m ? m[1] : mfg;
+}
+
+/**
  * Parses manufacturer and year from a name like "Table Name (Manufacturer Year)".
  */
 function parseNameParts(name: string): { baseName: string; manufacturer?: string; year?: number } {
@@ -289,7 +306,8 @@ function parseNameParts(name: string): { baseName: string; manufacturer?: string
     const year = yearMatch?.[1] ? parseInt(yearMatch[1], 10) : undefined;
 
     // Everything else is manufacturer
-    const manufacturer = parens.replace(/\d{4}/, '').replace(/,\s*$/, '').replace(/^\s*,/, '').trim() || undefined;
+    const rawMfg = parens.replace(/\d{4}/, '').replace(/,\s*$/, '').replace(/^\s*,/, '').trim() || undefined;
+    const manufacturer = stripTeamPrefix(rawMfg);
 
     return { baseName, manufacturer, year };
 }

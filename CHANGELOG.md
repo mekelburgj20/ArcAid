@@ -6,6 +6,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.11.0] — unreleased
+
+**Catalogue dedup: merge vpx + vpxs_manual variants of the same game.** The Wizard importer's `(VPW Original 2022)` parenthetical was producing manufacturer mismatches against VPS's plain `Original`, blocking step-4 dedup. Hyphen-as-separator names like `Ace Ventura - Pet Detective` vs `Ace Ventura Pet Detective` weren't normalizing equal either. Plus the existing `merge` primitive was throwing away the source row's `table_download_urls`, `themes`, `designers`, `table_authors`, etc. — exactly the data admins want to keep on the surviving row.
+
+### `GlobalGameService.merge` now actually unions data
+
+Before this release, `merge` only cascaded FK references (scores, library links, games table) and unioned `platforms`. Source's content arrays and scalar fields were dropped on `DELETE FROM global_games`.
+
+Now the merge primitive:
+
+- **Cascades** `global_scores`, `global_leaderboard_cache`, `game_room_game_library`, `games`, plus the previously-missing `global_game_ratings` (UNIQUE-constraint-aware), `global_game_comments`, and `room_game_tags` (PRIMARY-KEY-aware).
+- **Unions** the target's content from the source: `platforms`, `themes`, `designers`, `table_authors`, `features` (string arrays); `table_download_urls`, `tutorial_urls`, `rules_urls` (object arrays, deduped by `.url` so re-merging is idempotent).
+- **Fills target gaps** from source for `description`, `image_url`, `local_image_path`, `wheel_image_path`, `source_rating`, `source_updated_at`, plus the existing external IDs (`opdb_id`, `vps_id`, `igdb_id`, `ipdb_url`, `external_url`).
+- **Never** pulls identity fields from source: `name`, `display_name`, `manufacturer`, `year`, `subtype`, `players` belong to the target.
+
+The clicking-Blood-Machines-game-detail-shows-vpxs_manual-download path the user asked for falls out for free: both download URLs now coexist in `target.table_download_urls`.
+
+### Merge UI on the Browse Games admin page
+
+Per-row Merge button next to Reject/Delete, opens a search-driven target picker. Modal warns that target's external IDs (vps_id, opdb_id) are preserved and source is deleted, so the admin should pick the rich row as target. Source self-filters out of candidate list.
+
+### Dedup prevention for new imports
+
+- **`normalizeGameName`** now collapses whitespace-surrounded hyphens (`Ace Ventura - Pet Detective` → `ace ventura pet detective`). Hyphens between letters (`Spider-Man`, `X-Men`) untouched. Run before the existing punctuation pass.
+- **`WizardImportService.parseNameParts`** strips short all-caps team prefix when manufacturer is `<TEAM> Original` or `<TEAM> MOD` (matches `[A-Z]{2,5}\s+(Original|MOD)`). `VPW Original` → `Original`, `VPDB MOD` → `MOD`. Real manufacturer names (`Williams`, `Stern`) are case-mixed and left alone.
+
+### Migration 099
+
+```ts
+// Strips team prefix from existing global_games rows so the next Wizard
+// import can find them via concrete (mfg, year) match instead of inserting
+// new rows alongside.
+UPDATE global_games SET manufacturer = '<stripped>' WHERE manufacturer matches /^[A-Z]{2,5}\s+(Original|MOD)$/i
+```
+
+Idempotent re-run: subsequent runs find no matching rows.
+
+### Risks and mitigations
+
+- **`normalizeGameName` change affects every existing row.** New "concrete match" hits between previously-distinct rows could cause the next sync to merge things that shouldn't merge. Spot-check by running a Wizard sync after deploy and watching `imported_from='wizard'` counts; if `updated` jumps unexpectedly, investigate.
+- **Merge UI's target picker uses the existing `/admin/catalogue/games` search endpoint.** No new endpoint, no new auth surface.
+- **Existing `POST /admin/catalogue/games/merge` semantics changed.** Anyone calling it gets the enhanced behavior; the only existing caller is the catalogue-approval pending flow, which benefits from preserving more data.
+
+---
+
 ## [2.10.2] — unreleased
 
 **Rename game status `HIDDEN` → `ARCHIVED`.** The pre-rename name conflicted with iScored's own "Hidden" concept (game still in lineup, soft-hidden from scoreboard). ArcAid's value actually means "post-cleanup, kept locally as a historical anchor for score attribution." `ARCHIVED` captures that intent.

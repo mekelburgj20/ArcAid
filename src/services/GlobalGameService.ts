@@ -759,8 +759,20 @@ export class GlobalGameService {
     }
 
     /**
-     * Merges source game into target game, cascading across all related tables.
-     * The source game is deleted after merge.
+     * Merges source game into target game. Cascades all FK references across
+     * related tables, unions the source's content (themes, designers, table
+     * authors, features, download/tutorial/rules URLs) into the target, fills
+     * scalar content gaps on the target (description, images, source_rating),
+     * then deletes the source row.
+     *
+     * Identity fields (name, display_name, manufacturer, year, subtype,
+     * players) are NEVER pulled from source — the target keeps its identity.
+     * External IDs (opdb_id, vps_id, igdb_id, ipdb_url) are filled when the
+     * target is missing one and the source has it.
+     *
+     * Object-array merges (table_download_urls, tutorial_urls, rules_urls)
+     * dedup by `.url` so re-running the merge is idempotent and you don't
+     * accumulate duplicate links.
      */
     static async merge(targetId: string, sourceId: string): Promise<{ scoresMoved: number }> {
         const db = await getDatabase();
@@ -768,34 +780,63 @@ export class GlobalGameService {
 
         await db.exec('BEGIN TRANSACTION');
         try {
-            // Move global_scores from source to target
+            // --- FK cascades ---
+
+            // global_scores: move to target.
             const scoreResult = await db.run(
                 `UPDATE global_scores SET global_game_id = ? WHERE global_game_id = ?`,
                 targetId, sourceId
             );
             scoresMoved = scoreResult.changes ?? 0;
 
-            // Move score_reports (via score_id — indirect, but update if score references change)
-
-            // Move global_leaderboard_cache
+            // global_leaderboard_cache: drop source's entry (rebuilds on next read).
             await db.run(
                 `DELETE FROM global_leaderboard_cache WHERE global_game_id = ?`,
                 sourceId
             );
 
-            // Update game_room_game_library links
+            // game_room_game_library / games: simple FK updates.
             await db.run(
                 `UPDATE game_room_game_library SET global_game_id = ? WHERE global_game_id = ?`,
                 targetId, sourceId
             );
-
-            // Update games table links
             await db.run(
                 `UPDATE games SET global_game_id = ? WHERE global_game_id = ?`,
                 targetId, sourceId
             );
 
-            // Merge external IDs from source into target (fill gaps)
+            // global_game_ratings has UNIQUE(global_game_id, discord_user_id).
+            // OR IGNORE moves rows where the user hasn't already rated the
+            // target; the leftover source rows (where they had) are dropped
+            // with a follow-up DELETE so the source is fully cleared.
+            await db.run(
+                `UPDATE OR IGNORE global_game_ratings SET global_game_id = ? WHERE global_game_id = ?`,
+                targetId, sourceId
+            );
+            await db.run(
+                `DELETE FROM global_game_ratings WHERE global_game_id = ?`,
+                sourceId
+            );
+
+            // global_game_comments has no UNIQUE constraint — plain move.
+            await db.run(
+                `UPDATE global_game_comments SET global_game_id = ? WHERE global_game_id = ?`,
+                targetId, sourceId
+            );
+
+            // room_game_tags has PRIMARY KEY (game_room_id, global_game_id, tag).
+            // Same pattern as ratings — OR IGNORE then sweep.
+            await db.run(
+                `UPDATE OR IGNORE room_game_tags SET global_game_id = ? WHERE global_game_id = ?`,
+                targetId, sourceId
+            );
+            await db.run(
+                `DELETE FROM room_game_tags WHERE global_game_id = ?`,
+                sourceId
+            );
+
+            // --- Data union onto target ---
+
             const source = await db.get('SELECT * FROM global_games WHERE id = ?', sourceId) as GlobalGame;
             if (source) {
                 const target = await db.get('SELECT * FROM global_games WHERE id = ?', targetId) as GlobalGame;
@@ -803,17 +844,52 @@ export class GlobalGameService {
                     const updates: string[] = [];
                     const updateParams: any[] = [];
 
+                    // External IDs — fill gaps only.
                     if (!target.opdb_id && source.opdb_id) { updates.push('opdb_id = ?'); updateParams.push(source.opdb_id); }
                     if (!target.vps_id && source.vps_id) { updates.push('vps_id = ?'); updateParams.push(source.vps_id); }
                     if (!target.igdb_id && source.igdb_id) { updates.push('igdb_id = ?'); updateParams.push(source.igdb_id); }
                     if (!target.ipdb_url && source.ipdb_url) { updates.push('ipdb_url = ?'); updateParams.push(source.ipdb_url); }
+                    if (!target.external_url && source.external_url) { updates.push('external_url = ?'); updateParams.push(source.external_url); }
 
-                    // Merge platform arrays
-                    const targetPlatforms: string[] = JSON.parse(target.platforms || '[]');
-                    const sourcePlatforms: string[] = JSON.parse(source.platforms || '[]');
-                    const merged = [...new Set([...targetPlatforms, ...sourcePlatforms])];
-                    updates.push('platforms = ?');
-                    updateParams.push(JSON.stringify(merged));
+                    // String arrays — union.
+                    const unionStrings = (a: string | null | undefined, b: string | null | undefined): string => {
+                        const ax: string[] = JSON.parse(a || '[]');
+                        const bx: string[] = JSON.parse(b || '[]');
+                        return JSON.stringify([...new Set([...ax, ...bx])]);
+                    };
+                    updates.push('platforms = ?');     updateParams.push(unionStrings(target.platforms, source.platforms));
+                    updates.push('themes = ?');       updateParams.push(unionStrings(target.themes, source.themes));
+                    updates.push('designers = ?');    updateParams.push(unionStrings(target.designers, source.designers));
+                    updates.push('table_authors = ?'); updateParams.push(unionStrings(target.table_authors, source.table_authors));
+                    updates.push('features = ?');     updateParams.push(unionStrings(target.features, source.features));
+
+                    // Object arrays — append source items whose .url isn't
+                    // already on target. Idempotent: re-merging the same pair
+                    // doesn't accumulate duplicates.
+                    const appendByUrl = (a: string | null | undefined, b: string | null | undefined): string | null => {
+                        const ax: Array<{ url?: string }> = a ? JSON.parse(a) : [];
+                        const bx: Array<{ url?: string }> = b ? JSON.parse(b) : [];
+                        const seen = new Set(ax.map(x => x.url).filter(Boolean));
+                        const merged = [...ax];
+                        for (const item of bx) {
+                            if (item.url && !seen.has(item.url)) { merged.push(item); seen.add(item.url); }
+                            else if (!item.url) merged.push(item);
+                        }
+                        return merged.length > 0 ? JSON.stringify(merged) : null;
+                    };
+                    updates.push('table_download_urls = ?'); updateParams.push(appendByUrl(target.table_download_urls, source.table_download_urls));
+                    updates.push('tutorial_urls = ?');       updateParams.push(appendByUrl(target.tutorial_urls, source.tutorial_urls));
+                    updates.push('rules_urls = ?');          updateParams.push(appendByUrl(target.rules_urls, source.rules_urls));
+
+                    // Scalar content — fill gaps only. Identity fields (name,
+                    // display_name, manufacturer, year, subtype, players)
+                    // intentionally excluded; target keeps its identity.
+                    if (!target.description && source.description) { updates.push('description = ?'); updateParams.push(source.description); }
+                    if (!target.image_url && source.image_url) { updates.push('image_url = ?'); updateParams.push(source.image_url); }
+                    if (!target.local_image_path && source.local_image_path) { updates.push('local_image_path = ?'); updateParams.push(source.local_image_path); }
+                    if (!target.wheel_image_path && source.wheel_image_path) { updates.push('wheel_image_path = ?'); updateParams.push(source.wheel_image_path); }
+                    if (target.source_rating == null && source.source_rating != null) { updates.push('source_rating = ?'); updateParams.push(source.source_rating); }
+                    if (!target.source_updated_at && source.source_updated_at) { updates.push('source_updated_at = ?'); updateParams.push(source.source_updated_at); }
 
                     if (updates.length > 0) {
                         updateParams.push(targetId);
@@ -825,7 +901,7 @@ export class GlobalGameService {
                 }
             }
 
-            // Delete the source game
+            // Delete the source row.
             await db.run('DELETE FROM global_games WHERE id = ?', sourceId);
 
             await db.exec('COMMIT');
