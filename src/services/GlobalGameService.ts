@@ -452,8 +452,7 @@ export class GlobalGameService {
                 mergedSources = [...existingMergedSources, input.imported_from];
             }
 
-            await db.run(
-                `UPDATE global_games SET
+            const updateSql = `UPDATE global_games SET
                     display_name = COALESCE(?, display_name),
                     manufacturer = COALESCE(?, manufacturer),
                     year = COALESCE(?, year),
@@ -479,7 +478,8 @@ export class GlobalGameService {
                     features = ?,
                     source_updated_at = COALESCE(?, source_updated_at),
                     merged_from_sources = ?
-                WHERE id = ?`,
+                WHERE id = ?`;
+            const updateParams = [
                 input.display_name ?? null,
                 input.manufacturer ?? null,
                 input.year ?? null,
@@ -505,9 +505,47 @@ export class GlobalGameService {
                 JSON.stringify(mergedFeatures),
                 input.source_updated_at ?? null,
                 JSON.stringify(mergedSources),
-                existing.id
-            );
-            return { id: existing.id, action: 'updated' };
+                existing.id,
+            ];
+
+            try {
+                await db.run(updateSql, ...updateParams);
+                return { id: existing.id, action: 'updated' };
+            } catch (e: unknown) {
+                const err = e as { code?: string };
+                if (err?.code !== 'SQLITE_CONSTRAINT') throw e;
+
+                // v2.12.3: the would-be UPDATE shifts this row's identity
+                // tuple (LOWER(name), type, LOWER(mfg), year) to one that
+                // another row already owns. By the schema's UNIQUE INDEX
+                // these two rows are the same machine — typically a
+                // year/manufacturer correction landing across a VPS row and
+                // an OPDB row that already agree on identity. Find the
+                // colliding row, merge `existing` into it (the merge
+                // primitive unions data and cascades FK refs), then retry
+                // the upsert against the consolidated target.
+                const newName = input.name || existing.name;
+                const newMfg = input.manufacturer ?? existing.manufacturer ?? '';
+                const newYear = input.year ?? existing.year ?? 0;
+                const colliding = await db.get(
+                    `SELECT id FROM global_games
+                     WHERE LOWER(name) = LOWER(?)
+                       AND type = ?
+                       AND LOWER(COALESCE(manufacturer, '')) = LOWER(?)
+                       AND COALESCE(year, 0) = ?
+                       AND id != ?`,
+                    newName, inputType, newMfg, newYear, existing.id,
+                ) as { id: string } | undefined;
+
+                if (!colliding) throw e;
+
+                logInfo(
+                    `upsert: identity collision on "${newName}" (${newMfg}, ${newYear}). ` +
+                    `Merging ${existing.id} -> ${colliding.id} and retrying.`
+                );
+                await GlobalGameService.merge(colliding.id, existing.id);
+                return await GlobalGameService.upsert(input);
+            }
         }
 
         // Insert new game
