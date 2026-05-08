@@ -421,16 +421,7 @@ function GameRow({
   onMerge: (game: GlobalGame) => void;
 }) {
   const platforms: string[] = JSON.parse(game.platforms || '[]');
-  // v2.12.0: combine imported_from with any sources absorbed via merge or
-  // cross-source upsert so the row reflects all contributing sources.
-  const mergedFrom: string[] = (() => {
-    if (!game.merged_from_sources) return [];
-    try {
-      const parsed = JSON.parse(game.merged_from_sources);
-      return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
-    } catch { return []; }
-  })();
-  const sources = [game.imported_from, ...mergedFrom].filter((s): s is string => !!s);
+  const sources = deriveSources(game);
   const statusBadge = {
     approved: 'bg-green-900/40 text-green-300',
     pending_review: 'bg-yellow-900/40 text-yellow-300',
@@ -525,6 +516,39 @@ function Detail({ label, value }: { label: string; value: string }) {
       <div className="truncate">{value}</div>
     </div>
   );
+}
+
+/**
+ * v2.12.1: derive the displayed source list to match the backend filter.
+ * Backend treats a row as "in VPS" if it has vps_id, "in Wizard" if it has
+ * wizard_auto/wizard_manual in features, etc. — independently of where the
+ * row was first imported. The display follows the same evidence-based rule
+ * so legacy rows with imported_from=null still show their actual sources.
+ */
+function deriveSources(game: GlobalGame): string[] {
+  const merged: string[] = (() => {
+    if (!game.merged_from_sources) return [];
+    try {
+      const parsed = JSON.parse(game.merged_from_sources);
+      return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
+    } catch { return []; }
+  })();
+  const features: string[] = (() => {
+    try {
+      const parsed = JSON.parse(game.features || '[]');
+      return Array.isArray(parsed) ? parsed.filter((f): f is string => typeof f === 'string') : [];
+    } catch { return []; }
+  })();
+  const evidence: string[] = [];
+  if (game.vps_id) evidence.push('vps');
+  if (game.opdb_id) evidence.push('opdb');
+  if (game.igdb_id) evidence.push('igdb');
+  if (features.includes('wizard_auto') || features.includes('wizard_manual')) evidence.push('wizard');
+  return Array.from(new Set([
+    ...(game.imported_from ? [game.imported_from] : []),
+    ...merged,
+    ...evidence,
+  ]));
 }
 
 function buildQuery(params: Record<string, string>): string {
@@ -679,14 +703,7 @@ function MergeModal({
                 c.opdb_id ? `opdb:${c.opdb_id.slice(0, 6)}…` : null,
                 c.igdb_id ? `igdb:${c.igdb_id}` : null,
               ].filter(Boolean);
-              const candidateMerged: string[] = (() => {
-                if (!c.merged_from_sources) return [];
-                try {
-                  const parsed = JSON.parse(c.merged_from_sources);
-                  return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
-                } catch { return []; }
-              })();
-              const candidateSources = [c.imported_from, ...candidateMerged].filter((s): s is string => !!s);
+              const candidateSources = deriveSources(c);
               return (
                 <button
                   key={c.id}
