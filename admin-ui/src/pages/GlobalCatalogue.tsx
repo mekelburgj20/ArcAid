@@ -25,6 +25,8 @@ interface GlobalGame {
   vps_id: string | null;
   igdb_id: number | null;
   external_url: string | null;
+  /** v2.13.0: JSON array of structured download entries (format/url/version). */
+  table_download_urls: string | null;
   local_image_path: string | null;
   created_at: string;
 }
@@ -474,16 +476,44 @@ function GameRow({
             <Detail label="Source" value={sources.length > 0 ? sources.join(', ') : 'manual'} />
           </div>
 
-          {game.external_url && (
-            <a
-              href={game.external_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-neon-cyan hover:underline text-xs"
-            >
-              <ExternalLink size={12} /> View Source
-            </a>
-          )}
+          {(() => {
+            // v2.13.0: surface all source links rather than just external_url.
+            // Multi-source rows (vps + wizard) carry the second source's URL
+            // in table_download_urls with a `format` label set by the merge
+            // primitive — show them all here.
+            type DownloadEntry = { format?: string; url: string; version?: string };
+            let entries: DownloadEntry[] = [];
+            try {
+              const parsed = JSON.parse(game.table_download_urls || '[]');
+              if (Array.isArray(parsed)) entries = parsed.filter((e): e is DownloadEntry => !!e?.url);
+            } catch { /* ignore malformed JSON */ }
+            // Add external_url as a separate entry only if not already in the list.
+            const seen = new Set(entries.map(e => e.url));
+            if (game.external_url && !seen.has(game.external_url)) {
+              entries.push({ format: 'source', url: game.external_url });
+            }
+            if (entries.length === 0) return null;
+            return (
+              <div>
+                <div className="text-muted text-xs uppercase tracking-wider mb-1">Sources</div>
+                <div className="flex flex-wrap gap-2">
+                  {entries.map((e, i) => (
+                    <a
+                      key={`${e.url}-${i}`}
+                      href={e.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-neon-cyan hover:bg-neon-cyan/10 no-underline"
+                      title={e.url}
+                    >
+                      <ExternalLink size={12} />
+                      {(e.format || 'source').toUpperCase()}{e.version ? ` v${e.version}` : ''}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="flex gap-2 pt-2 flex-wrap">
             {game.status !== 'approved' && (

@@ -43,7 +43,19 @@ function applySourceFilter(
             conditions.push(`(features LIKE '%"wizard_auto"%' OR features LIKE '%"wizard_manual"%' OR imported_from = 'wizard')`);
             break;
         case 'manual':
-            conditions.push(`(imported_from = 'manual' OR imported_from IS NULL)`);
+            // v2.13.0: tighten so the filter matches the FE display logic
+            // (deriveSources). A row with NULL imported_from but a populated
+            // vps_id / opdb_id / igdb_id / wizard feature shows VPS/OPDB/etc.
+            // in the source column — it's not "manual," it's just untagged.
+            // True manual rows have no external evidence.
+            conditions.push(`
+                (imported_from = 'manual' OR imported_from IS NULL)
+                AND vps_id IS NULL
+                AND opdb_id IS NULL
+                AND igdb_id IS NULL
+                AND features NOT LIKE '%"wizard_auto"%'
+                AND features NOT LIKE '%"wizard_manual"%'
+            `);
             break;
         default:
             conditions.push('imported_from = ?');
@@ -1059,5 +1071,184 @@ export class GlobalGameService {
         const db = await getDatabase();
         const result = await db.run('DELETE FROM global_games WHERE id = ?', id);
         return (result.changes ?? 0) > 0;
+    }
+
+    /**
+     * v2.13.0: bulk-merge IPDB-shared duplicate pinball rows.
+     *
+     * Same IPDB ID across two rows means the same physical machine. The
+     * tool merges only the safe cases: same IPDB + same year + compatible
+     * manufacturers (same after stripping company-name suffixes like
+     * "Electronics", "& Co", "Industries", "do Brasil", and collapsing
+     * spaces/punctuation). Skips groups with year disagreements,
+     * incompatible manufacturers, or community/digital markers (a row
+     * tagged manufacturer="Original" or containing "Zen Studios" / "JP's"
+     * is almost certainly a fan recreation that shouldn't merge with the
+     * physical machine).
+     *
+     * Picks the richest row (most external IDs, oldest created_at as
+     * tiebreak) as merge target so iScored sync hooks survive. Each merge
+     * runs through the existing merge primitive — data unioned, FK refs
+     * cascaded.
+     */
+    static async mergeIpdbDuplicates(opts?: { dryRun?: boolean }): Promise<{
+        totalDupGroups: number;
+        merged: number;
+        skipped: number;
+        log: Array<{
+            ipdb: string;
+            action: 'merged' | 'skipped';
+            reason?: string;
+            targetId?: string;
+            sourceIds?: string[];
+            rows: Array<{ id: string; name: string; manufacturer: string | null; year: number | null; imported_from: string | null }>;
+        }>;
+    }> {
+        const db = await getDatabase();
+        const dryRun = opts?.dryRun ?? false;
+
+        const allRows = await db.all<Array<{
+            id: string;
+            name: string;
+            manufacturer: string | null;
+            year: number | null;
+            ipdb_url: string;
+            vps_id: string | null;
+            opdb_id: string | null;
+            igdb_id: number | null;
+            imported_from: string | null;
+            created_at: string | null;
+        }>>(
+            `SELECT id, name, manufacturer, year, ipdb_url, vps_id, opdb_id, igdb_id, imported_from, created_at
+             FROM global_games WHERE ipdb_url IS NOT NULL AND type = 'pinball'`
+        );
+
+        const groups = new Map<string, typeof allRows>();
+        for (const r of allRows) {
+            const m = (r.ipdb_url || '').match(/id=(\d+)/i);
+            if (!m) continue;
+            const k = m[1]!;
+            if (!groups.has(k)) groups.set(k, []);
+            groups.get(k)!.push(r);
+        }
+
+        const dups = [...groups.entries()].filter(([, gs]) => gs.length > 1);
+
+        const log: Awaited<ReturnType<typeof GlobalGameService.mergeIpdbDuplicates>>['log'] = [];
+        let merged = 0;
+        let skipped = 0;
+
+        const summarize = (r: typeof allRows[number]) => ({
+            id: r.id,
+            name: r.name,
+            manufacturer: r.manufacturer,
+            year: r.year,
+            imported_from: r.imported_from,
+        });
+
+        for (const [ipdb, gs] of dups) {
+            const rowSummaries = gs.map(summarize);
+
+            // Problematic: any row tagged as a fan/digital recreation.
+            const isProblematicRow = (r: typeof allRows[number]): boolean => {
+                const mfg = (r.manufacturer || '').toLowerCase();
+                const name = (r.name || '').toLowerCase();
+                if (mfg === 'original') return true;
+                if (mfg.includes('zen studios')) return true;
+                if (name.startsWith("jp's")) return true;
+                return false;
+            };
+            if (gs.some(isProblematicRow)) {
+                log.push({ ipdb, action: 'skipped', reason: 'community-or-digital', rows: rowSummaries });
+                skipped++;
+                continue;
+            }
+
+            // Year must match exactly across all rows in the group.
+            const years = new Set(gs.map(r => r.year));
+            if (years.size > 1) {
+                log.push({ ipdb, action: 'skipped', reason: 'year-disagreement', rows: rowSummaries });
+                skipped++;
+                continue;
+            }
+
+            // Manufacturer compatibility via normalize-and-compare. Strips
+            // common company suffixes/punctuation/whitespace; equal forms
+            // are treated as the same company.
+            const norm = (m: string | null): string => {
+                if (!m) return '';
+                let n = m.toLowerCase().trim();
+                n = n.replace(/[',.\-&]/g, '');
+                n = n.replace(/\s+/g, '');
+                // Iterate: strip suffix, repeat in case of compound suffixes.
+                const SUFFIX_RE = /(electronics|industries|incorporated|inc|company|corporation|corp|llc|ltd|games?|dobrasil|brasil|gmbh|ag)$/;
+                let prev = '';
+                while (prev !== n) {
+                    prev = n;
+                    n = n.replace(SUFFIX_RE, '');
+                }
+                return n;
+            };
+            const normalizedMfgs = new Set(gs.map(r => norm(r.manufacturer)));
+            if (normalizedMfgs.size > 1 || (normalizedMfgs.size === 1 && [...normalizedMfgs][0] === '')) {
+                log.push({ ipdb, action: 'skipped', reason: 'manufacturer-incompatible', rows: rowSummaries });
+                skipped++;
+                continue;
+            }
+
+            // Pick richest row as target.
+            const richness = (r: typeof allRows[number]) =>
+                (r.vps_id ? 1 : 0) + (r.opdb_id ? 1 : 0) + (r.igdb_id ? 1 : 0);
+            const sorted = [...gs].sort((a, b) => {
+                const dr = richness(b) - richness(a);
+                if (dr !== 0) return dr;
+                return (a.created_at || '').localeCompare(b.created_at || '');
+            });
+            const target = sorted[0]!;
+            const sources = sorted.slice(1);
+
+            if (dryRun) {
+                log.push({
+                    ipdb, action: 'merged',
+                    targetId: target.id, sourceIds: sources.map(s => s.id),
+                    rows: rowSummaries,
+                });
+                merged++;
+                continue;
+            }
+
+            let mergeFailed: string | null = null;
+            for (const src of sources) {
+                try {
+                    await GlobalGameService.merge(target.id, src.id);
+                } catch (e: unknown) {
+                    const err = e as { message?: string };
+                    mergeFailed = err?.message || 'unknown';
+                    break;
+                }
+            }
+            if (mergeFailed) {
+                log.push({
+                    ipdb, action: 'skipped', reason: `merge-failed: ${mergeFailed}`,
+                    targetId: target.id, sourceIds: sources.map(s => s.id),
+                    rows: rowSummaries,
+                });
+                skipped++;
+            } else {
+                log.push({
+                    ipdb, action: 'merged',
+                    targetId: target.id, sourceIds: sources.map(s => s.id),
+                    rows: rowSummaries,
+                });
+                merged++;
+            }
+        }
+
+        return {
+            totalDupGroups: dups.length,
+            merged,
+            skipped,
+            log,
+        };
     }
 }

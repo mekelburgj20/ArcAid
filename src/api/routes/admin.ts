@@ -621,6 +621,23 @@ router.post('/catalogue/games/merge', async (req, res) => {
     }
 });
 
+/**
+ * v2.13.0: bulk-merge IPDB-shared duplicates whose rows pass the
+ * safe-merge heuristic (same year, compatible manufacturers, no
+ * community/digital markers). Pass `?dry=true` to preview without
+ * mutating; default is destructive.
+ */
+router.post('/catalogue/merge-ipdb-duplicates', async (req, res) => {
+    try {
+        const dryRun = req.query.dry === 'true' || req.body?.dry === true;
+        const result = await GlobalGameService.mergeIpdbDuplicates({ dryRun });
+        res.json({ success: true, dryRun, ...result });
+    } catch (error) {
+        logError('API Error (POST /api/admin/catalogue/merge-ipdb-duplicates):', error);
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Bulk merge failed' });
+    }
+});
+
 router.delete('/catalogue/games/:id', async (req, res) => {
     try {
         const deleted = await GlobalGameService.delete(req.params.id as string);
