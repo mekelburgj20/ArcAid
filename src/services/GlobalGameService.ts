@@ -48,6 +48,9 @@ export interface GlobalGame {
     imported_from: string | null;
     imported_at: string | null;
     source_updated_at: string | null;
+    /** v2.12.0: JSON array of additional source names whose data has been
+     *  folded onto this row via merge or cross-source upsert. */
+    merged_from_sources: string | null;
     created_at: string;
 }
 
@@ -372,6 +375,46 @@ export class GlobalGameService {
             const newAuthors = input.table_authors || [];
             const mergedAuthors = [...new Set([...existingAuthors, ...newAuthors])];
 
+            // v2.12.0: cross-source detection. When the input is from a
+            // different source than the row's recorded imported_from, we're
+            // doing a cross-source upsert (e.g. Wizard data landing on a row
+            // first imported from VPS). In that case, union the URL object-
+            // arrays by .url instead of the previous COALESCE-overwrite, and
+            // append the input's source name to merged_from_sources so the
+            // admin catalogue can render "vps, wizard". Same-source re-imports
+            // (the common case) keep overwrite semantics so source-side
+            // updates can prune stale entries.
+            const isCrossSource = !!(
+                input.imported_from && existing.imported_from &&
+                input.imported_from !== existing.imported_from
+            );
+
+            const appendByUrl = (existingJson: string | null, newItems?: Array<{ url?: string }>): string | null => {
+                if (!isCrossSource) {
+                    return newItems && newItems.length > 0 ? JSON.stringify(newItems) : null;
+                }
+                const ax: Array<{ url?: string }> = existingJson ? JSON.parse(existingJson) : [];
+                const bx = newItems || [];
+                if (bx.length === 0) return existingJson;
+                const seen = new Set(ax.map(x => x.url).filter(Boolean));
+                const out = [...ax];
+                for (const item of bx) {
+                    if (item.url && !seen.has(item.url)) { out.push(item); seen.add(item.url); }
+                    else if (!item.url) out.push(item);
+                }
+                return out.length > 0 ? JSON.stringify(out) : null;
+            };
+
+            const mergedDownloadJson = appendByUrl(existing.table_download_urls, input.table_download_urls);
+            const mergedTutorialsJson = appendByUrl(existing.tutorial_urls, input.tutorial_urls);
+            const mergedRulesJson = appendByUrl(existing.rules_urls, input.rules_urls);
+
+            const existingMergedSources: string[] = JSON.parse(existing.merged_from_sources || '[]');
+            let mergedSources = existingMergedSources;
+            if (isCrossSource && input.imported_from && !existingMergedSources.includes(input.imported_from)) {
+                mergedSources = [...existingMergedSources, input.imported_from];
+            }
+
             await db.run(
                 `UPDATE global_games SET
                     display_name = COALESCE(?, display_name),
@@ -391,13 +434,14 @@ export class GlobalGameService {
                     ipdb_url = COALESCE(?, ipdb_url),
                     external_url = COALESCE(?, external_url),
                     table_authors = ?,
-                    table_download_urls = COALESCE(?, table_download_urls),
-                    tutorial_urls = COALESCE(?, tutorial_urls),
-                    rules_urls = COALESCE(?, rules_urls),
+                    table_download_urls = ?,
+                    tutorial_urls = ?,
+                    rules_urls = ?,
                     description = COALESCE(?, description),
                     source_rating = COALESCE(?, source_rating),
                     features = ?,
-                    source_updated_at = COALESCE(?, source_updated_at)
+                    source_updated_at = COALESCE(?, source_updated_at),
+                    merged_from_sources = ?
                 WHERE id = ?`,
                 input.display_name ?? null,
                 input.manufacturer ?? null,
@@ -416,13 +460,14 @@ export class GlobalGameService {
                 input.ipdb_url ?? null,
                 input.external_url ?? null,
                 JSON.stringify(mergedAuthors),
-                input.table_download_urls ? JSON.stringify(input.table_download_urls) : null,
-                input.tutorial_urls ? JSON.stringify(input.tutorial_urls) : null,
-                input.rules_urls ? JSON.stringify(input.rules_urls) : null,
+                mergedDownloadJson,
+                mergedTutorialsJson,
+                mergedRulesJson,
                 input.description ?? null,
                 input.source_rating ?? null,
                 JSON.stringify(mergedFeatures),
                 input.source_updated_at ?? null,
+                JSON.stringify(mergedSources),
                 existing.id
             );
             return { id: existing.id, action: 'updated' };
@@ -863,23 +908,58 @@ export class GlobalGameService {
                     updates.push('table_authors = ?'); updateParams.push(unionStrings(target.table_authors, source.table_authors));
                     updates.push('features = ?');     updateParams.push(unionStrings(target.features, source.features));
 
+                    // v2.12.0: when source has an external_url that target
+                    // doesn't already have (different URL, and not already in
+                    // target's table_download_urls), fold it into target's
+                    // table_download_urls as a labeled entry. Without this,
+                    // a vpx + vpxs_manual merge dropped the wizard GitHub
+                    // link entirely because target's external_url was the
+                    // VPS database URL.
+                    const labelForSource = (s: GlobalGame): string => s.imported_from || 'merged';
+                    const sourceDownloads: Array<{ format?: string; url: string; version?: string }> =
+                        source.table_download_urls ? JSON.parse(source.table_download_urls) : [];
+                    if (
+                        source.external_url &&
+                        target.external_url &&
+                        source.external_url !== target.external_url &&
+                        !sourceDownloads.some(d => d.url === source.external_url)
+                    ) {
+                        sourceDownloads.push({ format: labelForSource(source), url: source.external_url });
+                    }
+
                     // Object arrays — append source items whose .url isn't
                     // already on target. Idempotent: re-merging the same pair
                     // doesn't accumulate duplicates.
-                    const appendByUrl = (a: string | null | undefined, b: string | null | undefined): string | null => {
+                    const appendByUrl = (a: string | null | undefined, items: Array<{ url?: string }>): string | null => {
                         const ax: Array<{ url?: string }> = a ? JSON.parse(a) : [];
-                        const bx: Array<{ url?: string }> = b ? JSON.parse(b) : [];
                         const seen = new Set(ax.map(x => x.url).filter(Boolean));
                         const merged = [...ax];
-                        for (const item of bx) {
+                        for (const item of items) {
                             if (item.url && !seen.has(item.url)) { merged.push(item); seen.add(item.url); }
                             else if (!item.url) merged.push(item);
                         }
                         return merged.length > 0 ? JSON.stringify(merged) : null;
                     };
-                    updates.push('table_download_urls = ?'); updateParams.push(appendByUrl(target.table_download_urls, source.table_download_urls));
-                    updates.push('tutorial_urls = ?');       updateParams.push(appendByUrl(target.tutorial_urls, source.tutorial_urls));
-                    updates.push('rules_urls = ?');          updateParams.push(appendByUrl(target.rules_urls, source.rules_urls));
+                    const sourceTutorials: Array<{ url?: string }> = source.tutorial_urls ? JSON.parse(source.tutorial_urls) : [];
+                    const sourceRules: Array<{ url?: string }> = source.rules_urls ? JSON.parse(source.rules_urls) : [];
+                    updates.push('table_download_urls = ?'); updateParams.push(appendByUrl(target.table_download_urls, sourceDownloads));
+                    updates.push('tutorial_urls = ?');       updateParams.push(appendByUrl(target.tutorial_urls, sourceTutorials));
+                    updates.push('rules_urls = ?');          updateParams.push(appendByUrl(target.rules_urls, sourceRules));
+
+                    // v2.12.0: track absorbed sources. Carry forward target's
+                    // existing merged_from_sources, plus source's own
+                    // merged_from_sources (it may itself have absorbed others
+                    // before this merge), plus source's imported_from when it
+                    // differs from target's. Excludes target's imported_from
+                    // (that's the base).
+                    const targetMergedSources: string[] = JSON.parse(target.merged_from_sources || '[]');
+                    const sourceMergedSources: string[] = JSON.parse(source.merged_from_sources || '[]');
+                    const mergedSourcesSet = new Set([...targetMergedSources, ...sourceMergedSources]);
+                    if (source.imported_from && source.imported_from !== target.imported_from) {
+                        mergedSourcesSet.add(source.imported_from);
+                    }
+                    updates.push('merged_from_sources = ?');
+                    updateParams.push(JSON.stringify([...mergedSourcesSet]));
 
                     // Scalar content — fill gaps only. Identity fields (name,
                     // display_name, manufacturer, year, subtype, players)

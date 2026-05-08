@@ -1362,6 +1362,16 @@ export async function initDatabase(): Promise<Database> {
                 `${collisions} skipped due to duplicate-collision (resolve via catalogue Merge UI)`
             );
         } },
+
+        // v2.12.0: track which sources a row absorbed via merge or
+        // cross-source upsert. The base imported_from column says where the
+        // row was *first* imported from; merged_from_sources accumulates any
+        // additional sources whose data has been folded onto this row. Used
+        // to render "vps, wizard" in the admin catalogue when both have
+        // contributed metadata.
+        { name: '100_merged_from_sources', sql: `
+            ALTER TABLE global_games ADD COLUMN merged_from_sources TEXT DEFAULT '[]';
+        ` },
     ];
 
     for (const migration of migrations) {

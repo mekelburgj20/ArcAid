@@ -6,6 +6,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.12.0] — unreleased
+
+**Catalogue source provenance + structured Wizard download.** v2.11.0's merge primitive correctly cascaded data but dropped the Wizard row's `external_url` whenever the target row already had its own (e.g. VPS database link). Manual merges done before this release for Blood Machines and Ace Ventura therefore lost the GitHub link to the vpxs_manual table source. This release ships the structural fix and a Wizard re-sync covers the backfill automatically.
+
+### Migration 100
+
+```sql
+ALTER TABLE global_games ADD COLUMN merged_from_sources TEXT DEFAULT '[]';
+```
+
+Tracks which sources a row absorbed via `merge` or cross-source `upsert`. The base `imported_from` column says where the row was *first* imported from; `merged_from_sources` accumulates additional contributing sources. Used to render `vps, wizard` in the admin catalogue when both have fed metadata into the same row.
+
+### Wizard importer now emits `table_download_urls`
+
+Every Wizard table now writes `[{ format: 'wizard', url: <github tree URL> }]` to `table_download_urls` alongside the existing `external_url`. The structured entry is what survives a merge — `external_url` is per-row metadata that a merge fills only when the target's is empty.
+
+### `upsert` UPDATE branch: cross-source semantics
+
+When `input.imported_from` differs from `existing.imported_from`, the URL object-arrays (`table_download_urls`, `tutorial_urls`, `rules_urls`) now **union by `.url`** instead of overwriting via COALESCE. Same-source re-imports keep overwrite semantics so source-side updates can prune stale entries; cross-source imports preserve everything from both sides. The cross-source path also appends the input's source name to `merged_from_sources`.
+
+This is what backfills Blood Machines and Ace Ventura on the next Wizard sync: dedup finds the post-merge row, the upsert's UPDATE branch detects the cross-source case (input from `wizard`, row from `vps`), unions the GitHub link into `table_download_urls`, and records `wizard` in `merged_from_sources`.
+
+### `merge` primitive: fold external_url + track source provenance
+
+When source has an `external_url` that target doesn't already have, the merge primitive now folds it into target's `table_download_urls` with `format: <source.imported_from>`. Source's `imported_from` and any prior `merged_from_sources` are union'd into target's `merged_from_sources` so the lineage survives multi-step merges.
+
+### Admin catalogue UI
+
+Each row in the Browse Games list now shows platform tags (chips, large screens) and a combined source string. Rows that absorbed cross-source data render as `VPS, WIZARD` instead of just `VPS`. Expanded view's Source detail follows the same convention.
+
+### Backfill plan
+
+After deploy, run a Wizard sync from `/admin/catalogue`. The sync's upsert path matches the merged Blood Machines and Ace Ventura rows via the v2.11.0 dedup improvements, detects the cross-source case, and writes the GitHub link + `wizard` source provenance. No separate migration needed.
+
+### Risks worth flagging
+
+- **Cross-source upsert semantics changed.** A future cross-source import of a row's `tutorial_urls` will now append rather than replace. If a source is the canonical owner of a row's tutorials and you want it to fully replace, the row's `imported_from` would need to be set to that source first.
+- **`merged_from_sources` is additive only.** No code path removes a source from this list. If a merge gets reversed (no current path for that), the lineage entry persists. Acceptable: this is metadata for display, not for FK integrity.
+
+---
+
 ## [2.11.0] — unreleased
 
 **Catalogue dedup: merge vpx + vpxs_manual variants of the same game.** The Wizard importer's `(VPW Original 2022)` parenthetical was producing manufacturer mismatches against VPS's plain `Original`, blocking step-4 dedup. Hyphen-as-separator names like `Ace Ventura - Pet Detective` vs `Ace Ventura Pet Detective` weren't normalizing equal either. Plus the existing `merge` primitive was throwing away the source row's `table_download_urls`, `themes`, `designers`, `table_authors`, etc. — exactly the data admins want to keep on the surviving row.

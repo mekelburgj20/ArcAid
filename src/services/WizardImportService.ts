@@ -378,6 +378,19 @@ export class WizardImportService {
                 try {
                     const { baseName, manufacturer, year } = parseNameParts(table.name);
                     const imageUrl = resolveWizardImageUrl(table.path, imageMap);
+                    const sourceUrl = table.path
+                        ? `${GITHUB_BASE}/tree/main/${table.path.replace(/^\.\//, '')}`
+                        : undefined;
+                    // v2.12.0: also emit the GitHub tree URL as a structured
+                    // download entry. Without this, the wizard's source link
+                    // only lived in `external_url` and got dropped on merge
+                    // when the target row already had its own `external_url`
+                    // (e.g. VPS database link). Tag with format='wizard' so
+                    // the FE can label the link as "Wizard source" rather
+                    // than a generic download.
+                    const tableDownloadUrls = sourceUrl
+                        ? [{ format: 'wizard', url: sourceUrl }]
+                        : undefined;
                     const input: GlobalGameInput = {
                         name: baseName,
                         manufacturer,
@@ -386,9 +399,8 @@ export class WizardImportService {
                         platforms: platformsForTable(table),
                         features: buildFeatures(table),
                         image_url: imageUrl,
-                        external_url: table.path
-                            ? `${GITHUB_BASE}/tree/main/${table.path.replace(/^\.\//, '')}`
-                            : undefined,
+                        external_url: sourceUrl,
+                        table_download_urls: tableDownloadUrls,
                         imported_from: 'wizard',
                     };
 

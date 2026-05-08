@@ -18,6 +18,9 @@ interface GlobalGame {
   features: string;
   status: string;
   imported_from: string | null;
+  /** v2.12.0: JSON array of additional source names absorbed via merge or
+   *  cross-source upsert. Display alongside imported_from. */
+  merged_from_sources: string | null;
   opdb_id: string | null;
   vps_id: string | null;
   igdb_id: number | null;
@@ -418,6 +421,16 @@ function GameRow({
   onMerge: (game: GlobalGame) => void;
 }) {
   const platforms: string[] = JSON.parse(game.platforms || '[]');
+  // v2.12.0: combine imported_from with any sources absorbed via merge or
+  // cross-source upsert so the row reflects all contributing sources.
+  const mergedFrom: string[] = (() => {
+    if (!game.merged_from_sources) return [];
+    try {
+      const parsed = JSON.parse(game.merged_from_sources);
+      return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
+    } catch { return []; }
+  })();
+  const sources = [game.imported_from, ...mergedFrom].filter((s): s is string => !!s);
   const statusBadge = {
     approved: 'bg-green-900/40 text-green-300',
     pending_review: 'bg-yellow-900/40 text-yellow-300',
@@ -431,21 +444,30 @@ function GameRow({
         className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/5 transition-colors"
       >
         {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        <span className="flex-1 font-medium truncate">{game.name}</span>
+        <span className="font-medium truncate min-w-0">{game.name}</span>
         {game.manufacturer && (
-          <span className="text-muted text-xs hidden md:inline">
+          <span className="text-muted text-xs hidden md:inline whitespace-nowrap">
             {game.manufacturer}{game.year ? `, ${game.year}` : ''}
           </span>
         )}
-        <span className="text-xs px-2 py-0.5 rounded bg-surface capitalize">
+        {platforms.length > 0 && (
+          <div className="hidden lg:flex gap-1 flex-wrap min-w-0">
+            {platforms.map(p => (
+              <span key={p} className="text-[10px] px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan whitespace-nowrap">
+                {p}
+              </span>
+            ))}
+          </div>
+        )}
+        <span className="text-xs px-2 py-0.5 rounded bg-surface capitalize ml-auto whitespace-nowrap">
           {game.type.replace('_', ' ')}
         </span>
-        <span className={`text-xs px-2 py-0.5 rounded ${statusBadge}`}>
+        <span className={`text-xs px-2 py-0.5 rounded ${statusBadge} whitespace-nowrap`}>
           {game.status.replace('_', ' ')}
         </span>
-        {game.imported_from && (
-          <span className="text-xs text-muted uppercase">
-            {game.imported_from}
+        {sources.length > 0 && (
+          <span className="text-xs text-muted uppercase whitespace-nowrap">
+            {sources.join(', ')}
           </span>
         )}
       </button>
@@ -458,7 +480,7 @@ function GameRow({
             <Detail label="OPDB ID" value={game.opdb_id || '-'} />
             <Detail label="VPS ID" value={game.vps_id || '-'} />
             <Detail label="IGDB ID" value={game.igdb_id?.toString() || '-'} />
-            <Detail label="Source" value={game.imported_from || 'manual'} />
+            <Detail label="Source" value={sources.length > 0 ? sources.join(', ') : 'manual'} />
           </div>
 
           {game.external_url && (
@@ -657,6 +679,14 @@ function MergeModal({
                 c.opdb_id ? `opdb:${c.opdb_id.slice(0, 6)}…` : null,
                 c.igdb_id ? `igdb:${c.igdb_id}` : null,
               ].filter(Boolean);
+              const candidateMerged: string[] = (() => {
+                if (!c.merged_from_sources) return [];
+                try {
+                  const parsed = JSON.parse(c.merged_from_sources);
+                  return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
+                } catch { return []; }
+              })();
+              const candidateSources = [c.imported_from, ...candidateMerged].filter((s): s is string => !!s);
               return (
                 <button
                   key={c.id}
@@ -671,7 +701,7 @@ function MergeModal({
                       </span>
                     )}
                     <span className="text-xs px-1.5 py-0.5 rounded bg-surface text-muted ml-auto">
-                      {c.imported_from || 'manual'}
+                      {candidateSources.length > 0 ? candidateSources.join(', ') : 'manual'}
                     </span>
                   </div>
                   <div className="text-xs text-muted mt-1 flex gap-3 flex-wrap">
