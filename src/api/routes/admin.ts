@@ -550,6 +550,7 @@ router.get('/catalogue/games', async (req, res) => {
             const result = await GlobalGameService.search(search as string, {
                 type: type as string,
                 status: status as string,
+                source: source as string,
                 limit: limit ? parseInt(limit as string) : undefined,
                 cursor: cursor as string,
             });

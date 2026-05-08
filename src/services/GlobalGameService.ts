@@ -14,6 +14,43 @@ function extractIpdbMachineId(url: string | null | undefined): string | null {
     return match ? match[1]! : null;
 }
 
+/**
+ * Translates a `source=...` admin filter into a SQL WHERE clause + params.
+ * Mutates the passed arrays. The clause matches the row-level evidence
+ * approach the FE display now uses (deriveSources): a row counts as "in
+ * VPS" if it has vps_id, "in Wizard" if it has the wizard_auto/_manual
+ * feature, etc., independently of where it was first imported. Shared by
+ * `search` (with-query path) and `getAll` (no-query path) so both filter
+ * the same way.
+ */
+function applySourceFilter(
+    source: string | undefined,
+    conditions: string[],
+    params: unknown[],
+): void {
+    if (!source) return;
+    switch (source) {
+        case 'opdb':
+            conditions.push('opdb_id IS NOT NULL');
+            break;
+        case 'vps':
+            conditions.push('vps_id IS NOT NULL');
+            break;
+        case 'igdb':
+            conditions.push('igdb_id IS NOT NULL');
+            break;
+        case 'wizard':
+            conditions.push(`(features LIKE '%"wizard_auto"%' OR features LIKE '%"wizard_manual"%' OR imported_from = 'wizard')`);
+            break;
+        case 'manual':
+            conditions.push(`(imported_from = 'manual' OR imported_from IS NULL)`);
+            break;
+        default:
+            conditions.push('imported_from = ?');
+            params.push(source);
+    }
+}
+
 export interface GlobalGame {
     id: string;
     name: string;
@@ -528,6 +565,9 @@ export class GlobalGameService {
         type?: string;
         platforms?: string[];
         status?: string;
+        /** v2.12.2: align with `getAll` so admin search-with-source-filter
+         *  doesn't silently drop the source filter. */
+        source?: string;
         limit?: number;
         cursor?: string;
     }): Promise<{ data: GlobalGame[]; nextCursor?: string; hasMore: boolean }> {
@@ -548,6 +588,7 @@ export class GlobalGameService {
             conditions.push('status = ?');
             params.push(options.status);
         }
+        applySourceFilter(options?.source, conditions, params);
         // v2.4.x: the public catalogue browse should only surface rows with
         // at least one usable image source. The v2.4.0 backfill inserted
         // thin library-derived rows that otherwise render as empty cards on
@@ -611,32 +652,10 @@ export class GlobalGameService {
             conditions.push('type = ?');
             params.push(options.type);
         }
-        if (options?.source) {
-            // Filter by "is this game in source X" rather than "where was it first imported from".
-            // A game can exist in multiple sources (e.g. a VPS entry enriched with an OPDB ID),
-            // so we filter by the presence of that source's external ID / marker.
-            switch (options.source) {
-                case 'opdb':
-                    conditions.push('opdb_id IS NOT NULL');
-                    break;
-                case 'vps':
-                    conditions.push('vps_id IS NOT NULL');
-                    break;
-                case 'igdb':
-                    conditions.push('igdb_id IS NOT NULL');
-                    break;
-                case 'wizard':
-                    // Wizard import tags games with 'wizard_auto' / 'wizard_manual' in features
-                    conditions.push(`(features LIKE '%"wizard_auto"%' OR features LIKE '%"wizard_manual"%' OR imported_from = 'wizard')`);
-                    break;
-                case 'manual':
-                    conditions.push(`(imported_from = 'manual' OR imported_from IS NULL)`);
-                    break;
-                default:
-                    conditions.push('imported_from = ?');
-                    params.push(options.source);
-            }
-        }
+        // Filter by "is this game in source X" rather than "where was it first imported from".
+        // A game can exist in multiple sources (e.g. a VPS entry enriched with an OPDB ID),
+        // so we filter by the presence of that source's external ID / marker.
+        applySourceFilter(options?.source, conditions, params);
 
         const whereClause = conditions.join(' AND ');
         const limit = Math.min(Math.max(options?.limit ?? 200, 1), 1000);
