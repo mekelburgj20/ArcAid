@@ -429,6 +429,13 @@ export class IScoredClient {
 
             logInfo(`Creating new ${getTerminology().game}: ${gameName}${styleId ? ` (Style ID: ${styleId})` : ''}`);
 
+            // Snapshot existing lineup IDs *before* creation so we can identify the new
+            // row by ID-diff after. iScored mutates names on save (e.g. strips apostrophes),
+            // so name-matching the post-create lineup is brittle.
+            const beforeIds = new Set(
+                (await this.getAllGames()).map(g => g.id).filter(id => id !== '')
+            );
+
             // Navigate to settings.php
             if (!this.page.url().includes('settings.php')) {
                 await this.page.goto(this.SETTINGS_URL);
@@ -459,11 +466,20 @@ export class IScoredClient {
             // Wait for creation redirect — use page navigation wait instead of hardcoded timeout
             await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
 
-            // Find the new game ID from the lineup (use last match — newest is at the end)
-            const games = await this.getAllGames();
-            const newGame = [...games].reverse().find(g => g.name.toUpperCase() === gameName.toUpperCase());
+            // Identify the newly created row by ID-diff against the pre-create snapshot.
+            const after = await this.getAllGames();
+            const newRows = after.filter(g => g.id !== '' && !beforeIds.has(g.id));
+            if (newRows.length === 0) {
+                throw new Error(`Failed to find newly created ${getTerminology().game} in lineup.`);
+            }
+            if (newRows.length > 1) {
+                logWarn(`createGame: ${newRows.length} new rows after create — expected 1. Names: ${newRows.map(g => `"${g.name}"`).join(', ')}. Selecting last.`);
+            }
+            const newGame = newRows[newRows.length - 1]!;
 
-            if (!newGame) throw new Error(`Failed to find newly created ${getTerminology().game} in lineup.`);
+            if (newGame.name.toUpperCase() !== gameName.toUpperCase()) {
+                logInfo(`iScored stored name as "${newGame.name}" (requested "${gameName}").`);
+            }
 
             logInfo(`${getTerminology().game} created successfully with ID: ${newGame.id}`);
             return newGame.id;

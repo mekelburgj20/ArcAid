@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.1] — unreleased
+
+**iScored game-create lookup hardened.** `IScoredClient.createGame` previously located the newly created row by case-insensitive exact name match against the post-create lineup. iScored mutates names on save (observed: strips apostrophes — `JP's` → `JPs`), so any catalogue entry with apostrophes (and likely other punctuation) failed activation with `Failed to find newly created Game in lineup.` while silently leaving 1-2 orphan rows per attempt on iScored (one per retry).
+
+The lookup now snapshots lineup IDs before clicking *Create Blank Game* and identifies the new row by ID-diff. Robust to any name mutation iScored applies. When the stored name differs from the requested one, the divergence is logged at INFO for observability. If somehow more than one new row appears between snapshot and check, a WARN is logged and the last row is selected.
+
+Orphan rows on iScored from prior failed activations are not auto-cleaned — manual delete on iScored is required.
+
+---
+
 ## [2.12.0] — unreleased
 
 **Catalogue source provenance + structured Wizard download.** v2.11.0's merge primitive correctly cascaded data but dropped the Wizard row's `external_url` whenever the target row already had its own (e.g. VPS database link). Manual merges done before this release for Blood Machines and Ace Ventura therefore lost the GitHub link to the vpxs_manual table source. This release ships the structural fix and a Wizard re-sync covers the backfill automatically.
