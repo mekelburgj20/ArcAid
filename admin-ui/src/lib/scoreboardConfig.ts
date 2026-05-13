@@ -126,11 +126,14 @@ export function getCardWidth(style: ScoreboardStyle): number {
  *   - `peek`         px of QR visible inside the card (informational)
  *   - `footerExtra`  extra bottom padding for the footer to clear the peek
  *
- * The peek is the smaller of (a) 10px and (b) 20% of qrSize. The 20% cap
- * preserves the prior visual for small QR sizes (default 24 → 4.8px peek);
- * the 10px cap keeps medium/large QRs from eating score rows.
+ * The peek is the smaller of (a) 4px and (b) 10% of qrSize. v2.13.2 tightened
+ * these from 10px / 20% so the QR hangs further below the card edge on every
+ * size — the prior values left ~3-10px of QR overlapping the bottom score row,
+ * which read as "QR mostly inside the card" once users moved to small QR sizes
+ * (18-24) where the absolute overhang shrinks but the peek-to-size ratio is what
+ * the eye picks up on.
  */
-const QR_BOTTOM_MAX_PEEK_PX = 10;
+const QR_BOTTOM_MAX_PEEK_PX = 4;
 export function qrBottomMetrics(
   qrSize: number,
   qrEnabled: boolean,
@@ -139,7 +142,7 @@ export function qrBottomMetrics(
   if (!qrEnabled || qrPosition !== 'bottom-center' || qrSize <= 0) {
     return { overhang: 0, peek: 0, footerExtra: 0 };
   }
-  const peek = Math.min(QR_BOTTOM_MAX_PEEK_PX, qrSize * 0.2);
+  const peek = Math.min(QR_BOTTOM_MAX_PEEK_PX, qrSize * 0.1);
   return {
     overhang: qrSize - peek,
     peek,

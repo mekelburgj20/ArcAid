@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.2] — unreleased
+
+**Bottom-center QR peek tightened.** `qrBottomMetrics` in `admin-ui/src/lib/scoreboardConfig.ts` lowered the peek cap from 10px → 4px and the size-proportional factor from 0.2 → 0.1. Effect at common QR sizes: `18` → peek 3.6 → 1.8, `24` → peek 4.8 → 2.4, `50+` → peek 10 → 4. The QR's bottom-edge `overhang` grows correspondingly, so every QR sits noticeably lower below the card. Bumps SW cache to `arcaid-v54`.
+
+The May 1 (v2.10.x) tightening from `qrSize * 0.2` to `min(10px, qrSize * 0.2)` was correct for medium/large QRs but kept the 20% factor for small QRs (18-24), where the peek-to-size ratio is what the eye reads — so users who'd shrunk their QR via `SCOREBOARD_QR_SIZE` user-pref still saw "mostly inside the card." This release closes that gap.
+
+---
+
 ## [2.13.1] — unreleased
 
 **iScored game-create lookup hardened.** `IScoredClient.createGame` previously located the newly created row by case-insensitive exact name match against the post-create lineup. iScored mutates names on save (observed: strips apostrophes — `JP's` → `JPs`), so any catalogue entry with apostrophes (and likely other punctuation) failed activation with `Failed to find newly created Game in lineup.` while silently leaving 1-2 orphan rows per attempt on iScored (one per retry).
