@@ -110,7 +110,7 @@ export default function BannerCard({
   const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition);
 
   return (
-    <div style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%', marginBottom: qrMetrics.overhang || undefined }}>
+    <div style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* QR code — top-right, above the card */}
       {showQr && qrPosition === 'top-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>

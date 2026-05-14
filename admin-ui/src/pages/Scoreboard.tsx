@@ -19,7 +19,7 @@ import GamesTabView from '../components/GamesTabView';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
-import { deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
+import { deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../lib/scoreboardConfig';
 
 
 interface LeaderboardWithViewer extends GameLeaderboard {
@@ -183,6 +183,15 @@ export default function Scoreboard() {
   // QR codes above game cards add extra height — rankings card needs matching top margin
   const hasQrTop = useNewCards && (newConfig.qrMode === 'all') && newConfig.qrPosition === 'top-right';
   const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
+  // v2.13.3: bottom-center QR overhangs below the card. The reservation must
+  // live on the LAYOUT ITEM (flex/grid wrapper), not the card's inner div —
+  // marginBottom on a height:100% child escapes its parent's border-box, so
+  // the QR's overhang area was rendered outside the scrollable region and
+  // unreachable even at max scroll. Moving the margin up one level makes flex
+  // line cross-size and grid track sizing include the QR space.
+  const cardMarginBottom = useNewCards
+    ? qrBottomMetrics(newConfig.qrSize, newConfig.qrMode !== 'disabled', newConfig.qrPosition).overhang
+    : 0;
 
   // Measure header height so bg image can start below it
   const headerRef = useRef<HTMLDivElement>(null);
@@ -414,7 +423,7 @@ export default function Scoreboard() {
               }}
             >
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="relative group/card" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0 }}>
+                <div key={lb.gameId} className="relative group/card" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
                   {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                   <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
                     <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
@@ -442,7 +451,7 @@ export default function Scoreboard() {
                 </div>
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                <div key={`rank-${group.id}`} style={{ overflow: 'visible', minWidth: 0 }}>
+                <div key={`rank-${group.id}`} style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
                   <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
                 </div>
               ))}
@@ -453,7 +462,7 @@ export default function Scoreboard() {
           <div className="flex-1 min-w-0">
             <div className="flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
+                <div key={lb.gameId} className="relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
                   {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                   <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
                     <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
@@ -481,7 +490,7 @@ export default function Scoreboard() {
                 </div>
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                <div key={`rank-${group.id}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
+                <div key={`rank-${group.id}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
                   <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
                 </div>
               ))}
@@ -493,7 +502,7 @@ export default function Scoreboard() {
             <div className="-mx-4 sm:-mx-6 overflow-x-auto scoreboard-hscroll-layout">
               <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0 relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
+                  <div key={lb.gameId} className="flex-shrink-0 relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>
                     {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                     <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-2 right-2 z-20 w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/20 focus:bg-neon-cyan/20 flex items-center justify-center transition-colors cursor-pointer backdrop-blur-sm">
                       <Plus size={16} />
@@ -519,7 +528,7 @@ export default function Scoreboard() {
                   </div>
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                  <div key={`rank-${group.id}`} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
+                  <div key={`rank-${group.id}`} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, marginBottom: cardMarginBottom || undefined }}>
                     <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
                   </div>
                 ))}

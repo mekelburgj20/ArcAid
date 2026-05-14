@@ -99,7 +99,7 @@ export default function ShowcaseCard({
   const qrMetrics = qrBottomMetrics(qrSize, qrMode !== 'disabled', qrPosition);
 
   return (
-    <div style={{ position: 'relative', paddingTop: floatPadTop, maxWidth: '100%', marginBottom: qrMetrics.overhang || undefined }}>
+    <div style={{ position: 'relative', paddingTop: floatPadTop, maxWidth: '100%' }}>
       {/* Google Fonts */}
       <link rel="stylesheet" href={theme.googleFontsUrl} />
 

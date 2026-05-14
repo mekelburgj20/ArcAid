@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.3] — unreleased
+
+**Bottom-center QR overhang now reserved in layout.** Symptom: at common viewport sizes, only a 4px sliver of each card's QR was visible — the rest hung below the viewport, and scrolling to the maximum still left ~30-60px of QR clipped. Root cause: `marginBottom: qrMetrics.overhang` was set on each card component's outer div (BannerCard, ShowcaseCard, MinimalCard). That div also has `height: 100%`, which interacts with `align-items: stretch` and parent auto-sizing such that the margin escapes outside the parent's border-box. The flex line cross size (and grid track size) was computed without the overhang, so the QR — positioned `absolute, bottom: -overhang` — rendered outside the scrollable region entirely.
+
+Fix: move the `marginBottom` from each card's inner outer-div to the wrapper around `<CardRouter>` in `Scoreboard.tsx` (the actual flex/grid layout item). Flex item margins DO contribute to flex line cross size and grid track sizing, so the QR's reserved space now lives inside the scrollable layout. No visual change to the QR's relative position; the QR still peeks 4px inside the card with 96px hanging below (for `qrSize=100`).
+
+Also applied to the inline `RankingGroupCard` wrappers so they stay vertically aligned with adjacent leaderboard cards.
+
+Bumps SW cache to `arcaid-v55`.
+
+---
+
 ## [2.13.2] — unreleased
 
 **Bottom-center QR peek tightened.** `qrBottomMetrics` in `admin-ui/src/lib/scoreboardConfig.ts` lowered the peek cap from 10px → 4px and the size-proportional factor from 0.2 → 0.1. Effect at common QR sizes: `18` → peek 3.6 → 1.8, `24` → peek 4.8 → 2.4, `50+` → peek 10 → 4. The QR's bottom-edge `overhang` grows correspondingly, so every QR sits noticeably lower below the card. Bumps SW cache to `arcaid-v54`.

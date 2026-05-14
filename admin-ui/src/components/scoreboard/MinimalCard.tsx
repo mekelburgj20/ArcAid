@@ -95,7 +95,7 @@ export default function MinimalCard({
   const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition);
 
   return (
-    <div style={{ position: 'relative', maxWidth: 380, marginBottom: qrMetrics.overhang || undefined }}>
+    <div style={{ position: 'relative', maxWidth: 380 }}>
       {/* QR code — top-right, above the card */}
       {showQr && qrPosition === 'top-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
