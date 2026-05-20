@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.4] — unreleased
+
+**Two All-Games-tab card bugs.**
+
+*Banner cards overlapped horizontally in the All-Games grid.* `BannerCard.tsx` hardcoded `width: 280` on its outer container without a `maxWidth: '100%'` escape, so when `GamesTabView`'s grid sized cells from `minmax(min(238px, 100%), 1fr)` each card bled ~40px to the right, into the next column. The Tournaments tab forces banner into horizontal scroll (`effectiveLayout = 'scroll'`) where every cell is exactly 280px wide, so it never showed. Fix: add `maxWidth: '100%'` to the BannerCard root, matching the existing pattern on `ShowcaseCard` (`width: 380, maxWidth: '100%'`) and `MinimalCard` (`maxWidth: 380`).
+
+*"Played at" cards rendered without backgrounds or header art.* `/api/rooms/:roomId/community-leaderboards` returned `imageUrl` as the raw DB column (`data/catalogue-images/foo.png`) instead of the public-URL form (`/api/catalogue-images/foo.png`), so every `backgroundImage: url(...)` lookup 404'd silently. The Tournament tab's `LeaderboardService.getActiveLeaderboards` runs the same value through `normalizeImageUrl()`; the community endpoint didn't. Fix: export the helper from `LeaderboardService.ts` and apply it in the community handler. Untouched: cards whose `community_scores.game_name` doesn't case-insensitively match a row in `global_games(name)` will still render bare — that's a data-hygiene gap, not a code path.
+
+**`IScoredClient.deleteGame` now post-flight-verifies the delete.** The modal-hidden + networkidle signal isn't proof that iScored actually deleted the row — observed failure mode: modal hides on click even on silent backend reject, leaving the entity on iScored while the caller logs success. `deleteGame` now re-navigates to the Games tab and re-checks `#selectGame` for the option; returns `false` if the row is still present (so callers can branch on real success vs. false success). Pre-flight skip path (game not in dropdown) still returns `false`, unchanged. Throw behavior unchanged.
+
+Bumps SW cache to `arcaid-v56`.
+
+---
+
 ## [2.13.3] — unreleased
 
 **Bottom-center QR overhang now reserved in layout.** Symptom: at common viewport sizes, only a 4px sliver of each card's QR was visible — the rest hung below the viewport, and scrolling to the maximum still left ~30-60px of QR clipped. Root cause: `marginBottom: qrMetrics.overhang` was set on each card component's outer div (BannerCard, ShowcaseCard, MinimalCard). That div also has `height: 100%`, which interacts with `align-items: stretch` and parent auto-sizing such that the margin escapes outside the parent's border-box. The flex line cross size (and grid track size) was computed without the overhang, so the QR — positioned `absolute, bottom: -overhang` — rendered outside the scrollable region entirely.

@@ -7,7 +7,7 @@ import { getNextRunTime } from '../utils/cronUtils.js';
  * public HTTP URL (`/api/catalogue-images/…`). Leaves absolute URLs and other
  * paths untouched. Mirrors the frontend `toCatalogueUrl` helper.
  */
-function normalizeImageUrl(raw: string | null | undefined): string | null {
+export function normalizeImageUrl(raw: string | null | undefined): string | null {
     if (!raw) return null;
     if (/^https?:\/\//i.test(raw)) return raw;
     const m = raw.match(/^\/?data\/catalogue-images\/(.+)$/);

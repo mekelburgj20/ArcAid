@@ -1584,6 +1584,8 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
             LIMIT ? OFFSET ?
         `, roomId, ...searchParams, limit, offset);
 
+        const { normalizeImageUrl } = await import('../../services/LeaderboardService.js');
+
         // For each game, get top scores with style resolution for card rendering
         const results = await Promise.all(games.map(async (game: any) => {
             const topScores = await db.all(`
@@ -1638,7 +1640,7 @@ router.get('/:roomId/community-leaderboards', async (req, res) => {
             }
 
             const globalGameId = roomLib?.global_game_id || catalogueGame?.id || null;
-            const imageUrl = catalogueGame?.local_image_path || catalogueGame?.wheel_image_path || catalogueGame?.image_url || null;
+            const imageUrl = normalizeImageUrl(catalogueGame?.local_image_path || catalogueGame?.wheel_image_path || catalogueGame?.image_url || null);
 
             return {
                 // Card-compatible fields (GameLeaderboard shape)

@@ -692,14 +692,18 @@ export class IScoredClient {
 
     /**
      * Deletes a game from iScored via the Games tab.
-     * Selects the game, clicks Delete, confirms the modal.
+     * Selects the game, clicks Delete, confirms the modal, then re-checks the
+     * dropdown to verify the game is actually gone.
      *
-     * Returns `true` when the delete confirmation modal was driven through to
-     * completion. Returns `false` when the game wasn't present in the
-     * `<select id="selectGame">` dropdown — a no-op skip path that callers
-     * must distinguish from real success (the game is still on iScored,
-     * something needs to retry or surface the failure). Throws on actual
-     * errors during the delete flow.
+     * Returns `true` when the post-flight verification confirms the game is
+     * absent from the `<select id="selectGame">` dropdown. Returns `false`
+     * when either (a) the pre-flight check found the game missing, or
+     * (b) the modal-driven delete completed but post-flight verification
+     * still saw the game in the dropdown — both leave the entity on iScored
+     * and callers must distinguish from real success. The modal hides on
+     * click regardless of whether the backend actually deleted (silent
+     * reject, stale-modal click, etc.), so the verification step is what
+     * catches the false-success path. Throws on Playwright errors.
      */
     public async deleteGame(gameId: string, gameName?: string): Promise<boolean> {
         let deleted = false;
@@ -710,7 +714,7 @@ export class IScoredClient {
 
             const selectGame = this.page.locator('#selectGame');
 
-            // Verify the game exists in the dropdown
+            // Pre-flight: game must be in dropdown
             const optionCount = await selectGame.locator(`option[value="${gameId}"]`).count();
             if (optionCount === 0) {
                 logWarn(`Game '${gameName || gameId}' not found in dropdown. Skipping delete.`);
@@ -764,6 +768,17 @@ export class IScoredClient {
             // Wait for modal to close
             await modal.waitFor({ state: 'hidden', timeout: 10000 });
             await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+
+            // Post-flight verification: modal-hidden + networkidle is not proof
+            // of deletion; re-navigate so the dropdown reloads from server state
+            // and re-check that the option is gone.
+            await this.navigateToGamesTab();
+            const stillPresent = await this.page.locator('#selectGame')
+                .locator(`option[value="${gameId}"]`).count();
+            if (stillPresent > 0) {
+                logWarn(`Delete verification failed for '${gameName || gameId}': game still present in iScored dropdown after delete flow completed. Treating as no-op.`);
+                return;
+            }
 
             logInfo(`Game '${gameName || gameId}' deleted from iScored.`);
             deleted = true;
