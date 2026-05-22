@@ -87,6 +87,15 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
           if (data.user) {
             localStorage.setItem('arcaid_player_user', JSON.stringify(data.user));
           }
+          // If the same Discord identity is a room_admin or super_admin, also
+          // seed the admin-token slot so the UserMenu "Room admin" link appears
+          // and /:slug/admin/login auto-bounces past the password form.
+          // Guarded on the slot being empty so a higher-privilege session
+          // already active in this browser isn't silently downgraded.
+          if ((role === 'room_admin' || role === 'super_admin') && !localStorage.getItem('arcaid_token')) {
+            setToken(data.token);
+            if (data.refreshToken) localStorage.setItem('arcaid_admin_refresh_token', data.refreshToken);
+          }
           // Notify ViewerAuthContext
           window.dispatchEvent(new Event('arcaid_player_login'));
 

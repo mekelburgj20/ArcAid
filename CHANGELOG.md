@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.5] — unreleased
+
+**Discord-login round-trip on public room pages now keeps you on the page, surfaces the "Room admin" link immediately, and skips the second password prompt at `/admin/login`.** Three symptoms, one root cause + one wiring miss.
+
+*Login redirected to `/lobby` regardless of origin.* `PublicLayout.tsx`'s Discord login button called `loginWithDiscord(slug)` with no `returnPath`, and `ViewerAuthContext.loginWithDiscord` hardcodes `/${slug}/lobby` as the default. Fix: pass `location.pathname + location.search` so `DiscordCallback` round-trips you back to the originating page.
+
+*"Room admin" item missing from the profile menu after Discord login, even for users who are in `game_room_admins`.* `UserMenu` gates the link on the `hasAdminToken` prop, which `PublicLayout` derives from `localStorage.getItem('arcaid_token')` — the *admin* token slot. Backend already issues a `role: 'room_admin'` JWT for these users (`src/api/routes/auth.ts` via `AdminService.getRoomsForDiscordUser`), but `DiscordCallback`'s player-flow branch writes the JWT only into `arcaid_player_token`. Fix: when the decoded role is `room_admin` or `super_admin`, also seed `arcaid_token` + `arcaid_admin_refresh_token`. Guarded on the admin slot being empty so a higher-privilege session already active in the browser isn't silently downgraded.
+
+*`/:slug/admin/login` re-prompted for a password even though you'd just authed via Discord.* `RoomLogin.tsx`'s `isTokenValid(getToken())` auto-bounce checks the admin slot, which was empty by the bug above. Falls out of the same fix — the auto-bounce now triggers and lands you on the dashboard.
+
+*Admin Leaderboard page button labelled "View Public Scoreboard".* Renamed to "View Public Leaderboard" per terminology preference. (Caveat: the destination page is still titled "Scoreboard" elsewhere in the product — broader rename out of scope.)
+
+Bumps SW cache to `arcaid-v57`.
+
+---
+
 ## [2.13.4] — unreleased
 
 **Two All-Games-tab card bugs.**

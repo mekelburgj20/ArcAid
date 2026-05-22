@@ -1,4 +1,4 @@
-const CACHE_NAME = 'arcaid-v56';
+const CACHE_NAME = 'arcaid-v57';
 const STATIC_ASSETS = [];
 
 self.addEventListener('install', (event) => {

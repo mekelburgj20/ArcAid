@@ -117,7 +117,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
               />
             ) : (
               <button
-                onClick={() => slug && loginWithDiscord(slug)}
+                onClick={() => slug && loginWithDiscord(slug, location.pathname + location.search)}
                 className="flex items-center gap-1.5 ml-1 sm:ml-2 px-2 sm:px-3 py-1.5 rounded border border-[#5865F2]/40 bg-[#5865F2]/10 text-[#5865F2] text-xs font-medium hover:bg-[#5865F2]/20 hover:border-[#5865F2]/60 transition-colors cursor-pointer"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">

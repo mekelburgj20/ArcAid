@@ -137,7 +137,7 @@ export default function Leaderboard() {
           className="flex items-center gap-1.5 text-xs text-muted hover:text-neon-cyan transition-colors no-underline"
         >
           <ExternalLink size={14} />
-          <span>View Public Scoreboard</span>
+          <span>View Public Leaderboard</span>
         </a>
       </div>
 
