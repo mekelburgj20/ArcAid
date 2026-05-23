@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.8] — unreleased
+
+**Public landing page room cards are now clickable surfaces.** Clicking anywhere on a room card at `arcaid.app` navigates to that room's scoreboard at `/<slug>/`. Previously only the small "View Scoreboard →" link in the card footer was clickable, which most visitors didn't notice.
+
+*Implementation:* absolutely-positioned `<Link to="/${room.slug}/">` overlay (`inset: 0`, `z-index: 1`) layered over the card content as a sibling, with the existing "View Scoreboard →" Link and the "Join Discord" anchor lifted to `z-index: 2` so they continue catching their own clicks (Discord still opens in a new tab; the visible CTA still works). Uses a real `<Link>` rather than `onClick + useNavigate` so middle-click, ctrl-click, and right-click → "Open in new tab" all keep working. Added a subtle hover affordance (2px lift, green-tinted shadow, border tint) so users know the card is clickable. `aria-label` on the overlay names the destination ("View {room.name} scoreboard") for screen readers. Avoided the `<a>`-nested-inside-`<a>` trap that wrapping the card in a single `<Link>` would have caused.
+
+Bumps SW cache to `arcaid-v60`.
+
+---
+
 ## [2.13.7] — unreleased
 
 **Game-detail leaderboard defaults to the originating room + paginates 20/page; mobile score input no longer summons the OS keypad.** Three small UX fixes that came up testing a locked-tournament submit on rtx_pinball.

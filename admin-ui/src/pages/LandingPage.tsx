@@ -425,18 +425,38 @@ function RoomCard({ room }: { room: Room }) {
       maxWidth: '100%',
       fontFamily: "'DM Sans', sans-serif",
     }}>
-      <div style={{
-        position: 'relative',
-        overflow: 'hidden',
-        borderRadius: 20,
-        border: '1px solid rgba(255,255,255,0.06)',
-        background: 'rgba(18,18,24,0.9)',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-        backdropFilter: 'blur(24px)',
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-      }}>
+      <div
+        style={{
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: 20,
+          border: '1px solid rgba(255,255,255,0.06)',
+          background: 'rgba(18,18,24,0.9)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+          backdropFilter: 'blur(24px)',
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          cursor: 'pointer',
+          transition: 'transform 0.2s, box-shadow 0.2s, border-color 0.2s',
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.boxShadow = '0 12px 40px rgba(99,210,151,0.18)';
+          e.currentTarget.style.borderColor = 'rgba(99,210,151,0.25)';
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.3)';
+          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';
+        }}
+      >
+        {/* Card-wide click target → scoreboard. Inner interactives raise z-index. */}
+        <Link
+          to={`/${room.slug}/`}
+          aria-label={`View ${room.name} scoreboard`}
+          style={{ position: 'absolute', inset: 0, zIndex: 1 }}
+        />
         {/* Accent bar */}
         <div style={{
           height: 2,
@@ -542,6 +562,8 @@ function RoomCard({ room }: { room: Room }) {
               textDecoration: 'none',
               letterSpacing: 1,
               textTransform: 'uppercase',
+              position: 'relative',
+              zIndex: 2,
             }}
           >
             View Scoreboard &rarr;
@@ -558,6 +580,8 @@ function RoomCard({ room }: { room: Room }) {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 5,
+                position: 'relative',
+                zIndex: 2,
               }}
             >
               <svg width="16" height="12" viewBox="0 0 71 55" fill="currentColor">
