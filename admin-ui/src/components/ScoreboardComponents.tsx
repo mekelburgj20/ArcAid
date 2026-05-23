@@ -865,7 +865,12 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
       : scoreboardStyle === 'banner' ? 280 : 320;
     const showcaseTopPad = scoreboardStyle === 'showcase' ? 42 : 0;
     const outerWrap = (children: ReactNode) => (
-      <div style={{ position: 'relative', paddingTop: showcaseTopPad, marginTop: qrTopPad || undefined, maxWidth: '100%', display: 'flex', justifyContent: 'center' }}>
+      // v2.13.11 — height: 100% lets the wrapper fill its stretched flex/grid
+      // slot in horizontal scroll + grid layouts (where parent align-items is
+      // stretch by default), so ranking cards match the tallest game card's
+      // height. In vertical layout the parent's height is indeterminate and
+      // 100% falls back to auto, so cards keep their natural height there.
+      <div style={{ position: 'relative', paddingTop: showcaseTopPad, marginTop: qrTopPad || undefined, height: '100%', maxWidth: '100%', display: 'flex', justifyContent: 'center' }}>
         {tokens.fontsHref && <link rel="stylesheet" href={tokens.fontsHref} />}
         {children}
       </div>
@@ -970,7 +975,9 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
     // ─ Compact: text-only, no card chrome, at game-card width ─
     if (rankingsStyle === 'compact') {
       return outerWrap(
-        <div style={{ width: gameCardW, maxWidth: '100%', padding: '4px 12px', fontFamily: tokens.font }}>
+        // v2.13.11 — flex-column + height:100% so the footer floats to the
+        // bottom when the slot stretches to match game-card height.
+        <div style={{ width: gameCardW, maxWidth: '100%', padding: '4px 12px', fontFamily: tokens.font, display: 'flex', flexDirection: 'column', height: '100%' }}>
             <div style={{
               fontSize: 11,
               fontWeight: 700,
@@ -985,6 +992,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
             }}>
               {group.name}
             </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
             {rankings.length === 0 ? (
               <p style={{ fontSize: 12, color: 'var(--color-faint)', padding: '8px 0' }}>No ranked players yet</p>
             ) : (
@@ -1019,6 +1027,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
                 </div>
               ))
             )}
+            </div>
             <div style={{
               marginTop: 10,
               paddingTop: 6,

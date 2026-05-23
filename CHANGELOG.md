@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.11] — unreleased
+
+**Ranking-card variants now stretch vertically to match the tallest game card in their row.** Follow-up to v2.13.10 — width parity was fixed but height wasn't. The ranking cards sat at their natural ~150px content height while game cards next to them filled 700px+, leaving an awkward gap below the rankings cards.
+
+*Root cause:* in horizontal-scroll and grid layouts the parent flex/grid container has default `align-items: stretch`, so the immediate wrapper around `<RankingGroupCard>` (lines 454/494/532 in `Scoreboard.tsx`) does stretch to the row's max height. But the `outerWrap` div inside that wrapper had no `height: 100%`, so it collapsed to its content height. The inner card's `height: 100%` then resolved against the already-collapsed `outerWrap`, not the stretched outer slot.
+
+*Fix:* added `height: '100%'` to `outerWrap` in `ScoreboardComponents.tsx`. Safe across layouts — in horizontal scroll and grid the value fills the stretched slot; in vertical layout the parent's height is indeterminate so `100%` falls back to `auto` (natural content height stays).
+
+*Compact variant only — internal layout:* added `display: flex; flexDirection: column; height: 100%` to Compact's inner div and wrapped the rankings rows in a `flex: 1` div, so the footer ("X players · METHOD") floats to the bottom of the stretched slot instead of hugging the header. Plaque and Sidebar already had this distribution via their existing `flex-1` body div.
+
+Bumps SW cache to `arcaid-v63`.
+
+---
+
 ## [2.13.10] — unreleased
 
 **Ranking-card variants (Plaque / Compact / Sidebar) now occupy the same slot dimensions as game cards and align with their top edges.** Follow-up to v2.13.9 — the new variants were rendered at intrinsic widths (220 / 320 / 180px) that made the layout look unbalanced beside game cards, and they didn't apply the 42px showcase top-padding so they sat above the game-card top edge.
