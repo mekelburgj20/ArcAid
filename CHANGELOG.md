@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.10] — unreleased
+
+**Ranking-card variants (Plaque / Compact / Sidebar) now occupy the same slot dimensions as game cards and align with their top edges.** Follow-up to v2.13.9 — the new variants were rendered at intrinsic widths (220 / 320 / 180px) that made the layout look unbalanced beside game cards, and they didn't apply the 42px showcase top-padding so they sat above the game-card top edge.
+
+*Width:* all three variants now derive their inner card width from the parent scoreboardStyle (showcase/minimal=380, banner=280, other=320) instead of fixed values. Visual distinction comes from internal rendering — frame, typography, chrome — not footprint. `rankingsStyleWidth()` removed; `RankingsColumn` / `RankingsRow` reverted to the original game-card-width logic.
+
+*Top-edge alignment:* a new `outerWrap` helper in `RankingGroupCard` applies `paddingTop: 42` when scoreboardStyle is `showcase` (matching the existing showcase ranking variant's pattern). Removed the v2.13.9 `RankingsColumn` change that stripped column-level topPad for non-match styles.
+
+*Mobile vertical centering:* `outerWrap` is a `display: flex; justifyContent: center` container so the inner card centers horizontally within its slot whenever the slot is wider than the card — covers mobile vertical layout and any narrow-slot edge case.
+
+*Sidebar header content:* replaced the literal "Rankings" label with a two-line header — small "OVERALL" eyebrow + `{group.name}` as the main title. Players can now tell which ranking group the card represents (e.g., "Daily Grind Overall" vs "Monthly").
+
+Bumps SW cache to `arcaid-v62`.
+
+---
+
 ## [2.13.9] — unreleased
 
 **Overall Rankings cards can now be styled independently of game cards.** Three new ranking-card treatments — Plaque, Compact List, Sidebar Block — plus the existing Match-Scoreboard default. Addresses the problem where the rankings card mirrored game-card layout 1:1 (same header, same body shape, same width) and read as "yet another game card" on the scoreboard.

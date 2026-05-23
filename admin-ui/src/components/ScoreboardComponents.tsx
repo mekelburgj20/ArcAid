@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus, Camera, Upload } from 'lucide-react';
 import QRCode from 'qrcode';
@@ -855,28 +855,41 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
       titleShadow: showcaseTheme?.titleTextShadow,
       fontsHref: showcaseTheme?.googleFontsUrl,
     };
+    // v2.13.10 — ranking cards always occupy the same slot dimensions as game
+    // cards (visual distinction comes from internal rendering, not footprint).
+    // showcaseTopPad mirrors the existing showcase RankingGroupCard wrapper so
+    // the new variants align with game-card bodies, not the identifier-image
+    // overhang above them. Wrapper is a flex container so inner cards center
+    // horizontally on mobile vertical and any other narrow-slot context.
+    const gameCardW = scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
+      : scoreboardStyle === 'banner' ? 280 : 320;
+    const showcaseTopPad = scoreboardStyle === 'showcase' ? 42 : 0;
+    const outerWrap = (children: ReactNode) => (
+      <div style={{ position: 'relative', paddingTop: showcaseTopPad, marginTop: qrTopPad || undefined, maxWidth: '100%', display: 'flex', justifyContent: 'center' }}>
+        {tokens.fontsHref && <link rel="stylesheet" href={tokens.fontsHref} />}
+        {children}
+      </div>
+    );
 
-    // ─ Plaque: tall + narrow hall-of-fame frame ─
+    // ─ Plaque: hall-of-fame frame at game-card width ─
     if (rankingsStyle === 'plaque') {
-      return (
-        <div style={{ position: 'relative', paddingTop: qrTopPad, maxWidth: '100%' }}>
-          {tokens.fontsHref && <link rel="stylesheet" href={tokens.fontsHref} />}
-          <div style={{
-            width: 220,
-            maxWidth: '100%',
-            position: 'relative',
-            overflow: 'hidden',
-            borderRadius: 6,
-            border: `2px solid ${tokens.border}`,
-            outline: `1px solid ${tokens.border}`,
-            outlineOffset: 4,
-            background: tokens.bg,
-            boxShadow: tokens.shadow,
-            fontFamily: tokens.font,
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-          }}>
+      return outerWrap(
+        <div style={{
+          width: gameCardW,
+          maxWidth: '100%',
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: 6,
+          border: `2px solid ${tokens.border}`,
+          outline: `1px solid ${tokens.border}`,
+          outlineOffset: 4,
+          background: tokens.bg,
+          boxShadow: tokens.shadow,
+          fontFamily: tokens.font,
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+        }}>
             {cardOpacity != null && cardOpacity < 1 && (
               <div className="absolute inset-0" style={{ background: tokens.bg, opacity: cardOpacity }} />
             )}
@@ -951,16 +964,13 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
               {group.name}
             </div>
           </div>
-        </div>
       );
     }
 
-    // ─ Compact: text-only, no card chrome ─
+    // ─ Compact: text-only, no card chrome, at game-card width ─
     if (rankingsStyle === 'compact') {
-      return (
-        <div style={{ position: 'relative', marginTop: qrTopPad || undefined, maxWidth: '100%', width: 320 }}>
-          {tokens.fontsHref && <link rel="stylesheet" href={tokens.fontsHref} />}
-          <div style={{ padding: '4px 12px', fontFamily: tokens.font }}>
+      return outerWrap(
+        <div style={{ width: gameCardW, maxWidth: '100%', padding: '4px 12px', fontFamily: tokens.font }}>
             <div style={{
               fontSize: 11,
               fontWeight: 700,
@@ -1021,11 +1031,10 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
               {rankings.length} player{rankings.length !== 1 ? 's' : ''} · {methodInfo.label}
             </div>
           </div>
-        </div>
       );
     }
 
-    // ─ Sidebar: narrow column with abbreviated scores ─
+    // ─ Sidebar: compact row layout at game-card width ─
     if (rankingsStyle === 'sidebar') {
       const compactScore = (n: number) => {
         if (group.rank_method === 'average_rank') return n.toFixed(2);
@@ -1034,39 +1043,55 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
         if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
         return n.toString();
       };
-      return (
-        <div style={{ position: 'relative', marginTop: qrTopPad || undefined, maxWidth: '100%' }}>
-          {tokens.fontsHref && <link rel="stylesheet" href={tokens.fontsHref} />}
+      return outerWrap(
+        <div style={{
+          width: gameCardW,
+          maxWidth: '100%',
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: 4,
+          border: `1px solid ${tokens.border}`,
+          background: tokens.bg,
+          boxShadow: tokens.shadow,
+          fontFamily: tokens.font,
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+        }}>
+          {cardOpacity != null && cardOpacity < 1 && (
+            <div className="absolute inset-0" style={{ background: tokens.bg, opacity: cardOpacity }} />
+          )}
           <div style={{
-            width: 180,
-            maxWidth: '100%',
+            padding: '6px 10px 8px',
+            borderBottom: `1px solid ${tokens.border}44`,
             position: 'relative',
-            overflow: 'hidden',
-            borderRadius: 4,
-            border: `1px solid ${tokens.border}`,
-            background: tokens.bg,
-            boxShadow: tokens.shadow,
-            fontFamily: tokens.font,
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
           }}>
-            {cardOpacity != null && cardOpacity < 1 && (
-              <div className="absolute inset-0" style={{ background: tokens.bg, opacity: cardOpacity }} />
-            )}
             <div style={{
-              padding: '8px 10px',
-              borderBottom: `1px solid ${tokens.border}44`,
-              fontSize: 10,
+              fontSize: 9,
               fontWeight: 700,
-              letterSpacing: '0.18em',
+              letterSpacing: '0.22em',
               textTransform: 'uppercase',
+              color: 'var(--color-muted)',
+              opacity: 0.7,
+              fontFamily: tokens.font,
+            }}>
+              Overall
+            </div>
+            <div style={{
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: '0.04em',
               color: tokens.titleColor,
               textShadow: tokens.titleShadow,
-              position: 'relative',
+              fontFamily: tokens.font,
+              marginTop: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}>
-              Rankings
+              {group.name}
             </div>
+          </div>
             <div className="flex-1 relative" style={{ padding: '4px 0' }}>
               {rankings.length === 0 ? (
                 <p style={{ fontSize: 11, textAlign: 'center', padding: '12px 0', color: 'var(--color-faint)' }}>
@@ -1118,7 +1143,6 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
               {methodInfo.label} · {rankings.length}p
             </div>
           </div>
-        </div>
       );
     }
   }
@@ -1230,28 +1254,18 @@ interface RankingsProps {
   scoreboardStyle?: string;
   showcaseThemeName?: string;
   sticky?: boolean;
-  /** v2.13.9 — see RankingGroupCard.rankingsStyle. Forwarded to each card and
-   *  used here to size the containing column/row when set to a non-'match' style. */
+  /** v2.13.9 — see RankingGroupCard.rankingsStyle. Forwarded unchanged to each
+   *  card. As of v2.13.10 the column/row width is *not* affected by this; the
+   *  ranking card always occupies the same slot dimensions as a game card. */
   rankingsStyle?: RankingsCardStyle;
-}
-
-/** v2.13.9 — intrinsic width per rankings style. Returns null when the style
- *  should defer to the parent scoreboardStyle's width (i.e., 'match'). */
-function rankingsStyleWidth(rs?: RankingsCardStyle): number | null {
-  if (rs === 'plaque') return 220;
-  if (rs === 'compact') return 320;
-  if (rs === 'sidebar') return 180;
-  return null;
 }
 
 export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky, rankingsStyle }: RankingsProps) {
   // Match Showcase card paddingTop so Rankings aligns with card frames, not identifier images
-  // (skipped for non-match styles — they own their own top spacing).
-  const topPad = rankingsStyle && rankingsStyle !== 'match' ? 0 : (scoreboardStyle === 'showcase' ? 42 : 0);
-  const colWidth = rankingsStyleWidth(rankingsStyle) ?? (
-    scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
-      : scoreboardStyle === 'banner' ? 280 : 320
-  );
+  const topPad = scoreboardStyle === 'showcase' ? 42 : 0;
+  // Match width to the current card style (same for all rankings styles — they fill the slot)
+  const colWidth = scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
+    : scoreboardStyle === 'banner' ? 280 : 320;
   return (
     <div className={`w-full flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : ''}`} style={{ ...(topPad ? { paddingTop: topPad } : {}), maxWidth: colWidth }}>
       <div className="flex flex-col gap-5">
@@ -1264,10 +1278,8 @@ export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, sh
 }
 
 export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, rankingsStyle }: RankingsProps) {
-  const cardW = rankingsStyleWidth(rankingsStyle) ?? (
-    scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
-      : scoreboardStyle === 'banner' ? 280 : 320
-  );
+  const cardW = scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
+    : scoreboardStyle === 'banner' ? 280 : 320;
   return (
     <div className="mb-6">
       <div className="flex gap-5 overflow-x-auto pb-2">
