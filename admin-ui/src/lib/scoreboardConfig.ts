@@ -33,6 +33,17 @@ export interface ScoreboardConfig {
   titleSize: string;
   rankingsPosition: string;
   rankingsSticky: boolean;
+  /**
+   * Card style for the Overall Rankings card. Decouples ranking-card rendering
+   * from the game-card style so rankings can read as a different "object type"
+   * rather than another game card.
+   *
+   * - `match`   — mirror the scoreboard's style+theme (legacy / default).
+   * - `plaque`  — tall, narrow, ornamental hall-of-fame frame.
+   * - `compact` — no card chrome; text-only list on the scoreboard background.
+   * - `sidebar` — narrow column with abbreviated scores; best beside the grid.
+   */
+  rankingsStyle: 'match' | 'plaque' | 'compact' | 'sidebar';
   hideEmpty: boolean;
   requirePhoto: boolean;
   qrMode: string;
@@ -98,6 +109,9 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     titleSize: config.SCOREBOARD_TITLE_SIZE || 'sm',
     rankingsPosition: config.SCOREBOARD_RANKINGS_POSITION || 'left',
     rankingsSticky: config.SCOREBOARD_RANKINGS_STICKY === 'true',
+    rankingsStyle: (['match', 'plaque', 'compact', 'sidebar'].includes(config.SCOREBOARD_RANKINGS_STYLE || '')
+      ? config.SCOREBOARD_RANKINGS_STYLE
+      : 'match') as ScoreboardConfig['rankingsStyle'],
     hideEmpty: config.SCOREBOARD_HIDE_EMPTY === 'true',
     requirePhoto: config.REQUIRE_SCORE_PHOTO === 'true',
     qrMode: config.SCOREBOARD_QR_MODE || 'disabled',

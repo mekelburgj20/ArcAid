@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.9] — unreleased
+
+**Overall Rankings cards can now be styled independently of game cards.** Three new ranking-card treatments — Plaque, Compact List, Sidebar Block — plus the existing Match-Scoreboard default. Addresses the problem where the rankings card mirrored game-card layout 1:1 (same header, same body shape, same width) and read as "yet another game card" on the scoreboard.
+
+*New setting key `SCOREBOARD_RANKINGS_STYLE`* in `game_room_settings`. Reader in `admin-ui/src/lib/scoreboardConfig.ts` validates against `{match, plaque, compact, sidebar}` and falls back to `match` for unknown/missing values, so existing rooms see no visual change.
+
+*Renderer in `RankingGroupCard`* (`admin-ui/src/components/ScoreboardComponents.tsx`) — three new early-return branches before the existing showcase/minimal/banner trio. When `rankingsStyle === 'match'` the legacy 3-branch logic runs unchanged. The new variants borrow theme tokens (card background, border color, title color, fonts, Google-fonts href) from the active showcase theme when one is set, so a Glass-Deck-flavored Plaque looks Glass-Deck-y rather than generic. `RankingsColumn` / `RankingsRow` derive their container width from the new style's intrinsic width (plaque 220px, compact 320px, sidebar 180px) instead of the parent scoreboard style's width.
+
+- **Plaque** — tall + narrow (220px) hall-of-fame frame with double-border outline, centered rank/name/score stack per entry, ✦ glyph above the title. Reads as a commemorative object distinct from any game card.
+- **Compact List** — text-only, no card chrome, dotted leaders between name and score. Quietest variant; great when rankings are reference info that shouldn't compete for attention.
+- **Sidebar Block** — narrow (180px) column with abbreviated scores (`2.4k`, `1.2M`). Best when rankings sit beside the game-card grid as a supporting widget.
+
+*Pickers in two places* — room-admin default on the Rankings admin page (`/:slug/admin/rankings`, new "Display Style" section above the groups list, reads/writes via `/api/rooms/:roomId/settings`), and per-user override in the Scoreboard Preferences modal (`SCOREBOARD_RANKINGS_STYLE` added to the `SELECT_PREFS` list so it picks up the existing Reset-to-default affordance). Same option set in both places.
+
+*Plumbed through* `admin-ui/src/pages/Scoreboard.tsx` + `admin-ui/src/pages/KioskScoreboard.tsx` to all 12 ranking-card call sites (RankingsRow, RankingsColumn, and inline RankingGroupCard inside layout containers).
+
+Bumps SW cache to `arcaid-v61`.
+
+---
+
 ## [2.13.8] — unreleased
 
 **Public landing page room cards are now clickable surfaces.** Clicking anywhere on a room card at `arcaid.app` navigates to that room's scoreboard at `/<slug>/`. Previously only the small "View Scoreboard →" link in the card footer was clickable, which most visitors didn't notice.

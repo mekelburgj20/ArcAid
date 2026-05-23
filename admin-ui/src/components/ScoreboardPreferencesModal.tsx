@@ -79,6 +79,17 @@ const SELECT_PREFS: PrefDef[] = [
     ],
   },
   {
+    key: 'SCOREBOARD_RANKINGS_STYLE', label: 'Rankings Card Style',
+    description: 'Match the scoreboard style or pick a distinct treatment for ranking cards.',
+    type: 'select',
+    options: [
+      { value: 'match', label: 'Match Scoreboard' },
+      { value: 'plaque', label: 'Plaque (hall-of-fame frame)' },
+      { value: 'compact', label: 'Compact List (no chrome)' },
+      { value: 'sidebar', label: 'Sidebar Block (narrow column)' },
+    ],
+  },
+  {
     key: 'SCOREBOARD_QR_POSITION', label: 'QR Code Position', type: 'select',
     options: [
       { value: 'top-right', label: 'Top Right' },

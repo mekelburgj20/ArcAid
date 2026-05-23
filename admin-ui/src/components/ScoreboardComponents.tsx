@@ -782,13 +782,20 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   );
 }
 
-export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle, showcaseThemeName, qrTopPad = 0 }: {
+export type RankingsCardStyle = 'match' | 'plaque' | 'compact' | 'sidebar';
+
+export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle, showcaseThemeName, qrTopPad = 0, rankingsStyle = 'match' }: {
   group: RankingGroupData['group'];
   rankings: RankingGroupData['rankings'];
   cardOpacity?: number;
   scoreboardStyle?: string;
   showcaseThemeName?: string;
   qrTopPad?: number; // extra top margin to align with game cards that have QR above them
+  /** v2.13.9 — independent rendering style for ranking cards. When 'match'
+   *  (default), mirrors the parent scoreboardStyle/theme (legacy behavior).
+   *  Other values pick a structurally distinct layout that still borrows the
+   *  active showcase theme tokens (colors, fonts) for cohesion. */
+  rankingsStyle?: RankingsCardStyle;
 }) {
   const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
   const showcaseTheme = scoreboardStyle === 'showcase'
@@ -832,6 +839,289 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
       </div>
     )
   );
+
+  // ── Non-match rankings styles (v2.13.9) ─────────────────────────────────
+  // Theme tokens borrowed from the active showcase theme when present; CSS
+  // variable defaults otherwise. The new variants override the structural
+  // layout (shape, width, chrome) but inherit the parent's color/font flavor
+  // so they still feel like part of the same scoreboard.
+  if (rankingsStyle !== 'match') {
+    const tokens = {
+      bg: showcaseTheme?.cardBg ?? 'var(--color-surface, #1a1a2e)',
+      border: showcaseTheme ? showcaseTheme.cardBorder.replace(/^1px solid /, '') : 'rgba(var(--border-rgb, 128,128,128), 0.4)',
+      shadow: showcaseTheme?.cardShadow ?? 'none',
+      font: showcaseTheme?.fontFamily,
+      titleColor: showcaseTheme?.titleColor ?? 'var(--color-primary)',
+      titleShadow: showcaseTheme?.titleTextShadow,
+      fontsHref: showcaseTheme?.googleFontsUrl,
+    };
+
+    // ─ Plaque: tall + narrow hall-of-fame frame ─
+    if (rankingsStyle === 'plaque') {
+      return (
+        <div style={{ position: 'relative', paddingTop: qrTopPad, maxWidth: '100%' }}>
+          {tokens.fontsHref && <link rel="stylesheet" href={tokens.fontsHref} />}
+          <div style={{
+            width: 220,
+            maxWidth: '100%',
+            position: 'relative',
+            overflow: 'hidden',
+            borderRadius: 6,
+            border: `2px solid ${tokens.border}`,
+            outline: `1px solid ${tokens.border}`,
+            outlineOffset: 4,
+            background: tokens.bg,
+            boxShadow: tokens.shadow,
+            fontFamily: tokens.font,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+          }}>
+            {cardOpacity != null && cardOpacity < 1 && (
+              <div className="absolute inset-0" style={{ background: tokens.bg, opacity: cardOpacity }} />
+            )}
+            <div className="px-4 pt-5 pb-3 text-center relative" style={{ borderBottom: `1px solid ${tokens.border}55` }}>
+              <div style={{ fontSize: 16, color: tokens.titleColor, opacity: 0.55, lineHeight: 1, marginBottom: 6 }}>✦</div>
+              <h2 style={{
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: '0.22em',
+                color: tokens.titleColor,
+                textShadow: tokens.titleShadow,
+                lineHeight: 1.1,
+                margin: 0,
+                textTransform: 'uppercase',
+                fontFamily: tokens.font,
+              }}>
+                Hall of Fame
+              </h2>
+            </div>
+            <div className="flex-1 relative" style={{ padding: '6px 10px' }}>
+              {rankings.length === 0 ? (
+                <p style={{ fontSize: 12, textAlign: 'center', padding: '24px 0', color: 'var(--color-faint)' }}>
+                  No ranked players yet
+                </p>
+              ) : (
+                rankings.slice(0, RANKINGS_TOP_N).map((entry) => (
+                  <div key={entry.iscored_username} style={{
+                    padding: '8px 4px',
+                    textAlign: 'center',
+                    borderBottom: `1px solid ${tokens.border}22`,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 10 }}>
+                      <span className={`font-display font-bold ${rankColor(entry.rank)}`} style={{ fontSize: 15, fontFamily: tokens.font, fontVariantNumeric: 'tabular-nums' }}>
+                        {entry.rank}
+                      </span>
+                      <span style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: 'var(--color-primary)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.08em',
+                        fontFamily: tokens.font,
+                      }}>
+                        {playerName(entry)}
+                      </span>
+                    </div>
+                    <div style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: entry.rank === 1 ? 'var(--color-neon-amber)' : 'var(--color-primary)',
+                      marginTop: 2,
+                      fontFamily: tokens.font,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}>
+                      {scoreDisplay(entry)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{
+              padding: '6px 12px 8px',
+              textAlign: 'center',
+              borderTop: `1px solid ${tokens.border}55`,
+              fontSize: 10,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              color: 'var(--color-muted)',
+              fontFamily: tokens.font,
+              position: 'relative',
+            }}>
+              {group.name}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─ Compact: text-only, no card chrome ─
+    if (rankingsStyle === 'compact') {
+      return (
+        <div style={{ position: 'relative', marginTop: qrTopPad || undefined, maxWidth: '100%', width: 320 }}>
+          {tokens.fontsHref && <link rel="stylesheet" href={tokens.fontsHref} />}
+          <div style={{ padding: '4px 12px', fontFamily: tokens.font }}>
+            <div style={{
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.18em',
+              color: tokens.titleColor,
+              textShadow: tokens.titleShadow,
+              opacity: 0.85,
+              marginBottom: 10,
+              paddingBottom: 6,
+              borderBottom: `1px solid ${tokens.border}33`,
+            }}>
+              {group.name}
+            </div>
+            {rankings.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--color-faint)', padding: '8px 0' }}>No ranked players yet</p>
+            ) : (
+              rankings.slice(0, RANKINGS_TOP_N).map((entry) => (
+                <div key={entry.iscored_username} style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 8,
+                  padding: '4px 0',
+                }}>
+                  <span className={`font-display font-bold ${rankColor(entry.rank)}`} style={{ width: 18, textAlign: 'right', fontSize: 13, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                    {entry.rank}
+                  </span>
+                  <span style={{ fontSize: 13, color: 'var(--color-secondary)', flexShrink: 0, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {playerName(entry)}
+                  </span>
+                  <span style={{
+                    flex: 1,
+                    borderBottom: '1px dotted var(--color-faint)',
+                    opacity: 0.35,
+                    alignSelf: 'flex-end',
+                    marginBottom: 5,
+                  }} />
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: entry.rank === 1 ? 'var(--color-neon-amber)' : 'var(--color-primary)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {scoreDisplay(entry)}
+                  </span>
+                </div>
+              ))
+            )}
+            <div style={{
+              marginTop: 10,
+              paddingTop: 6,
+              borderTop: `1px solid ${tokens.border}22`,
+              fontSize: 10,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: 'var(--color-faint)',
+            }}>
+              {rankings.length} player{rankings.length !== 1 ? 's' : ''} · {methodInfo.label}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─ Sidebar: narrow column with abbreviated scores ─
+    if (rankingsStyle === 'sidebar') {
+      const compactScore = (n: number) => {
+        if (group.rank_method === 'average_rank') return n.toFixed(2);
+        if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+        if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+        return n.toString();
+      };
+      return (
+        <div style={{ position: 'relative', marginTop: qrTopPad || undefined, maxWidth: '100%' }}>
+          {tokens.fontsHref && <link rel="stylesheet" href={tokens.fontsHref} />}
+          <div style={{
+            width: 180,
+            maxWidth: '100%',
+            position: 'relative',
+            overflow: 'hidden',
+            borderRadius: 4,
+            border: `1px solid ${tokens.border}`,
+            background: tokens.bg,
+            boxShadow: tokens.shadow,
+            fontFamily: tokens.font,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+          }}>
+            {cardOpacity != null && cardOpacity < 1 && (
+              <div className="absolute inset-0" style={{ background: tokens.bg, opacity: cardOpacity }} />
+            )}
+            <div style={{
+              padding: '8px 10px',
+              borderBottom: `1px solid ${tokens.border}44`,
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              color: tokens.titleColor,
+              textShadow: tokens.titleShadow,
+              position: 'relative',
+            }}>
+              Rankings
+            </div>
+            <div className="flex-1 relative" style={{ padding: '4px 0' }}>
+              {rankings.length === 0 ? (
+                <p style={{ fontSize: 11, textAlign: 'center', padding: '12px 0', color: 'var(--color-faint)' }}>
+                  No ranked players
+                </p>
+              ) : (
+                rankings.slice(0, RANKINGS_TOP_N).map((entry) => (
+                  <div key={entry.iscored_username} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '3px 10px',
+                  }}>
+                    <span className={`font-display font-bold ${rankColor(entry.rank)}`} style={{ width: 14, fontSize: 11, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                      {entry.rank}
+                    </span>
+                    <span style={{
+                      flex: 1,
+                      fontSize: 11,
+                      color: 'var(--color-secondary)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {playerName(entry)}
+                    </span>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: entry.rank === 1 ? 'var(--color-neon-amber)' : 'var(--color-primary)',
+                      fontVariantNumeric: 'tabular-nums',
+                      flexShrink: 0,
+                    }}>
+                      {compactScore(entry.total_points)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{
+              padding: '6px 10px',
+              borderTop: `1px solid ${tokens.border}44`,
+              fontSize: 9,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: 'var(--color-faint)',
+              position: 'relative',
+            }}>
+              {methodInfo.label} · {rankings.length}p
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
 
   // ── Showcase style ──
   if (scoreboardStyle === 'showcase' && showcaseTheme) {
@@ -940,34 +1230,50 @@ interface RankingsProps {
   scoreboardStyle?: string;
   showcaseThemeName?: string;
   sticky?: boolean;
+  /** v2.13.9 — see RankingGroupCard.rankingsStyle. Forwarded to each card and
+   *  used here to size the containing column/row when set to a non-'match' style. */
+  rankingsStyle?: RankingsCardStyle;
 }
 
-export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky }: RankingsProps) {
+/** v2.13.9 — intrinsic width per rankings style. Returns null when the style
+ *  should defer to the parent scoreboardStyle's width (i.e., 'match'). */
+function rankingsStyleWidth(rs?: RankingsCardStyle): number | null {
+  if (rs === 'plaque') return 220;
+  if (rs === 'compact') return 320;
+  if (rs === 'sidebar') return 180;
+  return null;
+}
+
+export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky, rankingsStyle }: RankingsProps) {
   // Match Showcase card paddingTop so Rankings aligns with card frames, not identifier images
-  const topPad = scoreboardStyle === 'showcase' ? 42 : 0;
-  // Match width to the current card style
-  const colWidth = scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
-    : scoreboardStyle === 'banner' ? 280 : 320;
+  // (skipped for non-match styles — they own their own top spacing).
+  const topPad = rankingsStyle && rankingsStyle !== 'match' ? 0 : (scoreboardStyle === 'showcase' ? 42 : 0);
+  const colWidth = rankingsStyleWidth(rankingsStyle) ?? (
+    scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
+      : scoreboardStyle === 'banner' ? 280 : 320
+  );
   return (
     <div className={`w-full flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : ''}`} style={{ ...(topPad ? { paddingTop: topPad } : {}), maxWidth: colWidth }}>
       <div className="flex flex-col gap-5">
         {rankingGroups.map(({ group, rankings }) => (
-          <RankingGroupCard key={group.id} group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} />
+          <RankingGroupCard key={group.id} group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} rankingsStyle={rankingsStyle} />
         ))}
       </div>
     </div>
   );
 }
 
-export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName }: RankingsProps) {
-  const cardW = scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
-    : scoreboardStyle === 'banner' ? 280 : 320;
+export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, rankingsStyle }: RankingsProps) {
+  const cardW = rankingsStyleWidth(rankingsStyle) ?? (
+    scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
+      : scoreboardStyle === 'banner' ? 280 : 320
+  );
   return (
     <div className="mb-6">
       <div className="flex gap-5 overflow-x-auto pb-2">
         {rankingGroups.map(({ group, rankings }) => (
           <div key={group.id} className="flex-shrink-0" style={{ width: cardW }}>
-            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} />
+            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} rankingsStyle={rankingsStyle} />
           </div>
         ))}
       </div>

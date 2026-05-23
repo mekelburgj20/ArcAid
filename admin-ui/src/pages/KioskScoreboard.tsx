@@ -197,7 +197,7 @@ export default function KioskScoreboard() {
 
         {/* Rankings: top position (only when sticky/separate) */}
         {!inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
+          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} />
         )}
 
         {/* Main content area */}
@@ -205,7 +205,7 @@ export default function KioskScoreboard() {
 
           {/* Rankings: left position (only when sticky/separate) */}
           {!inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
+            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
           )}
 
           {/* Game leaderboards */}
@@ -233,7 +233,7 @@ export default function KioskScoreboard() {
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                   <div key={`rank-${group.id}`} style={{ overflow: 'visible', minWidth: 0 }}>
-                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
+                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
                   </div>
                 ))}
               </div>
@@ -252,7 +252,7 @@ export default function KioskScoreboard() {
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                   <div key={`rank-${group.id}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
-                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
+                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
                   </div>
                 ))}
               </div>
@@ -272,7 +272,7 @@ export default function KioskScoreboard() {
                   ))}
                   {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                     <div key={`rank-${group.id}`} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
-                      <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} qrTopPad={rankQrTopPad} />
+                      <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
                     </div>
                   ))}
                 </div>
@@ -282,13 +282,13 @@ export default function KioskScoreboard() {
 
           {/* Rankings: right position (only when sticky/separate) */}
           {!inlineRankings && rankingsPosition === 'right' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
+            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
           )}
         </div>
 
         {/* Rankings: bottom position (only when sticky/separate) */}
         {!inlineRankings && rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} />
+          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} />
         )}
       </div>
 

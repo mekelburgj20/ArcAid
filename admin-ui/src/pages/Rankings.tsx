@@ -58,6 +58,16 @@ const RANK_METHODS: Record<RankMethod, { label: string; description: string }> =
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
 
+/** v2.13.9 — ranking-card display styles. Persisted to game_room_settings
+ *  under SCOREBOARD_RANKINGS_STYLE; the renderer in RankingGroupCard branches
+ *  on this. Same option set is mirrored in ScoreboardPreferencesModal. */
+const RANKINGS_STYLE_OPTIONS: { value: 'match' | 'plaque' | 'compact' | 'sidebar'; label: string; description: string }[] = [
+  { value: 'match', label: 'Match Scoreboard', description: 'Mirror the scoreboard card style. Legacy default.' },
+  { value: 'plaque', label: 'Plaque', description: 'Tall, narrow hall-of-fame frame. Reads as its own object.' },
+  { value: 'compact', label: 'Compact List', description: 'Text-only, no card chrome. Quietest option.' },
+  { value: 'sidebar', label: 'Sidebar Block', description: 'Narrow column, abbreviated scores. Best beside the grid.' },
+];
+
 export default function Rankings() {
   const room = useRoom();
   const { toast } = useToast();
@@ -70,6 +80,9 @@ export default function Rankings() {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [rankings, setRankings] = useState<Record<string, OverallRanking[]>>({});
   const [recomputing, setRecomputing] = useState<string | null>(null);
+  // v2.13.9 — display-style picker state. Persists to room settings.
+  const [rankingsStyle, setRankingsStyle] = useState<string>('match');
+  const [styleSaving, setStyleSaving] = useState(false);
 
   // Form state
   const [formName, setFormName] = useState('');
@@ -86,16 +99,38 @@ export default function Rankings() {
 
   const loadData = async () => {
     try {
-      const [groupsData, tournamentsData] = await Promise.all([
+      const [groupsData, tournamentsData, settingsData] = await Promise.all([
         api.get<RankingGroup[]>(`/rooms/${room.roomId}/ranking-groups`),
         api.get<Tournament[]>(`/rooms/${room.roomId}/tournaments`),
+        api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`).catch(() => ({} as Record<string, string>)),
       ]);
       setGroups(groupsData);
       setTournaments(tournamentsData);
+      const persistedStyle = settingsData.SCOREBOARD_RANKINGS_STYLE;
+      if (persistedStyle && RANKINGS_STYLE_OPTIONS.some(o => o.value === persistedStyle)) {
+        setRankingsStyle(persistedStyle);
+      }
     } catch {
       toast('Failed to load ranking groups', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSetStyle = async (value: string) => {
+    if (value === rankingsStyle || styleSaving) return;
+    const prev = rankingsStyle;
+    setRankingsStyle(value); // optimistic
+    setStyleSaving(true);
+    try {
+      await api.post(`/rooms/${room.roomId}/settings`, { SCOREBOARD_RANKINGS_STYLE: value });
+      const label = RANKINGS_STYLE_OPTIONS.find(o => o.value === value)?.label ?? value;
+      toast(`Ranking style: ${label}`, 'success');
+    } catch {
+      setRankingsStyle(prev); // revert on failure
+      toast('Failed to save ranking style', 'error');
+    } finally {
+      setStyleSaving(false);
     }
   };
 
@@ -215,6 +250,38 @@ export default function Rankings() {
           + New Ranking Group
         </NeonButton>
       </div>
+
+      {/* Display Style — v2.13.9 — sets SCOREBOARD_RANKINGS_STYLE room default.
+          Per-user override available in the Scoreboard Preferences modal. */}
+      <NeonCard className="mb-6">
+        <div className="mb-3">
+          <h3 className="font-display text-sm font-bold uppercase tracking-wider text-muted mb-1">Display Style</h3>
+          <p className="text-xs text-faint">
+            How ranking cards render on the public scoreboard. Each option still inherits the active theme's colors and fonts.
+            Players can override this for themselves in Scoreboard Preferences.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {RANKINGS_STYLE_OPTIONS.map(opt => {
+            const isActive = rankingsStyle === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => handleSetStyle(opt.value)}
+                disabled={styleSaving}
+                className={`px-3 py-3 rounded-lg border text-left text-xs transition-all cursor-pointer disabled:opacity-50 ${
+                  isActive
+                    ? 'border-neon-cyan bg-neon-cyan/10 text-neon-cyan'
+                    : 'border-border text-muted hover:border-primary/40 hover:text-primary'
+                }`}
+              >
+                <div className="font-semibold text-sm mb-0.5">{opt.label}</div>
+                <div className="text-[10px] opacity-70 leading-snug">{opt.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      </NeonCard>
 
       {/* Create/Edit Form */}
       {showForm && (
