@@ -124,6 +124,10 @@ export default function GlobalGameDetail() {
   const [scope, setScope] = useState<string>('global');
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
   const [rankingsLoading, setRankingsLoading] = useState(false);
+  // Pagination: 20 per page, server-side slicing via offset/limit.
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
   const [showSubmit, setShowSubmit] = useState(false);
   const [reportingId, setReportingId] = useState<string | null>(null);
   const [reportMessage, setReportMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -188,21 +192,35 @@ export default function GlobalGameDetail() {
   }, [fromSlug]);
 
   // Sprint 12 — sync scope with ?room=<slug> for shareable room-filtered views.
+  // Default behavior: when navigated with ?from=<slug> and no ?room= param,
+  // default scope to that room (the user just clicked a card on that room's
+  // scoreboard; they expect to see *that room's* numbers). Picking "All rooms
+  // (global)" from the dropdown writes ?room=global as an explicit sentinel so
+  // the choice survives URL sharing and doesn't auto-revert to the from-room.
   useEffect(() => {
     const slug = searchParams.get('room');
-    if (!slug) {
+    if (slug === 'global') {
       if (scope !== 'global') setScope('global');
+      return;
+    }
+    if (!slug) {
+      // No explicit ?room=. If we have a ?from=<slug> AND that room has been
+      // resolved, default to it. Otherwise fall back to global.
+      if (fromRoom && scope !== fromRoom.id) { setScope(fromRoom.id); return; }
+      if (!fromSlug && scope !== 'global') setScope('global');
       return;
     }
     if (rooms.length === 0) return;
     const match = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
     if (match && scope !== match.id) setScope(match.id);
-  }, [searchParams, rooms]);
+  }, [searchParams, rooms, fromRoom, fromSlug]);
 
   const setScopeFromSlug = (slug: string | null) => {
     const next = new URLSearchParams(searchParams);
+    // null = user picked "All rooms (global)" from the dropdown. Write the
+    // explicit sentinel so it overrides the from-room default.
     if (slug) next.set('room', slug);
-    else next.delete('room');
+    else next.set('room', 'global');
     setSearchParams(next, { replace: true });
   };
   const selectScopeFromRoomId = (roomId: string) => {
@@ -211,16 +229,24 @@ export default function GlobalGameDetail() {
     else setScope(roomId);
   };
 
-  // Fetch leaderboard whenever game or scope changes
+  // Reset to page 0 whenever scope or game changes; the page-aware fetch effect
+  // below will re-run because `page` flips back to 0.
+  useEffect(() => { setPage(0); }, [globalGameId, scope]);
+
+  // Fetch leaderboard whenever game, scope, or page changes
   useEffect(() => {
     if (!globalGameId) return;
     setRankingsLoading(true);
-    fetch(`/api/global/scoreboard/${globalGameId}?scope=${scope}&limit=50`)
-      .then(r => r.ok ? r.json() : { data: [] })
-      .then(payload => setRankings(payload.data || []))
-      .catch(() => setRankings([]))
+    const offset = page * PAGE_SIZE;
+    fetch(`/api/global/scoreboard/${globalGameId}?scope=${scope}&limit=${PAGE_SIZE}&offset=${offset}`)
+      .then(r => r.ok ? r.json() : { data: [], total: 0 })
+      .then(payload => {
+        setRankings(payload.data || []);
+        setTotal(typeof payload.total === 'number' ? payload.total : (payload.data || []).length);
+      })
+      .catch(() => { setRankings([]); setTotal(0); })
       .finally(() => setRankingsLoading(false));
-  }, [globalGameId, scope]);
+  }, [globalGameId, scope, page]);
 
   // Fetch rating
   useEffect(() => {
@@ -355,10 +381,16 @@ export default function GlobalGameDetail() {
 
   const refreshRankings = () => {
     if (!globalGameId) return;
+    // After a delete or submit, jump back to page 0 so the user lands on the
+    // freshest top-of-leaderboard view; the page-driven effect will refetch.
+    if (page !== 0) { setPage(0); return; }
     setRankingsLoading(true);
-    fetch(`/api/global/scoreboard/${globalGameId}?scope=${scope}&limit=50`)
-      .then(r => r.ok ? r.json() : { data: [] })
-      .then(payload => setRankings(payload.data || []))
+    fetch(`/api/global/scoreboard/${globalGameId}?scope=${scope}&limit=${PAGE_SIZE}&offset=0`)
+      .then(r => r.ok ? r.json() : { data: [], total: 0 })
+      .then(payload => {
+        setRankings(payload.data || []);
+        setTotal(typeof payload.total === 'number' ? payload.total : (payload.data || []).length);
+      })
       .catch(() => {})
       .finally(() => setRankingsLoading(false));
   };
@@ -618,6 +650,32 @@ export default function GlobalGameDetail() {
                   ))}
                 </tbody>
               </table>
+              {total > PAGE_SIZE && (
+                <div className="flex items-center justify-between px-3 py-2 border-t border-border bg-deep/40 text-xs text-muted">
+                  <span>
+                    Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPage(p => Math.max(0, p - 1))}
+                      disabled={page === 0}
+                      className="px-2 py-1 rounded border border-border bg-surface hover:border-neon-cyan disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      ← Prev
+                    </button>
+                    <span>Page {page + 1} of {Math.max(1, Math.ceil(total / PAGE_SIZE))}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPage(p => p + 1)}
+                      disabled={(page + 1) * PAGE_SIZE >= total}
+                      className="px-2 py-1 rounded border border-border bg-surface hover:border-neon-cyan disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

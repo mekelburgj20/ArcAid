@@ -680,12 +680,22 @@ export default function SubmissionSheet({
                             <div>
                                 <label className="text-xs text-faint block mb-1">Score</label>
                                 <div className="flex gap-1">
+                                    {/* On touch devices we drive input via the in-app
+                                        OnScreenKeyboard (opens on focus below) and
+                                        suppress the OS keypad — type=number +
+                                        inputMode=numeric both force iOS Safari to
+                                        show the native keypad, which covered the
+                                        score photo. type=text + inputMode=none is
+                                        the cross-browser way to keep the field
+                                        focusable without summoning a virtual
+                                        keyboard. Desktop keeps numeric for the
+                                        spinner / hardware-keypad behavior. */}
                                     <input
                                         ref={scoreRef}
-                                        type="number"
-                                        inputMode="numeric"
+                                        type={isTouchDevice ? 'text' : 'number'}
+                                        inputMode={isTouchDevice ? 'none' : 'numeric'}
                                         value={score}
-                                        onChange={e => setScore(e.target.value)}
+                                        onChange={e => setScore(isTouchDevice ? e.target.value.replace(/\D/g, '') : e.target.value)}
                                         onFocus={() => { setActiveField('score'); if (isTouchDevice) setShowKeyboard(true); }}
                                         placeholder="0"
                                         min="0"

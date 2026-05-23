@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.7] — unreleased
+
+**Game-detail leaderboard defaults to the originating room + paginates 20/page; mobile score input no longer summons the OS keypad.** Three small UX fixes that came up testing a locked-tournament submit on rtx_pinball.
+
+*Tournament-card title clicks land on `GlobalGameDetail` (rich page with wheel art, downloads, tutorials) when the game has a `globalGameId`. The leaderboard there was hardcoded to `scope=global`, so a player who just submitted to their room's locked tournament saw all-rooms scores instead of theirs.* Fix: when navigated with `?from=<slug>`, default the scope dropdown to that room. Picking "All rooms (global)" now writes `?room=global` as an explicit sentinel so the choice persists across refresh / share. URL `?room=<slug>` semantics unchanged. Known limitation, intentional: `GlobalGameDetail` reads `global_scores`, which excludes guest/anon submissions per the existing `GlobalScoreService.fanOutFromRoomSubmission` gate — so scoping to a room here is not 100% identical to the room's `GameDetail`. To bridge, added a small "More info →" link in the room `GameDetail` header that opens the rich global page from a room context.
+
+*Leaderboard had no pagination — `?limit=50` hardcoded, no controls past the 50th row.* Now 20 per page with prev/next + "Showing X–Y of N" + "Page N of M" footer. Server (`/api/global/scoreboard/:globalGameId`) already supported `offset` / `limit`; client wiring + footer was missing.
+
+*Mobile OS keypad obscured the score photo when the player focused the score input.* The in-app `OnScreenKeyboard` was already opening on focus, but `type="number"` + `inputMode="numeric"` also triggered the native keypad (and `inputMode="none"` is silently ignored on iOS Safari when paired with `type="number"`). Fix: on touch devices only, swap to `type="text"` + `inputMode="none"` so the in-app keyboard is the sole input path; added a digit-only `onChange` filter to compensate for losing the numeric-type guard. Desktop unchanged. Name field unchanged — alpha input still relies on the OS keyboard.
+
+Bumps SW cache to `arcaid-v59`.
+
+---
+
 ## [2.13.6] — unreleased
 
 **AtGames cabinet sub-tags moved from platform list to feature list.** The AtGames importer wrote 9 platforms per machine — the umbrella `atgames` plus up to 8 cabinet variants (`atgames_hd`, `atgames_4k`, `atgames_micro`, `atgames_hdp`, `atgames_alu`, `atgames_mini`, `atgames_gamer`, `atgames_core`). The variants polluted the tournament Platform Rules picker with options no realistic tournament design uses ("must be available on AtGames Micro only" is not a thing). Cabinet availability is a catalogue-level attribute — same axis as `wizard_auto` / `has_puppack` / `fps_45` — and now lives in `global_games.features` where it can drive a future "filter by my cabinet" UX without cluttering tournament eligibility rules.

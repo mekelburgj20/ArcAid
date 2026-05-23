@@ -54,6 +54,8 @@ interface GameLeaderboard {
   rankings: RankedEntry[];
   /** Sprint 10 / v2.0.1 — surfaces cooldown banner state to SubmissionSheet. */
   gameStatus?: string;
+  /** Backend includes this so we can link to the rich global catalogue page. */
+  globalGameId?: string | null;
 }
 
 interface GameStats {
@@ -530,7 +532,18 @@ export default function GameDetail() {
           </Link>
           <h2 className="font-display text-2xl font-bold text-white mt-1">{stats?.gameName || name}</h2>
           {leaderboard && (
-            <p className="text-white/50 text-xs uppercase tracking-wider">{leaderboard.tournamentName}</p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <p className="text-white/50 text-xs uppercase tracking-wider">{leaderboard.tournamentName}</p>
+              {leaderboard.globalGameId && (
+                <Link
+                  to={`/games/${leaderboard.globalGameId}?from=${encodeURIComponent(slug || '')}`}
+                  className="text-neon-cyan/70 hover:text-neon-cyan text-xs uppercase tracking-wider no-underline transition-colors"
+                  title="Wheel art, downloads, tutorials, and cross-room scores"
+                >
+                  More info →
+                </Link>
+              )}
+            </div>
           )}
           {ratingInfo && (
             <div className="flex items-center gap-2 mt-1">
