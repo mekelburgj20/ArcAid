@@ -144,22 +144,24 @@ export class AtGamesImportService {
 
             for (const game of games) {
                 try {
-                    // Always tag with the broad `atgames`. Then add specific
-                    // cabinet variants extracted from the four porter-studio
-                    // columns (deduped). Tournament rules requiring `atgames`
-                    // match every row; rules requiring `atgames_4k` narrow to
-                    // only 4K-cabinet games.
+                    // v2.13.6: tag with the umbrella `atgames` platform (the
+                    // tournament-meaningful axis) and stash cabinet variants
+                    // — atgames_hd / atgames_4k / atgames_hdp / etc. — in
+                    // `features`. Cabinet availability is a catalogue-level
+                    // attribute, sibling to wizard_auto/has_puppack/fps_*;
+                    // it isn't a player-eligibility distinction so it doesn't
+                    // belong in the platform rule picker.
                     const variants = new Set<string>();
                     for (const cell of game.cabinetCells) {
                         const id = extractCabinetVariant(cell);
                         if (id) variants.add(id);
                     }
-                    const platforms = ['atgames', ...variants];
 
                     const result = await GlobalGameService.upsert({
                         name: game.name,
                         type: 'pinball',
-                        platforms,
+                        platforms: ['atgames'],
+                        features: [...variants],
                         status: 'approved',
                         imported_from: 'atgames',
                     });

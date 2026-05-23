@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.6] — unreleased
+
+**AtGames cabinet sub-tags moved from platform list to feature list.** The AtGames importer wrote 9 platforms per machine — the umbrella `atgames` plus up to 8 cabinet variants (`atgames_hd`, `atgames_4k`, `atgames_micro`, `atgames_hdp`, `atgames_alu`, `atgames_mini`, `atgames_gamer`, `atgames_core`). The variants polluted the tournament Platform Rules picker with options no realistic tournament design uses ("must be available on AtGames Micro only" is not a thing). Cabinet availability is a catalogue-level attribute — same axis as `wizard_auto` / `has_puppack` / `fps_45` — and now lives in `global_games.features` where it can drive a future "filter by my cabinet" UX without cluttering tournament eligibility rules.
+
+*Migration 101* — for every `global_games` row with `atgames_*` in `platforms`: strip the sub-cabinet entries and union them into `features`. Idempotent; safe to re-run. Same pass strips dead sub-cabinet entries from any `tournaments.platform_rules` JSON (`required` + `excluded` arrays) since the umbrella `atgames` already covers eligibility on those rows. Pre-flight on prod: 273 catalogue rows touched, 1 tournament (WG-VPXS) cleaned. No `room_game_tags` entries reference sub-cabinets; no `submissions` / `score_history` / `community_scores` / `global_scores` rows have sub-cabinet platforms.
+
+*Importer + canonical lists* — `AtGamesImportService` now writes `platforms: ['atgames']` and `features: [...cabinetVariants]`. Both canonical platform maps drop the 8 sub-cabinet entries (`src/utils/platformMapping.ts` and `admin-ui/src/lib/platforms.ts`). FE platform filter groups (`src/utils/platformMapping.ts` Physical group and `admin-ui/src/pages/GlobalScoreboard.tsx` vpin group) drop `atgames_hd` / `atgames_4k`.
+
+*Out of scope:* `scripts/analyze-catalogue.ts` still references `atgames_hd` / `atgames_4k` defensively — harmless (umbrella `atgames` is in the same `.includes()` check) and the script isn't user-facing.
+
+Bumps SW cache to `arcaid-v58`.
+
+---
+
 ## [2.13.5] — unreleased
 
 **Discord-login round-trip on public room pages now keeps you on the page, surfaces the "Room admin" link immediately, and skips the second password prompt at `/admin/login`.** Three symptoms, one root cause + one wiring miss.

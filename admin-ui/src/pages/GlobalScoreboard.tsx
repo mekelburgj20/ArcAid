@@ -56,7 +56,7 @@ const PAGE_SIZE = 30;
 
 const PLATFORM_GROUPS: Record<string, { label: string; platforms: string[] }> = {
   physical: { label: 'Physical', platforms: ['real'] },
-  vpin: { label: 'Virtual Pinball', platforms: ['vpx', 'vp9', 'vpxs', 'fp', 'bam', 'pinball_fx', 'pinball_fx3', 'atgames', 'atgames_hd', 'atgames_4k', 'vr'] },
+  vpin: { label: 'Virtual Pinball', platforms: ['vpx', 'vp9', 'vpxs', 'fp', 'bam', 'pinball_fx', 'pinball_fx3', 'atgames', 'vr'] },
   video: { label: 'Arcade & Video', platforms: ['arcade', 'nes', 'snes', 'genesis', 'saturn', 'n64', 'ps1', 'ps2', 'dreamcast', 'gba', 'gb', 'gbc', 'sms', 'sega_cd', 'game_gear', 'tg16', 'atari_2600', 'atari_7800', 'jaguar', '3do', 'switch', 'wii', 'pc'] },
 };
 

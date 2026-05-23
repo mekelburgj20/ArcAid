@@ -1372,6 +1372,92 @@ export async function initDatabase(): Promise<Database> {
         { name: '100_merged_from_sources', sql: `
             ALTER TABLE global_games ADD COLUMN merged_from_sources TEXT DEFAULT '[]';
         ` },
+
+        // v2.13.6: AtGames cabinet sub-tags (atgames_hd, atgames_4k, ...) were
+        // never tournament-meaningful — no realistic rule says "must run on
+        // AtGames Micro only." Move them off `global_games.platforms` and into
+        // `features` so they remain queryable for a future "filter by my
+        // cabinet" catalogue UX, but stop polluting the tournament rule
+        // picker. Same pass strips the dead sub-cabinet entries from any
+        // tournament.platform_rules JSON (the umbrella `atgames` already
+        // covers eligibility on those rows, so dedup is a no-op for rule
+        // matching). Idempotent.
+        { name: '101_atgames_subcabinet_to_features', handler: async (db) => {
+            const SUB_CABINETS = [
+                'atgames_hd', 'atgames_4k', 'atgames_micro', 'atgames_hdp',
+                'atgames_alu', 'atgames_mini', 'atgames_gamer', 'atgames_core',
+            ];
+
+            // Part 1: global_games — move sub-cabinets from platforms to features.
+            const rows = await db.all(
+                `SELECT id, platforms, features FROM global_games WHERE platforms LIKE '%atgames_%'`,
+            ) as Array<{ id: string; platforms: string | null; features: string | null }>;
+            let gamesUpdated = 0;
+            for (const row of rows) {
+                let platforms: string[] = [];
+                let features: string[] = [];
+                try {
+                    const p = JSON.parse(row.platforms || '[]');
+                    if (Array.isArray(p)) platforms = p.filter((x: any) => typeof x === 'string');
+                } catch { continue; }
+                try {
+                    const f = JSON.parse(row.features || '[]');
+                    if (Array.isArray(f)) features = f.filter((x: any) => typeof x === 'string');
+                } catch { features = []; }
+
+                const subFound = platforms.filter(p => SUB_CABINETS.includes(p));
+                if (subFound.length === 0) continue;
+
+                const newPlatforms = platforms.filter(p => !SUB_CABINETS.includes(p));
+                const newFeatures = [...new Set([...features, ...subFound])];
+
+                await db.run(
+                    `UPDATE global_games SET platforms = ?, features = ? WHERE id = ?`,
+                    JSON.stringify(newPlatforms), JSON.stringify(newFeatures), row.id,
+                );
+                gamesUpdated++;
+            }
+
+            // Part 2: tournaments — strip sub-cabinet entries from platform_rules
+            // (required + excluded). Umbrella `atgames` already drives eligibility.
+            const tournRows = await db.all(
+                `SELECT id, platform_rules FROM tournaments WHERE platform_rules LIKE '%atgames_%'`,
+            ) as Array<{ id: string; platform_rules: string | null }>;
+            let tournUpdated = 0;
+            for (const row of tournRows) {
+                let rules: { required?: unknown; excluded?: unknown; restrictedText?: unknown } | null = null;
+                try { rules = JSON.parse(row.platform_rules || '{}'); } catch { continue; }
+                if (!rules || typeof rules !== 'object') continue;
+
+                const stripList = (arr: unknown): string[] => {
+                    if (!Array.isArray(arr)) return [];
+                    const filtered = arr.filter(
+                        (x): x is string => typeof x === 'string' && !SUB_CABINETS.includes(x),
+                    );
+                    return [...new Set(filtered)];
+                };
+
+                const required = stripList(rules.required);
+                const excluded = stripList(rules.excluded);
+                const before = JSON.stringify(rules.required ?? []) + '|' + JSON.stringify(rules.excluded ?? []);
+                const after = JSON.stringify(required) + '|' + JSON.stringify(excluded);
+                if (before === after) continue;
+
+                rules.required = required;
+                rules.excluded = excluded;
+                await db.run(
+                    `UPDATE tournaments SET platform_rules = ? WHERE id = ?`,
+                    JSON.stringify(rules), row.id,
+                );
+                tournUpdated++;
+            }
+
+            // eslint-disable-next-line no-console
+            console.log(
+                `[migration] 101: moved atgames_* sub-cabinets to features on ${gamesUpdated} global_games row(s); ` +
+                `cleaned dead sub-cabinet entries from ${tournUpdated} tournament platform_rules`,
+            );
+        } },
     ];
 
     for (const migration of migrations) {

@@ -14,15 +14,13 @@ export interface PlatformInfo {
 export const CANONICAL_PLATFORMS: Record<string, PlatformInfo> = {
     // Physical pinball
     real:           { id: 'real',           displayName: 'Real Machine',    category: 'physical' },
+    // v2.13.6: AtGames cabinet variants (HD/4K/Micro/HDP/ALU/Mini/Gamer/Core)
+    // moved off the canonical platform list and into `global_games.features`.
+    // Tournament eligibility doesn't care which specific AtGames cabinet a
+    // table is available on — the umbrella `atgames` is the player-meaningful
+    // distinction. Cabinet-availability still lives in `features` for a
+    // future "filter by my cabinet" catalogue UX (see migration 101).
     atgames:        { id: 'atgames',        displayName: 'AtGames',         category: 'physical' },
-    atgames_hd:     { id: 'atgames_hd',     displayName: 'AtGames HD',      category: 'physical' },
-    atgames_4k:     { id: 'atgames_4k',     displayName: 'AtGames 4K',      category: 'physical' },
-    atgames_micro:  { id: 'atgames_micro',  displayName: 'AtGames Micro',   category: 'physical' },
-    atgames_hdp:    { id: 'atgames_hdp',    displayName: 'AtGames HDP',     category: 'physical' },
-    atgames_alu:    { id: 'atgames_alu',    displayName: 'AtGames ALU',     category: 'physical' },
-    atgames_mini:   { id: 'atgames_mini',   displayName: 'AtGames Mini',    category: 'physical' },
-    atgames_gamer:  { id: 'atgames_gamer',  displayName: 'AtGames Gamer',   category: 'physical' },
-    atgames_core:   { id: 'atgames_core',   displayName: 'AtGames Core',    category: 'physical' },
 
     // Virtual pinball
     vpx:         { id: 'vpx',         displayName: 'Visual Pinball X',   category: 'virtual_pinball' },
@@ -200,7 +198,7 @@ export const VPS_FORMAT_MAP: Record<string, string> = {
 export const PLATFORM_GROUPS = [
     {
         label: 'Physical',
-        platforms: ['real', 'atgames', 'atgames_hd', 'atgames_4k'],
+        platforms: ['real', 'atgames'],
     },
     {
         label: 'Virtual Pinball',

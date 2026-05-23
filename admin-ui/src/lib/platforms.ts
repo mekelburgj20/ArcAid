@@ -12,15 +12,9 @@
 
 const DISPLAY_NAMES: Record<string, string> = {
     real:          'Real Machine',
+    // v2.13.6: AtGames cabinet variants moved to features (see backend
+    // migration 101). Only the umbrella `atgames` remains a canonical platform.
     atgames:       'AtGames',
-    atgames_hd:    'AtGames HD',
-    atgames_4k:    'AtGames 4K',
-    atgames_micro: 'AtGames Micro',
-    atgames_hdp:   'AtGames HDP',
-    atgames_alu:   'AtGames ALU',
-    atgames_mini:  'AtGames Mini',
-    atgames_gamer: 'AtGames Gamer',
-    atgames_core:  'AtGames Core',
 
     vpx:         'Visual Pinball X',
     vp9:         'Visual Pinball 9',
