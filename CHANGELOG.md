@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.14] — unreleased
+
+**Public leaderboard horizontal scroll: scrollbar replaced with edge-hover arrow controls.** New `HorizontalScrollNav` component wraps the horizontal-scroll layout's card row. Behavior:
+
+- Scrollbar hidden (CSS — `.scoreboard-hscroll-layout` and `.scoreboard-hscroll-nobar` both set `scrollbar-width: none` and `::-webkit-scrollbar { display: none }`).
+- Two arrow buttons (chevron left / chevron right) sit absolutely positioned over the wrapper's left and right edges.
+- An arrow is visible only when (a) the cursor is within ~120px (or 15% of the wrapper width, whichever is smaller) of the corresponding edge, AND (b) there's actually more content to scroll in that direction (`scrollLeft > 0` for left; `scrollLeft + clientWidth < scrollWidth` for right). At the leftmost position the left arrow stays hidden even on hover; at the rightmost position the right arrow stays hidden — matches the user's "if there's no more cards to display, don't show" requirement.
+- Click → smooth scroll by 400px. Mousedown sustained → after a 280ms delay, continuous scroll kicks in at 18px/frame so a held button glides through the list. Quick click only fires the chunk.
+- Cleanup on mouseleave/mouseup/unmount cancels any pending hold timers + intervals.
+- Touch / mobile unaffected: `mousemove`/`mousedown` don't fire on touch so arrows stay hidden; native swipe still scrolls because the container keeps `overflow-x: auto` (just with the scrollbar visually removed).
+- `ResizeObserver` on the scroll element re-checks `canLeft`/`canRight` when content or container width changes (cards added/removed, sidebar toggle, window resize).
+
+Currently wired into `Scoreboard.tsx` (public leaderboard) only. `KioskScoreboard.tsx` still uses the same `.scoreboard-hscroll-layout` class so its scrollbar is also hidden, but no arrow nav is added there (kiosk auto-scrolls and isn't mouse-driven).
+
+Bumps SW cache to `arcaid-v66`.
+
+---
+
 ## [2.13.13] — unreleased
 
 **Three follow-up fixes to v2.13.12** — the GlobalGameDetail nav still said "Scoreboard", clicking the per-card "i" info icon was also firing the new GameQuickView modal, and the resulting info bubble was clipped by the card's `overflow: hidden`.

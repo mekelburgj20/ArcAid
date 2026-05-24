@@ -17,6 +17,7 @@ import {
 import CardRouter from '../components/scoreboard/CardRouter';
 import GamesTabView from '../components/GamesTabView';
 import GameQuickView from '../components/GameQuickView';
+import HorizontalScrollNav from '../components/HorizontalScrollNav';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
@@ -280,26 +281,18 @@ export default function Scoreboard() {
         .animate-slideDown {
           animation: slideDown 0.3s ease-out forwards;
         }
-        /* Scrollbar styling for horizontal scroll layout */
+        /* v2.13.14 — scrollbar hidden; HorizontalScrollNav provides edge-hover
+           arrow controls instead. overscroll-behavior-x kept so horizontal
+           overscroll doesn't trigger browser swipe-back navigation. */
         .scoreboard-hscroll-layout {
-          scrollbar-width: thin;
-          scrollbar-color: var(--color-border) transparent;
+          scrollbar-width: none;
           overscroll-behavior-x: contain;
         }
-        .scoreboard-hscroll-layout::-webkit-scrollbar {
-          height: 8px;
+        .scoreboard-hscroll-layout::-webkit-scrollbar { display: none; }
+        .scoreboard-hscroll-nobar {
+          scrollbar-width: none;
         }
-        .scoreboard-hscroll-layout::-webkit-scrollbar-track {
-          background: rgba(255,255,255,0.05);
-          border-radius: 4px;
-        }
-        .scoreboard-hscroll-layout::-webkit-scrollbar-thumb {
-          background: var(--color-border);
-          border-radius: 4px;
-        }
-        .scoreboard-hscroll-layout::-webkit-scrollbar-thumb:hover {
-          background: var(--color-muted);
-        }
+        .scoreboard-hscroll-nobar::-webkit-scrollbar { display: none; }
         /* Mobile: scale + vertical mode */
         @media (max-width: 640px) {
           .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.6); }
@@ -520,7 +513,7 @@ export default function Scoreboard() {
         ) : (
           /* Horizontal scroll (default for Banner, also available for others) */
           <div className="flex-1 min-w-0">
-            <div className="-mx-4 sm:-mx-6 overflow-x-auto scoreboard-hscroll-layout">
+            <HorizontalScrollNav className="-mx-4 sm:-mx-6 scoreboard-hscroll-layout">
               <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
                   <div key={lb.gameId} className="flex-shrink-0 relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>
@@ -554,7 +547,7 @@ export default function Scoreboard() {
                   </div>
                 ))}
               </div>
-            </div>
+            </HorizontalScrollNav>
           </div>
         )}
 
