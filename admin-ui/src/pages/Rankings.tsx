@@ -62,7 +62,7 @@ const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text
  *  under SCOREBOARD_RANKINGS_STYLE; the renderer in RankingGroupCard branches
  *  on this. Same option set is mirrored in ScoreboardPreferencesModal. */
 const RANKINGS_STYLE_OPTIONS: { value: 'match' | 'plaque' | 'compact' | 'sidebar'; label: string; description: string }[] = [
-  { value: 'match', label: 'Match Scoreboard', description: 'Mirror the scoreboard card style. Legacy default.' },
+  { value: 'match', label: 'Match Leaderboard', description: 'Mirror the leaderboard card style. Legacy default.' },
   { value: 'plaque', label: 'Plaque', description: 'Tall, narrow hall-of-fame frame. Reads as its own object.' },
   { value: 'compact', label: 'Compact List', description: 'Text-only, no card chrome. Quietest option.' },
   { value: 'sidebar', label: 'Sidebar Block', description: 'Narrow column, abbreviated scores. Best beside the grid.' },
@@ -252,13 +252,13 @@ export default function Rankings() {
       </div>
 
       {/* Display Style — v2.13.9 — sets SCOREBOARD_RANKINGS_STYLE room default.
-          Per-user override available in the Scoreboard Preferences modal. */}
+          Per-user override available in the Display Preferences modal. */}
       <NeonCard className="mb-6">
         <div className="mb-3">
           <h3 className="font-display text-sm font-bold uppercase tracking-wider text-muted mb-1">Display Style</h3>
           <p className="text-xs text-faint">
-            How ranking cards render on the public scoreboard. Each option still inherits the active theme's colors and fonts.
-            Players can override this for themselves in Scoreboard Preferences.
+            How ranking cards render on the public leaderboard. Each option still inherits the active theme's colors and fonts.
+            Players can override this for themselves in Display Preferences.
           </p>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

@@ -51,7 +51,7 @@ export default function ScoreSubmit() {
                 <div className="bg-surface border border-border rounded-lg p-6 max-w-md w-full text-center">
                     <p className="text-neon-amber font-display text-sm mb-4">{error}</p>
                     <Link to={`/${slug}`} className="text-neon-cyan hover:underline text-sm">
-                        Back to scoreboard
+                        Back to leaderboard
                     </Link>
                 </div>
             </div>

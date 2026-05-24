@@ -185,49 +185,98 @@ export class RankingService {
         if (!group || group.tournament_ids.length === 0) return [];
 
         const db = await getDatabase();
-
-        // Get all completed + active games for the selected tournaments
         const placeholders = group.tournament_ids.map(() => '?').join(',');
-        const games = await db.all(
-            `SELECT g.id, g.name FROM games g
-             WHERE g.tournament_id IN (${placeholders})
-             AND g.status IN ('ACTIVE', 'COMPLETED')`,
-            ...group.tournament_ids
-        );
 
-        if (games.length === 0) return [];
-
-        // For each game, get per-player best scores and rank them
-        // gameRankings: Map<gameId, Array<{ username, discord_user_id, rank }>>
-        const gameRankings = new Map<string, Array<{ game_name: string; iscored_username: string; discord_user_id: string; rank: number }>>();
-
-        for (const game of games) {
-            const scores = await db.all(`
+        // v2.13.12 — source from score_history (the per-event log), not
+        // submissions (the best-ever-per-game cache). Filter by
+        // submitted_during_tournament_id matching the game's owning tournament,
+        // so only scores submitted DURING the active tournament window count.
+        //
+        // Why: submissions.game_id can be set by community/freeplay submission
+        // paths even when the player never entered the tournament flow. Those
+        // rows have score_history.submitted_during_tournament_id = NULL and
+        // source = 'community'. Pre-v2.13.12, the rankings query treated them
+        // as tournament scores because submissions.game_id matched. See the
+        // mekelburgj/Black Rose case 2026-05-23. score_history is the
+        // authoritative tournament-window record, mirroring the pattern in
+        // LeaderboardService.recalculate.
+        //
+        // Per-row deletes naturally fall out — admin/self delete drops the
+        // score_history row, so it no longer contributes here.
+        //
+        // Multi-alias collapse: PARTITION BY (game_id, COALESCE(submitted_by_user_id,
+        // 'iscored:' || LOWER(iscored_username))) — a Discord user with multiple
+        // iScored aliases gets one row per game; pure-anon submissions still
+        // partition per-name (consistent with LeaderboardService).
+        const rows = await db.all(`
+            SELECT
+                best.game_id,
+                best.game_name,
+                best.iscored_username,
+                best.discord_user_id,
+                best.submitted_by_user_id,
+                best.score
+            FROM (
                 SELECT
-                    CASE WHEN MAX(CASE WHEN discord_user_id != 'SYSTEM' THEN discord_user_id END) IS NOT NULL
-                         THEN MAX(CASE WHEN discord_user_id != 'SYSTEM' THEN discord_user_id END)
-                         ELSE discord_user_id
-                    END as discord_user_id,
-                    iscored_username,
-                    MAX(score) as score
-                FROM submissions
-                WHERE game_id = ?
-                  AND orphaned_at IS NULL
-                GROUP BY LOWER(iscored_username)
-                ORDER BY score DESC
-            `, game.id);
+                    g.id AS game_id,
+                    g.name AS game_name,
+                    sh.iscored_username,
+                    sh.discord_user_id,
+                    sh.submitted_by_user_id,
+                    sh.score,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY g.id, COALESCE(sh.submitted_by_user_id, 'iscored:' || LOWER(sh.iscored_username))
+                        ORDER BY sh.score DESC, sh.created_at ASC
+                    ) AS rn
+                FROM games g
+                JOIN score_history sh ON sh.game_id = g.id
+                WHERE g.tournament_id IN (${placeholders})
+                  AND g.status IN ('ACTIVE','COMPLETED')
+                  AND sh.submitted_during_tournament_id = g.tournament_id
+                  AND sh.orphaned_at IS NULL
+            ) best
+            WHERE best.rn = 1
+            ORDER BY best.game_id, best.score DESC, best.iscored_username
+        `, ...group.tournament_ids);
 
-            const ranked = scores.map((s: any, i: number) => ({
-                game_name: game.name,
-                iscored_username: s.iscored_username || 'Unknown',
-                discord_user_id: s.discord_user_id,
-                rank: i + 1,
-            }));
-            gameRankings.set(game.id, ranked);
+        if (rows.length === 0) {
+            // Still write an empty cache so the watermark can short-circuit
+            // subsequent reads until the underlying data changes.
+            const watermark = await this.computeDataWatermark(group);
+            await db.run(
+                `INSERT OR REPLACE INTO ranking_groups_cache (ranking_group_id, rankings, generated_at, data_watermark) VALUES (?, ?, ?, ?)`,
+                groupId, '[]', new Date().toISOString(), watermark
+            );
+            return [];
         }
 
-        // Compute points per player per game based on method
-        // playerData: Map<lowercase_username, { username, discord_user_id, games: Array<{ game_name, rank, points }> }>
+        // Group rows by game_id and assign per-game ranks. Rows are already
+        // ordered by (game_id, score DESC) so rank is just position-within-game.
+        const gameRankings = new Map<string, Array<{
+            game_name: string;
+            iscored_username: string;
+            discord_user_id: string;
+            submitted_by_user_id: string | null;
+            rank: number;
+        }>>();
+
+        for (const row of rows) {
+            let list = gameRankings.get(row.game_id);
+            if (!list) {
+                list = [];
+                gameRankings.set(row.game_id, list);
+            }
+            list.push({
+                game_name: row.game_name,
+                iscored_username: row.iscored_username || 'Unknown',
+                discord_user_id: row.discord_user_id || '',
+                submitted_by_user_id: row.submitted_by_user_id || null,
+                rank: list.length + 1,
+            });
+        }
+
+        // Aggregate per player. Key matches the SQL PARTITION so each player
+        // gets exactly one entry per game (multi-alias collapsed).
         const playerData = new Map<string, {
             iscored_username: string;
             discord_user_id: string;
@@ -237,7 +286,7 @@ export class RankingService {
         for (const [, rankings] of gameRankings) {
             const totalPlayers = rankings.length;
             for (const entry of rankings) {
-                const key = entry.iscored_username.toLowerCase();
+                const key = entry.submitted_by_user_id ?? `iscored:${entry.iscored_username.toLowerCase()}`;
                 if (!playerData.has(key)) {
                     playerData.set(key, {
                         iscored_username: entry.iscored_username,
@@ -246,8 +295,8 @@ export class RankingService {
                     });
                 }
                 const player = playerData.get(key)!;
-                // Prefer real discord ID over synthetic ones (SYSTEM, COMMUNITY)
-                const isSynthetic = (id: string) => id === 'SYSTEM' || id === 'COMMUNITY';
+                // Prefer real discord ID over synthetic ones (SYSTEM/COMMUNITY/ANON).
+                const isSynthetic = (id: string) => !id || id === 'SYSTEM' || id === 'COMMUNITY' || id === 'ANON';
                 if (isSynthetic(player.discord_user_id) && !isSynthetic(entry.discord_user_id)) {
                     player.discord_user_id = entry.discord_user_id;
                 }
@@ -427,12 +476,14 @@ export class RankingService {
      *   - eligible_games: COUNT of games in this group's tournaments where
      *     status IN ('ACTIVE', 'COMPLETED'). Drops when maintenance hides a
      *     game; rises when a new game activates.
-     *   - score_count: COUNT of non-orphaned submissions for those games.
-     *     Changes on insert / delete / orphan.
+     *   - score_count: COUNT of non-orphaned score_history rows tied to this
+     *     group's tournament windows (submitted_during_tournament_id IN ...).
+     *     Changes on insert / delete / orphan. v2.13.12 — was sourced from
+     *     submissions; switched to score_history to match the rankings query
+     *     itself, so per-row score_history deletes correctly invalidate.
      *   - score_sum: SUM of those scores. Changes on insert (sum rises),
-     *     delete (sum drops), or upsert-to-higher-value (sum rises). The only
-     *     mutation it can't detect is an upsert that lands the same value as
-     *     before — which is a no-op anyway.
+     *     delete (sum drops). The only mutation it can't detect is an upsert
+     *     that lands the same value as before — which is a no-op anyway.
      *   - max_game_end: latest end_date across this group's games. Captures
      *     status flips to COMPLETED.
      *   - max_game_start: latest start_date. Captures status flips to ACTIVE
@@ -444,6 +495,11 @@ export class RankingService {
      * UX benefit. RankingGroup config changes ARE handled — `update()` calls
      * `invalidate()` directly, since config edits aren't reflected in the
      * data layer.
+     *
+     * Backward-compat note: v2.13.12 changes the watermark source table from
+     * submissions to score_history. Old cached watermarks will mismatch the
+     * new formula on the first read after deploy, triggering an automatic
+     * recompute. No manual invalidation needed.
      */
     private static async computeDataWatermark(group: RankingGroup): Promise<string> {
         if (group.tournament_ids.length === 0) {
@@ -452,26 +508,19 @@ export class RankingService {
         const db = await getDatabase();
         const placeholders = group.tournament_ids.map(() => '?').join(',');
         // One round-trip; SQLite indexes on games.tournament_id and
-        // submissions.game_id keep this in the single-millisecond range.
+        // score_history.submitted_during_tournament_id keep this in the
+        // single-millisecond range.
         const row = await db.get(`
             SELECT
                 (SELECT COUNT(*) FROM games
                  WHERE tournament_id IN (${placeholders})
                    AND status IN ('ACTIVE','COMPLETED')) AS eligible_games,
-                (SELECT COUNT(*) FROM submissions
+                (SELECT COUNT(*) FROM score_history
                  WHERE orphaned_at IS NULL
-                   AND game_id IN (
-                     SELECT id FROM games
-                     WHERE tournament_id IN (${placeholders})
-                       AND status IN ('ACTIVE','COMPLETED')
-                   )) AS score_count,
-                (SELECT COALESCE(SUM(score), 0) FROM submissions
+                   AND submitted_during_tournament_id IN (${placeholders})) AS score_count,
+                (SELECT COALESCE(SUM(score), 0) FROM score_history
                  WHERE orphaned_at IS NULL
-                   AND game_id IN (
-                     SELECT id FROM games
-                     WHERE tournament_id IN (${placeholders})
-                       AND status IN ('ACTIVE','COMPLETED')
-                   )) AS score_sum,
+                   AND submitted_during_tournament_id IN (${placeholders})) AS score_sum,
                 (SELECT COALESCE(MAX(end_date), '') FROM games
                  WHERE tournament_id IN (${placeholders})) AS max_game_end,
                 (SELECT COALESCE(MAX(start_date), '') FROM games

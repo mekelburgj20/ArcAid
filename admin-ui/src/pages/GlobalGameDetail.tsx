@@ -403,11 +403,19 @@ export default function GlobalGameDetail() {
     );
   }
 
+  // v2.13.12 — back link respects the tab the user came from. ?tab=tournaments
+  // returns to the default Tournaments view; ?tab=all-games returns to All Games;
+  // absent falls back to the room's default (Tournaments).
+  const fromTab = searchParams.get('tab');
+  const backToRoomHref = fromSlug
+    ? (fromTab === 'all-games' ? `/${fromSlug}?tab=all-games` : `/${fromSlug}`)
+    : '/scoreboard';
+
   if (notFound || !game) {
     return (
       <div className="min-h-screen bg-deep text-primary flex flex-col items-center justify-center gap-4 p-6">
         <div className="text-muted">Game not found.</div>
-        <Link to={fromSlug ? `/${fromSlug}?tab=all-games` : '/scoreboard'} className="text-neon-cyan hover:underline">
+        <Link to={backToRoomHref} className="text-neon-cyan hover:underline">
           ← {fromSlug ? `Back to ${fromSlug}` : 'Back to global scoreboard'}
         </Link>
       </div>
@@ -420,7 +428,7 @@ export default function GlobalGameDetail() {
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <Link
-            to={fromSlug ? `/${fromSlug}?tab=all-games` : '/scoreboard'}
+            to={backToRoomHref}
             className="flex items-center gap-2 text-xs text-muted hover:text-neon-cyan no-underline"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -428,7 +436,7 @@ export default function GlobalGameDetail() {
           </Link>
           <div className="flex items-center gap-3">
             {fromSlug && (
-              <Link to={`/${fromSlug}`} className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
+              <Link to={backToRoomHref} className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
                 Scoreboard
               </Link>
             )}

@@ -453,12 +453,12 @@ export default function Tournaments() {
         />
       </NeonCard>
 
-      {/* Retained Completed Games — sit on the public scoreboard until the
+      {/* Retained Completed Games — sit on the public leaderboard until the
           tournament's cleanup_rule fires (mode='scheduled' or 'retain' count>0).
           Surfaces them so admins can Delete one before the scheduled cleanup. */}
       <NeonCard title="Retained Completed Games" className="mb-6">
         <p className="text-xs text-muted mb-3">
-          Completed games still visible on the public scoreboard. They'll be removed automatically by the tournament's scheduled cleanup; use Delete to remove one now (e.g. an end-of-round game with no scores you'd rather not display).
+          Completed games still visible on the public leaderboard. They'll be removed automatically by the tournament's scheduled cleanup; use Delete to remove one now (e.g. an end-of-round game with no scores you'd rather not display).
         </p>
         <DataTable<RetainedCompletedGame>
           columns={[
@@ -488,7 +488,7 @@ export default function Tournaments() {
           ]}
           data={retainedCompleted}
           keyExtractor={g => g.id}
-          emptyMessage="No retained completed games on the public scoreboard."
+          emptyMessage="No retained completed games on the public leaderboard."
         />
       </NeonCard>
 

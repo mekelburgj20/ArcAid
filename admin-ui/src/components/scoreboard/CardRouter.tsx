@@ -19,6 +19,9 @@ export interface CardRouterProps {
   qrMode?: string;
   qrSize?: number;
   qrPosition?: string;
+  /** v2.13.12 — pixels of QR that overlap the card's bottom edge (bottom-anchored
+   *  positions only). Defaults to 10 when omitted. */
+  qrOverlapPx?: number;
   cardBgFill?: boolean;
   cardSpacing?: number;
   titleFontSize?: number;
@@ -41,8 +44,9 @@ export default function CardRouter({
   viewerUsername,
   viewerEntry,
   qrMode = 'disabled',
-  qrSize = 24,
+  qrSize = 30,
   qrPosition = 'top-right',
+  qrOverlapPx = 10,
   cardBgFill = false,
   titleFontSize,
   gameTitleStyle,
@@ -62,6 +66,7 @@ export default function CardRouter({
     qrMode,
     qrSize,
     qrPosition,
+    qrOverlapPx,
     cardBgFill,
     titleFontSize,
     gameTitleStyle,

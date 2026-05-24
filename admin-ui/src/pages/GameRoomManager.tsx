@@ -172,7 +172,7 @@ export default function GameRoomManager() {
     },
     {
       key: 'scoreboard',
-      header: 'Scoreboard',
+      header: 'Leaderboard',
       render: (item: Room) => (
         <a
           href={`/${item.slug}/`}

@@ -19,6 +19,7 @@ interface BannerCardProps {
   qrMode?: string;
   qrSize?: number;
   qrPosition?: string;
+  qrOverlapPx?: number;
   cardBgFill?: boolean;
   titleFontSize?: number;
   gameTitleStyle?: string;
@@ -61,8 +62,9 @@ export default function BannerCard({
   viewerUsername,
   viewerEntry,
   qrMode = 'disabled',
-  qrSize = 24,
+  qrSize = 30,
   qrPosition = 'top-right',
+  qrOverlapPx = 10,
   cardBgFill = false,
   titleFontSize,
   gameTitleStyle = 'default',
@@ -107,7 +109,7 @@ export default function BannerCard({
   const scoreAreaMinHeight = minScores * 30;
 
   const showQr = qrMode !== 'disabled';
-  const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition);
+  const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition, qrOverlapPx);
 
   return (
     <div style={{ position: 'relative', width: 280, maxWidth: '100%', display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -300,13 +302,16 @@ export default function BannerCard({
       </div>
 
     </div>
-      {/* QR code — bottom-right, below the card */}
+      {/* QR code — bottom-right. v2.13.12 — negative marginTop pulls the QR
+          up by `peek` pixels so it overlaps the card's bottom edge by the
+          configured amount (default 10). The layout wrapper reserves
+          `overhang` pixels below for the part of the QR that hangs off. */}
       {showQr && qrPosition === 'bottom-right' && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -qrMetrics.peek, position: 'relative', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}
-      {/* QR code — bottom-center, peeks ~10px above the card bottom */}
+      {/* QR code — bottom-center, peeks `qrOverlapPx` pixels into the card. */}
       {showQr && qrPosition === 'bottom-center' && (
         <div style={{ position: 'absolute', bottom: -qrMetrics.overhang, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />

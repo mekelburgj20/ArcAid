@@ -7,6 +7,7 @@ import type { GameLeaderboard } from './ScoreboardComponents';
 import { deriveScoreboardConfig, deriveCardProps, getCardWidth } from '../lib/scoreboardConfig';
 import SubmissionSheet from './SubmissionSheet';
 import RoomTag from './RoomTag';
+import GameQuickView from './GameQuickView';
 
 export interface CatalogueGame {
   id: string;
@@ -94,6 +95,17 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
     | { kind: 'freeplay'; gameName: string; globalGameId: string }
     | null
   >(null);
+
+  // v2.13.12 — quick-view modal on card title click (lightweight preview).
+  // Plain left-click opens the modal; modifier/middle-click falls through to
+  // the underlying <Link href> so the user can open the full page in a new tab.
+  const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
+  const handleTitleClick = (lb: GameLeaderboard) => (e: React.MouseEvent) => {
+    if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      e.preventDefault();
+      setQuickViewLb(lb);
+    }
+  };
 
   const useNewCards = !!config.SCOREBOARD_STYLE;
   const newConfig = deriveScoreboardConfig(config, roomName);
@@ -257,9 +269,12 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
               // downloads, tips etc. Tournament/community cards still go to
               // room-scoped detail (v2.2.6 rationale — anon scores would
               // disappear behind the Global fan-out gate).
+              // v2.13.12 — append ?tab=all-games + ?from so the GameDetail
+              // back link returns to this tab (instead of defaulting to
+              // Tournaments).
               const linkTo = lb.gameStatus === 'CATALOGUE' && lb.globalGameId
-                ? `/games/${lb.globalGameId}`
-                : `/${slug}/games/${encodeURIComponent(lb.gameName)}`;
+                ? `/games/${lb.globalGameId}?from=${encodeURIComponent(slug || '')}&tab=all-games`
+                : `/${slug}/games/${encodeURIComponent(lb.gameName)}?tab=all-games`;
 
               return (
                 <div
@@ -284,6 +299,7 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
                       qrMode="disabled"
                       gameTitleStyle={newConfig.gameTitleStyle}
                       titleLinkTo={linkTo}
+                      titleLinkOnClick={handleTitleClick(lb)}
                     />
                   ) : (
                     <GameCard
@@ -331,6 +347,16 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
             </div>
           )}
         </>
+      )}
+
+      {/* v2.13.12 — game quick-view modal triggered by title click. */}
+      {quickViewLb && (
+        <GameQuickView
+          lb={quickViewLb}
+          slug={slug}
+          fromTab="all-games"
+          onClose={() => setQuickViewLb(null)}
+        />
       )}
 
       {/* Sprint 10 — SubmissionSheet handles both tournament (room) and freeplay

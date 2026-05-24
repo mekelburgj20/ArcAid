@@ -92,7 +92,7 @@ const isMaskedSecret = (v: string | undefined | null): boolean =>
   typeof v === 'string' && v.startsWith(ENC_MASK_PREFIX);
 
 const CATEGORIES: Record<string, string[]> = {
-  'Scoreboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
+  'Leaderboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
   'Kiosk': ['KIOSK_REFRESH_SECONDS'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_INVITE_URL'],
@@ -103,11 +103,11 @@ const CATEGORIES: Record<string, string[]> = {
 const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
   'SCOREBOARD_HIDE_EMPTY': {
     label: 'Hide Empty Games',
-    description: 'When enabled, game cards with no scores are hidden from the public scoreboard.',
+    description: 'When enabled, game cards with no scores are hidden from the public leaderboard.',
   },
   'SCOREBOARD_TITLE_HIDDEN': {
     label: 'Hide Game Room Title',
-    description: 'When enabled, the game room name/heading (e.g., "ArcAid_Demo") is hidden on the public scoreboard.',
+    description: 'When enabled, the game room name/heading (e.g., "ArcAid_Demo") is hidden on the public leaderboard.',
   },
   'SCOREBOARD_GAME_TITLE_ENHANCE': {
     label: 'Enhance Game Title Visibility',
@@ -123,7 +123,7 @@ const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; d
   },
   'REQUIRE_SCORE_PHOTO': {
     label: 'Require Photo with Score Submission',
-    description: 'When enabled, players must include a photo when submitting scores from the scoreboard.',
+    description: 'When enabled, players must include a photo when submitting scores from the leaderboard.',
   },
 };
 
@@ -140,7 +140,7 @@ const KIOSK_TOGGLES: Record<string, { label: string; description: string; defaul
 const GLOBAL_CARD_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
   GLOBAL_CARD_STYLES_ENABLED: {
     label: 'Enable Global Card Styles',
-    description: 'When enabled, the color settings below override individual game card styles on the scoreboard.',
+    description: 'When enabled, the color settings below override individual game card styles on the leaderboard.',
   },
 };
 
@@ -166,8 +166,8 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',
   },
   'GLOBAL_SCOREBOARD_ENABLED': {
-    label: 'Post Scores to Global Scoreboard',
-    description: 'When enabled, scores submitted in this room are also fanned out to the global ArcAid scoreboard at arcaid.app/scoreboard. Players can still opt out per-score.',
+    label: 'Post Scores to Global Leaderboard',
+    description: 'When enabled, scores submitted in this room are also fanned out to the global ArcAid Leaderboard at arcaid.app/scoreboard. Players can still opt out per-score.',
     defaultOn: true,
   },
   'REQUIRE_DISCORD_LOGIN': {
@@ -194,11 +194,11 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   ISCORED_PASSWORD: { label: 'iScored Password', description: 'Password for the iScored account. Used for automated game creation and score scraping.' },
   ISCORED_PUBLIC_URL: { label: 'iScored Public URL', description: 'Public leaderboard URL for score scraping (e.g. https://iscored.info/your_account).' },
   // Scoreboard
-  SCOREBOARD_MAX_SCORES: { label: 'Scores Per Card', description: 'Maximum number of scores displayed per game card on the public scoreboard. Default: 5.' },
-  SCOREBOARD_ZOOM: { label: 'Zoom Level (%)', description: 'Scale the scoreboard for high-res monitors or TV displays. Range: 50-200. Default: 100.' },
-  SCOREBOARD_TITLE: { label: 'Scoreboard Title', description: 'Custom title displayed on the public scoreboard. Leave empty to use the room name.' },
-  SCOREBOARD_TITLE_STYLE: { label: 'Title Style', description: 'Visual style for the scoreboard title: default, glow, retro, or pixel.' },
-  SCOREBOARD_TITLE_SIZE: { label: 'Title Size', description: 'Font size for the scoreboard title. Default: small.' },
+  SCOREBOARD_MAX_SCORES: { label: 'Scores Per Card', description: 'Maximum number of scores displayed per game card on the public leaderboard. Default: 5.' },
+  SCOREBOARD_ZOOM: { label: 'Zoom Level (%)', description: 'Scale the leaderboard for high-res monitors or TV displays. Range: 50-200. Default: 100.' },
+  SCOREBOARD_TITLE: { label: 'Leaderboard Title', description: 'Custom title displayed on the public leaderboard. Leave empty to use the room name.' },
+  SCOREBOARD_TITLE_STYLE: { label: 'Title Style', description: 'Visual style for the leaderboard title: default, glow, retro, or pixel.' },
+  SCOREBOARD_TITLE_SIZE: { label: 'Title Size', description: 'Font size for the leaderboard title. Default: small.' },
   SCOREBOARD_CARD_OPACITY: { label: 'Card Transparency', description: 'Opacity of score cards and ranking cards. 100% = fully opaque (default), 0% = fully transparent.' },
   SCOREBOARD_LAYOUT: { label: 'Layout Mode', description: 'Score card layout: scroll (horizontal scrolling, default) or grid (CSS grid with rows and columns).' },
   SCOREBOARD_CARDS_PER_ROW: { label: 'Cards Per Row (Grid)', description: 'Number of score cards per row in grid mode. Range: 2-8. Default: 4. Only applies in grid layout.' },
@@ -213,11 +213,11 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_GLASS_OPACITY: { label: 'Glass Panel Opacity', description: 'Opacity of glass panels overlaying the background in Fill mode. 0 = transparent, 100 = fully opaque. Default: 60.' },
   SCOREBOARD_GAME_TITLE_STYLE: { label: 'Game Title Style', description: 'Visual style for game name text on score cards. Applies when game name is shown (no identifier image).' },
   SCOREBOARD_SCORE_COLUMNS: { label: 'Score Columns', description: 'Number of score columns within each card. 2 columns shows ranks side-by-side (e.g. 1-5 left, 6-10 right). Collapses to 1 on mobile.' },
-  SCOREBOARD_QR_MODE: { label: 'QR Codes', description: 'Show QR codes on score cards linking to mobile score submission. Disabled: no QR codes. Kiosk Only: QR on kiosk display. All: QR on both scoreboard and kiosk.' },
+  SCOREBOARD_QR_MODE: { label: 'QR Codes', description: 'Show QR codes on score cards linking to mobile score submission. Disabled: no QR codes. Kiosk Only: QR on kiosk display. All: QR on both leaderboard and kiosk.' },
   // Scoreboard Branding
   SCOREBOARD_BG_MODE: { label: 'Background Mode', description: 'How the background image is displayed: cover (fill screen), contain (fit), repeat (tile), or center.' },
   SCOREBOARD_BG_OPACITY: { label: 'Background Opacity', description: 'Opacity of the background image. 100% = fully visible (default), 0% = fully hidden. Lower values let the dark theme show through.' },
-  LOGO_POSITION: { label: 'Logo Position', description: 'Where the logo appears relative to the scoreboard title: left, right, above, or below.' },
+  LOGO_POSITION: { label: 'Logo Position', description: 'Where the logo appears relative to the leaderboard title: left, right, above, or below.' },
   LOGO_MAX_HEIGHT: { label: 'Logo Max Height (px)', description: 'Maximum height of the logo in pixels. Default: 64.' },
   // Kiosk
   KIOSK_REFRESH_SECONDS: { label: 'Kiosk Auto-Refresh (seconds)', description: 'How often the kiosk view refreshes data. Default: 60. Set to 0 to disable auto-refresh.' },
@@ -318,7 +318,7 @@ const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
   SCOREBOARD_QR_MODE: [
     { value: 'disabled', label: 'Disabled' },
     { value: 'kiosk-only', label: 'Kiosk Only' },
-    { value: 'all', label: 'All Scoreboards' },
+    { value: 'all', label: 'All Leaderboards' },
   ],
   SCOREBOARD_BG_MODE: [
     { value: 'cover', label: 'Cover (Fill Screen)' },
@@ -832,7 +832,7 @@ export default function Settings() {
                 <option key={id} value={id}>{label} — {description}</option>
               ))}
             </select>
-            <p className="text-xs text-muted mt-1">Applied to the public scoreboard, kiosk, and all public-facing pages.</p>
+            <p className="text-xs text-muted mt-1">Applied to the public leaderboard, kiosk, and all public-facing pages.</p>
           </div>
 
           {/* Admin Theme (per-admin, saved to your preferences) */}
@@ -860,7 +860,7 @@ export default function Settings() {
 
       {categorized.map(({ category, entries }) => entries.length > 0 && (
         <Fragment key={category}>
-        {category === 'Scoreboard Display' ? (
+        {category === 'Leaderboard Display' ? (
           /* ── Scoreboard Display with Preview Sidebar ── */
           <div className="flex flex-col lg:flex-row gap-4 mb-4">
             <NeonCard title={category} className="lg:w-1/2 min-w-0">
@@ -992,7 +992,7 @@ export default function Settings() {
 
                 {showLegacyStyles && (
                   <div className="mt-3 pt-3 border-t border-border/30 space-y-3">
-                    <p className="text-[11px] text-muted">Legacy presets and individual card controls from the v1 scoreboard system. Changing these runs alongside the new style above.</p>
+                    <p className="text-[11px] text-muted">Legacy presets and individual card controls from the v1 leaderboard system. Changing these runs alongside the new style above.</p>
 
                     <PresetSelector settings={settings} onPresetSelect={handlePresetSelect} />
 
@@ -1220,8 +1220,8 @@ export default function Settings() {
         )}
 
         {/* Scoreboard Branding — renders right after Scoreboard Display */}
-        {category === 'Scoreboard Display' && (
-          <NeonCard title="Scoreboard Branding" className="mb-4">
+        {category === 'Leaderboard Display' && (
+          <NeonCard title="Leaderboard Branding" className="mb-4">
             <div className="space-y-6">
               {/* Background Image */}
               <div>
@@ -1289,7 +1289,7 @@ export default function Settings() {
                     </NeonButton>
                   )}
                 </div>
-                <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Displayed behind the scoreboard.</p>
+                <p className="text-xs text-faint mt-2">PNG, JPEG, or WebP. Max 5 MB. Displayed behind the leaderboard.</p>
                 <div className="mt-3">
                   <label className="text-xs text-faint block mb-1">Background Mode</label>
                   <select
@@ -1326,8 +1326,8 @@ export default function Settings() {
                 {logoUrl && (
                   <div className="flex items-center justify-between gap-4 mb-3">
                     <div>
-                      <p className="text-sm text-primary">Show on Scoreboard</p>
-                      <p className="text-xs text-faint">Toggle off to hide the logo on the scoreboard while keeping it for Mystery Award.</p>
+                      <p className="text-sm text-primary">Show on Leaderboard</p>
+                      <p className="text-xs text-faint">Toggle off to hide the logo on the leaderboard while keeping it for Mystery Award.</p>
                     </div>
                     <button
                       type="button"
@@ -1397,7 +1397,7 @@ export default function Settings() {
                   )}
                 </div>
                 <p className="text-xs text-faint mt-2">
-                  PNG, JPEG, or WebP. Max 5 MB. Shown alongside the scoreboard title.
+                  PNG, JPEG, or WebP. Max 5 MB. Shown alongside the leaderboard title.
                   A 1:1 (square) crop is also used as this room's badge on the Global Scoreboard.
                   Non-square logos will prompt for a square crop on upload.
                 </p>
@@ -1429,7 +1429,7 @@ export default function Settings() {
                 </div>
                 {/* Scoreboard Title */}
                 <div className="mt-3">
-                  <label className="text-xs text-faint block mb-1">Scoreboard Title</label>
+                  <label className="text-xs text-faint block mb-1">Leaderboard Title</label>
                   <input
                     type="text"
                     value={settings.SCOREBOARD_TITLE || ''}
@@ -1447,7 +1447,7 @@ export default function Settings() {
                       <img src={settings.LOGO_URL} alt="" style={{ maxHeight: Number(settings.LOGO_MAX_HEIGHT || 64), objectFit: 'contain' }} />
                     )}
                     <p className={`font-display text-muted ${getTitleSizeClass(settings.SCOREBOARD_TITLE_SIZE || 'sm')} uppercase tracking-widest ${getTitleStyleClass(settings.SCOREBOARD_TITLE_STYLE || 'default')}`}>
-                      {settings.SCOREBOARD_TITLE || room.roomName || 'Scoreboard Title'}
+                      {settings.SCOREBOARD_TITLE || room.roomName || 'Leaderboard Title'}
                     </p>
                     {settings.LOGO_URL && ((settings.LOGO_POSITION || 'left') === 'right' || (settings.LOGO_POSITION || 'left') === 'below') && (
                       <img src={settings.LOGO_URL} alt="" style={{ maxHeight: Number(settings.LOGO_MAX_HEIGHT || 64), objectFit: 'contain' }} />

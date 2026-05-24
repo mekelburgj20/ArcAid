@@ -24,6 +24,7 @@ interface ShowcaseCardProps {
   qrMode?: string;
   qrSize?: number;
   qrPosition?: string;
+  qrOverlapPx?: number;
   cardBgFill?: boolean;
   titleFontSize?: number;
   gameTitleStyle?: string;
@@ -59,8 +60,9 @@ export default function ShowcaseCard({
   titleFontSize,
   gameTitleStyle = 'default',
   qrMode = 'disabled',
-  qrSize = 24,
+  qrSize = 30,
   qrPosition = 'top-right',
+  qrOverlapPx = 10,
   onSubmitScore: _onSubmitScore,  // v2.2.8: unused (title is a Link); kept for CardRouter spread compat
   titleLinkTo,
   titleLinkOnClick,
@@ -96,7 +98,7 @@ export default function ShowcaseCard({
   const floatPadTop = 42;
 
   // Bottom-center QR needs extra bottom margin so next card isn't overlapped
-  const qrMetrics = qrBottomMetrics(qrSize, qrMode !== 'disabled', qrPosition);
+  const qrMetrics = qrBottomMetrics(qrSize, qrMode !== 'disabled', qrPosition, qrOverlapPx);
 
   return (
     <div style={{ position: 'relative', paddingTop: floatPadTop, maxWidth: '100%' }}>
@@ -378,7 +380,9 @@ export default function ShowcaseCard({
             <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
           </div>
         ) : qrPosition === 'bottom-right' ? (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+          // v2.13.12 — negative marginTop pulls QR up by `peek` px, overlapping
+          // the card's bottom edge by `qrOverlapPx` (default 10).
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -qrMetrics.peek, position: 'relative', zIndex: 15 }}>
             <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
           </div>
         ) : (

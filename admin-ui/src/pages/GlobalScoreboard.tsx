@@ -301,7 +301,7 @@ export default function GlobalScoreboard() {
       <div className="px-4 sm:px-6 lg:px-10 py-10">
         <div className="flex items-center gap-3 mb-2">
           <Trophy className="w-6 h-6 text-neon-cyan" />
-          <h1 className="font-display text-3xl font-bold">Global Scoreboard</h1>
+          <h1 className="font-display text-3xl font-bold">Global Leaderboard</h1>
         </div>
         <p className="text-muted mb-8">
           High scores from every ArcAid room, all in one place. Submit your own scores with Discord login.

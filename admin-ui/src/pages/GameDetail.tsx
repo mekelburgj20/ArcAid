@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
 import SubmissionSheet from '../components/SubmissionSheet';
@@ -141,6 +141,11 @@ type Tab = 'leaderboard' | 'community' | 'tips' | 'player-stats';
 
 export default function GameDetail() {
   const { slug, name } = useParams<{ slug: string; name: string }>();
+  // v2.13.12 — back link returns to the tab the user came from.
+  // ?tab=all-games → All Games tab; absent or ?tab=tournaments → default Tournaments.
+  const [searchParams] = useSearchParams();
+  const fromTab = searchParams.get('tab');
+  const backToRoomHref = fromTab === 'all-games' ? `/${slug}?tab=all-games` : `/${slug}`;
   const { playerToken } = useViewerAuth();
   const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -527,8 +532,8 @@ export default function GameDetail() {
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/50 to-black/20" />
         <div className="relative z-10 max-w-4xl mx-auto w-full px-4 sm:px-6 pb-4">
-          <Link to={`/${slug}`} className="text-white/50 text-xs hover:text-white/70 no-underline transition-colors">
-            &larr; Scoreboard
+          <Link to={backToRoomHref} className="text-white/50 text-xs hover:text-white/70 no-underline transition-colors">
+            &larr; Leaderboard
           </Link>
           <h2 className="font-display text-2xl font-bold text-white mt-1">{stats?.gameName || name}</h2>
           {leaderboard && (
@@ -536,11 +541,11 @@ export default function GameDetail() {
               <p className="text-white/50 text-xs uppercase tracking-wider">{leaderboard.tournamentName}</p>
               {leaderboard.globalGameId && (
                 <Link
-                  to={`/games/${leaderboard.globalGameId}?from=${encodeURIComponent(slug || '')}`}
+                  to={`/games/${leaderboard.globalGameId}?from=${encodeURIComponent(slug || '')}${fromTab ? `&tab=${fromTab}` : ''}`}
                   className="text-neon-cyan/70 hover:text-neon-cyan text-xs uppercase tracking-wider no-underline transition-colors"
-                  title="Wheel art, downloads, tutorials, and cross-room scores"
+                  title="Cross-room scores, wheel art, downloads, tutorials"
                 >
-                  More info →
+                  Global Leaderboard →
                 </Link>
               )}
             </div>

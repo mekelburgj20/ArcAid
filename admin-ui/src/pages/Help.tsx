@@ -328,7 +328,7 @@ export default function Help() {
         </NeonCard>
 
         {/* Scoreboard Display */}
-        <NeonCard title="Scoreboard Display" className="mb-4">
+        <NeonCard title="Leaderboard Display" className="mb-4">
           <p className="text-primary text-sm mb-3">
             Controls the appearance of your public scoreboard. Uses a 2-level selection system.
           </p>
@@ -356,11 +356,11 @@ export default function Help() {
             <table className={tableClass}>
               <thead><tr><Th className="w-1/3">Setting</Th><Th>What It Does</Th></tr></thead>
               <tbody>
-                <tr><Td><strong>Scoreboard Title</strong></Td><Td>Text shown above the scoreboard (defaults to room name). Can be hidden</Td></tr>
-                <tr><Td><strong>Background Image</strong></Td><Td>Full-page background for the scoreboard (uploaded or URL)</Td></tr>
+                <tr><Td><strong>Leaderboard Title</strong></Td><Td>Text shown above the leaderboard (defaults to room name). Can be hidden</Td></tr>
+                <tr><Td><strong>Background Image</strong></Td><Td>Full-page background for the leaderboard (uploaded or URL)</Td></tr>
                 <tr><Td><strong>Logo</strong></Td><Td>Logo image with configurable position (left, right, above, below title) and max height</Td></tr>
                 <tr><Td><strong>QR Code Mode</strong></Td><Td>Show QR codes for score submission on cards: <strong>Disabled</strong>, <strong>Kiosk Only</strong>, or <strong>All</strong></Td></tr>
-                <tr><Td><strong>Zoom</strong></Td><Td>Scale the entire scoreboard (50%–200%) for TV/kiosk displays</Td></tr>
+                <tr><Td><strong>Zoom</strong></Td><Td>Scale the entire leaderboard (50%–200%) for TV/kiosk displays</Td></tr>
               </tbody>
             </table>
           </div>
@@ -831,12 +831,12 @@ export default function Help() {
                 </tr>
               </thead>
               <tbody>
-                <tr><Td><strong>Scoreboard</strong></Td><Td><Code>/your_slug/</Code></Td><Td>Live leaderboards for all active games and ranking groups</Td></tr>
+                <tr><Td><strong>Leaderboard</strong></Td><Td><Code>/your_slug/</Code></Td><Td>Live leaderboards for all active games and ranking groups</Td></tr>
                 <tr><Td><strong>Player List</strong></Td><Td><Code>/your_slug/players</Code></Td><Td>All players with stats, clickable for detail</Td></tr>
                 <tr><Td><strong>Player Detail</strong></Td><Td><Code>/your_slug/players/Name</Code></Td><Td>Individual player stats, win rate, history</Td></tr>
                 <tr><Td><strong>Game Detail</strong></Td><Td><Code>/your_slug/games/GameName</Code></Td><Td>Game-specific stats, records, community rating</Td></tr>
                 <tr><Td><strong>Game Availability</strong></Td><Td><Code>/your_slug/games</Code></Td><Td>Which games are available vs. on cooldown, with a random picker</Td></tr>
-                <tr><Td><strong>Kiosk Scoreboard</strong></Td><Td><Code>/your_slug/kiosk</Code></Td><Td>Full-screen auto-scrolling scoreboard for TV displays</Td></tr>
+                <tr><Td><strong>Kiosk Leaderboard</strong></Td><Td><Code>/your_slug/kiosk</Code></Td><Td>Full-screen auto-scrolling leaderboard for TV displays</Td></tr>
                 <tr><Td><strong>Score Submit</strong></Td><Td><Code>/your_slug/submit/:gameId</Code></Td><Td>Standalone score submission page (linked from QR codes on cards)</Td></tr>
                 <tr><Td><strong>Public Stats</strong></Td><Td><Code>/your_slug/stats</Code></Td><Td>Community statistics and leaderboards</Td></tr>
               </tbody>

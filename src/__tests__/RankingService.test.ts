@@ -336,11 +336,14 @@ describe('RankingService', () => {
             const initial = await RankingService.getRankings(groupId);
             expect(initial).toHaveLength(2);
 
-            // Admin "wipe player from game" path — DELETE on submissions.
+            // v2.13.12: rankings + watermark source from score_history (not
+            // submissions). Per-row delete in production removes the
+            // score_history row; submissions is reconciled separately. Mirror
+            // that here so the watermark detects the change.
             const { getDatabase } = await import('../database/database.js');
             const db = await getDatabase();
             await db.run(
-                `DELETE FROM submissions WHERE game_id = ? AND LOWER(iscored_username) = ?`,
+                `DELETE FROM score_history WHERE game_id = ? AND LOWER(iscored_username) = ?`,
                 gameId, 'bob',
             );
 

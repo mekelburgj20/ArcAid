@@ -16,6 +16,7 @@ import {
 } from '../components/ScoreboardComponents';
 import CardRouter from '../components/scoreboard/CardRouter';
 import GamesTabView from '../components/GamesTabView';
+import GameQuickView from '../components/GameQuickView';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
@@ -36,6 +37,18 @@ export default function Scoreboard() {
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
+  // v2.13.12 — game quick-view modal triggered by title click on tournament cards.
+  // GamesTabView owns its own modal state for All Games cards (lives inside it).
+  const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
+  const handleTitleClick = (lb: GameLeaderboard) => (e: React.MouseEvent) => {
+    // Plain left-click → open modal. Middle/ctrl/cmd/shift-click falls through
+    // to the underlying <Link href> so the user can open the full page in a
+    // new tab.
+    if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      e.preventDefault();
+      setQuickViewLb(lb);
+    }
+  };
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
   const [tournamentSearch, setTournamentSearch] = useState('');
@@ -190,7 +203,7 @@ export default function Scoreboard() {
   // unreachable even at max scroll. Moving the margin up one level makes flex
   // line cross-size and grid track sizing include the QR space.
   const cardMarginBottom = useNewCards
-    ? qrBottomMetrics(newConfig.qrSize, newConfig.qrMode !== 'disabled', newConfig.qrPosition).overhang
+    ? qrBottomMetrics(newConfig.qrSize, newConfig.qrMode !== 'disabled', newConfig.qrPosition, newConfig.qrOverlapPx).overhang
     : 0;
 
   // Measure header height so bg image can start below it
@@ -208,10 +221,12 @@ export default function Scoreboard() {
   const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
 
   // Plan §10 / Sprint 3: Tournament-tab cards now link to game detail like All Games.
+  // v2.13.12 — append &tab=tournaments so the GameDetail back link returns to
+  // the Tournaments tab (rather than the All Games default).
   const linkForTournamentCard = (lb: GameLeaderboard) =>
     lb.globalGameId
-      ? `/games/${lb.globalGameId}?from=${encodeURIComponent(slug || '')}`
-      : `/${slug || ''}/games/${encodeURIComponent(lb.gameName)}`;
+      ? `/games/${lb.globalGameId}?from=${encodeURIComponent(slug || '')}&tab=tournaments`
+      : `/${slug || ''}/games/${encodeURIComponent(lb.gameName)}?tab=tournaments`;
 
   return (
     <div className={`h-full flex flex-col overflow-hidden relative ${newConfig.mobileVertical ? 'scoreboard-mobile-vertical' : ''}`}>
@@ -337,7 +352,7 @@ export default function Scoreboard() {
       )}
 
       {/* Tab toggle */}
-      <div className="flex justify-center gap-1 pb-3" role="tablist" aria-label="Scoreboard tabs">
+      <div className="flex justify-center gap-1 pb-3" role="tablist" aria-label="Leaderboard tabs">
         <button
           role="tab"
           aria-selected={tab === 'tournaments'}
@@ -440,10 +455,10 @@ export default function Scoreboard() {
                       titleFontSize={newConfig.titleFontSize || undefined}
                       viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
                       qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
-                      qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition}
+                      qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx}
                       gameTitleStyle={newConfig.gameTitleStyle}
                       onSubmitScore={(lb) => setSelectedGame(lb)}
-                      titleLinkTo={linkForTournamentCard(lb)}
+                      titleLinkTo={linkForTournamentCard(lb)} titleLinkOnClick={handleTitleClick(lb)}
                     />
                   ) : (
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
@@ -479,10 +494,10 @@ export default function Scoreboard() {
                       titleFontSize={newConfig.titleFontSize || undefined}
                       viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
                       qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
-                      qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition}
+                      qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx}
                       gameTitleStyle={newConfig.gameTitleStyle}
                       onSubmitScore={(lb) => setSelectedGame(lb)}
-                      titleLinkTo={linkForTournamentCard(lb)}
+                      titleLinkTo={linkForTournamentCard(lb)} titleLinkOnClick={handleTitleClick(lb)}
                     />
                   ) : (
                     <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
@@ -517,10 +532,10 @@ export default function Scoreboard() {
                         titleFontSize={newConfig.titleFontSize || undefined}
                         viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
                         qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
-                        qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition}
+                        qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx}
                         gameTitleStyle={newConfig.gameTitleStyle}
                         onSubmitScore={(lb) => setSelectedGame(lb)}
-                        titleLinkTo={linkForTournamentCard(lb)}
+                        titleLinkTo={linkForTournamentCard(lb)} titleLinkOnClick={handleTitleClick(lb)}
                       />
                     ) : (
                       <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
@@ -552,6 +567,18 @@ export default function Scoreboard() {
       </>
       )}
       </div>{/* end scrollable */}
+
+      {/* v2.13.12 — game quick-view modal (lightweight preview triggered by
+          title click on tournament cards). Falls through to GameDetail via
+          "View full info →" or to GlobalGameDetail via "Global Leaderboard →". */}
+      {quickViewLb && (
+        <GameQuickView
+          lb={quickViewLb}
+          slug={slug || ''}
+          fromTab={tab === 'all-games' ? 'all-games' : 'tournaments'}
+          onClose={() => setQuickViewLb(null)}
+        />
+      )}
 
       {/* Score submission — SubmissionSheet (Sprint 10) handles anonymous flow.
           v2.0.1 — requireLogin short-circuits the form when the room gates submissions. */}

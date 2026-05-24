@@ -550,7 +550,7 @@ export default function GameLibrary() {
       } else if (result.iscoredStatus === 'skipped' && pinOnIScored) {
         toast(`${pinTarget} pinned (iScored skipped — check room credentials)`, 'success');
       } else {
-        toast(`${pinTarget} pinned to scoreboard`, 'success');
+        toast(`${pinTarget} pinned to leaderboard`, 'success');
       }
       setPinTarget(null);
       setPinOnIScored(true);
@@ -1480,7 +1480,7 @@ export default function GameLibrary() {
           <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-sm">
             <h2 className="font-display text-lg font-bold mb-2">Bulk Pin</h2>
             <p className="text-muted text-sm mb-4">
-              Pin <span className="text-primary font-medium">{selectedIds.size}</span> game{selectedIds.size !== 1 ? 's' : ''} to the scoreboard.
+              Pin <span className="text-primary font-medium">{selectedIds.size}</span> game{selectedIds.size !== 1 ? 's' : ''} to the leaderboard.
               Games already pinned in this room will be skipped.
             </p>
             <label className="flex items-start gap-2 mb-4 cursor-pointer">
@@ -1536,9 +1536,9 @@ export default function GameLibrary() {
       {pinTarget && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-sm">
-            <h2 className="font-display text-lg font-bold mb-2">Pin to Scoreboard</h2>
+            <h2 className="font-display text-lg font-bold mb-2">Pin to Leaderboard</h2>
             <p className="text-muted text-sm mb-4">
-              Pin <span className="text-primary font-medium">{pinTarget}</span> to the scoreboard as a standalone
+              Pin <span className="text-primary font-medium">{pinTarget}</span> to the leaderboard as a standalone
               game. It will appear with a "Pinned" chip and stay active until you unpin it. Rankings (max_10 etc.)
               ignore pinned games.
             </p>

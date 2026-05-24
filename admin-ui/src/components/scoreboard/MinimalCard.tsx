@@ -19,6 +19,7 @@ interface MinimalCardProps {
   qrMode?: string;
   qrSize?: number;
   qrPosition?: string;
+  qrOverlapPx?: number;
   cardBgFill?: boolean;
   titleFontSize?: number;
   gameTitleStyle?: string;
@@ -43,8 +44,9 @@ export default function MinimalCard({
   viewerUsername,
   viewerEntry,
   qrMode = 'disabled',
-  qrSize = 24,
+  qrSize = 30,
   qrPosition = 'top-right',
+  qrOverlapPx = 10,
   cardBgFill = false,
   titleFontSize,
   gameTitleStyle = 'default',
@@ -92,7 +94,7 @@ export default function MinimalCard({
   })();
 
   const showQr = qrMode !== 'disabled';
-  const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition);
+  const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition, qrOverlapPx);
 
   return (
     <div style={{ position: 'relative', maxWidth: 380 }}>
@@ -249,13 +251,14 @@ export default function MinimalCard({
       </div>
 
     </div>
-      {/* QR code — bottom-right, below the card */}
+      {/* QR code — bottom-right. v2.13.12 — negative marginTop pulls QR up by
+          `peek` px, overlapping the card's bottom edge by `qrOverlapPx`. */}
       {showQr && qrPosition === 'bottom-right' && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -qrMetrics.peek, position: 'relative', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />
         </div>
       )}
-      {/* QR code — bottom-center, peeks ~10px above the card bottom */}
+      {/* QR code — bottom-center, peeks `qrOverlapPx` pixels into the card. */}
       {showQr && qrPosition === 'bottom-center' && (
         <div style={{ position: 'absolute', bottom: -qrMetrics.overhang, left: '50%', transform: 'translateX(-50%)', zIndex: 15 }}>
           <GameQRCode slug={slug} gameId={lb.gameId} size={qrSize} />

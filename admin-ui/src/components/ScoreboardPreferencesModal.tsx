@@ -65,7 +65,7 @@ const SELECT_PREFS: PrefDef[] = [
     options: [
       { value: 'disabled', label: 'Disabled' },
       { value: 'kiosk-only', label: 'Kiosk Only' },
-      { value: 'all', label: 'All Scoreboards' },
+      { value: 'all', label: 'All Leaderboards' },
     ],
   },
   {
@@ -83,7 +83,7 @@ const SELECT_PREFS: PrefDef[] = [
     description: 'Match the scoreboard style or pick a distinct treatment for ranking cards.',
     type: 'select',
     options: [
-      { value: 'match', label: 'Match Scoreboard' },
+      { value: 'match', label: 'Match Leaderboard' },
       { value: 'plaque', label: 'Plaque (hall-of-fame frame)' },
       { value: 'compact', label: 'Compact List (no chrome)' },
       { value: 'sidebar', label: 'Sidebar Block (narrow column)' },
@@ -121,7 +121,8 @@ const ADVANCED_NUMBER_PREFS: PrefDef[] = [
   { key: 'SCOREBOARD_MIN_SCORES', label: 'Min Card Height (scores)', description: 'Minimum card height expressed as score rows', type: 'number', min: 1, max: 50 },
   { key: 'SCOREBOARD_CARD_SPACING', label: 'Card Spacing (px)', description: 'Gap between game cards in pixels', type: 'number', min: 0, max: 100 },
   { key: 'SCOREBOARD_TITLE_FONT_SIZE', label: 'Title Font Size (px)', description: '0 = style default. Override game title font size.', type: 'number', min: 0, max: 72 },
-  { key: 'SCOREBOARD_QR_SIZE', label: 'QR Code Size (px)', description: 'Size of QR codes on game cards. Default: 24.', type: 'number', min: 16, max: 200 },
+  { key: 'SCOREBOARD_QR_SIZE', label: 'QR Code Size (px)', description: 'Size of QR codes on game cards. Default: 30 (~25% larger than legacy 24).', type: 'number', min: 16, max: 200 },
+  { key: 'SCOREBOARD_QR_OVERLAP_PX', label: 'QR Code Bottom Edge Overlap (px)', description: 'For bottom-anchored QR positions: pixels the QR overlaps into the card. 0 = QR touches the bottom edge from below; higher = more of the QR sits inside the card. Default: 10.', type: 'number', min: 0, max: 200 },
 ];
 
 const MOBILE_PREFS: PrefDef[] = [
@@ -352,7 +353,7 @@ export default function ScoreboardPreferencesModal({
         ) : (
           <div className="px-5 py-4 space-y-1">
             <p className="text-xs text-muted mb-3">
-              Override room defaults for your {device} scoreboard view. Reset a setting to use the room admin's default.
+              Override room defaults for your {device} leaderboard view. Reset a setting to use the room admin's default.
             </p>
 
             {/* ── Card Style ───────────────────────────────────────── */}

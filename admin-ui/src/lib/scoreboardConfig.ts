@@ -49,6 +49,10 @@ export interface ScoreboardConfig {
   qrMode: string;
   qrSize: number;
   qrPosition: string;            // 'top-right' | 'bottom-right' | 'bottom-center'
+  /** v2.13.12 — pixels of QR that overlap the card's bottom edge (only applies
+   *  to bottom-anchored positions). 0 = QR touches the bottom edge from below;
+   *  higher = more of the QR sits inside the card. Default 10. */
+  qrOverlapPx: number;
   gameTitleStyle: string;         // same options as titleStyle (glow, fire, plasma, etc.)
   bgBehindTitle: boolean;         // true when bgMode is 'fill-entire' — bg image extends behind title
   mobileVertical: boolean;        // true = force vertical scroll on mobile (default), false = keep desktop layout
@@ -115,8 +119,13 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     hideEmpty: config.SCOREBOARD_HIDE_EMPTY === 'true',
     requirePhoto: config.REQUIRE_SCORE_PHOTO === 'true',
     qrMode: config.SCOREBOARD_QR_MODE || 'disabled',
-    qrSize: parseInt(config.SCOREBOARD_QR_SIZE || '24', 10) || 24,
+    // v2.13.12 — default size bumped 24 → 30 (~25% larger) for better phone scanning.
+    qrSize: parseInt(config.SCOREBOARD_QR_SIZE || '30', 10) || 30,
     qrPosition: config.SCOREBOARD_QR_POSITION || 'top-right',
+    qrOverlapPx: (() => {
+      const raw = parseInt(config.SCOREBOARD_QR_OVERLAP_PX || '10', 10);
+      return Number.isFinite(raw) ? Math.max(0, raw) : 10;
+    })(),
     gameTitleStyle: config.SCOREBOARD_GAME_TITLE_STYLE || 'default',
     bgBehindTitle: (config.SCOREBOARD_BG_MODE || 'cover') === 'fill-entire',
     mobileVertical: config.SCOREBOARD_MOBILE_VERTICAL !== 'false',
@@ -130,35 +139,38 @@ export function getCardWidth(style: ScoreboardStyle): number {
 }
 
 /**
- * Geometry for `bottom-center` QR placement on game cards. The QR floats
- * across the card's bottom edge: most of it hangs below the card, a small
- * "peek" pokes into the card.
+ * Geometry for bottom-anchored QR placements (`bottom-center` and `bottom-right`).
+ * The QR straddles the card's bottom edge: `overlapPx` of it sits inside the
+ * card, the rest hangs below.
  *
  * Returns:
- *   - `overhang`     px below the card baseline (used for marginBottom AND
- *                    `bottom: -overhang` on the absolutely-positioned QR)
- *   - `peek`         px of QR visible inside the card (informational)
- *   - `footerExtra`  extra bottom padding for the footer to clear the peek
+ *   - `overhang`     px below the card baseline (used for marginBottom on the
+ *                    layout wrapper AND for `bottom: -overhang` on the
+ *                    absolutely-positioned bottom-center QR, AND for the
+ *                    negative marginTop trick on bottom-right). Equals
+ *                    `qrSize - peek`.
+ *   - `peek`         px of QR visible inside the card. Equals `overlapPx`
+ *                    clamped to `[0, qrSize]`.
+ *   - `footerExtra`  extra bottom padding for the footer to clear the peek.
  *
- * The peek is the smaller of (a) 4px and (b) 10% of qrSize. v2.13.2 tightened
- * these from 10px / 20% so the QR hangs further below the card edge on every
- * size — the prior values left ~3-10px of QR overlapping the bottom score row,
- * which read as "QR mostly inside the card" once users moved to small QR sizes
- * (18-24) where the absolute overhang shrinks but the peek-to-size ratio is what
- * the eye picks up on.
+ * v2.13.12 — refactored to take `overlapPx` as a user-controlled parameter
+ * (was hardcoded to min(4, qrSize * 0.1)) and to apply to bottom-right as well
+ * as bottom-center (was bottom-center only). Default overlap = 10px.
  */
-const QR_BOTTOM_MAX_PEEK_PX = 4;
 export function qrBottomMetrics(
   qrSize: number,
   qrEnabled: boolean,
   qrPosition: string,
+  overlapPx: number = 10,
 ): { overhang: number; peek: number; footerExtra: number } {
-  if (!qrEnabled || qrPosition !== 'bottom-center' || qrSize <= 0) {
+  // Only bottom-anchored positions need overhang reservation.
+  if (!qrEnabled || qrSize <= 0 || (qrPosition !== 'bottom-center' && qrPosition !== 'bottom-right')) {
     return { overhang: 0, peek: 0, footerExtra: 0 };
   }
-  const peek = Math.min(QR_BOTTOM_MAX_PEEK_PX, qrSize * 0.1);
+  const peek = Math.max(0, Math.min(qrSize, overlapPx));
+  const overhang = Math.max(0, qrSize - peek);
   return {
-    overhang: qrSize - peek,
+    overhang,
     peek,
     footerExtra: Math.round(peek) + 4,
   };

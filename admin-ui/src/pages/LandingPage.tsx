@@ -116,7 +116,7 @@ export default function LandingPage() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12">
         <div className="text-center mb-12">
           <h1 className="font-display text-3xl font-bold mb-3">Game Rooms</h1>
-          <p className="text-muted">Choose a game room to view scoreboards and leaderboards.</p>
+          <p className="text-muted">Choose a game room to view its leaderboards.</p>
         </div>
 
         {rooms.length === 0 ? (
