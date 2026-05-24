@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.13] — unreleased
+
+**Three follow-up fixes to v2.13.12** — the GlobalGameDetail nav still said "Scoreboard", clicking the per-card "i" info icon was also firing the new GameQuickView modal, and the resulting info bubble was clipped by the card's `overflow: hidden`.
+
+*GlobalGameDetail nav text:* `GlobalGameDetail.tsx`'s secondary "Scoreboard" link and the "Global Scoreboard" not-found copy both renamed to "Leaderboard" / "Global Leaderboard". v2.13.12's terminology sweep updated the `to=` href via the `backToRoomHref` refactor but left the visible text unchanged in two spots.
+
+*Info-icon click no longer triggers the quick-view modal:* `handleTitleClick` in both `Scoreboard.tsx` and `GamesTabView.tsx` now bails early when `e.target.closest('button')` is truthy — defense-in-depth in case `e.stopPropagation()` inside the `GameInfoPopup` button doesn't reliably block the parent `<Link>`'s onClick in production builds.
+
+*Info bubble visibility:* `GameInfoPopup` refactored to render the bubble via `createPortal` to `document.body` with `position: fixed` coordinates computed from the trigger button's `getBoundingClientRect`. Pre-fix the bubble was `position: absolute` inside the trigger's wrapper, which sat inside a card with `overflow: hidden`, so the bubble (positioned above the icon) was clipped at the card's top edge and invisible. Now it floats above all card chrome at `z-[60]`. Added ESC-to-close and scroll-to-close handlers. The trigger button's click also now calls `e.preventDefault()` in addition to `e.stopPropagation()` for stronger isolation from the parent `<Link>`.
+
+Bumps SW cache to `arcaid-v65`.
+
+---
+
 ## [2.13.12] — unreleased
 
 **Four targeted fixes shipped together** — Overall Rankings query correctness, game-info navigation, QR positioning + sizing, and a Scoreboard→Leaderboard terminology sweep.

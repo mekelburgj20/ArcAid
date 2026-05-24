@@ -41,6 +41,12 @@ export default function Scoreboard() {
   // GamesTabView owns its own modal state for All Games cards (lives inside it).
   const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
   const handleTitleClick = (lb: GameLeaderboard) => (e: React.MouseEvent) => {
+    // v2.13.13 — defensive: skip when the click originated on a nested
+    // interactive element (e.g., the GameInfoPopup "i" icon button that sits
+    // inside the title Link). React's stopPropagation in those children
+    // doesn't always prevent the parent's onClick from firing in production
+    // builds; closest('button') is a more reliable bail.
+    if ((e.target as HTMLElement).closest('button')) return;
     // Plain left-click → open modal. Middle/ctrl/cmd/shift-click falls through
     // to the underlying <Link href> so the user can open the full page in a
     // new tab.

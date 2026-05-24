@@ -432,12 +432,12 @@ export default function GlobalGameDetail() {
             className="flex items-center gap-2 text-xs text-muted hover:text-neon-cyan no-underline"
           >
             <ArrowLeft className="w-4 h-4" />
-            {fromSlug ? `Back to ${fromSlug}` : 'Global Scoreboard'}
+            {fromSlug ? `Back to ${fromSlug}` : 'Global Leaderboard'}
           </Link>
           <div className="flex items-center gap-3">
             {fromSlug && (
               <Link to={backToRoomHref} className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
-                Scoreboard
+                Leaderboard
               </Link>
             )}
             <Link to="/" className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">

@@ -101,6 +101,9 @@ export default function GamesTabView({ roomId, slug, config, roomName, viewerUse
   // the underlying <Link href> so the user can open the full page in a new tab.
   const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
   const handleTitleClick = (lb: GameLeaderboard) => (e: React.MouseEvent) => {
+    // v2.13.13 — bail if the click is on a nested interactive element (e.g.,
+    // the GameInfoPopup "i" icon button inside the title Link).
+    if ((e.target as HTMLElement).closest('button')) return;
     if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
       e.preventDefault();
       setQuickViewLb(lb);
