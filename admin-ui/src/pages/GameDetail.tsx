@@ -4,6 +4,7 @@ import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
 import SubmissionSheet from '../components/SubmissionSheet';
 import { api } from '../lib/api';
+import PlayerNameLink from '../components/PlayerNameLink';
 import { getPlatformDisplay } from '../lib/platforms';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
@@ -627,16 +628,15 @@ export default function GameDetail() {
                           }`}>
                             {displayRank}
                           </span>
-                          {/* v2.2.6: clicking the username goes to player
-                              stats. stopPropagation so the row-click expand
-                              (when hasMultiple) doesn't also fire. */}
-                          <Link
-                            to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
+                          {/* v2.13.16: PlayerNameLink opens quick-view modal on
+                              click; modifier-click falls through to full page. */}
+                          <PlayerNameLink
+                            slug={slug || ''}
+                            entry={entry}
+                            fromTab={fromTab}
                             onClick={e => e.stopPropagation()}
                             className="font-medium truncate no-underline text-primary hover:text-neon-cyan transition-colors"
-                          >
-                            {entry.display_name || entry.iscored_username}
-                          </Link>
+                          />
                           {/* v2.5.0: per-row platform badge in the "All" view; in
                               per-platform views every row would show the same
                               chip, so we omit it. */}

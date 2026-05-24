@@ -5,6 +5,7 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import UserMenu from './UserMenu';
 import PendingSubmissionWatcher from './PendingSubmissionWatcher';
+import { PlayerQuickViewProvider } from '../contexts/PlayerQuickViewContext';
 
 interface PublicLayoutProps {
   gameRoomName?: string;
@@ -132,7 +133,11 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
 
       {/* Page Content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <Outlet />
+        {/* v2.13.16 — PlayerQuickViewProvider so PlayerNameLink calls from
+            any public page can open the player preview modal. */}
+        <PlayerQuickViewProvider>
+          <Outlet />
+        </PlayerQuickViewProvider>
       </div>
 
       {/* Scanline overlay */}

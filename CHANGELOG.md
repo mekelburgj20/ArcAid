@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.16] — unreleased
+
+**Public-side player names now open a lightweight `PlayerQuickView` modal on click + `PlayerDetail` back link respects originating tab.** Same UX pattern as `GameQuickView` from v2.13.12.
+
+*New `PlayerQuickViewContext`* (`admin-ui/src/contexts/PlayerQuickViewContext.tsx`) provides `open({ slug, entry, fromTab })`. The provider renders the modal itself; descendants only need the hook. Wrapped around the `<Outlet />` in `PublicLayout` so any public-side page can trigger it.
+
+*Modal content (lightweight preview).* Header: avatar + display name + iScored alias when different. Stats grid: Games / Wins / Win % / Avg Finish / Top 5 % / Streak (sourced from the existing `/api/rooms/:roomId/stats/enhanced/player/:id` endpoint — no schema changes). Best Game callout. Top 5 recent scores list. Footer: "View full player page →" (links to `/:slug/players/:name?from=<slug>&tab=<tab>` so the full-page back link returns to the correct view) and "All Players →" (keeps the existing entry point visible from the modal). ESC closes, click-outside closes, body scroll locked while open.
+
+*New `PlayerNameLink` component* (`admin-ui/src/components/PlayerNameLink.tsx`) wraps a player name in a `<Link>` whose `to=` is the real PlayerDetail URL with `?from` + `?tab` threaded, AND intercepts plain left-click to open the modal via context. Modifier-click (ctrl/cmd/shift) falls through to native navigation so middle-click and "open in new tab" still work. Accepts `style` + `className` + caller `onClick` (for parent-row stopPropagation patterns). Replaces all 6 inline `<Link to={`/${slug}/players/${name}`}>` call sites across the public side: `BannerCard`, `MinimalCard`, `ScoreList`, `ShowcasePodium`, `GameDetail`, `PublicStats`.
+
+*`PlayerDetail` back-link.* Now reads `?from` + `?tab` via `useSearchParams()`. When `from` is present (set by `PlayerNameLink` or the modal's full-page link), renders two header links: `← Back to Leaderboard` (to the originating room) AND `All Players` (kept available as before). Without `from`, falls back to the original `← All Players` single link. Fixes the v2.13.0 regression where users coming from a leaderboard had no path back besides browser-back.
+
+*Mobile sizing.* Modal uses `items-start sm:items-center` so small screens land it at the top (better when content is taller than viewport), `w-full max-w-md` for fluid sizing with a cap on tablets+, `max-h-[90vh] overflow-y-auto` so internal scrolling kicks in for long content, `p-3 sm:p-4` for tighter padding on mobile. ESC won't fire on touch but the X button + tap-outside-to-close both work.
+
+Bumps SW cache to `arcaid-v68`.
+
+---
+
 ## [2.13.15] — unreleased
 
 **Leaderboard horizontal scroll: arrows extend to viewport edges + click-and-hold drag-to-scroll.** Two enhancements to the v2.13.14 edge-hover nav.

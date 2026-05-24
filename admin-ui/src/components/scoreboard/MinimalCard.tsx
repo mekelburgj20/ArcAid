@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
+import PlayerNameLink from '../PlayerNameLink';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
@@ -193,16 +194,14 @@ export default function MinimalCard({
                       avatarHash={entry.avatar_hash}
                       size={22}
                     />
-                    {/* v2.2.10: username → player stats Link.
-                        v2.8.1: route still uses iscored_username for stable URLs;
-                        display renders chosen display_name. */}
-                    <Link
-                      to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
+                    {/* v2.13.16: PlayerNameLink opens quick-view modal on
+                        click; modifier-click falls through to full page. */}
+                    <PlayerNameLink
+                      slug={slug}
+                      entry={entry}
                       onClick={e => e.stopPropagation()}
                       className="flex-1 text-sm truncate text-secondary no-underline hover:text-neon-cyan transition-colors"
-                    >
-                      {playerName(entry)}
-                    </Link>
+                    />
                     <span
                       className={`text-sm font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
                       title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}

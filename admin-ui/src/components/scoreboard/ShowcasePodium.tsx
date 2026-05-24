@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import { Plus, Minus } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
+import PlayerNameLink from '../PlayerNameLink';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 import { TrophyIcon } from '../../assets/icons/ThemedIcons';
@@ -118,8 +118,9 @@ function PodiumSlot({
                 size={avatarSize}
               />
               {slug ? (
-                <Link
-                  to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
+                <PlayerNameLink
+                  slug={slug}
+                  entry={entry}
                   onClick={e => e.stopPropagation()}
                   style={{
                     fontWeight: 600,
@@ -131,9 +132,7 @@ function PodiumSlot({
                     textDecoration: 'none',
                     pointerEvents: 'auto',
                   }}
-                >
-                  {playerName(entry)}
-                </Link>
+                />
               ) : (
                 <span style={{
                   fontWeight: 600,

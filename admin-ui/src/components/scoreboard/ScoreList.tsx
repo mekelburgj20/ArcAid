@@ -1,7 +1,7 @@
-import { Link } from 'react-router-dom';
 import { Plus, Minus } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
+import PlayerNameLink from '../PlayerNameLink';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 
 interface ScoreListProps {
@@ -91,12 +91,12 @@ export default function ScoreList({
                 size={20}
               />
 
-              {/* Name — v2.2.10: Link to player stats when slug available.
-                  v2.8.1: route still uses iscored_username for stable URLs;
-                  display renders chosen display_name. */}
+              {/* Name — v2.13.16: PlayerNameLink opens quick-view modal on
+                  click; modifier-click falls through to full page. */}
               {slug ? (
-                <Link
-                  to={`/${slug}/players/${encodeURIComponent(entry.iscored_username)}`}
+                <PlayerNameLink
+                  slug={slug}
+                  entry={entry}
                   onClick={e => e.stopPropagation()}
                   style={{
                     flex: 1,
@@ -109,9 +109,7 @@ export default function ScoreList({
                     textDecoration: 'none',
                     pointerEvents: 'auto',
                   }}
-                >
-                  {playerName(entry)}
-                </Link>
+                />
               ) : (
                 <span style={{
                   flex: 1,

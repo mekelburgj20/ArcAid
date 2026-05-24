@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import PlayerNameLink from '../components/PlayerNameLink';
 import { Trophy, Flame, Users, Gamepad2, Zap, Clock } from 'lucide-react';
 
 interface PlayerSummary {
@@ -199,9 +200,20 @@ export default function PublicStats() {
               {filteredPlayers.map((p, i) => {
                 const name = p.display_name || p.iscored_username || `User ${p.discord_user_id.slice(-4)}`;
                 return (
-                  <Link
+                  <PlayerNameLink
                     key={p.iscored_username || p.discord_user_id}
-                    to={`/${slug}/players/${encodeURIComponent(p.iscored_username || p.discord_user_id)}`}
+                    slug={slug || ''}
+                    entry={{
+                      // v2.13.16 — iscored_username drives URL + modal fetch.
+                      // Falls back to discord_user_id when player has no
+                      // iScored alias (endpoint auto-detects either format).
+                      // display_name carries the pre-resolved human name so
+                      // the modal header reads correctly. PlayerSummary
+                      // doesn't carry avatar_hash; modal renders a fallback.
+                      iscored_username: p.iscored_username || p.discord_user_id,
+                      display_name: name,
+                      discord_user_id: p.discord_user_id,
+                    }}
                     className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[40px_1fr_80px_80px_70px_70px_60px] gap-2 px-4 py-3 border-b border-border/20 last:border-0 items-center hover:bg-raised/50 transition-colors no-underline group"
                   >
                     <span className="text-faint font-display font-bold text-center">{i + 1}</span>
@@ -223,7 +235,7 @@ export default function PublicStats() {
                       <Trophy size={14} className="text-neon-green sm:hidden" />
                       <span className="font-display font-bold text-neon-green">{p.wins}</span>
                     </span>
-                  </Link>
+                  </PlayerNameLink>
                 );
               })}
             </div>

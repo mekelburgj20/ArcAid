@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Flame } from 'lucide-react';
 
 interface PlayerStats {
@@ -17,6 +17,14 @@ interface PlayerStats {
 
 export default function PlayerDetail() {
   const { slug, id } = useParams<{ slug: string; id: string }>();
+  // v2.13.16 — read ?from + ?tab so the back link can return to the
+  // originating leaderboard view instead of always defaulting to All Players.
+  const [searchParams] = useSearchParams();
+  const fromSlug = searchParams.get('from');
+  const fromTab = searchParams.get('tab');
+  const backToLeaderboardHref = fromSlug
+    ? `/${fromSlug}${fromTab === 'all-games' ? '?tab=all-games' : ''}`
+    : null;
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -57,9 +65,25 @@ export default function PlayerDetail() {
     <div>
       {/* Page Header */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2">
-        <Link to={`/${slug}/players`} className="text-faint text-xs hover:text-muted no-underline transition-colors">
-          &larr; All Players
-        </Link>
+        {/* v2.13.16 — primary back link returns to the originating leaderboard
+            when ?from is present (set by PlayerNameLink); secondary "All
+            Players" link is always available. */}
+        <div className="flex items-center gap-4 text-xs">
+          {backToLeaderboardHref ? (
+            <>
+              <Link to={backToLeaderboardHref} className="text-faint hover:text-muted no-underline transition-colors">
+                &larr; Back to Leaderboard
+              </Link>
+              <Link to={`/${slug}/players`} className="text-faint hover:text-muted no-underline transition-colors">
+                All Players
+              </Link>
+            </>
+          ) : (
+            <Link to={`/${slug}/players`} className="text-faint hover:text-muted no-underline transition-colors">
+              &larr; All Players
+            </Link>
+          )}
+        </div>
         <h2 className="font-display text-xl font-bold mt-1">{displayName}</h2>
         {stats.iscoredUsername && (
           <p className="text-faint text-xs mt-0.5">iScored: {stats.iscoredUsername}</p>
