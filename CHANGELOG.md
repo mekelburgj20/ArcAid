@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.13.15] — unreleased
+
+**Leaderboard horizontal scroll: arrows extend to viewport edges + click-and-hold drag-to-scroll.** Two enhancements to the v2.13.14 edge-hover nav.
+
+*Arrows now reach the viewport edge.* Pre-fix the arrow buttons sat at the wrapper's left/right edges, which left a clickable gap between the wrapper and the actual browser edge — clicks in that gap did nothing. Refactored `HorizontalScrollNav` to render the arrow buttons via `createPortal` to `document.body` at `position: fixed` with width computed as `wrapperRect.left + zone` (left arrow) and `viewportWidth - wrapperRect.right + zone` (right arrow). The chevron icon stays anchored to the visible edge (`justify-start` / `justify-end` with `pl-3` / `pr-3`); the rest of the button is a transparent click target that extends to viewport edge. Hover detection moved from `onMouseMove` on the wrapper to a document-level `mousemove` listener so cursor in the viewport-edge gap still triggers the arrow.
+
+*Drag-to-scroll on the card area.* Mousedown on a non-input element starts tracking; once cursor movement exceeds `dragThresholdPx` (default 5px) it engages drag mode — `cursor: grabbing` on body, `userSelect: none` to prevent text selection, `scrollLeft` follows the cursor delta. On mouseup, if drag was engaged the upcoming click event is suppressed via a one-shot capture-phase listener so a card title click that turned into a drag doesn't also open the QuickView modal. Movement under threshold passes through normally — quick clicks on titles still open the modal. Touch unaffected — native swipe still handles horizontal scroll, and the drag listeners check for mouse-button only.
+
+Bumps SW cache to `arcaid-v67`.
+
+---
+
 ## [2.13.14] — unreleased
 
 **Public leaderboard horizontal scroll: scrollbar replaced with edge-hover arrow controls.** New `HorizontalScrollNav` component wraps the horizontal-scroll layout's card row. Behavior:
