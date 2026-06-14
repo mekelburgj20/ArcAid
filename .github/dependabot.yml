@@ -1,0 +1,34 @@
+# S0 (Phase 0): keep dependency CVEs from re-accumulating. The socket.io/ws/
+# engine.io chain (the WebSocket path S4/S14/S15/S16 expand) was the trigger.
+version: 2
+updates:
+  # Backend (Node/TypeScript)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      backend-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Admin UI (React + Vite)
+  - package-ecosystem: npm
+    directory: /admin-ui
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      admin-ui-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions used by deploy.yml
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
