@@ -1458,6 +1458,23 @@ export async function initDatabase(): Promise<Database> {
                 `cleaned dead sub-cabinet entries from ${tournUpdated} tournament platform_rules`,
             );
         } },
+
+        // S0 (Phase 0): backfill games.game_room_id from each game's tournament.
+        // Pre-S0 the four TournamentEngine INSERTs left game_room_id NULL on
+        // tournament rows (the column was only set on pins), so deleting a
+        // tournament orphaned its games out of every game_room_id-scoped admin
+        // query. The INSERTs now set it going forward; this one-time pass fixes
+        // existing rows so the Game-States COALESCE(t.game_room_id, g.game_room_id)
+        // net catches them. Idempotent — only touches NULL rows.
+        { name: '102_backfill_games_game_room_id', sql: `
+            UPDATE games
+               SET game_room_id = (
+                   SELECT t.game_room_id FROM tournaments t WHERE t.id = games.tournament_id
+               )
+             WHERE game_room_id IS NULL
+               AND tournament_id IS NOT NULL
+               AND (SELECT t.game_room_id FROM tournaments t WHERE t.id = games.tournament_id) IS NOT NULL;
+        ` },
     ];
 
     for (const migration of migrations) {

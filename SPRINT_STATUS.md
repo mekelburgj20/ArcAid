@@ -9,8 +9,9 @@
 
 ### Fresh-agent handoff (read this first)
 
+- **▶ ACTIVE PLAN (set 2026-06-14): execute `tmp/improvement-audit-sprint-plan-v2.md` — start at Phase 0 / Sprint S0** (critical stopgaps + CI test gate + dependency CVEs + doc reconcile). 25 sprints (S0–S24) on the road to the public **v0.90.0 Beta → v1.0.0 GA** line. Hard rule: **no engine-mutating sprint before S2** (it builds the engine/cron test harness). The version header just below (v2.10.1) is stale vs HEAD (v2.13.16) — **reconciling it is S0's own first task; do not trust it until then.**
 - **Trigger:** the user says **"Resume"** (per `ArcAid/CLAUDE.md` Session Start Checklist). Not "Continue".
-- **Current version:** **v2.10.1** — code complete, awaiting deploy. v2.10.0 deployed 2026-05-02.
+- **Current version (internal dev line):** **v2.13.16** (HEAD). The detailed arc log below ends at v2.10.1 — for the v2.11.0–v2.13.16 history see **CHANGELOG.md** (source of truth; not duplicated here). NOTE: the public version reset to **v0.90.0 Beta** happens at the live-beta milestone, not now (see the v2 plan's "Versioning & release strategy" section).
 
 <!-- LATEST_ARC_START — /release-docs replaces everything between this marker and LATEST_ARC_END with the new arc, prepending the displaced text into the "Earlier arc (v<previous>)" block below. -->
 
