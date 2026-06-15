@@ -49,6 +49,19 @@ export class IScoredSessionRegistry {
      */
     private readonly IDLE_TTL_MS = 1500;
 
+    /**
+     * How the registry constructs an iScored client. Overridable in tests so the
+     * per-account serialization + idle logic can be exercised without launching
+     * Playwright. Production always uses the default.
+     */
+    private clientFactory: (creds: IScoredCreds) => IScoredClient =
+        (creds) => new IScoredClient({ username: creds.username, password: creds.password });
+
+    /** Test-only: swap the client factory (pass null to restore the default). */
+    public setClientFactoryForTests(factory: ((creds: IScoredCreds) => IScoredClient) | null): void {
+        this.clientFactory = factory ?? ((creds) => new IScoredClient({ username: creds.username, password: creds.password }));
+    }
+
     private constructor() {}
 
     public static getInstance(): IScoredSessionRegistry {
@@ -117,7 +130,7 @@ export class IScoredSessionRegistry {
             return existing.client;
         }
 
-        const client = new IScoredClient({ username: creds.username, password: creds.password });
+        const client = this.clientFactory(creds);
         try {
             await client.connect();
         } catch (err) {

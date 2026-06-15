@@ -793,7 +793,7 @@ export class TournamentEngine {
      * inline cleanup than to fire it incorrectly; the separate cron is still
      * registered).
      */
-    private cleanupCronMatchesNow(cron: string, tz?: string): boolean {
+    private cleanupCronMatchesNow(cron: string, tz?: string, nowOverride?: Date): boolean {
         const timezone = tz || process.env.BOT_TIMEZONE || 'America/Chicago';
         const parts = cron.trim().split(/\s+/);
         if (parts.length !== 5) return false;
@@ -804,7 +804,8 @@ export class TournamentEngine {
         const dowF = parts[4]!;
 
         // Build a "now in tz" Date. Same idiom used elsewhere in Scheduler.ts.
-        const now = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }));
+        // nowOverride is supplied by tests to make the match deterministic.
+        const now = new Date((nowOverride ?? new Date()).toLocaleString('en-US', { timeZone: timezone }));
         const matchField = (field: string, value: number): boolean => {
             if (field === '*') return true;
             for (const part of field.split(',')) {

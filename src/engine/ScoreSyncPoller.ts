@@ -201,6 +201,29 @@ export class ScoreSyncPoller {
      * this account — used to scope the local game lookup so two different
      * iScored accounts can share overlapping GameIDs without cross-talk.
      */
+    /**
+     * Deterministically pick the local `games` row for an iScored GameID within
+     * the given rooms. ORDER BY status-pref then recency, so a legacy COMPLETED
+     * row sharing an iscored_id never shadows the ACTIVE row — without this the
+     * poller could match a stale COMPLETED row that has no submissions for the
+     * player and re-fire every dethrone DM (WHO dunnit / rtx_pinball, 2026-04-27).
+     * Static + isolated so the selection contract is regression-testable.
+     */
+    static async findLocalGameForIscoredId(db: any, iscoredId: string, roomIds: string[]): Promise<any> {
+        if (roomIds.length === 0) return undefined;
+        const placeholders = roomIds.map(() => '?').join(', ');
+        return db.get(
+            `SELECT g.id, g.tournament_id, g.name, t.game_room_id, t.iscored_default_platform AS platform
+             FROM games g
+             JOIN tournaments t ON t.id = g.tournament_id
+             WHERE g.iscored_id = ? AND t.game_room_id IN (${placeholders})
+             ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 WHEN 'COMPLETED' THEN 1 ELSE 2 END,
+                      g.created_at DESC
+             LIMIT 1`,
+            iscoredId, ...roomIds,
+        );
+    }
+
     private async pollOneAccount(
         db: any,
         creds: { username: string; password: string; publicUrl: string; gameroomName: string; source: 'room' | 'env' },
@@ -220,33 +243,15 @@ export class ScoreSyncPoller {
 
         if (roomIds.length === 0) return; // defensive; should not happen
 
-        const placeholders = roomIds.map(() => '?').join(', ');
-
         for (const gameData of allScores) {
             if (!gameData.GameID || !gameData.scores) continue;
 
-            // Scope the lookup to rooms that share this account, so two
-            // accounts using overlapping GameIDs don't cross-talk.
-            // v2.5.0: pull tournament.iscored_default_platform so every synced
-            // submission gets stamped with the admin-chosen fallback (NULL is
-            // fine — leaderboard will render those rows as "Platform unknown").
-            // v2.7.x: ORDER BY status pref + recency makes the row choice
-            // deterministic when (legacy) two games rows in the same room
-            // share an iscored_id. Without this, db.get could pick a stale
-            // COMPLETED row that has no submissions for the player and treat
-            // every iScored score as new — that fired a second copy of every
-            // dethrone DM. Pre-fix incident: WHO dunnit / rtx_pinball,
-            // 2026-04-27.
-            const localGame = await db.get(
-                `SELECT g.id, g.tournament_id, g.name, t.game_room_id, t.iscored_default_platform AS platform
-                 FROM games g
-                 JOIN tournaments t ON t.id = g.tournament_id
-                 WHERE g.iscored_id = ? AND t.game_room_id IN (${placeholders})
-                 ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 WHEN 'COMPLETED' THEN 1 ELSE 2 END,
-                          g.created_at DESC
-                 LIMIT 1`,
-                gameData.GameID, ...roomIds,
-            );
+            // Scope to rooms sharing this account and pick the ACTIVE row
+            // deterministically when a legacy COMPLETED row shares the
+            // iscored_id (the iscored_default_platform fallback stamp rides
+            // along). Extracted to findLocalGameForIscoredId so the
+            // row-selection contract is regression-locked (v2.7.2 duplicate-DM).
+            const localGame = await ScoreSyncPoller.findLocalGameForIscoredId(db, gameData.GameID, roomIds);
             if (!localGame) continue;
 
             const existingRows = await db.all(
