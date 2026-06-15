@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Delete } from 'lucide-react';
+import { Delete, ArrowBigUp } from 'lucide-react';
 
 interface OnScreenKeyboardProps {
   mode: 'alpha' | 'numeric';
@@ -26,6 +26,7 @@ const keyClass = 'bg-raised border border-border text-primary rounded px-2 py-2.
 
 export default function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone }: OnScreenKeyboardProps) {
   const [showSymbols, setShowSymbols] = useState(false);
+  const [shift, setShift] = useState(false);
 
   if (mode === 'numeric') {
     return (
@@ -52,16 +53,41 @@ export default function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone
           <button key={k} type="button" className={keyClass} onClick={() => onKeyPress(k)}>{k}</button>
         ))}
       </div>
-      {/* Letter or symbol rows */}
+      {/* Letter or symbol rows. In the alpha view, the Shift toggle applies
+          case to letter keys (display + keypress payload); symbol/number rows
+          are unaffected and pass their key through verbatim. */}
       {rows.map((row, i) => (
         <div key={i} className="flex gap-1 justify-center">
-          {row.map(k => (
-            <button key={k} type="button" className={keyClass} onClick={() => onKeyPress(k)}>{k}</button>
-          ))}
+          {row.map(k => {
+            const out = !showSymbols && shift ? k.toUpperCase() : k;
+            return (
+              <button
+                key={k}
+                type="button"
+                className={keyClass}
+                onClick={() => { onKeyPress(out); if (!showSymbols && shift) setShift(false); }}
+              >
+                {out}
+              </button>
+            );
+          })}
         </div>
       ))}
       {/* Bottom row */}
       <div className="flex gap-1 justify-center">
+        {/* Shift (single-shot case toggle) — alpha view only. Resets after one
+            letter so it mirrors phone-keyboard behavior. */}
+        {!showSymbols && (
+          <button
+            type="button"
+            aria-label="Shift"
+            aria-pressed={shift}
+            className={`${keyClass} px-3 inline-flex items-center justify-center ${shift ? 'text-neon-cyan border-neon-cyan/50 bg-neon-cyan/20' : 'text-muted'}`}
+            onClick={() => setShift(s => !s)}
+          >
+            <ArrowBigUp size={16} />
+          </button>
+        )}
         <button type="button" className={`${keyClass} text-neon-purple px-3`} onClick={() => setShowSymbols(!showSymbols)}>
           {showSymbols ? 'ABC' : '#+='}
         </button>

@@ -94,9 +94,14 @@ export default function PublicStats() {
     setParams(next, { replace: true });
   };
 
-  const filteredPlayers = players.filter(p =>
-    (p.iscored_username || p.discord_user_id).toLowerCase().includes(search.toLowerCase())
-  );
+  const q = search.toLowerCase();
+  const filteredPlayers = players.filter(p => {
+    const shown = (p.display_name || p.iscored_username || `User ${p.discord_user_id.slice(-4)}`).toLowerCase();
+    return shown.includes(q)
+      || (p.iscored_username || '').toLowerCase().includes(q)
+      || (p.display_name || '').toLowerCase().includes(q)
+      || p.discord_user_id.toLowerCase().includes(q);
+  });
   const filteredGames = games.filter(g => g.name.toLowerCase().includes(search.toLowerCase()));
 
   return (

@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserX } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserX, Trophy } from 'lucide-react';
 import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { getPlatformDisplay } from '../lib/platforms';
+import type { SubmitRank } from '../lib/api';
 
 /**
  * Unified submission sheet (Sprint 3 + Sprint 10, plan §10 / §13 / §15).
@@ -99,7 +101,20 @@ function generateStateParam(): string {
     return `st_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
 }
 
+/**
+ * Local score formatter — there is no shared export; this mirrors the
+ * scoreboard/ScoreList.tsx variant (≥1T → "X.XT", else locale-grouped).
+ */
+function formatScore(n: number): string {
+    if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1)}T`;
+    return n.toLocaleString();
+}
+
 export const PENDING_SUBMISSION_STORAGE_KEY = 'arcaid_pending_submission';
+
+/** Guest-conversion CTA cadence — show the Discord login pitch on every Nth guest submit. */
+const GUEST_CTA_EVERY_N = 3;
+const GUEST_SUBMIT_COUNT_KEY = 'arcaid_guest_submit_count';
 
 export default function SubmissionSheet({
     target,
@@ -140,6 +155,14 @@ export default function SubmissionSheet({
         return 'form';
     });
     const [matchedNickname, setMatchedNickname] = useState<string | null>(null);
+    // S5 — submit-moment ranking shown on the persistent success card.
+    const [submitRank, setSubmitRank] = useState<SubmitRank | null>(null);
+    // S5 — number of guest submits so far (drives the every-Nth login CTA).
+    const [guestCount, setGuestCount] = useState<number>(() => {
+        const raw = localStorage.getItem(GUEST_SUBMIT_COUNT_KEY);
+        const n = raw ? parseInt(raw, 10) : 0;
+        return Number.isFinite(n) ? n : 0;
+    });
     // v2.2.5 — pre-submit name collision prompt state.
     const [collisionRequested, setCollisionRequested] = useState<string>('');
     const [collisionInput, setCollisionInput] = useState<string>('');
@@ -153,11 +176,6 @@ export default function SubmissionSheet({
     const draftCommittedRef = useRef(false);
 
     const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-
-    const finish = useCallback(() => {
-        onSubmitted?.();
-        onClose();
-    }, [onSubmitted, onClose]);
 
     useEffect(() => {
         return () => {
@@ -216,17 +234,20 @@ export default function SubmissionSheet({
                 });
                 if (!res.ok) {
                     const data = await res.json().catch(() => ({ error: 'Draft could not be committed.' }));
-                    throw new Error(data.error || 'Draft could not be committed.');
+                    throw new Error((data as { error?: string }).error || 'Draft could not be committed.');
                 }
+                // S5: the commit endpoint returns the same shape (incl. rank) as the
+                // direct submit paths. Route into the persistent success card.
+                const commitData = await res.json().catch(() => ({} as { rank?: SubmitRank | null }));
+                setSubmitRank((commitData as { rank?: SubmitRank | null })?.rank ?? null);
                 setPhase('success');
                 setMessage({ text: 'Score submitted!', type: 'success' });
-                setTimeout(finish, 1200);
             } catch (err) {
                 setPhase('error');
                 setMessage({ text: err instanceof Error ? err.message : 'Draft submit failed', type: 'error' });
             }
         })();
-    }, [commitDraftState, playerToken, finish]);
+    }, [commitDraftState, playerToken]);
 
     const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -304,16 +325,28 @@ export default function SubmissionSheet({
             // v2.2.5: store the *resolved* display name (may differ from what was
             // typed if the server auto-suffixed it) so the next session prefills
             // with the sticky identity, not the now-stale request.
-            const responseData = data as { displayName?: string; suffixed?: boolean; requested?: string };
+            const responseData = data as { displayName?: string; suffixed?: boolean; requested?: string; rank?: SubmitRank | null };
             const resolvedName = responseData?.displayName || trimmedName;
             localStorage.setItem('arcaid-player-name', resolvedName);
             setPlayerName(resolvedName);
+            // S5: capture the submit-moment rank (best-effort; null when the BE
+            // couldn't compute it — the card falls back to a plain success line).
+            setSubmitRank(responseData?.rank ?? null);
+            // S5: count guest submits so the success card can pitch login every Nth time.
+            if (!playerToken) {
+                setGuestCount(prev => {
+                    const next = prev + 1;
+                    localStorage.setItem(GUEST_SUBMIT_COUNT_KEY, String(next));
+                    return next;
+                });
+            }
             setPhase('success');
             const successText = responseData?.suffixed && responseData.displayName && responseData.requested
                 ? `Submitted as ${responseData.displayName} — "${responseData.requested}" is already in use in this room.`
                 : 'Score submitted!';
             setMessage({ text: successText, type: 'success' });
-            setTimeout(finish, responseData?.suffixed ? 2400 : 1200);
+            // S5: the success phase now persists until the user dismisses it
+            // (Done button / View leaderboard nav) — no auto-close timer.
         } catch (err) {
             setPhase('error');
             setMessage({ text: err instanceof Error ? err.message : 'Submission failed', type: 'error' });
@@ -511,8 +544,86 @@ export default function SubmissionSheet({
                         <p className="text-muted text-sm">Submitting your score as {discordUser?.username ?? 'you'}…</p>
                     </div>
                 ) : phase === 'success' ? (
-                    <div className="px-4 py-10 text-center">
-                        <p className="text-neon-green font-display text-sm">{message?.text ?? 'Score submitted!'}</p>
+                    <div className="px-4 py-8 text-center space-y-4">
+                        {submitRank === null || submitRank.rank == null ? (
+                            /* Best-effort fallback — BE returned null or an
+                               all-null result (rank couldn't be computed).
+                               Preserve the suffixed-name message text. */
+                            <p className="text-neon-green font-display text-sm">{message?.text ?? 'Score submitted!'}</p>
+                        ) : submitRank.rank === 1 ? (
+                            /* New high score — amber/gold treatment. */
+                            <div className="space-y-2">
+                                <div className="w-12 h-12 rounded-full bg-neon-amber/10 border border-neon-amber/40 text-neon-amber flex items-center justify-center mx-auto">
+                                    <Trophy size={22} />
+                                </div>
+                                <p className="text-neon-amber font-display font-bold text-lg">New high score!</p>
+                                <p className="text-sm text-primary">You are #1 of {submitRank.totalPlayers}</p>
+                                {message?.type === 'success' && message.text !== 'Score submitted!' && (
+                                    <p className="text-xs text-muted">{message.text}</p>
+                                )}
+                            </div>
+                        ) : (
+                            /* Ranked below #1. */
+                            <div className="space-y-2">
+                                <div className="w-12 h-12 rounded-full bg-neon-cyan/10 border border-neon-cyan/40 text-neon-cyan flex items-center justify-center mx-auto">
+                                    <Trophy size={22} />
+                                </div>
+                                <p className="text-primary font-display font-bold text-lg">
+                                    You are #{submitRank.rank} of {submitRank.totalPlayers}
+                                </p>
+                                {submitRank.gapToNext != null && submitRank.gapToNext > 0 && (
+                                    <p className="text-sm text-neon-cyan">{formatScore(submitRank.gapToNext)} to next rank</p>
+                                )}
+                                {submitRank.gapToFirst != null && submitRank.gapToFirst > 0 && (
+                                    <p className="text-xs text-muted">{formatScore(submitRank.gapToFirst)} behind #1</p>
+                                )}
+                                {message?.type === 'success' && message.text !== 'Score submitted!' && (
+                                    <p className="text-xs text-muted">{message.text}</p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* S5 guest-conversion CTA — every Nth guest submit. */}
+                        {!playerToken && roomSlug && guestCount % GUEST_CTA_EVERY_N === 0 && (
+                            <NeonButton
+                                onClick={() => loginWithDiscord(roomSlug)}
+                                className="w-full inline-flex items-center justify-center gap-2"
+                            >
+                                <LogIn size={16} /> Log in with Discord to claim your scores and get dethrone alerts
+                            </NeonButton>
+                        )}
+
+                        <div className="grid grid-cols-1 gap-2 pt-1">
+                            {/* View leaderboard — room GameDetail for tournament/freeplay,
+                                global game detail for global submissions. */}
+                            {target.kind === 'global' ? (
+                                <Link
+                                    to={`/games/${target.globalGameId}`}
+                                    onClick={onClose}
+                                    className="w-full px-4 py-2 rounded border border-neon-cyan/40 text-neon-cyan text-sm hover:bg-neon-cyan/10 transition-colors text-center"
+                                >
+                                    View leaderboard
+                                </Link>
+                            ) : roomSlug ? (
+                                <Link
+                                    to={`/${roomSlug}/games/${encodeURIComponent(target.gameName)}`}
+                                    onClick={onClose}
+                                    className="w-full px-4 py-2 rounded border border-neon-cyan/40 text-neon-cyan text-sm hover:bg-neon-cyan/10 transition-colors text-center"
+                                >
+                                    View leaderboard
+                                </Link>
+                            ) : null}
+                            {/* Done — explicit dismissal. onSubmitted is the
+                                caller's terminal action (every provider closes or
+                                navigates: setX(null) / navigate), so we call it
+                                INSTEAD of onClose to avoid a follow-on nav
+                                clobbering ScoreSubmit's deep-link. Callers that
+                                omit onSubmitted (PendingSubmissionWatcher) fall
+                                back to onClose so Done still dismisses the sheet. */}
+                            <NeonButton onClick={() => (onSubmitted ?? onClose)()} className="w-full">
+                                Done
+                            </NeonButton>
+                        </div>
                     </div>
                 ) : phase === 'error' ? (
                     <div className="px-4 py-8 text-center space-y-4">
@@ -654,9 +765,18 @@ export default function SubmissionSheet({
                             <div>
                                 <label className="text-xs text-faint block mb-1">{nameLabel}</label>
                                 <div className="flex gap-1">
+                                    {/* On touch devices the in-app OnScreenKeyboard drives
+                                        input; inputMode='none' keeps the field focusable
+                                        (so handleKeyPress's nameRef.current?.focus() works)
+                                        while suppressing the native OS keyboard. type='text'
+                                        + onChange are retained so hardware keyboards and
+                                        paste still work on desktop and mobile. Mirrors the
+                                        score-field pattern below; gated on isTouchDevice so
+                                        desktop focus/toggle behavior is unchanged. */}
                                     <input
                                         ref={nameRef}
                                         type="text"
+                                        inputMode={isTouchDevice ? 'none' : undefined}
                                         value={playerName}
                                         onChange={e => setPlayerName(e.target.value)}
                                         onFocus={() => { setActiveField('name'); if (isTouchDevice) setShowKeyboard(true); }}

@@ -12,6 +12,7 @@ import { GlobalScoreService } from '../../services/GlobalScoreService.js';
 import { GlobalLeaderboardService } from '../../services/GlobalLeaderboardService.js';
 import { GlobalRatingService } from '../../services/GlobalRatingService.js';
 import { GlobalCommentService } from '../../services/GlobalCommentService.js';
+import { ScoreRankService, type SubmitRankResult } from '../../services/ScoreRankService.js';
 import { emitScoreNewGlobal } from '../websocket.js';
 import { getDatabase } from '../../database/database.js';
 
@@ -1083,7 +1084,33 @@ router.post('/global/scores', requireDiscordUser, globalSubmitLimiter, globalSco
                 score,
             });
 
-            res.status(201).json(saved);
+            // Submit-moment rank ("you are #N of M"). Best-effort, computed
+            // strictly after submit() commits so it can never fail the insert.
+            // If excludeFromGlobal was set the row never reaches the public
+            // exclude_from_global=0 board, so rank display is skipped (the
+            // submitter chose not to appear there).
+            let rank: SubmitRankResult | null = null;
+            if (!excludeFromGlobal) {
+                try {
+                    // submitted_by_user_id is a migration-added column present at
+                    // runtime (submit() SELECT *'s it) but absent from the typed
+                    // GlobalScore interface — read it via cast.
+                    const submittedByUserId = (saved as { submitted_by_user_id?: string | null }).submitted_by_user_id ?? null;
+                    const partitionKey =
+                        submittedByUserId ??
+                        `iscored:${(saved.iscored_username ?? saved.player_id ?? '').toLowerCase()}`;
+                    rank = await ScoreRankService.computeGlobalRank({
+                        globalGameId,
+                        partitionKey,
+                        submittedScore: score,
+                        excludeGlobalScoreId: saved.id,
+                    });
+                } catch {
+                    rank = null;
+                }
+            }
+
+            res.status(201).json({ ...saved, rank });
         } catch (err: any) {
             if (err?.message === 'BANNED') {
                 return res.status(403).json({ error: 'Your account is banned from submitting global scores.' });

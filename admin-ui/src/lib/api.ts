@@ -142,3 +142,34 @@ export const api = {
       });
   },
 };
+
+/**
+ * Submit-moment ranking (S5). Computed best-effort by the BE after an insert
+ * and attached to the JSON of the four submit paths: /submit-score,
+ * /freeplay-score, /global/scores, and /submission-drafts/:state/commit.
+ *
+ * These submits are issued via raw fetch inside SubmissionSheet.tsx (they need
+ * FormData + the player Bearer + x-user-id anon header, which api.upload can't
+ * supply — it injects the admin token), so this type is the single shared
+ * home for the rank shape rather than a function return. Any field may be null:
+ * the helper returns an all-null object on failure, and gap/previousBest are
+ * null when the submitter is rank #1 or it's their first-ever submission.
+ */
+export interface SubmitRank {
+  // rank/totalPlayers (not just the gaps) are null when the BE's best-effort
+  // computation failed — it returns an all-null object rather than throwing.
+  // The success card treats a null rank as "no rank" and shows plain success.
+  rank: number | null;
+  totalPlayers: number | null;
+  previousBest: number | null;
+  gapToNext: number | null;
+  gapToFirst: number | null;
+}
+
+/** Shape of the JSON returned by the score-submit endpoints (S5). */
+export interface SubmitScoreResponse {
+  displayName?: string;
+  suffixed?: boolean;
+  requested?: string;
+  rank?: SubmitRank | null;
+}
