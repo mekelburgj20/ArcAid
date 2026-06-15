@@ -102,7 +102,41 @@ export class GameRoomService {
 
     static async delete(id: string): Promise<boolean> {
         const db = await getDatabase();
-        const result = await db.run('DELETE FROM game_rooms WHERE id = ?', id);
-        return (result.changes || 0) > 0;
+        // FK enforcement (S3): the room's ~14 ON DELETE CASCADE child tables
+        // self-clean, but a few references are NOT cascaded and must be handled
+        // here or the delete throws / orphans data:
+        //   - games.tournament_id is NO ACTION (unlink + delete the room's games),
+        //   - tournaments.game_room_id and ranking_groups.game_room_id are
+        //     pseudo-FKs (no cascade) — delete them explicitly,
+        //   - global_scores.origin_game_room_id is NO ACTION — unlink to preserve
+        //     global history.
+        // Games are matched by game_room_id (denormalized, migration 102) OR via
+        // their tournament, so neither pinned nor tournament games are missed.
+        await db.exec('BEGIN');
+        try {
+            const games = await db.all(
+                `SELECT id FROM games
+                  WHERE game_room_id = ?
+                     OR tournament_id IN (SELECT id FROM tournaments WHERE game_room_id = ?)`,
+                id, id,
+            );
+            for (const g of games) {
+                await db.run('UPDATE submissions SET game_id = NULL WHERE game_id = ?', g.id);
+                await db.run('UPDATE score_history SET game_id = NULL WHERE game_id = ?', g.id);
+                await db.run('UPDATE global_scores SET origin_game_id = NULL WHERE origin_game_id = ?', g.id);
+                await db.run('DELETE FROM scores WHERE game_id = ?', g.id);
+                await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', g.id);
+                await db.run('DELETE FROM games WHERE id = ?', g.id);
+            }
+            await db.run('DELETE FROM ranking_groups WHERE game_room_id = ?', id);
+            await db.run('DELETE FROM tournaments WHERE game_room_id = ?', id);
+            await db.run('UPDATE global_scores SET origin_game_room_id = NULL WHERE origin_game_room_id = ?', id);
+            const result = await db.run('DELETE FROM game_rooms WHERE id = ?', id);
+            await db.exec('COMMIT');
+            return (result.changes || 0) > 0;
+        } catch (err) {
+            await db.exec('ROLLBACK');
+            throw err;
+        }
     }
 }

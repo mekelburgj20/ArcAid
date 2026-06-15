@@ -1458,6 +1458,133 @@ export async function initDatabase(): Promise<Database> {
                 `cleaned dead sub-cabinet entries from ${tournUpdated} tournament platform_rules`,
             );
         } },
+
+        // S0 (Phase 0): backfill games.game_room_id from each game's tournament.
+        // Pre-S0 the four TournamentEngine INSERTs left game_room_id NULL on
+        // tournament rows (the column was only set on pins), so deleting a
+        // tournament orphaned its games out of every game_room_id-scoped admin
+        // query. The INSERTs now set it going forward; this one-time pass fixes
+        // existing rows so the Game-States COALESCE(t.game_room_id, g.game_room_id)
+        // net catches them. Idempotent — only touches NULL rows.
+        { name: '102_backfill_games_game_room_id', sql: `
+            UPDATE games
+               SET game_room_id = (
+                   SELECT t.game_room_id FROM tournaments t WHERE t.id = games.tournament_id
+               )
+             WHERE game_room_id IS NULL
+               AND tournament_id IS NOT NULL
+               AND (SELECT t.game_room_id FROM tournaments t WHERE t.id = games.tournament_id) IS NOT NULL;
+        ` },
+
+        // S1 (Phase 0): performance indexes for the hottest read paths.
+        // score_history had no index matching any hot WHERE clause, so every
+        // leaderboard recalc, platform tab, dedup check, ranking watermark, and
+        // stats page was a full-table scan on the single shared SQLite
+        // connection. Expression indexes on LOWER(...) match the case-insensitive
+        // lookups the queries use; idx_score_history_tournament is a COVERING
+        // index so the ranking watermark's COUNT/SUM never touch the table.
+        { name: '103_perf_indexes', sql: `
+            CREATE INDEX IF NOT EXISTS idx_score_history_room_gamename
+                ON score_history(game_room_id, LOWER(game_name));
+            CREATE INDEX IF NOT EXISTS idx_score_history_tournament
+                ON score_history(submitted_during_tournament_id, orphaned_at, score);
+            CREATE INDEX IF NOT EXISTS idx_score_history_room_created
+                ON score_history(game_room_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_submissions_iscored_username
+                ON submissions(LOWER(iscored_username));
+        ` },
+
+        // S3 (Phase 0): prepare for foreign_keys=ON. Runs while enforcement is
+        // still OFF (the loop never enables it). Cleans every orphan class that
+        // PRAGMA foreign_key_check would otherwise flag, so the post-enforcement
+        // check is clean. Idempotent; no-op on fresh DBs. Sections:
+        //  (A1) nullable-FK orphans -> unlink (preserve history, ADR 0005)
+        //  (A2) NOT-NULL-FK orphans on game/catalogue/identity parents -> delete
+        //  (A3) room-child orphans — rows whose room was deleted before FK
+        //       enforcement, so the ON DELETE CASCADE never fired -> delete
+        //  (B)  rebuild game_room_game_library: drop its dead FK to game_library
+        //       (dropped in migration 092) AND drop rows orphaned to deleted
+        //       rooms. SQLite can't ALTER away a FK; columns read dynamically so
+        //       the ALTER-added style-overlay columns survive. Handler form so a
+        //       failure halts startup instead of being swallowed.
+        // Verified against prod 2026-06-15 (foreign_key_check: 6828 -> 0).
+        { name: '104_fk_enforcement_prep', handler: async (db) => {
+            // (A1) Nullable-FK orphans -> unlink (preserve the row's history).
+            await db.exec(`
+                UPDATE games SET tournament_id = NULL
+                 WHERE tournament_id IS NOT NULL
+                   AND tournament_id NOT IN (SELECT id FROM tournaments);
+                UPDATE submissions SET game_id = NULL
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
+                UPDATE score_history SET game_id = NULL
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
+                UPDATE global_scores SET origin_game_room_id = NULL
+                 WHERE origin_game_room_id IS NOT NULL
+                   AND origin_game_room_id NOT IN (SELECT id FROM game_rooms);
+                UPDATE global_scores SET origin_game_id = NULL
+                 WHERE origin_game_id IS NOT NULL
+                   AND origin_game_id NOT IN (SELECT id FROM games);
+            `);
+
+            // (A2) NOT-NULL-FK orphans on game / catalogue / identity parents.
+            await db.exec(`
+                DELETE FROM scores
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
+                DELETE FROM leaderboard_cache
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
+                DELETE FROM global_scores
+                 WHERE global_game_id NOT IN (SELECT id FROM global_games);
+                DELETE FROM global_leaderboard_cache
+                 WHERE global_game_id NOT IN (SELECT id FROM global_games);
+                DELETE FROM merge_records
+                 WHERE anonymous_identity_id NOT IN (SELECT id FROM anonymous_identities);
+                DELETE FROM ranking_group_tournaments
+                 WHERE ranking_group_id NOT IN (SELECT id FROM ranking_groups)
+                    OR tournament_id NOT IN (SELECT id FROM tournaments);
+            `);
+
+            // (A3) Room-child orphans (deleted-room cascade that never fired).
+            // Explicit table list for auditability. room_members + anon_room_claims
+            // key on `room_id`; the rest on `game_room_id`.
+            const roomChildren = [
+                'community_scores', 'score_history', 'game_comments', 'game_room_settings',
+                'local_admins', 'game_room_admins', 'admin_invites', 'room_events',
+                'lobby_feed_events', 'lobby_announcements', 'community_shelf_items',
+            ];
+            for (const t of roomChildren) {
+                await db.run(`DELETE FROM ${t} WHERE game_room_id NOT IN (SELECT id FROM game_rooms)`);
+            }
+            await db.run(`DELETE FROM room_members WHERE room_id NOT IN (SELECT id FROM game_rooms)`);
+            await db.run(`DELETE FROM anon_room_claims WHERE room_id NOT IN (SELECT id FROM game_rooms)`);
+
+            // (B) Rebuild game_room_game_library: drop the dead game_library FK
+            // AND drop rows orphaned to deleted rooms (filtered in the INSERT).
+            const cols = await db.all(`PRAGMA table_info(game_room_game_library)`) as Array<{
+                name: string; type: string; notnull: number; dflt_value: unknown;
+            }>;
+            if (cols.length > 0) {
+                const colDefs = cols.map((c) => {
+                    let def = `${c.name} ${c.type || 'TEXT'}`;
+                    if (c.notnull) def += ' NOT NULL';
+                    if (c.dflt_value !== null && c.dflt_value !== undefined) def += ` DEFAULT ${c.dflt_value}`;
+                    return def;
+                }).join(', ');
+                const colNames = cols.map((c) => c.name).join(', ');
+                await db.exec('DROP TABLE IF EXISTS game_room_game_library_new');
+                await db.exec(`
+                    CREATE TABLE game_room_game_library_new (
+                        ${colDefs},
+                        PRIMARY KEY (game_room_id, game_name),
+                        FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+                    )
+                `);
+                await db.exec(`INSERT INTO game_room_game_library_new (${colNames})
+                    SELECT ${colNames} FROM game_room_game_library
+                     WHERE game_room_id IN (SELECT id FROM game_rooms)`);
+                await db.exec('DROP TABLE game_room_game_library');
+                await db.exec('ALTER TABLE game_room_game_library_new RENAME TO game_room_game_library');
+            }
+        } },
     ];
 
     for (const migration of migrations) {
@@ -1511,6 +1638,24 @@ export async function initDatabase(): Promise<Database> {
         await db.run(
             'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
             key, value
+        );
+    }
+
+    // S3 (Phase 0): enable referential-integrity enforcement now that all
+    // migrations (incl. 104 orphan cleanup + game_room_game_library rebuild),
+    // the queue_order backfill, and migrateToMultiRoom have run. Deliberately
+    // NOT at connection-open: migrations 066/077/095 are FK-checked table
+    // rebuilds (SQLite requires foreign_keys OFF for create-copy-drop-rename),
+    // and a swallowed 077 INSERT failure under enforcement would half-migrate a
+    // legacy DB. New cross-table deletes must rely on a declared ON DELETE
+    // CASCADE or unlink/clean NO-ACTION children first.
+    await db.exec('PRAGMA foreign_keys = ON');
+    const fkViolations = await db.all('PRAGMA foreign_key_check');
+    if (fkViolations.length > 0) {
+        // eslint-disable-next-line no-console
+        console.error(
+            `[fk] PRAGMA foreign_key_check found ${fkViolations.length} residual violation(s) after enabling enforcement:`,
+            JSON.stringify(fkViolations.slice(0, 50)),
         );
     }
 

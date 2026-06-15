@@ -180,7 +180,7 @@ export class RankingService {
     /**
      * Compute overall rankings for a group.
      */
-    static async computeRankings(groupId: string): Promise<OverallRanking[]> {
+    static async computeRankings(groupId: string, precomputedWatermark?: string): Promise<OverallRanking[]> {
         const group = await this.getById(groupId);
         if (!group || group.tournament_ids.length === 0) return [];
 
@@ -427,7 +427,9 @@ export class RankingService {
         // reads compare the live watermark to this snapshot and invalidate
         // automatically if anything changed — score insert/delete, game
         // status flip, eligible-game set change, etc.
-        const watermark = await this.computeDataWatermark(group);
+        // Reuse the watermark getRankings already computed on a cache miss (S1)
+        // — otherwise this is the second computeDataWatermark round-trip per miss.
+        const watermark = precomputedWatermark ?? await this.computeDataWatermark(group);
         await db.run(
             `INSERT OR REPLACE INTO ranking_groups_cache (ranking_group_id, rankings, generated_at, data_watermark) VALUES (?, ?, ?, ?)`,
             groupId, JSON.stringify(results), new Date().toISOString(), watermark
@@ -453,6 +455,7 @@ export class RankingService {
             'SELECT rankings, data_watermark FROM ranking_groups_cache WHERE ranking_group_id = ?',
             groupId,
         );
+        let freshWatermark: string | undefined;
         if (cached && cached.data_watermark) {
             const group = await this.getById(groupId);
             if (group) {
@@ -460,10 +463,12 @@ export class RankingService {
                 if (currentWatermark === cached.data_watermark) {
                     return JSON.parse(cached.rankings);
                 }
-                // Watermark mismatch — fall through to recompute.
+                // Watermark mismatch — reuse the just-computed watermark so the
+                // recompute below doesn't compute it a second time (S1).
+                freshWatermark = currentWatermark;
             }
         }
-        return await this.computeRankings(groupId);
+        return await this.computeRankings(groupId, freshWatermark);
     }
 
     /**
@@ -507,9 +512,10 @@ export class RankingService {
         }
         const db = await getDatabase();
         const placeholders = group.tournament_ids.map(() => '?').join(',');
-        // One round-trip; SQLite indexes on games.tournament_id and
-        // score_history.submitted_during_tournament_id keep this in the
-        // single-millisecond range.
+        // One round-trip. Backed by idx_games_tournament_id and the covering
+        // idx_score_history_tournament (submitted_during_tournament_id,
+        // orphaned_at, score) added in migration 103 — the COUNT/SUM are
+        // index-only, keeping this in the single-millisecond range.
         const row = await db.get(`
             SELECT
                 (SELECT COUNT(*) FROM games

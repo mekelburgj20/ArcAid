@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
-import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser } from '../middleware.js';
+import { requireAuth, requireRoomAccess, requireSuperAdmin, requireDiscordUser, conditionalRequireDiscordUser } from '../middleware.js';
 import { validate } from '../validate.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema,
@@ -2516,6 +2516,23 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
 
 router.delete('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
+        // S0 (Phase 0): guard against orphaning live games. A bare DELETE here
+        // leaves any ACTIVE/QUEUED games with a dangling tournament_id — they
+        // drop out of every game_room_id-scoped admin query AND stop importing
+        // scores (the poller INNER JOINs tournaments). Block with a 409 listing
+        // the blockers; S7 adds an auto-deactivate option in the confirm modal.
+        const db = await getDatabase();
+        const blockers = await db.all(
+            `SELECT id, name, status FROM games
+             WHERE tournament_id = ? AND status IN ('ACTIVE', 'QUEUED')`,
+            req.params.id as string
+        );
+        if (blockers.length > 0) {
+            return res.status(409).json({
+                error: 'Tournament has active or queued games. Deactivate or remove them before deleting the tournament.',
+                games: blockers.map((g: any) => ({ id: g.id, name: g.name, status: g.status })),
+            });
+        }
         await TournamentService.delete(req.params.id as string);
         const { Scheduler } = await import('../../engine/Scheduler.js');
         await Scheduler.getInstance().reload();
@@ -3011,8 +3028,14 @@ router.post('/:roomId/ranking-groups/:id/recompute', requireAuth, requireRoomAcc
     }
 });
 
-// Merge player
-router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+// Merge player.
+// S0 (Phase 0) SECURITY STOPGAP: this handler runs UNSCOPED cross-tenant
+// UPDATE/DELETE across submissions/scores/community_scores/score_history keyed
+// only on LOWER(iscored_username) (no game_room_id scope), plus global
+// user_mappings/player_aliases writes — so a room_admin could rewrite another
+// tenant's data. Gated to super_admin until S7 adds room-scoping + dry-run +
+// audit. (req.params.roomId is unused by this handler.)
+router.post('/:roomId/admin/merge-player', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const validationResult = validate(MergePlayerSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -4190,8 +4213,14 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
             }
         }
 
-        // Delete leaderboard cache only — retain submissions and score_history
+        // Retain submissions & score_history for player records, but unlink them
+        // from the game first (FK enforcement, S3) so the games delete doesn't
+        // violate the game_id FK. Mirrors the sibling game-states delete above.
         await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', gameId);
+        await db.run('UPDATE submissions SET game_id = NULL WHERE game_id = ?', gameId);
+        await db.run('UPDATE score_history SET game_id = NULL WHERE game_id = ?', gameId);
+        await db.run('UPDATE global_scores SET origin_game_id = NULL WHERE origin_game_id = ?', gameId);
+        await db.run('DELETE FROM scores WHERE game_id = ?', gameId);
         await db.run('DELETE FROM games WHERE id = ?', gameId);
 
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');

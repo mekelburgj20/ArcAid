@@ -97,14 +97,17 @@ export class TournamentEngine {
             );
         }
 
+        // Look up the owning room up-front so the games row carries game_room_id
+        // directly (denormalized, see migration 102) and not only via tournament_id.
+        const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+
         // Insert the new game
         await db.run(
-            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, start_date) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, game.startDate?.toISOString()
+            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, start_date, game_room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, game.startDate?.toISOString(), tournament?.game_room_id ?? null
         );
 
         // Auto-apply default catalogue style and display_name from room's game library (if set)
-        const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
         if (tournament?.game_room_id) {
             const libraryEntry = await db.get(
                 `SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled FROM game_room_game_library
@@ -157,9 +160,10 @@ export class TournamentEngine {
 
         logInfo(`Queuing game for tournament ${tournamentId}: ${gameName} (queue_order: ${queueOrder})`);
 
+        const qTournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
         await db.run(
-            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, picker_discord_id, queue_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, pickerDiscordId || null, queueOrder
+            'INSERT INTO games (id, tournament_id, name, iscored_id, style_id, status, picker_discord_id, queue_order, game_room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            game.id, game.tournamentId, game.name, game.iscoredId, game.styleId, game.status, pickerDiscordId || null, queueOrder, qTournament?.game_room_id ?? null
         );
 
         return game;
@@ -789,7 +793,7 @@ export class TournamentEngine {
      * inline cleanup than to fire it incorrectly; the separate cron is still
      * registered).
      */
-    private cleanupCronMatchesNow(cron: string, tz?: string): boolean {
+    private cleanupCronMatchesNow(cron: string, tz?: string, nowOverride?: Date): boolean {
         const timezone = tz || process.env.BOT_TIMEZONE || 'America/Chicago';
         const parts = cron.trim().split(/\s+/);
         if (parts.length !== 5) return false;
@@ -800,7 +804,8 @@ export class TournamentEngine {
         const dowF = parts[4]!;
 
         // Build a "now in tz" Date. Same idiom used elsewhere in Scheduler.ts.
-        const now = new Date(new Date().toLocaleString('en-US', { timeZone: timezone }));
+        // nowOverride is supplied by tests to make the match deterministic.
+        const now = new Date((nowOverride ?? new Date()).toLocaleString('en-US', { timeZone: timezone }));
         const matchField = (field: string, value: number): boolean => {
             if (field === '*') return true;
             for (const part of field.split(',')) {
@@ -1228,9 +1233,9 @@ export class TournamentEngine {
                 const winnerPickWindowMin = tournamentRow.winner_pick_window_min ?? 60;
                 const slotId = uuidv4();
                 await db.run(
-                    `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id)
-                     VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?)`,
-                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame.id
+                    `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id, game_room_id)
+                     VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?, ?)`,
+                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame.id, tournamentRow.game_room_id ?? null
                 );
                 logInfo(`   -> Created picker slot for winner (pick window active).`);
 
@@ -1431,12 +1436,12 @@ export class TournamentEngine {
         }
 
         await db.run(
-            `INSERT INTO games (id, tournament_id, name, status, start_date, iscored_id, style_id, display_name, catalogue_style_id, logo_style_id, bg_style_id)
-             VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO games (id, tournament_id, name, status, start_date, iscored_id, style_id, display_name, catalogue_style_id, logo_style_id, bg_style_id, game_room_id)
+             VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?)`,
             gameId, tournamentId, pick.name, new Date().toISOString(),
             iscoredId, pick.style_id || null,
             libRow?.display_name || null,
-            catalogueStyleId, logoStyleId, bgStyleId
+            catalogueStyleId, logoStyleId, bgStyleId, tournamentRow.game_room_id ?? null
         );
         logInfo(`   -> Activated in DB: ${pick.name}`);
 

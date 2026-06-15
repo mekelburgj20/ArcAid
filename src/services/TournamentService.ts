@@ -107,7 +107,29 @@ export class TournamentService {
     static async delete(id: string): Promise<void> {
         const db = await getDatabase();
         const row = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', id);
-        await db.run('DELETE FROM tournaments WHERE id = ?', id);
+        // FK enforcement (S3): games.tournament_id is NO ACTION, so the bare
+        // tournament delete throws while any games row still references it (e.g.
+        // COMPLETED games — the route's 409 guard only blocks ACTIVE/QUEUED).
+        // Unlink each game's retained score rows (ADR 0005 — preserve history),
+        // drop the games + caches, then the tournament. ranking_group_tournaments
+        // self-cleans via ON DELETE CASCADE. One transaction for atomicity.
+        await db.exec('BEGIN');
+        try {
+            const games = await db.all('SELECT id FROM games WHERE tournament_id = ?', id);
+            for (const g of games) {
+                await db.run('UPDATE submissions SET game_id = NULL WHERE game_id = ?', g.id);
+                await db.run('UPDATE score_history SET game_id = NULL WHERE game_id = ?', g.id);
+                await db.run('UPDATE global_scores SET origin_game_id = NULL WHERE origin_game_id = ?', g.id);
+                await db.run('DELETE FROM scores WHERE game_id = ?', g.id);
+                await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', g.id);
+            }
+            await db.run('DELETE FROM games WHERE tournament_id = ?', id);
+            await db.run('DELETE FROM tournaments WHERE id = ?', id);
+            await db.exec('COMMIT');
+        } catch (err) {
+            await db.exec('ROLLBACK');
+            throw err;
+        }
         if (row?.game_room_id) PickAwardGate.invalidate(row.game_room_id);
     }
 }
