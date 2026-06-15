@@ -9,7 +9,7 @@
 
 ### Fresh-agent handoff (read this first)
 
-- **▶ ACTIVE PLAN: execute `tmp/improvement-audit-sprint-plan-v2.md` (25 sprints S0–S24 → public v0.90.0 Beta). Phase 0 (S0–S3) COMPLETE on PR #1 (branch `phase-0-stabilize-foundation`, 7 commits) — see the Phase 0 block below. NEXT: Phase A / S4 (live scores + viewer rank).** Standing rule still in force: any sprint touching TournamentEngine/Scheduler/ScoreSyncPoller/TimeoutManager adds regression tests (S2 built the harness). Migration ledger: 102 (S0), 103 (S1), 104 (S3) consumed; **next free = 105**.
+- **▶ ACTIVE PLAN: execute `tmp/improvement-audit-sprint-plan-v2.md` (25 sprints S0–S24 → public v0.90.0 Beta). Phase 0 (S0–S3) COMPLETE on PR #1; Phase A / S4 (live scores + viewer rank) COMPLETE on PR #3 (stacked on #1) — see blocks below. NEXT: S5 (the submit moment).** Standing rule still in force: any sprint touching TournamentEngine/Scheduler/ScoreSyncPoller/TimeoutManager adds regression tests (S2 built the harness). Migration ledger: 102 (S0), 103 (S1), 104 (S3) consumed; **next free = 105**.
 - **Trigger:** the user says **"Resume"** (per `ArcAid/CLAUDE.md` Session Start Checklist). Not "Continue".
 - **Current version (internal dev line):** **v2.13.16** (HEAD). The detailed arc log below ends at v2.10.1 — for the v2.11.0–v2.13.16 history see **CHANGELOG.md** (source of truth; not duplicated here). NOTE: the public version reset to **v0.90.0 Beta** happens at the live-beta milestone, not now (see the v2 plan's "Versioning & release strategy" section).
 
@@ -20,7 +20,13 @@
   - **S3** (`feat(s3)`): FK enforcement flip. **`PRAGMA foreign_keys=ON` set AFTER the migration loop**, not at connection-open (066/077/095 are FK-checked rebuilds; a swallowed 077 failure under enforcement would corrupt a legacy DB). Migration **104** — orphan cleanup + `game_room_game_library` rebuild (drops dead `game_library` FK from migration 092, columns preserved via PRAGMA table_info). 4 delete paths fixed (admin remove-game, TournamentService/GameRoomService/GlobalGameService.delete). Audited via a 6-agent workflow that reproduced 4 live breaks. CLAUDE.md Database section updated.
   - **Build/tests:** backend `tsc` clean, **156/156 tests** (19 files), admin-ui `npm run build` + 1 test clean. The whole backend suite now runs under live FK enforcement.
   - **⚠️ Before deploying S3 to prod:** run `PRAGMA foreign_key_check` on a copy of the prod DB to enumerate orphans + confirm migration 104 cleans them. The local dev DB couldn't validate the upgrade path (it predates `schema_migrations` — re-runs migration 068, which fails on an unrelated `room_game_tags` ref; harmless for prod, which has 068 applied).
-  - **Pending follow-ups:** separate PR to `git rm -r --cached node_modules` (gitignored but tracked — pollutes every dependency diff); a `pull_request`-triggered CI check (the S0 gate only runs on push to `main`).
+  - **Pending follow-ups:** separate PR to `git rm -r --cached node_modules` (gitignored but tracked — pollutes every dependency diff) = **PR #2**; a `pull_request`-triggered CI check (the S0 gate only runs on push to `main`).
+
+- **Phase A / S4 — Live scores + viewer rank — COMPLETE 2026-06-15, on PR #3 (`phase-a-s4-live-scores`, stacked on PR #1), NOT yet merged:**
+  - **Viewer rank** ("Your best — Rank #N"): FE Scoreboard sends the player token (`usePlayerHeaders`) on leaderboard/rankings fetches (was the null admin token); BE `/:roomId/leaderboard` resolves the viewer across `discord_user_id` + ALL aliases (was one arbitrary alias → multi-alias users saw no rank).
+  - **Live scores:** new room-scoped `room:<id>` socket channel (`join:room`); `emitScoreNew`/`emitLeaderboardUpdated` room-scoped (also lands the S1-deferred scoping); `emitScoreNew` wired into `LobbyFeedGenerator.onScoreSubmitted` (single chokepoint — poller dedup prevents double-toast); `socket.off` shared-singleton clobbering fixed with handler refs on Scoreboard + admin Leaderboard; kiosk live toast (60s poll kept as backstop).
+  - **Tests:** `api-viewer-rank.test.ts` (discord match, multi-alias regression, anon). **159/159**, backend + admin-ui build clean. SW `CACHE_NAME` → v69.
+  - **⚠️ NEEDS visual UX pass** (`review-ux` gate): live toast on Scoreboard + the TV-scaled kiosk toast — can't verify headless.
 
 <!-- LATEST_ARC_START — /release-docs replaces everything between this marker and LATEST_ARC_END with the new arc, prepending the displaced text into the "Earlier arc (v<previous>)" block below. -->
 
