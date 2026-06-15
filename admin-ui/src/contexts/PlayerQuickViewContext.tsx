@@ -51,12 +51,13 @@ interface ContextValue {
 const Ctx = createContext<ContextValue | null>(null);
 
 /** Hook for triggering the player quick-view modal from any descendant of
- *  PlayerQuickViewProvider. Throws if used outside the provider so misuse
- *  surfaces in dev rather than silently no-oping. */
-export function usePlayerQuickView(): ContextValue {
-  const v = useContext(Ctx);
-  if (!v) throw new Error('usePlayerQuickView must be used inside PlayerQuickViewProvider');
-  return v;
+ *  PlayerQuickViewProvider. Returns `null` when no provider is mounted — the
+ *  quick-view is an optional public-page enhancement, and player-name links are
+ *  reused on admin pages (Settings preview, admin Leaderboard) that deliberately
+ *  don't mount the provider. Consumers must treat a null result as "no
+ *  quick-view" and fall back to plain navigation rather than crashing the page. */
+export function usePlayerQuickView(): ContextValue | null {
+  return useContext(Ctx);
 }
 
 interface Stats {
