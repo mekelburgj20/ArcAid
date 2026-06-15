@@ -72,14 +72,20 @@ export default function Leaderboard() {
     loadConfig();
 
     const socket = getSocket();
-    socket.on('leaderboard:updated', () => { loadData(); loadRankings(); });
-    socket.on('score:new', () => { loadData(); loadRankings(); });
+    socket.emit('join:room', room.roomId);
+    const onUpdate = () => { loadData(); loadRankings(); };
+    socket.on('leaderboard:updated', onUpdate);
+    socket.on('score:new', onUpdate);
 
     return () => {
-      socket.off('leaderboard:updated');
-      socket.off('score:new');
+      socket.emit('leave:room', room.roomId);
+      // Handler refs — score:new/leaderboard:updated are room-scoped (S4) and
+      // the socket is a shared singleton; a bare off() would also remove the
+      // public Scoreboard's / Kiosk's listeners for the same event.
+      socket.off('leaderboard:updated', onUpdate);
+      socket.off('score:new', onUpdate);
     };
-  }, []);
+  }, [room.roomId]);
 
   if (loading) return <LoadingState message="Loading leaderboards..." />;
 

@@ -3,6 +3,7 @@ import { LobbyFeedService } from './LobbyFeedService.js';
 import { NotificationService } from './NotificationService.js';
 import { UserProfileService } from './UserProfileService.js';
 import { logError } from '../utils/logger.js';
+import { emitScoreNew } from '../api/websocket.js';
 
 interface ScoreSubmittedParams {
     gameRoomId: string;
@@ -29,6 +30,11 @@ export class LobbyFeedGenerator {
             const displayName = discordUserId
                 ? (await UserProfileService.getDisplayName(discordUserId)) ?? username
                 : username;
+
+            // S4: live scoreboard toast (room-scoped, fire-and-forget). Separate
+            // from the lobby-feed config below — the toast fires for every new
+            // score regardless of which feed event types a room has enabled.
+            try { emitScoreNew(gameRoomId, { gameName, playerName: displayName, score }); } catch { /* never block on a toast */ }
 
             // Check which event types are enabled for this room
             const enabledTypes = await LobbyFeedService.getEnabledTypes(gameRoomId);
