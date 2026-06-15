@@ -71,7 +71,15 @@ export default function ScoreSubmit() {
             target={{ kind: 'tournament', roomId, gameName, gameStatus, requirePhoto }}
             roomSlug={slug}
             onClose={() => navigate(`/${slug}`)}
-            onSubmitted={() => navigate(`/${slug}`)}
+            onSubmitted={() => {
+                // SubmissionSheet writes the resolved (possibly auto-suffixed)
+                // player name to localStorage 'arcaid-player-name' before firing
+                // onSubmitted, so reading it here yields the canonical name. We
+                // deep-link to the game's room detail page with a ?highlight=
+                // query param so the just-submitted row gets highlighted.
+                const highlight = localStorage.getItem('arcaid-player-name') || '';
+                navigate(`/${slug}/games/${encodeURIComponent(gameName)}?highlight=${encodeURIComponent(highlight)}`);
+            }}
         />
     );
 }

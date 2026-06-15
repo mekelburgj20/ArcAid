@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
@@ -147,6 +147,10 @@ export default function GameDetail() {
   const [searchParams] = useSearchParams();
   const fromTab = searchParams.get('tab');
   const backToRoomHref = fromTab === 'all-games' ? `/${slug}?tab=all-games` : `/${slug}`;
+  // S5: QR submit deep-links here with ?highlight=<resolved player name> so the
+  // just-submitted row stands out + scrolls into view. Matched case-insensitively
+  // against the row's iscored_username (which equals the resolved name stored).
+  const highlightName = (searchParams.get('highlight') || '').toLowerCase();
   const { playerToken } = useViewerAuth();
   const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -154,7 +158,18 @@ export default function GameDetail() {
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
+  // Initial 'community' is the safe pre-data default; the leaderboard tab does
+  // not exist until `stats` loads. Once stats resolves we default to
+  // 'leaderboard' when tournament data exists (see tabInitialized effect below).
   const [activeTab, setActiveTab] = useState<Tab>('community');
+  // Guards the one-time default-tab decision so an async stats load (or a
+  // back-nav re-fetch) never yanks the user off a tab they manually selected.
+  const tabInitialized = useRef(false);
+  // Callback ref on the highlighted leaderboard row — scrolls it into view once
+  // when it mounts (stable identity, so React only invokes it on mount/unmount).
+  const highlightRowRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
 
   // Expandable score history per player in leaderboard
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
@@ -281,6 +296,16 @@ export default function GameDetail() {
       })
       .catch(() => {});
   }, [name, roomId]);
+
+  // Default the active tab once the game-data load settles: 'leaderboard' when
+  // tournament data exists (same `!!stats` signal that gates the tab list),
+  // else keep 'community'. Guarded by tabInitialized so this runs exactly once
+  // — a manual tab switch or a back-nav re-fetch won't override the user.
+  useEffect(() => {
+    if (loading || tabInitialized.current) return;
+    tabInitialized.current = true;
+    setActiveTab(stats ? 'leaderboard' : 'community');
+  }, [loading, stats]);
 
   // v2.5.0: fetch platform-filtered rankings whenever the user picks a
   // non-"All" tab. "All" uses the unfiltered rankings already in `leaderboard`.
@@ -607,6 +632,7 @@ export default function GameDetail() {
                 : baseRankings.filter(e => !e.platform);
               const renderRow = (entry: RankedEntry, displayRank: number) => {
                 const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
+                const isHighlighted = !!highlightName && entry.iscored_username.toLowerCase() === highlightName;
                 return (
                     /* v2.2.0 fix: discord_user_id is "SYSTEM" / "ANON" / "COMMUNITY"
                        for guest submissions, so two anon players collide on the
@@ -614,9 +640,10 @@ export default function GameDetail() {
                        always unique within a leaderboard. */
                     <div key={`${displayRank}-${entry.iscored_username.toLowerCase()}`}>
                       <div
+                        ref={isHighlighted ? highlightRowRef : undefined}
                         className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
                           displayRank === 1 ? 'bg-neon-amber/8' : ''
-                        } ${hasMultiple ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
+                        } ${hasMultiple ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''} ${isHighlighted ? 'ring-2 ring-inset ring-neon-cyan/60 bg-neon-cyan/5' : ''}`}
                         onClick={hasMultiple ? () => togglePlayerHistory(entry.iscored_username) : undefined}
                       >
                         <div className="flex items-center gap-3 min-w-0">

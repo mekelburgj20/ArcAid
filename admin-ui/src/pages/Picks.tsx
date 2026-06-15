@@ -3,6 +3,7 @@ import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Star, Crosshair, X } from 'lucide-react';
 import MysteryAward from '../components/MysteryAward';
 import PickGameModal from '../components/PickGameModal';
+import DiscordLoginButton from '../components/DiscordLoginButton';
 import { MysteryAwardIcon } from '../assets/icons/ThemedIcons';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
@@ -103,7 +104,7 @@ export default function Picks() {
   const [showPicker, setShowPicker] = useState(false);
 
   // Pick game state
-  const { discordUser, playerToken } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
   const { toast } = useToast();
   const [pickStatus, setPickStatus] = useState<PickStatusData | null>(null);
   const [pickTarget, setPickTarget] = useState<string | null>(null);
@@ -302,6 +303,31 @@ export default function Picks() {
           </div>
         )}
       </div>
+
+      {/* Guest-login banner (S5). When the viewer isn't logged in with Discord
+          the pick/queue UI is gated off, so a guest sees the Mystery Award spin
+          and the game list but no way to actually pick. This explains why and
+          offers a one-click login that returns to this same tournament. */}
+      {!discordUser && slug && (
+        <div className="mb-6 rounded-lg border border-neon-cyan/30 bg-neon-cyan/5 p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <h2 className="font-display text-sm font-bold text-primary">Log in to pick games</h2>
+              <p className="text-xs text-muted mt-1">
+                Log in with Discord to pick games and spin for awards.
+              </p>
+            </div>
+            <DiscordLoginButton
+              onClick={() => {
+                const back = `/${slug}/picks${window.location.search || ''}`;
+                loginWithDiscord(slug, back);
+              }}
+              label="Log in with Discord"
+              className="flex-shrink-0"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Top-level Mystery Award action (plan §9). Persistent at the top of Picks. */}
       <div className="mb-6 rounded-lg border border-neon-green/30 bg-gradient-to-br from-neon-green/5 to-transparent p-4 sm:p-5">

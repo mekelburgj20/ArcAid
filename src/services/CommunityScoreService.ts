@@ -4,6 +4,7 @@ import { GlobalScoreService } from './GlobalScoreService.js';
 import { normalizeSubmitterUserId } from './SubmissionContextService.js';
 import { AnonymousIdentityService } from './AnonymousIdentityService.js';
 import { RoomNameClaimService } from './RoomNameClaimService.js';
+import { ScoreRankService, type SubmitRankResult } from './ScoreRankService.js';
 import { emitScoreNewGlobal } from '../api/websocket.js';
 
 export class CommunityScoreService {
@@ -106,12 +107,33 @@ export class CommunityScoreService {
             });
         }
 
+        // Submit-moment rank ("you are #N of M"). Best-effort: a failure here
+        // must NEVER fail the insert (which already committed above). The helper
+        // is itself best-effort (returns all-null on error); the extra try/catch
+        // guards the await boundary. partitionKey is the canonical room key the
+        // INSERT used — submittedByUserId, else the iscored: fallback keyed on
+        // the suffixed name actually stored in iscored_username.
+        let rank: SubmitRankResult | null = null;
+        try {
+            const partitionKey = submittedByUserId ?? `iscored:${effectiveUsername.toLowerCase()}`;
+            rank = await ScoreRankService.computeRoomRank({
+                gameRoomId,
+                gameName,
+                partitionKey,
+                submittedScore: score,
+                excludeCommunityScoreId: result.lastID,
+            });
+        } catch {
+            rank = null;
+        }
+
         return {
             id: result.lastID,
             anonymousIdentityId,
             displayName: effectiveUsername,
             suffixed: resolved.suffixed,
             requested: resolved.requested,
+            rank,
         };
     }
 
