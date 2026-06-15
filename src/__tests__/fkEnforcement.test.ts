@@ -44,6 +44,34 @@ describe('S3 — foreign-key enforcement', () => {
         expect(mig).toBeTruthy();
     });
 
+    it('migration-104 cleanup clears room-child orphans but keeps the live room', async () => {
+        await setupTestDb();
+        const db = await getDatabase();
+        const liveRoom = await createTestRoom('fk-live-room', 'Live Room');
+        // Recreate the pre-enforcement debris prod had (rows whose parent room/
+        // group is already gone). FK is on, so seed with it briefly off, then
+        // restore. Covers the game_room_id, room_id, and ranking-group variants.
+        await db.exec('PRAGMA foreign_keys = OFF');
+        try {
+            await db.run(`INSERT INTO score_history (game_name, game_room_id, iscored_username, score, source) VALUES ('Ghost', 'gone-room', 'X', 1, 'tournament')`);
+            await db.run(`INSERT INTO room_members (user_id, room_id, source) VALUES ('u1', 'gone-room', 'backfill')`);
+            await db.run(`INSERT INTO ranking_group_tournaments (ranking_group_id, tournament_id) VALUES ('gone-group', 'gone-tourn')`);
+            await db.run(`INSERT INTO score_history (game_name, game_room_id, iscored_username, score, source) VALUES ('Keep', ?, 'Y', 2, 'tournament')`, liveRoom);
+        } finally {
+            await db.exec('PRAGMA foreign_keys = ON');
+        }
+        expect((await db.all('PRAGMA foreign_key_check')).length).toBeGreaterThan(0);
+
+        // The same cleanup migration 104 performs:
+        await db.run(`DELETE FROM score_history WHERE game_room_id NOT IN (SELECT id FROM game_rooms)`);
+        await db.run(`DELETE FROM room_members WHERE room_id NOT IN (SELECT id FROM game_rooms)`);
+        await db.run(`DELETE FROM ranking_group_tournaments WHERE ranking_group_id NOT IN (SELECT id FROM ranking_groups) OR tournament_id NOT IN (SELECT id FROM tournaments)`);
+
+        expect(await db.all('PRAGMA foreign_key_check')).toEqual([]);
+        expect((await db.get(`SELECT COUNT(*) c FROM score_history WHERE game_name = 'Keep'`)).c).toBe(1);
+        expect((await db.get(`SELECT COUNT(*) c FROM score_history WHERE game_name = 'Ghost'`)).c).toBe(0);
+    });
+
     it('game_room_game_library is writable after the rebuild (dead game_library FK gone)', async () => {
         await setupTestDb();
         const db = await getDatabase();
