@@ -12,6 +12,7 @@ import {
 } from '../components/ScoreboardComponents';
 import CardRouter from '../components/scoreboard/CardRouter';
 import { deriveCardProps, deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
+import { getSocket } from '../lib/websocket';
 
 export default function KioskScoreboard() {
   const { slug } = useParams<{ slug: string }>();
@@ -22,6 +23,7 @@ export default function KioskScoreboard() {
   const [roomName, setRoomName] = useState('');
   const [roomId, setRoomId] = useState('');
   const [feedEvents, setFeedEvents] = useState<Array<{ id: number; type: string; title: string; created_at: string }>>([]);
+  const [scoreToast, setScoreToast] = useState<{ player: string; score: number; game: string } | null>(null);
 
   // Resolve room and fetch scoreboard config
   useEffect(() => {
@@ -69,6 +71,30 @@ export default function KioskScoreboard() {
       return () => clearInterval(interval);
     }
   }, [loadData, config.KIOSK_REFRESH_SECONDS]);
+
+  // S4: live updates over the room-scoped socket channel. The 60s poll above
+  // stays as a backstop. Joins room:<id>, refreshes on leaderboard:updated, and
+  // shows a TV-scaled toast on score:new.
+  useEffect(() => {
+    if (!roomId) return;
+    const socket = getSocket();
+    socket.emit('join:room', roomId);
+    const onScore = (data?: { playerName?: string; score?: number; gameName?: string }) => {
+      loadData();
+      if (data?.playerName && data?.gameName) {
+        setScoreToast({ player: data.playerName, score: data.score ?? 0, game: data.gameName });
+        setTimeout(() => setScoreToast(null), 6000);
+      }
+    };
+    const onUpdate = () => { loadData(); };
+    socket.on('score:new', onScore);
+    socket.on('leaderboard:updated', onUpdate);
+    return () => {
+      socket.emit('leave:room', roomId);
+      socket.off('score:new', onScore);
+      socket.off('leaderboard:updated', onUpdate);
+    };
+  }, [roomId, loadData]);
 
   // New style/theme config
   const newConfig = deriveScoreboardConfig(config, roomName);
@@ -141,6 +167,18 @@ export default function KioskScoreboard() {
 
   return (
     <div className={`min-h-screen bg-deep text-primary relative ${newConfig.mobileVertical ? 'scoreboard-mobile-vertical' : ''}`}>
+      {/* S4: live score toast (TV-scaled) */}
+      {scoreToast && (
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
+          <div className="bg-surface border-2 border-neon-cyan/50 rounded-2xl shadow-2xl px-10 py-6 text-center">
+            <div className="text-2xl font-bold text-neon-cyan tracking-wider uppercase">New Score</div>
+            <div className="text-4xl font-extrabold text-primary mt-2">{scoreToast.player}</div>
+            <div className="text-2xl text-primary/85 mt-2">
+              <span className="text-neon-cyan font-bold">{scoreToast.score.toLocaleString()}</span> — {scoreToast.game}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Background image layer — offset below header unless fill-entire */}
       {bgUrl && (
         <div

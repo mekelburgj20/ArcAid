@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Search, Plus } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
-import { useViewerAuth, useViewerHeaders } from '../contexts/ViewerAuthContext';
+import { useViewerAuth, useViewerHeaders, usePlayerHeaders } from '../contexts/ViewerAuthContext';
 import { useTheme } from '../components/ThemeProvider';
 import type { ThemeId } from '../components/ThemeProvider';
 import type { GameLeaderboard, RankingGroupData, RankedEntry } from '../components/ScoreboardComponents';
@@ -76,6 +76,9 @@ export default function Scoreboard() {
     setSearchParams(params, { replace: true });
   };
   const viewerHeaders = useViewerHeaders();
+  // S4: the leaderboard/rankings viewer-rank ("Your best — Rank #N") needs the
+  // PLAYER token (Discord session), not the admin token (null for public viewers).
+  const playerHeaders = usePlayerHeaders();
   const { discordUser, playerToken } = useViewerAuth();
   const { setPublicTheme } = useTheme();
 
@@ -130,7 +133,7 @@ export default function Scoreboard() {
   const loadData = async () => {
     if (!roomId) return;
     try {
-      const res = await fetch(`/api/rooms/${roomId}/leaderboard`, { headers: viewerHeaders });
+      const res = await fetch(`/api/rooms/${roomId}/leaderboard`, { headers: playerHeaders });
       if (res.ok) setLeaderboards(await res.json());
     } catch { /* ignore */ }
   };
@@ -138,7 +141,7 @@ export default function Scoreboard() {
   const loadRankings = async () => {
     if (!roomId) return;
     try {
-      const res = await fetch(`/api/rooms/${roomId}/rankings`, { headers: viewerHeaders });
+      const res = await fetch(`/api/rooms/${roomId}/rankings`, { headers: playerHeaders });
       if (res.ok) setRankingGroups(await res.json());
     } catch { /* ignore */ }
   };
@@ -149,7 +152,8 @@ export default function Scoreboard() {
     loadRankings();
 
     const socket = getSocket();
-    socket.on('score:new', (data?: { playerName?: string; score?: number; gameName?: string }) => {
+    socket.emit('join:room', roomId);
+    const onScore = (data?: { playerName?: string; score?: number; gameName?: string }) => {
       setFlash(true);
       loadData();
       loadRankings();
@@ -158,16 +162,23 @@ export default function Scoreboard() {
         setScoreToast({ player: data.playerName, score: data.score ?? 0, game: data.gameName });
         setTimeout(() => setScoreToast(null), 5000);
       }
-    });
-    socket.on('leaderboard:updated', () => { loadData(); loadRankings(); });
-    socket.on('game:rotated', loadData);
+    };
+    const onLeaderboard = () => { loadData(); loadRankings(); };
+    const onRotated = () => { loadData(); };
+    socket.on('score:new', onScore);
+    socket.on('leaderboard:updated', onLeaderboard);
+    socket.on('game:rotated', onRotated);
 
     return () => {
-      socket.off('score:new');
-      socket.off('leaderboard:updated');
-      socket.off('game:rotated');
+      socket.emit('leave:room', roomId);
+      // Pass handler refs: the socket is a shared singleton, so a bare
+      // socket.off('score:new') would also kill the admin Leaderboard's and
+      // Kiosk's handlers for the same event (S4 fix).
+      socket.off('score:new', onScore);
+      socket.off('leaderboard:updated', onLeaderboard);
+      socket.off('game:rotated', onRotated);
     };
-  }, [roomId]);
+  }, [roomId, playerToken]);
 
   // New style/theme config
   const newConfig = deriveScoreboardConfig(config, roomName);

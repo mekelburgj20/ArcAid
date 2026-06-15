@@ -182,35 +182,39 @@ router.get('/:roomId/leaderboard', async (req, res) => {
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         const leaderboards = await LeaderboardService.getActiveLeaderboards(req.params.roomId as string);
 
-        // Optionally identify viewer from player token for rank highlighting
-        let viewerUsername: string | null = null;
+        // Identify the viewer from a player token, then resolve their FULL
+        // identity — discord_user_id + ALL mapped iScored aliases — so the
+        // viewerEntry matches the same partition the leaderboard collapses by
+        // (COALESCE(submitted_by_user_id, 'iscored:'||LOWER(iscored_username))).
+        // S4 fix: pre-S4 this matched one arbitrary alias, so multi-alias users
+        // (and users whose row collapsed under their discord_user_id) saw no rank.
+        let viewerDiscordId: string | null = null;
+        const viewerAliases = new Set<string>();
         const authHeader = req.headers.authorization;
         if (authHeader?.startsWith('Bearer ')) {
             try {
                 const { verifyToken } = await import('../auth.js');
                 const payload = verifyToken(authHeader.slice(7));
                 if (payload?.discordId) {
+                    viewerDiscordId = payload.discordId as string;
                     const db = await getDatabase();
-                    const mapping = await db.get<{ iscored_username: string }>(
+                    const aliasRows = await db.all(
                         'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?',
                         payload.discordId
-                    );
-                    if (mapping) {
-                        viewerUsername = mapping.iscored_username;
-                    } else if (payload.username) {
-                        viewerUsername = payload.username;
-                    }
+                    ) as Array<{ iscored_username: string }>;
+                    for (const a of aliasRows) viewerAliases.add(a.iscored_username.toLowerCase());
+                    if (payload.username) viewerAliases.add((payload.username as string).toLowerCase());
                 }
             } catch {
                 // Invalid token — ignore, viewer is anonymous
             }
         }
 
-        if (viewerUsername) {
-            const lowerViewer = viewerUsername.toLowerCase();
+        if (viewerDiscordId) {
             const annotated = leaderboards.map((lb: any) => {
-                const viewerEntry = lb.rankings.find(
-                    (r: any) => r.iscored_username.toLowerCase() === lowerViewer
+                const viewerEntry = lb.rankings.find((r: any) =>
+                    r.discord_user_id === viewerDiscordId
+                    || viewerAliases.has((r.iscored_username || '').toLowerCase())
                 ) || null;
                 return { ...lb, viewerEntry };
             });
@@ -1063,7 +1067,7 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
             const { LeaderboardService } = await import('../../services/LeaderboardService.js');
             await LeaderboardService.invalidate(row.game_id);
             const { emitLeaderboardUpdated } = await import('../websocket.js');
-            emitLeaderboardUpdated({ gameId: row.game_id });
+            emitLeaderboardUpdated(roomId, { gameId: row.game_id });
         }
 
         // Activity log: only when an admin used this. Self-delete is mundane
@@ -3604,7 +3608,7 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         await LeaderboardService.invalidate(gameId);
         const { emitLeaderboardUpdated } = await import('../websocket.js');
-        emitLeaderboardUpdated({ gameId });
+        emitLeaderboardUpdated(req.params.roomId as string, { gameId });
 
         // Log activity event
         const { RoomEventService } = await import('../../services/RoomEventService.js');

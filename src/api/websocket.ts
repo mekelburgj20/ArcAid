@@ -44,6 +44,17 @@ export function initWebSocket(httpServer: HttpServer): SocketServer {
         socket.on('leave:lobby', (roomId: string) => {
             socket.leave(`lobby:${roomId}`);
         });
+
+        // Room-scoped scoreboard channel (S4): score:new + leaderboard:updated
+        // are emitted to room:<id> so a score in one room doesn't refresh
+        // another's boards. Scoreboard / admin Leaderboard / Kiosk join on mount.
+        socket.on('join:room', (roomId: string) => {
+            socket.join(`room:${roomId}`);
+        });
+
+        socket.on('leave:room', (roomId: string) => {
+            socket.leave(`room:${roomId}`);
+        });
     });
 
     logInfo('WebSocket server initialized');
@@ -58,12 +69,15 @@ export function getIO(): SocketServer | null {
 }
 
 /**
- * Emit a score:new event to the specific game room only.
- * Clients must join the game room via 'join:game' to receive these events.
+ * Emit a score:new event to a room's scoreboard channel (S4). Clients join via
+ * 'join:room'. Fired (fire-and-forget) from LobbyFeedGenerator.onScoreSubmitted
+ * — the single chokepoint for all live submit paths (web / sync / Discord) — so
+ * the poller's dedup prevents a web submit from double-toasting when it later
+ * re-reads the same score off iScored.
  */
-export function emitScoreNew(data: { gameId: string; gameName: string; playerName: string; score: number }) {
+export function emitScoreNew(roomId: string, data: { gameName: string; playerName: string; score: number }) {
     if (!io) return;
-    io.to(`game:${data.gameId}`).emit('score:new', data);
+    io.to(`room:${roomId}`).emit('score:new', data);
 }
 
 /**
@@ -100,15 +114,14 @@ export function emitPickerAssigned(data: { tournamentName: string; pickerName: s
 }
 
 /**
- * Emit a leaderboard:updated event globally. Scoreboard.tsx and Leaderboard.tsx
- * (admin) both subscribe with `socket.on('leaderboard:updated', refresh)` —
- * they listen globally because they show many games at once and don't join
- * per-game rooms. Game Detail listens too. A global broadcast is cheap and
- * keeps every open page in sync after a moderator/self delete.
+ * Emit a leaderboard:updated event to a room's scoreboard channel (S4).
+ * Scoreboard, admin Leaderboard, and Kiosk subscribe after `join:room`.
+ * Room-scoped so a moderator/self delete in one room doesn't repaint every
+ * other room's boards.
  */
-export function emitLeaderboardUpdated(data: { gameId: string }) {
+export function emitLeaderboardUpdated(roomId: string, data: { gameId: string }) {
     if (!io) return;
-    io.emit('leaderboard:updated', data);
+    io.to(`room:${roomId}`).emit('leaderboard:updated', data);
 }
 
 /**
