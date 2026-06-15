@@ -1475,6 +1475,24 @@ export async function initDatabase(): Promise<Database> {
                AND tournament_id IS NOT NULL
                AND (SELECT t.game_room_id FROM tournaments t WHERE t.id = games.tournament_id) IS NOT NULL;
         ` },
+
+        // S1 (Phase 0): performance indexes for the hottest read paths.
+        // score_history had no index matching any hot WHERE clause, so every
+        // leaderboard recalc, platform tab, dedup check, ranking watermark, and
+        // stats page was a full-table scan on the single shared SQLite
+        // connection. Expression indexes on LOWER(...) match the case-insensitive
+        // lookups the queries use; idx_score_history_tournament is a COVERING
+        // index so the ranking watermark's COUNT/SUM never touch the table.
+        { name: '103_perf_indexes', sql: `
+            CREATE INDEX IF NOT EXISTS idx_score_history_room_gamename
+                ON score_history(game_room_id, LOWER(game_name));
+            CREATE INDEX IF NOT EXISTS idx_score_history_tournament
+                ON score_history(submitted_during_tournament_id, orphaned_at, score);
+            CREATE INDEX IF NOT EXISTS idx_score_history_room_created
+                ON score_history(game_room_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_submissions_iscored_username
+                ON submissions(LOWER(iscored_username));
+        ` },
     ];
 
     for (const migration of migrations) {
