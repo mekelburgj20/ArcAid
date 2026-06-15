@@ -47,7 +47,10 @@ export default function PlayerNameLink({
   onClick,
   children,
 }: Props) {
-  const { open } = usePlayerQuickView();
+  // null when no PlayerQuickViewProvider is mounted (e.g. admin Settings preview
+  // / admin Leaderboard). In that case the name stays a plain Link to the full
+  // player page instead of crashing the page.
+  const quickView = usePlayerQuickView();
 
   const href = `/${slug}/players/${encodeURIComponent(entry.iscored_username)}?from=${encodeURIComponent(slug)}${fromTab ? `&tab=${fromTab}` : ''}`;
 
@@ -57,11 +60,12 @@ export default function PlayerNameLink({
       onClick={(e) => {
         // Caller-supplied onClick (e.g., e.stopPropagation()) runs first.
         onClick?.(e);
-        // Plain left-click → open modal. Modifier-click falls through to
-        // the real <Link href> so middle-click / cmd-click / new-tab works.
-        if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        // Plain left-click → open modal WHEN a provider is present. Without one,
+        // fall through to the real <Link href>. Modifier-click always falls
+        // through so middle-click / cmd-click / new-tab works.
+        if (quickView && e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
           e.preventDefault();
-          open({ slug, entry, fromTab });
+          quickView.open({ slug, entry, fromTab });
         }
       }}
       className={className}
