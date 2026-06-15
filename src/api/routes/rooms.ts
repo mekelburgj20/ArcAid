@@ -4213,8 +4213,14 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
             }
         }
 
-        // Delete leaderboard cache only — retain submissions and score_history
+        // Retain submissions & score_history for player records, but unlink them
+        // from the game first (FK enforcement, S3) so the games delete doesn't
+        // violate the game_id FK. Mirrors the sibling game-states delete above.
         await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', gameId);
+        await db.run('UPDATE submissions SET game_id = NULL WHERE game_id = ?', gameId);
+        await db.run('UPDATE score_history SET game_id = NULL WHERE game_id = ?', gameId);
+        await db.run('UPDATE global_scores SET origin_game_id = NULL WHERE origin_game_id = ?', gameId);
+        await db.run('DELETE FROM scores WHERE game_id = ?', gameId);
         await db.run('DELETE FROM games WHERE id = ?', gameId);
 
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');

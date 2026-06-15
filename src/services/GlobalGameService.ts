@@ -1069,8 +1069,22 @@ export class GlobalGameService {
      */
     static async delete(id: string): Promise<boolean> {
         const db = await getDatabase();
-        const result = await db.run('DELETE FROM global_games WHERE id = ?', id);
-        return (result.changes ?? 0) > 0;
+        // FK enforcement (S3): global_game_ratings/comments cascade, but
+        // global_scores.global_game_id is NOT NULL + NO ACTION (can't unlink) and
+        // global_leaderboard_cache has no declared FK — remove both before the
+        // parent. Hard delete is destructive by design; use merge() to preserve
+        // scores. One transaction.
+        await db.exec('BEGIN');
+        try {
+            await db.run('DELETE FROM global_scores WHERE global_game_id = ?', id);
+            await db.run('DELETE FROM global_leaderboard_cache WHERE global_game_id = ?', id);
+            const result = await db.run('DELETE FROM global_games WHERE id = ?', id);
+            await db.exec('COMMIT');
+            return (result.changes ?? 0) > 0;
+        } catch (err) {
+            await db.exec('ROLLBACK');
+            throw err;
+        }
     }
 
     /**

@@ -1493,6 +1493,71 @@ export async function initDatabase(): Promise<Database> {
             CREATE INDEX IF NOT EXISTS idx_submissions_iscored_username
                 ON submissions(LOWER(iscored_username));
         ` },
+
+        // S3 (Phase 0): prepare for foreign_keys=ON. Runs while enforcement is
+        // still OFF (the loop never enables it). Two parts:
+        //  (A) one-time cleanup of TRUE orphans (non-null FK -> missing parent)
+        //      left by pre-enforcement bare deletes, so the first enforced write
+        //      and PRAGMA foreign_key_check are clean. Idempotent; no-op on fresh DBs.
+        //  (B) rebuild game_room_game_library to drop its dead FK to game_library
+        //      (that table was dropped in migration 092). SQLite can't ALTER away a
+        //      FK, so create-copy-drop-rename; column list read dynamically so the
+        //      ALTER-added style-overlay columns are all preserved. Handler form so
+        //      a failure halts startup instead of being swallowed.
+        { name: '104_fk_enforcement_prep', handler: async (db) => {
+            // (A) Orphan cleanup. Nullable FKs are unlinked (ADR 0005 — preserve
+            // the row's history); NOT-NULL FKs are deleted (can't unlink).
+            await db.exec(`
+                UPDATE games SET tournament_id = NULL
+                 WHERE tournament_id IS NOT NULL
+                   AND tournament_id NOT IN (SELECT id FROM tournaments);
+                UPDATE submissions SET game_id = NULL
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
+                UPDATE score_history SET game_id = NULL
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
+                DELETE FROM scores
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
+                DELETE FROM leaderboard_cache
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
+                UPDATE global_scores SET origin_game_room_id = NULL
+                 WHERE origin_game_room_id IS NOT NULL
+                   AND origin_game_room_id NOT IN (SELECT id FROM game_rooms);
+                UPDATE global_scores SET origin_game_id = NULL
+                 WHERE origin_game_id IS NOT NULL
+                   AND origin_game_id NOT IN (SELECT id FROM games);
+                DELETE FROM global_scores
+                 WHERE global_game_id NOT IN (SELECT id FROM global_games);
+                DELETE FROM global_leaderboard_cache
+                 WHERE global_game_id NOT IN (SELECT id FROM global_games);
+                DELETE FROM merge_records
+                 WHERE anonymous_identity_id NOT IN (SELECT id FROM anonymous_identities);
+            `);
+
+            // (B) Rebuild game_room_game_library without the dead game_library FK.
+            const cols = await db.all(`PRAGMA table_info(game_room_game_library)`) as Array<{
+                name: string; type: string; notnull: number; dflt_value: unknown;
+            }>;
+            if (cols.length > 0) {
+                const colDefs = cols.map((c) => {
+                    let def = `${c.name} ${c.type || 'TEXT'}`;
+                    if (c.notnull) def += ' NOT NULL';
+                    if (c.dflt_value !== null && c.dflt_value !== undefined) def += ` DEFAULT ${c.dflt_value}`;
+                    return def;
+                }).join(', ');
+                const colNames = cols.map((c) => c.name).join(', ');
+                await db.exec('DROP TABLE IF EXISTS game_room_game_library_new');
+                await db.exec(`
+                    CREATE TABLE game_room_game_library_new (
+                        ${colDefs},
+                        PRIMARY KEY (game_room_id, game_name),
+                        FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+                    )
+                `);
+                await db.exec(`INSERT INTO game_room_game_library_new (${colNames}) SELECT ${colNames} FROM game_room_game_library`);
+                await db.exec('DROP TABLE game_room_game_library');
+                await db.exec('ALTER TABLE game_room_game_library_new RENAME TO game_room_game_library');
+            }
+        } },
     ];
 
     for (const migration of migrations) {
@@ -1546,6 +1611,24 @@ export async function initDatabase(): Promise<Database> {
         await db.run(
             'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)',
             key, value
+        );
+    }
+
+    // S3 (Phase 0): enable referential-integrity enforcement now that all
+    // migrations (incl. 104 orphan cleanup + game_room_game_library rebuild),
+    // the queue_order backfill, and migrateToMultiRoom have run. Deliberately
+    // NOT at connection-open: migrations 066/077/095 are FK-checked table
+    // rebuilds (SQLite requires foreign_keys OFF for create-copy-drop-rename),
+    // and a swallowed 077 INSERT failure under enforcement would half-migrate a
+    // legacy DB. New cross-table deletes must rely on a declared ON DELETE
+    // CASCADE or unlink/clean NO-ACTION children first.
+    await db.exec('PRAGMA foreign_keys = ON');
+    const fkViolations = await db.all('PRAGMA foreign_key_check');
+    if (fkViolations.length > 0) {
+        // eslint-disable-next-line no-console
+        console.error(
+            `[fk] PRAGMA foreign_key_check found ${fkViolations.length} residual violation(s) after enabling enforcement:`,
+            JSON.stringify(fkViolations.slice(0, 50)),
         );
     }
 
