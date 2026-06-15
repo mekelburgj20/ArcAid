@@ -1495,18 +1495,21 @@ export async function initDatabase(): Promise<Database> {
         ` },
 
         // S3 (Phase 0): prepare for foreign_keys=ON. Runs while enforcement is
-        // still OFF (the loop never enables it). Two parts:
-        //  (A) one-time cleanup of TRUE orphans (non-null FK -> missing parent)
-        //      left by pre-enforcement bare deletes, so the first enforced write
-        //      and PRAGMA foreign_key_check are clean. Idempotent; no-op on fresh DBs.
-        //  (B) rebuild game_room_game_library to drop its dead FK to game_library
-        //      (that table was dropped in migration 092). SQLite can't ALTER away a
-        //      FK, so create-copy-drop-rename; column list read dynamically so the
-        //      ALTER-added style-overlay columns are all preserved. Handler form so
-        //      a failure halts startup instead of being swallowed.
+        // still OFF (the loop never enables it). Cleans every orphan class that
+        // PRAGMA foreign_key_check would otherwise flag, so the post-enforcement
+        // check is clean. Idempotent; no-op on fresh DBs. Sections:
+        //  (A1) nullable-FK orphans -> unlink (preserve history, ADR 0005)
+        //  (A2) NOT-NULL-FK orphans on game/catalogue/identity parents -> delete
+        //  (A3) room-child orphans — rows whose room was deleted before FK
+        //       enforcement, so the ON DELETE CASCADE never fired -> delete
+        //  (B)  rebuild game_room_game_library: drop its dead FK to game_library
+        //       (dropped in migration 092) AND drop rows orphaned to deleted
+        //       rooms. SQLite can't ALTER away a FK; columns read dynamically so
+        //       the ALTER-added style-overlay columns survive. Handler form so a
+        //       failure halts startup instead of being swallowed.
+        // Verified against prod 2026-06-15 (foreign_key_check: 6828 -> 0).
         { name: '104_fk_enforcement_prep', handler: async (db) => {
-            // (A) Orphan cleanup. Nullable FKs are unlinked (ADR 0005 — preserve
-            // the row's history); NOT-NULL FKs are deleted (can't unlink).
+            // (A1) Nullable-FK orphans -> unlink (preserve the row's history).
             await db.exec(`
                 UPDATE games SET tournament_id = NULL
                  WHERE tournament_id IS NOT NULL
@@ -1515,25 +1518,47 @@ export async function initDatabase(): Promise<Database> {
                  WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
                 UPDATE score_history SET game_id = NULL
                  WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
-                DELETE FROM scores
-                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
-                DELETE FROM leaderboard_cache
-                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
                 UPDATE global_scores SET origin_game_room_id = NULL
                  WHERE origin_game_room_id IS NOT NULL
                    AND origin_game_room_id NOT IN (SELECT id FROM game_rooms);
                 UPDATE global_scores SET origin_game_id = NULL
                  WHERE origin_game_id IS NOT NULL
                    AND origin_game_id NOT IN (SELECT id FROM games);
+            `);
+
+            // (A2) NOT-NULL-FK orphans on game / catalogue / identity parents.
+            await db.exec(`
+                DELETE FROM scores
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
+                DELETE FROM leaderboard_cache
+                 WHERE game_id IS NOT NULL AND game_id NOT IN (SELECT id FROM games);
                 DELETE FROM global_scores
                  WHERE global_game_id NOT IN (SELECT id FROM global_games);
                 DELETE FROM global_leaderboard_cache
                  WHERE global_game_id NOT IN (SELECT id FROM global_games);
                 DELETE FROM merge_records
                  WHERE anonymous_identity_id NOT IN (SELECT id FROM anonymous_identities);
+                DELETE FROM ranking_group_tournaments
+                 WHERE ranking_group_id NOT IN (SELECT id FROM ranking_groups)
+                    OR tournament_id NOT IN (SELECT id FROM tournaments);
             `);
 
-            // (B) Rebuild game_room_game_library without the dead game_library FK.
+            // (A3) Room-child orphans (deleted-room cascade that never fired).
+            // Explicit table list for auditability. room_members + anon_room_claims
+            // key on `room_id`; the rest on `game_room_id`.
+            const roomChildren = [
+                'community_scores', 'score_history', 'game_comments', 'game_room_settings',
+                'local_admins', 'game_room_admins', 'admin_invites', 'room_events',
+                'lobby_feed_events', 'lobby_announcements', 'community_shelf_items',
+            ];
+            for (const t of roomChildren) {
+                await db.run(`DELETE FROM ${t} WHERE game_room_id NOT IN (SELECT id FROM game_rooms)`);
+            }
+            await db.run(`DELETE FROM room_members WHERE room_id NOT IN (SELECT id FROM game_rooms)`);
+            await db.run(`DELETE FROM anon_room_claims WHERE room_id NOT IN (SELECT id FROM game_rooms)`);
+
+            // (B) Rebuild game_room_game_library: drop the dead game_library FK
+            // AND drop rows orphaned to deleted rooms (filtered in the INSERT).
             const cols = await db.all(`PRAGMA table_info(game_room_game_library)`) as Array<{
                 name: string; type: string; notnull: number; dflt_value: unknown;
             }>;
@@ -1553,7 +1578,9 @@ export async function initDatabase(): Promise<Database> {
                         FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
                     )
                 `);
-                await db.exec(`INSERT INTO game_room_game_library_new (${colNames}) SELECT ${colNames} FROM game_room_game_library`);
+                await db.exec(`INSERT INTO game_room_game_library_new (${colNames})
+                    SELECT ${colNames} FROM game_room_game_library
+                     WHERE game_room_id IN (SELECT id FROM game_rooms)`);
                 await db.exec('DROP TABLE game_room_game_library');
                 await db.exec('ALTER TABLE game_room_game_library_new RENAME TO game_room_game_library');
             }
