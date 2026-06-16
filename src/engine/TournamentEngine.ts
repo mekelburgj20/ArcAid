@@ -644,6 +644,16 @@ export class TournamentEngine {
         const tournamentRow = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
         if (!tournamentRow) throw new Error(`Tournament ${tournamentId} not found.`);
 
+        // S7 — pause/resume defensive guard. Pausing a tournament flips
+        // `is_active=0` and `Scheduler.reload()` removes its maintenance cron,
+        // so the normal API path never reaches here for a paused tournament.
+        // But a manual `runMaintenance()` call (or a task that wasn't reloaded)
+        // could — short-circuit so a paused tournament never rotates/activates.
+        if (!tournamentRow.is_active) {
+            logInfo(`Tournament "${tournamentRow.name}" is paused (is_active=0) — skipping maintenance.`);
+            return;
+        }
+
         const term = getTerminology(tournamentRow.mode);
         const { resolveAnnouncementChannelId } = await import('../utils/discord.js');
         const channelId: string | null = await resolveAnnouncementChannelId(

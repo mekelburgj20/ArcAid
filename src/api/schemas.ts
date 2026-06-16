@@ -47,6 +47,11 @@ export const CreateTournamentSchema = z.object({
 
 export const UpdateTournamentSchema = CreateTournamentSchema.omit({ id: true });
 
+// S7 — focused pause/resume toggle. Flips tournaments.is_active without
+// round-tripping the full tournament config (so the FE pause toggle can't
+// clobber concurrent edits). Scheduler.reload() picks up the change.
+export const ToggleTournamentActiveSchema = z.object({ is_active: z.boolean() });
+
 export const SettingsSchema = z.record(z.string().min(1), z.string());
 
 export const HistoryQuerySchema = z.object({

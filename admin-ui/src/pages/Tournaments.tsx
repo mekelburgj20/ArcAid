@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { api } from '../lib/api';
+import { api, getToken } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import TournamentBadge from '../components/TournamentBadge';
 import DataTable from '../components/DataTable';
-import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
 import StylePicker from '../components/StylePicker';
 import TournamentFormFields, {
@@ -109,7 +108,11 @@ function toPayload(state: TournamentFormState, extra: Record<string, any> = {}) 
     eligibility_days: state.eligibilityDays,
     winner_pick_window_min: state.winnerPickWindowMin,
     runnerup_pick_window_min: state.runnerupPickWindowMin,
-    is_active: true,
+    // is_active is intentionally NOT hardcoded here. `extra` is spread last, so
+    // each caller supplies it: handleCreate passes `is_active: true`;
+    // handleEditSave passes the row's current value so editing a paused
+    // tournament does not silently resume it (the central S7 bug). The
+    // dedicated PATCH .../active endpoint is the only path that flips it.
     guild_id: '',
     discord_role_id: '',
     ...extra,
@@ -159,6 +162,14 @@ export default function Tournaments() {
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [displayNameSaving, setDisplayNameSaving] = useState(false);
   const [reloadingScheduler, setReloadingScheduler] = useState(false);
+  // Per-row pause/resume busy flag (per-id, not a bare boolean, so only the
+  // toggled row shows the busy label while other rows stay clickable).
+  const [pausingId, setPausingId] = useState<string | null>(null);
+  // Upgraded tournament-delete modal state: blocker list (ACTIVE/QUEUED games
+  // returned by the BE 409), the auto-deactivate opt-in, and a busy flag.
+  const [deleteBlockers, setDeleteBlockers] = useState<{ id: string; name: string; status: string }[]>([]);
+  const [autoDeactivate, setAutoDeactivate] = useState(false);
+  const [deletingTournament, setDeletingTournament] = useState(false);
 
   const handleReloadScheduler = async () => {
     setReloadingScheduler(true);
@@ -221,6 +232,24 @@ export default function Tournaments() {
       toast(err.message || 'Failed to reorder lineup', 'error');
     } finally {
       setReordering(false);
+    }
+  };
+
+  // Pause/Resume a tournament by flipping is_active via the dedicated PATCH
+  // endpoint. The BE reloads the scheduler so a paused tournament's cron stops
+  // firing immediately. Re-fetch after so the row's badge/label reflect the
+  // new value (fetch-after-mutate pattern used by every handler here).
+  const handlePauseToggle = async (t: Tournament) => {
+    const next = t.is_active !== 0 ? false : true; // currently active -> pause
+    setPausingId(t.id);
+    try {
+      await api.patch(`/rooms/${room.roomId}/tournaments/${t.id}/active`, { is_active: next });
+      toast(next ? 'Tournament resumed' : 'Tournament paused', 'success');
+    } catch (err: any) {
+      toast(err.message || 'Failed to update tournament', 'error');
+    } finally {
+      setPausingId(null);
+      await fetchTournaments();
     }
   };
 
@@ -310,7 +339,7 @@ export default function Tournaments() {
   const handleCreate = async () => {
     if (!createForm.state.name.trim() || !createForm.state.tag.trim()) return;
     try {
-      await api.post(`/rooms/${room.roomId}/tournaments`, toPayload(createForm.state, { id: uuidv4() }));
+      await api.post(`/rooms/${room.roomId}/tournaments`, toPayload(createForm.state, { id: uuidv4(), is_active: true }));
       createForm.reset();
       toast('Tournament created', 'success');
       fetchTournaments();
@@ -319,15 +348,51 @@ export default function Tournaments() {
     }
   };
 
+  // Tournament delete. The shared `api.delete` helper flattens non-OK responses
+  // to `throw new Error(error.error)` and DISCARDS the structured `games[]`
+  // array the BE returns on a 409 block (api.ts:99-103). We can't touch api.ts
+  // here, so this path uses a raw fetch to read the full 409 body (the
+  // ACTIVE/QUEUED blocker list) and keep the modal open showing it. When
+  // `autoDeactivate` is set we pass the flag so the BE deactivates the live
+  // game(s) first, then drops the tournament.
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    setDeletingTournament(true);
     try {
-      await api.delete(`/rooms/${room.roomId}/tournaments/${deleteTarget.id}`);
+      const token = getToken();
+      const res = await fetch(`/api/rooms/${room.roomId}/tournaments/${deleteTarget.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ autoDeactivate }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (res.status === 409 && Array.isArray(err.games)) {
+          // Block: live games present and auto-deactivate not requested. Surface
+          // the blocker list + the now-required checkbox; keep the modal open.
+          setDeleteBlockers(err.games);
+          toast(err.error || 'Tournament still has live games', 'error');
+        } else {
+          toast(err.error || 'Failed to delete tournament', 'error');
+        }
+        return;
+      }
       toast('Tournament deleted', 'success');
       setDeleteTarget(null);
-      fetchTournaments();
-    } catch {
-      toast('Failed to delete tournament', 'error');
+      setDeleteBlockers([]);
+      setAutoDeactivate(false);
+      // Auto-deactivate may have flipped a game to COMPLETED, so refresh the
+      // active + retained-completed tables too.
+      await fetchTournaments();
+      await fetchActiveGames();
+      await fetchRetainedCompleted();
+    } catch (err: any) {
+      toast(err.message || 'Failed to delete tournament', 'error');
+    } finally {
+      setDeletingTournament(false);
     }
   };
 
@@ -345,6 +410,9 @@ export default function Tournaments() {
         toPayload(editForm.state, {
           guild_id: editTarget.guild_id || '',
           discord_role_id: editTarget.discord_role_id || '',
+          // Preserve the row's paused/active state. Without this the PUT would
+          // re-assert is_active and silently resume a paused tournament.
+          is_active: editTarget.is_active !== 0,
         })
       );
       toast('Tournament updated', 'success');
@@ -373,7 +441,14 @@ export default function Tournaments() {
         </div>
         <DataTable<Tournament>
           columns={[
-            { key: 'name', header: 'Name', render: t => <span className="font-medium">{t.name}</span> },
+            { key: 'name', header: 'Name', render: t => (
+              <span>
+                <span className={t.is_active === 0 ? 'font-medium opacity-50' : 'font-medium'}>{t.name}</span>
+                {t.is_active === 0 && (
+                  <span className="ml-2 text-xs px-2 py-0.5 rounded bg-border/30 text-muted border border-border opacity-60">Paused</span>
+                )}
+              </span>
+            )},
             { key: 'type', header: 'Tag', render: t => <TournamentBadge type={t.type} /> },
             { key: 'mode', header: 'Mode', render: t => (
               <span className={`text-xs px-2 py-0.5 rounded ${t.mode === 'pinball' ? 'bg-neon-amber/15 text-neon-amber' : 'bg-neon-cyan/15 text-neon-cyan'}`}>
@@ -391,8 +466,11 @@ export default function Tournaments() {
             )},
             { key: 'actions', header: '', render: t => (
               <div className="flex gap-2 justify-end">
+                <NeonButton variant="ghost" onClick={() => handlePauseToggle(t)} disabled={pausingId === t.id} className="text-xs px-2 py-1">
+                  {pausingId === t.id ? '...' : (t.is_active === 0 ? 'Resume' : 'Pause')}
+                </NeonButton>
                 <NeonButton variant="ghost" onClick={() => openEdit(t)} className="text-xs px-2 py-1">Edit</NeonButton>
-                <NeonButton variant="danger" onClick={() => setDeleteTarget(t)} className="text-xs px-2 py-1">Delete</NeonButton>
+                <NeonButton variant="danger" onClick={() => { setDeleteTarget(t); setDeleteBlockers([]); setAutoDeactivate(false); }} className="text-xs px-2 py-1">Delete</NeonButton>
               </div>
             ), className: 'text-right' },
           ]}
@@ -719,14 +797,58 @@ export default function Tournaments() {
         </div>
       )}
 
+      {/* Delete Tournament Confirm — lists ACTIVE/QUEUED blockers (from the BE
+          409) and offers an explicit auto-deactivate opt-in. Default behavior
+          (checkbox off) is the block-with-listing; ticking it tells the BE to
+          deactivate the live game(s) first, then delete. */}
       {deleteTarget && (
-        <ConfirmModal
-          title="Delete Tournament"
-          message={`Are you sure you want to delete "${deleteTarget.name}"? This cannot be undone.`}
-          confirmLabel="Delete"
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-        />
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-red-500/40 rounded-lg p-6 w-full max-w-md">
+            <h2 className="font-display text-lg font-bold mb-2 text-red-400">Delete Tournament</h2>
+            <p className="text-muted text-sm mb-4">
+              Permanently delete <span className="text-primary font-medium">"{deleteTarget.name}"</span>? This cannot be undone.
+            </p>
+            {deleteBlockers.length > 0 && (
+              <div className="mb-4">
+                <p className="text-[10px] uppercase tracking-wider text-muted mb-1">This tournament still has live games:</p>
+                <ul className="text-xs text-muted list-disc ml-5 mb-2 space-y-1">
+                  {deleteBlockers.map(g => (
+                    <li key={g.id}>
+                      {g.name}
+                      <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded ${g.status === 'ACTIVE' ? 'bg-neon-green/15 text-neon-green' : 'bg-neon-amber/15 text-neon-amber'}`}>{g.status}</span>
+                    </li>
+                  ))}
+                </ul>
+                <label className="flex items-start gap-2 text-xs text-muted mb-4 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoDeactivate}
+                    onChange={e => setAutoDeactivate(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>Deactivate the active game(s) first, then delete this tournament. Without this, deletion is blocked.</span>
+                </label>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <NeonButton
+                variant="danger"
+                className="flex-1"
+                onClick={handleDelete}
+                disabled={deletingTournament || (deleteBlockers.length > 0 && !autoDeactivate)}
+              >
+                {deletingTournament ? 'Deleting...' : 'Delete tournament'}
+              </NeonButton>
+              <NeonButton
+                variant="ghost"
+                onClick={() => { setDeleteTarget(null); setDeleteBlockers([]); setAutoDeactivate(false); }}
+                disabled={deletingTournament}
+              >
+                Cancel
+              </NeonButton>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

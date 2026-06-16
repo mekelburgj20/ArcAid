@@ -22,8 +22,13 @@ const adminToken = (roomId: string) => signToken({ role: 'room_admin', gameRoomI
 const superAdminToken = () => signToken({ role: 'super_admin', gameRoomIds: [] });
 
 describe('S0 — critical stopgaps', () => {
-    // SECURITY: merge-player runs UNSCOPED cross-tenant writes, so it is now
-    // super_admin-only (was requireRoomAccess). Full room-scoping comes in S7.
+    // SECURITY: merge-player was the S0 stopgap's super_admin-only gate (it ran
+    // UNSCOPED cross-tenant writes at the time). S7 SUPERSEDED that: the writes
+    // are now room-scoped to :roomId, so the gate is requireAuth + requireRoomAccess
+    // and a room_admin of the room is permitted. Cross-room rejection (403),
+    // room-scoping isolation, and super_admin-only global-identity writes are
+    // covered by s7-admin-safety.test.ts. Here we only keep the two guards that
+    // remain unchanged from S0: unauthenticated → 401, and super_admin → not rejected.
     describe('POST /api/rooms/:roomId/admin/merge-player authz', () => {
         it('rejects unauthenticated callers with 401', async () => {
             const app = await createTestApp();
@@ -34,14 +39,17 @@ describe('S0 — critical stopgaps', () => {
             expect(res.status).toBe(401);
         });
 
-        it('rejects a room_admin of the room with 403 (no longer permitted)', async () => {
+        it('lets a room_admin of the room past the authz gate (S7: now room-scoped)', async () => {
             const app = await createTestApp();
             const roomId = await createTestRoom('s0-merge-roomadmin', 'S0 Merge RoomAdmin');
             const res = await request(app)
                 .post(`/api/rooms/${roomId}/admin/merge-player`)
                 .set('Authorization', `Bearer ${adminToken(roomId)}`)
                 .send({ fromUsername: 'GhostA', toUsername: 'GhostB' });
-            expect(res.status).toBe(403);
+            // Authz gate only — the room-scoped merge internals (and the
+            // global-identity gating) are exercised in s7-admin-safety.test.ts.
+            expect(res.status).not.toBe(401);
+            expect(res.status).not.toBe(403);
         });
 
         it('lets a super_admin past the authz gate', async () => {

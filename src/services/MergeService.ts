@@ -263,6 +263,102 @@ export class MergeService {
     }
 
     /**
+     * S7 — DRY-RUN counter for the sync-alias player RENAME at
+     * `POST /:roomId/admin/merge-player` (the legacy username-rewrite path,
+     * distinct from the anon-identity merge above). Counts the rows each
+     * table's UPDATE/DELETE would touch using the EXACT SAME room-scoped WHERE
+     * clauses the commit uses, so `dryRun == commit` row counts (regression
+     * test #2 asserts this equality).
+     *
+     * Room scoping (security-critical — the relaxed gate is only safe because
+     * every statement is `:roomId`-bound):
+     *   • score_history / community_scores: direct `game_room_id` column.
+     *   • submissions / scores: no room column → scope via the
+     *     game→tournament join (mirrors previewMerge's submissions query), with
+     *     `g.game_room_id` as the OR branch for pinned rows (tournament_id NULL).
+     *
+     * `includeGlobalIdentity` mirrors the super_admin gate: a room_admin's
+     * dry-run reports 0 for user_mappings/player_aliases because those global
+     * identity writes never run for them.
+     */
+    static async previewRename(
+        roomId: string,
+        fromUsername: string,
+        toUsername: string,
+        includeGlobalIdentity: boolean,
+    ): Promise<{
+        submissions: number;
+        scores: number;
+        community_scores: number;
+        score_history: number;
+        user_mappings: number;
+        player_aliases: number;
+        total: number;
+    }> {
+        const db = await getDatabase();
+
+        // submissions — game→tournament join (no room column on the table).
+        const subRow = await db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM submissions s
+             LEFT JOIN games g ON g.id = s.game_id
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
+             WHERE LOWER(s.iscored_username) = LOWER(?)
+               AND (s.submitted_from_room_id = ? OR t.game_room_id = ? OR g.game_room_id = ?)`,
+            fromUsername, roomId, roomId, roomId,
+        );
+
+        // scores — no room column AND no submitted_from_room_id → join only.
+        const scoresRow = await db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM scores sc
+             LEFT JOIN games g ON g.id = sc.game_id
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
+             WHERE LOWER(sc.iscored_username) = LOWER(?)
+               AND (t.game_room_id = ? OR g.game_room_id = ?)`,
+            fromUsername, roomId, roomId,
+        );
+
+        const csRow = await db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM community_scores
+             WHERE LOWER(iscored_username) = LOWER(?) AND game_room_id = ?`,
+            fromUsername, roomId,
+        );
+
+        const shRow = await db.get<{ n: number }>(
+            `SELECT COUNT(*) AS n FROM score_history
+             WHERE LOWER(iscored_username) = LOWER(?) AND game_room_id = ?`,
+            fromUsername, roomId,
+        );
+
+        let userMappings = 0;
+        let playerAliases = 0;
+        if (includeGlobalIdentity) {
+            const umRow = await db.get<{ n: number }>(
+                `SELECT COUNT(*) AS n FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)`,
+                fromUsername,
+            );
+            userMappings = umRow?.n ?? 0;
+            // The commit always writes one player_aliases row (INSERT OR REPLACE).
+            playerAliases = 1;
+        }
+
+        const submissions = subRow?.n ?? 0;
+        const scores = scoresRow?.n ?? 0;
+        const community_scores = csRow?.n ?? 0;
+        const score_history = shRow?.n ?? 0;
+        const total = submissions + scores + community_scores + score_history + userMappings + playerAliases;
+
+        return {
+            submissions,
+            scores,
+            community_scores,
+            score_history,
+            user_mappings: userMappings,
+            player_aliases: playerAliases,
+            total,
+        };
+    }
+
+    /**
      * Confirms a merge. Re-runs the preview inside a transaction; if the
      * preview hash would differ, raises `MERGE_CONFLICT` (callers should
      * surface 409 + refreshed preview to the admin). Writes `merge_records`,
