@@ -199,11 +199,8 @@ export class Scheduler {
                             this.notifiedStarting.clear();
                         }
 
-                        // Get all opted-in users
                         const { NotificationService } = await import('../services/NotificationService.js');
-                        const users = await db.all(
-                            "SELECT discord_user_id, notification_prefs FROM user_preferences WHERE notification_prefs IS NOT NULL"
-                        );
+                        const users = await Scheduler.resolveTournamentStartingRecipients(db, t.game_room_id);
                         const room = t.game_room_id
                             ? await db.get('SELECT slug FROM game_rooms WHERE id = ?', t.game_room_id)
                             : null;
@@ -232,6 +229,39 @@ export class Scheduler {
 
         this.tasks.set('__tournament_starting_notifier__', task);
         logInfo('Tournament starting notifier scheduled (every 15 minutes).');
+    }
+
+    /**
+     * Resolve the recipient set for a tournamentStarting DM.
+     *
+     * Recipients are the MEMBERS of the tournament's room (room_members is the
+     * authoritative, backfilled membership set — see migration 055). Scoping
+     * here prevents cross-room spam where a server-wide opt-in user got DMed
+     * about a tournament in a room they never touched. Legacy single-room
+     * tournaments (game_room_id NULL) have no room_members rows to scope by, so
+     * fall back to the global query for them.
+     *
+     * Extracted as a static seam so the room-scoping is unit-testable without
+     * driving the cron. room_members PK is (user_id, room_id) → one row per
+     * user per room, so no DISTINCT is needed.
+     */
+    static async resolveTournamentStartingRecipients(
+        db: { all: (sql: string, ...params: any[]) => Promise<any[]> },
+        gameRoomId: string | null | undefined
+    ): Promise<Array<{ discord_user_id: string; notification_prefs: string | null }>> {
+        if (gameRoomId) {
+            return db.all(
+                `SELECT up.discord_user_id, up.notification_prefs
+                 FROM room_members rm
+                 JOIN user_preferences up ON up.discord_user_id = rm.user_id
+                 WHERE rm.room_id = ?
+                   AND up.notification_prefs IS NOT NULL`,
+                gameRoomId
+            );
+        }
+        return db.all(
+            "SELECT discord_user_id, notification_prefs FROM user_preferences WHERE notification_prefs IS NOT NULL"
+        );
     }
 
     /**

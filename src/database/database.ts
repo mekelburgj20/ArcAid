@@ -1585,6 +1585,32 @@ export async function initDatabase(): Promise<Database> {
                 await db.exec('ALTER TABLE game_room_game_library_new RENAME TO game_room_game_library');
             }
         } },
+
+        // S6: per-player milestone idempotency. Records each fired
+        // (game_room_id, player_key, scope, threshold) so MilestoneService emits
+        // a given milestone AT MOST ONCE — fixing both the missed-on-jump bug
+        // (count goes 9 -> 11 without ever equalling 10) and the double-fire bug
+        // (count oscillates back across a threshold after a score delete).
+        // player_key is the canonical identity
+        //   COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
+        // computed in the service, so multi-alias Discord users collapse to one
+        // row and pure-anon/iscored rows still partition per-name. The service
+        // does INSERT OR IGNORE and emits only when changes() === 1; the UNIQUE
+        // constraint is what guarantees the at-most-once semantic.
+        { name: '105_player_milestones_fired', sql: `
+            CREATE TABLE IF NOT EXISTS player_milestones_fired (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_room_id  TEXT NOT NULL,
+                player_key    TEXT NOT NULL,   -- COALESCE(submitted_by_user_id,'iscored:'||LOWER(iscored_username))
+                scope         TEXT NOT NULL,   -- 'scores_submitted' | 'unique_games' | 'number_ones'
+                threshold     INTEGER NOT NULL,
+                fired_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (game_room_id, player_key, scope, threshold),
+                FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_player_milestones_fired_lookup
+                ON player_milestones_fired (game_room_id, player_key, scope);
+        ` },
     ];
 
     for (const migration of migrations) {
