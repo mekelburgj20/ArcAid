@@ -25,6 +25,14 @@ const REASON_COPY: Record<string, string> = {
   taken_alias: 'This name is in use as another player\'s iScored alias.',
 };
 
+const NOTIF_TYPES: { key: string; label: string; helper: string }[] = [
+  { key: 'tournamentWin', label: 'Tournament Win', helper: 'When you win a tournament.' },
+  { key: 'turnToPick', label: 'Turn to Pick', helper: "When it's your turn to pick the next game." },
+  { key: 'tournamentStarting', label: 'Tournament Starting', helper: 'When a tournament you can join is about to begin.' },
+  { key: 'rankDethroned', label: 'Rank Dethroned', helper: 'When someone knocks you off a #1 spot.' },
+  { key: 'friendScore', label: 'Friend Score', helper: 'When a player you follow posts a new score.' },
+];
+
 export default function AccountSettings() {
   const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -35,6 +43,14 @@ export default function AccountSettings() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
   const debounceRef = useRef<number | null>(null);
+
+  // Notification preferences (independent fetch from the profile load)
+  const [prefs, setPrefs] = useState<Record<string, boolean> | null>(null);
+  const [draftPrefs, setDraftPrefs] = useState<Record<string, boolean> | null>(null);
+  const [notifLoading, setNotifLoading] = useState(true);
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifSaveError, setNotifSaveError] = useState<string | null>(null);
+  const [notifSaved, setNotifSaved] = useState(false);
 
   const loadProfile = useCallback(async () => {
     if (!playerToken) return;
@@ -54,6 +70,25 @@ export default function AccountSettings() {
   }, [playerToken]);
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  const loadPrefs = useCallback(async () => {
+    if (!playerToken) return;
+    try {
+      const res = await fetch('/api/me/notification-preferences', {
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as Record<string, boolean>;
+        setPrefs(data);
+        setDraftPrefs(data);
+      }
+    } catch {
+      // network error — section stays empty
+    }
+    setNotifLoading(false);
+  }, [playerToken]);
+
+  useEffect(() => { loadPrefs(); }, [loadPrefs]);
 
   // Debounced availability check
   useEffect(() => {
@@ -116,6 +151,41 @@ export default function AccountSettings() {
       setSaveError('Network error.');
     }
     setSaving(false);
+  };
+
+  const toggle = (key: string) => {
+    setDraftPrefs(p => ({ ...(p ?? {}), [key]: !(p?.[key] === true) }));
+    setNotifSaveError(null);
+    setNotifSaved(false);
+  };
+
+  const notifDirty = !!prefs && !!draftPrefs && JSON.stringify(prefs) !== JSON.stringify(draftPrefs);
+
+  const savePrefs = async () => {
+    if (!playerToken || !draftPrefs) return;
+    setNotifSaving(true);
+    setNotifSaveError(null);
+    setNotifSaved(false);
+    try {
+      const res = await fetch('/api/me/notification-preferences', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(draftPrefs),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as Record<string, boolean>;
+        setPrefs(data);
+        setDraftPrefs(data);
+        setNotifSaved(true);
+        window.setTimeout(() => setNotifSaved(false), 2200);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setNotifSaveError(d.error ?? 'Failed to save.');
+      }
+    } catch {
+      setNotifSaveError('Network error.');
+    }
+    setNotifSaving(false);
   };
 
   if (!discordUser) {
@@ -268,6 +338,67 @@ export default function AccountSettings() {
               <p className="mt-2 text-xs text-faint">
                 Scores submitted under any of these names count for you on every leaderboard.
               </p>
+            </section>
+
+            <section className="mt-8 pt-8 border-t border-border">
+              <h2 className="text-sm font-medium mb-2">Notifications</h2>
+              <p className="text-xs text-muted mb-4">
+                You'll receive a Discord DM when an enabled event happens. All types are off until you turn them on.
+              </p>
+              {notifLoading ? (
+                <p className="text-sm text-muted">Loading…</p>
+              ) : (
+                <>
+                  <div>
+                    {NOTIF_TYPES.map(({ key, label, helper }) => {
+                      const checked = draftPrefs?.[key] === true;
+                      return (
+                        <label
+                          key={key}
+                          className="flex items-start justify-between gap-3 py-2.5 border-b border-border last:border-b-0 cursor-pointer"
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-sm text-primary">{label}</span>
+                            <span className="block text-xs text-faint">{helper}</span>
+                          </span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={checked}
+                            onClick={() => toggle(key)}
+                            className={`shrink-0 mt-0.5 w-9 h-5 rounded-full border transition-colors ${checked ? 'bg-neon-cyan/30 border-neon-cyan/50' : 'bg-surface border-border'}`}
+                          >
+                            <span
+                              className={`block w-4 h-4 rounded-full bg-primary transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`}
+                              style={{ marginTop: '1px' }}
+                            />
+                          </button>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {notifSaveError && (
+                    <p className="mt-2 text-xs text-rose-400 inline-flex items-center gap-1">
+                      <AlertCircle size={12} /> {notifSaveError}
+                    </p>
+                  )}
+                  {notifSaved && (
+                    <p className="mt-2 text-xs text-emerald-400 inline-flex items-center gap-1">
+                      <CheckCircle2 size={12} /> Saved.
+                    </p>
+                  )}
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={savePrefs}
+                      disabled={notifSaving || !notifDirty}
+                      className="px-4 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      {notifSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </>
+              )}
             </section>
           </>
         )}
