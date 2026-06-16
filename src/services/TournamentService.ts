@@ -102,6 +102,21 @@ export class TournamentService {
     }
 
     /**
+     * S7 — focused pause/resume toggle. Flips `is_active` only, avoiding the
+     * full-row `update()` (which requires every column and would clobber a
+     * concurrent config edit). Callers MUST follow with `Scheduler.reload()`
+     * — that is what actually registers/removes the maintenance cron task.
+     */
+    static async setActive(id: string, isActive: boolean): Promise<void> {
+        const db = await getDatabase();
+        const row = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', id);
+        await db.run('UPDATE tournaments SET is_active = ? WHERE id = ?', isActive ? 1 : 0, id);
+        // winner_picks is unchanged here, but be consistent with update() and
+        // bust the room's PickAwardGate cache so no consumer reads stale state.
+        if (row?.game_room_id) PickAwardGate.invalidate(row.game_room_id);
+    }
+
+    /**
      * Deletes a tournament by ID.
      */
     static async delete(id: string): Promise<void> {

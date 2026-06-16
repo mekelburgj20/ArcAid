@@ -4,10 +4,10 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
-import { requireAuth, requireRoomAccess, requireSuperAdmin, requireDiscordUser, conditionalRequireDiscordUser } from '../middleware.js';
+import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser } from '../middleware.js';
 import { validate } from '../validate.js';
 import {
-    CreateTournamentSchema, UpdateTournamentSchema,
+    CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
     SettingsSchema,
     HistoryQuerySchema, MergePlayerSchema,
     CreateRankingGroupSchema, UpdateRankingGroupSchema,
@@ -2518,6 +2518,35 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
     }
 });
 
+// S7 — focused pause/resume toggle. Flips tournaments.is_active and reloads the
+// Scheduler (which registers/removes the maintenance cron). Preferred over PUT
+// so the FE pause button doesn't round-trip the whole config (no clobber of a
+// concurrent edit). Audit is automatic (PATCH → target_type 'tournament').
+router.patch('/:roomId/tournaments/:id/active', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.id as string;
+        const validationResult = validate(ToggleTournamentActiveSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const db = await getDatabase();
+        const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+        if (!tournament || tournament.game_room_id !== roomId) {
+            return res.status(404).json({ error: 'Tournament not found' });
+        }
+
+        const { is_active } = validationResult.data;
+        await TournamentService.setActive(tournamentId, is_active);
+        const { Scheduler } = await import('../../engine/Scheduler.js');
+        await Scheduler.getInstance().reload();
+
+        res.json({ success: true, is_active });
+    } catch (error) {
+        logError('API Error (PATCH rooms/:roomId/tournaments/:id/active):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 router.delete('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         // S0 (Phase 0): guard against orphaning live games. A bare DELETE here
@@ -2829,7 +2858,7 @@ router.delete('/:roomId/games/:id', requireAuth, requireRoomAccess('roomId'), as
         // Verify the game lives in this room (via tournament join, or via
         // games.game_room_id for pinned rows that have no tournament_id).
         const game = await db.get(`
-            SELECT g.id, g.status,
+            SELECT g.id, g.status, g.tournament_id,
                    COALESCE(t.game_room_id, g.game_room_id) AS resolved_room_id
             FROM games g LEFT JOIN tournaments t ON t.id = g.tournament_id
             WHERE g.id = ?
@@ -2839,11 +2868,55 @@ router.delete('/:roomId/games/:id', requireAuth, requireRoomAccess('roomId'), as
             return res.status(404).json({ error: 'Game not found in this room' });
         }
 
+        // S7 — active/queued siblings list. Returned in both the 409 block
+        // payload (so the FE can offer "deactivate and remove") and the success
+        // response. Scoped to the SAME tournament so the modal shows siblings;
+        // for a pinned row (tournament_id NULL) this resolves to just itself if
+        // ACTIVE.
+        const siblings = game.tournament_id
+            ? await db.all(
+                `SELECT id, name, status FROM games
+                 WHERE tournament_id = ? AND status IN ('ACTIVE','QUEUED')`,
+                game.tournament_id
+            )
+            : await db.all(
+                `SELECT id, name, status FROM games
+                 WHERE id = ? AND status IN ('ACTIVE','QUEUED')`,
+                gameId
+            );
+        const games = siblings.map((g: any) => ({ id: g.id, name: g.name, status: g.status }));
+
+        const deactivateActive = req.body?.deactivateActive === true || req.query.deactivateActive === 'true';
+
         const { TournamentEngine } = await import('../../engine/TournamentEngine.js');
         const engine = TournamentEngine.getInstance();
-        const result = await engine.deleteGameCompletely(gameId);
-
         const { RoomEventService } = await import('../../services/RoomEventService.js');
+
+        // Default behavior on an ACTIVE game: block with 409 and the blocker
+        // list. The FE confirm modal re-submits with deactivateActive:true.
+        if (game.status === 'ACTIVE' && !deactivateActive) {
+            return res.status(409).json({
+                error: 'Game is active. Deactivate it first, or pass deactivateActive to deactivate-and-remove.',
+                games,
+            });
+        }
+
+        // Deactivate-and-remove branch: end-of-round semantics (finalSync +
+        // iScored lock + mark COMPLETED). Does NOT delete the row, so there's
+        // nothing to orphan — iscored_id stays non-NULL for cleanup policies.
+        if (game.status === 'ACTIVE' && deactivateActive) {
+            const deactivateResult = await engine.deactivateGame(gameId);
+            await RoomEventService.log(roomId, 'game_deactivated', {
+                gameName: deactivateResult.gameName,
+                tournamentName: deactivateResult.tournamentName,
+                iscoredStatus: deactivateResult.iscoredStatus,
+            });
+            return res.json({ success: true, action: 'deactivated', ...deactivateResult, games });
+        }
+
+        // Otherwise (COMPLETED / QUEUED / pinned-inactive): destructive removal
+        // with ADR 0005 orphan-then-delete (handled inside deleteGameCompletely).
+        const result = await engine.deleteGameCompletely(gameId);
         await RoomEventService.log(roomId, 'game_deleted', {
             gameName: result.gameName,
             tournamentName: result.tournamentName,
@@ -2851,7 +2924,7 @@ router.delete('/:roomId/games/:id', requireAuth, requireRoomAccess('roomId'), as
             scoresOrphaned: result.scoresOrphaned,
         });
 
-        res.json({ success: true, ...result });
+        res.json({ success: true, action: 'deleted', ...result });
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Internal Server Error';
         logError('API Error (DELETE rooms/:roomId/games/:id):', error);
@@ -3032,15 +3105,26 @@ router.post('/:roomId/ranking-groups/:id/recompute', requireAuth, requireRoomAcc
     }
 });
 
-// Merge player.
-// S0 (Phase 0) SECURITY STOPGAP: this handler runs UNSCOPED cross-tenant
-// UPDATE/DELETE across submissions/scores/community_scores/score_history keyed
-// only on LOWER(iscored_username) (no game_room_id scope), plus global
-// user_mappings/player_aliases writes — so a room_admin could rewrite another
-// tenant's data. Gated to super_admin until S7 adds room-scoping + dry-run +
-// audit. (req.params.roomId is unused by this handler.)
-router.post('/:roomId/admin/merge-player', requireAuth, requireSuperAdmin, async (req, res) => {
+// Merge / rename player (sync-alias username rewrite).
+//
+// S7 SECURITY: gate relaxed from requireSuperAdmin → requireRoomAccess. This is
+// SAFE *only because* every score-table UPDATE/DELETE below is room-scoped to
+// :roomId via explicit WHERE clauses (direct game_room_id column where present;
+// game→tournament join for submissions/scores which have no room column). The
+// room-scoping is the SOLE guarantee that a room_admin cannot touch another
+// room's data — there must be NO bare LOWER(iscored_username) statement here.
+//
+// The two GLOBAL identity writes (user_mappings UPDATE + player_aliases INSERT)
+// affect cross-room attribution + forward-sync for every room, so they run ONLY
+// when the caller is super_admin (`includeGlobalIdentity`). A room_admin rename
+// runs ONLY the four room-scoped score-table statements.
+//
+// Audit: automatic — auditLog wraps res.json for 2xx POST and maps /merge-player
+// → target_type 'player' (auditMiddleware). Dry-run (?dryRun=true | body dryRun)
+// runs the gathering SELECTs only — no writes.
+router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
+        const roomId = req.params.roomId as string;
         const validationResult = validate(MergePlayerSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
@@ -3049,14 +3133,45 @@ router.post('/:roomId/admin/merge-player', requireAuth, requireSuperAdmin, async
             return res.status(400).json({ error: 'Source and target usernames are the same' });
         }
 
-        const db = await getDatabase();
-        let mergedCount = 0;
+        const isSuperAdmin = req.user?.role === 'super_admin';
+        const dryRun = req.query.dryRun === 'true' || req.body?.dryRun === true;
 
-        // 1. Handle submissions: rename IDs and keep higher score on conflicts
+        const { MergeService } = await import('../../services/MergeService.js');
+
+        // DRY-RUN: same room-scoped gathering SELECTs as the commit, no writes.
+        if (dryRun) {
+            const rowsAffected = await MergeService.previewRename(roomId, fromUsername, toUsername, isSuperAdmin);
+            return res.json({
+                dryRun: true,
+                rowsAffected: {
+                    submissions: rowsAffected.submissions,
+                    scores: rowsAffected.scores,
+                    community_scores: rowsAffected.community_scores,
+                    score_history: rowsAffected.score_history,
+                    user_mappings: rowsAffected.user_mappings,
+                    player_aliases: rowsAffected.player_aliases,
+                },
+                total: rowsAffected.total,
+                globalIdentityWillUpdate: isSuperAdmin,
+            });
+        }
+
+        const db = await getDatabase();
+
+        // 1. submissions: rename the `${gameId}-${username}` IDs and keep the
+        //    higher score on conflicts. Source set is room-scoped via the
+        //    game→tournament join (submissions has no room column); g.game_room_id
+        //    is the OR branch for pinned rows (tournament_id NULL).
         const syncRows = await db.all(
-            `SELECT id, game_id, score FROM submissions WHERE LOWER(iscored_username) = LOWER(?) AND id LIKE '%' || '-' || ?`,
-            fromUsername, fromUsername.toLowerCase()
+            `SELECT s.id, s.game_id, s.score FROM submissions s
+             LEFT JOIN games g ON g.id = s.game_id
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
+             WHERE LOWER(s.iscored_username) = LOWER(?)
+               AND s.id LIKE '%' || '-' || ?
+               AND (s.submitted_from_room_id = ? OR t.game_room_id = ? OR g.game_room_id = ?)`,
+            fromUsername, fromUsername.toLowerCase(), roomId, roomId, roomId
         );
+        let submissionsRenamed = 0;
         for (const row of syncRows) {
             const newId = `${row.game_id}-${toUsername.toLowerCase()}`;
             const existing = await db.get('SELECT id, score FROM submissions WHERE id = ?', newId);
@@ -3072,76 +3187,123 @@ router.post('/:roomId/admin/merge-player', requireAuth, requireSuperAdmin, async
             } else {
                 await db.run('UPDATE submissions SET id = ?, iscored_username = ? WHERE id = ?', newId, toUsername, row.id);
             }
-            mergedCount++;
+            submissionsRenamed++;
         }
 
-        // 2. Catch any remaining submissions not matched by ID pattern
+        // 2. Catch any remaining room-scoped submissions not matched by ID pattern.
         const subResult = await db.run(
-            'UPDATE submissions SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
-            toUsername, fromUsername
+            `UPDATE submissions SET iscored_username = ?
+             WHERE id IN (
+                SELECT s.id FROM submissions s
+                LEFT JOIN games g ON g.id = s.game_id
+                LEFT JOIN tournaments t ON t.id = g.tournament_id
+                WHERE LOWER(s.iscored_username) = LOWER(?)
+                  AND (s.submitted_from_room_id = ? OR t.game_room_id = ? OR g.game_room_id = ?))`,
+            toUsername, fromUsername, roomId, roomId, roomId
         );
-        mergedCount += subResult.changes || 0;
 
-        // 3. Scores table
+        // 3. Scores table (no room column, no submitted_from_room_id → join only).
         const scoreResult = await db.run(
-            'UPDATE scores SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
-            toUsername, fromUsername
+            `UPDATE scores SET iscored_username = ?
+             WHERE id IN (
+                SELECT sc.id FROM scores sc
+                LEFT JOIN games g ON g.id = sc.game_id
+                LEFT JOIN tournaments t ON t.id = g.tournament_id
+                WHERE LOWER(sc.iscored_username) = LOWER(?)
+                  AND (t.game_room_id = ? OR g.game_room_id = ?))`,
+            toUsername, fromUsername, roomId, roomId
         );
-        mergedCount += scoreResult.changes || 0;
 
-        // 4. Community scores
+        // 4. Community scores (direct game_room_id column).
         const communityResult = await db.run(
-            'UPDATE community_scores SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
-            toUsername, fromUsername
+            'UPDATE community_scores SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?) AND game_room_id = ?',
+            toUsername, fromUsername, roomId
         );
-        mergedCount += communityResult.changes || 0;
 
-        // 5. Score history
+        // 5. Score history (direct game_room_id column).
         const historyResult = await db.run(
-            'UPDATE score_history SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
-            toUsername, fromUsername
-        );
-        mergedCount += historyResult.changes || 0;
-
-        // 6. User mappings
-        await db.run(
-            'UPDATE user_mappings SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
-            toUsername, fromUsername
+            'UPDATE score_history SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?) AND game_room_id = ?',
+            toUsername, fromUsername, roomId
         );
 
-        // 7. Fix discord_user_id on merged submissions — resolve target's real Discord ID
-        const targetMapping = await db.get(
-            'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
-            toUsername
-        );
-        if (targetMapping?.discord_user_id) {
+        let globalIdentityUpdated = false;
+        let userMappingsAffected = 0;
+        if (isSuperAdmin) {
+            // Count the from-rows BEFORE the rewrite so rowsAffected matches the
+            // dry-run computation exactly (which counts LOWER(from)).
+            userMappingsAffected = (await db.get<{ n: number }>(
+                'SELECT COUNT(*) AS n FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)', fromUsername
+            ))?.n ?? 0;
+
+            // 6. User mappings (GLOBAL — cross-room attribution). super_admin only.
             await db.run(
-                `UPDATE submissions SET discord_user_id = ? WHERE LOWER(iscored_username) = LOWER(?) AND (discord_user_id LIKE 'iscored:%' OR discord_user_id IN ('COMMUNITY', 'ANON'))`,
-                targetMapping.discord_user_id, toUsername
+                'UPDATE user_mappings SET iscored_username = ? WHERE LOWER(iscored_username) = LOWER(?)',
+                toUsername, fromUsername
             );
+
+            // 7. Fix discord_user_id on merged rows — resolve target's real
+            //    Discord ID. Scoped to this room so it can't touch other tenants.
+            const targetMapping = await db.get(
+                'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
+                toUsername
+            );
+            if (targetMapping?.discord_user_id) {
+                await db.run(
+                    `UPDATE submissions SET discord_user_id = ?
+                     WHERE id IN (
+                        SELECT s.id FROM submissions s
+                        LEFT JOIN games g ON g.id = s.game_id
+                        LEFT JOIN tournaments t ON t.id = g.tournament_id
+                        WHERE LOWER(s.iscored_username) = LOWER(?)
+                          AND (s.submitted_from_room_id = ? OR t.game_room_id = ? OR g.game_room_id = ?))
+                       AND (discord_user_id LIKE 'iscored:%' OR discord_user_id IN ('COMMUNITY', 'ANON'))`,
+                    targetMapping.discord_user_id, toUsername, roomId, roomId, roomId
+                );
+                await db.run(
+                    `UPDATE community_scores SET discord_user_id = ? WHERE LOWER(iscored_username) = LOWER(?) AND game_room_id = ? AND (discord_user_id LIKE 'iscored:%' OR discord_user_id IN ('COMMUNITY', 'ANON'))`,
+                    targetMapping.discord_user_id, toUsername, roomId
+                );
+            }
+
+            // 8. Record alias (GLOBAL — drives ScoreSyncPoller forward mapping).
             await db.run(
-                `UPDATE community_scores SET discord_user_id = ? WHERE LOWER(iscored_username) = LOWER(?) AND (discord_user_id LIKE 'iscored:%' OR discord_user_id IN ('COMMUNITY', 'ANON'))`,
-                targetMapping.discord_user_id, toUsername
+                'INSERT OR REPLACE INTO player_aliases (old_username, new_username) VALUES (?, ?)',
+                fromUsername.toLowerCase(), toUsername
             );
+            globalIdentityUpdated = true;
         }
-
-        // 8. Record alias so ScoreSyncPoller maps this username going forward
-        await db.run(
-            'INSERT OR REPLACE INTO player_aliases (old_username, new_username) VALUES (?, ?)',
-            fromUsername.toLowerCase(), toUsername
-        );
 
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         await LeaderboardService.invalidateAll();
         const { RankingService } = await import('../../services/RankingService.js');
         await RankingService.invalidateAll();
 
-        logInfo(`Merged player '${fromUsername}' -> '${toUsername}': ${mergedCount} records updated`);
+        const submissionsUpdated = submissionsRenamed + (subResult.changes || 0);
+        const scoresUpdated = (scoreResult.changes || 0) + (communityResult.changes || 0) + (historyResult.changes || 0);
+        // rowsAffected re-uses the dry-run counter shape, computed with the same
+        // room-scoped WHERE clauses (so dry-run === commit, regression test #2).
+        // For the from→to rename the source rows now read as `toUsername`, so we
+        // report the actual changed counts captured above rather than recounting.
+        const rowsAffected = {
+            submissions: submissionsUpdated,
+            scores: scoreResult.changes || 0,
+            community_scores: communityResult.changes || 0,
+            score_history: historyResult.changes || 0,
+            user_mappings: globalIdentityUpdated ? userMappingsAffected : 0,
+            player_aliases: globalIdentityUpdated ? 1 : 0,
+        };
+        const total = rowsAffected.submissions + rowsAffected.scores + rowsAffected.community_scores
+            + rowsAffected.score_history + rowsAffected.user_mappings + rowsAffected.player_aliases;
+
+        logInfo(`Renamed player '${fromUsername}' -> '${toUsername}' in room ${roomId}: ${total} records updated (global identity: ${globalIdentityUpdated})`);
 
         res.json({
             success: true,
-            submissionsUpdated: syncRows.length + (subResult.changes || 0),
-            scoresUpdated: (scoreResult.changes || 0) + (communityResult.changes || 0) + (historyResult.changes || 0),
+            submissionsUpdated,
+            scoresUpdated,
+            rowsAffected,
+            total,
+            globalIdentityUpdated,
         });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admin/merge-player):', error);

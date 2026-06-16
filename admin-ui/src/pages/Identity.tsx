@@ -74,9 +74,38 @@ interface AuditEntry {
     summary: { moving: number; frozen: number };
 }
 
+/** Per-table rows-affected counts returned by the merge-player dry-run + commit. */
+interface RenameRowsAffected {
+    submissions: number;
+    scores: number;
+    community_scores: number;
+    score_history: number;
+    user_mappings: number;
+    player_aliases: number;
+}
+
+/** Dry-run response from POST /rooms/:roomId/admin/merge-player?dryRun=true */
+interface RenamePreview {
+    dryRun: true;
+    rowsAffected: RenameRowsAffected;
+    total: number;
+    globalIdentityWillUpdate: boolean;
+}
+
+/** Commit response from POST /rooms/:roomId/admin/merge-player */
+interface RenameCommitResult {
+    success: boolean;
+    submissionsUpdated: number;
+    scoresUpdated: number;
+    rowsAffected: RenameRowsAffected;
+    total: number;
+    globalIdentityUpdated: boolean;
+}
+
 type PreviewModalState =
     | { kind: 'merge'; queueEntry: QueueEntry; preview: MergePreview; targetUserId: string }
-    | { kind: 'reverse'; auditEntry: AuditEntry; preview: ReversalPreview };
+    | { kind: 'reverse'; auditEntry: AuditEntry; preview: ReversalPreview }
+    | { kind: 'rename'; fromUsername: string; toUsername: string; preview: RenamePreview };
 
 export default function Identity() {
     const { roomId } = useRoom();
@@ -93,25 +122,49 @@ export default function Identity() {
     const [mergeTo, setMergeTo] = useState('');
     const [renaming, setRenaming] = useState(false);
 
-    const handleRenamePlayer = async () => {
+    // Step 1 — DRY-RUN preview. Replaces the old blind window.confirm() commit.
+    const previewRenamePlayer = async () => {
         if (!roomId) return;
         const from = mergeFrom.trim();
         const to = mergeTo.trim();
         if (!from || !to) return;
-        if (!confirm(`Rename all records from "${from}" to "${to}"? This cannot be undone.`)) return;
+        setError(null);
         setRenaming(true);
         try {
-            const result = await api.post<{ submissionsUpdated: number; scoresUpdated: number }>(
-                `/rooms/${roomId}/admin/merge-player`,
+            const preview = await api.post<RenamePreview>(
+                `/rooms/${roomId}/admin/merge-player?dryRun=true`,
                 { fromUsername: from, toUsername: to },
             );
-            toast(`Merged: ${result.submissionsUpdated} submissions, ${result.scoresUpdated} scores updated`, 'success');
-            setMergeFrom('');
-            setMergeTo('');
-        } catch {
-            toast('Failed to merge player', 'error');
+            setModal({ kind: 'rename', fromUsername: from, toUsername: to, preview });
+            setReason('');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Rename preview failed');
         } finally {
             setRenaming(false);
+        }
+    };
+
+    // Step 2 — COMMIT the rename after the preview is reviewed.
+    const confirmRename = async () => {
+        if (!roomId || !modal || modal.kind !== 'rename') return;
+        setSubmitting(true);
+        try {
+            const result = await api.post<RenameCommitResult>(
+                `/rooms/${roomId}/admin/merge-player`,
+                { fromUsername: modal.fromUsername, toUsername: modal.toUsername, reason: reason || undefined },
+            );
+            setModal(null);
+            setMergeFrom('');
+            setMergeTo('');
+            toast(
+                `Renamed: ${result.submissionsUpdated} submission${result.submissionsUpdated === 1 ? '' : 's'}, ${result.scoresUpdated} score${result.scoresUpdated === 1 ? '' : 's'} updated`,
+                'success',
+            );
+            await refresh();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Rename failed');
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -255,9 +308,9 @@ export default function Identity() {
                     <NeonButton
                         variant="secondary"
                         disabled={renaming || !mergeFrom.trim() || !mergeTo.trim()}
-                        onClick={handleRenamePlayer}
+                        onClick={previewRenamePlayer}
                     >
-                        {renaming ? 'Merging...' : 'Merge'}
+                        {renaming ? 'Previewing…' : 'Preview rename →'}
                     </NeonButton>
                 </div>
             </NeonCard>
@@ -356,7 +409,11 @@ export default function Identity() {
                 setReason={setReason}
                 submitting={submitting}
                 onClose={() => setModal(null)}
-                onConfirm={modal.kind === 'merge' ? confirmMerge : confirmReverse}
+                onConfirm={
+                    modal.kind === 'merge' ? confirmMerge
+                        : modal.kind === 'reverse' ? confirmReverse
+                            : confirmRename
+                }
             />}
         </div>
     );
@@ -377,14 +434,18 @@ function PreviewModal({
     onClose: () => void;
     onConfirm: () => void;
 }) {
-    const isMerge = state.kind === 'merge';
-    const title = isMerge
-        ? `Merge "${state.preview.anonymousNickname}" → @${(state as any).targetUserId}`
-        : `Reverse merge #${state.preview.mergeId}`;
-    const movingCount = isMerge ? state.preview.totalMovingRows : state.preview.totalReturningRows;
-    const frozenGroups = isMerge ? state.preview.frozenStay : state.preview.willStay;
-    const frozenCount = isMerge ? state.preview.totalFrozenRows : state.preview.totalStayingRows;
-    const confirmLabel = isMerge ? 'Confirm merge' : 'Reverse merge';
+    let title: string;
+    let confirmLabel: string;
+    if (state.kind === 'rename') {
+        title = `Rename "${state.fromUsername}" → "${state.toUsername}"`;
+        confirmLabel = 'Confirm rename';
+    } else if (state.kind === 'merge') {
+        title = `Merge "${state.preview.anonymousNickname}" → @${state.targetUserId}`;
+        confirmLabel = 'Confirm merge';
+    } else {
+        title = `Reverse merge #${state.preview.mergeId}`;
+        confirmLabel = 'Reverse merge';
+    }
 
     return (
         <div
@@ -398,26 +459,10 @@ function PreviewModal({
                     <h3 className="font-display text-sm font-bold text-primary truncate">{title}</h3>
                 </div>
                 <div className="px-4 py-4 space-y-3 text-xs">
-                    <div className="px-3 py-2 rounded bg-neon-cyan/5 border border-neon-cyan/20">
-                        <p className="text-primary">
-                            <strong className="text-neon-cyan">{movingCount}</strong> score{movingCount === 1 ? '' : 's'} will{' '}
-                            {isMerge ? <>attribute to <span className="text-neon-cyan">@{(state as any).targetUserId}</span></> : 'return to the anonymous identity'}.
-                        </p>
-                    </div>
-                    {frozenCount > 0 && (
-                        <div className="px-3 py-2 rounded bg-neon-amber/5 border border-neon-amber/20">
-                            <p className="text-neon-amber inline-flex items-center gap-1">
-                                <Clock size={12} />
-                                {frozenCount} row{frozenCount === 1 ? ' stays' : 's stay'} put — frozen by completed tournament{frozenGroups.length === 1 ? '' : 's'}
-                            </p>
-                            <ul className="mt-1 list-disc list-inside space-y-0.5 text-muted">
-                                {frozenGroups.map(g => (
-                                    <li key={g.tournamentId}>
-                                        {g.tournamentName} (closed {new Date(g.completedAt).toLocaleDateString()}) — {g.rowCount} row{g.rowCount === 1 ? '' : 's'}
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
+                    {state.kind === 'rename' ? (
+                        <RenamePreviewBody state={state} />
+                    ) : (
+                        <MovePreviewBody state={state} />
                     )}
                     <div>
                         <label className="block text-xs text-faint mb-1">Reason (optional)</label>
@@ -440,5 +485,83 @@ function PreviewModal({
                 </div>
             </div>
         </div>
+    );
+}
+
+/** Per-table rows-affected body for the rename dry-run preview. */
+function RenamePreviewBody({ state }: { state: Extract<PreviewModalState, { kind: 'rename' }> }) {
+    const { rowsAffected, total, globalIdentityWillUpdate } = state.preview;
+    const rows: { label: string; count: number }[] = [
+        { label: 'Submissions', count: rowsAffected.submissions },
+        { label: 'Scores', count: rowsAffected.scores },
+        { label: 'Community scores', count: rowsAffected.community_scores },
+        { label: 'Score history', count: rowsAffected.score_history },
+        { label: 'User mappings', count: rowsAffected.user_mappings },
+        { label: 'Player aliases', count: rowsAffected.player_aliases },
+    ];
+    return (
+        <>
+            <p className="text-muted">
+                Records to rewrite from <span className="text-primary">"{state.fromUsername}"</span> to{' '}
+                <span className="text-neon-cyan">"{state.toUsername}"</span> in this room:
+            </p>
+            <div className="space-y-1.5">
+                {rows.map(r => (
+                    <div
+                        key={r.label}
+                        className="px-3 py-2 rounded bg-neon-cyan/5 border border-neon-cyan/20 flex items-center justify-between"
+                    >
+                        <span className="text-muted">{r.label}</span>
+                        <strong className="text-neon-cyan">{r.count}</strong>
+                    </div>
+                ))}
+            </div>
+            <div className="px-3 py-2 rounded bg-neon-cyan/10 border border-neon-cyan/30 flex items-center justify-between">
+                <span className="text-primary font-medium">Total rows affected</span>
+                <strong className="text-neon-cyan">{total}</strong>
+            </div>
+            {!globalIdentityWillUpdate && (
+                <div className="px-3 py-2 rounded bg-neon-amber/5 border border-neon-amber/20">
+                    <p className="text-neon-amber inline-flex items-center gap-1">
+                        <Clock size={12} />
+                        Global identity (user mappings &amp; player aliases) stays put — requires a super-admin.
+                    </p>
+                </div>
+            )}
+        </>
+    );
+}
+
+/** Moving-rows + frozen-tournament body shared by the merge and reverse previews. */
+function MovePreviewBody({ state }: { state: Extract<PreviewModalState, { kind: 'merge' | 'reverse' }> }) {
+    const movingCount = state.kind === 'merge' ? state.preview.totalMovingRows : state.preview.totalReturningRows;
+    const frozenGroups = state.kind === 'merge' ? state.preview.frozenStay : state.preview.willStay;
+    const frozenCount = state.kind === 'merge' ? state.preview.totalFrozenRows : state.preview.totalStayingRows;
+    return (
+        <>
+            <div className="px-3 py-2 rounded bg-neon-cyan/5 border border-neon-cyan/20">
+                <p className="text-primary">
+                    <strong className="text-neon-cyan">{movingCount}</strong> score{movingCount === 1 ? '' : 's'} will{' '}
+                    {state.kind === 'merge'
+                        ? <>attribute to <span className="text-neon-cyan">@{state.targetUserId}</span></>
+                        : 'return to the anonymous identity'}.
+                </p>
+            </div>
+            {frozenCount > 0 && (
+                <div className="px-3 py-2 rounded bg-neon-amber/5 border border-neon-amber/20">
+                    <p className="text-neon-amber inline-flex items-center gap-1">
+                        <Clock size={12} />
+                        {frozenCount} row{frozenCount === 1 ? ' stays' : 's stay'} put — frozen by completed tournament{frozenGroups.length === 1 ? '' : 's'}
+                    </p>
+                    <ul className="mt-1 list-disc list-inside space-y-0.5 text-muted">
+                        {frozenGroups.map(g => (
+                            <li key={g.tournamentId}>
+                                {g.tournamentName} (closed {new Date(g.completedAt).toLocaleDateString()}) — {g.rowCount} row{g.rowCount === 1 ? '' : 's'}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </>
     );
 }
