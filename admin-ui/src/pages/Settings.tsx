@@ -191,6 +191,31 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
   },
 };
 
+// Every boolean on/off toggle key → its default-when-absent value, aggregated
+// from the toggle maps + the two inline toggles. Used by the dirty diff so a
+// toggle flipped on then back off reads as clean: an absent value and an
+// explicit 'false'/'true' that resolve to the same effective state must not
+// count as a change (off-default toggles store nothing until touched, so
+// undefined-vs-'false' was wrongly showing as dirty).
+const TOGGLE_DEFAULTS: Record<string, boolean> = {
+  ...Object.fromEntries(Object.entries(SCOREBOARD_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
+  ...Object.fromEntries(Object.entries(KIOSK_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
+  ...Object.fromEntries(Object.entries(GLOBAL_CARD_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
+  ...Object.fromEntries(Object.entries(TOGGLE_SETTINGS).map(([k, v]) => [k, !!v.defaultOn])),
+  SCOREBOARD_MOBILE_VERTICAL: true,
+  SCOREBOARD_LOGO_ENABLED: true,
+};
+
+// True iff key k differs between two settings snapshots. Boolean toggles compare
+// by effective on/off (default-resolved); everything else by string value.
+const settingChanged = (k: string, a: Record<string, string>, b: Record<string, string>): boolean => {
+  if (k in TOGGLE_DEFAULTS) {
+    const eff = (src: Record<string, string>) => (src[k] !== undefined ? src[k] === 'true' : TOGGLE_DEFAULTS[k]);
+    return eff(a) !== eff(b);
+  }
+  return (a[k] ?? '') !== (b[k] ?? '');
+};
+
 const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   // Game Room
   GAME_ROOM_NAME: { label: 'Game Room Name', description: 'Display name shown on the public landing page and all public pages.' },
@@ -518,7 +543,7 @@ export default function Settings() {
     const out: string[] = [];
     keys.forEach(k => {
       if (DEAD_KEYS.has(k) || k === 'ADMIN_PASSWORD_HASH') return;
-      if ((settings[k] ?? '') !== (baseline[k] ?? '')) out.push(k);
+      if (settingChanged(k, settings, baseline)) out.push(k);
     });
     return out;
   })();
@@ -622,7 +647,7 @@ export default function Settings() {
 
   const handleSave = async () => {
     // Confirm before saving a change to any access-affecting toggle.
-    const changedDangerous = DANGEROUS_KEYS.filter(k => (settings[k] ?? '') !== (baseline[k] ?? ''));
+    const changedDangerous = DANGEROUS_KEYS.filter(k => settingChanged(k, settings, baseline));
     if (changedDangerous.length > 0) {
       const labels = changedDangerous.map(k => TOGGLE_SETTINGS[k]?.label || k).join(', ');
       if (!window.confirm(`You're changing: ${labels}. This affects how players access this room. Save these changes?`)) return;
