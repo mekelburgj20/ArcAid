@@ -3789,6 +3789,92 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
     }
 });
 
+// List deleted-score suppressions (tombstones) for a game in a room (admin).
+// Mirrors the wipe-player endpoint's auth + room-ownership gate so a room admin
+// only ever sees tombstones for games their room owns. Read-only — the global
+// auditLog skips GETs.
+router.get('/:roomId/admin/games/:gameId/suppressions', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const db = await getDatabase();
+
+        // Verify game belongs to this room. LEFT JOIN tournaments so pinned
+        // rows (tournament_id IS NULL) match via games.game_room_id directly.
+        const game = await db.get(
+            `SELECT g.id, g.game_room_id, g.tournament_id, t.game_room_id as tournament_room_id
+             FROM games g
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
+             WHERE g.id = ?`,
+            gameId
+        );
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        const ownedByRoom = game.tournament_room_id === roomId || game.game_room_id === roomId;
+        if (!ownedByRoom) return res.status(404).json({ error: 'Game not found in this room' });
+
+        const rows = await db.all(
+            `SELECT game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id
+             FROM deleted_score_suppressions
+             WHERE game_id = ?
+             ORDER BY deleted_at DESC`,
+            gameId
+        );
+        res.json({
+            suppressions: rows.map(r => ({
+                gameId: r.game_id,
+                username: r.iscored_username_lower,
+                suppressedScore: r.suppressed_score,
+                deletedAt: r.deleted_at,
+                deletedBy: r.deleted_by_user_id,
+            })),
+        });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/games/:gameId/suppressions):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Remove one deleted-score suppression tombstone for a game in a room (admin).
+// The composite PK (game_id, iscored_username_lower) has no surrogate id, so the
+// DELETE targets BOTH columns to clear exactly one row (game_id alone would wipe
+// every tombstone for the game). Once gone, the sync poller re-imports the
+// player's iScored score on its next ~30s cycle (subject to the score > existing
+// check). Auto-audited by the global auditLog on 2xx.
+router.delete('/:roomId/admin/games/:gameId/suppressions/:username', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameId = req.params.gameId as string;
+        const username = decodeURIComponent(req.params.username as string);
+        const db = await getDatabase();
+
+        const game = await db.get(
+            `SELECT g.id, g.game_room_id, g.tournament_id, t.game_room_id as tournament_room_id
+             FROM games g
+             LEFT JOIN tournaments t ON t.id = g.tournament_id
+             WHERE g.id = ?`,
+            gameId
+        );
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        const ownedByRoom = game.tournament_room_id === roomId || game.game_room_id === roomId;
+        if (!ownedByRoom) return res.status(404).json({ error: 'Game not found in this room' });
+
+        const result = await db.run(
+            `DELETE FROM deleted_score_suppressions
+             WHERE game_id = ? AND iscored_username_lower = LOWER(?)`,
+            gameId, username
+        );
+        if ((result.changes ?? 0) === 0) return res.status(404).json({ error: 'Suppression not found' });
+
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        RoomEventService.log(roomId, 'score_suppression_cleared', { gameId, player: username }).catch(() => {});
+
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admin/games/:gameId/suppressions/:username):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Get style for a game
 router.get('/:roomId/games/:gameId/style', async (req, res) => {
     try {

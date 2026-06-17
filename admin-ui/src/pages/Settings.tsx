@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
@@ -90,6 +91,16 @@ const SENSITIVE_KEYS = ['ISCORED_PASSWORD', 'ADMIN_PASSWORD_HASH'];
 const ENC_MASK_PREFIX = 'mask:';
 const isMaskedSecret = (v: string | undefined | null): boolean =>
   typeof v === 'string' && v.startsWith(ENC_MASK_PREFIX);
+
+// Settings keys that look editable but are functional no-ops: the live room
+// name/slug come from the game_rooms table (RoomContext), not these keys — they
+// only seed the FIRST room at bootstrap (see migrateToMultiRoom). Rendered
+// read-only and excluded from dirty tracking + the save payload.
+const DEAD_KEYS = new Set(['GAME_ROOM_NAME', 'GAME_ROOM_SLUG']);
+
+// Saving a change to any of these asks for explicit confirmation first — each
+// flips how players reach or use the room.
+const DANGEROUS_KEYS = ['REQUIRE_DISCORD_LOGIN', 'ISCORED_ENABLED', 'DISCORD_ENABLED', 'GLOBAL_SCOREBOARD_ENABLED'];
 
 const CATEGORIES: Record<string, string[]> = {
   'Leaderboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
@@ -338,9 +349,13 @@ const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text
 
 export default function Settings() {
   const room = useRoom();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const { publicTheme, setPublicTheme, adminTheme, setAdminTheme } = useTheme();
   const [settings, setSettings] = useState<Record<string, string>>({});
+  // Snapshot of the last-loaded/saved settings — the dirty baseline. State (not
+  // a ref) so resetting it after save/load triggers a recompute of `isDirty`.
+  const [baseline, setBaseline] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
@@ -477,6 +492,7 @@ export default function Settings() {
     api.get<Record<string, string>>(`/rooms/${room.roomId}/settings`)
       .then(data => {
         setSettings(data);
+        setBaseline({ ...data });
         // Sync global theme from settings
         if (data.UI_THEME && data.UI_THEME !== publicTheme) {
           setPublicTheme(data.UI_THEME as ThemeId);
@@ -492,6 +508,60 @@ export default function Settings() {
     fetchAdmins();
     fetchInvites();
   }, []);
+
+  // ── Unsaved-changes tracking (S8) ──────────────────────────────────────
+  // Baseline is captured AFTER load so the page never reads dirty on mount.
+  // Dead keys are read-only (never reach the dirty set); ADMIN_PASSWORD_HASH is
+  // write-only and never round-trips, so it is ignored too.
+  const dirtyKeys = (() => {
+    const keys = new Set([...Object.keys(baseline), ...Object.keys(settings)]);
+    const out: string[] = [];
+    keys.forEach(k => {
+      if (DEAD_KEYS.has(k) || k === 'ADMIN_PASSWORD_HASH') return;
+      if ((settings[k] ?? '') !== (baseline[k] ?? '')) out.push(k);
+    });
+    return out;
+  })();
+  const isDirty = dirtyKeys.length > 0;
+
+  // Warn on browser-level navigation (tab close / refresh / address bar) while dirty.
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  // Guard in-app navigation while dirty. React Router v7 runs here in declarative
+  // <BrowserRouter> mode, which has no useBlocker — so intercept clicks on in-app
+  // <a> (the layout's <Link>s render to anchors) at capture phase and confirm
+  // before leaving. Only active while dirty; ignores modifier/middle clicks,
+  // new-tab/download anchors, hash links, and cross-origin links. (Browser
+  // back/forward is not guarded — declarative mode exposes no clean hook.)
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const anchor = (e.target as HTMLElement)?.closest?.('a');
+      if (!anchor) return;
+      if (anchor.target && anchor.target !== '_self') return;
+      if (anchor.hasAttribute('download')) return;
+      const rawHref = anchor.getAttribute('href');
+      if (!rawHref || rawHref.startsWith('#')) return;
+      let dest: URL;
+      try { dest = new URL(anchor.href, window.location.origin); } catch { return; }
+      if (dest.origin !== window.location.origin) return;
+      if (dest.pathname === window.location.pathname && dest.search === window.location.search) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.confirm('You have unsaved changes. Leave this page without saving?')) {
+        setBaseline({ ...settings });
+        navigate(dest.pathname + dest.search + dest.hash);
+      }
+    };
+    document.addEventListener('click', handler, true);
+    return () => document.removeEventListener('click', handler, true);
+  }, [isDirty, settings, navigate]);
 
   const handleChange = (key: string, value: string) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -551,12 +621,24 @@ export default function Settings() {
   }
 
   const handleSave = async () => {
+    // Confirm before saving a change to any access-affecting toggle.
+    const changedDangerous = DANGEROUS_KEYS.filter(k => (settings[k] ?? '') !== (baseline[k] ?? ''));
+    if (changedDangerous.length > 0) {
+      const labels = changedDangerous.map(k => TOGGLE_SETTINGS[k]?.label || k).join(', ');
+      if (!window.confirm(`You're changing: ${labels}. This affects how players access this room. Save these changes?`)) return;
+    }
     setSaving(true);
     try {
-      // Filter out ADMIN_PASSWORD_HASH — server rejects it via this endpoint
-      const { ADMIN_PASSWORD_HASH: _, ...toSave } = settings;
+      // Strip ADMIN_PASSWORD_HASH (server rejects it here) and the dead
+      // GAME_ROOM_NAME/SLUG keys (read-only; live values live in game_rooms).
+      const toSave: Record<string, string> = {};
+      Object.entries(settings).forEach(([k, v]) => {
+        if (k === 'ADMIN_PASSWORD_HASH' || DEAD_KEYS.has(k)) return;
+        toSave[k] = v;
+      });
       await api.post(`/rooms/${room.roomId}/settings`, toSave);
       toast('Settings saved', 'success');
+      setBaseline({ ...settings });
     } catch {
       toast('Failed to save settings', 'error');
     } finally {
@@ -808,9 +890,16 @@ export default function Settings() {
       <div className="sticky top-0 z-20 bg-deep/95 backdrop-blur-sm -mx-4 px-4 py-3 mb-4 border-b border-border/20">
         <div className="flex items-center justify-between">
           <h1 className="font-display text-2xl font-bold">Settings</h1>
-          <NeonButton onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save All Changes'}
-          </NeonButton>
+          <div className="flex items-center gap-3">
+            {isDirty && (
+              <span className="text-xs text-neon-amber whitespace-nowrap">
+                {dirtyKeys.length} unsaved change{dirtyKeys.length === 1 ? '' : 's'}
+              </span>
+            )}
+            <NeonButton onClick={handleSave} disabled={saving || !isDirty}>
+              {saving ? 'Saving...' : 'Save All Changes'}
+            </NeonButton>
+          </div>
         </div>
       </div>
 
@@ -1098,7 +1187,14 @@ export default function Settings() {
                         {meta?.label || key}
                         {meta?.description && <InfoTip text={meta.description} />}
                       </label>
-                      {(key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY' || key === 'SCOREBOARD_GLASS_OPACITY') ? (
+                      {DEAD_KEYS.has(key) ? (
+                        <div className="flex-1">
+                          <p className="text-sm text-muted font-mono px-3 py-2 bg-surface border border-border/50 rounded">
+                            {(key === 'GAME_ROOM_NAME' ? room.roomName : room.roomSlug) || value || '—'}
+                          </p>
+                          <p className="text-xs text-faint mt-1">Contact your server admin to rename this room.</p>
+                        </div>
+                      ) : (key === 'SCOREBOARD_CARD_OPACITY' || key === 'SCOREBOARD_BG_OPACITY' || key === 'SCOREBOARD_GLASS_OPACITY') ? (
                         <div className="flex items-center gap-3 flex-1">
                           <input type="range" min="0" max="100" step="5"
                             value={Math.round((parseFloat(value || '1') * 100))}

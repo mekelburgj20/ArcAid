@@ -28,6 +28,18 @@ interface Submission {
   photo_url: string | null;
 }
 
+/** A deleted-score tombstone (deleted_score_suppressions, migration 096). While
+ *  it exists, the ScoreSyncPoller refuses to re-import a same-or-lower iScored
+ *  score for this game. Removing it lets the next poll cycle re-import. */
+interface Suppression {
+  gameId: string;
+  /** lowercased iScored username (composite-PK component). */
+  username: string;
+  suppressedScore: number;
+  deletedAt: string;
+  deletedBy: string | null;
+}
+
 export default function Leaderboard() {
   const room = useRoom();
   const { toast } = useToast();
@@ -519,7 +531,7 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const deleteSubmission = async (sub: Submission) => {
-    if (!confirm(`Delete score ${sub.score.toLocaleString()} by ${sub.iscored_username}?`)) return;
+    if (!confirm(`Delete score ${sub.score.toLocaleString()} by ${sub.iscored_username}? Scores at or below this value that still exist on iScored will not re-import.`)) return;
     setDeleting(sub.id);
     try {
       await api.delete(`/rooms/${roomId}/admin/games/${lb.gameId}/submissions/${encodeURIComponent(sub.id)}`);
@@ -727,6 +739,8 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
   const { toast } = useToast();
   const [submissions, setSubmissions] = useState<Submission[] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [suppressions, setSuppressions] = useState<Suppression[] | null>(null);
+  const [removingSuppression, setRemovingSuppression] = useState<string | null>(null);
 
   const load = () => {
     setSubmissions(null);
@@ -736,12 +750,16 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
         setSubmissions(rows);
       })
       .catch(() => setSubmissions([]));
+    setSuppressions(null);
+    api.get<{ suppressions: Suppression[] }>(`/rooms/${roomId}/admin/games/${lb.gameId}/suppressions`)
+      .then(r => setSuppressions(r.suppressions))
+      .catch(() => setSuppressions([]));
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [lb.gameId]);
 
   const handleDelete = async (sub: Submission) => {
-    if (!confirm(`Delete ${sub.iscored_username}'s score (${sub.score.toLocaleString()})? This wipes the row from the leaderboard and removes their score history for this game.`)) return;
+    if (!confirm(`Delete ${sub.iscored_username}'s score (${sub.score.toLocaleString()})? This wipes the row from the leaderboard and removes their score history for this game. Scores at or below this value that still exist on iScored will not re-import.`)) return;
     setDeletingId(sub.id);
     try {
       await api.delete(`/rooms/${roomId}/admin/games/${lb.gameId}/submissions/${encodeURIComponent(sub.id)}`);
@@ -752,6 +770,20 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
       toast(err.message || 'Failed to delete score', 'error');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleRemoveSuppression = async (s: Suppression) => {
+    if (!confirm(`Remove the suppression for ${s.username} (${s.suppressedScore.toLocaleString()})? Their iScored score for this game will re-import on the next sync cycle.`)) return;
+    setRemovingSuppression(s.username);
+    try {
+      await api.delete(`/rooms/${roomId}/admin/games/${lb.gameId}/suppressions/${encodeURIComponent(s.username)}`);
+      toast(`Suppression removed: ${s.username} (${s.suppressedScore.toLocaleString()})`, 'success');
+      load();
+    } catch (err: any) {
+      toast(err.message || 'Failed to remove suppression', 'error');
+    } finally {
+      setRemovingSuppression(null);
     }
   };
 
@@ -786,6 +818,42 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
                       disabled={deletingId === sub.id}
                       className="text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-30"
                       title="Delete score (wipes player from this game)"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="px-5 pt-4 pb-1 border-t border-border/50 mt-2">
+            <h3 className="font-display text-sm font-bold mb-0.5">Suppressed scores</h3>
+            <p className="text-[11px] text-faint">Deleted scores that iScored will not re-import until removed.</p>
+          </div>
+          {suppressions === null ? (
+            <p className="text-faint text-sm text-center py-6">Loading...</p>
+          ) : suppressions.length === 0 ? (
+            <p className="text-muted text-sm text-center py-6">No suppressed scores</p>
+          ) : (
+            <div className="divide-y divide-border/30">
+              {suppressions.map(s => (
+                <div key={`${s.gameId}-${s.username}`} className="flex items-center justify-between px-5 py-2.5 group hover:bg-raised/30 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Lock size={12} className="text-faint flex-shrink-0" />
+                    <span className="text-sm truncate">{s.username}</span>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="font-display font-bold text-sm">{s.suppressedScore.toLocaleString()}</span>
+                    <span className="text-faint text-[10px] w-28 text-right truncate" title={s.deletedBy ? `Deleted by ${s.deletedBy}` : 'Deleted'}>
+                      {new Date(s.deletedAt).toLocaleDateString()}{s.deletedBy ? ` · ${s.deletedBy}` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSuppression(s)}
+                      disabled={removingSuppression === s.username}
+                      className="text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-30"
+                      title="Remove suppression (allows iScored re-import)"
                     >
                       <Trash2 size={14} />
                     </button>
