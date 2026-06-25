@@ -11,7 +11,9 @@ export const createbackup: Command = {
         await interaction.deferReply({ ephemeral: true });
         try {
             const manager = BackupManager.getInstance();
-            const backupPath = await manager.createBackup(null as any);
+            // No iScored client passed: BackupManager.createBackup(client?) is optional —
+            // this performs a DB + assets backup and skips iScored state capture (simplest, safe path).
+            const backupPath = await manager.createBackup();
             await interaction.editReply(`**Backup Successful!**\nA full system backup has been created at:\n\`${backupPath}\``);
         } catch (error) {
             logError('Error in create-backup command:', error);

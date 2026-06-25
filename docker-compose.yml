@@ -3,7 +3,8 @@ version: '3.8'
 services:
   arcaid:
     build: .
-    container_name: arcaid-bot
+    # Reconciled with production: the running container is "arcaid" (was "arcaid-bot").
+    container_name: arcaid
     restart: unless-stopped
     ports:
       - "3001:3001"
@@ -15,3 +16,11 @@ services:
     environment:
       # Optional: You can still use a .env file locally with compose
       - NODE_ENV=production
+    # Dependency-light health check: Node is already in the Playwright Ubuntu image,
+    # so we avoid relying on curl/wget being present. Hits the app's /api/status endpoint.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/api/status', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
