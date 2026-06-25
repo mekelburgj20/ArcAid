@@ -4596,4 +4596,75 @@ router.post('/:roomId/admin/game-states/force-maintenance', requireAuth, require
     }
 });
 
+// GET — iScored reconcile DRY-RUN. Categorize the games currently on iScored
+// (by iscored_id) against the local DB into keep / orphans / unmanaged so an
+// admin can clean up entries ArcAid archived but iScored never deleted.
+router.get('/:roomId/admin/game-states/iscored-reconcile', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(roomId);
+        if (!creds) return res.status(400).json({ error: 'No iScored credentials configured for this room.' });
+
+        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+        const iscoredGames = await IScoredSessionRegistry.getInstance()
+            .withSession(creds, (client) => client.getGamesOnIScored());
+
+        const { buildReconcilePlan } = await import('../../services/IScoredReconcileService.js');
+        const plan = await buildReconcilePlan(iscoredGames);
+        res.json(plan);
+    } catch (error: any) {
+        logError('API Error (GET game-states/iscored-reconcile):', error);
+        res.status(500).json({ error: error.message || 'Internal Server Error' });
+    }
+});
+
+// POST — EXECUTE reconcile: delete the given iScored gameIDs. The plan is
+// re-derived inside the session and anything in `keep` is refused, so a live
+// game can never be deleted even if the client sends a stale or forged id.
+router.post('/:roomId/admin/game-states/iscored-reconcile', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const gameIds: string[] = Array.isArray(req.body?.gameIds)
+            ? req.body.gameIds.map((g: unknown) => String(g))
+            : [];
+        if (gameIds.length === 0) return res.status(400).json({ error: 'No gameIds provided.' });
+
+        const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+        const creds = await getIScoredCredsForRoom(roomId);
+        if (!creds) return res.status(400).json({ error: 'No iScored credentials configured for this room.' });
+
+        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+        const { buildReconcilePlan } = await import('../../services/IScoredReconcileService.js');
+
+        const results = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+            const iscoredGames = await client.getGamesOnIScored();
+            const plan = await buildReconcilePlan(iscoredGames);
+            const deletable = new Map<string, string>(); // id -> name (orphans + unmanaged only)
+            for (const e of [...plan.orphans, ...plan.unmanaged]) deletable.set(e.id, e.name);
+
+            const out: { id: string; name: string | null; deleted: boolean; reason?: string }[] = [];
+            for (const id of gameIds) {
+                const name = deletable.get(id);
+                if (name === undefined) {
+                    out.push({ id, name: null, deleted: false, reason: 'kept for safety (live game or not present on iScored)' });
+                    continue;
+                }
+                const deleted = await client.deleteGame(id, name);
+                out.push({ id, name, deleted });
+            }
+            return out;
+        });
+
+        const deletedCount = results.filter((r) => r.deleted).length;
+        const { RoomEventService } = await import('../../services/RoomEventService.js');
+        await RoomEventService.log(roomId, 'iscored_reconcile', { requested: gameIds.length, deleted: deletedCount });
+        logInfo(`Admin iScored reconcile (room ${roomId}): deleted ${deletedCount}/${gameIds.length} game(s)`);
+        res.json({ success: true, deletedCount, results });
+    } catch (error: any) {
+        logError('API Error (POST game-states/iscored-reconcile):', error);
+        res.status(500).json({ error: error.message || 'Internal Server Error' });
+    }
+});
+
 export default router;

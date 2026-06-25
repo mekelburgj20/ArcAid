@@ -4,7 +4,7 @@ import { useRoom } from '../contexts/RoomContext';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
-import { AlertTriangle, Trash2, XCircle, RefreshCw, Play, Lock, EyeOff, Plus, Zap } from 'lucide-react';
+import { AlertTriangle, Trash2, XCircle, RefreshCw, Play, Lock, EyeOff, Plus, Zap, Recycle } from 'lucide-react';
 
 interface GameState {
   id: string;
@@ -23,6 +23,22 @@ interface GameState {
   tournament_name: string;
   tournament_type: string;
   tournament_id: string;
+}
+
+interface ReconcileEntry {
+  id: string;
+  name: string;
+  hidden: boolean;
+  locked: boolean;
+  tags: string[];
+  localName: string | null;
+  localStatuses: string[];
+}
+
+interface ReconcilePlan {
+  keep: ReconcileEntry[];
+  orphans: ReconcileEntry[];
+  unmanaged: ReconcileEntry[];
 }
 
 type StatusFilter = 'ALL' | 'ACTIVE' | 'QUEUED' | 'COMPLETED' | 'ARCHIVED';
@@ -62,6 +78,9 @@ export default function GameStates() {
   // Tournament list for force-maintenance
   const [tournaments, setTournaments] = useState<{ id: string; name: string }[]>([]);
 
+  // iScored reconcile modal state
+  const [reconcile, setReconcile] = useState<{ loading: boolean; plan: ReconcilePlan | null; selected: Set<string>; running: boolean } | null>(null);
+
   const fetchGames = async () => {
     try {
       // Always pull every status; filter chips operate client-side so the
@@ -95,6 +114,47 @@ export default function GameStates() {
   const showMsg = (text: string, type: 'success' | 'error') => {
     setMessage({ text, type });
     setTimeout(() => setMessage(null), 4000);
+  };
+
+  // --- iScored reconcile ---
+
+  const openReconcile = async () => {
+    setReconcile({ loading: true, plan: null, selected: new Set(), running: false });
+    try {
+      const plan = await api.get<ReconcilePlan>(`/rooms/${room.roomId}/admin/game-states/iscored-reconcile`);
+      // Pre-select orphans (safe deletes); unmanaged stay unchecked (opt-in).
+      setReconcile({ loading: false, plan, selected: new Set(plan.orphans.map(e => e.id)), running: false });
+    } catch (err: any) {
+      setReconcile(null);
+      showMsg(err.message || 'Failed to load the iScored game list', 'error');
+    }
+  };
+
+  const toggleReconcile = (id: string) => {
+    setReconcile(r => {
+      if (!r) return r;
+      const selected = new Set(r.selected);
+      if (selected.has(id)) selected.delete(id); else selected.add(id);
+      return { ...r, selected };
+    });
+  };
+
+  const runReconcile = async () => {
+    const gameIds = reconcile ? [...reconcile.selected] : [];
+    if (gameIds.length === 0) return;
+    setReconcile(r => (r ? { ...r, running: true } : r));
+    try {
+      const res = await api.post<{ deletedCount: number }>(
+        `/rooms/${room.roomId}/admin/game-states/iscored-reconcile`,
+        { gameIds },
+      );
+      showMsg(`Reconcile: deleted ${res.deletedCount} of ${gameIds.length} from iScored`, 'success');
+      setReconcile(null);
+      await fetchGames();
+    } catch (err: any) {
+      showMsg(err.message || 'Reconcile failed', 'error');
+      setReconcile(r => (r ? { ...r, running: false } : r));
+    }
   };
 
   // --- Actions ---
@@ -252,6 +312,14 @@ export default function GameStates() {
               Clean {phantomCount} Phantom{phantomCount > 1 ? 's' : ''}
             </button>
           )}
+          <button
+            onClick={openReconcile}
+            title="Find games on iScored that ArcAid no longer tracks and delete them"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-neon-purple/40 text-neon-purple bg-neon-purple/10 hover:bg-neon-purple/20 transition-colors cursor-pointer"
+          >
+            <Recycle size={14} />
+            Reconcile iScored
+          </button>
           <button
             onClick={() => { setLoading(true); fetchGames(); }}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-border text-muted hover:text-primary hover:border-neon-cyan/40 transition-colors cursor-pointer"
@@ -444,6 +512,16 @@ export default function GameStates() {
           onCancel={() => setConfirmAction(null)}
         />
       )}
+
+      {/* iScored Reconcile Modal */}
+      {reconcile && (
+        <ReconcileModal
+          state={reconcile}
+          onToggle={toggleReconcile}
+          onRun={runReconcile}
+          onCancel={() => setReconcile(null)}
+        />
+      )}
     </div>
   );
 }
@@ -465,6 +543,72 @@ function ActionBtn({ icon, title, onClick, color }: { icon: React.ReactNode; tit
     >
       {icon}
     </button>
+  );
+}
+
+// iScored reconcile modal — keep/orphan/unmanaged buckets with per-row delete opt-in.
+function ReconcileModal({ state, onToggle, onRun, onCancel }: {
+  state: { loading: boolean; plan: ReconcilePlan | null; selected: Set<string>; running: boolean };
+  onToggle: (id: string) => void;
+  onRun: () => void;
+  onCancel: () => void;
+}) {
+  const { loading, plan, selected, running } = state;
+  const row = (e: ReconcileEntry, kind: 'orphan' | 'unmanaged') => (
+    <label key={e.id} className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-raised cursor-pointer text-sm">
+      <input type="checkbox" checked={selected.has(e.id)} onChange={() => onToggle(e.id)} className="accent-red-400" />
+      <span className="text-primary flex-1 truncate">{e.name || `(id ${e.id})`}</span>
+      {e.tags.length > 0 && <span className="text-[10px] text-muted shrink-0">{e.tags.join(', ')}</span>}
+      <span className="text-[10px] text-faint shrink-0">{kind === 'orphan' ? `local: ${e.localStatuses.join('/')}` : 'not in ArcAid'}</span>
+    </label>
+  );
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm" onClick={onCancel}>
+      <div className="bg-surface border border-border rounded-lg shadow-2xl p-6 max-w-lg w-full mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <h3 className="font-display font-bold text-primary mb-1">Reconcile iScored</h3>
+        {loading ? (
+          <p className="text-sm text-muted py-6">Loading iScored game list…</p>
+        ) : !plan ? (
+          <p className="text-sm text-red-400 py-6">Could not load the iScored game list.</p>
+        ) : (
+          <>
+            <p className="text-xs text-muted mb-3">
+              {plan.keep.length + plan.orphans.length + plan.unmanaged.length} on iScored ·{' '}
+              <span className="text-neon-green">{plan.keep.length} live (kept)</span> ·{' '}
+              <span className="text-red-400">{plan.orphans.length} orphan{plan.orphans.length !== 1 ? 's' : ''}</span> ·{' '}
+              <span className="text-neon-amber">{plan.unmanaged.length} unmanaged</span>
+            </p>
+            <div className="overflow-y-auto flex-1 -mx-2 px-2 space-y-3">
+              {plan.orphans.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1">Orphans — archived in ArcAid, still on iScored</div>
+                  {plan.orphans.map(e => row(e, 'orphan'))}
+                </div>
+              )}
+              {plan.unmanaged.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-neon-amber mb-1">Unmanaged — not in ArcAid (check only if you're sure)</div>
+                  {plan.unmanaged.map(e => row(e, 'unmanaged'))}
+                </div>
+              )}
+              {plan.orphans.length === 0 && plan.unmanaged.length === 0 && (
+                <p className="text-sm text-neon-green py-4">Nothing to clean up — iScored matches ArcAid. 🎉</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-border">
+              <button onClick={onCancel} className="text-xs px-3 py-1.5 rounded border border-border text-muted hover:text-primary cursor-pointer">Cancel</button>
+              <button
+                onClick={onRun}
+                disabled={running || selected.size === 0}
+                className="text-xs px-3 py-1.5 rounded border border-red-500/40 text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {running ? 'Deleting…' : `Delete ${selected.size} from iScored`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
