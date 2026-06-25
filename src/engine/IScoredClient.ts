@@ -691,99 +691,190 @@ export class IScoredClient {
     }
 
     /**
-     * Deletes a game from iScored via the Games tab.
-     * Selects the game, clicks Delete, confirms the modal, then re-checks the
-     * dropdown to verify the game is actually gone.
+     * Deletes a game on iScored and confirms it's actually gone.
      *
-     * Returns `true` when the post-flight verification confirms the game is
-     * absent from the `<select id="selectGame">` dropdown. Returns `false`
-     * when either (a) the pre-flight check found the game missing, or
-     * (b) the modal-driven delete completed but post-flight verification
-     * still saw the game in the dropdown — both leave the entity on iScored
-     * and callers must distinguish from real success. The modal hides on
-     * click regardless of whether the backend actually deleted (silent
-     * reject, stale-modal click, etc.), so the verification step is what
-     * catches the false-success path. Throws on Playwright errors.
+     * Primary path is iScored's internal admin endpoint
+     * (`settingsCommands.php?c=deleteGame&gameID=…`) fired from inside the
+     * authenticated page — deterministic, no DOM driving. The legacy Games-tab
+     * UI flow (`deleteGameViaDom`) is kept only as a fallback for when the
+     * endpoint can't be issued; its old failure mode was `editGame()` lag
+     * loading the wrong game so the modal confirm silently deleted nothing.
+     *
+     * Either way the outcome is verified against the authoritative game list
+     * (`getGamesOnIScored`), so a silent no-op is reported as `false` — never a
+     * false success (the v2.10 contention incident). Throws on Playwright errors.
+     *
+     * @returns true once the game is confirmed absent from iScored; false if it
+     *          is still present (caller should retry / leave the row COMPLETED).
      */
     public async deleteGame(gameId: string, gameName?: string): Promise<boolean> {
-        let deleted = false;
-        await this.withScreenshotOnFailure('deleteGame', async () => {
+        return this.withScreenshotOnFailure('deleteGame', async () => {
             if (!this.page) throw new Error('Client not connected.');
 
-            await this.navigateToGamesTab();
-
-            const selectGame = this.page.locator('#selectGame');
-
-            // Pre-flight: game must be in dropdown
-            const optionCount = await selectGame.locator(`option[value="${gameId}"]`).count();
-            if (optionCount === 0) {
-                logWarn(`Game '${gameName || gameId}' not found in dropdown. Skipping delete.`);
-                return;
-            }
-
-            await selectGame.selectOption(gameId);
-            await selectGame.dispatchEvent('change');
-
-            // Call editGame() to load the game editor panel
+            // 1. Primary: internal admin delete endpoint (authenticated, same-origin).
+            let issued = false;
             try {
-                await this.page.evaluate(() => {
-                    if (typeof (window as any).editGame === 'function') {
-                        (window as any).editGame();
-                    }
-                });
-            } catch {}
-
-            // Force #gameCustomizations visible (iScored transition lag)
-            const customizations = this.page.locator('#gameCustomizations');
-            await customizations.waitFor({ state: 'attached', timeout: 5000 });
-            await customizations.evaluate((el) => {
-                (el as HTMLElement).style.display = 'block';
-                (el as HTMLElement).style.visibility = 'visible';
-                (el as HTMLElement).style.opacity = '1';
-            });
-
-            // Wait for busy modal to clear
-            await this.waitForBusyModal();
-
-            // Click Delete Game button
-            const deleteButton = this.page.locator('#deleteSelectedGameButton');
-            await deleteButton.waitFor({ state: 'attached', timeout: 5000 });
-            await deleteButton.evaluate(el => (el as HTMLElement).click());
-
-            // Wait for confirmation modal
-            const modal = this.page.locator('#deleteGameModal');
-            await modal.waitFor({ state: 'visible', timeout: 5000 });
-
-            await this.waitForBusyModal();
-
-            // Click the confirm button
-            try {
-                const confirmButton = modal.locator('.modal-footer button.btn-danger').first();
-                await confirmButton.evaluate(el => (el as HTMLElement).click());
-            } catch {
-                const confirmByText = modal.getByRole('button', { name: "Yes I'm definitely sure.", exact: false });
-                await confirmByText.evaluate(el => (el as HTMLElement).click());
+                issued = await this.deleteGameViaApi(gameId);
+            } catch (err) {
+                logWarn(`deleteGame: API delete threw for gameID ${gameId} (${gameName || ''}); trying DOM fallback.`, err);
             }
 
-            // Wait for modal to close
-            await modal.waitFor({ state: 'hidden', timeout: 10000 });
-            await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-
-            // Post-flight verification: modal-hidden + networkidle is not proof
-            // of deletion; re-navigate so the dropdown reloads from server state
-            // and re-check that the option is gone.
-            await this.navigateToGamesTab();
-            const stillPresent = await this.page.locator('#selectGame')
-                .locator(`option[value="${gameId}"]`).count();
-            if (stillPresent > 0) {
-                logWarn(`Delete verification failed for '${gameName || gameId}': game still present in iScored dropdown after delete flow completed. Treating as no-op.`);
-                return;
+            // 2. Fallback: legacy DOM flow, only if the endpoint couldn't be issued.
+            if (!issued) {
+                logWarn(`deleteGame: endpoint did not confirm for gameID ${gameId} (${gameName || ''}); attempting legacy DOM delete.`);
+                try {
+                    await this.deleteGameViaDom(gameId, gameName);
+                } catch (err) {
+                    logWarn(`deleteGame: DOM fallback threw for gameID ${gameId} (${gameName || ''}).`, err);
+                }
             }
 
-            logInfo(`Game '${gameName || gameId}' deleted from iScored.`);
-            deleted = true;
+            // 3. Server-truth verification (covers both paths + any iScored lag).
+            const games = await this.getGamesOnIScored();
+            const stillPresent = games.some((g) => g.id === String(gameId));
+            if (stillPresent) {
+                logWarn(`deleteGame: gameID ${gameId} ('${gameName || ''}') still present on iScored after delete attempt. Treating as no-op.`);
+                return false;
+            }
+
+            logInfo(`Game '${gameName || gameId}' deleted from iScored (gameID ${gameId}).`);
+            return true;
         }, 2);
-        return deleted;
+    }
+
+    /**
+     * Fires iScored's internal admin delete endpoint from inside the
+     * authenticated page. Returns true if iScored accepted the request
+     * (HTTP 2xx); the caller still verifies against `getGameNames`. The
+     * same-origin fetch inherits the session cookies automatically.
+     */
+    private async deleteGameViaApi(gameId: string): Promise<boolean> {
+        if (!this.page) throw new Error('Client not connected.');
+        if (!this.page.url().includes('iscored.info')) {
+            await this.page.goto(this.SETTINGS_URL);
+        }
+        const result = await this.page.evaluate(async (id) => {
+            const res = await fetch(`/settingsCommands.php?c=deleteGame&gameID=${encodeURIComponent(id)}`, {
+                headers: { 'x-requested-with': 'XMLHttpRequest' },
+            });
+            return { ok: res.ok, status: res.status, body: (await res.text()).slice(0, 200) };
+        }, gameId);
+        if (!result.ok) {
+            logWarn(`deleteGameViaApi: iScored returned HTTP ${result.status} for gameID ${gameId}.`);
+            return false;
+        }
+        logInfo(`deleteGameViaApi: gameID ${gameId} -> ${result.body.replace(/\s+/g, ' ').trim()}`);
+        return true;
+    }
+
+    /**
+     * Legacy DOM-driven delete via the Games tab. Fallback only — `deleteGame`
+     * verifies the outcome centrally, so this just performs the click flow and
+     * returns; it does NOT self-verify. Known fragility: `editGame()` lag can
+     * load the wrong game so the confirm deletes nothing.
+     */
+    private async deleteGameViaDom(gameId: string, gameName?: string): Promise<void> {
+        if (!this.page) throw new Error('Client not connected.');
+
+        await this.navigateToGamesTab();
+
+        const selectGame = this.page.locator('#selectGame');
+
+        // Pre-flight: game must be in dropdown
+        const optionCount = await selectGame.locator(`option[value="${gameId}"]`).count();
+        if (optionCount === 0) {
+            logWarn(`deleteGameViaDom: '${gameName || gameId}' not found in dropdown. Nothing to click.`);
+            return;
+        }
+
+        await selectGame.selectOption(gameId);
+        await selectGame.dispatchEvent('change');
+
+        // Call editGame() to load the game editor panel
+        try {
+            await this.page.evaluate(() => {
+                if (typeof (window as any).editGame === 'function') {
+                    (window as any).editGame();
+                }
+            });
+        } catch {}
+
+        // Force #gameCustomizations visible (iScored transition lag)
+        const customizations = this.page.locator('#gameCustomizations');
+        await customizations.waitFor({ state: 'attached', timeout: 5000 });
+        await customizations.evaluate((el) => {
+            (el as HTMLElement).style.display = 'block';
+            (el as HTMLElement).style.visibility = 'visible';
+            (el as HTMLElement).style.opacity = '1';
+        });
+
+        // Wait for busy modal to clear
+        await this.waitForBusyModal();
+
+        // Click Delete Game button
+        const deleteButton = this.page.locator('#deleteSelectedGameButton');
+        await deleteButton.waitFor({ state: 'attached', timeout: 5000 });
+        await deleteButton.evaluate(el => (el as HTMLElement).click());
+
+        // Wait for confirmation modal
+        const modal = this.page.locator('#deleteGameModal');
+        await modal.waitFor({ state: 'visible', timeout: 5000 });
+
+        await this.waitForBusyModal();
+
+        // Click the confirm button
+        try {
+            const confirmButton = modal.locator('.modal-footer button.btn-danger').first();
+            await confirmButton.evaluate(el => (el as HTMLElement).click());
+        } catch {
+            const confirmByText = modal.getByRole('button', { name: "Yes I'm definitely sure.", exact: false });
+            await confirmByText.evaluate(el => (el as HTMLElement).click());
+        }
+
+        // Wait for modal to close
+        await modal.waitFor({ state: 'hidden', timeout: 10000 });
+        await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    }
+
+    /**
+     * Authoritative list of games on iScored, via the internal admin endpoint
+     * `settingsCommands.php?c=getGameNames`, fetched from inside the
+     * authenticated page (same-origin → inherits the session). Far more
+     * reliable than scraping the lineup DOM. Returns [] on transport/parse
+     * failure so callers decide how to treat it. Powers delete verification and
+     * orphan reconciliation.
+     */
+    public async getGamesOnIScored(): Promise<Array<{ id: string; name: string; hidden: boolean; locked: boolean; tags: string[] }>> {
+        return this.withScreenshotOnFailure('getGamesOnIScored', async () => {
+            if (!this.page) throw new Error('Client not connected.');
+            if (!this.page.url().includes('iscored.info')) {
+                await this.page.goto(this.SETTINGS_URL);
+            }
+            const raw = await this.page.evaluate(async () => {
+                const res = await fetch('/settingsCommands.php?c=getGameNames', {
+                    headers: { 'x-requested-with': 'XMLHttpRequest' },
+                });
+                return res.ok ? await res.text() : '';
+            });
+            if (!raw) return [];
+            let parsed: unknown;
+            try {
+                parsed = JSON.parse(raw);
+            } catch {
+                logWarn('getGamesOnIScored: getGameNames response was not JSON.');
+                return [];
+            }
+            if (!Array.isArray(parsed)) return [];
+            return (parsed as Array<Record<string, unknown>>)
+                .map((g) => ({
+                    id: String(g.gameID ?? '').trim(),
+                    name: String(g.gameName ?? '').trim(),
+                    hidden: String(g.Hidden ?? '').toUpperCase() === 'TRUE',
+                    locked: String(g.Locked ?? '').toUpperCase() === 'TRUE',
+                    tags: Array.isArray(g.tags) ? (g.tags as unknown[]).map(String) : [],
+                }))
+                .filter((g) => g.id !== '');
+        });
     }
 
     /**
