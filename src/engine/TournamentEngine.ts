@@ -1538,17 +1538,19 @@ export class TournamentEngine {
             creds = await getIScoredCredsForRoom(tournamentRow?.game_room_id);
         }
 
+        const archivable = new Set<string>(); // game.id values confirmed gone from iScored → safe to ARCHIVE
         const deleteAll = async (client: IScoredClient): Promise<void> => {
             for (const game of toHide) {
                 try {
                     const deleted = await client.deleteGame(game.iscored_id, game.name);
                     if (deleted) {
                         logInfo(`   -> Deleted from iScored: ${game.name}`);
+                        archivable.add(game.id);
                     } else {
-                        logWarn(`   -> Cleanup skipped ${game.name} on iScored (not in dropdown). Local row will still be marked ARCHIVED.`);
+                        logWarn(`   -> Cleanup: iScored delete did NOT confirm for ${game.name} (gameID ${game.iscored_id}); leaving COMPLETED to retry next cycle.`);
                     }
                 } catch (err) {
-                    logWarn(`   -> Failed to delete ${game.name} from iScored:`, err);
+                    logWarn(`   -> Failed to delete ${game.name} from iScored (leaving COMPLETED to retry):`, err);
                 }
             }
         };
@@ -1560,15 +1562,22 @@ export class TournamentEngine {
             logInfo(`Cleanup for tournament ${tournamentId}: deleting ${toHide.length} completed game(s) from iScored`);
             await IScoredSessionRegistry.getInstance().withSession(creds, deleteAll);
         } else {
+            // iScored disabled for the room — nothing to delete remotely, so all
+            // completed games can move straight to the ARCHIVED terminal state.
             logInfo(`Cleanup for tournament ${tournamentId}: marking ${toHide.length} completed game(s) as ARCHIVED (iScored disabled for room)`);
+            toHide.forEach((g) => archivable.add(g.id));
         }
 
-        // Always mark as ARCHIVED in DB regardless of iScored. ARCHIVED is the
-        // post-cleanup terminal state — the row is kept as a historical anchor
-        // for score_history attribution (Stats and Ranking services read from
-        // status IN ('COMPLETED', 'ARCHIVED')).
+        // ARCHIVE only the games we CONFIRMED gone from iScored. A failed delete
+        // stays COMPLETED so the next cleanup cycle retries it. Pre-fix this loop
+        // archived unconditionally, which stranded the iScored entity forever —
+        // cleanup only ever scans COMPLETED rows, so an ARCHIVED orphan is never
+        // retried (the iScored-cleanup-orphan bug). ARCHIVED remains the terminal
+        // state and the historical anchor for score_history attribution (Stats and
+        // Ranking read status IN ('COMPLETED','ARCHIVED')).
         const roomId = tournamentRow?.game_room_id;
         for (const game of toHide) {
+            if (!archivable.has(game.id)) continue; // delete failed → keep COMPLETED, retry next cycle
             await db.run('UPDATE games SET status = ? WHERE id = ?', 'ARCHIVED', game.id);
 
             // Clean up score photos for this game
