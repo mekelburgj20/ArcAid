@@ -4,7 +4,6 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import DataTable from '../components/DataTable';
 import LoadingState from '../components/LoadingState';
-import ConfirmModal from '../components/ConfirmModal';
 import { useToast } from '../components/Toast';
 
 interface BackupInfo {
@@ -12,6 +11,15 @@ interface BackupInfo {
   size: number;
   createdAt: string;
 }
+
+interface BackupConfig {
+  enabled: boolean;
+  cron: string;
+  retentionCount: number | null;
+  retentionDays: number | null;
+}
+
+const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -26,12 +34,19 @@ export default function Backups() {
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
+  const [restoreConfirmText, setRestoreConfirmText] = useState('');
   const [creating, setCreating] = useState(false);
+  const [verifying, setVerifying] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Schedule / retention config (mirrors GlobalSettings' form pattern).
+  const [config, setConfig] = useState<Record<string, string>>({});
+  const [configLoading, setConfigLoading] = useState(true);
+  const [savingConfig, setSavingConfig] = useState(false);
 
   const loadBackups = () => {
     setLoading(true);
-    api.get<BackupInfo[]>('/backups')
+    api.get<BackupInfo[]>('/admin/backups')
       .then(setBackups)
       .catch(err => {
         toast(err.message || 'Failed to load backups', 'error');
@@ -40,12 +55,59 @@ export default function Backups() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadBackups(); }, []);
+  const loadConfig = () => {
+    setConfigLoading(true);
+    api.get<BackupConfig>('/admin/backups/config')
+      .then(cfg => {
+        setConfig({
+          enabled: cfg.enabled ? 'true' : 'false',
+          cron: cfg.cron ?? '',
+          retentionCount: cfg.retentionCount != null ? String(cfg.retentionCount) : '',
+          retentionDays: cfg.retentionDays != null ? String(cfg.retentionDays) : '',
+        });
+      })
+      .catch(err => {
+        toast(err.message || 'Failed to load backup schedule', 'error');
+      })
+      .finally(() => setConfigLoading(false));
+  };
+
+  useEffect(() => {
+    loadBackups();
+    loadConfig();
+  }, []);
+
+  const handleChange = (key: string, value: string) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveConfig = async () => {
+    setSavingConfig(true);
+    try {
+      const body: {
+        enabled?: boolean;
+        cron?: string;
+        retentionCount?: number | null;
+        retentionDays?: number | null;
+      } = {
+        enabled: config.enabled === 'true',
+        cron: (config.cron ?? '').trim(),
+        retentionCount: config.retentionCount?.trim() ? Number(config.retentionCount) : null,
+        retentionDays: config.retentionDays?.trim() ? Number(config.retentionDays) : null,
+      };
+      await api.put('/admin/backups/config', body);
+      toast('Backup schedule saved', 'success');
+    } catch (err: any) {
+      toast(err.message || 'Failed to save backup schedule', 'error');
+    } finally {
+      setSavingConfig(false);
+    }
+  };
 
   const handleCreate = async () => {
     setCreating(true);
     try {
-      await api.post<{ success: boolean }>('/backups', {});
+      await api.post<{ success: boolean }>('/admin/backups', {});
       toast('Backup created', 'success');
       loadBackups();
     } catch (err: any) {
@@ -55,11 +117,42 @@ export default function Backups() {
     }
   };
 
+  const handleVerify = async (name: string) => {
+    setVerifying(name);
+    try {
+      const res = await api.get<{ ok: boolean; result: string }>(
+        `/admin/backups/${encodeURIComponent(name)}/verify`,
+      );
+      toast(
+        res.ok ? `Integrity OK: ${res.result}` : `Integrity failed: ${res.result}`,
+        res.ok ? 'success' : 'error',
+      );
+    } catch (err: any) {
+      toast(err.message || 'Verify failed', 'error');
+    } finally {
+      setVerifying(null);
+    }
+  };
+
+  const handleDownload = async (name: string) => {
+    try {
+      await api.download(`/admin/backups/${encodeURIComponent(name)}/download`, name);
+    } catch (err: any) {
+      toast(err.message || 'Download failed', 'error');
+    }
+  };
+
+  const openRestore = (name: string) => {
+    setRestoreConfirmText('');
+    setConfirmRestore(name);
+  };
+
   const handleRestore = async (name: string) => {
     setConfirmRestore(null);
+    setRestoreConfirmText('');
     setRestoring(name);
     try {
-      await api.post<{ success: boolean; message: string }>(`/backups/${encodeURIComponent(name)}/restore`, {});
+      await api.post<{ success: boolean; message: string }>(`/admin/backups/${encodeURIComponent(name)}/restore`, {});
       toast('Backup restored. The server will restart shortly.', 'success');
     } catch (err: any) {
       toast(err.message || 'Restore failed', 'error');
@@ -97,13 +190,28 @@ export default function Backups() {
       header: '',
       className: 'text-right',
       render: (item: BackupInfo) => (
-        <NeonButton
-          variant="danger"
-          onClick={() => setConfirmRestore(item.name)}
-          disabled={restoring !== null}
-        >
-          {restoring === item.name ? 'Restoring...' : 'Restore'}
-        </NeonButton>
+        <div className="flex justify-end gap-2">
+          <NeonButton
+            variant="ghost"
+            onClick={() => handleVerify(item.name)}
+            disabled={verifying !== null}
+          >
+            {verifying === item.name ? 'Verifying...' : 'Verify'}
+          </NeonButton>
+          <NeonButton
+            variant="ghost"
+            onClick={() => handleDownload(item.name)}
+          >
+            Download
+          </NeonButton>
+          <NeonButton
+            variant="danger"
+            onClick={() => openRestore(item.name)}
+            disabled={restoring !== null}
+          >
+            {restoring === item.name ? 'Restoring...' : 'Restore'}
+          </NeonButton>
+        </div>
       ),
     },
   ];
@@ -114,7 +222,7 @@ export default function Backups() {
         <h1 className="font-display text-2xl font-bold">Backups</h1>
         <div className="flex flex-wrap gap-2">
           <NeonButton onClick={handleCreate} disabled={creating || loading}>
-            {creating ? 'Creating...' : 'Create Backup'}
+            {creating ? 'Creating...' : 'Create Backup Now'}
           </NeonButton>
           <NeonButton variant="ghost" onClick={loadBackups} disabled={loading}>
             Refresh
@@ -135,6 +243,90 @@ export default function Backups() {
         </div>
       </NeonCard>
 
+      <NeonCard title="Schedule & Retention" className="mb-6">
+        {configLoading ? (
+          <LoadingState message="Loading schedule..." />
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <label className="w-64 shrink-0 text-sm font-mono text-muted" title="Enable scheduled automatic backups.">
+                Automatic Backups
+              </label>
+              <select
+                value={config.enabled ?? 'false'}
+                onChange={e => handleChange('enabled', e.target.value)}
+                className={`${inputClass} flex-1`}
+              >
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-3">
+                <label className="w-64 shrink-0 text-sm font-mono text-muted" title="Cron expression controlling when scheduled backups run.">
+                  Schedule (cron)
+                </label>
+                <input
+                  type="text"
+                  value={config.cron ?? ''}
+                  onChange={e => handleChange('cron', e.target.value)}
+                  placeholder="0 3 * * *"
+                  className={`${inputClass} flex-1`}
+                />
+              </div>
+              <p className="text-xs text-faint mt-1 ml-[16.5rem] pl-3">
+                Standard 5-field cron expression (e.g. <span className="font-mono">0 3 * * *</span> for daily at 03:00). Invalid expressions are rejected.
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-3">
+                <label className="w-64 shrink-0 text-sm font-mono text-muted" title="Maximum number of backups to keep; older backups beyond this count are pruned.">
+                  Retention Count
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={config.retentionCount ?? ''}
+                  onChange={e => handleChange('retentionCount', e.target.value)}
+                  placeholder="(no count limit)"
+                  className={`${inputClass} flex-1`}
+                />
+              </div>
+              <p className="text-xs text-faint mt-1 ml-[16.5rem] pl-3">
+                Keep at most this many backups. Leave blank for no count-based pruning.
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-3">
+                <label className="w-64 shrink-0 text-sm font-mono text-muted" title="Maximum age in days before a backup is pruned.">
+                  Retention Days
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={config.retentionDays ?? ''}
+                  onChange={e => handleChange('retentionDays', e.target.value)}
+                  placeholder="(no age limit)"
+                  className={`${inputClass} flex-1`}
+                />
+              </div>
+              <p className="text-xs text-faint mt-1 ml-[16.5rem] pl-3">
+                Delete backups older than this many days. Leave blank for no age-based pruning.
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <NeonButton onClick={handleSaveConfig} disabled={savingConfig}>
+                {savingConfig ? 'Saving...' : 'Save Schedule'}
+              </NeonButton>
+            </div>
+          </div>
+        )}
+      </NeonCard>
+
       <NeonCard>
         {loading ? (
           <LoadingState message="Loading backups..." />
@@ -149,13 +341,42 @@ export default function Backups() {
       </NeonCard>
 
       {confirmRestore && (
-        <ConfirmModal
-          title="Restore Backup"
-          message={`Are you sure you want to restore "${confirmRestore}"? This will replace the current database and restart the server.`}
-          confirmLabel="Restore"
-          onConfirm={() => handleRestore(confirmRestore)}
-          onCancel={() => setConfirmRestore(null)}
-        />
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm"
+          onClick={() => { setConfirmRestore(null); setRestoreConfirmText(''); }}
+        >
+          <div
+            className="bg-surface border border-border rounded-lg p-6 w-full max-w-md shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="font-display text-lg font-bold text-primary mb-2">Restore Backup</h3>
+            <p className="text-muted mb-4">
+              This will overwrite the live database with{' '}
+              <span className="font-mono text-primary">{confirmRestore}</span> and restart the server.
+              This cannot be undone. Type the backup name to confirm.
+            </p>
+            <input
+              type="text"
+              value={restoreConfirmText}
+              onChange={e => setRestoreConfirmText(e.target.value)}
+              placeholder={confirmRestore}
+              autoFocus
+              className={`${inputClass} mb-6`}
+            />
+            <div className="flex justify-end gap-3">
+              <NeonButton variant="ghost" onClick={() => { setConfirmRestore(null); setRestoreConfirmText(''); }}>
+                Cancel
+              </NeonButton>
+              <NeonButton
+                variant="danger"
+                onClick={() => handleRestore(confirmRestore)}
+                disabled={restoreConfirmText !== confirmRestore}
+              >
+                Restore
+              </NeonButton>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

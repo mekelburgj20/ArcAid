@@ -1,125 +1,145 @@
 import 'dotenv/config';
-import fs from 'fs/promises';
-import fsSync from 'fs';
-import path from 'path';
-import { logInfo, logError, logWarn } from './utils/logger.js';
-import { IScoredClient } from './engine/IScoredClient.js';
 import * as readline from 'readline';
+import { logInfo, logError } from './utils/logger.js';
+import { listBackups, verifyBackup, restoreBackup, isValidBackupName } from './services/BackupService.js';
 
-const BACKUP_DIR = path.join(process.cwd(), 'backups');
-const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data', 'arcaid.db');
+/**
+ * Multi-tenant-safe restore CLI.
+ *
+ * This is a thin wrapper around BackupService.restoreBackup(name). It restores
+ * the SQLite DB (WAL-safe standalone artifact produced by VACUUM INTO) plus the
+ * data/ asset subdirs (score-photos, styles, catalogue-images, iscored-styles).
+ *
+ * It deliberately does NOT:
+ *   - recreate iScored games with new ids (the legacy TableFlipper behaviour), or
+ *   - assume a single env-level iScored account.
+ * In the multi-tenant model each game_room carries its own iScored credentials in
+ * game_room_settings, and game state lives in the restored DB. Reconciliation with
+ * iScored happens through ScoreSyncPoller / TournamentEngine after the app restarts.
+ *
+ * Usage:
+ *   npm run restore -- <backup_folder_name>
+ *   npm run restore -- --list
+ *   npm run restore -- --verify <backup_folder_name>
+ */
 
-async function restoreBackup(backupFolderName: string) {
-    const backupPath = path.join(BACKUP_DIR, backupFolderName);
-    
-    if (!fsSync.existsSync(backupPath)) {
-        throw new Error(`Backup folder not found: ${backupPath}`);
-    }
-
-    logInfo(`Starting System Restore from: ${backupFolderName}`);
-    
-    const metadataPath = path.join(backupPath, 'backup_metadata.json');
-    if (!fsSync.existsSync(metadataPath)) {
-        throw new Error(`Metadata file missing in backup: ${metadataPath}`);
-    }
-    
-    const metadata = JSON.parse(await fs.readFile(metadataPath, 'utf-8'));
-
-    // 1. Restore Database
-    const backupDbPath = path.join(backupPath, 'arcaid.db');
-    if (fsSync.existsSync(backupDbPath)) {
-        await fs.copyFile(backupDbPath, DB_PATH);
-        logInfo('   -> Restored local database (arcaid.db).');
-    } else {
-        logWarn('   -> No database found in backup. Skipping DB restore.');
-    }
-
-    // 2. Wipe & Rebuild iScored
-    const client = new IScoredClient();
-    try {
-        await client.connect();
-
-        logInfo('   -> Wiping current iScored lineup...');
-        const currentGames = await client.getAllGames();
-        
-        // iScored doesn't have a bulk delete via API in the client yet, 
-        // but we can simulate hiding/locking them or deleting via DOM manipulation.
-        // For a true restore, we'd delete. Let's just set them all to hidden/locked for safety,
-        // or recreate. In TableFlipper we deleted. 
-        // I will implement a deleteGame method on IScoredClient later, 
-        // for now we will just hide them so they don't show up.
-        for (const game of currentGames) {
-            logInfo(`      -> Hiding existing game: ${game.name}`);
-            await client.setGameStatus(game.id, { hidden: true, locked: true });
-        }
-        logInfo('   -> Lineup hidden.');
-
-        logInfo('   -> Recreating games from backup...');
-        for (const game of metadata.games) {
-            logInfo(`      -> Recreating: ${game.name}`);
-            
-            // Recreate the game shell
-            const newId = await client.createGame(game.name);
-
-            // Apply status
-            await client.setGameStatus(newId, { hidden: game.isHidden, locked: game.isLocked });
-
-            // Note: In a full restoration, we would download the photos during backup
-            // and re-upload them here using `client.submitScore`.
-            if (game.scores && game.scores.length > 0) {
-                 logInfo(`         -> Re-submitting ${game.scores.length} scores...`);
-                 for (const score of game.scores) {
-                     // Requires mapping the public username back to a discord ID or submitting anonymously
-                     await client.submitScore(newId, score.name, parseInt(score.score.replace(/,/g, '')));
-                 }
-            }
-        }
-
-    } catch (e) {
-        logError('Restore failed during iScored interaction:', e);
-        throw e;
-    } finally {
-        await client.disconnect();
-    }
-
-    logInfo('System Restore Completed.');
+function usage(): void {
+    console.error('Usage:');
+    console.error('  npm run restore -- <backup_folder_name>     Restore DB + assets from a backup');
+    console.error('  npm run restore -- --list                   List available backups');
+    console.error('  npm run restore -- --verify <name>          Run integrity_check on a backup (no changes)');
+    console.error('');
+    console.error('NOTE: Stop the app/container before restoring. A pre-restore safety copy of the');
+    console.error('      live DB is written to <db>.pre-restore. See docs/runbooks/restore.md.');
 }
 
-async function main() {
-    const backupFolder = process.argv[2];
+async function doList(): Promise<void> {
+    const backups = await listBackups();
+    if (backups.length === 0) {
+        console.log('No backups found.');
+        return;
+    }
+    console.log('Available backups (newest first):');
+    for (const b of backups) {
+        const mb = (b.size / (1024 * 1024)).toFixed(2);
+        console.log(`  ${b.name}   (${mb} MB, created ${b.createdAt})`);
+    }
+}
 
-    if (!backupFolder) {
-        console.error('Please provide the backup folder name as an argument.');
-        console.error('Usage: npm run restore -- <backup_folder_name>');
+async function doVerify(name: string): Promise<void> {
+    const v = await verifyBackup(name);
+    if (v.ok) {
+        console.log(`OK: backup "${name}" passed integrity_check.`);
+    } else {
+        console.error(`FAILED: backup "${name}" integrity_check: ${v.result}`);
+        process.exit(1);
+    }
+}
+
+function confirm(question: string): Promise<boolean> {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    return new Promise((resolve) => {
+        rl.question(question, (answer) => {
+            rl.close();
+            resolve(answer.trim().toLowerCase() === 'yes');
+        });
+    });
+}
+
+async function doRestore(name: string): Promise<void> {
+    if (!isValidBackupName(name)) {
+        console.error(`Invalid backup name: "${name}"`);
         process.exit(1);
     }
 
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
+    // Pre-flight integrity check so the operator sees a clear yes/no before confirming.
+    console.log(`Verifying backup "${name}" integrity...`);
+    const v = await verifyBackup(name);
+    if (!v.ok) {
+        console.error(`Backup "${name}" FAILED integrity_check: ${v.result}`);
+        console.error('Aborting. Nothing was changed.');
+        process.exit(1);
+    }
+    console.log('   -> integrity_check: ok');
 
-    logInfo('WARNING: DANGER ZONE');
-    logInfo(`You are about to restore the system state from backup: ${backupFolder}`);
-    logInfo('THIS WILL overwrite your current database and modify the live iScored lineup.');
-    logInfo('');
+    console.log('');
+    console.log('WARNING: DANGER ZONE');
+    console.log(`You are about to overwrite the live database and data/ assets from backup: ${name}`);
+    console.log('Make sure the app/container is STOPPED before continuing.');
+    console.log('A pre-restore safety copy of the current DB will be saved to <db>.pre-restore.');
+    console.log('');
 
-    rl.question('Are you absolutely sure you want to proceed? Type "yes" to confirm: ', async (answer) => {
-        if (answer.toLowerCase() === 'yes') {
-            logInfo('Starting restoration process... This may take several minutes.');
-            try {
-                await restoreBackup(backupFolder);
-                process.exit(0);
-            } catch (error) {
-                logError('Restore Failed:', error);
-                process.exit(1);
-            }
-        } else {
-            logInfo('Restore cancelled.');
-            process.exit(0);
-        }
-        rl.close();
-    });
+    const ok = await confirm('Type "yes" to proceed: ');
+    if (!ok) {
+        console.log('Restore cancelled.');
+        process.exit(0);
+    }
+
+    logInfo(`CLI restore starting for backup "${name}"...`);
+    await restoreBackup(name);
+    console.log(`Restore complete. Start the app/container to bring the restored state online.`);
 }
 
-main();
+async function main(): Promise<void> {
+    const args = process.argv.slice(2);
+
+    if (args.length === 0) {
+        usage();
+        process.exit(1);
+    }
+
+    const first = args[0];
+    if (!first) {
+        usage();
+        process.exit(1);
+    }
+
+    if (first === '--list' || first === '-l') {
+        await doList();
+        process.exit(0);
+    }
+
+    if (first === '--verify' || first === '-v') {
+        const name = args[1];
+        if (!name) {
+            usage();
+            process.exit(1);
+        }
+        await doVerify(name);
+        process.exit(0);
+    }
+
+    if (first.startsWith('-')) {
+        usage();
+        process.exit(1);
+    }
+
+    await doRestore(first);
+    process.exit(0);
+}
+
+main().catch((error) => {
+    logError('Restore failed:', error);
+    console.error('Restore failed:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+});

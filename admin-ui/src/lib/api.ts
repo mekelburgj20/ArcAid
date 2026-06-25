@@ -121,6 +121,30 @@ export const api = {
     method: 'DELETE',
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   }),
+  /**
+   * Trigger a binary file download for an authenticated endpoint.
+   * api.get expects res.json(); for binary payloads we fetch the blob with the
+   * admin Bearer + x-user-id header and synthesize a temporary anchor click.
+   */
+  download: async (path: string, filename?: string) => {
+    const headers: Record<string, string> = {};
+    headers['x-user-id'] = getAnonUserId();
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(`${BASE}${path}`, { headers });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ error: 'Download failed' }));
+      throw new Error(error.error || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    if (filename) a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   /** Upload multipart form data (for file uploads). */
   upload: <T>(path: string, formData: FormData) => {
     const headers: Record<string, string> = {};

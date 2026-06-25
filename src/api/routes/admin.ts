@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { z } from 'zod';
 import { logInfo, logError } from '../../utils/logger.js';
 import { getDatabase } from '../../database/database.js';
 import { requireAuth, requireSuperAdmin } from '../middleware.js';
@@ -15,7 +16,7 @@ import { AdminService } from '../../services/AdminService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
 import { LogService } from '../../services/LogService.js';
 import { getDashboardData } from '../../services/DashboardService.js';
-import { listBackups, restoreBackup } from '../../services/BackupService.js';
+import { listBackups, restoreBackup, verifyBackup } from '../../services/BackupService.js';
 import { VpsImportService } from '../../services/VpsImportService.js';
 import { WizardImportService } from '../../services/WizardImportService.js';
 import { serverEvents } from '../server.js';
@@ -184,27 +185,41 @@ router.post('/backups', async (req, res) => {
         // global config). When per-room backups are added, this should iterate
         // accounts via the registry.
         const creds = await getIScoredCredsForRoom(null);
-        const runBackup = async (client: import('../../engine/IScoredClient.js').IScoredClient | null) => {
-            const backupPath = await manager.createBackup(client!);
-            return backupPath;
-        };
         let backupPath: string | null = null;
         if (creds) {
+            // Creds present → capture live iScored state inside a serialized
+            // session for the env-fallback account.
             const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
-            backupPath = await IScoredSessionRegistry.getInstance().withSession(creds, (client) => runBackup(client));
+            backupPath = await IScoredSessionRegistry.getInstance().withSession(
+                creds,
+                (client) => manager.createBackup(client),
+            );
         } else {
-            // No iScored creds — pass null and let BackupManager skip the live
-            // iScored capture step. (createBackup currently expects a client;
-            // a future cleanup should make it accept null directly.)
-            const { IScoredClient } = await import('../../engine/IScoredClient.js');
-            const stub = new IScoredClient();
-            backupPath = await manager.createBackup(stub);
+            // No iScored creds → DB+assets only. createBackup() with no client
+            // skips the live iScored capture step (per the optional-client change).
+            backupPath = await manager.createBackup();
         }
-        if (backupPath) {
-            res.json({ success: true, path: backupPath });
-        } else {
-            res.status(500).json({ error: 'Backup failed' });
+
+        if (!backupPath) {
+            return res.status(500).json({ error: 'Backup failed' });
         }
+
+        // After a successful create, prune per the configured retention policy.
+        try {
+            const retentionCount = parseInt((await SettingsService.get('BACKUP_RETENTION_COUNT')) || '', 10);
+            const retentionDays = parseInt((await SettingsService.get('BACKUP_RETENTION_DAYS')) || '', 10);
+            const opts: { retentionCount?: number; retentionDays?: number } = {};
+            if (Number.isFinite(retentionCount) && retentionCount > 0) opts.retentionCount = retentionCount;
+            if (Number.isFinite(retentionDays) && retentionDays > 0) opts.retentionDays = retentionDays;
+            if (opts.retentionCount || opts.retentionDays) {
+                const removed = await manager.pruneBackups(opts);
+                if (removed > 0) logInfo(`Backup prune (post-create): removed ${removed} old backup(s).`);
+            }
+        } catch (pruneErr) {
+            logError('Backup prune after create failed (backup itself succeeded):', pruneErr);
+        }
+
+        res.json({ success: true, path: backupPath });
     } catch (error) {
         logError('API Error (POST /api/admin/backups):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -225,6 +240,97 @@ router.post('/backups/:name/restore', async (req, res) => {
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         logError('API Error (POST /api/admin/backups/:name/restore):', error);
+        res.status(400).json({ error: message });
+    }
+});
+
+// GET /api/admin/backups/:name/verify — run PRAGMA integrity_check against the
+// backup's arcaid.db (read-only) and report the result.
+router.get('/backups/:name/verify', async (req, res) => {
+    try {
+        const validationResult = validate(BackupRestoreParamsSchema, { name: req.params.name as string });
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const name = validationResult.data.name;
+        const { ok, result } = await verifyBackup(name);
+        res.json({ ok, result });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logError('API Error (GET /api/admin/backups/:name/verify):', error);
+        res.status(400).json({ error: message });
+    }
+});
+
+// Schedule/retention config — stored as plaintext global settings (NOT secrets).
+const BackupConfigSchema = z.object({
+    enabled: z.boolean().optional(),
+    cron: z.string().regex(
+        /^(\*|([0-9]|[1-5][0-9])|\*\/([0-9]|[1-5][0-9])) (\*|([0-9]|1[0-9]|2[0-3])|\*\/([0-9]|1[0-9]|2[0-3])) (\*|L|([1-9]|[12][0-9]|3[01])|\*\/([1-9]|[12][0-9]|3[01])) (\*|([1-9]|1[0-2])|\*\/([1-9]|1[0-2])) (\*|([0-6])|\*\/([0-6]))$/,
+        'Invalid cron expression (must be 5 fields: min hour day month weekday)'
+    ).optional(),
+    retentionCount: z.number().int().nonnegative().nullable().optional(),
+    retentionDays: z.number().int().nonnegative().nullable().optional(),
+});
+
+// GET /api/admin/backups/config — current schedule + retention config.
+router.get('/backups/config', async (req, res) => {
+    try {
+        const [enabledRaw, cron, countRaw, daysRaw] = await Promise.all([
+            SettingsService.get('BACKUP_ENABLED'),
+            SettingsService.get('BACKUP_SCHEDULE_CRON'),
+            SettingsService.get('BACKUP_RETENTION_COUNT'),
+            SettingsService.get('BACKUP_RETENTION_DAYS'),
+        ]);
+        const parseNum = (v: string | null): number | null => {
+            if (v === null || v.trim() === '') return null;
+            const n = parseInt(v, 10);
+            return Number.isFinite(n) ? n : null;
+        };
+        res.json({
+            enabled: enabledRaw !== 'false',
+            cron: cron || '',
+            retentionCount: parseNum(countRaw),
+            retentionDays: parseNum(daysRaw),
+        });
+    } catch (error) {
+        logError('API Error (GET /api/admin/backups/config):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// PUT /api/admin/backups/config — update schedule + retention, then reschedule.
+router.put('/backups/config', async (req, res) => {
+    try {
+        const validationResult = validate(BackupConfigSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const data = validationResult.data;
+
+        const toSave: Record<string, unknown> = {};
+        if (data.enabled !== undefined) toSave['BACKUP_ENABLED'] = data.enabled ? 'true' : 'false';
+        if (data.cron !== undefined) toSave['BACKUP_SCHEDULE_CRON'] = data.cron;
+        // null / undefined retention → empty string deletes the setting row.
+        if (data.retentionCount !== undefined) {
+            toSave['BACKUP_RETENTION_COUNT'] = data.retentionCount === null ? '' : String(data.retentionCount);
+        }
+        if (data.retentionDays !== undefined) {
+            toSave['BACKUP_RETENTION_DAYS'] = data.retentionDays === null ? '' : String(data.retentionDays);
+        }
+
+        if (Object.keys(toSave).length > 0) {
+            await SettingsService.saveMany(toSave);
+        }
+
+        // Trigger Scheduler to re-register the backup cron with the new config.
+        try {
+            const { Scheduler } = await import('../../engine/Scheduler.js');
+            await Scheduler.getInstance().rescheduleBackup();
+        } catch (schedErr) {
+            logError('Backup reschedule after config save failed:', schedErr);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logError('API Error (PUT /api/admin/backups/config):', error);
         res.status(400).json({ error: message });
     }
 });

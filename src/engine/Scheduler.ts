@@ -83,6 +83,89 @@ export class Scheduler {
 
         // Tournament starting notifications (every 15 minutes)
         this.startTournamentStartingNotifier();
+
+        // S9: scheduled DB+assets backup (driven by global settings)
+        await this.startBackupCron();
+    }
+
+    /**
+     * S9 — registers (or re-registers) the scheduled backup cron from global
+     * settings. Gated on `BACKUP_ENABLED !== 'false'` and a non-empty
+     * `BACKUP_SCHEDULE_CRON`. On fire it creates a DB+assets backup (no iScored
+     * client → live-state capture is skipped) then prunes per retention.
+     *
+     * Driven by global settings keys:
+     *   - `BACKUP_ENABLED`           ('true' | 'false', default enabled)
+     *   - `BACKUP_SCHEDULE_CRON`     (5-field cron; supports custom 'L')
+     *   - `BACKUP_RETENTION_COUNT`   (keep newest N — optional)
+     *   - `BACKUP_RETENTION_DAYS`    (delete older than N days — optional)
+     */
+    private async startBackupCron(): Promise<void> {
+        const TASK_KEY = '__backup__';
+        // Always clear any existing handle first (idempotent re-register).
+        if (this.tasks.has(TASK_KEY)) {
+            this.tasks.get(TASK_KEY)?.stop();
+            this.tasks.delete(TASK_KEY);
+        }
+
+        const { SettingsService } = await import('../services/SettingsService.js');
+        const enabled = (await SettingsService.get('BACKUP_ENABLED')) !== 'false';
+        const cronStr = (await SettingsService.get('BACKUP_SCHEDULE_CRON')) || '';
+        if (!enabled || !cronStr.trim()) {
+            logInfo('Backup cron not scheduled (disabled or no schedule configured).');
+            return;
+        }
+
+        const retentionCount = parseInt((await SettingsService.get('BACKUP_RETENTION_COUNT')) || '', 10);
+        const retentionDays = parseInt((await SettingsService.get('BACKUP_RETENTION_DAYS')) || '', 10);
+
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const { cronExpr, isLastDay } = this.resolveCron(cronStr);
+
+        const task = cron.schedule(cronExpr, async () => {
+            if (isLastDay && !this.isLastDayOfMonth(timezone)) return;
+            logInfo('Running scheduled backup (DB + assets, no iScored client)...');
+            try {
+                const { BackupManager } = await import('./BackupManager.js');
+                const manager = BackupManager.getInstance();
+                // Scheduled backups are DB+assets only — no live iScored capture.
+                // createBackup() with no client skips the iScored step.
+                const backupPath = await manager.createBackup();
+                if (backupPath) {
+                    logInfo(`Scheduled backup completed: ${backupPath}`);
+                } else {
+                    logError('Scheduled backup returned no path (createBackup failed).');
+                }
+
+                // Prune per retention policy.
+                const opts: { retentionCount?: number; retentionDays?: number } = {};
+                if (Number.isFinite(retentionCount) && retentionCount > 0) opts.retentionCount = retentionCount;
+                if (Number.isFinite(retentionDays) && retentionDays > 0) opts.retentionDays = retentionDays;
+                if (opts.retentionCount || opts.retentionDays) {
+                    const removed = await manager.pruneBackups(opts);
+                    if (removed > 0) logInfo(`Backup prune: removed ${removed} old backup(s).`);
+                }
+            } catch (error) {
+                logError('Scheduled backup error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set(TASK_KEY, task);
+        logInfo(`Backup cron scheduled using cron: '${cronStr}'${isLastDay ? ' (last day of month)' : ''} (${timezone}).`);
+    }
+
+    /**
+     * S9 — hot-reload entry point for the backup cron. Called from the admin
+     * `PUT /api/admin/backups/config` route handler after it persists
+     * BACKUP_SCHEDULE_CRON / BACKUP_ENABLED, so the schedule updates without a
+     * full Scheduler reload (which would re-register every tournament cron).
+     * Re-reads settings and re-registers the backup task. (NOTE: settings
+     * written via SettingsService.saveMany outside that route do NOT auto-call
+     * this — the schedule keys are only edited through that endpoint today.)
+     */
+    public async rescheduleBackup(): Promise<void> {
+        logInfo('Rescheduling backup cron...');
+        await this.startBackupCron();
     }
 
     /**
