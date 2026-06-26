@@ -40,6 +40,15 @@ export class Scheduler {
         `);
 
         for (const row of activeTournaments) {
+            // Guard: a tournament whose game_room_id points to a deleted room
+            // (non-NULL game_room_id but the LEFT JOIN found no room, so
+            // room_slug is null) is an orphan from a pre-cascade room deletion.
+            // Skip it — scheduling it would keep minting games on iScored for a
+            // room that no longer exists. Legacy NULL-room tournaments are fine.
+            if (row.game_room_id && !row.room_slug) {
+                logWarn(`Scheduler: skipping orphaned tournament '${row.name}' (${row.id}) — game_room ${row.game_room_id} no longer exists. Run GameRoomService.purgeOrphanedTournaments() to clean it up.`);
+                continue;
+            }
             const tournament: Tournament = {
                 id: row.id,
                 name: row.name,
