@@ -6,6 +6,13 @@ services:
     # Reconciled with production: the running container is "arcaid" (was "arcaid-bot").
     container_name: arcaid
     restart: unless-stopped
+    # Run an init process (tini) as PID 1 so orphaned Playwright/Chromium
+    # grandchildren get reaped instead of piling up as host zombies (Node as
+    # PID 1 doesn't reap). NOTE: this is the local/dev compose (build: .,
+    # bind mounts, port 3001). Prod runs a SEPARATE hand-maintained compose at
+    # /opt/arcaid (prebuilt image, named volumes, behind Caddy) that the deploy
+    # never touches — add `init: true` + the healthcheck there directly.
+    init: true
     ports:
       - "3001:3001"
     volumes:
