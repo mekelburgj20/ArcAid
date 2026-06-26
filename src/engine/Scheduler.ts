@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { getDatabase } from '../database/database.js';
-import { logInfo, logError } from '../utils/logger.js';
+import { logInfo, logWarn, logError } from '../utils/logger.js';
 import { Tournament, CadenceConfig, CleanupRule } from '../types/index.js';
 import { TournamentEngine } from './TournamentEngine.js';
 import { TimeoutManager } from './TimeoutManager.js';
