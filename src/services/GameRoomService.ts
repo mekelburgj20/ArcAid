@@ -139,4 +139,59 @@ export class GameRoomService {
             throw err;
         }
     }
+
+    /**
+     * Reap tournaments (and their games) whose game_room_id references a room
+     * that no longer exists — leftovers from a room deleted before delete()'s
+     * cascade existed (or via a direct DB edit). The Scheduler now skips these
+     * (see Scheduler.start), but they linger in the DB and on iScored. Mirrors
+     * delete()'s game cascade: player scores are preserved (game_id unlinked per
+     * ADR 0005), score/cache rows removed, games + tournaments deleted. Does NOT
+     * touch iScored — clean those entities via the admin Reconcile tool (they
+     * become "unmanaged" once their local rows are gone).
+     */
+    static async purgeOrphanedTournaments(): Promise<{ tournaments: number; games: number }> {
+        const db = await getDatabase();
+        await db.exec('BEGIN');
+        try {
+            const orphanRows = (await db.all(
+                `SELECT id FROM tournaments
+                  WHERE game_room_id IS NOT NULL
+                    AND game_room_id NOT IN (SELECT id FROM game_rooms)`,
+            )) as Array<{ id: string }>;
+            const tIds = orphanRows.map((t) => t.id);
+            if (tIds.length === 0) {
+                await db.exec('COMMIT');
+                return { tournaments: 0, games: 0 };
+            }
+            const placeholders = tIds.map(() => '?').join(',');
+            const games = (await db.all(
+                `SELECT id FROM games WHERE tournament_id IN (${placeholders})`,
+                ...tIds,
+            )) as Array<{ id: string }>;
+            for (const g of games) {
+                await db.run('UPDATE submissions SET game_id = NULL WHERE game_id = ?', g.id);
+                await db.run('UPDATE score_history SET game_id = NULL WHERE game_id = ?', g.id);
+                await db.run('UPDATE global_scores SET origin_game_id = NULL WHERE origin_game_id = ?', g.id);
+                await db.run('DELETE FROM scores WHERE game_id = ?', g.id);
+                await db.run('DELETE FROM leaderboard_cache WHERE game_id = ?', g.id);
+                await db.run('DELETE FROM games WHERE id = ?', g.id);
+            }
+            for (const tId of tIds) {
+                await db.run('DELETE FROM tournaments WHERE id = ?', tId);
+            }
+            // Orphaned ranking groups for the missing room(s) (keyed on
+            // game_room_id; ranking_groups_cache cascades off ranking_groups).
+            await db.run(
+                `DELETE FROM ranking_groups
+                  WHERE game_room_id IS NOT NULL
+                    AND game_room_id NOT IN (SELECT id FROM game_rooms)`,
+            );
+            await db.exec('COMMIT');
+            return { tournaments: tIds.length, games: games.length };
+        } catch (err) {
+            await db.exec('ROLLBACK');
+            throw err;
+        }
+    }
 }
