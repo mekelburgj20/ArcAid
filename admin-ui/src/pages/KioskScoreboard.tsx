@@ -79,6 +79,10 @@ export default function KioskScoreboard() {
     if (!roomId) return;
     const socket = getSocket();
     socket.emit('join:room', roomId);
+    // Re-join on every (re)connect — room membership is per-connection and does
+    // not survive a socket reconnect (long-running TV kiosk / idle tab).
+    const onConnect = () => socket.emit('join:room', roomId);
+    socket.on('connect', onConnect);
     const onScore = (data?: { playerName?: string; score?: number; gameName?: string }) => {
       loadData();
       if (data?.playerName && data?.gameName) {
@@ -91,6 +95,7 @@ export default function KioskScoreboard() {
     socket.on('leaderboard:updated', onUpdate);
     return () => {
       socket.emit('leave:room', roomId);
+      socket.off('connect', onConnect);
       socket.off('score:new', onScore);
       socket.off('leaderboard:updated', onUpdate);
     };

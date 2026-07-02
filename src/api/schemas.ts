@@ -217,6 +217,9 @@ export const UpdateGameStateSchema = z.object({
 export const DeleteGameStateSchema = z.object({
     deleteFromIScored: z.boolean().default(false),
     confirm: z.literal(true),
+    // Force-delete a game even when it is ACTIVE. Defaults false so a live game
+    // can't be silently removed mid-round — the delete handler 409s without it.
+    force: z.boolean().default(false),
 });
 
 export const SyncIScoredActionSchema = z.object({

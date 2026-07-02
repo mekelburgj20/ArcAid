@@ -4384,6 +4384,19 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
         `, gameId, roomId);
         if (!game) return res.status(404).json({ error: 'Game not found in this room' });
 
+        // Safety guard: never silently delete a LIVE game. Deleting an ACTIVE
+        // game mid-round removes it and orphans its scores, so require an explicit
+        // force flag (the UI shows a warning before setting it). For a normal
+        // end-of-round, admins Deactivate on the Tournaments page instead. This
+        // also protects non-UI callers (API/scripts) that omit force.
+        if (game.status === 'ACTIVE' && !parsed.force) {
+            return res.status(409).json({
+                error: `"${game.name}" is currently ACTIVE. Deactivate it for a normal end-of-round, or confirm force-delete to remove it mid-round.`,
+                status: 'ACTIVE',
+                gameName: game.name,
+            });
+        }
+
         // Delete from iScored if requested (per-room creds via resolver).
         if (parsed.deleteFromIScored && game.iscored_id) {
             const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');

@@ -207,12 +207,15 @@ export default function GameStates() {
   };
 
   const deleteGame = (game: GameState) => {
+    const isActive = game.status === 'ACTIVE';
     const options = game.iscored_id
       ? [{ label: 'Also delete from iScored', key: 'deleteFromIScored', checked: false }]
       : undefined;
     setConfirmAction({
       title: `Delete: ${game.name}`,
-      description: `This will permanently remove this game entry and all its submissions. This cannot be undone.`,
+      description: isActive
+        ? `⚠ "${game.name}" is currently ACTIVE. Deleting it removes the live game mid-round and orphans its scores. For a normal end-of-round, use Deactivate on the Tournaments page instead. This cannot be undone.`
+        : `This will permanently remove this game entry and all its submissions. This cannot be undone.`,
       danger: true,
       options,
       onConfirm: async () => {
@@ -222,6 +225,7 @@ export default function GameStates() {
           await api.delete(`/rooms/${room.roomId}/admin/game-states/${game.id}`, {
             deleteFromIScored,
             confirm: true,
+            force: isActive,
           });
           showMsg(`Deleted: ${game.name}`, 'success');
           await fetchGames();
