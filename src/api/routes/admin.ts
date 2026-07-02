@@ -455,6 +455,14 @@ router.post('/settings', async (req, res) => {
         }
 
         const { needsRestart } = await SettingsService.saveMany(settings);
+
+        // Hot-invalidate the high-value notification flag cache so a super-admin
+        // toggle takes effect immediately instead of after the 10s TTL.
+        if ('NOTIFY_HIGH_VALUE_DEFAULT_ON' in settings) {
+            const { NotificationService } = await import('../../services/NotificationService.js');
+            NotificationService.invalidateFlagCache();
+        }
+
         res.json({ success: true });
 
         if (needsRestart) {

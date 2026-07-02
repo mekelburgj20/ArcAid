@@ -157,7 +157,10 @@ export default function KioskScoreboard() {
   if (!configLoaded) {
     return <div className="min-h-screen bg-deep" />;
   }
-  if (config.KIOSK_ENABLED !== 'true') {
+  // Available unless explicitly disabled — matches the Settings "Kiosk Mode"
+  // toggle, which defaults ON (defaultOn: true). Gating on === 'true' treated
+  // an absent (never-saved) value as disabled, contradicting that default.
+  if (config.KIOSK_ENABLED === 'false') {
     return (
       <div className="min-h-screen bg-deep flex items-center justify-center">
         <p className="text-muted font-display text-lg">Kiosk mode is not available for this room</p>

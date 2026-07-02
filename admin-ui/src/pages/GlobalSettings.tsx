@@ -20,6 +20,7 @@ const GLOBAL_KEYS = [
   'TWITCH_CLIENT_ID',
   'TWITCH_CLIENT_SECRET',
   'GLOBAL_PAGE_THEME',
+  'NOTIFY_HIGH_VALUE_DEFAULT_ON',
 ];
 
 const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET'];
@@ -37,6 +38,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   OPDB_API_KEY: { label: 'OPDB API Key', description: 'API token for OPDB pinball catalogue sync. Register at https://opdb.org. Encrypted at rest.' },
   TWITCH_CLIENT_ID: { label: 'Twitch Client ID', description: 'Twitch app client ID for IGDB arcade/console catalogue sync. Create an app at https://dev.twitch.tv/console.' },
   TWITCH_CLIENT_SECRET: { label: 'Twitch Client Secret', description: 'Twitch app client secret for IGDB catalogue sync. Encrypted at rest.' },
+  NOTIFY_HIGH_VALUE_DEFAULT_ON: { label: 'High-Value Notifications Default-On', description: 'When enabled, Discord-linked users receive dethrone + tournament-win DMs by default. An explicit per-user preference (on or off) always overrides this. Disabled or absent = opt-in only.' },
 };
 
 interface SuperAdmin {
@@ -148,19 +150,32 @@ export default function GlobalSettings() {
                   <label className="w-64 shrink-0 text-sm font-mono text-muted" title={meta?.description}>
                     {meta?.label || key}
                   </label>
-                  <input
-                    type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
-                    value={value}
-                    onChange={e => handleChange(key, e.target.value)}
-                    className={`${inputClass} flex-1`}
-                  />
-                  {isSensitive(key) && (
-                    <button
-                      onClick={() => toggleReveal(key)}
-                      className="text-xs text-faint hover:text-muted cursor-pointer bg-transparent border-none"
+                  {key === 'NOTIFY_HIGH_VALUE_DEFAULT_ON' ? (
+                    <select
+                      value={value === 'true' ? 'true' : 'false'}
+                      onChange={e => handleChange(key, e.target.value)}
+                      className={`${inputClass} flex-1`}
                     >
-                      {revealed.has(key) ? 'Hide' : 'Show'}
-                    </button>
+                      <option value="false">Disabled (opt-in only)</option>
+                      <option value="true">Enabled (default-on for Discord users)</option>
+                    </select>
+                  ) : (
+                    <>
+                      <input
+                        type={isSensitive(key) && !revealed.has(key) ? 'password' : 'text'}
+                        value={value}
+                        onChange={e => handleChange(key, e.target.value)}
+                        className={`${inputClass} flex-1`}
+                      />
+                      {isSensitive(key) && (
+                        <button
+                          onClick={() => toggleReveal(key)}
+                          className="text-xs text-faint hover:text-muted cursor-pointer bg-transparent border-none"
+                        >
+                          {revealed.has(key) ? 'Hide' : 'Show'}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
                 {meta?.description && <p className="text-xs text-faint mt-1 ml-[16.5rem] pl-3">{meta.description}</p>}
