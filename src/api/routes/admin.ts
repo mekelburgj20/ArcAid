@@ -260,6 +260,26 @@ router.get('/backups/:name/verify', async (req, res) => {
     }
 });
 
+// GET /api/admin/backups/:name/download — stream the backup's standalone
+// arcaid.db (small, fully-checkpointed). Uploaded assets live in the shared
+// mirror and are not part of the per-backup download. Super-admin gated by the
+// router-level requireAuth + requireSuperAdmin.
+router.get('/backups/:name/download', async (req, res) => {
+    try {
+        const validationResult = validate(BackupRestoreParamsSchema, { name: req.params.name as string });
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const name = validationResult.data.name;
+        const dbPath = path.join(process.cwd(), 'backups', name, 'arcaid.db');
+        if (!fs.existsSync(dbPath)) {
+            return res.status(404).json({ error: `Backup "${name}" has no database file` });
+        }
+        return res.download(dbPath, `${name}.db`);
+    } catch (error) {
+        logError('API Error (GET /api/admin/backups/:name/download):', error);
+        if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Schedule/retention config — stored as plaintext global settings (NOT secrets).
 const BackupConfigSchema = z.object({
     enabled: z.boolean().optional(),

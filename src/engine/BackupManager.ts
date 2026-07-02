@@ -13,6 +13,12 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 // files) is intentionally excluded — the DB is captured via VACUUM INTO.
 const ASSET_SUBDIRS = ['score-photos', 'styles', 'catalogue-images', 'iscored-styles'];
 
+// Single shared, deduplicated asset store (NOT a per-timestamp backup). The
+// scheduled/manual backup syncs the asset subdirs into here instead of copying
+// them into every backup dir, so N backups cost ~one asset copy total. Excluded
+// from listBackups / pruneBackups so it's never shown as or pruned like a backup.
+const MIRROR_DIRNAME = 'assets-mirror';
+
 export class BackupManager {
     private static instance: BackupManager;
 
@@ -26,8 +32,9 @@ export class BackupManager {
     }
 
     /**
-     * Creates a full system backup: a WAL-safe SQLite snapshot (via VACUUM INTO),
-     * the uploaded-asset subdirs, and optional live iScored state.
+     * Creates a system backup: a WAL-safe SQLite snapshot (via VACUUM INTO) in a
+     * per-timestamp dir, a deduplicated sync of the uploaded-asset subdirs into
+     * the shared backups/assets-mirror/, and optional live iScored state.
      *
      * @param client Optional. When omitted (or no ISCORED_PUBLIC_URL), the live
      *               iScored-state capture is skipped cleanly and metadata.games
@@ -75,8 +82,11 @@ export class BackupManager {
                 logWarn('   -> Local database not found, skipping DB copy.');
             }
 
-            // 2. Backup uploaded-asset subdirs.
-            await this.copyDataAssets(backupPath);
+            // 2. Sync uploaded-asset subdirs into the shared deduplicated mirror
+            //    (backups/assets-mirror/) — only new/changed files are copied, so
+            //    each backup stays DB-sized instead of re-bundling multi-GB of
+            //    (mostly static) catalogue images every run.
+            await this.syncAssetMirror();
 
             // 3. Backup iScored State (optional — only when a client is supplied).
             const publicUrl = process.env.ISCORED_PUBLIC_URL;
@@ -125,22 +135,30 @@ export class BackupManager {
     }
 
     /**
-     * Recursively copies the uploaded-asset subdirs from data/ into
-     * destDir/data/<subdir>/. Each subdir may be absent on a fresh install —
-     * guarded with existsSync per dir.
+     * Sync the uploaded-asset subdirs from data/ into the single shared,
+     * deduplicated mirror at backups/assets-mirror/<subdir>/. Only new or changed
+     * files (by size + mtime) are copied; unchanged files are skipped. Append-only:
+     * files removed from the source are intentionally KEPT in the mirror so an
+     * irreplaceable asset (e.g. a score photo) is never lost to a transient source
+     * glitch. One mirror is shared across all backups, so the asset footprint is
+     * ~one copy total instead of one-per-backup.
      */
-    private async copyDataAssets(destDir: string): Promise<void> {
+    private async syncAssetMirror(): Promise<void> {
+        const mirrorRoot = path.join(BACKUP_DIR, MIRROR_DIRNAME);
+        let copied = 0;
+        let skipped = 0;
         for (const subdir of ASSET_SUBDIRS) {
             const src = path.join(DATA_DIR, subdir);
             if (!fsSync.existsSync(src)) continue;
-            const dst = path.join(destDir, 'data', subdir);
             try {
-                await fs.cp(src, dst, { recursive: true });
-                logInfo(`   -> Copied asset dir: data/${subdir}.`);
+                const r = await syncDirDedup(src, path.join(mirrorRoot, subdir));
+                copied += r.copied;
+                skipped += r.skipped;
             } catch (e) {
-                logWarn(`   -> Failed to copy asset dir data/${subdir}: ${e instanceof Error ? e.message : e}`);
+                logWarn(`   -> Failed to mirror asset dir data/${subdir}: ${e instanceof Error ? e.message : e}`);
             }
         }
+        logInfo(`   -> Asset mirror synced (${copied} new/changed, ${skipped} unchanged).`);
     }
 
     /**
@@ -162,7 +180,7 @@ export class BackupManager {
         // descending by name, which is an ISO timestamp).
         const entries = await fs.readdir(BACKUP_DIR, { withFileTypes: true });
         const dirs = entries
-            .filter((e) => e.isDirectory())
+            .filter((e) => e.isDirectory() && e.name !== MIRROR_DIRNAME)
             .map((e) => e.name)
             .sort((a, b) => b.localeCompare(a));
 
@@ -232,4 +250,41 @@ export class BackupManager {
         const ms = Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`);
         return Number.isNaN(ms) ? null : ms;
     }
+}
+
+/**
+ * Recursively copy srcDir → dstDir, copying only files that are new or changed
+ * (different size, or source mtime newer than the mirror's). Unchanged files are
+ * skipped. Never deletes from dst — append-only mirror semantics. Exported for
+ * unit testing of the dedup logic.
+ */
+export async function syncDirDedup(srcDir: string, dstDir: string): Promise<{ copied: number; skipped: number }> {
+    await fs.mkdir(dstDir, { recursive: true });
+    const entries = await fs.readdir(srcDir, { withFileTypes: true });
+    let copied = 0;
+    let skipped = 0;
+    for (const entry of entries) {
+        const s = path.join(srcDir, entry.name);
+        const d = path.join(dstDir, entry.name);
+        if (entry.isDirectory()) {
+            const r = await syncDirDedup(s, d);
+            copied += r.copied;
+            skipped += r.skipped;
+        } else if (entry.isFile()) {
+            let needCopy = true;
+            try {
+                const [ss, ds] = await Promise.all([fs.stat(s), fs.stat(d)]);
+                if (ds.size === ss.size && ds.mtimeMs >= ss.mtimeMs) needCopy = false;
+            } catch {
+                needCopy = true; // dest missing or unreadable → copy
+            }
+            if (needCopy) {
+                await fs.copyFile(s, d);
+                copied++;
+            } else {
+                skipped++;
+            }
+        }
+    }
+    return { copied, skipped };
 }

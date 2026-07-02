@@ -9,10 +9,16 @@ const BACKUP_DIR = path.join(process.cwd(), 'backups');
 const DATA_DIR = path.join(process.cwd(), 'data');
 
 /**
- * Asset subdirectories under `data/` that BackupManager mirrors into
- * `backups/<name>/data/<subdir>/`. Restore copies these back 1:1.
+ * Asset subdirectories under `data/`. Restored from a backup's own
+ * `data/<subdir>/` (legacy bundled backups) or, failing that, from the shared
+ * deduplicated mirror (DB-only backups carry no asset copy of their own).
  */
 const ASSET_SUBDIRS = ['score-photos', 'styles', 'catalogue-images', 'iscored-styles'];
+
+// Shared deduplicated asset store written by BackupManager — not a restorable
+// point-in-time backup, so it's excluded from the backup listing and used as the
+// asset source when a backup dir has no bundled assets of its own.
+const MIRROR_DIRNAME = 'assets-mirror';
 
 export interface BackupInfo {
     name: string;
@@ -62,7 +68,7 @@ export async function listBackups(): Promise<BackupInfo[]> {
     const backups: BackupInfo[] = [];
 
     for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() || entry.name === MIRROR_DIRNAME) continue;
 
         const backupPath = path.join(BACKUP_DIR, entry.name);
 
@@ -143,16 +149,25 @@ export async function verifyBackup(name: string): Promise<VerifyResult> {
  * Existing live asset files are replaced (force).
  */
 async function restoreAssets(backupDir: string): Promise<void> {
+    const mirrorRoot = path.join(BACKUP_DIR, MIRROR_DIRNAME);
     for (const subdir of ASSET_SUBDIRS) {
-        const src = path.join(backupDir, 'data', subdir);
+        // Prefer the backup's own point-in-time assets (legacy bundled backups);
+        // fall back to the shared deduplicated mirror (DB-only backups carry no
+        // assets of their own).
+        let src = path.join(backupDir, 'data', subdir);
+        let origin = 'backup';
         if (!fs.existsSync(src)) {
-            logInfo(`   -> No "${subdir}" assets in backup; skipping.`);
+            src = path.join(mirrorRoot, subdir);
+            origin = 'mirror';
+        }
+        if (!fs.existsSync(src)) {
+            logInfo(`   -> No "${subdir}" assets in backup or mirror; skipping.`);
             continue;
         }
         const dst = path.join(DATA_DIR, subdir);
         await fsp.mkdir(path.dirname(dst), { recursive: true });
         await fsp.cp(src, dst, { recursive: true, force: true });
-        logInfo(`   -> Restored assets: data/${subdir}/`);
+        logInfo(`   -> Restored assets: data/${subdir}/ (from ${origin}).`);
     }
 }
 
