@@ -85,12 +85,16 @@ export default function Leaderboard() {
 
     const socket = getSocket();
     socket.emit('join:room', room.roomId);
+    // Re-join on every (re)connect — room membership doesn't survive a reconnect.
+    const onConnect = () => socket.emit('join:room', room.roomId);
+    socket.on('connect', onConnect);
     const onUpdate = () => { loadData(); loadRankings(); };
     socket.on('leaderboard:updated', onUpdate);
     socket.on('score:new', onUpdate);
 
     return () => {
       socket.emit('leave:room', room.roomId);
+      socket.off('connect', onConnect);
       // Handler refs — score:new/leaderboard:updated are room-scoped (S4) and
       // the socket is a shared singleton; a bare off() would also remove the
       // public Scoreboard's / Kiosk's listeners for the same event.

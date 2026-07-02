@@ -153,6 +153,11 @@ export default function Scoreboard() {
 
     const socket = getSocket();
     socket.emit('join:room', roomId);
+    // Re-join on every (re)connect — socket.io room membership is per-connection
+    // and doesn't survive a reconnect, so an idle/backgrounded tab or a TV kiosk
+    // whose socket drops would otherwise silently stop receiving room events.
+    const onConnect = () => socket.emit('join:room', roomId);
+    socket.on('connect', onConnect);
     const onScore = (data?: { playerName?: string; score?: number; gameName?: string }) => {
       setFlash(true);
       loadData();
@@ -171,6 +176,7 @@ export default function Scoreboard() {
 
     return () => {
       socket.emit('leave:room', roomId);
+      socket.off('connect', onConnect);
       // Pass handler refs: the socket is a shared singleton, so a bare
       // socket.off('score:new') would also kill the admin Leaderboard's and
       // Kiosk's handlers for the same event (S4 fix).
