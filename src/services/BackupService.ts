@@ -161,7 +161,11 @@ async function restoreAssets(backupDir: string): Promise<void> {
             origin = 'mirror';
         }
         if (!fs.existsSync(src)) {
-            logInfo(`   -> No "${subdir}" assets in backup or mirror; skipping.`);
+            if (subdir === 'catalogue-images') {
+                logInfo('   -> No "catalogue-images" in backup (excluded from the mirror by design) — re-run the catalogue importers to repopulate.');
+            } else {
+                logInfo(`   -> No "${subdir}" assets in backup or mirror; skipping.`);
+            }
             continue;
         }
         const dst = path.join(DATA_DIR, subdir);

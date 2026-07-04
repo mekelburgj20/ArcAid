@@ -8,10 +8,18 @@ import { IScoredClient } from './IScoredClient.js';
 const BACKUP_DIR = path.join(process.cwd(), 'backups');
 const DATA_DIR = path.join(process.cwd(), 'data');
 
-// Uploaded-asset subdirs that are part of the backup set. Everything else in
-// data/ (the live DB + -wal/-shm, debug screenshots, rotated logs, scratch
-// files) is intentionally excluded — the DB is captured via VACUUM INTO.
+// Uploaded-asset subdirs under data/. Used by RESTORE (a legacy bundled backup
+// may contain any of these). Everything else in data/ (the live DB + -wal/-shm,
+// debug screenshots, rotated logs, scratch files) is excluded — the DB is
+// captured via VACUUM INTO.
 const ASSET_SUBDIRS = ['score-photos', 'styles', 'catalogue-images', 'iscored-styles'];
+
+// Subdirs the backup mirror actually stores. `catalogue-images` is DELIBERATELY
+// excluded: it's the multi-GB bulk (VPS/OPDB imports) and is fully re-fetchable
+// via the catalogue importers, so backing it up wastes disk (it caused a 100%-
+// disk incident). score-photos (irreplaceable) + the small style dirs are kept.
+// After a bare-metal restore, re-run the catalogue sync to repopulate images.
+const MIRROR_SUBDIRS = ASSET_SUBDIRS.filter((d) => d !== 'catalogue-images');
 
 // Single shared, deduplicated asset store (NOT a per-timestamp backup). The
 // scheduled/manual backup syncs the asset subdirs into here instead of copying
@@ -147,7 +155,7 @@ export class BackupManager {
         const mirrorRoot = path.join(BACKUP_DIR, MIRROR_DIRNAME);
         let copied = 0;
         let skipped = 0;
-        for (const subdir of ASSET_SUBDIRS) {
+        for (const subdir of MIRROR_SUBDIRS) {
             const src = path.join(DATA_DIR, subdir);
             if (!fsSync.existsSync(src)) continue;
             try {
