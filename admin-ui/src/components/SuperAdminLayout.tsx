@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Library, Menu, X, DoorOpen, Palette, Globe, ClipboardList } from 'lucide-react';
+import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Menu, X, DoorOpen, Palette, Globe, ClipboardList } from 'lucide-react';
 import { api, isAuthenticated, setToken } from '../lib/api';
 import LoadingState from './LoadingState';
 
@@ -44,7 +44,6 @@ export default function SuperAdminLayout() {
   const navItems: Array<{ path: string; label: string; icon: React.ReactNode; badge?: number }> = [
     { path: '/admin/dashboard', label: 'Dashboard', icon: <Home size={18} /> },
     { path: '/admin/rooms', label: 'Game Rooms', icon: <DoorOpen size={18} /> },
-    { path: '/admin/library', label: 'Master Library', icon: <Library size={18} /> },
     { path: '/admin/styles', label: 'Style Catalogue', icon: <Palette size={18} /> },
     { path: '/admin/catalogue', label: 'Global Catalogue', icon: <Globe size={18} /> },
     { path: '/admin/catalogue/approvals', label: 'Approvals', icon: <ClipboardList size={18} />, badge: pendingCount },
