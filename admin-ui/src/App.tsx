@@ -115,7 +115,8 @@ function App() {
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="dashboard" element={<SuperAdminDashboard />} />
           <Route path="rooms" element={<GameRoomManager />} />
-          <Route path="library" element={<GameLibrary />} />
+          {/* Master Library consolidated into Global Catalogue (2026-07). Redirect old links. */}
+          <Route path="library" element={<Navigate to="/admin/catalogue" replace />} />
           <Route path="styles" element={<StyleCatalogue />} />
           <Route path="catalogue" element={<GlobalCatalogue />} />
           <Route path="catalogue/approvals" element={<CatalogueApproval />} />
