@@ -16,13 +16,11 @@ COPY src/ ./src/
 RUN npm run build
 
 # Stage 3: Production Image
-FROM mcr.microsoft.com/playwright:v1.61.1-noble AS production
+FROM mcr.microsoft.com/playwright:v1.61.1-jammy AS production
 
-# The Playwright noble base ships Node 24; pin it explicitly via NodeSource so the
-# app's runtime Node version is independent of the base image's bundled Node.
-# curl is also required by the HEALTHCHECK below.
+# Install Node.js on the Playwright Ubuntu image
 RUN apt-get update && apt-get install -y curl \
-    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
