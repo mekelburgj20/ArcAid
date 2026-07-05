@@ -185,6 +185,7 @@ Example: WHO dunnit on `[vpx, vpxs, real, fx, fx_vr, atgames]`. Tournament Must=
 - **Long-running imports** (IGDB bulk sync, big VPS pulls): never run in foreground, and back up `data/arcaid.db` first if the operation touches schema.
 - **Fan-out try/catch swallows column errors silently.** When changing schema in any score table, verify the fan-out path's column references against the live schema.
 - **Discord embed colors:** daily=gold(0xFFD700), weekly=blue(0x00BFFF), monthly=purple(0xAA00FF), custom=green(0x00FF88).
+- **Playwright base image is hard-coupled to the npm `playwright` version.** The Dockerfile prod stage is `FROM mcr.microsoft.com/playwright:v<X>-jammy` with **no `npx playwright install`** — browsers come *only* from the base image, so the npm `playwright` version MUST equal the base-image tag. Bump one without the other and the container's browsers mismatch → every `IScoredClient` op (game create/hide/delete, `/sync-state`, tournament maintenance rotation) throws `Executable doesn't exist` at runtime. **No CI gate catches it:** vitest mocks Playwright and the Docker build never launches a browser. When bumping `playwright` — including any Dependabot backend-minor-patch group that happens to include it — bump the `Dockerfile` base-image tag in the SAME commit/PR (they must land in one deploy; splitting breaks prod in either merge order). Surfaced by the 2026-07-05 safe-wave 1.58.2→1.61.1 bump.
 
 ## Database
 
