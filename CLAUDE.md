@@ -12,7 +12,7 @@ Guidance for Claude Code working in this ArcAid repository.
 
 ## Stack
 
-TypeScript (CommonJS, NodeNext) · Node 20 · Discord.js v14 · Playwright · SQLite (NOT `better-sqlite3` — use the package already in `package.json`) · Express v5 · React 19 + Vite (ESM, separate `tsconfig`).
+TypeScript (CommonJS, NodeNext) · Node 24 prod runtime (Playwright noble base; Node 20 in the Docker build stages + CI gate — compiled output is portable) · Discord.js v14 · Playwright · SQLite (NOT `better-sqlite3` — use the package already in `package.json`) · Express v5 · React 19 + Vite (ESM, separate `tsconfig`).
 
 ## Architecture
 
@@ -185,7 +185,7 @@ Example: WHO dunnit on `[vpx, vpxs, real, fx, fx_vr, atgames]`. Tournament Must=
 - **Long-running imports** (IGDB bulk sync, big VPS pulls): never run in foreground, and back up `data/arcaid.db` first if the operation touches schema.
 - **Fan-out try/catch swallows column errors silently.** When changing schema in any score table, verify the fan-out path's column references against the live schema.
 - **Discord embed colors:** daily=gold(0xFFD700), weekly=blue(0x00BFFF), monthly=purple(0xAA00FF), custom=green(0x00FF88).
-- **Playwright base image is hard-coupled to the npm `playwright` version.** The Dockerfile prod stage is `FROM mcr.microsoft.com/playwright:v<X>-jammy` with **no `npx playwright install`** — browsers come *only* from the base image, so the npm `playwright` version MUST equal the base-image tag. Bump one without the other and the container's browsers mismatch → every `IScoredClient` op (game create/hide/delete, `/sync-state`, tournament maintenance rotation) throws `Executable doesn't exist` at runtime. **No CI gate catches it:** vitest mocks Playwright and the Docker build never launches a browser. When bumping `playwright` — including any Dependabot backend-minor-patch group that happens to include it — bump the `Dockerfile` base-image tag in the SAME commit/PR (they must land in one deploy; splitting breaks prod in either merge order). Surfaced by the 2026-07-05 safe-wave 1.58.2→1.61.1 bump.
+- **Playwright base image is hard-coupled to the npm `playwright` version.** The Dockerfile prod stage is `FROM mcr.microsoft.com/playwright:v<X>-noble` with **no `npx playwright install`** — browsers come *only* from the base image, so the npm `playwright` version MUST equal the base-image tag. Bump one without the other and the container's browsers mismatch → every `IScoredClient` op (game create/hide/delete, `/sync-state`, tournament maintenance rotation) throws `Executable doesn't exist` at runtime. **No CI gate catches it:** vitest mocks Playwright and the Docker build never launches a browser. When bumping `playwright` — including any Dependabot backend-minor-patch group that happens to include it — bump the `Dockerfile` base-image tag in the SAME commit/PR (they must land in one deploy; splitting breaks prod in either merge order). Surfaced by the 2026-07-05 safe-wave 1.58.2→1.61.1 bump. **The base moved `jammy`→`noble` in the sqlite3-6 migration** (noble = Ubuntu 24.04, glibc 2.39; sqlite3 6.0.1's prebuild needs `GLIBC_2.38`, which jammy's 2.35 lacks — the app would crash on DB init at boot). Noble also ships Node 24, so the prod runtime is Node 24 (pinned via NodeSource `setup_24.x`).
 
 ## Database
 
