@@ -144,6 +144,27 @@ export async function verifyBackup(name: string): Promise<VerifyResult> {
 }
 
 /**
+ * Permanently delete a single backup directory (its `arcaid.db` + any bundled
+ * `data/` assets). Path-traversal guarded, and refuses the shared `assets-mirror`
+ * (it is not a restorable point-in-time backup and other backups may depend on it).
+ * Does not touch the live install or any other backup.
+ */
+export async function deleteBackup(name: string): Promise<void> {
+    if (!isValidBackupName(name)) {
+        throw new Error('Invalid backup name');
+    }
+    if (name === MIRROR_DIRNAME) {
+        throw new Error('The shared assets mirror is not a deletable backup');
+    }
+    const backupDir = path.join(BACKUP_DIR, name);
+    if (!fs.existsSync(backupDir)) {
+        throw new Error(`Backup "${name}" does not exist`);
+    }
+    await fsp.rm(backupDir, { recursive: true, force: true });
+    logInfo(`Deleted backup "${name}".`);
+}
+
+/**
  * Recursively copy a backup's `data/<subdir>` trees back into the live `data/<subdir>`.
  * Subdirs absent from the backup are skipped (a fresh-install backup may omit some).
  * Existing live asset files are replaced (force).

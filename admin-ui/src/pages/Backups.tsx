@@ -37,6 +37,8 @@ export default function Backups() {
   const [restoreConfirmText, setRestoreConfirmText] = useState('');
   const [creating, setCreating] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Schedule / retention config (mirrors GlobalSettings' form pattern).
@@ -161,6 +163,20 @@ export default function Backups() {
     }
   };
 
+  const handleDelete = async (name: string) => {
+    setConfirmDelete(null);
+    setDeleting(name);
+    try {
+      await api.delete(`/admin/backups/${encodeURIComponent(name)}`);
+      toast(`Backup "${name}" deleted`, 'success');
+      loadBackups();
+    } catch (err: any) {
+      toast(err.message || 'Delete failed', 'error');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   const columns = [
     {
       key: 'name',
@@ -210,6 +226,13 @@ export default function Backups() {
             disabled={restoring !== null}
           >
             {restoring === item.name ? 'Restoring...' : 'Restore'}
+          </NeonButton>
+          <NeonButton
+            variant="ghost"
+            onClick={() => setConfirmDelete(item.name)}
+            disabled={deleting !== null}
+          >
+            {deleting === item.name ? 'Deleting...' : 'Delete'}
           </NeonButton>
         </div>
       ),
@@ -373,6 +396,35 @@ export default function Backups() {
                 disabled={restoreConfirmText !== confirmRestore}
               >
                 Restore
+              </NeonButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm"
+          onClick={() => setConfirmDelete(null)}
+        >
+          <div
+            className="bg-surface border border-border rounded-lg p-6 w-full max-w-md shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="font-display text-lg font-bold text-primary mb-2">Delete Backup</h3>
+            <p className="text-muted mb-4">
+              Permanently delete <span className="font-mono text-primary">{confirmDelete}</span>?
+              This removes the backup and cannot be undone.
+              {backups.length === 1 && (
+                <span className="block mt-2 text-neon-amber">This is your only backup — you'll have none left.</span>
+              )}
+            </p>
+            <div className="flex justify-end gap-3">
+              <NeonButton variant="ghost" onClick={() => setConfirmDelete(null)}>
+                Cancel
+              </NeonButton>
+              <NeonButton variant="danger" onClick={() => handleDelete(confirmDelete)}>
+                Delete
               </NeonButton>
             </div>
           </div>
