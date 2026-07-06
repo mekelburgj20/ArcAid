@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.14.0] — unreleased
+
+**Dependency + platform modernization: the entire Dependabot backlog cleared (16 PRs), and production moved to Ubuntu 24.04 (noble) + Node 24 + sqlite3 6.** Plus a super-admin Backups Delete button.
+
+*Dependency overhaul (16 Dependabot PRs).* Safe minor/patch group (`actions/checkout` 6→7, admin-ui minor/patch ×11, backend minor/patch ×13 — including `playwright` 1.58→1.61, which required a coordinating Dockerfile base-image bump to keep the pinned browsers in sync). Admin-ui majors (#43): **vite 7→8 (Rolldown bundler)**, `@vitejs/plugin-react` 6, TypeScript 6, ESLint 10, lucide-react 1, react-easy-crop 6, `@types/node` 26, globals 17, uuid 14 — validated on both glibc and musl. Backend majors (#44): uuid 14, TypeScript 6, `@types/bcryptjs` 3.
+
+*Production OS migration (#46).* sqlite3 6.0.1's prebuilt binary requires glibc ≥ 2.38, which the jammy base (glibc 2.35) lacks, so the production image moved **`playwright:v1.61.1-jammy` → `-noble`** (Ubuntu 24.04, glibc 2.39). Noble ships Node 24, so the prod runtime is now Node 24 (pinned via NodeSource `setup_24.x`; the Docker build stages stay Node 20). `arcaid` is pinned to **uid 999** so it can write the existing 999-owned `/app/data` — a UID mismatch (noble's default 997) caused a `SQLITE_READONLY` crash on the first attempt (#45, reverted), diagnosed by reproducing against a copy of the prod DB. Added a `.dockerignore` (the repo had none).
+
+*Backups Delete button (#47).* `DELETE /api/admin/backups/:name` (super-admin, auto-audited) + `BackupService.deleteBackup` (path-traversal guarded, refuses the shared assets-mirror) + a per-row Delete button/confirm modal on the super-admin Backups page. Closes the gap that let backups accumulate until prod hit 100% disk.
+
+Bumps SW cache to `arcaid-v82`.
+
+---
+
 ## [2.13.16] — unreleased
 
 **Public-side player names now open a lightweight `PlayerQuickView` modal on click + `PlayerDetail` back link respects originating tab.** Same UX pattern as `GameQuickView` from v2.13.12.
