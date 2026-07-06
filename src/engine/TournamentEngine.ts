@@ -15,12 +15,19 @@ import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { parsePlatformsList } from '../utils/platformRules.js';
+import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
+
+/**
+ * Outcome of a single maintenance run, surfaced to the S10 maintenance-run
+ * trail. 'error' is recorded by runMaintenance when the work throws.
+ */
+type MaintenanceRunOutcome = { outcome: 'success' | 'skipped'; summary: string };
 
 export class TournamentEngine {
     private static instance: TournamentEngine;
 
     /** Per-tournament mutex to prevent concurrent maintenance on the same tournament */
-    private maintenanceLocks: Map<string, Promise<void>> = new Map();
+    private maintenanceLocks: Map<string, Promise<MaintenanceRunOutcome>> = new Map();
 
     private constructor() {}
 
@@ -592,16 +599,50 @@ export class TournamentEngine {
             await existing;
         }
 
+        // Resolve the room upfront so the S10 maintenance-run trail can attribute
+        // BOTH success and error rows to the room (the health surface joins by
+        // game_room_id, so an unattributed error row would be invisible to the
+        // admin — exactly the failure we want surfaced). Best-effort.
+        let gameRoomId: string | null = null;
+        try {
+            const db = await getDatabase();
+            const row = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+            gameRoomId = row?.game_room_id ?? null;
+        } catch { /* non-fatal — trail row carries null */ }
+
         const maintenancePromise = this.runMaintenanceInternal(tournamentId);
         this.maintenanceLocks.set(tournamentId, maintenancePromise);
+
+        const startedAtMs = Date.now();
+        const startedAtIso = new Date(startedAtMs).toISOString();
         try {
-            await maintenancePromise;
+            const result = await maintenancePromise;
+            void MaintenanceRunService.record({
+                gameRoomId,
+                tournamentId,
+                outcome: result.outcome,
+                summary: result.summary,
+                startedAt: startedAtIso,
+                finishedAt: new Date().toISOString(),
+                durationMs: Date.now() - startedAtMs,
+            });
+        } catch (err) {
+            void MaintenanceRunService.record({
+                gameRoomId,
+                tournamentId,
+                outcome: 'error',
+                summary: err instanceof Error ? err.message : String(err),
+                startedAt: startedAtIso,
+                finishedAt: new Date().toISOString(),
+                durationMs: Date.now() - startedAtMs,
+            });
+            throw err;
         } finally {
             this.maintenanceLocks.delete(tournamentId);
         }
     }
 
-    private async runMaintenanceInternal(tournamentId: string): Promise<void> {
+    private async runMaintenanceInternal(tournamentId: string): Promise<MaintenanceRunOutcome> {
         // Pause score poller during maintenance to avoid conflicts
         const { ScoreSyncPoller } = await import('./ScoreSyncPoller.js');
         const poller = ScoreSyncPoller.getInstance();
@@ -624,11 +665,11 @@ export class TournamentEngine {
             const creds = await getIScoredCredsForRoom(tournamentRow?.game_room_id);
 
             if (creds) {
-                await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
+                return await IScoredSessionRegistry.getInstance().withSession(creds, (client) =>
                     this.runMaintenanceWork(tournamentId, client, creds),
                 );
             } else {
-                await this.runMaintenanceWork(tournamentId, null, null);
+                return await this.runMaintenanceWork(tournamentId, null, null);
             }
         } finally {
             poller.resume();
@@ -639,7 +680,7 @@ export class TournamentEngine {
         tournamentId: string,
         client: IScoredClient | null,
         creds: IScoredCreds | null,
-    ): Promise<void> {
+    ): Promise<MaintenanceRunOutcome> {
         const db = await getDatabase();
         const tournamentRow = await db.get('SELECT * FROM tournaments WHERE id = ?', tournamentId);
         if (!tournamentRow) throw new Error(`Tournament ${tournamentId} not found.`);
@@ -651,7 +692,7 @@ export class TournamentEngine {
         // could — short-circuit so a paused tournament never rotates/activates.
         if (!tournamentRow.is_active) {
             logInfo(`Tournament "${tournamentRow.name}" is paused (is_active=0) — skipping maintenance.`);
-            return;
+            return { outcome: 'skipped', summary: 'Skipped — tournament paused' };
         }
 
         const term = getTerminology(tournamentRow.mode);
@@ -672,7 +713,7 @@ export class TournamentEngine {
 
         if (activeGames.length === 0 && queuedRows.length === 0) {
             logWarn(`No active or queued ${term.game} for ${term.tournament} "${tournamentRow.name}". Nothing to do.`);
-            return;
+            return { outcome: 'skipped', summary: 'Skipped — no active or queued games' };
         }
 
         // Process each active game slot independently.
@@ -787,6 +828,8 @@ export class TournamentEngine {
                 logWarn(`Failed to run inline scheduled cleanup for ${tournamentRow.name}:`, err);
             }
         }
+
+        return { outcome: 'success', summary: `Completed — ${activeGames.length} active slot(s) processed` };
     }
 
     /**

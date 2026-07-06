@@ -26,6 +26,20 @@ import { notifications } from './commands/notifications.js';
 import fs from 'fs';
 import path from 'path';
 
+/**
+ * Module-level handle to the live DiscordClient, set in the constructor so
+ * route/service code (e.g. the S10 /admin/health endpoint) can query real
+ * gateway readiness + guild membership. Null when Discord isn't configured
+ * (the constructor throws before assigning if creds are missing, and
+ * index.ts only constructs it when canStartBot) — callers must null-check and
+ * treat null as "not ready".
+ */
+let _instance: DiscordClient | null = null;
+
+export function getDiscordClient(): DiscordClient | null {
+    return _instance;
+}
+
 export class DiscordClient {
     private client: Client;
     private commands: Collection<string, Command>;
@@ -51,6 +65,10 @@ export class DiscordClient {
 
         this.commands = new Collection();
         this.registerCommands();
+
+        // Register this live instance so route/service code can reach real
+        // gateway state via getDiscordClient() (S10 health surface).
+        _instance = this;
     }
 
     private registerCommands(): void {
@@ -63,6 +81,23 @@ export class DiscordClient {
         for (const command of commandList) {
             this.commands.set(command.data.name, command);
         }
+    }
+
+    /**
+     * True once the Discord gateway has fired ClientReady. Reflects real
+     * connection state (not env-var presence) for the S10 health surface.
+     */
+    public isReady(): boolean {
+        return this.client.isReady();
+    }
+
+    /**
+     * Whether the bot is currently a member of the given guild. Reads the
+     * gateway's guild cache (populated under the Guilds intent). Returns false
+     * when the gateway isn't ready yet.
+     */
+    public isInGuild(guildId: string): boolean {
+        return this.client.guilds.cache.has(guildId);
     }
 
     /**

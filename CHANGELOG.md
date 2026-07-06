@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.15.0] — unreleased
+
+**S10 — Room-admin observability + alerting.** Turns "why didn't my game activate / is sync down?" from an undiagnosable mystery into a real in-product health surface, plus a server-level alert on sustained iScored-sync failure and an in-app version/build display.
+
+*Real health, not env-var theater.* The Dashboard "Bot Online" dot was `!!(DISCORD_BOT_TOKEN && DISCORD_CLIENT_ID)` — env-var presence, not connection state. `DiscordClient` now exposes `isReady()` / `isInGuild(guildId)` via a module-level `getDiscordClient()` accessor (the gateway `Client` was previously unreachable from route code), so the new health card reports genuine gateway readiness + guild membership.
+
+*`GET /:roomId/admin/health`.* Aggregates Discord readiness, `ScoreSyncPoller` sync status (per-account last-success / last-error timestamps via a new `getStatus()`), per-tournament last-run outcome + next-fire time, and the running version. The Dashboard renders it as a live health card (30s poll); the Tournaments page gains "Last run" + "Next fire" columns.
+
+*Maintenance-run trail (migration 106).* `runMaintenance()` now records a `maintenance_runs` row (success / skipped / error + summary + duration) for every cron and forced run, so failure paths are finally admin-visible. `MaintenanceRunService` reads latest-per-tournament for the health surface.
+
+*Force Maintenance tells the truth.* `POST .../game-states/force-maintenance` now **awaits** the run and returns its real outcome, replacing the optimistic "triggered" response + blind 3s refetch; the Game States page reports what actually happened.
+
+*Operator alerting (ships inert).* After 5 consecutive `ScoreSyncPoller` failures for one iScored account, `OpsAlertService` fires a one-time Discord DM to `OPS_ALERT_DISCORD_USER_ID` (re-armed on recovery). Gated behind `OPS_ALERT_ENABLED` (default off) — zero behavior change until a super-admin configures it.
+
+*In-app version display.* `GET /api/version` → `{ version, commit, builtAt }` (version from root `package.json` via `npm_package_version`; commit/builtAt baked as Docker build-args in `deploy.yml` + `Dockerfile`). Shown on the Dashboard health card + Help footer. Distinct from the SW cache counter.
+
+*Tests.* New `s10-observability.test.ts` — OpsAlert gating, poller alert-once/re-arm debounce, and maintenance-trail success/skipped/error (via the S2 fake-client seam). Full suite 229/229.
+
+Bumps SW cache to `arcaid-v83`.
+
+---
+
 ## [2.14.0] — unreleased
 
 **Dependency + platform modernization: the entire Dependabot backlog cleared (16 PRs), and production moved to Ubuntu 24.04 (noble) + Node 24 + sqlite3 6.** Plus a super-admin Backups Delete button.

@@ -51,6 +51,14 @@ RUN mkdir -p data backups
 RUN groupadd -r arcaid && useradd -r -u 999 -g arcaid -d /app arcaid \
     && chown -R arcaid:arcaid /app
 
+# Build metadata (S10 in-app version display). Passed as build-args by
+# deploy.yml; surfaced at runtime via getVersionInfo() -> GET /api/version and
+# the admin health card. NOT the SW CACHE_NAME.
+ARG GIT_SHA=""
+ARG BUILT_AT=""
+ENV APP_GIT_SHA=$GIT_SHA
+ENV APP_BUILT_AT=$BUILT_AT
+
 # Expose the API/Frontend port
 EXPOSE 3001
 

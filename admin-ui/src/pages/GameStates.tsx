@@ -264,11 +264,17 @@ export default function GameStates() {
       danger: true,
       onConfirm: async () => {
         try {
-          await api.post(`/rooms/${room.roomId}/admin/game-states/force-maintenance`, { tournamentId });
-          showMsg(`Maintenance triggered for ${name}`, 'success');
-          setTimeout(fetchGames, 3000); // Refresh after a delay to let maintenance run
+          // The endpoint now AWAITS the run and returns the real outcome (S10),
+          // so report it directly instead of an optimistic "triggered" + a blind
+          // 3s refetch that never reflected whether maintenance actually finished.
+          const res = await api.post<{ outcome?: string; summary?: string; message?: string }>(
+            `/rooms/${room.roomId}/admin/game-states/force-maintenance`,
+            { tournamentId },
+          );
+          showMsg(res.summary || res.message || `Maintenance complete for ${name}`, res.outcome === 'error' ? 'error' : 'success');
+          await fetchGames();
         } catch (err: any) {
-          showMsg(err.message || 'Failed', 'error');
+          showMsg(err.message || 'Maintenance failed', 'error');
         }
       },
     });
