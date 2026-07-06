@@ -16,7 +16,7 @@ import { AdminService } from '../../services/AdminService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
 import { LogService } from '../../services/LogService.js';
 import { getDashboardData } from '../../services/DashboardService.js';
-import { listBackups, restoreBackup, verifyBackup } from '../../services/BackupService.js';
+import { listBackups, restoreBackup, verifyBackup, deleteBackup } from '../../services/BackupService.js';
 import { VpsImportService } from '../../services/VpsImportService.js';
 import { WizardImportService } from '../../services/WizardImportService.js';
 import { serverEvents } from '../server.js';
@@ -277,6 +277,23 @@ router.get('/backups/:name/download', async (req, res) => {
     } catch (error) {
         logError('API Error (GET /api/admin/backups/:name/download):', error);
         if (!res.headersSent) res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// DELETE /api/admin/backups/:name — permanently remove a backup directory (its DB
+// + any bundled assets). Its absence let old backups pile up until prod hit 100%
+// disk (2026-07-04 incident). Super-admin gated by the router-level requireAuth +
+// requireSuperAdmin; auto-audited by the admin auditMiddleware.
+router.delete('/backups/:name', async (req, res) => {
+    try {
+        const validationResult = validate(BackupRestoreParamsSchema, { name: req.params.name as string });
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        await deleteBackup(validationResult.data.name);
+        res.json({ success: true, message: `Backup "${validationResult.data.name}" deleted.` });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logError('API Error (DELETE /api/admin/backups/:name):', error);
+        res.status(400).json({ error: message });
     }
 });
 
