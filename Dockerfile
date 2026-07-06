@@ -16,11 +16,13 @@ COPY src/ ./src/
 RUN npm run build
 
 # Stage 3: Production Image
-FROM mcr.microsoft.com/playwright:v1.61.1-jammy AS production
+FROM mcr.microsoft.com/playwright:v1.61.1-noble AS production
 
-# Install Node.js on the Playwright Ubuntu image
+# The Playwright noble base ships Node 24; pin it explicitly via NodeSource so the
+# app's runtime Node version is independent of the base image's bundled Node.
+# curl is also required by the HEALTHCHECK below.
 RUN apt-get update && apt-get install -y curl \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,8 +41,14 @@ COPY --from=frontend-build /app/admin-ui/dist ./admin-ui/dist
 # Ensure data and backups directories exist
 RUN mkdir -p data backups
 
-# Add non-root user for security
-RUN groupadd -r arcaid && useradd -r -g arcaid -d /app arcaid \
+# Add non-root user for security. Pin arcaid to uid 999 to MATCH the jammy image's
+# arcaid UID (999): the bind-mounted /app/data and the existing arcaid.db carry that
+# ownership from prod's jammy history, and the CMD's chown of /app/data is
+# non-recursive (deliberately, to avoid walking catalogue-images). Without this pin,
+# noble's default arcaid (997) can't write the 999-owned DB -> SQLITE_READONLY crash
+# on boot. (gid is left auto: 999 is taken by systemd-journal on noble, but owner-UID
+# governs file writes regardless of gid.)
+RUN groupadd -r arcaid && useradd -r -u 999 -g arcaid -d /app arcaid \
     && chown -R arcaid:arcaid /app
 
 # Expose the API/Frontend port
