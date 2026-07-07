@@ -56,10 +56,14 @@ function formatRunAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function formatNextFire(iso: string): string {
+function formatNextFire(iso: string, tz?: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const opts: Intl.DateTimeFormatOptions = { weekday: 'short', hour: '2-digit', minute: '2-digit' };
+  // Render in the tournament's configured timezone (+ abbreviation) so this
+  // matches the Schedule column instead of the viewer's browser-local tz.
+  if (tz) { opts.timeZone = tz; opts.timeZoneName = 'short'; }
+  return d.toLocaleString([], opts);
 }
 
 function formatCadenceDisplay(cadenceJson: string): string {
@@ -514,7 +518,9 @@ export default function Tournaments() {
               if (t.is_active === 0) return <span className="text-faint text-xs">paused</span>;
               const info = runInfo[t.id];
               if (!info?.nextFireAt) return <span className="text-faint text-xs">—</span>;
-              return <span className="text-xs text-muted">{formatNextFire(info.nextFireAt)}</span>;
+              let tz: string | undefined;
+              try { tz = JSON.parse(t.cadence)?.timezone; } catch { /* fall back to browser-local */ }
+              return <span className="text-xs text-muted">{formatNextFire(info.nextFireAt, tz)}</span>;
             }},
             { key: 'actions', header: '', render: t => (
               <div className="flex gap-2 justify-end">

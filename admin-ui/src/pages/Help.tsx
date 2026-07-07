@@ -79,12 +79,35 @@ export default function Help() {
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id);
   const [tocOpen, setTocOpen] = useState(false);
   const [version, setVersion] = useState<{ version: string; commit: string | null; builtAt: string | null } | null>(null);
+  const [query, setQuery] = useState('');
+  const [sectionText, setSectionText] = useState<Record<string, string>>({});
+  const contentRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   useEffect(() => {
     api.get<{ version: string; commit: string | null; builtAt: string | null }>('/version')
       .then(setVersion)
       .catch(() => {});
+  }, []);
+
+  // Build a full-text search index per section by walking the rendered content
+  // once after mount — keeps the static JSX intact (no per-section refactor).
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+    const index: Record<string, string> = {};
+    let currentId: string | null = null;
+    for (const child of Array.from(root.children)) {
+      const el = child as HTMLElement;
+      if (el.tagName === 'H2' && el.id && SECTIONS.some(s => s.id === el.id)) {
+        currentId = el.id;
+        index[currentId] = el.textContent || '';
+      } else if (currentId) {
+        index[currentId] += ' ' + (el.textContent || '');
+      }
+    }
+    for (const k of Object.keys(index)) index[k] = index[k].toLowerCase();
+    setSectionText(index);
   }, []);
 
   useEffect(() => {
@@ -115,6 +138,11 @@ export default function Help() {
   const tableClass = 'w-full border-collapse';
   const tableWrapClass = 'overflow-x-auto rounded-lg border border-border';
 
+  const q = query.trim().toLowerCase();
+  const matchedSections = q
+    ? SECTIONS.filter(s => s.label.toLowerCase().includes(q) || (sectionText[s.id] || '').includes(q))
+    : SECTIONS;
+
   return (
     <div className="flex gap-8">
       {/* Mobile TOC toggle */}
@@ -137,7 +165,10 @@ export default function Help() {
           >
             <p className="font-display text-xs uppercase tracking-wider text-muted mb-4">Contents</p>
             <ul className="space-y-1">
-              {SECTIONS.map((s) => (
+              {matchedSections.length === 0 && (
+                <li className="text-faint text-xs px-2 py-1.5">No matches</li>
+              )}
+              {matchedSections.map((s) => (
                 <li key={s.id}>
                   <button
                     onClick={() => scrollTo(s.id)}
@@ -161,7 +192,10 @@ export default function Help() {
         <div className="sticky top-6">
           <p className="font-display text-xs uppercase tracking-wider text-muted mb-4">Contents</p>
           <ul className="space-y-0.5">
-            {SECTIONS.map((s) => (
+            {matchedSections.length === 0 && (
+              <li className="text-faint text-xs px-2 py-1.5">No matches</li>
+            )}
+            {matchedSections.map((s) => (
               <li key={s.id}>
                 <button
                   onClick={() => scrollTo(s.id)}
@@ -180,11 +214,58 @@ export default function Help() {
       </nav>
 
       {/* Main content */}
-      <div className="flex-1 min-w-0">
+      <div ref={contentRef} className="flex-1 min-w-0">
         <h1 className="font-display text-2xl font-bold mb-2">Help &amp; Guide</h1>
-        <p className="text-muted text-sm mb-8">
+        <p className="text-muted text-sm mb-6">
           Everything you need to know about managing your game room in ArcAid.
         </p>
+
+        {/* Search — filters the sidebar TOC + surfaces jump-to chips */}
+        <div className="mb-8">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="7" strokeWidth="2" />
+              <path strokeLinecap="round" strokeWidth="2" d="M21 21l-4.3-4.3" />
+            </svg>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search the guide…"
+              aria-label="Search the help guide"
+              className="w-full bg-raised border border-border rounded-lg pl-10 pr-9 py-2.5 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-faint hover:text-primary bg-transparent border-none cursor-pointer text-sm"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {q && (
+            <div className="mt-3">
+              {matchedSections.length === 0 ? (
+                <p className="text-faint text-sm px-1">No sections match “{query}”.</p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-faint text-xs">{matchedSections.length} match{matchedSections.length === 1 ? '' : 'es'} · Jump to:</span>
+                  {matchedSections.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => scrollTo(s.id)}
+                      className="text-xs px-2.5 py-1 rounded-full border border-neon-cyan/30 text-neon-cyan bg-neon-cyan/5 hover:bg-neon-cyan/10 cursor-pointer"
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* ------------------------------------------------------------------ */}
         {/* 1. GETTING STARTED */}
@@ -207,7 +288,7 @@ export default function Help() {
           <SubHeading>Option B: Discord OAuth</SubHeading>
           <p className="text-primary text-sm mb-3">
             Click <strong>Login with Discord</strong> to authenticate with your Discord account.
-            This works if your Discord user has been added as a room admin in Settings &rarr; User Management.
+            This works if your Discord user has been added as a room admin in Settings &rarr; Users.
           </p>
 
           <Tip>
@@ -225,12 +306,13 @@ export default function Help() {
             The Dashboard gives you a quick snapshot of your room's current state.
           </p>
 
-          <SubHeading>Status Bar</SubHeading>
-          <p className="text-muted text-sm mb-2">Three indicators across the top:</p>
+          <SubHeading>System Status</SubHeading>
+          <p className="text-muted text-sm mb-2">A single card across the top showing live health, refreshed every 30 seconds:</p>
           <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
-            <li><span className="text-neon-green font-medium">System Status</span> &mdash; Real Discord gateway readiness (green pulse when the bot is connected to Discord), iScored sync health with last-sync time, plus active tournament/player counts and the running app version</li>
-            <li><span className="text-neon-cyan font-medium">Active Tournaments</span> &mdash; Number of tournaments currently running</li>
-            <li><span className="text-neon-amber font-medium">Participants</span> &mdash; Total unique players with scores</li>
+            <li><span className="text-neon-green font-medium">Discord</span> &mdash; Real gateway connection state (green pulse = connected, magenta = offline), plus <span className="text-primary">in server</span> / <span className="text-neon-amber">not in server</span> when a Guild ID is set. Shows <span className="text-muted">Discord disabled</span> if the bot is turned off for this room.</li>
+            <li><span className="text-neon-green font-medium">iScored Sync</span> &mdash; Background score-sync health with the time of the last successful sync (reads <span className="text-muted">Sync paused / degraded / idle</span> as appropriate). If an account keeps failing, a red line names the account, the consecutive-failure count, and the last error.</li>
+            <li><span className="text-neon-cyan font-medium">Active Tournaments</span> &amp; <span className="text-neon-green font-medium">Active Players</span> &mdash; Counts of running tournaments and of unique players with scores.</li>
+            <li><span className="text-neon-amber font-medium">Version</span> &mdash; The running app version (and build) so you can confirm what's deployed.</li>
           </ul>
 
           <SubHeading>Active Now</SubHeading>
@@ -240,8 +322,8 @@ export default function Help() {
           <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
             <li>Current game name</li>
             <li>Tournament name and badge</li>
+            <li>Player count and a "Time Left" countdown to the next rotation</li>
             <li>Current leader and their score</li>
-            <li>Next scheduled rotation time</li>
           </ul>
 
           <SubHeading>Recent Winners</SubHeading>
@@ -256,14 +338,21 @@ export default function Help() {
         <SectionHeading id="settings">3. Settings</SectionHeading>
         <p className="text-muted text-sm mb-4">
           Navigate to <strong className="text-primary">Settings</strong> in the sidebar to configure your game room.
-          Settings are organized into categories. Click <strong className="text-primary">Save All Changes</strong> at the top to persist edits.
+          Settings are grouped into cards. As you edit, an <strong className="text-primary">"N unsaved changes"</strong> indicator
+          appears and <strong className="text-primary">Save All Changes</strong> stays disabled until something actually changes;
+          ArcAid also warns you before you navigate away with unsaved edits. Access-affecting toggles (login required, iScored,
+          Discord, global scoreboard) ask for confirmation on save.
         </p>
 
         {/* Game Room */}
         <NeonCard title="Game Room" className="mb-4">
+          <p className="text-muted text-sm mb-3">
+            Your room's <strong>Name</strong> and <strong>Slug</strong> are shown here <strong>read-only</strong> &mdash; they're set
+            by the super-admin when your room is created. To rename a room or change its URL, contact your server admin.
+          </p>
           <div className={tableWrapClass}>
             <table className={tableClass}>
-              <thead><tr><Th className="w-1/3">Setting</Th><Th>What It Does</Th></tr></thead>
+              <thead><tr><Th className="w-1/3">Field</Th><Th>What It Is</Th></tr></thead>
               <tbody>
                 <tr><Td><strong>Game Room Name</strong></Td><Td>Display name shown on the public landing page and all public pages</Td></tr>
                 <tr><Td><strong>Game Room Slug</strong></Td><Td>URL identifier (e.g., <Code>my_room</Code> makes your scoreboard available at <Code>/my_room/</Code>)</Td></tr>
@@ -307,16 +396,38 @@ export default function Help() {
           </p>
         </NeonCard>
 
-        {/* Tournament Defaults */}
-        <NeonCard title="Tournament Defaults" className="mb-4">
+        {/* Integrations */}
+        <NeonCard title="Integrations" className="mb-4">
+          <p className="text-muted text-sm mb-3">
+            Feature toggles for this room. Changing an access-affecting one prompts for confirmation on save.
+          </p>
+          <div className={tableWrapClass}>
+            <table className={tableClass}>
+              <thead><tr><Th className="w-1/3">Toggle</Th><Th>What It Does</Th></tr></thead>
+              <tbody>
+                <tr><Td><strong>iScored Integration</strong></Td><Td>Enable/disable iScored sync + game management for this room</Td></tr>
+                <tr><Td><strong>Discord Integration</strong></Td><Td>Enable/disable the Discord bot for this room (announcements, commands, DMs)</Td></tr>
+                <tr><Td><strong>Discord @Mentions</strong></Td><Td>Whether announcements @-mention players</Td></tr>
+                <tr><Td><strong>Post Scores to Global Leaderboard</strong></Td><Td>Fan this room's scores out to the cross-room Global Scoreboard</Td></tr>
+                <tr><Td><strong>Require Login for Score Submissions</strong></Td><Td>Force Discord login before anyone can submit a score</Td></tr>
+                <tr><Td><strong>Enable Game Pick Award</strong></Td><Td>Turn on the winner-picks-next-game flow (and the Mystery Award)</Td></tr>
+                <tr><Td><strong>Callouts</strong></Td><Td>Fun automated bot replies to trigger phrases</Td></tr>
+              </tbody>
+            </table>
+          </div>
+          <Tip>
+            Cooldown, pick windows, timezone, and platform rules are configured <strong>per tournament</strong> on the Tournaments page &mdash; not here.
+          </Tip>
+        </NeonCard>
+
+        {/* Kiosk */}
+        <NeonCard title="Kiosk" className="mb-4">
           <div className={tableWrapClass}>
             <table className={tableClass}>
               <thead><tr><Th className="w-1/3">Setting</Th><Th>What It Does</Th></tr></thead>
               <tbody>
-                <tr><Td><strong>Game Eligibility Cooldown (days)</strong></Td><Td>After a game finishes, how many days before it can be picked again. Prevents the same games from repeating too frequently.</Td></tr>
-                <tr><Td><strong>Winner Pick Window (minutes)</strong></Td><Td>How long the winner of a tournament round has to pick the next game before the pick passes to the runner-up.</Td></tr>
-                <tr><Td><strong>Runner-up Pick Window (minutes)</strong></Td><Td>How long the runner-up has to pick if the winner did not. After this expires, the system auto-selects a game.</Td></tr>
-                <tr><Td><strong>Bot Timezone</strong></Td><Td>Default timezone for all schedules (e.g., <Code>America/Chicago</Code>). Can be overridden per tournament.</Td></tr>
+                <tr><Td><strong>Kiosk Mode</strong></Td><Td>Enable the full-screen kiosk leaderboard at <Code>/your_slug/kiosk</Code> for TV displays</Td></tr>
+                <tr><Td><strong>Kiosk Auto-Refresh</strong></Td><Td>How often (seconds) the kiosk view refreshes</Td></tr>
               </tbody>
             </table>
           </div>
@@ -324,14 +435,13 @@ export default function Help() {
 
         {/* Theme */}
         <NeonCard title="Theme" className="mb-4">
-          <p className="text-primary text-sm mb-3">Choose the visual theme for your public-facing pages:</p>
-          <ul className="space-y-2 text-sm mb-4">
-            <li><span className="text-neon-cyan font-medium">Dark</span> <span className="text-muted">&mdash; Deep indigo dark theme with accent colors (default)</span></li>
-            <li><span className="text-neon-amber font-medium">Light</span> <span className="text-muted">&mdash; Clean light theme for daytime use</span></li>
-          </ul>
+          <p className="text-primary text-sm mb-3">
+            Choose from ArcAid's themes (17 and counting &mdash; Dark, Light, Retro, Cyberpunk, Ocean, Sunset, Backglass,
+            CRT Green, Cabinet, Silverball, and more).
+          </p>
           <p className="text-muted text-sm">
-            You can set a <strong className="text-primary">Global Theme</strong> for all visitors, and optionally set a
-            <strong className="text-primary"> Personal Override</strong> for your own admin experience.
+            Set a <strong className="text-primary">Public Theme</strong> that every visitor sees, and optionally an
+            <strong className="text-primary"> Admin Theme</strong> that only changes your own admin experience.
           </p>
         </NeonCard>
 
@@ -350,47 +460,34 @@ export default function Help() {
                 <tr><Td><strong>Show Timer</strong></Td><Td>Display countdown to next scheduled rotation on each card</Td></tr>
                 <tr><Td><strong>Layout</strong></Td><Td>Grid (auto-filling columns) or Scroll (horizontal scrolling row)</Td></tr>
                 <tr><Td><strong>Hide Empty Games</strong></Td><Td>When enabled, games with no scores yet are hidden from the public scoreboard</Td></tr>
+                <tr><Td><strong>QR Code Mode</strong></Td><Td>Show score-submission QR codes on cards: Disabled, Kiosk Only, or All</Td></tr>
+                <tr><Td><strong>Zoom</strong></Td><Td>Scale the whole leaderboard (50%&ndash;200%) for TV/kiosk displays</Td></tr>
               </tbody>
             </table>
           </div>
           <Tip>
-            Rooms without a card style set will see legacy layout options. Click <strong>Upgrade to new card system</strong> in Settings to switch.
+            The new card system is the default. Older presets are still available under <strong>Show more styles</strong>.
           </Tip>
         </NeonCard>
 
         {/* Branding */}
-        <NeonCard title="Branding" className="mb-4">
+        <NeonCard title="Leaderboard Branding" className="mb-4">
           <div className={tableWrapClass}>
             <table className={tableClass}>
               <thead><tr><Th className="w-1/3">Setting</Th><Th>What It Does</Th></tr></thead>
               <tbody>
-                <tr><Td><strong>Leaderboard Title</strong></Td><Td>Text shown above the leaderboard (defaults to room name). Can be hidden</Td></tr>
                 <tr><Td><strong>Background Image</strong></Td><Td>Full-page background for the leaderboard (uploaded or URL)</Td></tr>
-                <tr><Td><strong>Logo</strong></Td><Td>Logo image with configurable position (left, right, above, below title) and max height</Td></tr>
-                <tr><Td><strong>QR Code Mode</strong></Td><Td>Show QR codes for score submission on cards: <strong>Disabled</strong>, <strong>Kiosk Only</strong>, or <strong>All</strong></Td></tr>
-                <tr><Td><strong>Zoom</strong></Td><Td>Scale the entire leaderboard (50%–200%) for TV/kiosk displays</Td></tr>
+                <tr><Td><strong>Logo</strong></Td><Td>Logo image with configurable position (left, right, above, below title), max height, and a show/hide toggle</Td></tr>
+                <tr><Td><strong>Leaderboard Title</strong></Td><Td>Text shown above the leaderboard (defaults to room name), with a Title Style and Title Size. Can be hidden</Td></tr>
               </tbody>
             </table>
           </div>
         </NeonCard>
 
-        {/* Platforms */}
-        <NeonCard title="Platforms" className="mb-4">
-          <p className="text-primary text-sm mb-3">
-            Platforms define what gaming systems your room supports. Games in your library can be tagged with one
-            or more platforms, and tournaments can require or exclude specific platforms.
-          </p>
-          <p className="text-muted text-sm mb-3">
-            Common platforms: <Code>AtGames</Code>, <Code>VPXS</Code>, <Code>VR</Code>, <Code>IRL</Code>
-          </p>
-          <p className="text-muted text-sm">
-            Click <strong className="text-primary">Add Platform</strong> to add a new one.
-            Click the <strong className="text-neon-magenta">&times;</strong> next to a platform to remove it.
-          </p>
-        </NeonCard>
+        {/* Platforms moved to the Game Library page (per-room platforms + tags) */}
 
-        {/* User Management */}
-        <NeonCard title="User Management" className="mb-4">
+        {/* Users */}
+        <NeonCard title="Users" className="mb-4">
           <SubHeading>Discord Admins</SubHeading>
           <p className="text-muted text-sm mb-3">
             Add Discord users who can log in via OAuth. Enter their Discord username or numeric ID.
@@ -415,24 +512,19 @@ export default function Help() {
           </p>
         </NeonCard>
 
-        {/* System Actions */}
-        <NeonCard title="System Actions" className="mb-4">
-          <div className="space-y-4">
-            <div>
-              <p className="text-sm text-primary font-medium mb-1">Reload Scheduler</p>
-              <p className="text-muted text-sm">
-                After changing timezones or tournament schedules, click this to apply changes immediately
-                without restarting. The scheduler also reloads automatically when you save tournament changes.
-              </p>
-            </div>
-            <div>
-              <p className="text-sm text-primary font-medium mb-1">Merge / Rename Player</p>
-              <p className="text-muted text-sm">
-                Consolidate two player usernames into one, or correct a misspelling. Updates all scores,
-                submissions, and mappings across every tournament in the room. If the name was also wrong
-                on iScored, fix it there first to prevent re-importing the old name on next sync.
-              </p>
-            </div>
+        {/* Moved actions */}
+        <NeonCard title="Where did System Actions go?" className="mb-4">
+          <div className="space-y-3">
+            <p className="text-muted text-sm">
+              <strong className="text-primary">Refresh Schedules</strong> (formerly "Reload Scheduler") now lives on the
+              <strong className="text-primary"> Tournaments</strong> page &mdash; it re-applies schedule/timezone changes
+              immediately. The scheduler also reloads automatically when you save a tournament.
+            </p>
+            <p className="text-muted text-sm">
+              <strong className="text-primary">Merge / Rename Player</strong> now has its own <strong className="text-primary">Identity</strong>
+              page: consolidate two usernames or fix a misspelling (updates scores, submissions, and mappings across the room,
+              with a dry-run preview). If the name was also wrong on iScored, fix it there first so the old name doesn't re-import.
+            </p>
           </div>
         </NeonCard>
 
@@ -442,65 +534,57 @@ export default function Help() {
         <SectionHeading id="game-library">4. Game Library</SectionHeading>
         <NeonCard className="mb-4">
           <p className="text-primary text-sm mb-4">
-            The Game Library is your catalog of all games available for tournaments.
-            Navigate to <strong>Game Library</strong> in the sidebar.
+            Your Game Library is a view of ArcAid's <strong>shared global catalogue</strong> &mdash; the same catalogue every
+            room draws from. Navigate to <strong>Game Library</strong> in the sidebar to search it, activate games, pin games,
+            tag them for your room, and propose new titles.
           </p>
 
-          <SubHeading>Importing Games</SubHeading>
-          <p className="text-muted text-sm mb-3">ArcAid supports three bulk import methods:</p>
+          <SubHeading>Adding Games to the Catalogue</SubHeading>
+          <p className="text-muted text-sm mb-3">
+            Most games already exist in the catalogue &mdash; just search and use them. To add something new you propose it for
+            super-admin review; approved titles then become available to every room:
+          </p>
           <div className="space-y-3 mb-4">
             <div className="bg-raised border border-border rounded-lg px-4 py-3">
-              <p className="text-sm font-medium text-neon-cyan mb-1">CSV Upload</p>
+              <p className="text-sm font-medium text-neon-cyan mb-1">Add Game</p>
               <p className="text-muted text-sm">
-                Upload a CSV file with columns: <Code>name</Code>, <Code>aliases</Code>, <Code>style_id</Code>,
-                <Code>mode</Code>, <Code>platforms</Code>. Click <strong className="text-primary">Download Template</strong> for
-                a pre-formatted example file.
+                Enter a <strong>Name</strong>, <strong>Mode</strong> (Pinball / Video Game), and <strong>Platforms</strong>, then click
+                <strong className="text-primary"> Check catalogue</strong>. ArcAid runs a duplicate check; if it's genuinely new you can
+                <strong className="text-primary"> Submit to the global catalogue for review</strong>.
               </p>
             </div>
             <div className="bg-raised border border-border rounded-lg px-4 py-3">
-              <p className="text-sm font-medium text-neon-green mb-1">Import from VPS</p>
+              <p className="text-sm font-medium text-neon-green mb-1">Import CSV</p>
               <p className="text-muted text-sm">
-                One-click bulk import from the Virtual Pinball Spreadsheet database.
-                Imports hundreds of pinball tables instantly.
-              </p>
-            </div>
-            <div className="bg-raised border border-border rounded-lg px-4 py-3">
-              <p className="text-sm font-medium text-neon-amber mb-1">Import VPXS Wizard</p>
-              <p className="text-muted text-sm">
-                One-click import of VPXS Wizard tables from the community GitHub repository.
-                All imported games are tagged with the <Code>VPXS</Code> platform.
+                Upload a CSV with columns <Code>name</Code>, <Code>manufacturer</Code>, <Code>year</Code>, <Code>mode</Code>,
+                <Code>platforms</Code> (grab <strong className="text-primary">CSV Template</strong> for the format). It runs a dedup
+                preview, then submits the new rows to the catalogue as pending.
               </p>
             </div>
           </div>
+          <Tip>
+            Bulk catalogue imports (VPS, VPXS Wizard, OPDB, IGDB, Steam, FX VR, AtGames) are a <strong>super-admin</strong> function on
+            the Catalogue admin page &mdash; they aren't run from a room's Game Library.
+          </Tip>
 
-          <SubHeading>Adding a Game Manually</SubHeading>
-          <ol className="list-decimal list-inside text-sm text-primary space-y-1 mb-4">
-            <li>Enter the <strong>Game Name</strong> (required)</li>
-            <li>Select the <strong>Mode</strong> &mdash; Pinball or Video Game</li>
-            <li>Enter <strong>Platforms</strong> &mdash; comma-separated (e.g., <Code>AtGames, VPXS</Code>)</li>
-            <li>Optionally fill in <strong>Style ID</strong>, <strong>Aliases</strong>, and advanced CSS styling fields</li>
-            <li>Click <strong>Add Game</strong></li>
-          </ol>
-
-          <SubHeading>Managing Games</SubHeading>
-          <p className="text-muted text-sm mb-2">The game table supports:</p>
+          <SubHeading>Working With Games</SubHeading>
+          <p className="text-muted text-sm mb-2">Each game row offers:</p>
           <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
-            <li><strong>Search</strong> &mdash; Filter by name or platform</li>
-            <li><strong>Mode filter</strong> &mdash; Toggle Pinball / Video Game visibility</li>
-            <li><strong>Platform filter</strong> &mdash; Click platform chips to filter</li>
-            <li><strong>Sort</strong> &mdash; Click column headers to sort by name, mode, platforms, rating, or style ID</li>
-            <li><strong>Edit</strong> &mdash; Click the edit icon to modify any game's details</li>
-            <li><strong>Rate</strong> &mdash; Click the stars to rate a game (community average shown)</li>
-            <li><strong>Bulk Delete</strong> &mdash; Check multiple games and click <strong className="text-neon-magenta">Delete Selected</strong></li>
+            <li><strong>Activate</strong> &mdash; Start the game in a tournament (created on iScored, appears on your leaderboard)</li>
+            <li><strong>Pin</strong> &mdash; Pin a standalone game to your scoreboard without a tournament</li>
+            <li><strong>Tag</strong> &mdash; Add per-room platform tags (also available as a bulk action)</li>
+            <li><strong>Style</strong> &mdash; Choose or upload card art for the game</li>
           </ul>
-
-          <SubHeading>Activating a Game</SubHeading>
-          <p className="text-muted text-sm mb-2">To manually start a game in a tournament:</p>
-          <ol className="list-decimal list-inside text-sm text-primary space-y-1">
-            <li>Click the <strong>Activate</strong> button on any game row</li>
-            <li>Select which tournament to activate it for</li>
-            <li>The game will be created on iScored and appear on your leaderboard</li>
-          </ol>
+          <p className="text-muted text-sm mb-2">Finding games:</p>
+          <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
+            <li><strong>Smart search</strong> matches name, manufacturer, year, designers, themes, table authors, aliases, platforms, and your room tags &mdash; plus year ranges like <Code>1990-1999</Code></li>
+            <li><strong>Mode</strong> and <strong>Platform</strong> filters; sort by name, mode, platforms, or rating</li>
+            <li>Click a game's name to open its <strong>catalogue detail</strong>; click the stars to <strong>rate</strong> it</li>
+            <li>Select multiple games for the <strong>bulk action bar</strong> (Tag, Activate, Pin)</li>
+          </ul>
+          <p className="text-muted text-sm">
+            Games come from the shared catalogue, so a room can't delete catalogue entries &mdash; use Tags and Pins to curate what your room shows.
+          </p>
         </NeonCard>
 
         {/* ------------------------------------------------------------------ */}
@@ -520,11 +604,14 @@ export default function Help() {
                 <tr><Td><strong>Name</strong></Td><Td>Display name (e.g., "Daily Grind", "Weekly Challenge")</Td></tr>
                 <tr><Td><strong>Tag</strong></Td><Td>Short code used as the iScored tag prefix. Must be unique (e.g., <Code>DG</Code>, <Code>WG-VPXS</Code>, <Code>MG</Code>)</Td></tr>
                 <tr><Td><strong>Mode</strong></Td><Td>Pinball or Video Game &mdash; controls terminology (e.g., "table" vs "game") throughout the UI and Discord</Td></tr>
-                <tr><Td><strong>Schedule</strong></Td><Td>How often the tournament rotates (daily, weekly, monthly)</Td></tr>
-                <tr><Td><strong>Display Order</strong></Td><Td>Position in the scoreboard and announcement order (lower = first)</Td></tr>
-                <tr><Td><strong>Max Active Games</strong></Td><Td>How many games run simultaneously in this tournament (1&ndash;10)</Td></tr>
+                <tr><Td><strong>Schedule</strong></Td><Td>How often the tournament rotates (daily, weekly, monthly), with time + timezone</Td></tr>
+                <tr><Td><strong>Lineup Position</strong></Td><Td>Position in the scoreboard and announcement order (lower = first)</Td></tr>
+                <tr><Td><strong>Active Slots</strong></Td><Td>How many games run simultaneously in this tournament</Td></tr>
+                <tr><Td><strong>Game Rotation</strong></Td><Td>Whether the round winner picks the next game, or ArcAid auto-picks</Td></tr>
+                <tr><Td><strong>Cooldown Days</strong></Td><Td>After a game finishes, how long before it can be picked again</Td></tr>
+                <tr><Td><strong>Winner / Runner-up Window</strong></Td><Td>Minutes the winner (then runner-up) has to pick before auto-selection</Td></tr>
                 <tr><Td><strong>Cleanup Rule</strong></Td><Td>What happens to finished games on iScored (see below)</Td></tr>
-                <tr><Td><strong>Platform Rules</strong></Td><Td>Require or exclude specific platforms for game eligibility</Td></tr>
+                <tr><Td><strong>Platform Rules</strong></Td><Td>Require or exclude specific platforms (see below)</Td></tr>
                 <tr><Td><strong>Discord Channel</strong></Td><Td>Override the default announcement channel for this tournament</Td></tr>
               </tbody>
             </table>
@@ -549,22 +636,24 @@ export default function Help() {
           </ul>
 
           <SubHeading>Platform Rules</SubHeading>
-          <p className="text-muted text-sm mb-2">If your room has multiple platforms, you can scope tournaments to specific ones:</p>
+          <p className="text-muted text-sm mb-2">If your room has multiple platforms, you can scope a tournament two independent ways:</p>
           <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
-            <li><strong>Require</strong> &mdash; Only games tagged with these platforms are eligible</li>
-            <li><strong>Exclude</strong> &mdash; Games tagged with these platforms are ineligible</li>
-            <li><strong>No rules</strong> &mdash; All games are eligible regardless of platform</li>
+            <li><strong>Must be available on</strong> &mdash; A game qualifies only if it lists at least one of these platforms (controls game eligibility)</li>
+            <li><strong>Not allowed on</strong> &mdash; Blocks <em>score submissions</em> from these platforms (it does not change which games are eligible)</li>
+            <li><strong>No rules</strong> &mdash; All games eligible, all platforms may submit</li>
           </ul>
 
           <SubHeading>Tournament List</SubHeading>
           <p className="text-muted text-sm mb-2">
-            The table below the creation form shows all your tournaments with their name, tag badge, mode,
-            position, max slots, and schedule.
+            The table below the creation form shows each tournament with its name, tag badge, mode, position, slots, schedule,
+            and &mdash; from the health data &mdash; its <strong>Last run</strong> (OK / Skipped / Error + when) and <strong>Next fire</strong> time.
           </p>
           <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
+            <li><strong>Pause / Resume</strong> &mdash; Temporarily stop a tournament rotating (it shows a dimmed "Paused" badge); Resume restarts it</li>
             <li><strong>Edit</strong> &mdash; Opens the full edit modal to change any setting</li>
-            <li><strong>Delete</strong> &mdash; Removes the tournament (confirmation required)</li>
-            <li><strong>Sync iScored Lineup</strong> &mdash; Reorders the iScored game lineup to match your display order settings</li>
+            <li><strong>Delete</strong> &mdash; Removes the tournament. If it has active/queued games the delete is blocked and lists them; you can opt to auto-deactivate the active game(s) first, then delete</li>
+            <li><strong>Sync iScored Lineup</strong> &mdash; Reorders the iScored game lineup to match your position settings</li>
+            <li><strong>Refresh Schedules</strong> &mdash; Re-applies schedule/timezone changes to the scheduler immediately</li>
           </ul>
 
           <SubHeading>Active Games</SubHeading>
@@ -577,18 +666,20 @@ export default function Help() {
             <li><strong>Edit</strong> &mdash; Change the game's display name (shown on scoreboard instead of the raw library name)</li>
             <li><strong>Style</strong> &mdash; Choose or upload art for the game card (background and/or identifier images)</li>
             <li><strong>Deactivate</strong> &mdash; Mark the game as completed (see below)</li>
+            <li><strong>Delete</strong> &mdash; Remove the game entirely (type-to-confirm), right here on this page. Scores and history are kept</li>
           </ul>
           <p className="text-muted text-sm mb-2">
             <strong className="text-primary">Deactivate</strong> marks the game as COMPLETED and locks it on iScored.
             The game remains visible on iScored (locked) and in score history. Two options:
           </p>
-          <ul className="list-disc list-inside text-sm text-primary space-y-1">
+          <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-3">
             <li><strong>Deactivate + Lock on iScored</strong> &mdash; Marks complete in ArcAid and locks the game on iScored</li>
             <li><strong>DB Only</strong> &mdash; Only updates ArcAid's database (does not touch iScored)</li>
           </ul>
-          <Tip>
-            To fully remove a deactivated game from iScored and the leaderboard, use the <strong>Delete</strong> button on the Leaderboard page.
-          </Tip>
+          <p className="text-muted text-sm">
+            A <strong className="text-primary">Retained Completed Games</strong> section lists finished games still shown on the public
+            leaderboard (per your Retain-Last-N cleanup rule), each with its own Delete.
+          </p>
         </NeonCard>
 
         {/* ------------------------------------------------------------------ */}
@@ -602,19 +693,24 @@ export default function Help() {
 
           <SubHeading>Game Cards</SubHeading>
           <p className="text-muted text-sm mb-3">
-            One card per active game showing the top scores. Click any score row to expand and see all
-            submissions for that player, sorted by score. Each card includes admin action buttons:
+            One card per active game showing the top scores. Each card includes admin action buttons:
           </p>
           <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
             <li><strong>Name</strong> (pencil icon) &mdash; Edit the display name shown on the public scoreboard</li>
             <li><strong>Notes</strong> (sticky note icon) &mdash; Add notes shown to players via the info icon (e.g., table version, special rules). Highlighted when notes exist</li>
             <li><strong>Style</strong> &mdash; Choose or upload background/identifier art for the card. Highlighted when a style is applied</li>
+            <li><strong>Scores</strong> &mdash; Open the Manage Scores modal to review and remove individual submissions (see below)</li>
             <li><strong>Delete</strong> (trash icon) &mdash; Remove the game from the leaderboard and iScored entirely. Player scores and history are retained for stats. Use this for games that were accidentally created or should no longer appear</li>
           </ul>
 
           <SubHeading>Score Management</SubHeading>
           <p className="text-muted text-sm mb-3">
-            Click any score row to expand it. Each submission shows the score value and date. Hover over a submission to reveal a delete button for removing individual scores.
+            Click a card's <strong>Scores</strong> button to open the <strong>Manage Scores</strong> modal, which lists every submission for that game with a per-row delete. (On legacy cards &mdash; rooms that haven't upgraded to the new card system &mdash; you can instead click a score row to expand it and hover a submission to delete it.)
+          </p>
+
+          <SubHeading>Suppressed Scores</SubHeading>
+          <p className="text-muted text-sm mb-3">
+            When you delete a score that also exists on iScored, ArcAid records a <em>suppression</em> so the next sync doesn't simply re-import it. The Manage Scores modal has a <strong>Suppressed scores</strong> section listing each suppressed player and value with a <strong>Remove suppression</strong> button &mdash; removing it lets that score re-import on the next sync. (The delete confirmation warns you whenever a suppression will be created.)
           </p>
 
           <SubHeading>Game Info Icon</SubHeading>
@@ -648,7 +744,7 @@ export default function Help() {
 
           <SubHeading>Creating a Ranking Group</SubHeading>
           <ol className="list-decimal list-inside text-sm text-primary space-y-1 mb-4">
-            <li>Click <strong>Create Ranking Group</strong></li>
+            <li>Click <strong>+ New Ranking Group</strong></li>
             <li>Enter a <strong>Name</strong> and optional <strong>Description</strong></li>
             <li>Choose a <strong>Ranking Method</strong> (see table below)</li>
             <li>Set <strong>Best N Games</strong> &mdash; Only the top N scores count toward the ranking (default: 25)</li>
@@ -686,10 +782,17 @@ export default function Help() {
           <p className="text-muted text-sm mb-2">Each ranking group card shows:</p>
           <ul className="list-disc list-inside text-sm text-primary space-y-1">
             <li>Current standings with rank, player name, points/average, and games played</li>
+            <li><strong>View / Hide</strong> &mdash; Expand or collapse a group's standings</li>
             <li><strong>Recompute</strong> &mdash; Refresh the cached rankings</li>
             <li><strong>Edit</strong> &mdash; Change settings or tournament selection</li>
             <li><strong>Delete</strong> &mdash; Remove the ranking group</li>
           </ul>
+
+          <SubHeading>Display Style</SubHeading>
+          <p className="text-muted text-sm">
+            At the top of the page, choose how ranking cards render on the public scoreboard &mdash; Match Leaderboard, Plaque,
+            Compact List, or Sidebar Block. Admins can set a personal override without changing the room-wide default.
+          </p>
         </NeonCard>
 
         {/* ------------------------------------------------------------------ */}
@@ -787,6 +890,8 @@ export default function Help() {
                 <tr><Td><Code>/map-user</Code></Td><Td>Link your Discord account to your iScored username</Td><Td className="text-muted">First-time setup or username change</Td></tr>
                 <tr><Td><Code>/create-backup</Code></Td><Td>Triggers a database backup</Td><Td className="text-muted">Before major changes</Td></tr>
                 <tr><Td><Code>/sync-state</Code></Td><Td>Reconciles ArcAid's database with live iScored data</Td><Td className="text-muted">If scores seem out of sync</Td></tr>
+                <tr><Td><Code>/arcaid-notifications</Code></Td><Td>Manage your notification preferences &mdash; opt in/out of Discord DMs per type (tournament win, turn to pick, dethroned, etc.)</Td><Td className="text-muted">Turn DM alerts on or off</Td></tr>
+                <tr><Td><Code>/ping</Code></Td><Td>Replies with Pong! A quick connectivity test</Td><Td className="text-muted">Check the bot is online</Td></tr>
               </tbody>
             </table>
           </div>
@@ -814,7 +919,7 @@ export default function Help() {
                 <tr><Td><Code>/pause-pick</Code></Td><Td>Inject a specific game into the tournament queue</Td><Td className="text-muted">Queue up a specific game next</Td></tr>
                 <tr><Td><Code>/nominate-picker</Code></Td><Td>Manually assign picker rights to a user</Td><Td className="text-muted">Override automatic picker selection</Td></tr>
                 <tr><Td><Code>/reorder-lineup</Code></Td><Td>Reorder queued games in a tournament's iScored lineup</Td><Td className="text-muted">Rearrange the upcoming game order</Td></tr>
-                <tr><Td><Code>/setup</Code></Td><Td>Configure Discord channels, roles, and pick windows</Td><Td className="text-muted">Initial bot setup or reconfiguration</Td></tr>
+                <tr><Td><Code>/setup</Code></Td><Td>Configure the Discord announcement channel and admin role (subcommands: announcement-channel, admin-role, view)</Td><Td className="text-muted">Initial bot setup or reconfiguration</Td></tr>
               </tbody>
             </table>
           </div>
@@ -840,20 +945,21 @@ export default function Help() {
               </thead>
               <tbody>
                 <tr><Td><strong>Leaderboard</strong></Td><Td><Code>/your_slug/</Code></Td><Td>Live leaderboards for all active games and ranking groups</Td></tr>
-                <tr><Td><strong>Player List</strong></Td><Td><Code>/your_slug/players</Code></Td><Td>All players with stats, clickable for detail</Td></tr>
+                <tr><Td><strong>Lobby</strong></Td><Td><Code>/your_slug/lobby</Code></Td><Td>Community hub &mdash; announcements, a live activity feed, and social links</Td></tr>
+                <tr><Td><strong>Picks</strong></Td><Td><Code>/your_slug/picks</Code></Td><Td>Where a round winner picks the next game; shows queued + available games and pending picks (the old <Code>/games</Code> URL redirects here)</Td></tr>
+                <tr><Td><strong>Public Stats</strong></Td><Td><Code>/your_slug/stats</Code></Td><Td>Community statistics; the player list lives here (<Code>?view=players</Code>)</Td></tr>
                 <tr><Td><strong>Player Detail</strong></Td><Td><Code>/your_slug/players/Name</Code></Td><Td>Individual player stats, win rate, history</Td></tr>
                 <tr><Td><strong>Game Detail</strong></Td><Td><Code>/your_slug/games/GameName</Code></Td><Td>Game-specific stats, records, community rating</Td></tr>
-                <tr><Td><strong>Game Availability</strong></Td><Td><Code>/your_slug/games</Code></Td><Td>Which games are available vs. on cooldown, with a random picker</Td></tr>
                 <tr><Td><strong>Kiosk Leaderboard</strong></Td><Td><Code>/your_slug/kiosk</Code></Td><Td>Full-screen auto-scrolling leaderboard for TV displays</Td></tr>
                 <tr><Td><strong>Score Submit</strong></Td><Td><Code>/your_slug/submit/:gameId</Code></Td><Td>Standalone score submission page (linked from QR codes on cards)</Td></tr>
-                <tr><Td><strong>Public Stats</strong></Td><Td><Code>/your_slug/stats</Code></Td><Td>Community statistics and leaderboards</Td></tr>
+                <tr><Td><strong>Global Scoreboard</strong></Td><Td><Code>/scoreboard</Code></Td><Td>Cross-room aggregate leaderboard spanning all ArcAid rooms (not room-specific)</Td></tr>
+                <tr><Td><strong>Friends</strong></Td><Td><Code>/friends</Code></Td><Td>Your ArcAid friends / social page (Discord login required)</Td></tr>
               </tbody>
             </table>
           </div>
           <Tip>
-            The <strong>Game Availability</strong> page is particularly useful for players who need to pick the next
-            game &mdash; it shows which games are eligible (past the cooldown period) and includes a pinball-themed
-            random picker.
+            The <strong>Picks</strong> page (<Code>/your_slug/picks</Code>) is where the round winner chooses the next
+            game &mdash; it shows which games are eligible (past the cooldown period) and the pending pick.
           </Tip>
         </NeonCard>
 
@@ -869,8 +975,9 @@ export default function Help() {
           <SubHeading>Browsing Styles</SubHeading>
           <p className="text-muted text-sm mb-3">
             The catalogue shows all available art packs. Each style can have a <strong>background</strong> image
-            (fills the card behind scores) and/or an <strong>identifier/header</strong> image (logo/marquee overlaid
-            on the background). Search by name to find specific styles.
+            (fills the card behind scores) and/or a <strong>game identifier</strong> image &mdash; used as the game's
+            wheel icon, thumbnail, sidebar art, or banner depending on the card layout (choose a Square 1:1 or Wide 3:1
+            shape). Search by name to find specific styles.
           </p>
 
           <SubHeading>Uploading Custom Art</SubHeading>
@@ -910,11 +1017,13 @@ export default function Help() {
           </p>
           <SubHeading>Available Actions</SubHeading>
           <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
-            <li><strong>Force Status</strong> &mdash; Change a game's status (Active, Completed, Queued, Hidden) with optional iScored sync</li>
+            <li><strong>Force Status</strong> &mdash; One-click <strong>Force Active</strong> or <strong>Force Complete</strong> (game statuses are Active / Queued / Completed / Archived), with optional iScored sync</li>
             <li><strong>Clear Picker</strong> &mdash; Cancel a pending picker timeout assignment</li>
-            <li><strong>iScored Sync</strong> &mdash; Granular iScored operations (lock, unlock, hide, unhide, delete, create)</li>
-            <li><strong>Force Maintenance</strong> &mdash; Trigger a full maintenance cycle for a specific tournament</li>
-            <li><strong>Delete</strong> &mdash; Remove a game entry entirely (use for phantom/orphaned entries)</li>
+            <li><strong>iScored Sync</strong> &mdash; Granular iScored operations on a single game (Lock, Unlock, Hide, Create)</li>
+            <li><strong>Reconcile iScored</strong> &mdash; Diff the live iScored game list against ArcAid's records and clean up drift. Sorts entries into keep / orphaned (gone from ArcAid but still on iScored &mdash; pre-selected) / unmanaged, then bulk-deletes the ones you choose from iScored</li>
+            <li><strong>Force Maintenance</strong> &mdash; Trigger a full maintenance cycle for a specific tournament. Waits for the run and reports the real outcome (rotated / skipped / error)</li>
+            <li><strong>Clean Phantoms</strong> &mdash; When placeholder or empty queued rows exist, a bulk button appears to remove them all at once</li>
+            <li><strong>Delete</strong> &mdash; Remove a game entry entirely (for phantom/orphaned entries). Deleting a live <strong>ACTIVE</strong> game requires an extra force-confirm &mdash; for a normal end-of-round, use <strong>Deactivate</strong> on the Tournaments page instead</li>
           </ul>
           <Tip>
             All game state actions are logged to the Activity Log. Use with caution &mdash; these bypass normal
@@ -932,17 +1041,15 @@ export default function Help() {
           </p>
           <ul className="space-y-0.5">
             <CheckItem>Log in with provided credentials</CheckItem>
-            <CheckItem><strong>Settings &rarr; Game Room</strong>: Set your room name and slug</CheckItem>
             <CheckItem><strong>Settings &rarr; Discord</strong>: Enter Guild ID, announcement channel, and admin role</CheckItem>
-            <CheckItem><strong>Settings &rarr; iScored</strong>: Enter iScored credentials and public URL</CheckItem>
-            <CheckItem><strong>Settings &rarr; Tournament Defaults</strong>: Set cooldown, pick windows, and timezone</CheckItem>
+            <CheckItem><strong>Settings &rarr; iScored</strong>: Enter iScored credentials and public URL (if you use iScored)</CheckItem>
+            <CheckItem><strong>Settings &rarr; Integrations</strong>: Turn on the features your room needs</CheckItem>
             <CheckItem><strong>Settings &rarr; Theme</strong>: Choose your preferred theme</CheckItem>
-            <CheckItem><strong>Settings &rarr; Platforms</strong>: Add your gaming platforms (e.g., AtGames, VPXS)</CheckItem>
-            <CheckItem><strong>Game Library</strong>: Import games (VPS, VPXS Wizard, or CSV)</CheckItem>
-            <CheckItem><strong>Tournaments</strong>: Create your first tournament with a schedule</CheckItem>
-            <CheckItem><strong>Settings &rarr; User Management</strong>: Invite additional admins if needed</CheckItem>
+            <CheckItem><strong>Game Library</strong>: Find games in the catalogue (add new ones via Add Game or CSV); tag or pin them for your room</CheckItem>
+            <CheckItem><strong>Tournaments</strong>: Create your first tournament &mdash; its schedule, timezone, cooldown, pick windows, and platform rules are all set here</CheckItem>
+            <CheckItem><strong>Settings &rarr; Users</strong>: Invite additional admins if needed</CheckItem>
             <CheckItem>Share the public scoreboard URL with your community</CheckItem>
-            <CheckItem>Test: Run <Code>/list-active</Code> in Discord to verify bot connectivity</CheckItem>
+            <CheckItem>Test: Run <Code>/ping</Code> or <Code>/list-active</Code> in Discord to verify bot connectivity</CheckItem>
           </ul>
         </NeonCard>
 
