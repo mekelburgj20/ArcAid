@@ -1611,6 +1611,29 @@ export async function initDatabase(): Promise<Database> {
             CREATE INDEX IF NOT EXISTS idx_player_milestones_fired_lookup
                 ON player_milestones_fired (game_room_id, player_key, scope);
         ` },
+        // S10 — per-tournament maintenance-run trail. One row per runMaintenance()
+        // call (cron or forced) recording outcome/summary/duration so room admins
+        // get a "Last run · result" surface and failure paths are admin-visible.
+        // Intentionally NO foreign keys: this is an append-only audit log that
+        // should outlive the tournament/room it references (consistent with the
+        // pseudo-FK treatment of games.tournament_id). Pruning is a future concern.
+        { name: '106_maintenance_runs', sql: `
+            CREATE TABLE IF NOT EXISTS maintenance_runs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_room_id  TEXT,
+                tournament_id TEXT,
+                kind          TEXT NOT NULL DEFAULT 'maintenance',  -- 'maintenance' | 'forced' | 'cleanup'
+                outcome       TEXT NOT NULL,                        -- 'success' | 'skipped' | 'error'
+                summary       TEXT,
+                started_at    TEXT,
+                finished_at   TEXT NOT NULL DEFAULT (datetime('now')),
+                duration_ms   INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_maintenance_runs_tournament
+                ON maintenance_runs (tournament_id, finished_at);
+            CREATE INDEX IF NOT EXISTS idx_maintenance_runs_room
+                ON maintenance_runs (game_room_id, finished_at);
+        ` },
     ];
 
     for (const migration of migrations) {

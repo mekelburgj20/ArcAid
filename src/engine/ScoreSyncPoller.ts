@@ -3,12 +3,47 @@ import { IScoredApiClient, IScoredApiGameScores } from './IScoredApiClient.js';
 import { IScoredNotificationGate } from './IScoredNotificationGate.js';
 import { getDatabase } from '../database/database.js';
 import { normalizeSubmitterUserId } from '../services/SubmissionContextService.js';
+import { OpsAlertService } from '../services/OpsAlertService.js';
 
 // Tick cadence for the notification-file gate. The actual `getAllScores` call
 // is gated inside `IScoredNotificationGate.shouldSync` so most ticks are a
 // single static .txt fetch. See `IScoredNotificationGate` doc-comment for the
 // background (Daniel Reynolds → Justin Mekelburg, 2026-04-29).
 const DEFAULT_INTERVAL_MS = 10_000; // 10 seconds
+
+// After this many consecutive poll failures for a single iScored account, fire
+// a one-time operator alert (S10). Re-arms after a successful poll. Sits just
+// past the log-suppression cadence (errors are already suppressed after the 4th).
+const OPS_ALERT_FAIL_THRESHOLD = 5;
+
+interface AccountHealth {
+    consecutiveErrors: number;
+    lastSuccessAt: number | null;
+    lastErrorAt: number | null;
+    lastError: string | null;
+    /** True once the operator alert has fired for the current outage. */
+    alerted: boolean;
+}
+
+export interface PollerAccountStatus {
+    name: string;
+    consecutiveErrors: number;
+    lastSuccessAt: number | null;
+    lastErrorAt: number | null;
+    lastError: string | null;
+}
+
+export interface PollerStatus {
+    running: boolean;
+    paused: boolean;
+    intervalMs: number;
+    pollCount: number;
+    lastPollAt: number | null;
+    lastSuccessAt: number | null;
+    lastPollSucceeded: boolean;
+    consecutiveErrors: number;
+    accounts: PollerAccountStatus[];
+}
 
 /**
  * Polls the iScored API on a configurable interval to keep ArcAid leaderboards
@@ -28,13 +63,16 @@ export class ScoreSyncPoller {
     private consecutiveErrors = 0;
     private _lastPollSucceeded = false;
     private _pollCount = 0;
+    private _lastPollAt: number | null = null;
+    private _lastSuccessAt: number | null = null;
     /**
-     * Per-account consecutive failure tally. Mirrors the outer
-     * `consecutiveErrors` suppression so an iScored outage that affects one
-     * account doesn't spam the logs every poll cycle. Reset to 0 on first
-     * successful pollOneAccount for that account.
+     * Per-account health. `consecutiveErrors` mirrors the outer suppression so
+     * an iScored outage affecting one account doesn't spam the logs every
+     * cycle. `alerted` debounces the S10 operator alert so it fires once per
+     * outage (on threshold crossing) and re-arms on recovery. Reset on the
+     * first successful poll for that account.
      */
-    private accountConsecutiveErrors = new Map<string, number>();
+    private accountHealth = new Map<string, AccountHealth>();
     private gate = new IScoredNotificationGate();
 
     static getInstance(): ScoreSyncPoller {
@@ -65,6 +103,81 @@ export class ScoreSyncPoller {
         return this.timer !== null;
     }
 
+    /**
+     * Snapshot of poller health for the S10 room-admin health surface. Exposes
+     * global + per-account sync state (timestamps, consecutive-failure counts,
+     * last error message). Read-only; safe to call from route handlers.
+     */
+    getStatus(): PollerStatus {
+        return {
+            running: this.isRunning(),
+            paused: this._paused,
+            intervalMs: this.intervalMs,
+            pollCount: this._pollCount,
+            lastPollAt: this._lastPollAt,
+            lastSuccessAt: this._lastSuccessAt,
+            lastPollSucceeded: this._lastPollSucceeded,
+            consecutiveErrors: this.consecutiveErrors,
+            accounts: Array.from(this.accountHealth.entries()).map(([name, h]) => ({
+                name,
+                consecutiveErrors: h.consecutiveErrors,
+                lastSuccessAt: h.lastSuccessAt,
+                lastErrorAt: h.lastErrorAt,
+                lastError: h.lastError,
+            })),
+        };
+    }
+
+    /**
+     * Record a successful poll for an account: clears failure state and, if an
+     * operator alert had fired for the just-ended outage, sends a recovery note.
+     * Extracted from poll() so the debounce is unit-testable (S10).
+     */
+    private recordAccountSuccess(accountName: string): void {
+        const prior = this.accountHealth.get(accountName);
+        const priorErrors = prior?.consecutiveErrors ?? 0;
+        if (priorErrors > 0) {
+            logInfo(`ScoreSyncPoller: account ${accountName} recovered after ${priorErrors} failure(s)`);
+            if (prior?.alerted) {
+                void OpsAlertService.sendOperatorAlert(
+                    `iScored sync for account "${accountName}" has RECOVERED after ${priorErrors} consecutive failure(s).`,
+                );
+            }
+        }
+        this.accountHealth.set(accountName, {
+            consecutiveErrors: 0,
+            lastSuccessAt: Date.now(),
+            lastErrorAt: prior?.lastErrorAt ?? null,
+            lastError: null,
+            alerted: false,
+        });
+    }
+
+    /**
+     * Record a failed poll for an account: increments the failure tally and
+     * fires a one-time operator alert on crossing OPS_ALERT_FAIL_THRESHOLD
+     * (re-armed by the next success). Returns the new consecutive-failure count
+     * so the caller can drive log suppression. Extracted for testability (S10).
+     */
+    private recordAccountFailure(accountName: string, message: string): number {
+        const prior = this.accountHealth.get(accountName);
+        const errs = (prior?.consecutiveErrors ?? 0) + 1;
+        const crossedThreshold = errs >= OPS_ALERT_FAIL_THRESHOLD && !prior?.alerted;
+        this.accountHealth.set(accountName, {
+            consecutiveErrors: errs,
+            lastSuccessAt: prior?.lastSuccessAt ?? null,
+            lastErrorAt: Date.now(),
+            lastError: message,
+            alerted: prior?.alerted || crossedThreshold,
+        });
+        if (crossedThreshold) {
+            void OpsAlertService.sendOperatorAlert(
+                `iScored sync for account "${accountName}" has failed ${errs} times in a row. Last error: ${message}`,
+            );
+        }
+        return errs;
+    }
+
     pause(): void {
         this._paused = true;
         logDebug('ScoreSyncPoller: paused');
@@ -87,6 +200,7 @@ export class ScoreSyncPoller {
     private async poll(): Promise<void> {
         if (this.polling || this._paused) return;
         this.polling = true;
+        this._lastPollAt = Date.now();
         try {
             // Group rooms by unique iScored account so we poll each account
             // exactly once per cycle, even if two rooms share credentials.
@@ -108,6 +222,7 @@ export class ScoreSyncPoller {
                 // No rooms have iScored enabled — nothing to do.
                 this.consecutiveErrors = 0;
                 this._lastPollSucceeded = true;
+                this._lastSuccessAt = Date.now();
                 return;
             }
 
@@ -151,14 +266,10 @@ export class ScoreSyncPoller {
                     }
 
                     anyAccountSucceeded = true;
-                    const prior = this.accountConsecutiveErrors.get(creds.gameroomName) ?? 0;
-                    if (prior > 0) {
-                        logInfo(`ScoreSyncPoller: account ${creds.gameroomName} recovered after ${prior} failure(s)`);
-                    }
-                    this.accountConsecutiveErrors.set(creds.gameroomName, 0);
+                    this.recordAccountSuccess(creds.gameroomName);
                 } catch (accountErr) {
-                    const errs = (this.accountConsecutiveErrors.get(creds.gameroomName) ?? 0) + 1;
-                    this.accountConsecutiveErrors.set(creds.gameroomName, errs);
+                    const message = accountErr instanceof Error ? accountErr.message : String(accountErr);
+                    const errs = this.recordAccountFailure(creds.gameroomName, message);
                     if (errs <= 3) {
                         logError(`ScoreSyncPoller: account ${creds.gameroomName} poll failed:`, accountErr);
                     } else if (errs === 4) {
@@ -169,6 +280,7 @@ export class ScoreSyncPoller {
             // Pre-fix bug: this was unconditionally set to true regardless of
             // per-account outcomes. Now reflects whether ANY account succeeded.
             this._lastPollSucceeded = anyAccountSucceeded || accounts.size === 0;
+            if (this._lastPollSucceeded) this._lastSuccessAt = Date.now();
 
             // Invalidate leaderboard cache for changed games
             if (changedGameIds.size > 0) {

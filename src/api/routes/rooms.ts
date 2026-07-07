@@ -4597,14 +4597,96 @@ router.post('/:roomId/admin/game-states/force-maintenance', requireAuth, require
 
         logInfo(`Admin forcing maintenance for tournament: ${tournament.name} (room: ${roomId})`);
 
-        // Run maintenance asynchronously — don't block the response
-        TournamentEngine.getInstance().runMaintenance(tournamentId).catch(err => {
+        // Await the run so the admin sees the REAL outcome (S10) instead of an
+        // optimistic "triggered" + a blind FE refetch. The per-tournament mutex
+        // bounds the runtime; a forced run is an explicit admin action, so
+        // blocking the response is acceptable.
+        try {
+            await TournamentEngine.getInstance().runMaintenance(tournamentId);
+        } catch (err) {
             logError(`Forced maintenance failed for ${tournament.name}:`, err);
-        });
+            return res.status(500).json({
+                error: err instanceof Error ? err.message : 'Maintenance failed',
+                tournamentName: tournament.name,
+            });
+        }
 
-        res.json({ success: true, message: `Maintenance triggered for ${tournament.name}` });
+        // Report the outcome the run just recorded to the maintenance-run trail.
+        const { MaintenanceRunService } = await import('../../services/MaintenanceRunService.js');
+        const latest = (await MaintenanceRunService.getLatestPerTournament(roomId)).get(tournamentId);
+        res.json({
+            success: true,
+            outcome: latest?.outcome ?? 'success',
+            summary: latest?.summary ?? `Maintenance complete for ${tournament.name}`,
+            message: `Maintenance complete for ${tournament.name}`,
+        });
     } catch (error) {
         logError('API Error (POST game-states/force-maintenance):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// GET — room-admin health / observability surface (S10). Real Discord gateway
+// readiness + guild membership (not env-var presence), ScoreSyncPoller sync
+// status, per-tournament last-run outcome + next fire, and app version.
+router.get('/:roomId/admin/health', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const db = await getDatabase();
+
+        // --- Discord gateway health (real readiness, not env presence) ---
+        const { getDiscordClient } = await import('../../discord/DiscordClient.js');
+        const discordClient = getDiscordClient();
+        const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+        const discordEnabled = (await GameRoomSettingsService.get(roomId, 'DISCORD_ENABLED')) !== 'false';
+        const ready = !!discordClient?.isReady();
+        const inGuild = ready && guildId ? discordClient!.isInGuild(guildId) : null;
+
+        // --- Poller sync status (global singleton) ---
+        const { ScoreSyncPoller } = await import('../../engine/ScoreSyncPoller.js');
+        const poller = ScoreSyncPoller.getInstance().getStatus();
+
+        // --- Per-tournament maintenance trail + next fire ---
+        const { MaintenanceRunService } = await import('../../services/MaintenanceRunService.js');
+        const { getNextRunTime } = await import('../../utils/cronUtils.js');
+        const latestRuns = await MaintenanceRunService.getLatestPerTournament(roomId);
+        const envTz = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const tournamentRows = await db.all(
+            'SELECT id, name, is_active, cadence FROM tournaments WHERE game_room_id = ? ORDER BY display_order ASC, name ASC',
+            roomId,
+        );
+        const maintenance = tournamentRows.map((t: any) => {
+            let nextFireAt: string | null = null;
+            // Only compute a next fire for active tournaments — a paused one has
+            // its maintenance cron removed by Scheduler.reload().
+            if (t.is_active !== 0 && t.cadence) {
+                try {
+                    const c = JSON.parse(t.cadence);
+                    if (c.cron) {
+                        const next = getNextRunTime(c.cron, c.timezone || envTz);
+                        nextFireAt = next ? next.toISOString() : null;
+                    }
+                } catch { /* leave null on malformed cadence */ }
+            }
+            return {
+                tournamentId: t.id,
+                tournamentName: t.name,
+                isActive: t.is_active !== 0,
+                lastRun: latestRuns.get(t.id) ?? null,
+                nextFireAt,
+            };
+        });
+
+        const { getVersionInfo } = await import('../../utils/version.js');
+
+        res.json({
+            discord: { enabled: discordEnabled, ready, inGuild, guildId: guildId || null },
+            poller,
+            maintenance,
+            version: getVersionInfo(),
+        });
+    } catch (error) {
+        logError('API Error (GET admin/health):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

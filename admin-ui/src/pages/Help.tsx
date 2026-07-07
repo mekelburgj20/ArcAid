@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { api } from '../lib/api';
 import NeonCard from '../components/NeonCard';
 
 const SECTIONS = [
@@ -77,7 +78,14 @@ function CheckItem({ children }: { children: React.ReactNode }) {
 export default function Help() {
   const [activeSection, setActiveSection] = useState(SECTIONS[0].id);
   const [tocOpen, setTocOpen] = useState(false);
+  const [version, setVersion] = useState<{ version: string; commit: string | null; builtAt: string | null } | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    api.get<{ version: string; commit: string | null; builtAt: string | null }>('/version')
+      .then(setVersion)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
@@ -220,7 +228,7 @@ export default function Help() {
           <SubHeading>Status Bar</SubHeading>
           <p className="text-muted text-sm mb-2">Three indicators across the top:</p>
           <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-4">
-            <li><span className="text-neon-green font-medium">Bot Online</span> &mdash; Green pulse when connected, magenta when offline</li>
+            <li><span className="text-neon-green font-medium">System Status</span> &mdash; Real Discord gateway readiness (green pulse when the bot is connected to Discord), iScored sync health with last-sync time, plus active tournament/player counts and the running app version</li>
             <li><span className="text-neon-cyan font-medium">Active Tournaments</span> &mdash; Number of tournaments currently running</li>
             <li><span className="text-neon-amber font-medium">Participants</span> &mdash; Total unique players with scores</li>
           </ul>
@@ -938,10 +946,18 @@ export default function Help() {
           </ul>
         </NeonCard>
 
-        <div className="border-t border-border pt-4 pb-8">
-          <p className="text-faint text-xs text-center">
+        <div className="border-t border-border pt-4 pb-8 text-center space-y-1">
+          <p className="text-faint text-xs">
             For technical support, contact your ArcAid administrator.
           </p>
+          {version && (
+            <p
+              className="text-faint text-xs font-mono"
+              title={version.builtAt ? `Built ${new Date(version.builtAt).toLocaleString()}` : undefined}
+            >
+              ArcAid v{version.version}{version.commit ? ` · ${version.commit.slice(0, 7)}` : ''}
+            </p>
+          )}
         </div>
       </div>
     </div>

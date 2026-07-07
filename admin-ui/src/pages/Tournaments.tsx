@@ -39,6 +39,29 @@ interface Tournament {
   runnerup_pick_window_min: number;
 }
 
+type RunInfo = {
+  lastRun: { outcome: string; summary: string | null; finishedAt: string } | null;
+  nextFireAt: string | null;
+};
+
+function formatRunAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(diff) || diff < 0) return 'just now';
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function formatNextFire(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
 function formatCadenceDisplay(cadenceJson: string): string {
   try {
     const c = JSON.parse(cadenceJson);
@@ -143,6 +166,7 @@ export default function Tournaments() {
   const room = useRoom();
   const { toast } = useToast();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [runInfo, setRunInfo] = useState<Record<string, RunInfo>>({});
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<Tournament | null>(null);
   const [editTarget, setEditTarget] = useState<Tournament | null>(null);
@@ -194,6 +218,16 @@ export default function Tournaments() {
     } finally {
       setLoading(false);
     }
+    // Last-run outcome + next-fire per tournament (S10) — best-effort; never
+    // block the tournaments table on the health endpoint.
+    try {
+      const health = await api.get<{ maintenance: Array<{ tournamentId: string } & RunInfo> }>(
+        `/rooms/${room.roomId}/admin/health`,
+      );
+      const map: Record<string, RunInfo> = {};
+      for (const m of health.maintenance) map[m.tournamentId] = { lastRun: m.lastRun, nextFireAt: m.nextFireAt };
+      setRunInfo(map);
+    } catch { /* best-effort */ }
   };
 
   // Catalogue-derived list of platforms available in this room. Replaces the
@@ -464,6 +498,24 @@ export default function Tournaments() {
             { key: 'cadence', header: 'Schedule', render: t => (
               <span className="text-sm text-neon-amber">{formatCadenceDisplay(t.cadence)}</span>
             )},
+            { key: 'lastRun', header: 'Last run', render: t => {
+              const info = runInfo[t.id];
+              if (!info?.lastRun) return <span className="text-faint text-xs">—</span>;
+              const o = info.lastRun.outcome;
+              const color = o === 'error' ? 'text-neon-magenta' : o === 'skipped' ? 'text-muted' : 'text-neon-green';
+              const label = o === 'error' ? 'Error' : o === 'skipped' ? 'Skipped' : 'OK';
+              return (
+                <span className={`text-xs ${color}`} title={info.lastRun.summary || undefined}>
+                  {label} · {formatRunAgo(info.lastRun.finishedAt)}
+                </span>
+              );
+            }},
+            { key: 'nextFire', header: 'Next fire', render: t => {
+              if (t.is_active === 0) return <span className="text-faint text-xs">paused</span>;
+              const info = runInfo[t.id];
+              if (!info?.nextFireAt) return <span className="text-faint text-xs">—</span>;
+              return <span className="text-xs text-muted">{formatNextFire(info.nextFireAt)}</span>;
+            }},
             { key: 'actions', header: '', render: t => (
               <div className="flex gap-2 justify-end">
                 <NeonButton variant="ghost" onClick={() => handlePauseToggle(t)} disabled={pausingId === t.id} className="text-xs px-2 py-1">

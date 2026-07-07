@@ -15,6 +15,7 @@ import { GlobalCommentService } from '../../services/GlobalCommentService.js';
 import { ScoreRankService, type SubmitRankResult } from '../../services/ScoreRankService.js';
 import { emitScoreNewGlobal } from '../websocket.js';
 import { getDatabase } from '../../database/database.js';
+import { getVersionInfo } from '../../utils/version.js';
 
 const router = Router();
 
@@ -62,12 +63,20 @@ router.get('/status', async (req, res) => {
             status: hasError ? 'degraded' : 'online',
             needsSetup: !isSetup,
             uptime: Math.floor(process.uptime()),
+            version: getVersionInfo(),
             checks,
         });
     } catch (error) {
         logError('API Error (/api/status):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
+});
+
+// App version + build metadata (S10 in-app version display). Public, harmless —
+// version from root package.json, commit/builtAt baked at image build. NOT the
+// SW CACHE_NAME.
+router.get('/version', (_req, res) => {
+    res.json(getVersionInfo());
 });
 
 // User preferences

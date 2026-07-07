@@ -33,6 +33,34 @@ interface DashboardData {
   uniquePlayersAcrossTournaments?: number;
 }
 
+interface HealthData {
+  discord: { enabled: boolean; ready: boolean; inGuild: boolean | null; guildId: string | null };
+  poller: {
+    running: boolean; paused: boolean; lastPollAt: number | null; lastSuccessAt: number | null;
+    lastPollSucceeded: boolean; consecutiveErrors: number;
+    accounts: Array<{ name: string; consecutiveErrors: number; lastSuccessAt: number | null; lastError: string | null }>;
+  };
+  maintenance: Array<{
+    tournamentId: string; tournamentName: string; isActive: boolean;
+    lastRun: { outcome: string; summary: string | null; finishedAt: string; durationMs: number | null } | null;
+    nextFireAt: string | null;
+  }>;
+  version: { version: string; commit: string | null; builtAt: string | null };
+}
+
+function formatAgo(ms: number | null, now: number): string {
+  if (!ms) return 'never';
+  const diff = now - ms;
+  if (diff < 0) return 'just now';
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 function formatCountdown(targetIso: string | null | undefined, now: number): string | null {
   if (!targetIso) return null;
   const target = new Date(targetIso).getTime();
@@ -51,6 +79,7 @@ function formatCountdown(targetIso: string | null | undefined, now: number): str
 export default function Dashboard() {
   const room = useRoom();
   const [data, setData] = useState<DashboardData | null>(null);
+  const [health, setHealth] = useState<HealthData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -76,6 +105,19 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, []);
 
+  // Poll the real health endpoint (S10): Discord gateway readiness, iScored
+  // sync status, per-tournament last-run. Best-effort — a failure leaves the
+  // rest of the dashboard intact.
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => api.get<HealthData>(`/rooms/${room.roomId}/admin/health`)
+      .then(h => { if (!cancelled) setHealth(h); })
+      .catch(() => {});
+    load();
+    const id = setInterval(load, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [room.roomId]);
+
   if (!data && !error) return <LoadingState message="Loading dashboard..." />;
 
   return (
@@ -92,13 +134,45 @@ export default function Dashboard() {
         </NeonCard>
       )}
 
-      {/* System Status Bar */}
+      {/* System Status — real health (S10): Discord gateway readiness, iScored
+          sync status, active counts, and running version. */}
       <NeonCard glowColor="cyan" className="mb-6" title="System Status">
-        <div className="flex gap-8 flex-wrap">
+        <div className="flex gap-x-8 gap-y-3 flex-wrap items-center">
+          {/* Discord gateway */}
           <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full ${data?.systemHealth.botOnline ? 'bg-neon-green pulse' : 'bg-neon-magenta'}`} />
-            <span className="text-sm font-medium">{data?.systemHealth.botOnline ? 'Bot Online' : 'Bot Offline'}</span>
+            {(() => {
+              const enabled = health?.discord.enabled ?? true;
+              const ready = health ? health.discord.ready : (data?.systemHealth.botOnline ?? false);
+              const dot = !enabled ? 'bg-faint' : ready ? 'bg-neon-green pulse' : 'bg-neon-magenta';
+              return (
+                <>
+                  <span className={`w-2.5 h-2.5 rounded-full ${dot}`} />
+                  <span className="text-sm font-medium">{!enabled ? 'Discord disabled' : ready ? 'Bot Online' : 'Bot Offline'}</span>
+                  {enabled && ready && health?.discord.guildId && (
+                    <span className={`text-xs ${health.discord.inGuild ? 'text-faint' : 'text-neon-amber'}`}>
+                      {health.discord.inGuild ? '· in server' : '· not in server'}
+                    </span>
+                  )}
+                </>
+              );
+            })()}
           </div>
+
+          {/* iScored sync — only shown when the room actually polls an account */}
+          {health && health.poller.accounts.length > 0 && (() => {
+            const p = health.poller;
+            const degraded = p.consecutiveErrors > 0 || p.accounts.some(a => a.consecutiveErrors > 0);
+            const ok = p.lastPollSucceeded && !degraded;
+            const dot = p.paused ? 'bg-neon-amber' : ok ? 'bg-neon-green pulse' : degraded ? 'bg-neon-magenta' : 'bg-faint';
+            return (
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${dot}`} />
+                <span className="text-sm font-medium">{p.paused ? 'Sync paused' : ok ? 'iScored Sync' : degraded ? 'Sync degraded' : 'Sync idle'}</span>
+                <span className="text-xs text-faint">· last {formatAgo(p.lastSuccessAt, now)}</span>
+              </div>
+            );
+          })()}
+
           <div className="flex items-center gap-2">
             <span className="text-muted text-sm">Active Tournaments:</span>
             <span className="font-display font-bold text-neon-cyan">{data?.activeTournaments.length ?? 0}</span>
@@ -107,7 +181,28 @@ export default function Dashboard() {
             <span className="text-muted text-sm">Active Players:</span>
             <span className="font-display font-bold text-neon-green">{data?.uniquePlayersAcrossTournaments ?? 0}</span>
           </div>
+
+          {/* Running version */}
+          {health?.version && (
+            <span
+              className="text-xs text-faint ml-auto font-mono"
+              title={health.version.builtAt ? `Built ${new Date(health.version.builtAt).toLocaleString()}` : undefined}
+            >
+              v{health.version.version}{health.version.commit ? ` · ${health.version.commit.slice(0, 7)}` : ''}
+            </span>
+          )}
         </div>
+
+        {/* Poller failure detail, if any */}
+        {health && health.poller.accounts.some(a => a.consecutiveErrors > 0) && (
+          <div className="mt-3 pt-3 border-t border-border text-xs text-neon-magenta space-y-0.5">
+            {health.poller.accounts.filter(a => a.consecutiveErrors > 0).map(a => (
+              <div key={a.name}>
+                iScored “{a.name}”: {a.consecutiveErrors} consecutive failure(s){a.lastError ? ` — ${a.lastError}` : ''}
+              </div>
+            ))}
+          </div>
+        )}
       </NeonCard>
 
       {/* Active Games */}
