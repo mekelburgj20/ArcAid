@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.15.2] — unreleased
+
+**Help search reworked into a real in-page find** — replaces the section-filter-only search that just hid non-matching sections.
+
+- **Highlights every occurrence** of each search term across the whole guide, via the CSS Custom Highlight API (no DOM mutation, so it's safe against React re-renders; degrades gracefully to jump-to chips where the API is unavailable).
+- **Match navigation** — a live match count + prev/next (‹ / › buttons, or Enter / Shift+Enter) that scrolls to and emphasizes the current hit in cyan while all other hits stay amber.
+- **Multi-term** — space-separated terms are each highlighted.
+- **Stops hiding content** — the sidebar TOC now always shows all sections, with a per-section match-count badge, instead of filtering everything else away.
+
+`::highlight()` styling lives in `admin-ui/src/index.css` (lightningcss warns it's an unrecognized pseudo-element but preserves it in the output). Bumps SW cache to `arcaid-v85`.
+
+---
+
 ## [2.15.1] — unreleased
 
 **Help guide brought current + made searchable, plus a Tournaments timezone polish.** Follow-up to S10.
