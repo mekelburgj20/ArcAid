@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.15.1] — unreleased
+
+**Help guide brought current + made searchable, plus a Tournaments timezone polish.** Follow-up to S10.
+
+*Help search.* A top-of-page full-text search on the room-admin Help guide (`admin-ui/src/pages/Help.tsx`), indexed by walking the rendered content once after mount (no per-section rewrite). Filters the sidebar TOC and surfaces clickable jump-to chips — works on mobile where the sidebar is hidden; `✕` clears.
+
+*Help currency — all 14 sections.* A 3-agent content audit found the guide had drifted 3–4 sprints behind the app; corrected throughout: Settings reorg (read-only Game Room, Integrations + Kiosk cards, 17 themes, QR/Zoom moved to Leaderboard Display, dead Tournament Defaults / Platforms / System Actions cards removed), Game Library = the shared global catalogue (correct Add Game / CSV flows, Pin/Tag/smart search), Tournaments (Pause/Resume, delete-with-auto-deactivate, the S10 Last-run/Next-fire columns, corrected field labels + platform-rule semantics), the Dashboard System Status health card, missing Discord commands (`/ping`, `/arcaid-notifications`) + corrected `/setup`, corrected public routes (Picks, Lobby, Global Scoreboard, Friends), Game States (Reconcile iScored, Archived status), and the Leaderboard Manage Scores modal + Suppressions.
+
+*Tournaments "Next fire" timezone.* The Next Fire column now renders in each tournament's configured timezone with an abbreviation (e.g. "Tue, 10:00 PM CDT") so it agrees with the Schedule column instead of the viewer's browser-local time.
+
+Bumps SW cache to `arcaid-v84`.
+
+---
+
 ## [2.15.0] — unreleased
 
 **S10 — Room-admin observability + alerting.** Turns "why didn't my game activate / is sync down?" from an undiagnosable mystery into a real in-product health surface, plus a server-level alert on sustained iScored-sync failure and an in-app version/build display.
