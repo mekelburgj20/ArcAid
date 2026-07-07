@@ -1,6 +1,18 @@
 @import "tailwindcss";
 @source "./**/*.{ts,tsx}";
 
+/* Help-page in-content search highlighting (CSS Custom Highlight API).
+   Ranges are registered from Help.tsx; no DOM mutation, so it's safe against
+   React re-renders. Theme-aware via the @theme color vars. */
+::highlight(help-hl) {
+  background-color: color-mix(in oklch, var(--color-neon-amber) 32%, transparent);
+  color: inherit;
+}
+::highlight(help-hl-active) {
+  background-color: var(--color-neon-cyan);
+  color: #05161d;
+}
+
 /* === Dark Theme (Default) === */
 
 @theme {

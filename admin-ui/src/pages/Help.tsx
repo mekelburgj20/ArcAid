@@ -81,7 +81,10 @@ export default function Help() {
   const [version, setVersion] = useState<{ version: string; commit: string | null; builtAt: string | null } | null>(null);
   const [query, setQuery] = useState('');
   const [sectionText, setSectionText] = useState<Record<string, string>>({});
+  const [matchCount, setMatchCount] = useState(0);
+  const [activeMatch, setActiveMatch] = useState(-1);
   const contentRef = useRef<HTMLDivElement>(null);
+  const rangesRef = useRef<Range[]>([]);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   useEffect(() => {
@@ -135,13 +138,98 @@ export default function Help() {
     setTocOpen(false);
   };
 
+  // In-page search highlighting via the CSS Custom Highlight API — highlights
+  // every occurrence of each term across the rendered guide WITHOUT mutating the
+  // DOM (safe against React re-renders). Degrades to the jump-to chips when the
+  // API is unavailable.
+  const hlSupported = typeof CSS !== 'undefined' && 'highlights' in CSS && typeof (globalThis as any).Highlight !== 'undefined';
+
+  useEffect(() => {
+    if (!hlSupported) return;
+    const H = (CSS as any).highlights as Map<string, unknown>;
+    H.delete('help-hl');
+    H.delete('help-hl-active');
+    const root = contentRef.current;
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!root || terms.length === 0) { rangesRef.current = []; setMatchCount(0); setActiveMatch(-1); return; }
+
+    const ranges: Range[] = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        let el = (node as Text).parentElement;
+        while (el && el !== root) {
+          if (el.dataset && 'noHighlight' in el.dataset) return NodeFilter.FILTER_REJECT;
+          el = el.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const lower = node.nodeValue!.toLowerCase();
+      for (const term of terms) {
+        let i = lower.indexOf(term);
+        while (i !== -1) {
+          const r = document.createRange();
+          r.setStart(node, i);
+          r.setEnd(node, i + term.length);
+          ranges.push(r);
+          i = lower.indexOf(term, i + term.length);
+        }
+      }
+    }
+    ranges.sort((a, b) => a.compareBoundaryPoints(Range.START_TO_START, b));
+    rangesRef.current = ranges;
+    setMatchCount(ranges.length);
+    setActiveMatch(ranges.length ? 0 : -1);
+    if (ranges.length) {
+      H.set('help-hl', new (globalThis as any).Highlight(...ranges));
+      // Show the current-match emphasis immediately (no scroll — scrolling is
+      // reserved for explicit navigation so typing doesn't jump the page).
+      const active = new (globalThis as any).Highlight(ranges[0]);
+      active.priority = 1;
+      H.set('help-hl-active', active);
+    }
+
+    return () => { H.delete('help-hl'); H.delete('help-hl-active'); };
+  }, [query, hlSupported]);
+
+  // Emphasize + scroll to the active match.
+  useEffect(() => {
+    if (!hlSupported) return;
+    const H = (CSS as any).highlights as Map<string, unknown>;
+    H.delete('help-hl-active');
+    const ranges = rangesRef.current;
+    if (activeMatch < 0 || activeMatch >= ranges.length) return;
+    const r = ranges[activeMatch];
+    const active = new (globalThis as any).Highlight(r);
+    active.priority = 1;
+    H.set('help-hl-active', active);
+    (r.startContainer.parentElement as HTMLElement | null)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [activeMatch, hlSupported]);
+
+  const gotoMatch = (dir: number) => {
+    const n = rangesRef.current.length;
+    if (n === 0) return;
+    setActiveMatch((prev) => ((prev + dir) % n + n) % n);
+  };
+
   const tableClass = 'w-full border-collapse';
   const tableWrapClass = 'overflow-x-auto rounded-lg border border-border';
 
   const q = query.trim().toLowerCase();
-  const matchedSections = q
-    ? SECTIONS.filter(s => s.label.toLowerCase().includes(q) || (sectionText[s.id] || '').includes(q))
-    : SECTIONS;
+  const terms = q ? q.split(/\s+/).filter(Boolean) : [];
+  const sectionHits: Record<string, number> = {};
+  if (terms.length) {
+    for (const s of SECTIONS) {
+      const text = s.label.toLowerCase() + ' ' + (sectionText[s.id] || '');
+      let c = 0;
+      for (const t of terms) { let i = text.indexOf(t); while (i !== -1) { c++; i = text.indexOf(t, i + t.length); } }
+      sectionHits[s.id] = c;
+    }
+  }
+  const sectionsWithHits = SECTIONS.filter(s => (sectionHits[s.id] || 0) > 0);
 
   return (
     <div className="flex gap-8">
@@ -165,20 +253,20 @@ export default function Help() {
           >
             <p className="font-display text-xs uppercase tracking-wider text-muted mb-4">Contents</p>
             <ul className="space-y-1">
-              {matchedSections.length === 0 && (
-                <li className="text-faint text-xs px-2 py-1.5">No matches</li>
-              )}
-              {matchedSections.map((s) => (
+              {SECTIONS.map((s) => (
                 <li key={s.id}>
                   <button
                     onClick={() => scrollTo(s.id)}
-                    className={`block w-full text-left text-sm px-2 py-1.5 rounded cursor-pointer bg-transparent border-none transition-colors ${
+                    className={`w-full text-left text-sm px-2 py-1.5 rounded cursor-pointer bg-transparent border-none transition-colors flex items-center justify-between gap-2 ${
                       activeSection === s.id
                         ? 'text-neon-cyan bg-neon-cyan/10'
                         : 'text-muted hover:text-primary'
                     }`}
                   >
-                    {s.label}
+                    <span>{s.label}</span>
+                    {q && (sectionHits[s.id] || 0) > 0 && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neon-cyan/15 text-neon-cyan">{sectionHits[s.id]}</span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -192,20 +280,20 @@ export default function Help() {
         <div className="sticky top-6">
           <p className="font-display text-xs uppercase tracking-wider text-muted mb-4">Contents</p>
           <ul className="space-y-0.5">
-            {matchedSections.length === 0 && (
-              <li className="text-faint text-xs px-2 py-1.5">No matches</li>
-            )}
-            {matchedSections.map((s) => (
+            {SECTIONS.map((s) => (
               <li key={s.id}>
                 <button
                   onClick={() => scrollTo(s.id)}
-                  className={`block w-full text-left text-sm px-2 py-1.5 rounded cursor-pointer bg-transparent border-none transition-colors ${
+                  className={`w-full text-left text-sm px-2 py-1.5 rounded cursor-pointer bg-transparent border-none transition-colors flex items-center justify-between gap-2 ${
                     activeSection === s.id
                       ? 'text-neon-cyan bg-neon-cyan/10 font-medium'
                       : 'text-muted hover:text-primary'
                   }`}
                 >
-                  {s.label}
+                  <span>{s.label}</span>
+                  {q && (sectionHits[s.id] || 0) > 0 && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neon-cyan/15 text-neon-cyan">{sectionHits[s.id]}</span>
+                  )}
                 </button>
               </li>
             ))}
@@ -220,8 +308,8 @@ export default function Help() {
           Everything you need to know about managing your game room in ArcAid.
         </p>
 
-        {/* Search — filters the sidebar TOC + surfaces jump-to chips */}
-        <div className="mb-8">
+        {/* Search — highlights every match in-page + match navigation + jump-to */}
+        <div className="mb-8" data-no-highlight>
           <div className="relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <circle cx="11" cy="11" r="7" strokeWidth="2" />
@@ -231,7 +319,8 @@ export default function Help() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search the guide…"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); gotoMatch(e.shiftKey ? -1 : 1); } }}
+              placeholder="Search the guide…  (Enter / Shift+Enter jumps between matches)"
               aria-label="Search the help guide"
               className="w-full bg-raised border border-border rounded-lg pl-10 pr-9 py-2.5 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
             />
@@ -247,21 +336,33 @@ export default function Help() {
           </div>
           {q && (
             <div className="mt-3">
-              {matchedSections.length === 0 ? (
-                <p className="text-faint text-sm px-1">No sections match “{query}”.</p>
-              ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-faint text-xs">{matchedSections.length} match{matchedSections.length === 1 ? '' : 'es'} · Jump to:</span>
-                  {matchedSections.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => scrollTo(s.id)}
-                      className="text-xs px-2.5 py-1 rounded-full border border-neon-cyan/30 text-neon-cyan bg-neon-cyan/5 hover:bg-neon-cyan/10 cursor-pointer"
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+              {(hlSupported ? matchCount > 0 : sectionsWithHits.length > 0) ? (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                  {hlSupported && (
+                    <div className="inline-flex items-center gap-2">
+                      <span className="text-muted">{matchCount} match{matchCount === 1 ? '' : 'es'}{sectionsWithHits.length > 1 ? ` in ${sectionsWithHits.length} sections` : ''}</span>
+                      <span className="inline-flex items-center border border-border rounded-md overflow-hidden">
+                        <button onClick={() => gotoMatch(-1)} aria-label="Previous match" className="px-2 py-0.5 text-muted hover:text-neon-cyan bg-transparent border-none cursor-pointer">‹</button>
+                        <span className="px-2 py-0.5 font-mono text-faint border-l border-r border-border">{activeMatch + 1}/{matchCount}</span>
+                        <button onClick={() => gotoMatch(1)} aria-label="Next match" className="px-2 py-0.5 text-muted hover:text-neon-cyan bg-transparent border-none cursor-pointer">›</button>
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-faint">Jump to:</span>
+                    {sectionsWithHits.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => scrollTo(s.id)}
+                        className="text-xs px-2.5 py-1 rounded-full border border-neon-cyan/30 text-neon-cyan bg-neon-cyan/5 hover:bg-neon-cyan/10 cursor-pointer inline-flex items-center gap-1"
+                      >
+                        {s.label}<span className="opacity-70">{sectionHits[s.id]}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
+              ) : (
+                <p className="text-faint text-sm px-1">No matches for “{query}”.</p>
               )}
             </div>
           )}
