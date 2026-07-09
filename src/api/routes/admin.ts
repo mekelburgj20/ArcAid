@@ -6,6 +6,7 @@ import { logInfo, logError } from '../../utils/logger.js';
 import { getDatabase } from '../../database/database.js';
 import { requireAuth, requireSuperAdmin } from '../middleware.js';
 import { validate } from '../validate.js';
+import { isAllowedImage } from '../uploadValidation.js';
 import {
     SettingsSchema,
     BackupRestoreParamsSchema, CreateGameRoomSchema,
@@ -532,6 +533,14 @@ router.post('/styles/upload', styleUpload.fields([
         const headerFile = files?.header?.[0];
         if (!bgFile && !headerFile) {
             return res.status(400).json({ error: 'At least one image (background or header) is required' });
+        }
+
+        // Magic-byte validation: reject files whose bytes don't match an allowed image signature (S11)
+        if (bgFile && !isAllowedImage(bgFile.buffer)) {
+            return res.status(400).json({ error: 'Invalid image file' });
+        }
+        if (headerFile && !isAllowedImage(headerFile.buffer)) {
+            return res.status(400).json({ error: 'Invalid image file' });
         }
 
         const id = await StyleCatalogueService.createCustom({

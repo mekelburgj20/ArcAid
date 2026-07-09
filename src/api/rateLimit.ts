@@ -63,3 +63,21 @@ export const globalSubmitLimiter = rateLimit({
     keyGenerator: (req: any) => req.user?.discordId || ipKeyGenerator(req.ip),
     message: { error: 'Global submission limit reached (10 per hour). Please try again later.' },
 });
+
+/**
+ * Guest content (comments, ratings): 10 requests per minute per IP.
+ *
+ * Keys on the normalized IP via `ipKeyGenerator` (IPv6 addresses are
+ * subnet-normalized — see globalSubmitLimiter for the ERR_ERL_KEY_GEN_IPV6
+ * rationale). Deliberately NOT keyed on the `x-user-id` header: that value is
+ * client-controlled, so a script rotating it per request would bypass the cap
+ * entirely — and comment/rating spam is exactly what this guards against.
+ */
+export const guestContentLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => ipKeyGenerator(req.ip),
+    message: { error: 'Too many requests. Please slow down.' },
+});

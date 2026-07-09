@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.16.0] — unreleased
+
+**S11 — Trust & safety hardening.** Guest-write rate limiting, an authorization sweep, and input-validation hardening across the public API. Built via a multi-agent audit → implement → verify workflow; the adversarial verify pass surfaced several gaps beyond the initial scope, fixed here.
+
+*Rate limiting.* Dedicated limiters now guard every guest-writable route that previously sat on only the 100/min general backstop: room community-scores, comments (POST + DELETE), and ratings; global submission-drafts (POST / commit-as-guest / DELETE) and rating; plus the account-creating `invite/accept` (now at the 5/min auth tier) and the Discord-lookup `submit/anonymous-check`. New `guestContentLimiter` (10/min) for comment/rating spam — keyed on IP, **not** the client-controlled `x-user-id` header (which could be rotated to bypass it).
+
+*Authorization.* Room comment-delete now enforces tiered authz mirroring the score-history delete (super-admin → any; room-admin → any in their room; author → their own) with a cross-tenant room-scope guard. The comment-list endpoint no longer discloses other users' author ids (each caller sees only their own), closing a broken-access-control hole where a stranger could read a comment's id and replay it as `x-user-id` to delete it.
+
+*Input validation.* Score values are bounded at `MAX_SCORE` (1e15, below 2^53) on the three submit schemas **and** on the two inline-parsed global paths (`/global/scores`, submission-drafts) — guards against precision-loss / overflow leaderboard poisoning. Uploaded images are validated by magic bytes (PNG/APNG, JPEG, WebP) after multer rather than by the spoofable client MIME type, across all room/global/admin upload routes.
+
+*Deferred (tracked for follow-up):* comment moderation for password/local (non-Discord) admins needs token-bearing FE wiring (→ S22 moderation); `community-scores` still trusts a client-supplied `discord_user_id` for attribution; room ratings key on `x-user-id` and aren't room-scoped in `RatingService`.
+
+Bumps SW cache to `arcaid-v86`. Adds `s11-trust-safety.test.ts` (rate-limit enforcement, comment-delete authz tiers, score caps, upload magic-byte checks).
+
+---
+
 ## [2.15.2] — unreleased
 
 **Help search reworked into a real in-page find** — replaces the section-filter-only search that just hid non-matching sections.
