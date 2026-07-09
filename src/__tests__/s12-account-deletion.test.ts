@@ -586,10 +586,13 @@ describe('S12 — AccountDeletionService.anonymizeUser (data effects)', () => {
         expect(mr!.reversal_admin_id).toBeNull();
 
         // anonymous_identities.server_nickname scrubbed for the merge-linked id.
+        // server_nickname is NOT NULL + UNIQUE per (guild_id, LOWER(nickname)) /
+        // (room_id, LOWER(nickname)) (migration 059), so the service writes a
+        // collision-proof `DELETED-<rowid>` tombstone rather than a bare sentinel.
         const anon = await db.get<{ server_nickname: string }>(
             'SELECT server_nickname FROM anonymous_identities WHERE id = ?', ctx.anonId,
         );
-        expect(anon!.server_nickname).toBe(DELETED_USER_SENTINEL);
+        expect(anon!.server_nickname).toMatch(/^DELETED-/);
 
         // score_reports: reporter → sentinel, resolver → NULL, moderation row kept.
         const sr = await db.get<{ reporter_discord_id: string; resolved_by: string | null }>(
