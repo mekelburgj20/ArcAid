@@ -62,6 +62,10 @@ import Friends from './pages/Friends';
 // Pages — Account
 import AccountSettings from './pages/AccountSettings';
 
+// Pages — Legal (static, public)
+import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
+
 // Pages — Auth
 import RoomLogin from './pages/RoomLogin';
 import DiscordCallback from './pages/DiscordCallback';
@@ -109,6 +113,10 @@ function App() {
 
         {/* Invite acceptance (public) */}
         <Route path="/invite/:token" element={<InviteAccept />} />
+
+        {/* Legal pages (static, public — must precede the /:slug dynamic route) */}
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
 
         {/* Super admin routes */}
         <Route path="/admin" element={<SuperAdminLayout />}>

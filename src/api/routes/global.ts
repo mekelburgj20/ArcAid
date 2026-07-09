@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
-import { requireAuth, requireDiscordUser } from '../middleware.js';
+import { requireAuth, requireDiscordUser, requireSuperAdmin } from '../middleware.js';
 import { writeLimiter, globalSubmitLimiter, authLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -14,9 +14,12 @@ import { GlobalLeaderboardService } from '../../services/GlobalLeaderboardServic
 import { GlobalRatingService } from '../../services/GlobalRatingService.js';
 import { GlobalCommentService } from '../../services/GlobalCommentService.js';
 import { ScoreRankService, type SubmitRankResult } from '../../services/ScoreRankService.js';
-import { emitScoreNewGlobal } from '../websocket.js';
+import { emitScoreNewGlobal, getIO } from '../websocket.js';
 import { getDatabase } from '../../database/database.js';
 import { getVersionInfo } from '../../utils/version.js';
+import { AuditService } from '../../services/AuditService.js';
+import { AccountDeletionService, LastSuperAdminError } from '../../services/AccountDeletionService.js';
+import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 
 const router = Router();
 
@@ -224,6 +227,92 @@ router.put('/me/notification-preferences', requireDiscordUser, async (req, res) 
         res.json(prefs);
     } catch (error) {
         logError('API Error (PUT /api/me/notification-preferences):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Account Deletion (anonymize-and-keep-scores) ---
+//
+// Removes all PERSONAL data (Discord identity, avatar, display name, proof
+// photos, mappings, prefs, sessions, comments, ratings, friendships) but KEEPS
+// each score row under its game handle (iscored_username) so leaderboards and
+// rankings stay intact — the score is de-identified, not deleted. The full
+// per-table plan (transaction, FK ordering, photo unlink, cache bust) lives in
+// AccountDeletionService.anonymizeUser.
+//
+// AuditService.log MUST be called explicitly here: the app-level auditLog
+// middleware (server.ts) runs before any route middleware sets req.user, so it
+// early-returns without wrapping res.json and never auto-audits these routes.
+
+/**
+ * DELETE /api/me/account — self-service account deletion. The target Discord
+ * user id is taken ONLY from the verified token (req.user), never from the body.
+ */
+router.delete('/me/account', requireDiscordUser, async (req, res) => {
+    const discordUserId = req.user!.discordId!;
+    try {
+        const result = await AccountDeletionService.anonymizeUser(discordUserId, { actor: 'self' });
+
+        await AuditService.log({
+            actor: discordUserId,
+            action: 'account.delete',
+            target_type: 'user',
+            target_id: discordUserId,
+            details: JSON.stringify(result),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        // Global broadcast so every open scoreboard / leaderboard / kiosk drops
+        // the now-anonymized identity without waiting for a natural refresh. The
+        // account spans potentially many rooms + the global board, so this is a
+        // room-agnostic emit (handlers refetch on any leaderboard:updated).
+        getIO()?.emit('leaderboard:updated', { gameId: '' });
+
+        res.json({ success: true, ...result });
+    } catch (error) {
+        if (error instanceof LastSuperAdminError) {
+            return res.status(409).json({ error: 'Cannot delete the only super admin account. Transfer super-admin to another user first.' });
+        }
+        logError('API Error (DELETE /api/me/account):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * DELETE /api/admin/users/:discordUserId — admin-assisted account deletion.
+ * Same anonymize-and-keep-scores flow as the self-service route; the acting
+ * super-admin's id is recorded for audit. Gated explicitly with
+ * requireAuth + requireSuperAdmin (the global router carries no router-level
+ * auth). The /api/admin mount resolves this via fall-through.
+ */
+router.delete('/admin/users/:discordUserId', requireAuth, requireSuperAdmin, async (req, res) => {
+    const targetDiscordUserId = req.params.discordUserId as string;
+    const actorDiscordId = req.user!.discordId;
+    try {
+        const result = await AccountDeletionService.anonymizeUser(targetDiscordUserId, {
+            actor: 'admin',
+            actorDiscordId,
+        });
+
+        await AuditService.log({
+            actor: actorDiscordId || req.user!.username || req.user!.localAdminId || 'unknown',
+            action: 'account.delete',
+            target_type: 'user',
+            target_id: targetDiscordUserId,
+            details: JSON.stringify(result),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        getIO()?.emit('leaderboard:updated', { gameId: '' });
+
+        res.json({ success: true, ...result });
+    } catch (error) {
+        if (error instanceof LastSuperAdminError) {
+            return res.status(409).json({ error: 'Cannot delete the only super admin account. Transfer super-admin to another user first.' });
+        }
+        logError('API Error (DELETE /api/admin/users/:discordUserId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -1163,6 +1252,10 @@ router.delete('/me/global-scores/:scoreId', requireDiscordUser, async (req, res)
         }
         const ok = await GlobalScoreService.softDelete(scoreId, req.user!.discordId!);
         if (!ok) return res.status(404).json({ error: 'Score not found' });
+        // S12 photo-on-delete: unlink the proof photo FILE from disk. softDelete
+        // keeps the row (audit/restore) but the photo is personal data and must
+        // not linger. Best-effort + idempotent — a missing/foreign path no-ops.
+        deleteScorePhotoFiles([score.photo_url]);
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/me/global-scores/:scoreId):', error);
@@ -1182,16 +1275,21 @@ router.delete('/me/global-scores/game/:globalGameId', requireDiscordUser, async 
         const dbConn = await db();
 
         const scores = await dbConn.all(
-            `SELECT id FROM global_scores WHERE global_game_id = ? AND player_id = ? AND deleted_at IS NULL`,
+            `SELECT id, photo_url FROM global_scores WHERE global_game_id = ? AND player_id = ? AND deleted_at IS NULL`,
             globalGameId, discordId
         );
         if (scores.length === 0) {
             return res.status(404).json({ error: 'No scores found' });
         }
 
+        // S12 photo-on-delete: collect the proof photos of the rows we actually
+        // soft-delete, then unlink the FILES best-effort (idempotent helper).
+        const photoUrls: Array<string | null | undefined> = [];
         for (const s of scores) {
-            await GlobalScoreService.softDelete(s.id, discordId);
+            const ok = await GlobalScoreService.softDelete(s.id, discordId);
+            if (ok) photoUrls.push(s.photo_url);
         }
+        deleteScorePhotoFiles(photoUrls);
 
         res.json({ success: true, deleted: scores.length });
     } catch (error) {
