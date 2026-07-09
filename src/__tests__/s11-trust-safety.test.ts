@@ -286,3 +286,50 @@ describe('S11 (b) — comment-delete authorization tiers', () => {
         expect(await db.get('SELECT id FROM game_comments WHERE id = ?', commentId)).toBeUndefined();
     });
 });
+
+describe('S11 regression — comments stay open to guests in login-required rooms', () => {
+    // S11 briefly gated the comment routes on conditionalRequireDiscordUser, which
+    // enforces REQUIRE_DISCORD_LOGIN — but the comment form sends no Bearer token,
+    // so in a login-required room the routes 401'd for everyone. optionalDiscordUser
+    // decodes a token if present but never blocks; comments must stay guest-open.
+    async function loginRequiredRoom(slug: string, name: string): Promise<string> {
+        const roomId = await createTestRoom(slug, name);
+        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+        await GameRoomSettingsService.set(roomId, 'REQUIRE_DISCORD_LOGIN', 'true');
+        return roomId;
+    }
+
+    it('a guest can POST a comment even when the room requires Discord login', async () => {
+        const app = await createTestApp();
+        const roomId = await loginRequiredRoom('s11-cmt-guest', 'S11 Comment Guest');
+        const res = await request(app)
+            .post(`/api/rooms/${roomId}/games/game/comments`)
+            .set('X-Forwarded-For', freshIp())
+            .set('x-user-id', `guest-${crypto.randomUUID()}`)
+            .send({ display_name: 'Guest', type: 'comment', body: 'hi' });
+        expect(res.status).toBe(201);
+    });
+
+    it('a guest can GET comments in a login-required room (viewing not blocked)', async () => {
+        const app = await createTestApp();
+        const roomId = await loginRequiredRoom('s11-cmt-view', 'S11 Comment View');
+        await seedComment(roomId, 'game', `someone-${crypto.randomUUID()}`);
+        const res = await request(app)
+            .get(`/api/rooms/${roomId}/games/game/comments`)
+            .set('X-Forwarded-For', freshIp());
+        expect(res.status).toBe(200);
+        expect(Array.isArray(res.body)).toBe(true);
+        expect(res.body.length).toBe(1);
+    });
+
+    it('community-scores STILL requires login in a login-required room (score gate intact)', async () => {
+        const app = await createTestApp();
+        const roomId = await loginRequiredRoom('s11-score-gate', 'S11 Score Gate');
+        const res = await request(app)
+            .post(`/api/rooms/${roomId}/community-scores/game`)
+            .set('X-Forwarded-For', freshIp())
+            .set('x-user-id', `guest-${crypto.randomUUID()}`)
+            .send({ username: 'Guest', score: 1000, platform: 'real' });
+        expect(res.status).toBe(401);
+    });
+});

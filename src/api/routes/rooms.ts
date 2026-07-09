@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
-import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser } from '../middleware.js';
+import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser, optionalDiscordUser } from '../middleware.js';
 import { validate } from '../validate.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
@@ -1889,7 +1889,7 @@ router.put('/:roomId/lobby/config', requireAuth, requireRoomAccess('roomId'), as
 });
 
 // Game comments & tips
-router.get('/:roomId/games/:gameName/comments', conditionalRequireDiscordUser('roomId'), async (req, res) => {
+router.get('/:roomId/games/:gameName/comments', optionalDiscordUser, async (req, res) => {
     try {
         const { CommentService } = await import('../../services/CommentService.js');
         const gameName = decodeURIComponent(req.params.gameName as string);
@@ -1913,7 +1913,7 @@ router.get('/:roomId/games/:gameName/comments', conditionalRequireDiscordUser('r
     }
 });
 
-router.post('/:roomId/games/:gameName/comments', guestContentLimiter, conditionalRequireDiscordUser('roomId'), async (req, res) => {
+router.post('/:roomId/games/:gameName/comments', guestContentLimiter, optionalDiscordUser, async (req, res) => {
     try {
         const validationResult = validate(GameCommentSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -1934,7 +1934,7 @@ router.post('/:roomId/games/:gameName/comments', guestContentLimiter, conditiona
     }
 });
 
-router.delete('/:roomId/games/:gameName/comments/:id', guestContentLimiter, conditionalRequireDiscordUser('roomId'), async (req, res) => {
+router.delete('/:roomId/games/:gameName/comments/:id', guestContentLimiter, optionalDiscordUser, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const { CommentService } = await import('../../services/CommentService.js');

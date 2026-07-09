@@ -112,6 +112,24 @@ export function conditionalRequireDiscordUser(roomIdParam = 'roomId') {
 }
 
 /**
+ * Optional Discord identity — decode a Bearer token when present and attach the
+ * payload to `req.user`, but NEVER block. Unlike `conditionalRequireDiscordUser`,
+ * this ignores the room's `REQUIRE_DISCORD_LOGIN` setting: it's for the low-stakes
+ * social routes (game comments/tips) that must stay open to guests even in
+ * login-required rooms, while still recognizing a token-bearing author/admin when
+ * the client does send one.
+ */
+export function optionalDiscordUser(req: Request, _res: Response, next: NextFunction): void {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (token) {
+        const payload = verifyToken(token);
+        if (payload?.discordId) req.user = payload;
+    }
+    next();
+}
+
+/**
  * Validates JWT and confirms the user has a Discord identity (any role).
  * Used for public features that require Discord login (e.g. game picking).
  */
