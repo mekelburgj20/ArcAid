@@ -123,9 +123,18 @@ export const StyleUploadSchema = z.object({
     notes: z.string().max(500).default(''),
 });
 
+/**
+ * Upper bound for any submitted score. 1e15 — far above any real score
+ * (including the 1T+ display case) but below Number.MAX_SAFE_INTEGER
+ * (~9.007e15), so integer precision holds and the value stays within SQLite's
+ * INTEGER range. Guards the guest submit paths against precision-loss /
+ * overflow leaderboard poisoning (S11 item c).
+ */
+export const MAX_SCORE = 1_000_000_000_000_000;
+
 export const CommunityScoreSchema = z.object({
     username: z.string().min(1).max(100),
-    score: z.number().int().min(0),
+    score: z.number().int().min(0).max(MAX_SCORE),
     discord_user_id: z.string().optional(),
     photo_url: z.string().url().optional(),
     // v2.5.0: required per-score platform tag. Picker-resolved on the client
@@ -135,7 +144,7 @@ export const CommunityScoreSchema = z.object({
 
 export const ScoreSubmissionSchema = z.object({
     username: z.string().min(1).max(100),
-    score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0)),
+    score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
     platform: z.string().min(1),
 });
 
@@ -148,7 +157,7 @@ export const ScoreSubmissionSchema = z.object({
 export const FreeplayScoreSchema = z.object({
     globalGameId: z.string().min(1),
     username: z.string().min(1).max(100),
-    score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0)),
+    score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
     excludeGlobal: z.preprocess(
         v => v === 'true' || v === true,
         z.boolean(),

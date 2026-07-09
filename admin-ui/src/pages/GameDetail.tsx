@@ -349,11 +349,11 @@ export default function GameDetail() {
   };
 
   const loadComments = (rid: string, gameName: string) => {
-    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=tip`)
+    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=tip`, { headers: { 'x-user-id': userId } })
       .then(r => r.ok ? r.json() : [])
       .then(setTips)
       .catch(() => {});
-    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=comment`)
+    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=comment`, { headers: { 'x-user-id': userId } })
       .then(r => r.ok ? r.json() : [])
       .then(setComments)
       .catch(() => {});

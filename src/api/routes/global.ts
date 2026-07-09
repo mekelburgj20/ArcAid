@@ -2,9 +2,10 @@ import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser } from '../middleware.js';
-import { writeLimiter, globalSubmitLimiter } from '../rateLimit.js';
+import { writeLimiter, globalSubmitLimiter, authLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
-import { UpdatePreferencesSchema } from '../schemas.js';
+import { isAllowedImage } from '../uploadValidation.js';
+import { UpdatePreferencesSchema, MAX_SCORE } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
@@ -253,8 +254,9 @@ router.get('/invite/:token', async (req, res) => {
     }
 });
 
-// Accept invite (no auth)
-router.post('/invite/:token/accept', async (req, res) => {
+// Accept invite (no auth). authLimiter (5/min/IP): this mints a room_admin
+// account, so it belongs at the auth tier, not the 100/min general backstop.
+router.post('/invite/:token/accept', authLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
         if (!username || typeof username !== 'string' || username.trim().length === 0) {
@@ -343,7 +345,7 @@ router.get('/portal', async (req, res) => {
 // for the anonymous-claim OAuth handoff; the client stores the same blob in
 // sessionStorage as the primary path. Keyed on the OAuth `state` param so
 // DiscordCallback can replay across browser tabs or devices.
-router.post('/submission-drafts/:stateParam', globalScoreUpload.single('photo'), async (req, res) => {
+router.post('/submission-drafts/:stateParam', writeLimiter, globalScoreUpload.single('photo'), async (req, res) => {
     try {
         const stateParam = req.params.stateParam as string;
         if (!stateParam || stateParam.length > 128) return res.status(400).json({ error: 'invalid stateParam' });
@@ -357,8 +359,17 @@ router.post('/submission-drafts/:stateParam', globalScoreUpload.single('photo'),
         const score = scoreRaw !== undefined && scoreRaw !== null && scoreRaw !== ''
             ? Number.parseInt(String(scoreRaw), 10)
             : null;
+        // S11: reject an out-of-range finite score at the staging boundary — the
+        // schemas' MAX_SCORE cap doesn't reach this inline-parsed draft path.
+        if (Number.isFinite(score) && (score! < 0 || score! > MAX_SCORE)) {
+            return res.status(400).json({ error: 'Invalid score' });
+        }
         const excludeFromGlobal = req.body?.excludeFromGlobal === 'true' || req.body?.excludeFromGlobal === true;
         const platform = typeof req.body?.platform === 'string' && req.body.platform.trim() ? req.body.platform.trim() : null;
+
+        if (req.file && !isAllowedImage(req.file.buffer)) {
+            return res.status(400).json({ error: 'Invalid image file' });
+        }
 
         const photoBuffer = req.file?.buffer ?? null;
         const photoExt = req.file
@@ -403,7 +414,7 @@ router.get('/submission-drafts/:stateParam', async (req, res) => {
     }
 });
 
-router.delete('/submission-drafts/:stateParam', async (req, res) => {
+router.delete('/submission-drafts/:stateParam', writeLimiter, async (req, res) => {
     try {
         const { SubmissionDraftService } = await import('../../services/SubmissionDraftService.js');
         await SubmissionDraftService.consume(req.params.stateParam as string);
@@ -572,7 +583,7 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, async (
 // user cancels OAuth and chooses "Submit as guest" in the PendingSubmissionWatcher
 // modal. Tournament + freeplay targets go through CommunityScoreService without
 // a discordUserId; global targets are rejected (global submissions require auth).
-router.post('/submission-drafts/:stateParam/commit-as-guest', async (req, res) => {
+router.post('/submission-drafts/:stateParam/commit-as-guest', writeLimiter, async (req, res) => {
     try {
         const stateParam = req.params.stateParam as string;
         const { SubmissionDraftService } = await import('../../services/SubmissionDraftService.js');
@@ -1008,11 +1019,14 @@ router.post('/global/scores', requireDiscordUser, globalSubmitLimiter, globalSco
             return res.status(400).json({ error: 'globalGameId is required' });
         }
         const score = parseInt(scoreRaw, 10);
-        if (!Number.isFinite(score) || score < 0) {
+        if (!Number.isFinite(score) || score < 0 || score > MAX_SCORE) {
             return res.status(400).json({ error: 'A valid non-negative score is required' });
         }
         if (!req.file) {
             return res.status(400).json({ error: 'A photo is required with global score submissions.' });
+        }
+        if (!isAllowedImage(req.file.buffer)) {
+            return res.status(400).json({ error: 'Invalid image file' });
         }
         if (displayNameRaw.length > 50) {
             return res.status(400).json({ error: 'Display name must be 50 characters or fewer.' });
@@ -1254,7 +1268,7 @@ router.get('/global/games/:id/rating', async (req, res) => {
 /**
  * POST /api/global/games/:id/rating — set user's rating (1-5). Requires Discord login.
  */
-router.post('/global/games/:id/rating', requireDiscordUser, async (req, res) => {
+router.post('/global/games/:id/rating', writeLimiter, requireDiscordUser, async (req, res) => {
     try {
         const globalGameId = req.params.id as string;
         const rating = parseInt(req.body.rating, 10);

@@ -28,7 +28,8 @@ import {
     DeleteGameStateSchema,
     SyncIScoredActionSchema,
 } from '../schemas.js';
-import { writeLimiter, pickLimiter } from '../rateLimit.js';
+import { writeLimiter, pickLimiter, guestContentLimiter } from '../rateLimit.js';
+import { isAllowedImage } from '../uploadValidation.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
 // sessions via the registry, never directly.
@@ -1147,7 +1148,7 @@ router.get('/:roomId/community-scores/:gameName/leaders', async (req, res) => {
     }
 });
 
-router.post('/:roomId/community-scores/:gameName', conditionalRequireDiscordUser('roomId'), async (req, res) => {
+router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequireDiscordUser('roomId'), async (req, res) => {
     try {
         const validationResult = validate(CommunityScoreSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -1189,7 +1190,7 @@ router.post('/:roomId/community-scores/:gameName', conditionalRequireDiscordUser
 // Runs the typed name against the room's Discord guild and returns whether a
 // guild member maps to it. The SubmissionSheet uses the response to decide
 // whether to render the claim prompt before an unauthenticated submit.
-router.post('/:roomId/submit/anonymous-check', async (req, res) => {
+router.post('/:roomId/submit/anonymous-check', writeLimiter, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
@@ -1270,6 +1271,13 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
         const requirePhoto = await GameRoomSettingsService.get(roomId, 'REQUIRE_SCORE_PHOTO');
         if (requirePhoto === 'true' && !req.file) {
             return res.status(400).json({ error: 'A photo is required with score submissions.' });
+        }
+
+        // S11: magic-byte validation — multer only sees the client-supplied MIME
+        // type (spoofable), so reject non-image bytes before persisting. Photo is
+        // optional here, so only validate when one was actually uploaded.
+        if (req.file && !isAllowedImage(req.file.buffer)) {
+            return res.status(400).json({ error: 'Invalid image file' });
         }
 
         // Save photo to persistent storage if provided
@@ -1378,6 +1386,12 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         // Photo is required for freeplay (no tournament cross-check, so evidence matters)
         if (!req.file) {
             return res.status(400).json({ error: 'A photo is required for freeplay score submissions.' });
+        }
+
+        // S11: magic-byte validation (see submit-score). Photo is guaranteed
+        // present here by the guard above, so validate unconditionally.
+        if (!isAllowedImage(req.file.buffer)) {
+            return res.status(400).json({ error: 'Invalid image file' });
         }
 
         // Resolve the game from the global catalogue
@@ -1875,28 +1889,42 @@ router.put('/:roomId/lobby/config', requireAuth, requireRoomAccess('roomId'), as
 });
 
 // Game comments & tips
-router.get('/:roomId/games/:gameName/comments', async (req, res) => {
+router.get('/:roomId/games/:gameName/comments', conditionalRequireDiscordUser('roomId'), async (req, res) => {
     try {
         const { CommentService } = await import('../../services/CommentService.js');
         const gameName = decodeURIComponent(req.params.gameName as string);
         const roomId = req.params.roomId as string;
         const type = req.query.type as 'comment' | 'tip' | undefined;
         const comments = await CommentService.getComments(roomId, gameName, type);
-        res.json(comments);
+        // S11: never disclose other users' author ids. The delete route authorizes
+        // an anon author by their `x-user-id`, so exposing every row's user_id here
+        // let a stranger read an id and replay it to delete that comment. Mask each
+        // row to the caller: their own id survives (so the FE can show its delete
+        // control), everyone else's becomes null.
+        const callerId = req.user?.discordId || (req.headers['x-user-id'] as string) || '';
+        const masked = (comments as any[]).map(c => ({
+            ...c,
+            user_id: (callerId && callerId !== 'anon' && c.user_id === callerId) ? c.user_id : null,
+        }));
+        res.json(masked);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/games/:gameName/comments):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
-router.post('/:roomId/games/:gameName/comments', async (req, res) => {
+router.post('/:roomId/games/:gameName/comments', guestContentLimiter, conditionalRequireDiscordUser('roomId'), async (req, res) => {
     try {
         const validationResult = validate(GameCommentSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const { CommentService } = await import('../../services/CommentService.js');
         const gameName = decodeURIComponent(req.params.gameName as string);
         const roomId = req.params.roomId as string;
-        const userId = (req.headers['x-user-id'] as string) || 'anon';
+        // S11 item (b): prefer the logged-in Discord identity (populated by
+        // conditionalRequireDiscordUser when a Bearer token is present) so the
+        // author can later delete via their token. Fall back to the guest anon
+        // header, then the 'anon' sentinel for fully-anonymous guests.
+        const userId = req.user?.discordId || (req.headers['x-user-id'] as string) || 'anon';
         const { display_name, type, body } = validationResult.data;
         const comment = await CommentService.addComment(roomId, gameName, userId, display_name, type, body);
         res.status(201).json(comment);
@@ -1906,15 +1934,33 @@ router.post('/:roomId/games/:gameName/comments', async (req, res) => {
     }
 });
 
-router.delete('/:roomId/games/:gameName/comments/:id', async (req, res) => {
+router.delete('/:roomId/games/:gameName/comments/:id', guestContentLimiter, conditionalRequireDiscordUser('roomId'), async (req, res) => {
     try {
+        const roomId = req.params.roomId as string;
         const { CommentService } = await import('../../services/CommentService.js');
         const commentId = parseInt(req.params.id as string, 10);
-        const userId = (req.headers['x-user-id'] as string) || '';
+        if (!Number.isFinite(commentId)) return res.status(400).json({ error: 'Invalid comment id' });
         const comment = await CommentService.getCommentById(commentId);
         if (!comment) return res.status(404).json({ error: 'Comment not found' });
-        // Only author can delete (admin deletion handled via admin routes)
-        if (comment.user_id !== userId) return res.status(403).json({ error: 'Not authorized' });
+        // Room-scope first: comment ids are global sequential integers, so refuse
+        // to act on a comment that lives in another room (cross-tenant delete).
+        if (comment.game_room_id !== roomId) return res.status(404).json({ error: 'Comment not found in this room' });
+
+        // Tiered authz mirroring the score-history delete (rooms.ts:995):
+        //   super_admin → any comment; room_admin → any comment in their room;
+        //   author → only their own. conditionalRequireDiscordUser populated
+        //   req.user for logged-in viewers; guests fall through with req.user
+        //   undefined and can only match as author via their anon x-user-id.
+        const isSuper = req.user?.role === 'super_admin';
+        const isRoomAdmin = req.user?.role === 'room_admin' && req.user.gameRoomIds.includes(roomId);
+        const callerId = req.user?.discordId || (req.headers['x-user-id'] as string) || '';
+        // Never let the 'anon' sentinel (or an empty identity) authorize a delete —
+        // otherwise anyone sending `x-user-id: anon` could wipe every header-less
+        // comment. A real author always has a non-empty, non-sentinel id.
+        const isAuthor = !!callerId && callerId !== 'anon' && comment.user_id === callerId;
+        if (!isSuper && !isRoomAdmin && !isAuthor) {
+            return res.status(403).json({ error: 'Not authorized' });
+        }
         await CommentService.deleteComment(commentId);
         res.json({ success: true });
     } catch (error) {
@@ -2353,7 +2399,7 @@ router.get('/:roomId/ratings/:gameName', async (req, res) => {
     }
 });
 
-router.post('/:roomId/ratings/:gameName', async (req, res) => {
+router.post('/:roomId/ratings/:gameName', guestContentLimiter, async (req, res) => {
     try {
         const gameName = decodeURIComponent(req.params.gameName as string);
         const userId = (req.headers['x-user-id'] as string) || '';
@@ -3678,6 +3724,14 @@ router.post('/:roomId/admin/styles/upload', requireAuth, requireRoomAccess('room
             return res.status(400).json({ error: 'At least one image (background or header) is required' });
         }
 
+        // S11: magic-byte validation on each present upload before persisting.
+        if (bgFile && !isAllowedImage(bgFile.buffer)) {
+            return res.status(400).json({ error: 'Invalid image file' });
+        }
+        if (headerFile && !isAllowedImage(headerFile.buffer)) {
+            return res.status(400).json({ error: 'Invalid image file' });
+        }
+
         const { StyleCatalogueService } = await import('../../services/StyleCatalogueService.js');
         const id = await StyleCatalogueService.createCustom({
             name: validationResult.data.name,
@@ -3896,6 +3950,8 @@ router.post('/:roomId/admin/upload/background', requireAuth, requireRoomAccess('
         const roomId = req.params.roomId as string;
         const file = req.file;
         if (!file) return res.status(400).json({ error: 'No file uploaded' });
+        // S11: reject non-image bytes before persisting (client MIME is spoofable).
+        if (!isAllowedImage(file.buffer)) return res.status(400).json({ error: 'Invalid image file' });
 
         const ext = (file.mimetype === 'image/png' || file.mimetype === 'image/apng') ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
         const dir = path.join(process.cwd(), 'data', 'room-assets', roomId);
@@ -3942,6 +3998,8 @@ router.post('/:roomId/admin/upload/logo', requireAuth, requireRoomAccess('roomId
         const roomId = req.params.roomId as string;
         const file = req.file;
         if (!file) return res.status(400).json({ error: 'No file uploaded' });
+        // S11: reject non-image bytes before persisting (client MIME is spoofable).
+        if (!isAllowedImage(file.buffer)) return res.status(400).json({ error: 'Invalid image file' });
 
         const ext = (file.mimetype === 'image/png' || file.mimetype === 'image/apng') ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
         const dir = path.join(process.cwd(), 'data', 'room-assets', roomId);
