@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.16.1] — unreleased
+
+**Fix: S11 broke game comments in login-required rooms.** S11 mounted `conditionalRequireDiscordUser` on the room comment GET/POST/DELETE routes, which enforces the room's `REQUIRE_DISCORD_LOGIN` setting — but the comment form sends no Bearer token, so in a login-required room (the default for new rooms) the comment routes returned **401 for everyone** (guests *and* logged-in users): viewing showed an empty section, posting silently failed. Comments/tips are lower-stakes social content that stayed open to guests pre-S11. Fixed with a new `optionalDiscordUser` middleware — decodes a token when present (so the S11 author/admin delete-authz tiers still work when a client sends one) but **never blocks** — swapped onto all three comment routes. The score-submission gate (`community-scores`) is unchanged and still honors `REQUIRE_DISCORD_LOGIN`. Regression tests added (guest POST/GET in a login-required room; score gate still 401s).
+
+---
+
 ## [2.16.0] — unreleased
 
 **S11 — Trust & safety hardening.** Guest-write rate limiting, an authorization sweep, and input-validation hardening across the public API. Built via a multi-agent audit → implement → verify workflow; the adversarial verify pass surfaced several gaps beyond the initial scope, fixed here.
