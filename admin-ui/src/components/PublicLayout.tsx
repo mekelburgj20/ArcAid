@@ -140,6 +140,13 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
         </PlayerQuickViewProvider>
       </div>
 
+      {/* Slim legal footer — flex-shrink-0 so it sits below the scroll region */}
+      <footer className="flex-shrink-0 border-t border-border py-1.5 px-4 flex items-center justify-center gap-3 text-[10px] text-faint z-40">
+        <Link to="/privacy" className="hover:text-neon-cyan transition-colors no-underline">Privacy</Link>
+        <span aria-hidden="true">·</span>
+        <Link to="/terms" className="hover:text-neon-cyan transition-colors no-underline">Terms</Link>
+      </footer>
+
       {/* Scanline overlay */}
       <div className="fixed inset-0 pointer-events-none z-50 scanlines" />
     </div>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle, AlertTriangle, Trash2 } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface Profile {
@@ -34,7 +34,8 @@ const NOTIF_TYPES: { key: string; label: string; helper: string }[] = [
 ];
 
 export default function AccountSettings() {
-  const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord, logoutPlayer } = useViewerAuth();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [draft, setDraft] = useState('');
   const [availability, setAvailability] = useState<AvailabilityState>({ status: 'idle' });
@@ -43,6 +44,13 @@ export default function AccountSettings() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
   const debounceRef = useRef<number | null>(null);
+
+  // Delete-account (danger zone): type-to-confirm modal + player-token DELETE.
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const backdropMouseDown = useRef(false);
 
   // Notification preferences (independent fetch from the profile load)
   const [prefs, setPrefs] = useState<Record<string, boolean> | null>(null);
@@ -186,6 +194,50 @@ export default function AccountSettings() {
       setNotifSaveError('Network error.');
     }
     setNotifSaving(false);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setShowDeleteModal(false);
+    setConfirmText('');
+    setDeleteError(null);
+  };
+
+  const deleteAccount = async () => {
+    // Raw fetch with the PLAYER token on purpose: lib/api.ts authenticates with
+    // the admin token and, on 401, refreshes the admin session and redirects to
+    // /login — the wrong realm for a Discord player. See ViewerAuthContext.
+    if (!playerToken || confirmText.trim() !== 'DELETE') return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch('/api/me/account', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (res.ok) {
+        // Sessions are revoked server-side; drop the local player session + the
+        // device anon id, then leave the (now anonymized) account behind.
+        logoutPlayer();
+        localStorage.removeItem('arcaid_anon_id');
+        navigate('/');
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        setDeleteError(
+          data.error ??
+            'You are the only super admin. Transfer that role before deleting your account.',
+        );
+      } else if (res.status === 401) {
+        setDeleteError('Your session expired. Please log in again.');
+      } else {
+        setDeleteError(data.error ?? 'Could not delete your account. Please try again.');
+      }
+    } catch {
+      setDeleteError('Network error. Please try again.');
+    }
+    setDeleting(false);
   };
 
   if (!discordUser) {
@@ -400,9 +452,87 @@ export default function AccountSettings() {
                 </>
               )}
             </section>
+
+            <section className="mt-8 pt-8 border-t border-border">
+              <h2 className="text-sm font-medium mb-2 inline-flex items-center gap-1.5 text-rose-400">
+                <AlertTriangle size={14} /> Danger zone
+              </h2>
+              <p className="text-xs text-muted mb-1.5">
+                Deleting your account removes your profile, avatar, chosen display name,
+                proof photos, comments, ratings, and friends, and unlinks your Discord login.
+              </p>
+              <p className="text-xs text-muted mb-4">
+                Your scores stay on the leaderboards under your game handle, but they're
+                de-identified — no longer tied to your Discord account. This can't be undone.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setConfirmText(''); setDeleteError(null); setShowDeleteModal(true); }}
+                className="px-4 py-1.5 rounded border border-rose-500/40 bg-rose-500/10 text-rose-400 text-sm font-medium hover:bg-rose-500/20 hover:text-neon-magenta transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <Trash2 size={14} /> Delete my account
+              </button>
+            </section>
           </>
         )}
       </main>
+
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm p-4"
+          onMouseDown={e => { backdropMouseDown.current = e.target === e.currentTarget; }}
+          onClick={e => { if (e.target === e.currentTarget && backdropMouseDown.current) closeDeleteModal(); }}
+        >
+          <div
+            className="bg-surface border border-border rounded-lg shadow-2xl w-full max-w-md p-6"
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="text-base font-semibold mb-2 inline-flex items-center gap-2 text-rose-400">
+              <AlertTriangle size={18} /> Delete your account?
+            </h2>
+            <p className="text-sm text-muted mb-3">
+              This permanently removes your profile, avatar, display name, proof photos,
+              comments, ratings, and friends, and unlinks Discord. Your scores stay on the
+              leaderboards under your handle but are de-identified. This can't be undone.
+            </p>
+            <label htmlFor="delete-confirm" className="block text-xs text-muted mb-1.5">
+              Type <span className="font-mono font-semibold text-primary">DELETE</span> to confirm.
+            </label>
+            <input
+              id="delete-confirm"
+              type="text"
+              autoFocus
+              value={confirmText}
+              onChange={e => { setConfirmText(e.target.value); setDeleteError(null); }}
+              placeholder="DELETE"
+              className="w-full bg-deep border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-rose-500 focus:outline-none"
+            />
+            {deleteError && (
+              <p className="mt-2 text-xs text-rose-400 inline-flex items-center gap-1">
+                <AlertCircle size={12} /> {deleteError}
+              </p>
+            )}
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={deleting}
+                className="px-3 py-1.5 rounded border border-border text-sm text-muted hover:text-primary hover:border-muted disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={deleteAccount}
+                disabled={deleting || confirmText.trim() !== 'DELETE'}
+                className="px-4 py-1.5 rounded border border-rose-500/50 bg-rose-500/15 text-rose-400 text-sm font-medium hover:bg-rose-500/25 hover:text-neon-magenta disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
+              >
+                {deleting ? 'Deleting…' : <><Trash2 size={14} /> Delete account</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

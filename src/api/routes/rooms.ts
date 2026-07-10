@@ -34,6 +34,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
 // sessions via the registry, never directly.
 import { passesplatformRules, parsePlatformsList, resolveSubmittablePlatforms } from '../../utils/platformRules.js';
+import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
@@ -1002,7 +1003,7 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
         const db = await getDatabase();
         const row = await db.get(
             `SELECT id, game_room_id, game_id, game_name, iscored_username, score,
-                    source, submitted_by_user_id
+                    source, submitted_by_user_id, photo_url
              FROM score_history WHERE id = ?`,
             historyId
         );
@@ -1020,6 +1021,10 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
         }
 
         await db.run('DELETE FROM score_history WHERE id = ?', historyId);
+
+        // S12: remove the score's evidence photo from disk now that its row is
+        // gone (best-effort, never throws; a no-op when the row carried no photo).
+        deleteScorePhotoFiles([row.photo_url]);
 
         // Tombstone for the sync poller (see deleted_score_suppressions doc).
         // We suppress at MAX(existing, deleted_score) so a player who deletes
@@ -3784,10 +3789,27 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
 
         // Verify submission exists and belongs to this game
         const submission = await db.get(
-            'SELECT id, iscored_username, score FROM submissions WHERE id = ? AND game_id = ?',
+            'SELECT id, iscored_username, score, photo_url FROM submissions WHERE id = ? AND game_id = ?',
             submissionId, gameId
         );
         if (!submission) return res.status(404).json({ error: 'Submission not found' });
+
+        // S12: collect the score-photo files referenced by the rows we're about
+        // to delete (the submissions row + the score_history sweep) so they can
+        // be unlinked from disk after the rows are gone. Predicate mirrors the
+        // score_history DELETE below so no per-attempt photo is missed.
+        const photoRows = await db.all(
+            `SELECT photo_url FROM score_history
+             WHERE game_room_id = ?
+               AND LOWER(iscored_username) = LOWER(?)
+               AND (game_id = ? OR (game_id IS NULL AND LOWER(game_name) = LOWER(?)))
+               AND photo_url LIKE '/api/score-photos/%'`,
+            roomId, submission.iscored_username, gameId, game.name
+        );
+        const photoUrls: Array<string | null | undefined> = [
+            submission.photo_url,
+            ...photoRows.map((r: any) => r.photo_url),
+        ];
 
         // Delete the submissions row + all matching score_history rows. Without
         // the score_history sweep the tournament leaderboard recompute (reads
@@ -3800,6 +3822,13 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
                AND (game_id = ? OR (game_id IS NULL AND LOWER(game_name) = LOWER(?)))`,
             roomId, submission.iscored_username, gameId, game.name
         );
+
+        // S12: unlink the collected photo files now that their score rows are
+        // gone (best-effort, never throws). A surviving community_scores row
+        // could still reference the same file, but wiping the player's scores
+        // is meant to drop their evidence too and a missing image degrades
+        // gracefully.
+        const photosDeleted = deleteScorePhotoFiles(photoUrls);
 
         // Tombstone for the sync poller. Without this, the next iScored poll
         // (~30s) re-creates the score because iScored still holds the player's
@@ -3835,7 +3864,7 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
             historyRowsRemoved: historyDelete.changes ?? 0,
         }).catch(() => {});
 
-        logInfo(`Admin deleted submission ${submissionId} (${submission.iscored_username}: ${submission.score}) from game ${gameId}; ${historyDelete.changes ?? 0} history rows removed`);
+        logInfo(`Admin deleted submission ${submissionId} (${submission.iscored_username}: ${submission.score}) from game ${gameId}; ${historyDelete.changes ?? 0} history rows removed, ${photosDeleted} photo(s) unlinked`);
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admin/games/:gameId/submissions/:submissionId):', error);

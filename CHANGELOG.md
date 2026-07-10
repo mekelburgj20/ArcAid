@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.17.0] — unreleased
+
+**S12 — Privacy floor.** Account deletion, Terms/Privacy pages, and photo-on-delete cleanup — the data-rights baseline before public beta. Built via a multi-agent audit → design → implement → verify workflow; a dedicated completeness lens independently re-derived the schema and confirmed the purge misses no table.
+
+*Account deletion (anonymize-and-keep-scores).* `DELETE /api/me/account` (self, Discord-authed) + an admin-assisted `DELETE /api/admin/users/:id` (super-admin), both audit-logged, via a new transactional `AccountDeletionService`. It **deletes** all personal/identity data — `user_profiles`, `user_mappings`, `user_preferences`, `sessions`, `room_members`, friendships (both directions), comments + ratings (room and global), per-room/super-admin grants, the milestone ledger — and **anonymizes** the score rows: identity columns are stripped (attribution nulled; a `DELETED` sentinel on NOT-NULL id columns) while `iscored_username` + score stay, so leaderboards and rankings remain intact and de-identified. Proof-photo files are deleted from disk and `photo_url` nulled. Documented policy carve-outs: `user_bans` are retained (abuse-evasion prevention — legitimate interest), `merge_records` / `score_reports` are kept-but-anonymized, `audit_log` is retained, and guest `anon_room_claims` are untouched (device token, not the account).
+
+- **Terms of Service + Privacy Policy** — new public `/terms` and `/privacy` pages (footer-linked) covering what's collected, why, retention, and the deletion path. **Starter copy — needs operator/legal review before launch** (contact, jurisdiction, entity, liability).
+- **Photo-on-delete cleanup** — the existing per-row and admin score-delete paths (room + global) now delete the proof-photo file from disk, not just the DB reference.
+- **Delete-account UI** — a type-to-confirm Danger Zone in Account Settings that calls the endpoint and logs the user out.
+
+Adds `AccountDeletionService`, the `scorePhotoCleanup` util, and `s12-account-deletion.test.ts` (24 cases: every table purged/anonymized, scores survive de-identified, cross-user isolation, authz tiers). SW → `arcaid-v87`. No migration.
+
+---
+
 ## [2.16.1] — unreleased
 
 **Fix: S11 broke game comments in login-required rooms.** S11 mounted `conditionalRequireDiscordUser` on the room comment GET/POST/DELETE routes, which enforces the room's `REQUIRE_DISCORD_LOGIN` setting — but the comment form sends no Bearer token, so in a login-required room (the default for new rooms) the comment routes returned **401 for everyone** (guests *and* logged-in users): viewing showed an empty section, posting silently failed. Comments/tips are lower-stakes social content that stayed open to guests pre-S11. Fixed with a new `optionalDiscordUser` middleware — decodes a token when present (so the S11 author/admin delete-authz tiers still work when a client sends one) but **never blocks** — swapped onto all three comment routes. The score-submission gate (`community-scores`) is unchanged and still honors `REQUIRE_DISCORD_LOGIN`. Regression tests added (guest POST/GET in a login-required room; score gate still 401s).
