@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.18.0] — unreleased
+
+**Scores-page redesign — Tournaments | Room Scores | Global.** The room Scoreboard's fragmented "All Games" tab (a community-only "Played at" list plus a scoreless catalogue browser) is replaced by three top-level tabs, each a real score scope. Built via a multi-agent design/judge → implement → adversarial-verify workflow per the session's execution directive.
+
+*Room Scores (new).* Every score ever set in the room, best-per-player-per-game across sources. Served by the new `RoomScoresService` reading `score_history` alone — it is already the physical union (community submits dual-write into it), and the admin wipe path deletes `score_history` but deliberately not `community_scores`, so a literal two-table union would resurrect admin-wiped scores. The ranking query is the exact canonical partition from `LeaderboardService.recalculate` minus the tournament-window filter, so Tournaments, Room Scores, and Global agree on player identity; `display_name` now resolves via `user_profiles` (the old community endpoint never JOINed it — multi-alias users rendered under raw iScored names). Endpoint renamed `GET /:roomId/community-leaderboards` → `/:roomId/room-scores` (single grep-verified consumer, no alias) returning `{data, total, hasMore}` with symmetric offset pagination, server-side search, Recent/A–Z/Most-played sort, and a best-effort per-card `viewerEntry` ("Your best — Rank #N") from an optional player Bearer.
+
+*Global (new lens).* Per-game global top scores inside room chrome, bounded to games that actually have global scores via a new opt-in `hasScores` flag on `GET /api/global/scoreboard` — flag absent leaves the standalone `/scoreboard` byte-identical (regression-tested). Cross-link banner to `/scoreboard`; card submits keep the freeplay path.
+
+*Catalogue browsing* leaves the scores page: role-aware link (room admins → Game Library, everyone else → the Global Scoreboard).
+
+- **Migration 107** — one-time backfill of legacy pre-dual-write `community_scores` rows into `score_history`, double-guarded: an idempotent twin check plus a `deleted_score_suppressions` tombstone check so admin-wiped scores are never resurrected. Logs the candidate count (expected ~0 on prod).
+- **FE** — new shared `ScoreCardGrid` (one card renderer for all three tabs, extracted from the deleted `GamesTabView.tsx`), `RoomScoresView`, `GlobalScoresView`, and a centralized `scoresCopy.ts`. Legacy `?tab=all-games`/`games`/`played-here` URLs redirect and normalize to `?tab=room`; `GameDetail`/`GlobalGameDetail`/`GameQuickView` back-links echo the new tabs. Tournaments tab body unchanged.
+
+Adds `room-scores.test.ts` (cross-source best, multi-alias collapse, display-name/`iscored:*` resolution, canonical player_count, orphan exclusion, search/sort/pagination, viewerEntry incl. bad-token 200, agreement with `/leaderboard`, 404 on the old path, migration idempotency + suppression guard) and `global-scoreboard-hasscores.test.ts`. SW → `arcaid-v88`. Migration 107 consumed → next free 108.
+
+---
+
 ## [2.17.0] — unreleased
 
 **S12 — Privacy floor.** Account deletion, Terms/Privacy pages, and photo-on-delete cleanup — the data-rights baseline before public beta. Built via a multi-agent audit → design → implement → verify workflow; a dedicated completeness lens independently re-derived the schema and confirmed the purge misses no table.
