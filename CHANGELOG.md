@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.18.1] — unreleased
+
+**Fix: Room Scores tab infinite fetch loop (v2.18.0 launch-day bug).** `RoomScoresView` put the object returned by `usePlayerHeaders()` into its `fetchPage` `useCallback` deps — but that hook builds a **new object every render**, so the first-page effect refired on every render: each cycle toggled `loading`, unmounting/remounting all 48 cards, and every remounted card's `useScoreExpand` re-fetched `score-counts/:gameId` on mount. The resulting request storm tripped the 100/min per-IP rate-limit backstop, 429ing everything including `/room-scores` itself — the tab blipped in and out with a permanent spinner. Fixed by deriving the Authorization header inside `fetchPage` from the stable `playerToken` string (already destructured from `useViewerAuth()`) and depending on that. The Tournaments and Global tabs were unaffected (neither has the headers object in a dep array). SW → `arcaid-v89`.
+
+---
+
 ## [2.18.0] — unreleased
 
 **Scores-page redesign — Tournaments | Room Scores | Global.** The room Scoreboard's fragmented "All Games" tab (a community-only "Played at" list plus a scoreless catalogue browser) is replaced by three top-level tabs, each a real score scope. Built via a multi-agent design/judge → implement → adversarial-verify workflow per the session's execution directive.

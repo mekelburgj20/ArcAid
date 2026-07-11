@@ -5,7 +5,7 @@ import ScoreCardGrid from './ScoreCardGrid';
 import GameQuickView from './GameQuickView';
 import SubmissionSheet from './SubmissionSheet';
 import type { GameLeaderboard, RankedEntry } from './ScoreboardComponents';
-import { usePlayerHeaders, useViewerAuth } from '../contexts/ViewerAuthContext';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import {
   ROOM_SCORES_SEARCH_PLACEHOLDER,
   ROOM_SORT_LABELS,
@@ -72,7 +72,6 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
   // v2.13.12-style quick-view modal, owned here (not by ScoreCardGrid — see F1).
   const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
 
-  const playerHeaders = usePlayerHeaders();
   const { playerToken } = useViewerAuth();
 
   // Debounce search
@@ -86,8 +85,13 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
     const params = new URLSearchParams({ sort, limit: String(PAGE_SIZE), offset: String(pageOffset) });
     if (search) params.set('search', search);
     // Optional Bearer — server best-effort resolves viewerEntry per card and
-    // never 401s on a bad/absent token (edge case 11).
-    const res = await fetch(`/api/rooms/${roomId}/room-scores?${params}`, { headers: playerHeaders });
+    // never 401s on a bad/absent token (edge case 11). Headers are built
+    // inline from the stable playerToken string: usePlayerHeaders() returns a
+    // NEW object each render, and having it in this callback's deps refired
+    // the first-page effect every render (v2.18.0 infinite-fetch-loop bug —
+    // the 429 storm that took the tab down on launch day).
+    const headers: Record<string, string> = playerToken ? { Authorization: `Bearer ${playerToken}` } : {};
+    const res = await fetch(`/api/rooms/${roomId}/room-scores?${params}`, { headers });
     if (!res.ok) return { data: [], total: 0, hasMore: false };
     const payload = await res.json();
     return {
@@ -95,7 +99,7 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
       total: Number(payload.total) || 0,
       hasMore: Boolean(payload.hasMore),
     };
-  }, [roomId, search, sort, playerHeaders]);
+  }, [roomId, search, sort, playerToken]);
 
   // First page — replaces rows on room/search change.
   useEffect(() => {
