@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { fetchScoreCounts } from './scoreCountsBatcher';
 
 export interface ScoreHistoryEntry {
   id: number;
@@ -20,10 +21,7 @@ export function useScoreExpand(roomId: string | undefined, gameId: string, gameN
 
   useEffect(() => {
     if (!roomId || !gameId || rankingsLength === 0) return;
-    fetch(`/api/rooms/${roomId}/score-counts/${gameId}`)
-      .then(r => r.ok ? r.json() : {})
-      .then(setScoreCounts)
-      .catch(() => {});
+    fetchScoreCounts(roomId, gameId).then(setScoreCounts);
   }, [roomId, gameId, rankingsLength]);
 
   const togglePlayer = useCallback((username: string) => {

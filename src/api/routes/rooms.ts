@@ -930,6 +930,77 @@ router.get('/:roomId/stats/game/:name/player/:identifier', async (req, res) => {
     }
 });
 
+// Batched score counts per player across multiple games in one call — the scoreboard
+// renders up to ~50 cards per page and each used to call the single-game route below
+// on mount, brushing the per-IP rate limiter (v2.18.1 incident, see CHANGELOG).
+// GET /:roomId/score-counts?gameIds=id1,id2,...  ->  { counts: { [gameId]: { [player]: count } } }
+// Registered before the single-game route below for readability; the two paths don't
+// actually shadow each other (Express matches on path segments, not query strings, and
+// this route has no trailing /:gameId segment), so ordering isn't load-bearing here.
+router.get('/:roomId/score-counts', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const rawGameIds = typeof req.query.gameIds === 'string' ? req.query.gameIds : '';
+        const gameIds = Array.from(new Set(
+            rawGameIds.split(',').map(id => id.trim()).filter(id => id.length > 0)
+        )).slice(0, 100);
+
+        if (gameIds.length === 0) {
+            return res.status(400).json({ error: 'gameIds query parameter is required (comma-separated game IDs)' });
+        }
+
+        const db = await getDatabase();
+
+        // Look up game names so we can also match score_history entries with game_id=NULL
+        // (e.g. community scores logged without a game_id) — same fallback the single-game
+        // route below uses via ScoreHistoryService.getPlayerScoreCounts.
+        const gameRows = await db.all(
+            `SELECT id, name FROM games WHERE id IN (${gameIds.map(() => '?').join(',')})`,
+            ...gameIds
+        );
+        const nameById = new Map<string, string>();
+        for (const row of gameRows) {
+            nameById.set(String((row as any).id), (row as any).name);
+        }
+
+        const valuesParams: any[] = [];
+        for (const gameId of gameIds) {
+            valuesParams.push(gameId, nameById.get(gameId) ?? null);
+        }
+
+        const rows = await db.all(
+            `WITH requested(req_game_id, req_game_name) AS (
+                VALUES ${gameIds.map(() => '(?, ?)').join(', ')}
+             )
+             SELECT r.req_game_id as req_game_id, LOWER(sh.iscored_username) as player_key, COUNT(*) as cnt
+             FROM requested r
+             JOIN score_history sh
+               ON sh.game_room_id = ?
+              AND (sh.game_id = r.req_game_id
+                   OR (sh.game_id IS NULL AND r.req_game_name IS NOT NULL AND LOWER(sh.game_name) = LOWER(r.req_game_name)))
+             GROUP BY r.req_game_id, LOWER(sh.iscored_username)
+             HAVING cnt > 1`,
+            ...valuesParams, roomId
+        );
+
+        const counts: Record<string, Record<string, number>> = {};
+        for (const gameId of gameIds) {
+            counts[gameId] = {};
+        }
+        for (const row of rows) {
+            const r = row as any;
+            const gid = String(r.req_game_id);
+            if (!counts[gid]) counts[gid] = {};
+            counts[gid][r.player_key] = r.cnt;
+        }
+
+        res.json({ counts });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/score-counts):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Score counts per player for a game (for showing expand button only when multiple scores exist)
 router.get('/:roomId/score-counts/:gameId', async (req, res) => {
     try {
@@ -1162,7 +1233,7 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequ
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const gameName = decodeURIComponent(req.params.gameName as string);
         const roomId = req.params.roomId as string;
-        const { username, score, discord_user_id, photo_url, platform } = validationResult.data;
+        const { username, score, photo_url, platform } = validationResult.data;
 
         // v2.5.0: re-validate platform server-side against the game's resolved
         // submittable set (effective platforms ∩ active tournament rules).
@@ -1172,7 +1243,14 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequ
         // v2.2.0: anon-token plumbed for first-claim-wins.
         const rawAnonHeader = req.headers['x-user-id'];
         const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
-        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, discord_user_id, photo_url, { anonToken, platform });
+
+        // Security: attribution derives from the verified token, never the
+        // request body — a guest could otherwise spoof discord_user_id to
+        // attribute a score (and its global fan-out) to any Discord user.
+        // conditionalRequireDiscordUser populates req.user when a valid player
+        // Bearer token is present; anonymous requests leave it undefined —
+        // matches the idiom used by the freeplay-score handler below.
+        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, req.user?.discordId, photo_url, { anonToken, platform });
 
         // v2.2.2: sync to iScored when this matches an ACTIVE tournament game.
         // photo_url is a pre-existing URL (not an upload), so no persistentPhotoPath

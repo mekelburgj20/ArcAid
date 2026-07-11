@@ -4,6 +4,7 @@ import { Lock, Plus, Minus, Camera, Upload } from 'lucide-react';
 import QRCode from 'qrcode';
 import ScorePhotoModal from './ScorePhotoModal';
 import GameInfoPopup from './scoreboard/GameInfoPopup';
+import { fetchScoreCounts } from './scoreboard/scoreCountsBatcher';
 import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
@@ -339,10 +340,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   // Fetch score counts for this game to know which players have multiple scores
   useEffect(() => {
     if (!roomId || !lb.gameId || lb.rankings.length === 0) return;
-    fetch(`/api/rooms/${roomId}/score-counts/${lb.gameId}`)
-      .then(r => r.ok ? r.json() : {})
-      .then(setScoreCounts)
-      .catch(() => {});
+    fetchScoreCounts(roomId, lb.gameId).then(setScoreCounts);
   }, [roomId, lb.gameId, lb.rankings.length]);
 
   const togglePlayer = (username: string) => {

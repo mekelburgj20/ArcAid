@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.19.0] — unreleased
+
+**Hardening: batched score-counts + community-scores attribution.** Two pre-beta trust/stability fixes, built via a Fable-orchestrated Sonnet workflow.
+
+- **Batched score-counts** — new `GET /:roomId/score-counts?gameIds=…` (cap 100, one grouped `VALUES`-join query with the exact same per-game semantics as the single-game route, every requested id pre-seeded so callers get a stable key set) + a FE request coalescer (`scoreCountsBatcher.ts`, 50ms window, per-room dedupe + chunking, resolves `{}` on failure so cards degrade instead of throwing). A 48-card Room Scores page now fires **1** counts request instead of 48 — the burst that brushed the 100/min per-IP limiter in the v2.18.1 incident. The single-game route stays for `GameDetail`.
+- **Attribution spoof closed** — `POST /:roomId/community-scores/:gameName` no longer reads `discord_user_id` from the request body (a guest could attribute a score, and its global fan-out, to any Discord user). Attribution now derives exclusively from the verified Bearer token (`req.user.discordId`); the field is removed from `CommunityScoreSchema`. Audit of every other `submitScore` call site (global routes, freeplay, pick-award, Discord command) confirmed none trust client-supplied ids. New `community-scores-attribution.test.ts` (guest spoof rejected, authed spoof overridden by token, non-regression).
+- CLAUDE.md corrections: documented the `community_scores` → `score_history` dual-write (score_history is the physical union — the fact whose absence misled the v2.18.0 design agents) and removed the phantom public `/catalogue` route from the standalone-pages list.
+
+SW → `arcaid-v90`. No migration (next free still 108).
+
+---
+
 ## [2.18.1] — unreleased
 
 **Fix: Room Scores tab infinite fetch loop (v2.18.0 launch-day bug).** `RoomScoresView` put the object returned by `usePlayerHeaders()` into its `fetchPage` `useCallback` deps — but that hook builds a **new object every render**, so the first-page effect refired on every render: each cycle toggled `loading`, unmounting/remounting all 48 cards, and every remounted card's `useScoreExpand` re-fetched `score-counts/:gameId` on mount. The resulting request storm tripped the 100/min per-IP rate-limit backstop, 429ing everything including `/room-scores` itself — the tab blipped in and out with a permanent spinner. Fixed by deriving the Authorization header inside `fetchPage` from the stable `playerToken` string (already destructured from `useViewerAuth()`) and depending on that. The Tournaments and Global tabs were unaffected (neither has the headers object in a dep array). SW → `arcaid-v89`.
