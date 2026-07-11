@@ -403,12 +403,14 @@ export default function GlobalGameDetail() {
     );
   }
 
-  // v2.13.12 — back link respects the tab the user came from. ?tab=tournaments
-  // returns to the default Tournaments view; ?tab=all-games returns to All Games;
+  // v2.13.12 — back link respects the tab the user came from. ?tab=room /
+  // ?tab=global return to those tabs; legacy ?tab=all-games maps to Room Scores;
   // absent falls back to the room's default (Tournaments).
   const fromTab = searchParams.get('tab');
   const backToRoomHref = fromSlug
-    ? (fromTab === 'all-games' ? `/${fromSlug}?tab=all-games` : `/${fromSlug}`)
+    ? (fromTab === 'room' || fromTab === 'global'
+        ? `/${fromSlug}?tab=${fromTab}`
+        : fromTab === 'all-games' ? `/${fromSlug}?tab=room` : `/${fromSlug}`)
     : '/scoreboard';
 
   if (notFound || !game) {

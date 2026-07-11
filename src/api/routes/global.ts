@@ -902,6 +902,10 @@ router.get('/global/recent-scores', async (req, res) => {
  *   &scope=global|<roomId>
  *   &limit=30&offset=0
  *   &search=&type=&platforms=vpx,real,...
+ *   &hasScores=1|true (scores-page-redesign: bound global scope to games
+ *     WITH at least one live score — room Scoreboard's "Global" tab lens.
+ *     Omitted/false leaves the standalone /scoreboard catalogue browse
+ *     unchanged, including zero-score games.)
  */
 router.get('/global/scoreboard', async (req, res) => {
     try {
@@ -915,9 +919,12 @@ router.get('/global/scoreboard', async (req, res) => {
         const platforms = platformsRaw
             ? platformsRaw.split(',').map(p => p.trim()).filter(Boolean)
             : undefined;
+        // B3: room Scoreboard's "Global" tab bounds the catalogue to games WITH
+        // scores. Standalone /scoreboard never sends this — behavior unchanged.
+        const hasScores = req.query.hasScores === '1' || req.query.hasScores === 'true';
 
         const result = await GlobalLeaderboardService.getTopGames({
-            sort, scope, limit, offset, search, type, platforms,
+            sort, scope, limit, offset, search, type, platforms, hasScores,
         });
 
         // Enrich each game with top 10 leaderboard entries for card previews

@@ -15,13 +15,15 @@ import {
   getTitleSizeClass,
 } from '../components/ScoreboardComponents';
 import CardRouter from '../components/scoreboard/CardRouter';
-import GamesTabView from '../components/GamesTabView';
+import RoomScoresView from '../components/RoomScoresView';
+import GlobalScoresView from '../components/GlobalScoresView';
 import GameQuickView from '../components/GameQuickView';
 import HorizontalScrollNav from '../components/HorizontalScrollNav';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
 import { deriveCardProps } from '../lib/scoreboardConfig';
 import { deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../lib/scoreboardConfig';
+import { TAB_LABELS, tabSubtitle } from '../lib/scoresCopy';
 
 
 interface LeaderboardWithViewer extends GameLeaderboard {
@@ -39,7 +41,7 @@ export default function Scoreboard() {
   const [roomId, setRoomId] = useState('');
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   // v2.13.12 — game quick-view modal triggered by title click on tournament cards.
-  // GamesTabView owns its own modal state for All Games cards (lives inside it).
+  // RoomScoresView / GlobalScoresView own their own modal state for their tabs.
   const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
   const handleTitleClick = (lb: GameLeaderboard) => (e: React.MouseEvent) => {
     // v2.13.13 — defensive: skip when the click originated on a nested
@@ -60,21 +62,36 @@ export default function Scoreboard() {
   const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
   const [tournamentSearch, setTournamentSearch] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
+  // F2 — 3-tab unification: Tournaments | Room Scores | Global. Legacy
+  // `all-games` / `games` links (old 2-tab toggle) redirect to `room`.
   const initialTab = (() => {
     const t = searchParams.get('tab');
-    // Legacy: `games` → `all-games`
-    if (t === 'all-games' || t === 'games') return 'all-games';
+    if (t === 'room' || t === 'global') return t;
+    if (t === 'all-games' || t === 'games') return 'room';
     return 'tournaments';
   })();
-  const [tab, setTab] = useState<'tournaments' | 'all-games'>(initialTab);
+  const [tab, setTab] = useState<'tournaments' | 'room' | 'global'>(initialTab);
 
-  const selectTab = (next: 'tournaments' | 'all-games') => {
+  const selectTab = (next: 'tournaments' | 'room' | 'global') => {
     setTab(next);
     const params = new URLSearchParams(searchParams);
-    if (next === 'all-games') params.set('tab', 'all-games');
-    else params.delete('tab');
+    if (next === 'tournaments') params.delete('tab');
+    else params.set('tab', next);
     setSearchParams(params, { replace: true });
   };
+
+  // Normalize legacy URL state on mount: strip the stale `played-here` param
+  // (the old GamesTabView toggle no longer exists) and rewrite legacy tab
+  // values (`all-games`/`games` → `room`) so shared URLs stay canonical (F2).
+  useEffect(() => {
+    const legacyTab = searchParams.get('tab') === 'all-games' || searchParams.get('tab') === 'games';
+    if (!searchParams.has('played-here') && !legacyTab) return;
+    const params = new URLSearchParams(searchParams);
+    params.delete('played-here');
+    if (legacyTab) params.set('tab', 'room');
+    setSearchParams(params, { replace: true });
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, []);
   const viewerHeaders = useViewerHeaders();
   // S4: the leaderboard/rankings viewer-rank ("Your best — Rank #N") needs the
   // PLAYER token (Discord session), not the admin token (null for public viewers).
@@ -367,38 +384,32 @@ export default function Scoreboard() {
         </div>
       )}
 
-      {/* Tab toggle */}
-      <div className="flex justify-center gap-1 pb-3" role="tablist" aria-label="Leaderboard tabs">
-        <button
-          role="tab"
-          aria-selected={tab === 'tournaments'}
-          onClick={() => selectTab('tournaments')}
-          className={`px-3 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
-            tab === 'tournaments'
-              ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
-              : 'border-border/50 text-muted hover:text-primary'
-          }`}
-        >
-          Tournaments
-        </button>
-        <button
-          role="tab"
-          aria-selected={tab === 'all-games'}
-          onClick={() => selectTab('all-games')}
-          className={`px-3 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
-            tab === 'all-games'
-              ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
-              : 'border-border/50 text-muted hover:text-primary'
-          }`}
-        >
-          All Games
-        </button>
+      {/* Tab toggle — Tournaments | Room Scores | Global (F2 3-tab unification) */}
+      <div className="flex justify-center gap-1 pb-1" role="tablist" aria-label="Leaderboard tabs">
+        {(['tournaments', 'room', 'global'] as const).map(t => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => selectTab(t)}
+            className={`px-3 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
+              tab === t
+                ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
+                : 'border-border/50 text-muted hover:text-primary'
+            }`}
+          >
+            {TAB_LABELS[t]}
+          </button>
+        ))}
       </div>
+      <p className="text-center text-[11px] text-faint pb-3">{tabSubtitle(tab, roomName)}</p>
 
       </div>
 
-      {tab === 'all-games' ? (
-        <GamesTabView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
+      {tab === 'room' ? (
+        <RoomScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
+      ) : tab === 'global' ? (
+        <GlobalScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
       ) : (
       <>
       {/* Tournament search (reserved slot matches All Games tab for layout stability) */}
@@ -591,7 +602,7 @@ export default function Scoreboard() {
         <GameQuickView
           lb={quickViewLb}
           slug={slug || ''}
-          fromTab={tab === 'all-games' ? 'all-games' : 'tournaments'}
+          fromTab="tournaments"
           onClose={() => setQuickViewLb(null)}
         />
       )}

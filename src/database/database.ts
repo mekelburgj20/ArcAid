@@ -1634,6 +1634,55 @@ export async function initDatabase(): Promise<Database> {
             CREATE INDEX IF NOT EXISTS idx_maintenance_runs_room
                 ON maintenance_runs (game_room_id, finished_at);
         ` },
+        // scores-page-redesign (B4): one-time backfill of legacy PRE-dual-write
+        // community_scores rows into score_history, so the new Room Scores tab
+        // (which reads score_history alone — see RoomScoresService) doesn't
+        // silently drop old freeplay scores that predate CommunityScoreService's
+        // dual-write (source='community'). Guarded by two NOT EXISTS:
+        //   1. Skip rows that already have a matching score_history twin —
+        //      idempotent, re-running this migration inserts 0 rows.
+        //   2. Skip rows whose matching deleted_score_suppressions tombstone
+        //      exists (the admin "wipe player from game" path deletes
+        //      score_history but NOT community_scores) — without this guard,
+        //      running this migration would resurrect admin-wiped scores.
+        // orphaned_at is copied through so already-orphaned rows stay filtered.
+        { name: '107_backfill_community_scores_into_score_history', handler: async (db) => {
+            const candidateWhere = `
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM score_history sh
+                    WHERE sh.game_room_id = cs.game_room_id
+                      AND LOWER(sh.game_name) = LOWER(cs.game_name)
+                      AND LOWER(sh.iscored_username) = LOWER(cs.iscored_username)
+                      AND sh.score = cs.score
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM deleted_score_suppressions dss
+                    JOIN games g ON g.id = dss.game_id
+                    WHERE g.game_room_id = cs.game_room_id
+                      AND LOWER(g.name) = LOWER(cs.game_name)
+                      AND dss.iscored_username_lower = LOWER(cs.iscored_username)
+                      AND dss.suppressed_score >= cs.score
+                )
+            `;
+
+            const countRow = await db.get(
+                `SELECT COUNT(*) as c FROM community_scores cs ${candidateWhere}`
+            );
+            // eslint-disable-next-line no-console
+            console.log(`[migration] 107: backfilling ${countRow?.c ?? 0} legacy community_scores row(s) into score_history`);
+
+            await db.run(`
+                INSERT INTO score_history
+                    (game_name, game_room_id, game_id, iscored_username, discord_user_id, score, photo_url, source,
+                     submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                     submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform, created_at, orphaned_at)
+                SELECT cs.game_name, cs.game_room_id, NULL, cs.iscored_username, cs.discord_user_id, cs.score, cs.photo_url, 'community',
+                       cs.submitted_from_room_id, NULL, cs.submitted_by_user_id, cs.submitted_by_anonymous_name,
+                       cs.merged_from_anonymous_identity_id, cs.platform, cs.created_at, cs.orphaned_at
+                FROM community_scores cs
+                ${candidateWhere}
+            `);
+        } },
     ];
 
     for (const migration of migrations) {

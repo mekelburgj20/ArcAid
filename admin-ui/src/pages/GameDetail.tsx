@@ -143,10 +143,15 @@ type Tab = 'leaderboard' | 'community' | 'tips' | 'player-stats';
 export default function GameDetail() {
   const { slug, name } = useParams<{ slug: string; name: string }>();
   // v2.13.12 — back link returns to the tab the user came from.
-  // ?tab=all-games → All Games tab; absent or ?tab=tournaments → default Tournaments.
+  // F2/F6: ?tab=room|global echo straight through; the legacy ?tab=all-games
+  // (pre-3-tab-unification links/bookmarks) maps onto the new Room Scores tab;
+  // absent or ?tab=tournaments falls back to the default Tournaments tab (no param).
   const [searchParams] = useSearchParams();
   const fromTab = searchParams.get('tab');
-  const backToRoomHref = fromTab === 'all-games' ? `/${slug}?tab=all-games` : `/${slug}`;
+  const backToRoomHref =
+    fromTab === 'room' || fromTab === 'global' ? `/${slug}?tab=${fromTab}`
+    : fromTab === 'all-games' ? `/${slug}?tab=room`
+    : `/${slug}`;
   // S5: QR submit deep-links here with ?highlight=<resolved player name> so the
   // just-submitted row stands out + scrolls into view. Matched case-insensitively
   // against the row's iscored_username (which equals the resolved name stored).
