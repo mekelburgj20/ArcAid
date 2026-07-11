@@ -48,6 +48,41 @@ Load-bearing technical and product decisions are tracked in [`docs/decisions/`](
 
 ## Future
 
+### Score comments + comment voting/flagging (idea captured 2026-07-11)
+
+Comment on a specific person's score from the room score surfaces, with optional Discord cross-post, upvotes, and a report/flag → mod-review loop. Natural companion to S22 moderation (which already owes the comment-moderation FE wiring S11 deferred) or Phase C social. Rough sizing: ~2–2.5 days total.
+
+**A. Per-score comments (anchor, don't fragment)**
+
+- **Do NOT add a third comment store.** `game_comments` + `global_game_comments` are already flagged as fragmented (see "Comments & Tips — bidirectional view" below). Instead add an optional **score anchor** to `game_comments`: a `score_history_id` column plus denormalized context (`iscored_username`, `score`) so a score comment is just a game comment pointing at a score row.
+- **Anchor durability:** scores are deletable (per-row delete, admin wipe, S12 account-delete anonymize). The denormalized context lets a comment survive its score's deletion and render "on a removed score" instead of dangling — ADR 0005 unlink-don't-cascade philosophy. Bonus: S12's account-deletion purge already covers `game_comments`, so the privacy floor needs no reopening.
+- **Who can comment: Discord-authed only** (this is the ROADMAP's planned direction for comments anyway — §B below; cross-post needs a real identity; and commenting on a *person's score* is a harassment vector in a way game tips aren't). Guests read-only + "log in to comment" CTA. Reuse the S11 delete-authz tiers (author / room_admin-in-room / super_admin), rate limiters, and auto-audit verbatim.
+- **Routing nuance:** "is this a tournament score" is a property of the score EVENT (`score_history.submitted_during_tournament_id`), not the game — the new Room Scores tab shows all-time rows with no tournament of their own. Route by the score's tournament.
+- **UX home:** the per-player history expand rows in `GameDetail.tsx` (already exist — lowest-friction surface) + the card quick-view. Historical view = the existing comment list, filterable to a score/player.
+
+**B. Discord cross-post (opt-in per comment)**
+
+- **The channel cascade already exists:** `resolveAnnouncementChannelId(gameRoomId, tournamentChannelId)` in `src/utils/discord.ts` — tournament `discord_channel_id` → per-room `DISCORD_ANNOUNCEMENT_CHANNEL_ID` → env fallback → `null`. The feature calls it; on `null` show "No linked Discord channel — ask your room admin to set one."
+- **Explicit opt-in checkbox per comment, default OFF** — posting to Discord publishes to the whole guild; never by surprise.
+- Gate on the room's `DISCORD_ENABLED` + bot-in-guild (S10 `getDiscordClient()` health accessor) + a per-room admin toggle (e.g. `SCORE_COMMENT_DISCORD_ENABLED`) so admins can kill the firehose without disabling comments.
+- Embed: commenter display name/avatar, the comment, score + game context, deep link to `/:slug/games/:name`.
+- Optional adjacency: "someone commented on your score" DM to the score owner — a sixth `NotificationService` type, default-off, managed via `/arcaid-notifications`.
+
+**C. Upvotes on tips/comments + Top sort**
+
+- New `comment_votes (comment_id, voter_discord_id, created_at, UNIQUE(comment_id, voter_discord_id))` — one vote per Discord user, toggle to un-vote. **Discord-authed only** — deliberately NOT keyed on the spoofable `x-user-id` (that keying is exactly the ballot-stuffing weakness already logged against `RatingService` in Open Followups).
+- Applies to BOTH score-anchored comments and existing game tips (same table — another payoff of not fragmenting stores).
+- Sort control on comment lists: **Top** (vote count desc, tie-break newest) | **Newest**. Default Top for game tips (surfaces the best pro tip), Newest for a score's thread. Vote counts ship in the list response (single LEFT JOIN + GROUP BY, no N+1); FE shows count + the viewer's own-vote state.
+
+**D. Report/flag → mod review**
+
+- New `comment_reports` mirroring the existing `score_reports` shape exactly (`id, comment_id, reporter_discord_id, reason, created_at, resolved_at, resolved_by, resolution`) + UNIQUE(comment_id, reporter_discord_id) so one user can't spam-report one comment. Reporting = Discord-authed; one tap + optional reason.
+- **Mod queue** on the room admin side (natural sibling of the planned "report a problem" game-info queue — consider one shared "Reports" admin page with type tabs): list open reports with comment + context, actions = **dismiss** (resolve, comment stays) / **remove** (delete via the existing S11-tier delete path, auto-audited). Super-admin sees cross-room.
+- Optional threshold: auto-HIDE (not delete) a comment at N open reports pending review — ship OFF by default; manual review is the floor.
+- Report volume is admin-visible; consider folding an "open reports" count into the S10 admin health card later.
+
+**Open questions to settle at build time:** (1) do existing anon-authored tips get grandfathered read-only (recommended — matches §B below)? (2) does the Top sort need time-decay (recommend no — keep it simple, tips are evergreen)? (3) auto-hide threshold value if enabled (suggest 3).
+
 ### Player Self-Service + Moderation
 
 Three related features that together tighten up score/comment integrity and give admins a proper moderation surface. All gated behind Discord-authenticated identity — anonymous users don't get self-service edit/delete (they have no durable identity to verify), don't get to leave comments/tips, and don't need to be "banned" because the claim system auto-suffixes them anyway.
