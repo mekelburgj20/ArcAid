@@ -27,6 +27,7 @@ import {
     UpdateGameStateSchema,
     DeleteGameStateSchema,
     SyncIScoredActionSchema,
+    RoomScoresQuerySchema,
 } from '../schemas.js';
 import { writeLimiter, pickLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -44,6 +45,7 @@ import { GameRoomService } from '../../services/GameRoomService.js';
 import { AdminService } from '../../services/AdminService.js';
 import { getDashboardData } from '../../services/DashboardService.js';
 import { RatingService } from '../../services/RatingService.js';
+import { RoomScoresService } from '../../services/RoomScoresService.js';
 
 const router = Router({ mergeParams: true });
 
@@ -1575,138 +1577,57 @@ router.post('/:roomId/lobby/feed', requireAuth, requireRoomAccess('roomId'), asy
     }
 });
 
-// Community leaderboards — all games with freeplay/community scores
-router.get('/:roomId/community-leaderboards', async (req, res) => {
+// Room Scores — every score ever set in this room, best-per-player-per-game
+// across sources (score_history alone; see RoomScoresService). Public, no
+// middleware (mirrors /:roomId/leaderboard) but decodes an OPTIONAL Bearer
+// player token best-effort to attach a per-card viewerEntry — never 401s.
+// v2.0.x renamed from /:roomId/community-leaderboards (scores-page-redesign);
+// the only repo consumer (GamesTabView.tsx) is being replaced in the same
+// redesign, so no back-compat alias.
+router.get('/:roomId/room-scores', async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
-        const sort = (req.query.sort as string) || 'recent';
-        const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
-        const offset = parseInt(req.query.offset as string) || 0;
-        const search = (req.query.search as string) || '';
-        const db = await getDatabase();
+        const validationResult = validate(RoomScoresQuerySchema, req.query);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { sort, limit, offset, search } = validationResult.data;
 
-        // Get unique games with community scores
-        const orderBy = sort === 'alpha'
-            ? 'game_name ASC'
-            : 'last_played DESC';
-        const searchFilter = search ? 'AND LOWER(game_name) LIKE LOWER(?)' : '';
-        const searchParams = search ? [`%${search}%`] : [];
-
-        const games = await db.all(`
-            SELECT
-                game_name,
-                COUNT(DISTINCT LOWER(iscored_username)) as player_count,
-                COUNT(*) as total_scores,
-                MAX(created_at) as last_played
-            FROM community_scores
-            WHERE game_room_id = ?
-              AND orphaned_at IS NULL
-              ${searchFilter}
-            GROUP BY LOWER(game_name)
-            ORDER BY ${orderBy}
-            LIMIT ? OFFSET ?
-        `, roomId, ...searchParams, limit, offset);
-
-        const { normalizeImageUrl } = await import('../../services/LeaderboardService.js');
-
-        // For each game, get top scores with style resolution for card rendering
-        const results = await Promise.all(games.map(async (game: any) => {
-            const topScores = await db.all(`
-                SELECT
-                    cs.iscored_username,
-                    MAX(cs.score) as best_score,
-                    cs.discord_user_id,
-                    um.avatar_hash
-                FROM community_scores cs
-                LEFT JOIN user_mappings um ON cs.discord_user_id = um.discord_user_id
-                WHERE cs.game_room_id = ? AND LOWER(cs.game_name) = LOWER(?)
-                  AND cs.orphaned_at IS NULL
-                GROUP BY LOWER(cs.iscored_username)
-                ORDER BY best_score DESC
-                LIMIT 10
-            `, roomId, game.game_name);
-
-            // Style resolution: room library → game_library → global_games
-            const roomLib = await db.get(`
-                SELECT catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled, global_game_id
-                FROM game_room_game_library
-                WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
-            `, roomId, game.game_name);
-
-            const catalogueGame = await db.get(
-                "SELECT id, local_image_path, wheel_image_path, image_url, display_name FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1",
-                game.game_name
-            );
-
-            const catalogueStyleId = roomLib?.catalogue_style_id || null;
-            const logoStyleId = roomLib?.logo_style_id || null;
-            const bgStyleId = roomLib?.bg_style_id || null;
-            const styleHeaderDisabled = !!(roomLib?.style_header_disabled);
-
-            // Style catalogue image-presence flags
-            let bgHasBg = null, logoHasHeader = null, catHasBg = null, catHasHeader = null;
-            const styleIds = new Set([bgStyleId, logoStyleId, catalogueStyleId].filter(Boolean));
-            if (styleIds.size > 0) {
-                const placeholders = [...styleIds].map(() => '?').join(',');
-                const rows = await db.all(
-                    `SELECT id, has_background, has_header FROM style_catalogue WHERE id IN (${placeholders})`,
-                    ...[...styleIds]
-                );
-                const byId: Record<string, any> = {};
-                for (const r of rows) byId[r.id] = r;
-                if (bgStyleId && byId[bgStyleId]) bgHasBg = byId[bgStyleId].has_background;
-                if (logoStyleId && byId[logoStyleId]) logoHasHeader = byId[logoStyleId].has_header;
-                if (catalogueStyleId && byId[catalogueStyleId]) {
-                    catHasBg = byId[catalogueStyleId].has_background;
-                    catHasHeader = byId[catalogueStyleId].has_header;
+        // Identify the viewer from a player token (same alias-resolution
+        // block as /:roomId/leaderboard) so viewerEntry matches the same
+        // partition the ranking query collapses by
+        // (COALESCE(submitted_by_user_id, 'iscored:'||LOWER(iscored_username))).
+        let viewerDiscordId: string | null = null;
+        const viewerAliases = new Set<string>();
+        const authHeader = req.headers.authorization;
+        if (authHeader?.startsWith('Bearer ')) {
+            try {
+                const { verifyToken } = await import('../auth.js');
+                const payload = verifyToken(authHeader.slice(7));
+                if (payload?.discordId) {
+                    viewerDiscordId = payload.discordId as string;
+                    const db = await getDatabase();
+                    const aliasRows = await db.all(
+                        'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?',
+                        payload.discordId
+                    ) as Array<{ iscored_username: string }>;
+                    for (const a of aliasRows) viewerAliases.add(a.iscored_username.toLowerCase());
+                    if (payload.username) viewerAliases.add((payload.username as string).toLowerCase());
                 }
+            } catch {
+                // Invalid token — ignore, viewer is anonymous
             }
+        }
 
-            const globalGameId = roomLib?.global_game_id || catalogueGame?.id || null;
-            const imageUrl = normalizeImageUrl(catalogueGame?.local_image_path || catalogueGame?.wheel_image_path || catalogueGame?.image_url || null);
+        const result = await RoomScoresService.getRoomScores(roomId, {
+            sort,
+            limit,
+            offset,
+            search,
+            viewer: viewerDiscordId ? { discordId: viewerDiscordId, aliases: viewerAliases } : undefined,
+        });
 
-            return {
-                // Card-compatible fields (GameLeaderboard shape)
-                gameId: globalGameId || `community_${game.game_name}`,
-                gameName: game.game_name,
-                displayName: catalogueGame?.display_name || null,
-                tournamentName: '', // v2.0.1 — no user-facing "Community" label; cards hide when empty.
-                tournamentType: 'community',
-                imageUrl,
-                gameStatus: 'COMMUNITY',
-                catalogueStyleId,
-                logoStyleId,
-                bgStyleId,
-                styleHeaderDisabled,
-                bgHasBg,
-                logoHasHeader,
-                catHasBg,
-                catHasHeader,
-                externalUrl: null,
-                notes: null,
-                rankings: topScores.map((s: any, i: number) => ({
-                    rank: i + 1,
-                    discord_user_id: s.discord_user_id || '',
-                    iscored_username: s.iscored_username,
-                    score: s.best_score,
-                    avatar_hash: s.avatar_hash || null,
-                })),
-                // Extra metadata
-                globalGameId,
-                lastPlayed: game.last_played,
-                playerCount: game.player_count,
-                totalScores: game.total_scores,
-                // Legacy format for Freeplay backward compat
-                topScores: topScores.map((s: any) => ({
-                    iscored_username: s.iscored_username,
-                    best_score: s.best_score,
-                })),
-            };
-        }));
-
-        res.json(results);
+        res.json(result);
     } catch (error) {
-        logError('API Error (GET rooms/:roomId/community-leaderboards):', error);
+        logError('API Error (GET rooms/:roomId/room-scores):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

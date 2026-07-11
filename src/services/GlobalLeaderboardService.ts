@@ -190,6 +190,14 @@ export class GlobalLeaderboardService {
         search?: string;
         type?: string;
         platforms?: string[];
+        /**
+         * scores-page-redesign (B3): when true (and scope is global), bound the
+         * global catalogue view to games WITH at least one live global score —
+         * the room Scoreboard's "Global" tab lens. Default/absent leaves the
+         * standalone /scoreboard catalogue-browse behavior byte-identical
+         * (zero-score catalogue games still appear there).
+         */
+        hasScores?: boolean;
     } = {}): Promise<{
         data: Array<{
             global_game_id: string;
@@ -271,12 +279,16 @@ export class GlobalLeaderboardService {
             'popularity DESC, gg.name COLLATE NOCASE ASC'; // default: popular
 
         // When scoped to a room, only show games that have scores from that room.
-        const havingClause = isGlobal ? '' : 'HAVING COUNT(gs.id) > 0';
+        // B3: hasScores=true applies the same bound to the global scope (the
+        // room Scoreboard's "Global" tab lens), while leaving the standalone
+        // /scoreboard catalogue browse (hasScores absent) unaffected.
+        const requireScores = options.hasScores === true;
+        const havingClause = (!isGlobal || requireScores) ? 'HAVING COUNT(gs.id) > 0' : '';
 
-        // Count query: for global scope, count all catalogue games; for room scope,
-        // only count games with at least one score from the room.
+        // Count query: for global scope, count all catalogue games; for room scope
+        // (or global+hasScores), only count games with at least one qualifying score.
         let total: number;
-        if (isGlobal) {
+        if (isGlobal && !requireScores) {
             const countRow = await db.get(
                 `SELECT COUNT(*) as c FROM global_games gg WHERE ${whereClause}`,
                 ...whereParams

@@ -63,7 +63,9 @@ export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
   }, [onClose]);
 
   // Compose links so GameDetail's back link returns to the originating tab.
-  const tabSuffix = fromTab === 'all-games' ? '?tab=all-games' : '';
+  const tabSuffix = fromTab && fromTab !== 'tournaments'
+    ? `?tab=${fromTab === 'all-games' ? 'room' : fromTab}`
+    : '';
   const fullInfoHref = `/${slug}/games/${encodeURIComponent(lb.gameName)}${tabSuffix}`;
   const globalHref = lb.globalGameId
     ? `/games/${lb.globalGameId}?from=${encodeURIComponent(slug)}${fromTab ? `&tab=${fromTab}` : ''}`

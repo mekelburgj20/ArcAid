@@ -234,3 +234,16 @@ export const DeleteGameStateSchema = z.object({
 export const SyncIScoredActionSchema = z.object({
     action: z.enum(['lock', 'unlock', 'hide', 'unhide', 'delete', 'create']),
 });
+
+/**
+ * Query params for GET /:roomId/room-scores — every score ever set in a room,
+ * best-per-player-per-game across sources (reads score_history alone; see
+ * RoomScoresService). Replaces the old bare-array /:roomId/community-leaderboards
+ * endpoint (scores-page-redesign).
+ */
+export const RoomScoresQuerySchema = z.object({
+    sort: z.enum(['recent', 'alpha', 'most_played']).default('recent'),
+    limit: z.coerce.number().int().min(1).max(100).default(48),
+    offset: z.coerce.number().int().min(0).default(0),
+    search: z.string().trim().max(100).optional(),
+});
