@@ -7,7 +7,7 @@ import { api } from '../lib/api';
 import PlayerNameLink from '../components/PlayerNameLink';
 import { getPlatformDisplay } from '../lib/platforms';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
-import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
+import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink } from 'lucide-react';
 
 /** Decode a player JWT and pull the role + gameRoomIds claims. The viewer
  *  could be a player, room_admin, or super_admin — public-page tokens carry
@@ -138,6 +138,22 @@ interface GamePlayerRanking {
   last_played: string;
 }
 
+/** Subset of the global catalogue entity (GET /api/global/games/:id) consumed
+ *  by the "About this game" section below. Server pre-parses the JSON array
+ *  columns — see src/api/routes/global.ts. */
+interface CatalogueGameInfo {
+  manufacturer: string | null;
+  year: number | null;
+  type: string;
+  themes: string[];
+  designers: string[];
+  table_authors: string[];
+  table_download_urls: Array<{ format?: string; url: string; version?: string }>;
+  tutorial_urls: Array<{ title?: string; youtubeId?: string; url?: string }>;
+  rules_urls: Array<{ url: string; version?: string }>;
+  ipdb_url: string | null;
+}
+
 type Tab = 'leaderboard' | 'community' | 'tips' | 'player-stats';
 
 export default function GameDetail() {
@@ -188,6 +204,11 @@ export default function GameDetail() {
   const [distinctPlatforms, setDistinctPlatforms] = useState<string[]>([]);
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [filteredRankings, setFilteredRankings] = useState<RankedEntry[] | null>(null);
+
+  // "About this game" — catalogue metadata (Table Authors, Downloads,
+  // Tutorials, References). Fetched once the leaderboard resolves the
+  // room-pinned game's globalGameId. Failure/absence just hides the section.
+  const [catalogueGame, setCatalogueGame] = useState<CatalogueGameInfo | null>(null);
 
   // Full game score history
   const [gameHistory, setGameHistory] = useState<ScoreHistoryEntry[]>([]);
@@ -331,6 +352,20 @@ export default function GameDetail() {
       });
     return () => { cancelled = true; };
   }, [roomId, leaderboard?.gameId, selectedPlatform]);
+
+  // "About this game" — pull the full catalogue entity once the game's
+  // globalGameId resolves. Public endpoint; failures are silent (section
+  // just doesn't render).
+  useEffect(() => {
+    const globalGameId = leaderboard?.globalGameId;
+    if (!globalGameId) { setCatalogueGame(null); return; }
+    let cancelled = false;
+    fetch(`/api/global/games/${globalGameId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: CatalogueGameInfo | null) => { if (!cancelled) setCatalogueGame(data); })
+      .catch(() => { if (!cancelled) setCatalogueGame(null); });
+    return () => { cancelled = true; };
+  }, [leaderboard?.globalGameId]);
 
   const loadCommunityData = (rid: string, gameName: string) => {
     fetch(`/api/rooms/${rid}/community-scores/${encodeURIComponent(gameName)}`)
@@ -1256,6 +1291,128 @@ export default function GameDetail() {
                 </p>
               )}
             </div>
+          </div>
+        )}
+
+        {/* About this game — catalogue metadata (Table Authors, Downloads,
+            Tutorials, References). Sits below tab content on every tab;
+            hidden entirely when the room game has no catalogue mapping or
+            the fetch failed. Mirrors GlobalGameDetail's block rendering,
+            restyled to match this page's existing section conventions. */}
+        {catalogueGame && (
+          <div className="mt-8 pt-8 border-t border-border">
+            <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">About This Game</h2>
+
+            <div className="bg-surface border border-border rounded-lg p-5 mb-4">
+              <p className="text-sm text-muted">
+                {catalogueGame.manufacturer || 'Unknown manufacturer'}
+                {catalogueGame.year ? ` · ${catalogueGame.year}` : ''}
+                {catalogueGame.type ? ` · ${catalogueGame.type.charAt(0).toUpperCase() + catalogueGame.type.slice(1)}` : ''}
+              </p>
+              {catalogueGame.themes.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {catalogueGame.themes.map(t => (
+                    <span key={t} className="px-2 py-0.5 text-xs rounded bg-raised border border-border text-muted">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {catalogueGame.designers.length > 0 && (
+                <p className="text-xs text-faint mt-3">
+                  <span className="uppercase tracking-wider">Designers:</span> {catalogueGame.designers.join(', ')}
+                </p>
+              )}
+            </div>
+
+            {catalogueGame.table_authors.length > 0 && (
+              <div className="bg-surface border border-border rounded-lg p-4 mb-4">
+                <div className="text-faint text-[10px] uppercase tracking-wider mb-2">Table Authors</div>
+                <div className="text-sm text-primary">{catalogueGame.table_authors.join(', ')}</div>
+              </div>
+            )}
+
+            {catalogueGame.table_download_urls.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-faint text-[10px] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Download size={12} /> Downloads
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {catalogueGame.table_download_urls.map((dl, i) => (
+                    <a
+                      key={i}
+                      href={dl.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-border bg-surface hover:border-neon-cyan text-sm text-primary no-underline transition-colors"
+                    >
+                      <span className="truncate">
+                        {dl.format || 'Download'}
+                        {dl.version ? ` · v${dl.version}` : ''}
+                      </span>
+                      <ExternalLink size={12} className="flex-shrink-0 text-faint" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {catalogueGame.tutorial_urls.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-faint text-[10px] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Play size={12} /> Tutorials
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {catalogueGame.tutorial_urls.map((t, i) => {
+                    const href = t.youtubeId ? `https://www.youtube.com/watch?v=${t.youtubeId}` : t.url;
+                    if (!href) return null;
+                    return (
+                      <a
+                        key={i}
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-surface hover:border-neon-cyan text-sm text-primary no-underline transition-colors"
+                      >
+                        <Play size={14} className="text-faint flex-shrink-0" />
+                        <span className="truncate">{t.title || href}</span>
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {(catalogueGame.rules_urls.length > 0 || catalogueGame.ipdb_url) && (
+              <div className="mb-4">
+                <h3 className="text-faint text-[10px] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <BookOpen size={12} /> References
+                </h3>
+                <div className="flex flex-col gap-1.5">
+                  {catalogueGame.ipdb_url && (
+                    <a
+                      href={catalogueGame.ipdb_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-sm text-neon-cyan hover:underline w-fit"
+                    >
+                      <ExternalLink size={12} /> IPDB
+                    </a>
+                  )}
+                  {catalogueGame.rules_urls.map((r, i) => (
+                    <a
+                      key={i}
+                      href={r.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-sm text-neon-cyan hover:underline w-fit"
+                    >
+                      <ExternalLink size={12} /> {r.version ? `Rules v${r.version}` : 'Rules sheet'}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
