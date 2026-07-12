@@ -16,6 +16,7 @@ import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { parsePlatformsList } from '../utils/platformRules.js';
 import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
+import { AchievementService } from '../services/AchievementService.js';
 
 /**
  * Outcome of a single maintenance run, surfaced to the S10 maintenance-run
@@ -1048,6 +1049,21 @@ export class TournamentEngine {
             } else {
                 logWarn(`   -> Winner '${winnerIscoredName}' has no Discord mapping. Use /map-user to link them.`);
             }
+        }
+
+        // S13 — trophy case: record the tournament win. award() never throws
+        // (fully try/catch-wrapped), so awaiting it here is safe.
+        if (winnerIscoredName) {
+            await AchievementService.award({
+                gameRoomId: tournamentRow.game_room_id ?? null,
+                discordUserId: winnerId,
+                iscoredUsername: winnerIscoredName,
+                type: 'tournament_win',
+                gameName: activeGame.name,
+                gameId: activeGame.id,
+                tournamentId,
+                metadata: { score: winnerScore },
+            });
         }
 
         // Lobby feed: tournament results

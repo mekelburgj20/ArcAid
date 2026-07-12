@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { LobbyFeedService } from './LobbyFeedService.js';
 import { UserProfileService } from './UserProfileService.js';
+import { AchievementService } from './AchievementService.js';
 import { logDebug } from '../utils/logger.js';
 
 const SCORE_THRESHOLDS = [10, 25, 50, 100, 250, 500, 1000];
@@ -70,6 +71,13 @@ export class MilestoneService {
                     playerId: discordUserId,
                     metadata: { milestone: 'scores_submitted', count: threshold },
                 });
+                await AchievementService.award({
+                    gameRoomId,
+                    discordUserId,
+                    iscoredUsername: username,
+                    type: 'milestone',
+                    metadata: { scope: 'scores_submitted', threshold },
+                });
             }
         );
 
@@ -100,6 +108,13 @@ export class MilestoneService {
                     title: `${displayName} has played ${threshold} different games!`,
                     playerId: discordUserId,
                     metadata: { milestone: 'unique_games', count: threshold },
+                });
+                await AchievementService.award({
+                    gameRoomId,
+                    discordUserId,
+                    iscoredUsername: username,
+                    type: 'milestone',
+                    metadata: { scope: 'unique_games', threshold },
                 });
             }
         );
@@ -135,6 +150,13 @@ export class MilestoneService {
                     title: `${displayName} holds #1 on ${threshold} game${threshold > 1 ? 's' : ''}!`,
                     playerId: discordUserId,
                     metadata: { milestone: 'number_ones', count: threshold },
+                });
+                await AchievementService.award({
+                    gameRoomId,
+                    discordUserId,
+                    iscoredUsername: username,
+                    type: 'milestone',
+                    metadata: { scope: 'number_ones', threshold },
                 });
             }
         );

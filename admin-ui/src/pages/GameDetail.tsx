@@ -708,6 +708,10 @@ export default function GameDetail() {
                                 (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                               );
                               const activeTournamentName = activeEntries[0]?.tournament_name || null;
+                              // v-trophy-case: percentile within the game's full (unfiltered)
+                              // rankings array — computed from data already loaded on `leaderboard`,
+                              // not the platform-filtered `baseRankings` used for on-screen numbering.
+                              const totalRankings = leaderboard?.rankings.length ?? 0;
                               return (
                                 <div className="space-y-3">
                                   {chron.length > 1 && (
@@ -715,6 +719,11 @@ export default function GameDetail() {
                                       <p className="text-faint text-[10px] uppercase tracking-wider mb-1">Progression</p>
                                       <Sparkline data={chron.map(h => h.score)} width={400} height={40} />
                                     </div>
+                                  )}
+                                  {totalRankings >= 2 && (
+                                    <p className="text-faint text-[10px] uppercase tracking-wider">
+                                      Top {Math.ceil((entry.rank / totalRankings) * 100)}% of {totalRankings} players
+                                    </p>
                                   )}
                                   {activeEntries.length > 0 && (
                                     <div>

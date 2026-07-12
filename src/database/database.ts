@@ -1683,6 +1683,75 @@ export async function initDatabase(): Promise<Database> {
                 ${candidateWhere}
             `);
         } },
+        // S13 — trophy case: append-only achievement log (tournament wins,
+        // milestones, room records). Deliberately NO foreign keys — an audit
+        // log that outlives its tournament/room, same treatment as
+        // maintenance_runs (migration 106). The partial UNIQUE index on
+        // (type, game_id) is the tournament_win dedup key: one win per
+        // completed game, INSERT OR IGNORE-safe on re-run.
+        { name: '108_player_achievements', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS player_achievements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_room_id TEXT,
+                    discord_user_id TEXT,
+                    iscored_username TEXT,
+                    type TEXT NOT NULL,            -- 'tournament_win' | 'milestone' | 'room_record'
+                    game_name TEXT,
+                    game_id TEXT,                  -- games row id, set for tournament_win (dedup key)
+                    tournament_id TEXT,
+                    earned_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    metadata TEXT                  -- JSON string: {score} | {scope, threshold} | {score}
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_player_achievements_tournament_win_dedup
+                    ON player_achievements(type, game_id) WHERE type = 'tournament_win' AND game_id IS NOT NULL;
+                CREATE INDEX IF NOT EXISTS idx_player_achievements_room_username
+                    ON player_achievements(game_room_id, iscored_username);
+                CREATE INDEX IF NOT EXISTS idx_player_achievements_discord_user
+                    ON player_achievements(discord_user_id);
+            `);
+
+            // Backfill: one 'tournament_win' achievement per COMPLETED tournament
+            // game, derived from the top submissions row (submissions-based —
+            // matches BOTH live winner derivations, TournamentEngine's
+            // post-rotation resolution and /history's window query — NOT
+            // score_history). INSERT OR IGNORE no-ops on re-run via the partial
+            // unique index above.
+            const topWinnersCte = `
+                WITH ranked AS (
+                    SELECT
+                        s.game_id AS game_id,
+                        s.iscored_username AS iscored_username,
+                        s.discord_user_id AS discord_user_id,
+                        s.score AS score,
+                        g.name AS game_name,
+                        g.tournament_id AS tournament_id,
+                        g.end_date AS end_date,
+                        t.game_room_id AS game_room_id,
+                        ROW_NUMBER() OVER (PARTITION BY s.game_id ORDER BY s.score DESC) AS rn
+                    FROM submissions s
+                    JOIN games g ON g.id = s.game_id
+                    JOIN tournaments t ON t.id = g.tournament_id
+                    WHERE s.orphaned_at IS NULL
+                      AND g.status = 'COMPLETED'
+                      AND g.tournament_id IS NOT NULL
+                )
+                SELECT * FROM ranked WHERE rn = 1
+            `;
+
+            const countRow = await db.get(`SELECT COUNT(*) as c FROM (${topWinnersCte})`);
+            // eslint-disable-next-line no-console
+            console.log(`[migration] 108: backfilling ${countRow?.c ?? 0} tournament_win achievement(s) from completed games`);
+
+            await db.run(`
+                INSERT OR IGNORE INTO player_achievements
+                    (game_room_id, discord_user_id, iscored_username, type, game_name, game_id, tournament_id, earned_at, metadata)
+                SELECT
+                    game_room_id, discord_user_id, iscored_username, 'tournament_win', game_name, game_id, tournament_id,
+                    COALESCE(end_date, datetime('now')), json_object('score', score)
+                FROM (${topWinnersCte})
+            `);
+        } },
     ];
 
     for (const migration of migrations) {

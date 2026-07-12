@@ -1,6 +1,26 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { Flame } from 'lucide-react';
+import { Flame, Trophy, Target, Medal } from 'lucide-react';
+
+interface Achievements {
+  tournamentWins: number;
+  milestones: number;
+  roomRecords: number;
+  recent: Array<{
+    type: 'tournament_win' | 'milestone' | 'room_record';
+    game_name: string | null;
+    earned_at: string;
+    metadata: any;
+  }>;
+}
+
+interface PersonalBest {
+  game_name: string;
+  best_score: number;
+  room_rank: number;
+  total_players: number;
+  achieved_at: string;
+}
 
 interface PlayerStats {
   discordUserId: string;
@@ -13,6 +33,22 @@ interface PlayerStats {
   champion_streak: number;
   bestGame: string | null;
   recentScores: Array<{ game_name: string; score: number; date: string }>;
+  /** May be absent on old cached responses. */
+  achievements?: Achievements;
+  /** May be absent on old cached responses. */
+  personalBests?: PersonalBest[];
+}
+
+const ACHIEVEMENT_LABELS: Record<Achievements['recent'][number]['type'], string> = {
+  tournament_win: 'Tournament Win',
+  milestone: 'Milestone',
+  room_record: 'Room Record',
+};
+
+function AchievementIcon({ type, size = 14 }: { type: Achievements['recent'][number]['type']; size?: number }) {
+  if (type === 'tournament_win') return <Trophy size={size} className="text-neon-amber" />;
+  if (type === 'milestone') return <Target size={size} className="text-neon-magenta" />;
+  return <Medal size={size} className="text-neon-green" />;
 }
 
 export default function PlayerDetail() {
@@ -109,6 +145,59 @@ export default function PlayerDetail() {
           </div>
         </div>
 
+        {/* Trophies */}
+        {stats.achievements && (
+          stats.achievements.tournamentWins > 0 ||
+          stats.achievements.milestones > 0 ||
+          stats.achievements.roomRecords > 0
+        ) && (
+          <div className="mb-8">
+            <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Trophies</h2>
+            <div className="grid grid-cols-3 gap-4 mb-3">
+              <div className="bg-surface border border-border rounded-lg p-4 text-center">
+                <p className="text-faint text-xs uppercase tracking-wider mb-1">Tournament Wins</p>
+                <div className="flex items-center justify-center gap-1">
+                  <Trophy size={18} className="text-neon-amber" />
+                  <p className="font-display font-bold text-2xl text-neon-amber">{stats.achievements.tournamentWins}</p>
+                </div>
+              </div>
+              <div className="bg-surface border border-border rounded-lg p-4 text-center">
+                <p className="text-faint text-xs uppercase tracking-wider mb-1">Milestones</p>
+                <div className="flex items-center justify-center gap-1">
+                  <Target size={18} className="text-neon-magenta" />
+                  <p className="font-display font-bold text-2xl text-neon-magenta">{stats.achievements.milestones}</p>
+                </div>
+              </div>
+              <div className="bg-surface border border-border rounded-lg p-4 text-center">
+                <p className="text-faint text-xs uppercase tracking-wider mb-1">Room Records</p>
+                <div className="flex items-center justify-center gap-1">
+                  <Medal size={18} className="text-neon-green" />
+                  <p className="font-display font-bold text-2xl text-neon-green">{stats.achievements.roomRecords}</p>
+                </div>
+              </div>
+            </div>
+            {stats.achievements.recent.length > 0 && (
+              <div className="bg-surface border border-border rounded-lg overflow-hidden">
+                {stats.achievements.recent.map((a, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 px-5 py-2.5 border-b border-border/30 last:border-0"
+                  >
+                    <AchievementIcon type={a.type} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-primary text-sm font-medium truncate">
+                        {ACHIEVEMENT_LABELS[a.type]}
+                        {a.game_name ? ` · ${a.game_name}` : ''}
+                      </p>
+                      <p className="text-faint text-xs">{new Date(a.earned_at).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Best Game */}
         {stats.bestGame && (
           <div className="mb-8">
@@ -142,6 +231,43 @@ export default function PlayerDetail() {
                     <p className="text-faint text-xs">{new Date(s.date).toLocaleDateString()}</p>
                   </div>
                   <span className="font-display font-bold text-neon-amber">{s.score.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Personal Bests */}
+        {stats.personalBests && stats.personalBests.length > 0 && (
+          <div className="mt-8">
+            <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Personal Bests</h2>
+            <div className="bg-surface border border-border rounded-lg overflow-hidden">
+              <div className="grid grid-cols-4 gap-2 px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+                <span>Game</span>
+                <span className="text-right">Best</span>
+                <span className="text-right">Room Rank</span>
+                <span className="text-right">Date</span>
+              </div>
+              {stats.personalBests.map((pb, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-4 gap-2 items-center px-5 py-3 border-b border-border/30 last:border-0"
+                >
+                  <Link
+                    to={`/${slug}/games/${encodeURIComponent(pb.game_name)}`}
+                    className="text-primary hover:text-neon-cyan no-underline transition-colors font-medium truncate"
+                  >
+                    {pb.game_name}
+                  </Link>
+                  <span className="text-right font-display font-bold text-neon-amber">
+                    {pb.best_score.toLocaleString()}
+                  </span>
+                  <span className="text-right text-muted text-sm">
+                    #{pb.room_rank} of {pb.total_players}
+                  </span>
+                  <span className="text-right text-faint text-xs">
+                    {new Date(pb.achieved_at).toLocaleDateString()}
+                  </span>
                 </div>
               ))}
             </div>

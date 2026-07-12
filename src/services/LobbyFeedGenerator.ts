@@ -2,6 +2,7 @@ import { getDatabase } from '../database/database.js';
 import { LobbyFeedService } from './LobbyFeedService.js';
 import { NotificationService } from './NotificationService.js';
 import { UserProfileService } from './UserProfileService.js';
+import { AchievementService } from './AchievementService.js';
 import { logError } from '../utils/logger.js';
 import { emitScoreNew } from '../api/websocket.js';
 
@@ -87,6 +88,21 @@ export class LobbyFeedGenerator {
             //     the feed toggle — disabling the cosmetic feed event must never
             //     silently kill the retention notification.
             const isNewRoomTop = currentRank === 1 && sorted.length > 1;
+
+            // S13 — trophy case: room record achievement, independent of the
+            // feed toggle (same independence pattern as the dethrone DM below —
+            // disabling the cosmetic feed event must never silently lose the
+            // achievement).
+            if (isNewRoomTop) {
+                AchievementService.award({
+                    gameRoomId,
+                    discordUserId,
+                    iscoredUsername: username,
+                    type: 'room_record',
+                    gameName,
+                    metadata: { score },
+                }).catch(() => {});
+            }
 
             if (isNewRoomTop && isTypeEnabled(enabledTypes, 'new_high_score')) {
                 await LobbyFeedService.emit({

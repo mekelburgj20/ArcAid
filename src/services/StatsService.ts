@@ -1,4 +1,5 @@
 import { getDatabase } from '../database/database.js';
+import { AchievementService } from './AchievementService.js';
 
 /**
  * v2.4.0 note on pinned games:
@@ -401,6 +402,17 @@ export class StatsService {
 
         const mapping = await db.get('SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?', discordUserId);
 
+        // S13 trophy case: achievements delegate to AchievementService.getForPlayer
+        // verbatim (do not reimplement); personalBests is a room-scoped
+        // best-per-game ranking derived from `submissions`.
+        const achievements = gameRoomId
+            ? await AchievementService.getForPlayer(gameRoomId, {
+                discordUserId,
+                username: mapping?.iscored_username || '',
+            })
+            : { tournamentWins: 0, milestones: 0, roomRecords: 0, recent: [] };
+        const personalBests = await StatsService.getPersonalBests(discordUserId, gameRoomId);
+
         return {
             discordUserId,
             iscoredUsername: mapping?.iscored_username || null,
@@ -412,6 +424,8 @@ export class StatsService {
             champion_streak: championStreak,
             bestGame: bestGame?.game_name || null,
             recentScores,
+            achievements,
+            personalBests,
         };
     }
 
@@ -511,6 +525,18 @@ export class StatsService {
 
         const mapping = await db.get('SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)', username);
 
+        // S13 trophy case: canonical partition key mirrors every other
+        // room-scoped ranking query — the real Discord id when this alias is
+        // mapped, else the 'iscored:<username>' synthetic fallback.
+        const playerKey = mapping?.discord_user_id || `iscored:${username.toLowerCase()}`;
+        const achievements = gameRoomId
+            ? await AchievementService.getForPlayer(gameRoomId, {
+                discordUserId: mapping?.discord_user_id || null,
+                username,
+            })
+            : { tournamentWins: 0, milestones: 0, roomRecords: 0, recent: [] };
+        const personalBests = await StatsService.getPersonalBests(playerKey, gameRoomId);
+
         return {
             discordUserId: mapping?.discord_user_id || null,
             iscoredUsername: username,
@@ -522,7 +548,66 @@ export class StatsService {
             champion_streak: championStreak,
             bestGame: bestGame?.game_name || null,
             recentScores,
+            achievements,
+            personalBests,
         };
+    }
+
+    /**
+     * S13 trophy case: the player's best score per game in a room, ranked
+     * against every other player's best on the same game.
+     *
+     * Room-scoping mirrors getEnhancedPlayerStats/getEnhancedPlayerStatsByUsername
+     * verbatim (`JOIN tournaments t ON g.tournament_id = t.id AND t.game_room_id = ?`)
+     * — `submissions` has no `game_room_id` column of its own, so pinned games
+     * (tournament_id IS NULL) are implicitly excluded here too, consistent with
+     * every other room-scoped query in this file (see file-header note).
+     *
+     * `playerKey` is the canonical partition used everywhere else in the
+     * codebase: COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)).
+     * room_rank/total_players are computed over that same partition per game so
+     * multi-alias players collapse to one ranked row, matching LeaderboardService.
+     */
+    private static async getPersonalBests(playerKey: string, gameRoomId?: string) {
+        const db = await getDatabase();
+
+        const roomJoin = gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : '';
+        const roomWhere = gameRoomId ? 'AND t.game_room_id = ?' : '';
+        const roomParams = gameRoomId ? [gameRoomId] : [];
+
+        const rows = await db.all(`
+            WITH scoped AS (
+                SELECT s.game_id AS game_id, g.name AS game_name, s.score AS score, s.timestamp AS timestamp,
+                       COALESCE(s.submitted_by_user_id, 'iscored:' || LOWER(s.iscored_username)) AS player_key
+                FROM submissions s
+                JOIN games g ON s.game_id = g.id
+                ${roomJoin}
+                WHERE s.orphaned_at IS NULL
+                ${roomWhere}
+            ),
+            best_per_player AS (
+                SELECT game_id, game_name, player_key, score, timestamp,
+                       ROW_NUMBER() OVER (PARTITION BY game_id, player_key ORDER BY score DESC, timestamp DESC) AS rn
+                FROM scoped
+            ),
+            top AS (
+                SELECT game_id, game_name, player_key, score AS best_score, timestamp AS achieved_at
+                FROM best_per_player WHERE rn = 1
+            ),
+            ranked AS (
+                SELECT game_id, game_name, player_key, best_score, achieved_at,
+                       RANK() OVER (PARTITION BY game_id ORDER BY best_score DESC) AS room_rank,
+                       COUNT(*) OVER (PARTITION BY game_id) AS total_players
+                FROM top
+            )
+            SELECT game_name, best_score, room_rank, total_players, achieved_at
+            FROM ranked
+            WHERE player_key = ?
+            ORDER BY room_rank ASC, game_name ASC
+            LIMIT 50
+        `, ...roomParams, playerKey);
+
+        return rows;
     }
 
     /**

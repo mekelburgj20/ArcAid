@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import PlayerNameLink from '../components/PlayerNameLink';
-import { Trophy, Flame, Users, Gamepad2, Zap, Clock } from 'lucide-react';
+import { Trophy, Flame, Users, Gamepad2, Zap, Clock, History } from 'lucide-react';
 
 interface PlayerSummary {
   discord_user_id: string;
@@ -172,6 +172,13 @@ export default function PublicStats() {
               <Gamepad2 size={12} />
               Games
             </button>
+            <Link
+              to={`/${slug}/history`}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors text-muted hover:text-primary no-underline"
+            >
+              <History size={12} />
+              History
+            </Link>
           </div>
         </div>
         <input
