@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { getDatabase } from '../database/database.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
-import { logInfo, logWarn, logError } from '../utils/logger.js';
+import { logInfo, logWarn, logError, logDebug } from '../utils/logger.js';
 
 /**
  * Extracts the numeric IPDB machine ID from an IPDB URL.
@@ -12,6 +12,21 @@ function extractIpdbMachineId(url: string | null | undefined): string | null {
     if (!url) return null;
     const match = url.match(/ipdb\.org\/machine\.cgi\?id=(\d+)/i);
     return match ? match[1]! : null;
+}
+
+/**
+ * True when a manufacturer value is virtual-only or "Original", or is
+ * missing entirely — the curated dedup discriminator from the 2026-07-02
+ * prod dup review. A row with one of these manufacturers is a DIFFERENT
+ * game from a real-manufacturer row that happens to share an IPDB link;
+ * the link is a thematic reference, not an identity claim. Exported as the
+ * single source of truth so the dedup guard, upsert's IPDB routing, and any
+ * future audit/strip tooling all agree on the same predicate.
+ */
+export function isVirtualOnlyManufacturer(manufacturer: string | null | undefined): boolean {
+    const mfg = (manufacturer || '').trim().toLowerCase();
+    if (!mfg) return true;
+    return mfg === 'zen studios' || mfg === 'original';
 }
 
 /**
@@ -82,6 +97,12 @@ export interface GlobalGame {
     vps_id: string | null;
     igdb_id: number | null;
     ipdb_url: string | null;
+    /** v2.x (catalogue-dedup-hardening): thematic IPDB reference for a
+     *  virtual-only-manufacturer row (e.g. a Zen Studios or "Original" fan
+     *  table referencing the real machine it's based on). Distinct from
+     *  `ipdb_url`, which is reserved for identity-bearing links between
+     *  real-manufacturer rows. See `isVirtualOnlyManufacturer`. */
+    based_on_ipdb_url: string | null;
     external_url: string | null;
     table_authors: string;
     table_download_urls: string | null;
@@ -121,6 +142,7 @@ export interface GlobalGameInput {
     vps_id?: string | null;
     igdb_id?: number | null;
     ipdb_url?: string | null;
+    based_on_ipdb_url?: string | null;
     external_url?: string | null;
     table_authors?: string[];
     table_download_urls?: Array<{ format: string; url: string; version?: string }>;
@@ -273,7 +295,21 @@ export class GlobalGameService {
 
                 if (ipdbMatches.length === 1) {
                     const candidate = ipdbMatches[0]!;
-                    if (!this.hasExternalIdConflict(input, candidate) && this.manufacturerYearAgree(input, candidate)) {
+                    // catalogue-dedup-hardening: a shared IPDB link is only an
+                    // identity signal between two REAL-manufacturer rows. A
+                    // virtual-only manufacturer (Zen Studios, Original) or a
+                    // missing manufacturer on either side means the IPDB link
+                    // is a thematic reference, not a claim that this row IS
+                    // that physical machine — refuse the match here (mirrors
+                    // the cross-type guard above) and fall through to the
+                    // name-match step instead of returning early.
+                    if (isVirtualOnlyManufacturer(input.manufacturer) || isVirtualOnlyManufacturer(candidate.manufacturer)) {
+                        logWarn(
+                            `dedup: IPDB match but virtual-only/missing manufacturer on one side ` +
+                            `(input manufacturer="${input.manufacturer ?? ''}", candidate manufacturer="${candidate.manufacturer ?? ''}", name="${input.name}"). ` +
+                            `Refusing to treat shared IPDB link as identity match.`
+                        );
+                    } else if (!this.hasExternalIdConflict(input, candidate) && this.manufacturerYearAgree(input, candidate)) {
                         existing = candidate;
                     }
                 }
@@ -398,6 +434,23 @@ export class GlobalGameService {
 
     static async upsert(input: GlobalGameInput): Promise<{ id: string; action: 'inserted' | 'updated' | 'skipped' }> {
         const db = await getDatabase();
+
+        // catalogue-dedup-hardening: normalize the input BEFORE the dedup walk
+        // so this one chokepoint covers every importer/entry point. A
+        // virtual-only-manufacturer (or missing-manufacturer) row's ipdb_url
+        // is a thematic reference to the real machine it's based on, not an
+        // identity claim — route it to based_on_ipdb_url and clear ipdb_url
+        // so it never enters the IPDB identity cross-reference (step 3 of
+        // resolveDedupCandidates) or gets persisted as this row's own
+        // identity link. Reassigns the local `input` (does not mutate the
+        // caller's object).
+        if (isVirtualOnlyManufacturer(input.manufacturer) && input.ipdb_url) {
+            logDebug(
+                `upsert: routing thematic ipdb_url to based_on_ipdb_url (name="${input.name}", manufacturer="${input.manufacturer ?? ''}")`
+            );
+            input = { ...input, based_on_ipdb_url: input.ipdb_url, ipdb_url: null };
+        }
+
         const inputType = input.type || 'pinball';
 
         const { existing } = await this.resolveDedupCandidates(input);
@@ -480,6 +533,7 @@ export class GlobalGameService {
                     vps_id = COALESCE(?, vps_id),
                     igdb_id = COALESCE(?, igdb_id),
                     ipdb_url = COALESCE(?, ipdb_url),
+                    based_on_ipdb_url = COALESCE(?, based_on_ipdb_url),
                     external_url = COALESCE(?, external_url),
                     table_authors = ?,
                     table_download_urls = ?,
@@ -507,6 +561,7 @@ export class GlobalGameService {
                 input.vps_id ?? null,
                 input.igdb_id ?? null,
                 input.ipdb_url ?? null,
+                input.based_on_ipdb_url ?? null,
                 input.external_url ?? null,
                 JSON.stringify(mergedAuthors),
                 mergedDownloadJson,
@@ -568,7 +623,7 @@ export class GlobalGameService {
                 id, name, display_name, manufacturer, year, type, subtype,
                 platforms, themes, designers, players,
                 image_url, local_image_path, wheel_image_path,
-                opdb_id, vps_id, igdb_id, ipdb_url, external_url,
+                opdb_id, vps_id, igdb_id, ipdb_url, based_on_ipdb_url, external_url,
                 table_authors, table_download_urls, tutorial_urls, rules_urls,
                 description, source_rating, features,
                 status, submitted_by, reviewed_by, global_leaderboard,
@@ -577,7 +632,7 @@ export class GlobalGameService {
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?,
-                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?,
@@ -592,7 +647,7 @@ export class GlobalGameService {
             input.players ?? null,
             input.image_url ?? null, input.local_image_path ?? null, input.wheel_image_path ?? null,
             input.opdb_id ?? null, input.vps_id ?? null, input.igdb_id ?? null,
-            input.ipdb_url ?? null, input.external_url ?? null,
+            input.ipdb_url ?? null, input.based_on_ipdb_url ?? null, input.external_url ?? null,
             JSON.stringify(input.table_authors || []),
             input.table_download_urls ? JSON.stringify(input.table_download_urls) : null,
             input.tutorial_urls ? JSON.stringify(input.tutorial_urls) : null,

@@ -1752,6 +1752,13 @@ export async function initDatabase(): Promise<Database> {
                 FROM (${topWinnersCte})
             `);
         } },
+        // catalogue-dedup-hardening: a virtual-only-manufacturer (Zen Studios,
+        // Original) or missing-manufacturer row's ipdb_url is a thematic
+        // reference to a real machine, not an identity claim — it must not
+        // participate in the identity-dedup IPDB cross-reference (see
+        // GlobalGameService.resolveDedupCandidates step 3). This column holds
+        // that reference separately from the identity-bearing ipdb_url.
+        { name: '109_global_games_based_on_ipdb_url', sql: `ALTER TABLE global_games ADD COLUMN based_on_ipdb_url TEXT` },
     ];
 
     for (const migration of migrations) {
