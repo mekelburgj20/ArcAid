@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.20.1] — unreleased
+
+**Room game page gains the catalogue's "About this game" metadata** (user request, same-day as S13). The room Game Detail (`/:slug/games/:name`) and the global catalogue page (`/games/:id`) are deliberately separate — room-scoped scores/tournament context vs. the catalogue entity — but the room page never surfaced the catalogue metadata even though it already resolves the game's `globalGameId` (for the Global Leaderboard cross-link). Now, when a room game maps to an approved catalogue entry, the room page renders an "About This Game" section below the tab content: manufacturer/year/type, theme chips, designers, Table Authors, Downloads (`table_download_urls`), Tutorials (`tutorial_urls`, YouTube ids resolved), and References (`rules_urls` + IPDB). Fetched from the existing public `GET /api/global/games/:id`; hidden entirely (and silently) for unmapped games or fetch failures. SW → `arcaid-v92`. No migration (next free still 109).
+
+---
+
 ## [2.20.0] — unreleased
 
 **S13 — Trophy case + public history (Phase C Recognition).** Built via a Fable-orchestrated Sonnet workflow (4 work packages + cross-seam check; zero blockers).
