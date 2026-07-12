@@ -135,7 +135,9 @@ export const MAX_SCORE = 1_000_000_000_000_000;
 export const CommunityScoreSchema = z.object({
     username: z.string().min(1).max(100),
     score: z.number().int().min(0).max(MAX_SCORE),
-    discord_user_id: z.string().optional(),
+    // discord_user_id intentionally NOT accepted here — attribution is derived
+    // server-side from the verified Bearer token (req.user.discordId), never
+    // trusted from the request body (see rooms.ts POST handler).
     photo_url: z.string().url().optional(),
     // v2.5.0: required per-score platform tag. Picker-resolved on the client
     // (auto-fill when game has 1 platform; required choice when 2+).
