@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { X, ExternalLink, Flame, Users } from 'lucide-react';
+import { X, ExternalLink, Flame, Users, Trophy, Target, Medal } from 'lucide-react';
 import { PlayerAvatar, playerName } from '../components/ScoreboardComponents';
 
 /**
@@ -71,6 +71,20 @@ interface Stats {
   champion_streak: number;
   bestGame: string | null;
   recentScores: Array<{ game_name: string; score: number; date: string }>;
+  /** May be absent on old cached responses. */
+  achievements?: {
+    tournamentWins: number;
+    milestones: number;
+    roomRecords: number;
+    recent: Array<{
+      type: 'tournament_win' | 'milestone' | 'room_record';
+      game_name: string | null;
+      earned_at: string;
+      metadata: any;
+    }>;
+  };
+  /** May be absent on old cached responses. */
+  personalBests?: Array<{ game_name: string; best_score: number; room_rank: number; total_players: number; achieved_at: string }>;
 }
 
 export function PlayerQuickViewProvider({ children }: { children: ReactNode }) {
@@ -204,6 +218,27 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
                   </div>
                 </div>
               </div>
+
+              {stats.achievements && (
+                stats.achievements.tournamentWins > 0 ||
+                stats.achievements.milestones > 0 ||
+                stats.achievements.roomRecords > 0
+              ) && (
+                <div className="flex items-center justify-center gap-4 mb-3 py-2 border-y border-border/30">
+                  <span className="inline-flex items-center gap-1 text-sm font-display font-bold text-neon-amber">
+                    <Trophy size={14} />
+                    {stats.achievements.tournamentWins}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-sm font-display font-bold text-neon-magenta">
+                    <Target size={14} />
+                    {stats.achievements.milestones}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-sm font-display font-bold text-neon-green">
+                    <Medal size={14} />
+                    {stats.achievements.roomRecords}
+                  </span>
+                </div>
+              )}
 
               {stats.bestGame && (
                 <div className="mb-3">

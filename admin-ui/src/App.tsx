@@ -44,6 +44,7 @@ import Picks from './pages/Picks';
 import MysteryAwardPage from './pages/MysteryAwardPage';
 import Lobby from './pages/Lobby';
 import PublicStats from './pages/PublicStats';
+import PublicHistory from './pages/PublicHistory';
 import MyRooms from './pages/MyRooms';
 
 // Pages — Kiosk
@@ -189,6 +190,7 @@ function App() {
           <Route path="games/:name" element={<GameDetail />} />
           <Route path="freeplay" element={<FreeplayRedirect />} />
           <Route path="stats" element={<PublicStats />} />
+          <Route path="history" element={<PublicHistory />} />
         </Route>
       </Routes>
     </ToastProvider>

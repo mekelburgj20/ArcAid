@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.20.0] — unreleased
+
+**S13 — Trophy case + public history (Phase C Recognition).** Built via a Fable-orchestrated Sonnet workflow (4 work packages + cross-seam check; zero blockers).
+
+- **`player_achievements` (migration 108)** — append-only, FK-less trophy log (the `maintenance_runs` treatment). Three types written from the moments that already detect them: `tournament_win` (TournamentEngine winner resolution; deduped one-per-game via a partial UNIQUE index), `milestone` (MilestoneService threshold crossings, metadata carries scope+threshold), `room_record` (hooked off `isNewRoomTop` directly — independent of the cosmetic feed toggle, same pattern as the dethrone DM). `AchievementService.award` never throws. Migration backfills historical tournament wins from the top `submissions` row per COMPLETED game (matching both live winner derivations), idempotent via INSERT OR IGNORE.
+- **Trophies on player surfaces** — `stats/enhanced/player/:identifier` now ships `achievements` (per-type counts + 10 most recent) and `personalBests` (best per game with canonical-partition room rank + total players, cap 50). PlayerDetail gains a Trophies section + Personal Bests table; PlayerQuickView gains a condensed counts strip; GameDetail's player expand gains a "Top X%" percentile line.
+- **Public history page** — new `/:slug/history` (the `GET /:roomId/history` endpoint was already public; the page was admin-mounted only). Winner + score + date per completed game, paginated, type filter; linked from the public Stats page.
+- New `s13-achievements.test.ts` (backfill idempotency, win dedup, cross-identity `getForPlayer`, endpoint shape with room ranks).
+
+SW → `arcaid-v91`. **Migration 108 consumed → next free 109.**
+
+---
+
 ## [2.19.0] — unreleased
 
 **Hardening: batched score-counts + community-scores attribution.** Two pre-beta trust/stability fixes, built via a Fable-orchestrated Sonnet workflow.
