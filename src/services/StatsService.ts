@@ -188,7 +188,9 @@ export class StatsService {
     static async getGameStats(gameName: string, gameRoomId?: string) {
         const db = await getDatabase();
 
-        // Find all games with this name, optionally filtered by room
+        // Find all games with this name, optionally filtered by room. Still used for
+        // timesPlayed ('times featured') and recentResults (genuine tournament outcomes) —
+        // those stay games/submissions-based.
         let games;
         if (gameRoomId) {
             games = await db.all(
@@ -203,27 +205,42 @@ export class StatsService {
         if (games.length === 0) return null;
 
         const gameIds = games.map((g: any) => g.id);
-        const placeholders = gameIds.map(() => '?').join(',');
 
         // Times played
         const timesPlayed = gameIds.length;
 
-        // Score stats across all instances
+        // Score stats sourced from score_history — the physical union of every submission
+        // path (tournament + community/freeplay + sync). `submissions` only reflects the
+        // tournament path; community/freeplay submits write score_history ONLY, so a big
+        // community score was previously invisible to All-Time High / unique players.
+        // Keyed by (game_room_id, game_name) rather than the games.id list above so it
+        // also picks up scores logged against unpinned/no-longer-active game rows.
+        const roomFilter = gameRoomId ? 'AND game_room_id = ?' : '';
+        const scoreParams = gameRoomId ? [gameName, gameRoomId] : [gameName];
+
+        // avg_score mirrors the CURRENT aggregate meaning: the prior query had no
+        // per-player GROUP BY (`AVG(score) FROM submissions WHERE game_id IN (...)`) —
+        // it averaged every matching row as-is (submissions happens to hold one row per
+        // player-per-game-instance via its own upsert semantics, but the SQL itself does
+        // a flat average). This mirrors that: a flat AVG over every matching score_history
+        // row (i.e. every score event, not deduped to per-player bests).
         const stats = await db.get(`
-            SELECT AVG(score) as avg_score, MAX(score) as high_score,
-                   COUNT(DISTINCT LOWER(iscored_username)) as unique_players
-            FROM submissions
-            WHERE game_id IN (${placeholders})
-        `, ...gameIds);
+            SELECT AVG(score) as avg_score,
+                   COUNT(DISTINCT COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))) as unique_players
+            FROM score_history
+            WHERE LOWER(game_name) = LOWER(?) ${roomFilter}
+              AND orphaned_at IS NULL
+        `, ...scoreParams);
 
         // All-time high holder
         const highHolder = await db.get(`
             SELECT iscored_username, score
-            FROM submissions
-            WHERE game_id IN (${placeholders})
-            ORDER BY score DESC
+            FROM score_history
+            WHERE LOWER(game_name) = LOWER(?) ${roomFilter}
+              AND orphaned_at IS NULL
+            ORDER BY score DESC, created_at ASC
             LIMIT 1
-        `, ...gameIds);
+        `, ...scoreParams);
 
         // Recent results (completed games with winner)
         const recentResults = await db.all(`
@@ -250,7 +267,7 @@ export class StatsService {
             timesPlayed,
             avgScore: Math.round(stats?.avg_score ?? 0),
             uniquePlayers: stats?.unique_players ?? 0,
-            allTimeHigh: stats?.high_score ?? 0,
+            allTimeHigh: highHolder?.score ?? 0,
             allTimeHighPlayer: highHolder?.iscored_username || null,
             recentResults,
         };
@@ -263,33 +280,50 @@ export class StatsService {
     static async getGamePlayerRankings(gameName: string, gameRoomId?: string) {
         const db = await getDatabase();
 
-        let games;
-        if (gameRoomId) {
-            games = await db.all(
-                `SELECT g.id FROM games g
-                 JOIN tournaments t ON g.tournament_id = t.id
-                 WHERE g.name = ? COLLATE NOCASE AND t.game_room_id = ?`,
-                gameName, gameRoomId
-            );
-        } else {
-            games = await db.all('SELECT id FROM games WHERE name = ? COLLATE NOCASE', gameName);
-        }
-        if (games.length === 0) return [];
+        // Sourced from score_history (same rationale as getGameStats above) so community/
+        // freeplay-only scores — which never touch `submissions` — are represented. Keyed
+        // by (game_room_id, game_name); no gameRoomId falls back to all rooms by name.
+        const roomFilter = gameRoomId ? 'AND game_room_id = ?' : '';
+        const params = gameRoomId ? [gameName, gameRoomId] : [gameName];
 
-        const gameIds = games.map((g: any) => g.id);
-        const placeholders = gameIds.map(() => '?').join(',');
-
+        // Canonical player partition (mirrors LeaderboardService.recalculate): collapse by
+        // submitted_by_user_id when set (multi-alias Discord users → one row), else by
+        // lowercased anon name. The best row is picked via ROW_NUMBER, NOT a bare column
+        // next to MAX() — SQLite only guarantees bare-column/max row binding with exactly
+        // ONE min/max aggregate, and a merged user's groups span different usernames, so
+        // the bare-column form can attach the wrong alias to the best score.
         const rows = await db.all(`
             SELECT
-                iscored_username,
-                MAX(score) as best_score,
-                COUNT(*) as times_played,
-                MAX(timestamp) as last_played
-            FROM submissions
-            WHERE game_id IN (${placeholders})
-            GROUP BY LOWER(iscored_username)
-            ORDER BY best_score DESC
-        `, ...gameIds);
+                best.iscored_username,
+                best.score as best_score,
+                agg.times_played,
+                agg.last_played
+            FROM (
+                SELECT
+                    COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) as player_key,
+                    iscored_username,
+                    score,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
+                        ORDER BY score DESC, created_at ASC
+                    ) as rn
+                FROM score_history
+                WHERE LOWER(game_name) = LOWER(?) ${roomFilter}
+                  AND orphaned_at IS NULL
+            ) best
+            JOIN (
+                SELECT
+                    COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) as player_key,
+                    COUNT(*) as times_played,
+                    MAX(created_at) as last_played
+                FROM score_history
+                WHERE LOWER(game_name) = LOWER(?) ${roomFilter}
+                  AND orphaned_at IS NULL
+                GROUP BY player_key
+            ) agg ON agg.player_key = best.player_key
+            WHERE best.rn = 1
+            ORDER BY best.score DESC
+        `, ...params, ...params);
 
         return rows.map((r: any, i: number) => ({
             rank: i + 1,

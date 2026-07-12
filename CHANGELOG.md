@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.20.2] — unreleased
+
+**Three user-reported fixes from the v2.20.x tour (history completeness, game-page stats correctness, non-active game experience).**
+
+- **History showed only recently-completed games** — `GET /:roomId/history` filtered `status='COMPLETED'` while the weekly cleanup flips old games to `ARCHIVED` (the `IN ('COMPLETED','ARCHIVED')` convention used everywhere else in StatsService). Both the admin History page and the public `/:slug/history` now show the full record.
+- **Game-page stats missed community scores** — `StatsService.getGameStats` + `getGamePlayerRankings` read `submissions`, but community/freeplay submits write `score_history` only, so a new community high score didn't move Unique Players / Avg / All-Time High / Record Holder. Both now read `score_history` (canonical player partition, orphans excluded); Past Results stays tournament-derived. The rankings rewrite dodges SQLite's bare-column-with-multiple-MAX trap via the `ROW_NUMBER` pattern (a check-agent catch, reproduced empirically: a merged multi-alias user could otherwise show the wrong alias next to their best score).
+- **Non-active games get the full page** — the game page only resolved a catalogue id (and leaderboard rows) from the ACTIVE tournament boards, so completed/pinned games had no About This Game section, no leaderboard, no expand/percentile. Now falls back to the room-scores data: an "All-Time Leaderboard" with expandable score-history rows + percentile, plus the About section. `GET /:roomId/score-counts` gains an optional `gameNames` param (name-keyed counts, needed because fallback cards carry catalogue ids, not games-table ids). The Leaderboard tab now also appears for permanently-pinned games.
+- **About-section polish** — renders only when the catalogue row has real metadata; the "Unknown manufacturer" placeholder is gone (only present parts render).
+
+New `gamedetail-history-stats.test.ts` (ARCHIVED inclusion, community-score stats, gameNames counts, orphan exclusion, multi-alias best-score alias regression). SW → `arcaid-v93`. No migration (next free still 109).
+
+---
+
 ## [2.20.1] — unreleased
 
 **Room game page gains the catalogue's "About this game" metadata** (user request, same-day as S13). The room Game Detail (`/:slug/games/:name`) and the global catalogue page (`/games/:id`) are deliberately separate — room-scoped scores/tournament context vs. the catalogue entity — but the room page never surfaced the catalogue metadata even though it already resolves the game's `globalGameId` (for the Global Leaderboard cross-link). Now, when a room game maps to an approved catalogue entry, the room page renders an "About This Game" section below the tab content: manufacturer/year/type, theme chips, designers, Table Authors, Downloads (`table_download_urls`), Tutorials (`tutorial_urls`, YouTube ids resolved), and References (`rules_urls` + IPDB). Fetched from the existing public `GET /api/global/games/:id`; hidden entirely (and silently) for unmapped games or fetch failures. SW → `arcaid-v92`. No migration (next free still 109).

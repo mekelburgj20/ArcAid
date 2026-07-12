@@ -934,6 +934,10 @@ router.get('/:roomId/stats/game/:name/player/:identifier', async (req, res) => {
 // renders up to ~50 cards per page and each used to call the single-game route below
 // on mount, brushing the per-IP rate limiter (v2.18.1 incident, see CHANGELOG).
 // GET /:roomId/score-counts?gameIds=id1,id2,...  ->  { counts: { [gameId]: { [player]: count } } }
+// GET /:roomId/score-counts?gameNames=name1,name2,...  ->  { counts: { [gameName]: { [player]: count } } }
+// (both may be supplied together; response keys are the raw gameIds/gameNames the caller
+// sent, merged into one map). gameNames covers cards whose id is a catalogue id rather
+// than a games-table id (non-active games) — the caller falls back to name-keyed lookup.
 // Registered before the single-game route below for readability; the two paths don't
 // actually shadow each other (Express matches on path segments, not query strings, and
 // this route has no trailing /:gameId segment), so ordering isn't load-bearing here.
@@ -944,54 +948,89 @@ router.get('/:roomId/score-counts', async (req, res) => {
         const gameIds = Array.from(new Set(
             rawGameIds.split(',').map(id => id.trim()).filter(id => id.length > 0)
         )).slice(0, 100);
+        const rawGameNames = typeof req.query.gameNames === 'string' ? req.query.gameNames : '';
+        const gameNames = Array.from(new Set(
+            rawGameNames.split(',').map(name => name.trim()).filter(name => name.length > 0)
+        )).slice(0, 100);
 
-        if (gameIds.length === 0) {
-            return res.status(400).json({ error: 'gameIds query parameter is required (comma-separated game IDs)' });
+        if (gameIds.length === 0 && gameNames.length === 0) {
+            return res.status(400).json({ error: 'gameIds and/or gameNames query parameter is required (comma-separated)' });
         }
 
         const db = await getDatabase();
 
-        // Look up game names so we can also match score_history entries with game_id=NULL
-        // (e.g. community scores logged without a game_id) — same fallback the single-game
-        // route below uses via ScoreHistoryService.getPlayerScoreCounts.
-        const gameRows = await db.all(
-            `SELECT id, name FROM games WHERE id IN (${gameIds.map(() => '?').join(',')})`,
-            ...gameIds
-        );
-        const nameById = new Map<string, string>();
-        for (const row of gameRows) {
-            nameById.set(String((row as any).id), (row as any).name);
-        }
-
-        const valuesParams: any[] = [];
-        for (const gameId of gameIds) {
-            valuesParams.push(gameId, nameById.get(gameId) ?? null);
-        }
-
-        const rows = await db.all(
-            `WITH requested(req_game_id, req_game_name) AS (
-                VALUES ${gameIds.map(() => '(?, ?)').join(', ')}
-             )
-             SELECT r.req_game_id as req_game_id, LOWER(sh.iscored_username) as player_key, COUNT(*) as cnt
-             FROM requested r
-             JOIN score_history sh
-               ON sh.game_room_id = ?
-              AND (sh.game_id = r.req_game_id
-                   OR (sh.game_id IS NULL AND r.req_game_name IS NOT NULL AND LOWER(sh.game_name) = LOWER(r.req_game_name)))
-             GROUP BY r.req_game_id, LOWER(sh.iscored_username)
-             HAVING cnt > 1`,
-            ...valuesParams, roomId
-        );
-
         const counts: Record<string, Record<string, number>> = {};
-        for (const gameId of gameIds) {
-            counts[gameId] = {};
+
+        if (gameIds.length > 0) {
+            // Look up game names so we can also match score_history entries with game_id=NULL
+            // (e.g. community scores logged without a game_id) — same fallback the single-game
+            // route below uses via ScoreHistoryService.getPlayerScoreCounts.
+            const gameRows = await db.all(
+                `SELECT id, name FROM games WHERE id IN (${gameIds.map(() => '?').join(',')})`,
+                ...gameIds
+            );
+            const nameById = new Map<string, string>();
+            for (const row of gameRows) {
+                nameById.set(String((row as any).id), (row as any).name);
+            }
+
+            const valuesParams: any[] = [];
+            for (const gameId of gameIds) {
+                valuesParams.push(gameId, nameById.get(gameId) ?? null);
+            }
+
+            const rows = await db.all(
+                `WITH requested(req_game_id, req_game_name) AS (
+                    VALUES ${gameIds.map(() => '(?, ?)').join(', ')}
+                 )
+                 SELECT r.req_game_id as req_game_id, LOWER(sh.iscored_username) as player_key, COUNT(*) as cnt
+                 FROM requested r
+                 JOIN score_history sh
+                   ON sh.game_room_id = ?
+                  AND (sh.game_id = r.req_game_id
+                       OR (sh.game_id IS NULL AND r.req_game_name IS NOT NULL AND LOWER(sh.game_name) = LOWER(r.req_game_name)))
+                 GROUP BY r.req_game_id, LOWER(sh.iscored_username)
+                 HAVING cnt > 1`,
+                ...valuesParams, roomId
+            );
+
+            for (const gameId of gameIds) {
+                counts[gameId] = {};
+            }
+            for (const row of rows) {
+                const r = row as any;
+                const gid = String(r.req_game_id);
+                if (!counts[gid]) counts[gid] = {};
+                counts[gid][r.player_key] = r.cnt;
+            }
         }
-        for (const row of rows) {
-            const r = row as any;
-            const gid = String(r.req_game_id);
-            if (!counts[gid]) counts[gid] = {};
-            counts[gid][r.player_key] = r.cnt;
+
+        if (gameNames.length > 0) {
+            const nameRows = await db.all(
+                `WITH requested(req_game_name) AS (
+                    VALUES ${gameNames.map(() => '(?)').join(', ')}
+                 )
+                 SELECT r.req_game_name as req_game_name, LOWER(sh.iscored_username) as player_key, COUNT(*) as cnt
+                 FROM requested r
+                 JOIN score_history sh
+                   ON sh.game_room_id = ?
+                  AND LOWER(sh.game_name) = LOWER(r.req_game_name)
+                 GROUP BY r.req_game_name, LOWER(sh.iscored_username)
+                 HAVING cnt > 1`,
+                ...gameNames, roomId
+            );
+
+            for (const gameName of gameNames) {
+                if (!counts[gameName]) counts[gameName] = {};
+            }
+            for (const row of nameRows) {
+                const r = row as any;
+                // req_game_name is the bound parameter value echoed back verbatim by the
+                // VALUES clause — exactly the string the caller sent, no re-casing needed.
+                const name = String(r.req_game_name);
+                if (!counts[name]) counts[name] = {};
+                counts[name][r.player_key] = r.cnt;
+            }
         }
 
         res.json({ counts });
@@ -2440,7 +2479,7 @@ router.get('/:roomId/history', async (req, res) => {
         const offset = (page - 1) * limit;
         const db = await getDatabase();
 
-        const conditions: string[] = ["g.status = 'COMPLETED'"];
+        const conditions: string[] = ["g.status IN ('COMPLETED', 'ARCHIVED')"];
         const params: unknown[] = [];
 
         // Room filter via tournament

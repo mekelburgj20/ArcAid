@@ -296,7 +296,32 @@ export default function GameDetail() {
               }
             })
             .catch(() => {});
+          return;
         }
+        // Non-active games (pinned/room-only games with no ACTIVE tournament
+        // board) aren't in the active-boards list above. Fall back to the
+        // Room Scores card for this game — same all-time, canonical-partition
+        // rankings the Room Scores tab shows, including globalGameId (powers
+        // the About This Game section below). The card's gameId is a
+        // catalogue id or a `room_<name>` pseudo-id, NOT a games-table id —
+        // do NOT call the id-keyed /leaderboard/:gameId or
+        // /score-counts/:gameId endpoints against it.
+        fetch(`/api/rooms/${roomId}/room-scores?search=${encodeURIComponent(name)}&limit=10`)
+          .then(r => r.ok ? r.json() : null)
+          .then((payload: { data?: GameLeaderboard[] } | null) => {
+            const card = payload?.data?.find(c => c.gameName.toLowerCase() === name.toLowerCase());
+            if (!card) return;
+            setLeaderboard(card);
+            // Score counts keyed by name (fallback cards have no games-table
+            // id to key the id-based score-counts endpoint on).
+            fetch(`/api/rooms/${roomId}/score-counts?gameNames=${encodeURIComponent(name)}`)
+              .then(r => r.ok ? r.json() : null)
+              .then((data: { counts?: Record<string, Record<string, number>> } | null) => {
+                if (data?.counts?.[name]) setScoreCounts(data.counts[name]);
+              })
+              .catch(() => {});
+          })
+          .catch(() => {});
       })
       .catch(() => {});
 
@@ -573,7 +598,11 @@ export default function GameDetail() {
 
   const imageUrl = leaderboard?.imageUrl;
   const hasTournamentData = !!stats;
-  const tabs: { id: Tab; label: string }[] = hasTournamentData
+  // Non-active/pinned games have no `stats` (StatsService.getGameStats
+  // requires a tournament join) but can still have an all-time leaderboard
+  // via the room-scores fallback above — surface the Leaderboard tab there too.
+  const showLeaderboardTab = hasTournamentData || !!leaderboard;
+  const tabs: { id: Tab; label: string }[] = showLeaderboardTab
     ? [
         { id: 'leaderboard', label: 'Leaderboard' },
         { id: 'community', label: 'Community' },
@@ -808,7 +837,9 @@ export default function GameDetail() {
 
               return (
                 <div className="mb-8">
-                  <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Current Leaderboard</h2>
+                  <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">
+                    {leaderboard?.gameStatus === 'ROOM' ? 'All-Time Leaderboard' : 'Current Leaderboard'}
+                  </h2>
                   {/* v2.5.0: platform-stratified tabs. Hidden when the game has
                       ≤1 distinct platform across submitted scores — degrades
                       cleanly to the legacy single-table view. */}
@@ -1300,14 +1331,26 @@ export default function GameDetail() {
             the fetch failed. Mirrors GlobalGameDetail's block rendering,
             restyled to match this page's existing section conventions. */}
         {catalogueGame && (
+          catalogueGame.manufacturer ||
+          catalogueGame.year ||
+          catalogueGame.themes.length > 0 ||
+          catalogueGame.designers.length > 0 ||
+          catalogueGame.table_authors.length > 0 ||
+          catalogueGame.table_download_urls.length > 0 ||
+          catalogueGame.tutorial_urls.length > 0 ||
+          catalogueGame.rules_urls.length > 0 ||
+          catalogueGame.ipdb_url
+        ) && (
           <div className="mt-8 pt-8 border-t border-border">
             <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">About This Game</h2>
 
             <div className="bg-surface border border-border rounded-lg p-5 mb-4">
               <p className="text-sm text-muted">
-                {catalogueGame.manufacturer || 'Unknown manufacturer'}
-                {catalogueGame.year ? ` · ${catalogueGame.year}` : ''}
-                {catalogueGame.type ? ` · ${catalogueGame.type.charAt(0).toUpperCase() + catalogueGame.type.slice(1)}` : ''}
+                {[
+                  catalogueGame.manufacturer,
+                  catalogueGame.year ? String(catalogueGame.year) : null,
+                  catalogueGame.type ? catalogueGame.type.charAt(0).toUpperCase() + catalogueGame.type.slice(1) : null,
+                ].filter(Boolean).join(' · ')}
               </p>
               {catalogueGame.themes.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-3">
