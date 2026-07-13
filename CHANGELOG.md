@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.21.2] — unreleased
+
+**Safe bulk-merge surfaced on the Dedup Audit card.** After stripping, the second prod audit run left 35 real-vs-real shared-IPDB groups — exactly what `POST /admin/catalogue/merge-ipdb-duplicates` (the v2.13.0 safe bulk-merge: exact-year match, normalized-manufacturer agreement, community/digital rows excluded, richest-row-wins target selection) was built for, but it had no UI. The Dedup Audit card now has **Preview Safe Bulk-Merge** (dry run — shows mergeable count + per-group skip reasons) and **Execute Safe Bulk-Merge** (confirm-gated; re-runs the audit after). Skipped groups render with their reason (`year-disagreement` / `manufacturer-incompatible`) so the leftovers are a ready-made adjudication list. FE-only. SW → `arcaid-v95`. No migration (next free still 111).
+
+---
+
 ## [2.21.1] — unreleased
 
 **Fix: VPS "Not Available" placeholder junk polluted the dedup audit.** The first prod audit run (95 suspects) revealed a third failure mode: VPS ships a literal `"Not Available"` string in its `ipdbUrl` field and the importer copied it verbatim for years — harmless to dedup (unparseable, never matched the IPDB step) but junk in the identity column, and the v2.21.0 routing could even "preserve" it into `based_on_ipdb_url` on virtual rows.
