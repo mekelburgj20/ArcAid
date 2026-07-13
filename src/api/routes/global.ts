@@ -155,12 +155,17 @@ router.get('/me/friends', requireDiscordUser, async (req, res) => {
 
 router.post('/me/friends', requireDiscordUser, async (req, res) => {
     try {
-        const { discordUsername } = req.body;
-        if (!discordUsername || typeof discordUsername !== 'string') {
-            return res.status(400).json({ error: 'discordUsername is required' });
-        }
+        const { discordUsername, friendUserId } = req.body;
         const { FriendsService } = await import('../../services/FriendsService.js');
-        const result = await FriendsService.addFriend(req.user!.discordId!, discordUsername.trim());
+
+        let result: { friendUserId: string };
+        if (typeof friendUserId === 'string' && friendUserId.trim()) {
+            result = await FriendsService.addFriendById(req.user!.discordId!, friendUserId.trim());
+        } else if (typeof discordUsername === 'string' && discordUsername.trim()) {
+            result = await FriendsService.addFriend(req.user!.discordId!, discordUsername.trim());
+        } else {
+            return res.status(400).json({ error: 'discordUsername or friendUserId is required' });
+        }
         res.status(201).json(result);
     } catch (error: any) {
         if (error?.message?.includes('Could not find')) {

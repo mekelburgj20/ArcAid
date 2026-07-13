@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { Flame, Trophy, Target, Medal } from 'lucide-react';
+import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare } from 'lucide-react';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface Achievements {
   tournamentWins: number;
@@ -37,6 +38,8 @@ interface PlayerStats {
   achievements?: Achievements;
   /** May be absent on old cached responses. */
   personalBests?: PersonalBest[];
+  /** WP2 — S14 social loops. May be absent on stale caches. */
+  participationStreak?: { currentWeeks: number; bestWeeks: number };
 }
 
 const ACHIEVEMENT_LABELS: Record<Achievements['recent'][number]['type'], string> = {
@@ -63,6 +66,9 @@ export default function PlayerDetail() {
     : null;
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const { discordUser, playerToken } = useViewerAuth();
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  const [followPending, setFollowPending] = useState(false);
 
   useEffect(() => {
     if (!id || !slug) return;
@@ -78,6 +84,54 @@ export default function PlayerDetail() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [slug, id]);
+
+  // Follow list — fetched once per viewer session (dep on the token string,
+  // never a headers object; see v2.18.1 lesson).
+  useEffect(() => {
+    if (!discordUser?.discordId || !playerToken) { setFriendIds(new Set()); return; }
+    let cancelled = false;
+    fetch('/api/me/friends', { headers: { Authorization: `Bearer ${playerToken}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then((list: Array<{ friend_user_id: string }>) => {
+        if (!cancelled) setFriendIds(new Set(list.map(f => f.friend_user_id)));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [discordUser?.discordId, playerToken]);
+
+  const toggleFollow = async () => {
+    if (!playerToken || !stats?.discordUserId || followPending) return;
+    const targetId = stats.discordUserId;
+    const wasFollowing = friendIds.has(targetId);
+    setFollowPending(true);
+    setFriendIds(prev => {
+      const next = new Set(prev);
+      if (wasFollowing) next.delete(targetId); else next.add(targetId);
+      return next;
+    });
+    try {
+      const res = wasFollowing
+        ? await fetch(`/api/me/friends/${targetId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${playerToken}` },
+          })
+        : await fetch('/api/me/friends', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ friendUserId: targetId }),
+          });
+      if (!res.ok) throw new Error('follow-toggle-failed');
+    } catch {
+      // Revert the optimistic toggle.
+      setFriendIds(prev => {
+        const next = new Set(prev);
+        if (wasFollowing) next.add(targetId); else next.delete(targetId);
+        return next;
+      });
+    } finally {
+      setFollowPending(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -96,6 +150,16 @@ export default function PlayerDetail() {
   }
 
   const displayName = stats.iscoredUsername || `Player ${stats.discordUserId.slice(-4)}`;
+  const canFollow = !!discordUser?.discordId && !!stats.discordUserId && discordUser.discordId !== stats.discordUserId;
+  const isFollowing = !!stats.discordUserId && friendIds.has(stats.discordUserId);
+  const compareIdentifier = id || stats.iscoredUsername || stats.discordUserId;
+  // Snowflake, not username — the compare resolver only accepts a Discord
+  // snowflake or an iscored_username (check-agent catch).
+  const viewerCompareIdentifier =
+    discordUser?.discordId && discordUser.discordId !== stats.discordUserId ? discordUser.discordId : '';
+  const compareHref = `/${slug}/compare?a=${encodeURIComponent(compareIdentifier)}${
+    viewerCompareIdentifier ? `&b=${encodeURIComponent(viewerCompareIdentifier)}` : ''
+  }`;
 
   return (
     <div>
@@ -124,6 +188,31 @@ export default function PlayerDetail() {
         {stats.iscoredUsername && (
           <p className="text-faint text-xs mt-0.5">iScored: {stats.iscoredUsername}</p>
         )}
+
+        {/* WP2 — S14 social loops: Follow + Compare */}
+        <div className="flex items-center gap-2 mt-3">
+          {canFollow && (
+            <button
+              onClick={toggleFollow}
+              disabled={followPending}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 ${
+                isFollowing
+                  ? 'border-neon-green/40 bg-neon-green/10 text-neon-green hover:bg-neon-green/20'
+                  : 'border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20'
+              }`}
+            >
+              {isFollowing ? <UserCheck size={14} /> : <UserPlus size={14} />}
+              {isFollowing ? 'Following' : 'Follow'}
+            </button>
+          )}
+          <Link
+            to={compareHref}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-xs font-medium text-muted hover:text-primary hover:border-neon-cyan/40 no-underline transition-colors"
+          >
+            <GitCompare size={14} />
+            Compare
+          </Link>
+        </div>
       </div>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
@@ -143,6 +232,15 @@ export default function PlayerDetail() {
               </p>
             </div>
           </div>
+          {stats.participationStreak && (
+            <div className="bg-surface border border-border rounded-lg p-4 text-center">
+              <p className="text-faint text-xs uppercase tracking-wider mb-1">Weekly Streak</p>
+              <p className="font-display font-bold text-2xl text-neon-blue">
+                {stats.participationStreak.currentWeeks}
+              </p>
+              <p className="text-faint text-[10px] mt-0.5">best {stats.participationStreak.bestWeeks}</p>
+            </div>
+          )}
         </div>
 
         {/* Trophies */}

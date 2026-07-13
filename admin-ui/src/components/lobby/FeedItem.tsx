@@ -22,6 +22,7 @@ const TYPE_ICONS: Record<string, { icon: typeof Flame; color: string }> = {
   admin_message:     { icon: Megaphone,  color: 'text-neon-magenta' },
   admin_shoutout:    { icon: Zap,        color: 'text-neon-magenta' },
   staleness_challenge:{ icon: Crown,     color: 'text-muted' },
+  streak_extended:   { icon: Flame,      color: 'text-neon-amber' },
 };
 
 function relativeTime(iso: string): string {

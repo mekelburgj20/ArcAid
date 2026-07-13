@@ -10,8 +10,9 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { X, ExternalLink, Flame, Users, Trophy, Target, Medal } from 'lucide-react';
+import { X, ExternalLink, Flame, Users, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare } from 'lucide-react';
 import { PlayerAvatar, playerName } from '../components/ScoreboardComponents';
+import { useViewerAuth } from './ViewerAuthContext';
 
 /**
  * v2.13.16 — public-side player quick-view modal context.
@@ -85,6 +86,8 @@ interface Stats {
   };
   /** May be absent on old cached responses. */
   personalBests?: Array<{ game_name: string; best_score: number; room_rank: number; total_players: number; achieved_at: string }>;
+  /** WP2 — S14 social loops. May be absent on stale caches. */
+  participationStreak?: { currentWeeks: number; bestWeeks: number };
 }
 
 export function PlayerQuickViewProvider({ children }: { children: ReactNode }) {
@@ -110,6 +113,9 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const backdropMouseDown = useRef(false);
+  const { discordUser, playerToken } = useViewerAuth();
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  const [followPending, setFollowPending] = useState(false);
 
   // Fetch player stats. Same pattern as PlayerDetail.tsx — find the room by
   // slug first, then hit the enhanced player-stats endpoint.
@@ -141,6 +147,54 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
     return () => { cancelled = true; };
   }, [slug, entry.iscored_username]);
 
+  // Follow list — fetched once per viewer session (dep on the token string,
+  // never a headers object; see v2.18.1 lesson).
+  useEffect(() => {
+    if (!discordUser?.discordId || !playerToken) { setFriendIds(new Set()); return; }
+    let cancelled = false;
+    fetch('/api/me/friends', { headers: { Authorization: `Bearer ${playerToken}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then((list: Array<{ friend_user_id: string }>) => {
+        if (!cancelled) setFriendIds(new Set(list.map(f => f.friend_user_id)));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [discordUser?.discordId, playerToken]);
+
+  const toggleFollow = async () => {
+    if (!playerToken || !stats?.discordUserId || followPending) return;
+    const targetId = stats.discordUserId;
+    const wasFollowing = friendIds.has(targetId);
+    setFollowPending(true);
+    setFriendIds(prev => {
+      const next = new Set(prev);
+      if (wasFollowing) next.delete(targetId); else next.add(targetId);
+      return next;
+    });
+    try {
+      const res = wasFollowing
+        ? await fetch(`/api/me/friends/${targetId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${playerToken}` },
+          })
+        : await fetch('/api/me/friends', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ friendUserId: targetId }),
+          });
+      if (!res.ok) throw new Error('follow-toggle-failed');
+    } catch {
+      // Revert the optimistic toggle.
+      setFriendIds(prev => {
+        const next = new Set(prev);
+        if (wasFollowing) next.add(targetId); else next.delete(targetId);
+        return next;
+      });
+    } finally {
+      setFollowPending(false);
+    }
+  };
+
   // Esc to close + lock background scroll while modal is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -158,6 +212,21 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
   // returns to the originating leaderboard view.
   const fullPlayerHref = `/${slug}/players/${encodeURIComponent(entry.iscored_username)}?from=${encodeURIComponent(slug)}${fromTab ? `&tab=${fromTab}` : ''}`;
   const allPlayersHref = `/${slug}/players${fromTab === 'all-games' ? '?tab=all-games' : ''}`;
+
+  // WP2 — S14 social loops: Follow + Compare.
+  const canFollow = !!discordUser?.discordId && !!stats?.discordUserId && discordUser.discordId !== stats.discordUserId;
+  const isFollowing = !!stats?.discordUserId && friendIds.has(stats.discordUserId);
+  const compareIdentifier = entry.iscored_username;
+  // Pre-fill side B with the viewer's Discord SNOWFLAKE — the compare
+  // resolver accepts a snowflake or an iscored_username, NOT the raw
+  // Discord username (check-agent catch).
+  const viewerCompareIdentifier =
+    discordUser?.discordId && stats?.discordUserId && discordUser.discordId !== stats.discordUserId
+      ? discordUser.discordId
+      : '';
+  const compareHref = `/${slug}/compare?a=${encodeURIComponent(compareIdentifier)}${
+    viewerCompareIdentifier ? `&b=${encodeURIComponent(viewerCompareIdentifier)}` : ''
+  }`;
 
   return createPortal(
     <div
@@ -219,6 +288,13 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
                 </div>
               </div>
 
+              {stats.participationStreak && (
+                <p className="text-[10px] text-faint text-center -mt-2 mb-3">
+                  Weekly streak <span className="text-neon-blue font-bold">{stats.participationStreak.currentWeeks}</span>
+                  <span className="text-faint"> · best {stats.participationStreak.bestWeeks}</span>
+                </p>
+              )}
+
               {stats.achievements && (
                 stats.achievements.tournamentWins > 0 ||
                 stats.achievements.milestones > 0 ||
@@ -271,6 +347,31 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
 
         {/* Footer */}
         <div className="px-5 py-3 border-t border-border flex flex-col gap-2">
+          {/* WP2 — S14 social loops: Follow + Compare */}
+          <div className="flex items-center gap-2">
+            {canFollow && (
+              <button
+                onClick={toggleFollow}
+                disabled={followPending}
+                className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 ${
+                  isFollowing
+                    ? 'border-neon-green/40 bg-neon-green/10 text-neon-green hover:bg-neon-green/20'
+                    : 'border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20'
+                }`}
+              >
+                {isFollowing ? <UserCheck size={14} /> : <UserPlus size={14} />}
+                {isFollowing ? 'Following' : 'Follow'}
+              </button>
+            )}
+            <Link
+              to={compareHref}
+              onClick={onClose}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border border-border text-sm text-muted hover:text-primary hover:border-neon-cyan/40 no-underline transition-colors"
+            >
+              <GitCompare size={14} />
+              Compare
+            </Link>
+          </div>
           <Link
             to={fullPlayerHref}
             onClick={onClose}

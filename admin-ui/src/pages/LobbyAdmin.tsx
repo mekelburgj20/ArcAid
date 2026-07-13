@@ -52,7 +52,7 @@ interface FeedSettings {
 const ALL_FEED_TYPES = [
   'new_high_score', 'rank_change', 'score_posted',
   'tournament_active', 'tournament_ending', 'tournament_results',
-  'player_milestone', 'room_stats', 'staleness_challenge',
+  'player_milestone', 'room_stats', 'staleness_challenge', 'streak_extended',
   'new_game', 'player_joined', 'admin_message', 'admin_shoutout',
 ];
 

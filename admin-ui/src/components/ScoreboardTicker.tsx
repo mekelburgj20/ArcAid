@@ -1,0 +1,131 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users, Crown } from 'lucide-react';
+import { getSocket } from '../lib/websocket';
+
+interface TickerFeedEvent {
+  id: number;
+  type: string;
+  title: string;
+  target_user_id?: string | null;
+  created_at: string;
+}
+
+// S14 — kept intentionally distinct from KioskScoreboard's TICKER_ICONS map
+// (same icon set, extended with streak_extended + staleness_challenge).
+const TICKER_ICONS: Record<string, typeof Flame> = {
+  new_high_score: Flame,
+  rank_change: TrendingUp,
+  score_posted: Target,
+  tournament_results: Trophy,
+  tournament_active: Gamepad2,
+  player_milestone: Star,
+  friend_score: Users,
+  streak_extended: Flame,
+  staleness_challenge: Crown,
+};
+
+interface ScoreboardTickerProps {
+  roomId: string;
+}
+
+/**
+ * S14 — Fixed-bottom marquee of recent lobby feed activity for the public
+ * Scoreboard page (all three tabs). Seeded from the lobby feed REST endpoint,
+ * then kept live over the shared `lobby:<roomId>` socket channel (push model,
+ * mirrors Lobby.tsx's seenIds-dedupe discipline) rather than KioskScoreboard's
+ * poll-on-room-event approach.
+ */
+export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
+  const [events, setEvents] = useState<TickerFeedEvent[]>([]);
+  const seenIds = useRef(new Set<number>());
+
+  // Seed from the lobby feed REST endpoint
+  useEffect(() => {
+    if (!roomId) return;
+    let cancelled = false;
+    fetch(`/api/rooms/${roomId}/lobby/feed?limit=15`)
+      .then(r => r.ok ? r.json() : [])
+      .then((data: TickerFeedEvent[]) => {
+        if (cancelled) return;
+        const filtered = (data || []).filter(e => !e.target_user_id);
+        seenIds.current = new Set(filtered.map(e => e.id));
+        setEvents(filtered);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [roomId]);
+
+  // Live updates over the shared lobby socket channel. The socket is a shared
+  // singleton (see Lobby.tsx / v2.18 lesson) so handler refs are passed to
+  // `off` — a bare `socket.off('lobby:event')` would also kill Lobby.tsx's
+  // handler for the same event.
+  useEffect(() => {
+    if (!roomId) return;
+    const socket = getSocket();
+    socket.emit('join:lobby', roomId);
+
+    const handler = (event: TickerFeedEvent) => {
+      if (event.target_user_id) return;
+      if (seenIds.current.has(event.id)) return;
+      seenIds.current.add(event.id);
+      setEvents(prev => [event, ...prev].slice(0, 15));
+    };
+    socket.on('lobby:event', handler);
+
+    return () => {
+      socket.emit('leave:lobby', roomId);
+      socket.off('lobby:event', handler);
+    };
+  }, [roomId]);
+
+  const tickerItems = useMemo(() => events.map(e => {
+    const ago = (() => {
+      const s = Math.floor((Date.now() - new Date(e.created_at).getTime()) / 1000);
+      if (s < 60) return 'just now';
+      const m = Math.floor(s / 60);
+      if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h}h ago`;
+      return `${Math.floor(h / 24)}d ago`;
+    })();
+    return { id: e.id, title: e.title, ago, Icon: TICKER_ICONS[e.type] || Target };
+  }), [events]);
+
+  if (tickerItems.length === 0) return null;
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden" style={{ height: 36 }}>
+      <div className="scoreboard-ticker-track flex items-center gap-10 whitespace-nowrap h-full px-4">
+        {/* Double the items for a seamless loop */}
+        {[...tickerItems, ...tickerItems].map((item, i) => {
+          const Icon = item.Icon;
+          return (
+            <span key={`${item.id}-${i}`} className="inline-flex items-center gap-1.5 text-xs">
+              <Icon size={12} className="text-neon-cyan flex-shrink-0" />
+              <span className="text-primary/80">{item.title}</span>
+              <span className="text-faint ml-1">{item.ago}</span>
+            </span>
+          );
+        })}
+      </div>
+      <style>{`
+        @keyframes scoreboard-ticker-scroll {
+          from { transform: translateX(0); }
+          to { transform: translateX(-50%); }
+        }
+        .scoreboard-ticker-track {
+          animation: scoreboard-ticker-scroll 60s linear infinite;
+        }
+        .scoreboard-ticker-track:hover {
+          animation-play-state: paused;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .scoreboard-ticker-track {
+            animation: none;
+            overflow-x: auto;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}

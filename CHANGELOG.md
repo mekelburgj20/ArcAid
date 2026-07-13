@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.22.0] — unreleased
+
+**S14 — Social & competitive loops (Phase C).** Built via the established Fable-orchestrated Sonnet workflow (recon → 4 work packages → check → orchestrator review; zero blockers).
+
+- **Follow from player surfaces** — `POST /api/me/friends` now also accepts `{friendUserId}` (Discord snowflake; target verified against `user_profiles`/`user_mappings`, 404 unknown, 400 self; legacy typed-username path untouched). PlayerDetail + PlayerQuickView gain a Follow/Unfollow toggle (Discord-authed viewers, targets with a Discord identity only, optimistic with revert).
+- **Head-to-head Compare** — new public `GET /:roomId/stats/compare?a=&b=` on the canonical `score_history` partition (best-per-game per player, alias-collapsed): shared games with leader + gap, exclusive-game counts, win totals. New `/:slug/compare` page (searchable picker; Compare buttons on PlayerDetail/QuickView pre-fill the viewer as the opponent).
+- **Participation streaks** — `participationStreak {currentWeeks, bestWeeks}` on the enhanced player stats (SQL `LAG`-based week-consecutiveness — immune to the `%Y-%W` year-boundary trap), rendered as a Weekly Streak stat on both player surfaces (distinct from the champion streak). New `streak_extended` lobby feed event on a player's first score of the week when it extends a ≥2-week run (feed-toggle-gated).
+- **Staleness challenge — the dead config knob finally works.** LobbyAdmin has shipped the setting (threshold, default 14d) and the feed renderer since Lobby v1 with **no backend emitter**; a new daily Scheduler job (per-room, `isTypeEnabled`-gated, app-level lookback dedupe, one emission max, per-room try/catch) now emits "It's been N days since anyone scored on X — beat the record!" with the record to beat in metadata.
+- **Scoreboard ticker** — kiosk-style fixed-bottom marquee on the public Scoreboard (all three tabs): seeded from the lobby feed, kept live over the `lobby:` WebSocket channel (true push — the kiosk's poll-on-event pattern was not ported), pause-on-hover, `prefers-reduced-motion` fallback, hidden when empty.
+
+Review fixes: compare pre-fill sends the viewer's snowflake (not the raw Discord username the resolver can't parse); `aOnlyGames`/`bOnlyGames` wire-type mismatch; Follow gated on the target having a Discord identity; `display_name` now mapped through on the all-players stats endpoint (pre-existing omission). New `s14-social-loops.test.ts` (follow-by-id, compare w/ alias collapse, deterministic streak week-math, streak-event dedupe, staleness gate/dedupe). SW → `arcaid-v96`. No migration (next free still 111).
+
+---
+
 ## [2.21.3] — unreleased
 
 **Safe bulk-merge learns corporate aliases + faithful JP recreations.** The first prod Execute (5 merged / 30 skipped) showed ~26 of the skips weren't real conflicts: (1) **corporate aliases** — the same maker under renamed/rebranded labels (`Alvin G.`=`Alvin G. & Co`, `Sonic`=`Segasa`, `Bell Games`=`Nuova Bell Games`, `MAC`=`Maguinas / Mac Pinball`, `Allied Leisure`→`Fascination`, `Cirsa`=`Unidesa`, `Spinball`=`Spinball S.A.L.`, `International`=`International Concepts`, `Jocmatic`≈`Joctronic`) — now a curated normalized-form alias map in the bulk-merge manufacturer normalizer (which also strips `/` and curly apostrophes); (2) **the `JP's` veto relaxed** — it now only fires when the manufacturer is *also* virtual-only, so JPSalas's faithful recreations of real machines (`JP's The Lord of the Rings (Stern, 2003)`) merge into the real machine's entry while `JP's Cyclone (Original, 2022)` fan tables stay excluded. Genuinely-different-maker groups (e.g. `Stern` vs `Allied Leisure`) still skip for human adjudication. +5 test cases. Backend-only, no SW bump. No migration (next free still 111).

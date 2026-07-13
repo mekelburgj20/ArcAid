@@ -84,6 +84,9 @@ export class Scheduler {
         // Daily cleanup of old lobby feed events (3:30 AM)
         this.startLobbyFeedCleanup();
 
+        // Daily staleness-challenge feed event, per room (3:45 AM)
+        this.startStalenessChallengeEmitter();
+
         // Expire stale submission drafts (every 5 minutes)
         this.startSubmissionDraftCleanup();
 
@@ -229,6 +232,123 @@ export class Scheduler {
 
         this.tasks.set('__lobby_feed_cleanup__', task);
         logInfo('Lobby feed cleanup scheduled (daily at 3:30 AM).');
+    }
+
+    /**
+     * S14 social loops — the "dead-config revival" of `stalenessThresholdDays`
+     * / the `staleness_challenge` feed type (both existed in the LobbyAdmin FE
+     * with nothing on the backend ever emitting them). Runs once daily per
+     * room: finds the room's single STALEST game (oldest last-score, past the
+     * room's configured threshold) and emits one challenge event, deduped
+     * against any staleness_challenge already emitted for that game within
+     * the threshold window. One bad room's failure never blocks the rest.
+     */
+    private startStalenessChallengeEmitter(): void {
+        const timezone = process.env.BOT_TIMEZONE || 'America/Chicago';
+        const task = cron.schedule('45 3 * * *', async () => {
+            try {
+                const db = await getDatabase();
+                const rooms = await db.all('SELECT id FROM game_rooms');
+                for (const room of rooms) {
+                    try {
+                        await this.emitStalenessChallengeForRoom(room.id);
+                    } catch (error) {
+                        logError(`Staleness challenge emitter error for room ${room.id}:`, error);
+                    }
+                }
+            } catch (error) {
+                logError('Staleness challenge emitter error:', error);
+            }
+        }, { timezone });
+
+        this.tasks.set('__staleness_challenge__', task);
+        logInfo('Staleness challenge emitter scheduled (daily at 3:45 AM).');
+    }
+
+    /**
+     * Per-room worker for {@link startStalenessChallengeEmitter}. Skips the
+     * room entirely if `staleness_challenge` isn't in the room's
+     * LOBBY_FEED_SETTINGS.enabledTypes (or the room hasn't configured feed
+     * settings at all — `isTypeEnabled` treats a null/unset list as
+     * all-enabled, matching every other feed-type gate in the codebase).
+     */
+    private async emitStalenessChallengeForRoom(gameRoomId: string): Promise<void> {
+        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+        const { isTypeEnabled } = await import('../services/LobbyFeedGenerator.js');
+
+        const raw = await GameRoomSettingsService.get(gameRoomId, 'LOBBY_FEED_SETTINGS');
+        let thresholdDays = 14;
+        let enabledTypes: string[] | null = null;
+        if (raw) {
+            try {
+                const settings = JSON.parse(raw);
+                if (typeof settings.stalenessThresholdDays === 'number' && settings.stalenessThresholdDays > 0) {
+                    thresholdDays = settings.stalenessThresholdDays;
+                }
+                if (Array.isArray(settings.enabledTypes) && settings.enabledTypes.length > 0) {
+                    enabledTypes = settings.enabledTypes;
+                }
+            } catch { /* malformed settings JSON — fall back to defaults */ }
+        }
+
+        if (!isTypeEnabled(enabledTypes, 'staleness_challenge')) return;
+
+        const db = await getDatabase();
+
+        // Stalest game: per-game last-score timestamp, oldest wins. Room-scoped,
+        // orphaned rows excluded (mirrors every other score_history query).
+        const stalest = await db.get<{ game_name: string; last_score_at: string; days_since: number }>(`
+            SELECT game_name, MAX(created_at) as last_score_at,
+                   CAST(julianday('now') - julianday(MAX(created_at)) AS INTEGER) as days_since
+            FROM score_history
+            WHERE game_room_id = ?
+              AND orphaned_at IS NULL
+            GROUP BY LOWER(game_name)
+            HAVING last_score_at <= datetime('now', ?)
+            ORDER BY last_score_at ASC
+            LIMIT 1
+        `, gameRoomId, `-${thresholdDays} days`);
+
+        if (!stalest) return;
+
+        // Dedupe: skip if a staleness_challenge for this game already fired
+        // within the threshold window (app-level check, no migration).
+        const existing = await db.get(`
+            SELECT id FROM lobby_feed_events
+            WHERE game_room_id = ?
+              AND type = 'staleness_challenge'
+              AND LOWER(game_name) = LOWER(?)
+              AND created_at >= datetime('now', ?)
+            LIMIT 1
+        `, gameRoomId, stalest.game_name, `-${thresholdDays} days`);
+        if (existing) return;
+
+        // Top score for the challenge copy — canonical best-per-player partition.
+        const top = await db.get<{ iscored_username: string; score: number }>(`
+            SELECT iscored_username, score FROM (
+                SELECT iscored_username, score,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
+                           ORDER BY score DESC, created_at ASC
+                       ) as rn
+                FROM score_history
+                WHERE game_room_id = ?
+                  AND LOWER(game_name) = LOWER(?)
+                  AND orphaned_at IS NULL
+            )
+            WHERE rn = 1
+            ORDER BY score DESC
+            LIMIT 1
+        `, gameRoomId, stalest.game_name);
+
+        const { LobbyFeedService } = await import('../services/LobbyFeedService.js');
+        await LobbyFeedService.emit({
+            gameRoomId,
+            type: 'staleness_challenge',
+            title: `It's been ${stalest.days_since} days since anyone scored on ${stalest.game_name} — beat the record!`,
+            gameName: stalest.game_name,
+            metadata: { days: stalest.days_since, topScore: top?.score ?? null, topPlayer: top?.iscored_username ?? null },
+        });
     }
 
     /**

@@ -21,6 +21,7 @@ import GameQuickView from '../components/GameQuickView';
 import HorizontalScrollNav from '../components/HorizontalScrollNav';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
+import ScoreboardTicker from '../components/ScoreboardTicker';
 import { deriveCardProps } from '../lib/scoreboardConfig';
 import { deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../lib/scoreboardConfig';
 import { TAB_LABELS, tabSubtitle } from '../lib/scoresCopy';
@@ -354,7 +355,12 @@ export default function Scoreboard() {
       {/* Scrollable content — zoom applied here so it doesn't break the flex height chain */}
       <div
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
-        style={zoom !== 100 ? { zoom: `${zoom}%` } : undefined}
+        style={{
+          ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
+          // S14: reserve room for the fixed-bottom lobby ticker so it doesn't
+          // cover the last row of cards.
+          paddingBottom: roomId ? 40 : undefined,
+        }}
       >
       {/* Header zone — bg image starts below this unless fill-entire mode */}
       <div
@@ -618,6 +624,9 @@ export default function Scoreboard() {
           onSubmitted={() => { loadData(); loadRankings(); setSelectedGame(null); }}
         />
       )}
+
+      {/* S14: lobby feed ticker — visible on all three tabs. */}
+      {roomId && <ScoreboardTicker roomId={roomId} />}
 
       {/* Player display preferences modal */}
       {playerToken && (
