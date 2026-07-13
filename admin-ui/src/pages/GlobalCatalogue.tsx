@@ -90,6 +90,23 @@ interface DedupAuditResult {
   sharedIpdbGroups: SharedIpdbGroup[];
 }
 
+/** Response of POST /admin/catalogue/merge-ipdb-duplicates (v2.13.0 safe
+ *  bulk-merge; surfaced on the Dedup Audit card as of v2.21.2). */
+interface BulkMergeResult {
+  dryRun: boolean;
+  totalDupGroups: number;
+  merged: number;
+  skipped: number;
+  log: Array<{
+    ipdb: string;
+    action: 'merged' | 'skipped';
+    reason?: string;
+    targetId?: string;
+    sourceIds?: string[];
+    rows: Array<{ id: string; name: string; manufacturer: string | null; year: number | null; imported_from: string | null }>;
+  }>;
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   vps: 'VPS',
   opdb: 'OPDB',
@@ -131,6 +148,8 @@ export default function GlobalCatalogue() {
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [stripping, setStripping] = useState(false);
+  const [bulkMerging, setBulkMerging] = useState(false);
+  const [bulkMergeResult, setBulkMergeResult] = useState<BulkMergeResult | null>(null);
 
   const loadData = useCallback(async () => {
     setLoadError(null);
@@ -316,6 +335,30 @@ export default function GlobalCatalogue() {
     stripIds(auditData.suspects.map(s => s.id));
   };
 
+  // v2.21.2: surface the existing v2.13.0 safe bulk-merge endpoint on the
+  // audit card — merges shared-IPDB groups that pass the strict heuristic
+  // (same year, normalized-manufacturer agreement, no community/digital
+  // markers) and reports per-group skip reasons for the rest.
+  const runBulkMerge = async (dry: boolean) => {
+    if (!dry && !confirm('Execute safe bulk-merge? Groups passing the strict heuristic (same year, compatible manufacturers) will be merged into one catalogue entry each. Run the dry-run preview first if unsure.')) return;
+    setBulkMerging(true);
+    setAuditError(null);
+    try {
+      const res = await api.post<BulkMergeResult>(
+        `/admin/catalogue/merge-ipdb-duplicates${dry ? '?dry=true' : ''}`, {}
+      );
+      setBulkMergeResult(res);
+      if (!dry) {
+        await runAudit();
+        await loadData();
+      }
+    } catch (err) {
+      setAuditError(err instanceof Error ? err.message : 'Bulk merge failed');
+    } finally {
+      setBulkMerging(false);
+    }
+  };
+
   if (loading) return <LoadingState message="Loading catalogue..." />;
 
   return (
@@ -404,7 +447,46 @@ export default function GlobalCatalogue() {
               {auditData.summary.scannedRows.toLocaleString()} rows scanned
             </span>
           )}
+          {auditData && auditData.summary.sharedGroupCount > 0 && (
+            <>
+              <NeonButton
+                variant="secondary"
+                onClick={() => runBulkMerge(true)}
+                disabled={bulkMerging}
+                className="text-xs py-1 px-3"
+              >
+                {bulkMerging ? 'Working…' : 'Preview Safe Bulk-Merge'}
+              </NeonButton>
+              <NeonButton
+                variant="danger"
+                onClick={() => runBulkMerge(false)}
+                disabled={bulkMerging}
+                className="text-xs py-1 px-3"
+              >
+                Execute Safe Bulk-Merge
+              </NeonButton>
+            </>
+          )}
         </div>
+
+        {bulkMergeResult && (
+          <div className="mb-4 p-3 rounded bg-surface border border-border text-sm">
+            <div className="font-medium mb-1">
+              Safe bulk-merge {bulkMergeResult.dryRun ? 'preview (no changes made)' : 'executed'}:
+              {' '}{bulkMergeResult.merged} group{bulkMergeResult.merged === 1 ? '' : 's'} merge{bulkMergeResult.dryRun ? 'able' : 'd'},
+              {' '}{bulkMergeResult.skipped} skipped
+            </div>
+            {bulkMergeResult.log.filter(l => l.action === 'skipped').length > 0 && (
+              <div className="text-xs text-muted space-y-0.5 max-h-48 overflow-y-auto">
+                {bulkMergeResult.log.filter(l => l.action === 'skipped').map(l => (
+                  <div key={l.ipdb}>
+                    IPDB {l.ipdb} — skipped ({l.reason}): {l.rows.map(r => `${r.name} (${r.manufacturer || '?'}${r.year ? `, ${r.year}` : ''})`).join(' · ')}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {auditError && (
           <div className="mb-4 p-3 rounded bg-red-900/30 border border-red-700 text-red-300 text-sm">
