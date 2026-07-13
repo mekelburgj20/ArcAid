@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.21.3] — unreleased
+
+**Safe bulk-merge learns corporate aliases + faithful JP recreations.** The first prod Execute (5 merged / 30 skipped) showed ~26 of the skips weren't real conflicts: (1) **corporate aliases** — the same maker under renamed/rebranded labels (`Alvin G.`=`Alvin G. & Co`, `Sonic`=`Segasa`, `Bell Games`=`Nuova Bell Games`, `MAC`=`Maguinas / Mac Pinball`, `Allied Leisure`→`Fascination`, `Cirsa`=`Unidesa`, `Spinball`=`Spinball S.A.L.`, `International`=`International Concepts`, `Jocmatic`≈`Joctronic`) — now a curated normalized-form alias map in the bulk-merge manufacturer normalizer (which also strips `/` and curly apostrophes); (2) **the `JP's` veto relaxed** — it now only fires when the manufacturer is *also* virtual-only, so JPSalas's faithful recreations of real machines (`JP's The Lord of the Rings (Stern, 2003)`) merge into the real machine's entry while `JP's Cyclone (Original, 2022)` fan tables stay excluded. Genuinely-different-maker groups (e.g. `Stern` vs `Allied Leisure`) still skip for human adjudication. +5 test cases. Backend-only, no SW bump. No migration (next free still 111).
+
+---
+
 ## [2.21.2] — unreleased
 
 **Safe bulk-merge surfaced on the Dedup Audit card.** After stripping, the second prod audit run left 35 real-vs-real shared-IPDB groups — exactly what `POST /admin/catalogue/merge-ipdb-duplicates` (the v2.13.0 safe bulk-merge: exact-year match, normalized-manufacturer agreement, community/digital rows excluded, richest-row-wins target selection) was built for, but it had no UI. The Dedup Audit card now has **Preview Safe Bulk-Merge** (dry run — shows mergeable count + per-group skip reasons) and **Execute Safe Bulk-Merge** (confirm-gated; re-runs the audit after). Skipped groups render with their reason (`year-disagreement` / `manufacturer-incompatible`) so the leftovers are a ready-made adjudication list. FE-only. SW → `arcaid-v95`. No migration (next free still 111).

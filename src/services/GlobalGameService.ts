@@ -1235,7 +1235,15 @@ export class GlobalGameService {
                 const name = (r.name || '').toLowerCase();
                 if (mfg === 'original') return true;
                 if (mfg.includes('zen studios')) return true;
-                if (name.startsWith("jp's")) return true;
+                // v2.21.3: a "JP's …" name is only a fan-table marker when the
+                // manufacturer is ALSO virtual-only/missing. JPSalas's faithful
+                // recreations of real machines carry the real manufacturer +
+                // year (e.g. "JP's The Lord of the Rings (Stern, 2003)") and
+                // are the same machine — the 2026-07-13 prod bulk-merge run
+                // skipped 7 such groups that should merge. Fan originals like
+                // "JP's Cyclone (Original, 2022)" still trip the mfg checks
+                // above.
+                if (name.startsWith("jp's") && isVirtualOnlyManufacturer(r.manufacturer)) return true;
                 return false;
             };
             if (gs.some(isProblematicRow)) {
@@ -1258,7 +1266,7 @@ export class GlobalGameService {
             const norm = (m: string | null): string => {
                 if (!m) return '';
                 let n = m.toLowerCase().trim();
-                n = n.replace(/[',.\-&]/g, '');
+                n = n.replace(/[',.\-&\/’]/g, '');
                 n = n.replace(/\s+/g, '');
                 // Iterate: strip suffix, repeat in case of compound suffixes.
                 const SUFFIX_RE = /(electronics|industries|incorporated|inc|company|corporation|corp|llc|ltd|games?|dobrasil|brasil|gmbh|ag)$/;
@@ -1267,7 +1275,29 @@ export class GlobalGameService {
                     prev = n;
                     n = n.replace(SUFFIX_RE, '');
                 }
-                return n;
+                // v2.21.3: curated corporate-alias map — the same physical-
+                // machine maker under a renamed/rebranded/parent-group label.
+                // Keyed and valued in NORMALIZED form (post-suffix-strip).
+                // Sourced from the 2026-07-13 prod bulk-merge skip list; each
+                // pair was human-verified as one company (renames: Bell→Nuova
+                // Bell, Allied Leisure→Fascination; trade names: Segasa=Sonic,
+                // Cirsa group=Unidesa; spelling variants: MAC, Alvin G,
+                // Jocmatic/Joctronic, International Concepts).
+                const MFG_ALIASES: Record<string, string> = {
+                    'segasa': 'sonic',
+                    'nuovabell': 'bell',
+                    'alvingco': 'alving',
+                    'maguinasmacpinball': 'mac',
+                    'macpinball': 'mac',
+                    'internationalconcepts': 'international',
+                    'fascination': 'alliedleisure',
+                    'fascinationint': 'alliedleisure',
+                    'fascinationinternational': 'alliedleisure',
+                    'unidesa': 'cirsa',
+                    'joctronic': 'jocmatic',
+                    'spinballsal': 'spinball',
+                };
+                return MFG_ALIASES[n] ?? n;
             };
             const normalizedMfgs = new Set(gs.map(r => norm(r.manufacturer)));
             if (normalizedMfgs.size > 1 || (normalizedMfgs.size === 1 && [...normalizedMfgs][0] === '')) {
