@@ -833,7 +833,13 @@ router.get('/catalogue/dedup-audit', async (_req, res) => {
             FROM global_games WHERE ipdb_url IS NOT NULL
         `);
         const suspects = withIpdb
-            .filter((r: any) => isVirtualOnlyManufacturer(r.manufacturer))
+            // v2.21.1: only PARSEABLE IPDB links are identity suspects — VPS
+            // ships literal "Not Available" placeholder strings in its ipdbUrl
+            // field, which are data junk, not spurious identity claims
+            // (migration 110 clears the legacy population; upsert drops new
+            // ones at the door). Without this filter they flooded the first
+            // prod audit run with 95 false suspects.
+            .filter((r: any) => isVirtualOnlyManufacturer(r.manufacturer) && extractIpdbMachineId(r.ipdb_url))
             .map((r: any) => ({ ...r, platforms: JSON.parse(r.platforms || '[]') }));
 
         // Shared-IPDB groups: ALL pinball rows with a non-null ipdb_url,
@@ -947,7 +953,12 @@ router.post('/catalogue/dedup-audit/strip', async (req, res) => {
                 continue;
             }
 
-            if (row.based_on_ipdb_url) {
+            if (!extractIpdbMachineId(row.ipdb_url)) {
+                // v2.21.1: junk link (e.g. VPS's literal "Not Available"
+                // placeholder) — clear it outright; preserving garbage as a
+                // "thematic reference" would just relocate the pollution.
+                await db.run(`UPDATE global_games SET ipdb_url = NULL WHERE id = ?`, id);
+            } else if (row.based_on_ipdb_url) {
                 // based_on already holds a reference — don't overwrite it,
                 // just clear the identity-bearing column.
                 await db.run(`UPDATE global_games SET ipdb_url = NULL WHERE id = ?`, id);

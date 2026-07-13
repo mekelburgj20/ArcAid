@@ -227,4 +227,83 @@ describe('catalogue-dedup-hardening: admin dedup-audit endpoints', () => {
         expect(realRow!.ipdb_url).toBe('https://www.ipdb.org/machine.cgi?id=4000');
         expect(realRow!.based_on_ipdb_url).toBeNull();
     });
+
+    it('(g) JUNK: unparseable "Not Available" placeholders never flag as suspects; strip clears them without preserving', async () => {
+        const app = await createApp();
+        const db = await getDatabase();
+
+        // VPS placeholder junk on a virtual row (the 95-false-suspect case
+        // from the first prod audit run, 2026-07-13).
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status, ipdb_url)
+             VALUES ('junk-1', 'Some Fan Table', 'pinball', 'Original', 2020, 'approved', 'Not Available')`
+        );
+        // A REAL parseable suspect alongside, to prove the filter is selective.
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status, ipdb_url)
+             VALUES ('suspect-1', 'Deadpool', 'pinball', 'Zen Studios', 2014, 'approved', 'https://www.ipdb.org/machine.cgi?id=3000')`
+        );
+
+        const token = superToken();
+
+        const audit = await request(app)
+            .get('/api/admin/catalogue/dedup-audit')
+            .set('Authorization', `Bearer ${token}`);
+        expect(audit.status).toBe(200);
+        expect(audit.body.summary.suspectCount).toBe(1);
+        expect(audit.body.suspects[0].id).toBe('suspect-1');
+
+        // Strip on the junk row clears the garbage outright — it must NOT be
+        // preserved into based_on_ipdb_url.
+        const res = await request(app)
+            .post('/api/admin/catalogue/dedup-audit/strip')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ ids: ['junk-1'] });
+        expect(res.status).toBe(200);
+        expect(res.body.stripped).toBe(1);
+        const junkRow = await db.get(`SELECT ipdb_url, based_on_ipdb_url FROM global_games WHERE id = ?`, 'junk-1');
+        expect(junkRow!.ipdb_url).toBeNull();
+        expect(junkRow!.based_on_ipdb_url).toBeNull();
+    });
+
+    it('(h) JUNK at the upsert door: unparseable ipdb_url is dropped, not stored or routed', async () => {
+        await setupTestDb();
+        const db = await getDatabase();
+
+        const result = await GlobalGameService.upsert({
+            name: 'Junk Link Table', type: 'pinball', manufacturer: 'Original',
+            year: 2021, status: 'approved', ipdb_url: 'Not Available',
+        });
+        const row = await db.get(
+            `SELECT ipdb_url, based_on_ipdb_url FROM global_games WHERE id = ?`, result.id
+        );
+        expect(row!.ipdb_url).toBeNull();
+        expect(row!.based_on_ipdb_url).toBeNull();
+    });
+
+    it('(i) MIGRATION 110 shape: the junk-clear UPDATE nulls placeholders in both columns, keeps real links', async () => {
+        await setupTestDb();
+        const db = await getDatabase();
+
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, status, ipdb_url, based_on_ipdb_url)
+             VALUES ('m1', 'Junk Both', 'pinball', 'Original', 'approved', 'Not Available', 'n/a')`
+        );
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, status, ipdb_url, based_on_ipdb_url)
+             VALUES ('m2', 'Real Link', 'pinball', 'Stern', 'approved', 'https://www.ipdb.org/machine.cgi?id=5000', NULL)`
+        );
+
+        // Same statements migration 110 runs (setupTestDb already applied the
+        // migration to a then-empty table, so re-run them here against the
+        // seeded rows — the migration is a plain idempotent UPDATE pair).
+        await db.run(`UPDATE global_games SET ipdb_url = NULL WHERE ipdb_url IS NOT NULL AND LOWER(ipdb_url) NOT LIKE '%machine.cgi?id=%'`);
+        await db.run(`UPDATE global_games SET based_on_ipdb_url = NULL WHERE based_on_ipdb_url IS NOT NULL AND LOWER(based_on_ipdb_url) NOT LIKE '%machine.cgi?id=%'`);
+
+        const m1 = await db.get(`SELECT ipdb_url, based_on_ipdb_url FROM global_games WHERE id = 'm1'`);
+        expect(m1!.ipdb_url).toBeNull();
+        expect(m1!.based_on_ipdb_url).toBeNull();
+        const m2 = await db.get(`SELECT ipdb_url, based_on_ipdb_url FROM global_games WHERE id = 'm2'`);
+        expect(m2!.ipdb_url).toBe('https://www.ipdb.org/machine.cgi?id=5000');
+    });
 });

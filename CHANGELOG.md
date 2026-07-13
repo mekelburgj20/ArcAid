@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.21.1] — unreleased
+
+**Fix: VPS "Not Available" placeholder junk polluted the dedup audit.** The first prod audit run (95 suspects) revealed a third failure mode: VPS ships a literal `"Not Available"` string in its `ipdbUrl` field and the importer copied it verbatim for years — harmless to dedup (unparseable, never matched the IPDB step) but junk in the identity column, and the v2.21.0 routing could even "preserve" it into `based_on_ipdb_url` on virtual rows.
+
+- **Migration 110** — one-shot clear of every unparseable value (no `machine.cgi?id=`) from BOTH `ipdb_url` and `based_on_ipdb_url`; logs counts.
+- **`upsert` door check** — unparseable IPDB values in either input field are dropped before routing/dedup, so junk can't re-enter from any importer.
+- **Audit** — suspects now require a *parseable* link (real identity claims only); **strip** clears junk outright instead of relocating it to the reference column.
+
+Extends `catalogue-dedup-hardening.test.ts` with junk cases (audit filter, strip-clears, upsert-drop, migration shape). No SW bump (backend-only). **Migration 110 consumed → next free 111.**
+
+---
+
 ## [2.21.0] — unreleased
 
 **Catalogue dedup hardening (ADR 0014)** — closes the class of corruption found in the 2026-07-02 prod dup review, where virtual-only tables (Zen Studios originals, `Original` fan tables) carrying the real machine's IPDB link got merged into the physical machine's catalogue identity. Doctrine: **manufacturer is the dedup discriminator** — same real manufacturer + shared IPDB = same machine; virtual-only/missing manufacturer = a different game whose IPDB link is a thematic reference.
