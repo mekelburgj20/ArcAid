@@ -1759,6 +1759,31 @@ export async function initDatabase(): Promise<Database> {
         // GlobalGameService.resolveDedupCandidates step 3). This column holds
         // that reference separately from the identity-bearing ipdb_url.
         { name: '109_global_games_based_on_ipdb_url', sql: `ALTER TABLE global_games ADD COLUMN based_on_ipdb_url TEXT` },
+        // v2.21.1: VPS ships a literal "Not Available" placeholder string in
+        // its ipdbUrl field, and the importer copied it verbatim for years —
+        // the first prod dedup-audit run surfaced 95 rows carrying junk (not
+        // parseable machine.cgi?id=N links, so they never affected dedup, but
+        // they pollute the identity column and flood the audit). Clear every
+        // unparseable value from BOTH ipdb columns (the v2.21.0 routing may
+        // have already moved junk into based_on_ipdb_url on virtual rows).
+        // Upsert now drops unparseable links at the door, so this is one-shot.
+        { name: '110_clear_junk_ipdb_urls', handler: async (db) => {
+            const junkWhere = `IS NOT NULL AND LOWER(%COL%) NOT LIKE '%machine.cgi?id=%'`;
+            const identRow = await db.get(
+                `SELECT COUNT(*) as c FROM global_games WHERE ipdb_url ${junkWhere.replace('%COL%', 'ipdb_url')}`
+            );
+            const refRow = await db.get(
+                `SELECT COUNT(*) as c FROM global_games WHERE based_on_ipdb_url ${junkWhere.replace('%COL%', 'based_on_ipdb_url')}`
+            );
+            // eslint-disable-next-line no-console
+            console.log(`[migration] 110: clearing ${identRow?.c ?? 0} junk ipdb_url + ${refRow?.c ?? 0} junk based_on_ipdb_url value(s) (unparseable placeholders like "Not Available")`);
+            await db.run(
+                `UPDATE global_games SET ipdb_url = NULL WHERE ipdb_url ${junkWhere.replace('%COL%', 'ipdb_url')}`
+            );
+            await db.run(
+                `UPDATE global_games SET based_on_ipdb_url = NULL WHERE based_on_ipdb_url ${junkWhere.replace('%COL%', 'based_on_ipdb_url')}`
+            );
+        } },
     ];
 
     for (const migration of migrations) {

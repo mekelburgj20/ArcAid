@@ -444,6 +444,17 @@ export class GlobalGameService {
         // resolveDedupCandidates) or gets persisted as this row's own
         // identity link. Reassigns the local `input` (does not mutate the
         // caller's object).
+        // v2.21.1: drop unparseable IPDB values at the door — VPS ships a
+        // literal "Not Available" placeholder in its ipdbUrl field, which is
+        // junk, not a link (it can't participate in dedup and must not be
+        // preserved as a "reference" either). Applies to both columns.
+        if (input.ipdb_url && !extractIpdbMachineId(input.ipdb_url)) {
+            input = { ...input, ipdb_url: null };
+        }
+        if (input.based_on_ipdb_url && !extractIpdbMachineId(input.based_on_ipdb_url)) {
+            input = { ...input, based_on_ipdb_url: null };
+        }
+
         if (isVirtualOnlyManufacturer(input.manufacturer) && input.ipdb_url) {
             logDebug(
                 `upsert: routing thematic ipdb_url to based_on_ipdb_url (name="${input.name}", manufacturer="${input.manufacturer ?? ''}")`
