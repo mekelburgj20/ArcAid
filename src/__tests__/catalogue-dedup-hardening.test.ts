@@ -307,3 +307,63 @@ describe('catalogue-dedup-hardening: admin dedup-audit endpoints', () => {
         expect(m2!.ipdb_url).toBe('https://www.ipdb.org/machine.cgi?id=5000');
     });
 });
+
+describe('catalogue-dedup-hardening: safe bulk-merge alias table + JP relaxation (v2.21.3)', () => {
+    async function seedPair(mfrA: string, mfrB: string, nameA = 'Pistol Poker', nameB = 'Pistol Poker') {
+        await setupTestDb();
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status, ipdb_url, opdb_id)
+             VALUES ('row-a', ?, 'pinball', ?, 1993, 'approved', 'https://www.ipdb.org/machine.cgi?id=1805', 'OP-1')`,
+            nameA, mfrA
+        );
+        await db.run(
+            `INSERT INTO global_games (id, name, type, manufacturer, year, status, ipdb_url)
+             VALUES ('row-b', ?, 'pinball', ?, 1993, 'approved', 'https://www.ipdb.org/machine.cgi?id=1805')`,
+            nameB, mfrB
+        );
+        return db;
+    }
+
+    it('(j) corporate aliases merge: Alvin G. vs Alvin G. & Co (dry run)', async () => {
+        await seedPair('Alvin G.', 'Alvin G. & Co');
+        const res = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
+        expect(res.merged).toBe(1);
+        expect(res.skipped).toBe(0);
+        expect(res.log[0]!.targetId).toBe('row-a'); // richest (has opdb_id)
+    });
+
+    it('(j2) trade-name aliases merge: Sonic vs Segasa', async () => {
+        await seedPair('Sonic', 'Segasa', 'Prospector', 'Prospector');
+        const res = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
+        expect(res.merged).toBe(1);
+    });
+
+    it('(j3) group aliases merge: Cirsa vs Unidesa', async () => {
+        await seedPair('Cirsa', 'Unidesa', 'Mephisto', 'Mephisto');
+        const res = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
+        expect(res.merged).toBe(1);
+    });
+
+    it('(k) JP-prefixed row with a REAL manufacturer merges (faithful recreation)', async () => {
+        await seedPair('Stern', 'Stern', 'The Lord of the Rings', "JP's The Lord of the Rings");
+        const res = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
+        expect(res.merged).toBe(1);
+        expect(res.skipped).toBe(0);
+    });
+
+    it('(k2) JP-prefixed row with Original manufacturer still skipped (fan table)', async () => {
+        await seedPair('Stern', 'Original', 'Cyclone', "JP's Cyclone");
+        const res = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
+        expect(res.merged).toBe(0);
+        expect(res.skipped).toBe(1);
+        expect(res.log[0]!.reason).toBe('community-or-digital');
+    });
+
+    it('(l) genuinely different manufacturers still skipped: Stern vs Allied Leisure', async () => {
+        await seedPair('Stern', 'Allied Leisure', 'Cosmic Princess', 'Cosmic Princess');
+        const res = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
+        expect(res.merged).toBe(0);
+        expect(res.log[0]!.reason).toBe('manufacturer-incompatible');
+    });
+});
