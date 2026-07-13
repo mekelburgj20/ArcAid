@@ -25,7 +25,7 @@ import { AuditService } from '../../services/AuditService.js';
 import { StyleCatalogueService } from '../../services/StyleCatalogueService.js';
 import { StyleUploadSchema } from '../schemas.js';
 import multer from 'multer';
-import { GlobalGameService } from '../../services/GlobalGameService.js';
+import { GlobalGameService, isVirtualOnlyManufacturer } from '../../services/GlobalGameService.js';
 import { OPDBImportService } from '../../services/OPDBImportService.js';
 import { IGDBImportService } from '../../services/IGDBImportService.js';
 import { SyncLogService } from '../../services/SyncLogService.js';
@@ -795,6 +795,176 @@ router.post('/catalogue/merge-ipdb-duplicates', async (req, res) => {
     } catch (error) {
         logError('API Error (POST /api/admin/catalogue/merge-ipdb-duplicates):', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'Bulk merge failed' });
+    }
+});
+
+/**
+ * Extracts the numeric IPDB machine ID from an IPDB URL. Mirrors
+ * GlobalGameService's private `extractIpdbMachineId` exactly (not exported,
+ * so replicated here) — keep the regex in sync if that one changes.
+ */
+function extractIpdbMachineId(url: string | null | undefined): string | null {
+    if (!url) return null;
+    const match = url.match(/ipdb\.org\/machine\.cgi\?id=(\d+)/i);
+    return match ? match[1]! : null;
+}
+
+/**
+ * GET /admin/catalogue/dedup-audit — read-only scan for the §2 disease from
+ * the 2026-07-02 prod dup review: a virtual-only-manufacturer or
+ * missing-manufacturer row whose ipdb_url is a thematic reference (not an
+ * identity claim) still sitting in the identity-bearing column. State-based
+ * (re-scans the live table on every call) — rows already stripped to
+ * based_on_ipdb_url won't re-flag, and rows re-planted by a VPS re-sync
+ * since the last strip will. No allowlist/exclusion bookkeeping needed.
+ */
+router.get('/catalogue/dedup-audit', async (_req, res) => {
+    try {
+        const db = await getDatabase();
+
+        const totalRow = await db.get(`SELECT COUNT(*) as c FROM global_games`);
+        const scannedRows = totalRow?.c ?? 0;
+
+        // Suspects: any row (any type — ipdb_url is inherently pinball-shaped,
+        // but we don't gate on type here so a miscategorized row still flags)
+        // whose manufacturer is virtual-only/missing per the curated predicate.
+        const withIpdb = await db.all(`
+            SELECT id, name, manufacturer, year, ipdb_url, imported_from, platforms, status, created_at
+            FROM global_games WHERE ipdb_url IS NOT NULL
+        `);
+        const suspects = withIpdb
+            .filter((r: any) => isVirtualOnlyManufacturer(r.manufacturer))
+            .map((r: any) => ({ ...r, platforms: JSON.parse(r.platforms || '[]') }));
+
+        // Shared-IPDB groups: ALL pinball rows with a non-null ipdb_url,
+        // grouped by extracted IPDB machine id. Groups with >1 row are
+        // unresolved duplicates (the identity-dedup hierarchy in
+        // GlobalGameService only prevents *new* dupes going forward; this
+        // surfaces ones that already exist).
+        const pinballRows = await db.all(`
+            SELECT id, name, manufacturer, year, ipdb_url, status, imported_from
+            FROM global_games WHERE type = 'pinball' AND ipdb_url IS NOT NULL
+        `);
+        const groups = new Map<string, any[]>();
+        for (const r of pinballRows) {
+            const ipdbId = extractIpdbMachineId(r.ipdb_url);
+            if (!ipdbId) continue;
+            if (!groups.has(ipdbId)) groups.set(ipdbId, []);
+            groups.get(ipdbId)!.push(r);
+        }
+
+        // "Loosely agree" heuristic for real-manufacturer groups: same first
+        // word, case-insensitive (e.g. "Stern" / "Stern Pinball" both reduce
+        // to "stern"). Deliberately loose — this only decides the *suggested*
+        // action surfaced to the admin, not an automatic merge; the strict
+        // manufacturer-compatibility check used by the actual bulk-merge tool
+        // lives in GlobalGameService.mergeIpdbDuplicates.
+        const firstWord = (m: string | null | undefined): string =>
+            (m || '').trim().toLowerCase().split(/\s+/)[0] || '';
+
+        const sharedIpdbGroups = [...groups.entries()]
+            .filter(([, rows]) => rows.length > 1)
+            .map(([ipdbId, rows]) => {
+                const realRows = rows.filter(r => !isVirtualOnlyManufacturer(r.manufacturer));
+                const virtualRows = rows.filter(r => isVirtualOnlyManufacturer(r.manufacturer));
+
+                let suggestedAction: 'merge' | 'strip-virtual-side' | 'review';
+                if (virtualRows.length > 0 && realRows.length > 0) {
+                    // Mixed group — the virtual/missing side's ipdb_url is a
+                    // thematic reference, not the same identity as the real
+                    // machine. Strip it, don't merge.
+                    suggestedAction = 'strip-virtual-side';
+                } else if (realRows.length > 1) {
+                    const words = new Set(realRows.map(r => firstWord(r.manufacturer)));
+                    const soleWord = [...words][0];
+                    suggestedAction = (words.size === 1 && soleWord) ? 'merge' : 'review';
+                } else {
+                    // All-virtual group (no real side to anchor a decision), or
+                    // a shape the two branches above don't cover — needs a human.
+                    suggestedAction = 'review';
+                }
+
+                return {
+                    ipdbId,
+                    rows: rows.map(r => ({
+                        id: r.id, name: r.name, manufacturer: r.manufacturer, year: r.year,
+                        status: r.status, imported_from: r.imported_from,
+                    })),
+                    suggestedAction,
+                };
+            });
+
+        res.json({
+            suspects,
+            sharedIpdbGroups,
+            summary: {
+                suspectCount: suspects.length,
+                sharedGroupCount: sharedIpdbGroups.length,
+                scannedRows,
+            },
+        });
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/dedup-audit):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /admin/catalogue/dedup-audit/strip — body { ids: string[] } (1-100).
+ * For each id, re-checks the suspect predicate against the CURRENT row
+ * (not a stale client-side snapshot) before acting — only virtual-only/
+ * missing-manufacturer rows with a non-null ipdb_url are touched. Moves
+ * ipdb_url -> based_on_ipdb_url (thematic reference, preserved) without
+ * clobbering an existing based_on_ipdb_url value; if one's already set,
+ * just nulls ipdb_url. Idempotent — re-running on already-stripped ids is a
+ * no-op (ipdb_url is already null, so the predicate no longer matches).
+ */
+router.post('/catalogue/dedup-audit/strip', async (req, res) => {
+    try {
+        const { ids } = req.body ?? {};
+        if (
+            !Array.isArray(ids) ||
+            ids.length === 0 ||
+            ids.length > 100 ||
+            !ids.every((id: unknown) => typeof id === 'string' && id.length > 0)
+        ) {
+            return res.status(400).json({ error: 'ids must be an array of 1-100 strings' });
+        }
+
+        const db = await getDatabase();
+        const results: Array<{ id: string; action: 'stripped' | 'skipped' }> = [];
+        let stripped = 0;
+        let skipped = 0;
+
+        for (const id of ids as string[]) {
+            const row = await db.get(
+                `SELECT id, manufacturer, ipdb_url, based_on_ipdb_url FROM global_games WHERE id = ?`,
+                id
+            );
+            if (!row || !row.ipdb_url || !isVirtualOnlyManufacturer(row.manufacturer)) {
+                results.push({ id, action: 'skipped' });
+                skipped++;
+                continue;
+            }
+
+            if (row.based_on_ipdb_url) {
+                // based_on already holds a reference — don't overwrite it,
+                // just clear the identity-bearing column.
+                await db.run(`UPDATE global_games SET ipdb_url = NULL WHERE id = ?`, id);
+            } else {
+                await db.run(
+                    `UPDATE global_games SET based_on_ipdb_url = ipdb_url, ipdb_url = NULL WHERE id = ?`,
+                    id
+                );
+            }
+            results.push({ id, action: 'stripped' });
+            stripped++;
+        }
+
+        res.json({ stripped, skipped, results });
+    } catch (error) {
+        logError('API Error (POST /api/admin/catalogue/dedup-audit/strip):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 

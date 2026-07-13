@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.21.0] — unreleased
+
+**Catalogue dedup hardening (ADR 0014)** — closes the class of corruption found in the 2026-07-02 prod dup review, where virtual-only tables (Zen Studios originals, `Original` fan tables) carrying the real machine's IPDB link got merged into the physical machine's catalogue identity. Doctrine: **manufacturer is the dedup discriminator** — same real manufacturer + shared IPDB = same machine; virtual-only/missing manufacturer = a different game whose IPDB link is a thematic reference.
+
+- **Guard** — `resolveDedupCandidates`' IPDB step now refuses the match when either side's manufacturer is virtual-only (`isVirtualOnlyManufacturer`: 'Zen Studios'/'Original'/missing), falling through to name matching; covers `upsert` AND `findCandidates` via the shared walker. The old `manufacturerYearAgree` NULL-tolerance was the hole.
+- **Routing (migration 109)** — new `global_games.based_on_ipdb_url` reference column; `upsert` normalizes input at the single chokepoint every importer flows through: a virtual-only row's incoming `ipdb_url` moves to `based_on_ipdb_url`, identity stays NULL. Also closes the re-plant hole: `upsert`'s `COALESCE(input, existing)` UPDATE meant every VPS re-sync since the 2026-07-04 strip run could silently restore stripped IPDB links.
+- **Admin audit tool** — `GET /admin/catalogue/dedup-audit` (super-admin): state-based scan reporting suspects (virtual-only rows still holding an identity `ipdb_url`) and shared-IPDB groups (unresolved duplicates with a suggested action); `POST …/strip` remediates in-app (moves the link to `based_on_ipdb_url`, idempotent, auto-audited). Surfaced as a "Dedup Audit" card on the Catalogue admin page with per-row/Strip-All actions and merge-modal handoff for mergeable groups (`MergeModal` gained an optional `restrictToIds` prop).
+- Source-precedence policy documented in ADR 0014 (real-machine mfr/year: IPDB > VPS > OPDB; external IDs: OPDB; virtual metadata: VPS). Per-field source storage deferred to report-a-problem.
+
+New `catalogue-dedup-hardening.test.ts` (guard refusal + both-real merge, routing on virtual/missing mfr, re-sync re-plant regression, audit + strip idempotency). SW → `arcaid-v94`. **Migration 109 consumed → next free 110.**
+
+---
+
 ## [2.20.2] — unreleased
 
 **Three user-reported fixes from the v2.20.x tour (history completeness, game-page stats correctness, non-active game experience).**

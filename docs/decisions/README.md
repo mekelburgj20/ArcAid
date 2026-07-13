@@ -45,3 +45,4 @@ You do **not** need an ADR for routine bug fixes, code style preferences, or any
 | 0011 | [Deleted-score suppression tombstone for sync-resistant moderation](0011-deleted-score-suppression-tombstone.md) | accepted | 2026-04-30 |
 | 0012 | [Per-account iScored Playwright session serialization via `IScoredSessionRegistry`](0012-iscored-session-registry.md) | accepted | 2026-05-02 |
 | 0013 | [Cache validation via data watermark (no manual `invalidate()` in mutation paths)](0013-cache-watermark-validation.md) | accepted | 2026-05-02 |
+| 0014 | [Manufacturer is the catalogue dedup discriminator; virtual IPDB links are references](0014-catalogue-manufacturer-dedup-guard.md) | accepted | 2026-07-12 |

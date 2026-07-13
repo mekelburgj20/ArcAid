@@ -3,7 +3,8 @@ import { api } from '../lib/api';
 import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
-import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge } from 'lucide-react';
+import DataTable from '../components/DataTable';
+import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge, AlertTriangle, Layers } from 'lucide-react';
 
 interface GlobalGame {
   id: string;
@@ -50,6 +51,45 @@ interface CatalogueCounts {
   rejected: number;
 }
 
+/**
+ * Dedup audit — flags rows whose ipdb_url looks like a thematic reference
+ * rather than a real-machine identity claim (virtual-only manufacturer /
+ * missing manufacturer sharing an IPDB id with a real machine). See
+ * isVirtualOnlyManufacturer doctrine, ADR 0014.
+ */
+interface DedupSuspect {
+  id: string;
+  name: string;
+  manufacturer: string | null;
+  year: number | null;
+  ipdb_url: string | null;
+  imported_from: string | null;
+  platforms: string;
+  status: string;
+  created_at: string;
+}
+
+interface SharedIpdbGroupRow {
+  id: string;
+  name: string;
+  manufacturer: string | null;
+  year: number | null;
+  status: string;
+  imported_from: string | null;
+}
+
+interface SharedIpdbGroup {
+  ipdbId: string;
+  suggestedAction: string;
+  rows: SharedIpdbGroupRow[];
+}
+
+interface DedupAuditResult {
+  summary: { suspectCount: number; sharedGroupCount: number; scannedRows: number };
+  suspects: DedupSuspect[];
+  sharedIpdbGroups: SharedIpdbGroup[];
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   vps: 'VPS',
   opdb: 'OPDB',
@@ -85,6 +125,12 @@ export default function GlobalCatalogue() {
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<{ source: string; message: string } | null>(null);
   const [mergeSource, setMergeSource] = useState<GlobalGame | null>(null);
+  const [mergeRestrictIds, setMergeRestrictIds] = useState<string[] | null>(null);
+
+  const [auditData, setAuditData] = useState<DedupAuditResult | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [stripping, setStripping] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoadError(null);
@@ -213,7 +259,61 @@ export default function GlobalCatalogue() {
   };
 
   const handleMergeOpen = (game: GlobalGame) => {
+    setMergeRestrictIds(null);
     setMergeSource(game);
+  };
+
+  const handleGroupMerge = async (group: SharedIpdbGroup, rowId: string) => {
+    setAuditError(null);
+    try {
+      const full = await api.get<GlobalGame>(`/admin/catalogue/games/${rowId}`);
+      setMergeRestrictIds(group.rows.map(r => r.id).filter(id => id !== rowId));
+      setMergeSource(full);
+    } catch (err) {
+      setAuditError(err instanceof Error ? err.message : 'Failed to load game for merge');
+    }
+  };
+
+  const runAudit = async () => {
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const res = await api.get<DedupAuditResult>('/admin/catalogue/dedup-audit');
+      setAuditData(res);
+    } catch (err) {
+      setAuditError(err instanceof Error ? err.message : 'Failed to run dedup audit');
+      setAuditData(null);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const stripIds = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setStripping(true);
+    setAuditError(null);
+    try {
+      await api.post<{ stripped: number; skipped: number; results: unknown }>(
+        '/admin/catalogue/dedup-audit/strip', { ids }
+      );
+      await runAudit();
+      await loadData();
+    } catch (err) {
+      setAuditError(err instanceof Error ? err.message : 'Failed to strip IPDB links');
+    } finally {
+      setStripping(false);
+    }
+  };
+
+  const handleStripOne = (id: string) => {
+    if (!confirm('Strip the IPDB link from this game? The entry itself is kept — only the thematic IPDB reference is removed.')) return;
+    stripIds([id]);
+  };
+
+  const handleStripAll = () => {
+    if (!auditData || auditData.suspects.length === 0) return;
+    if (!confirm(`Strip IPDB links from all ${auditData.suspects.length} suspect(s)? This cannot be undone.`)) return;
+    stripIds(auditData.suspects.map(s => s.id));
   };
 
   if (loading) return <LoadingState message="Loading catalogue..." />;
@@ -274,6 +374,130 @@ export default function GlobalCatalogue() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </NeonCard>
+
+      {/* Dedup audit — flags thematic-reference IPDB links masquerading as identity claims */}
+      <NeonCard glowColor="amber" className="mb-6" title="Dedup Audit">
+        <p className="text-sm text-muted mb-4">
+          Flags catalogue rows whose IPDB link looks like a thematic reference rather than a
+          real-machine identity claim — virtual-only manufacturers, "Original" fan tables, or a
+          missing manufacturer sharing an IPDB id with a real machine.
+        </p>
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <NeonButton
+            variant="secondary"
+            onClick={runAudit}
+            disabled={auditLoading}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw size={14} className={auditLoading ? 'animate-spin' : ''} />
+            {auditLoading ? 'Running Audit...' : 'Run Audit'}
+          </NeonButton>
+          {auditData && (
+            <span className="text-sm text-muted">
+              {auditData.summary.suspectCount} suspect{auditData.summary.suspectCount === 1 ? '' : 's'}
+              {' · '}
+              {auditData.summary.sharedGroupCount} shared-IPDB group{auditData.summary.sharedGroupCount === 1 ? '' : 's'}
+              {' · '}
+              {auditData.summary.scannedRows.toLocaleString()} rows scanned
+            </span>
+          )}
+        </div>
+
+        {auditError && (
+          <div className="mb-4 p-3 rounded bg-red-900/30 border border-red-700 text-red-300 text-sm">
+            <strong>Error:</strong> {auditError}
+          </div>
+        )}
+
+        {auditData && auditData.summary.suspectCount === 0 && auditData.summary.sharedGroupCount === 0 && (
+          <div className="text-muted text-center py-6 text-sm">
+            No suspects — catalogue is clean.
+          </div>
+        )}
+
+        {auditData && auditData.suspects.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <h4 className="text-xs font-display font-bold uppercase tracking-wider text-neon-amber flex items-center gap-1">
+                <AlertTriangle size={12} /> Suspects ({auditData.suspects.length})
+              </h4>
+              <NeonButton
+                variant="danger"
+                onClick={handleStripAll}
+                disabled={stripping}
+                className="text-xs py-1 px-3"
+              >
+                {stripping ? 'Stripping…' : `Strip All (${auditData.suspects.length})`}
+              </NeonButton>
+            </div>
+            <DataTable<DedupSuspect>
+              columns={[
+                {
+                  key: 'name',
+                  header: 'Name',
+                  render: s => (
+                    <div>
+                      <div className="font-medium">{s.name}</div>
+                      <div className="text-xs text-muted">
+                        {s.manufacturer || 'Unknown'}{s.year ? `, ${s.year}` : ''}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'ipdb',
+                  header: 'IPDB',
+                  render: s => s.ipdb_url ? (
+                    <a
+                      href={s.ipdb_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-neon-cyan hover:underline"
+                    >
+                      <ExternalLink size={12} /> View
+                    </a>
+                  ) : <span className="text-muted text-xs">-</span>,
+                },
+                {
+                  key: 'source',
+                  header: 'Source',
+                  render: s => <span className="text-xs text-muted uppercase">{s.imported_from || 'manual'}</span>,
+                },
+                {
+                  key: 'actions',
+                  header: '',
+                  className: 'text-right',
+                  render: s => (
+                    <NeonButton
+                      variant="secondary"
+                      onClick={() => handleStripOne(s.id)}
+                      disabled={stripping}
+                      className="text-xs py-1 px-3"
+                    >
+                      Strip IPDB
+                    </NeonButton>
+                  ),
+                },
+              ]}
+              data={auditData.suspects}
+              keyExtractor={s => s.id}
+            />
+          </div>
+        )}
+
+        {auditData && auditData.sharedIpdbGroups.length > 0 && (
+          <div>
+            <h4 className="text-xs font-display font-bold uppercase tracking-wider text-neon-cyan mb-2 flex items-center gap-1">
+              <Layers size={12} /> Shared-IPDB Groups ({auditData.sharedIpdbGroups.length})
+            </h4>
+            <div className="space-y-2">
+              {auditData.sharedIpdbGroups.map(group => (
+                <SharedGroupCard key={group.ipdbId} group={group} onMergeRow={handleGroupMerge} />
+              ))}
+            </div>
           </div>
         )}
       </NeonCard>
@@ -380,10 +604,13 @@ export default function GlobalCatalogue() {
       {mergeSource && (
         <MergeModal
           source={mergeSource}
-          onClose={() => setMergeSource(null)}
+          restrictToIds={mergeRestrictIds ?? undefined}
+          onClose={() => { setMergeSource(null); setMergeRestrictIds(null); }}
           onComplete={async () => {
             setMergeSource(null);
+            setMergeRestrictIds(null);
             await loadData();
+            if (auditData) await runAudit();
           }}
         />
       )}
@@ -548,6 +775,59 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
+const GROUP_ACTION_BADGES: Record<string, string> = {
+  merge: 'bg-yellow-900/40 text-yellow-300',
+  'strip-virtual-side': 'bg-purple-900/40 text-purple-300',
+  review: 'bg-blue-900/40 text-blue-300',
+};
+
+/** One shared-IPDB group from the dedup audit. Rows sharing the same real-machine
+ *  IPDB id are candidates to merge into a single catalogue entry. */
+function SharedGroupCard({
+  group,
+  onMergeRow,
+}: {
+  group: SharedIpdbGroup;
+  onMergeRow: (group: SharedIpdbGroup, rowId: string) => void;
+}) {
+  return (
+    <div className="bg-surface-alt rounded border border-border p-3">
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        <a
+          href={`https://www.ipdb.org/machine.cgi?id=${encodeURIComponent(group.ipdbId)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-neon-cyan hover:underline"
+        >
+          <ExternalLink size={12} /> IPDB #{group.ipdbId}
+        </a>
+        <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${GROUP_ACTION_BADGES[group.suggestedAction] || 'bg-gray-800 text-gray-400'}`}>
+          {group.suggestedAction}
+        </span>
+      </div>
+      <div className="space-y-1">
+        {group.rows.map(row => (
+          <div key={row.id} className="flex items-center gap-2 flex-wrap text-xs bg-surface rounded px-2 py-1.5">
+            <span className="font-medium">{row.name}</span>
+            <span className="text-muted">{row.manufacturer || 'Unknown'}{row.year ? `, ${row.year}` : ''}</span>
+            <span className="text-muted uppercase">{row.imported_from || 'manual'}</span>
+            <span className="text-muted">{row.status.replace('_', ' ')}</span>
+            {group.suggestedAction === 'merge' && group.rows.length > 1 && (
+              <NeonButton
+                variant="secondary"
+                onClick={() => onMergeRow(group, row.id)}
+                className="text-[11px] py-0.5 px-2 ml-auto flex items-center gap-1"
+              >
+                <GitMerge size={11} /> Merge via tool
+              </NeonButton>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * v2.12.1: derive the displayed source list to match the backend filter.
  * Backend treats a row as "in VPS" if it has vps_id, "in Wizard" if it has
@@ -609,10 +889,15 @@ function MergeModal({
   source,
   onClose,
   onComplete,
+  restrictToIds,
 }: {
   source: GlobalGame;
   onClose: () => void;
   onComplete: () => void;
+  /** When set (dedup-audit "shared IPDB group" entry point), the candidate list is
+   *  pre-scoped to exactly these row ids (fetched by id, not by name search) instead
+   *  of the free-text search below — the group's rows may not share a name. */
+  restrictToIds?: string[];
 }) {
   const [search, setSearch] = useState(source.name);
   const [candidates, setCandidates] = useState<GlobalGame[]>([]);
@@ -628,8 +913,31 @@ function MergeModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Debounced search against the same endpoint the catalogue list uses.
+  // Pre-scoped mode: fetch the group's other rows by id — skips free-text search
+  // entirely since rows in a shared-IPDB group may not share a name.
   useEffect(() => {
+    if (!restrictToIds) return;
+    const ids = restrictToIds.filter(id => id !== source.id);
+    if (ids.length === 0) { setCandidates([]); return; }
+    let cancelled = false;
+    setSearching(true);
+    (async () => {
+      try {
+        const results = await Promise.all(ids.map(id => api.get<GlobalGame>(`/admin/catalogue/games/${id}`)));
+        if (!cancelled) setCandidates(results.filter((g): g is GlobalGame => !!g));
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load group members');
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [restrictToIds, source.id]);
+
+  // Debounced search against the same endpoint the catalogue list uses.
+  // Skipped entirely in pre-scoped mode (see effect above).
+  useEffect(() => {
+    if (restrictToIds) return;
     const term = search.trim();
     if (!term) { setCandidates([]); return; }
     const handle = setTimeout(async () => {
@@ -647,7 +955,7 @@ function MergeModal({
       }
     }, 250);
     return () => clearTimeout(handle);
-  }, [search, source.id]);
+  }, [search, source.id, restrictToIds]);
 
   const runMerge = async () => {
     if (!confirmTarget) return;
@@ -703,17 +1011,24 @@ function MergeModal({
             </p>
           </div>
 
-          <div>
-            <label className="text-xs text-muted block mb-1">Find target</label>
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              autoFocus
-              placeholder="Search by name…"
-              className="w-full bg-surface-alt border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-neon-cyan"
-            />
-          </div>
+          {restrictToIds ? (
+            <div className="text-xs text-muted bg-surface-alt border border-border rounded p-2">
+              Showing the other row(s) sharing this IPDB link. Pick the target to merge{' '}
+              <span className="text-primary">{source.name}</span> into.
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs text-muted block mb-1">Find target</label>
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                autoFocus
+                placeholder="Search by name…"
+                className="w-full bg-surface-alt border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-neon-cyan"
+              />
+            </div>
+          )}
 
           {error && (
             <div className="text-sm p-2 rounded bg-red-900/30 text-red-300 border border-red-700">

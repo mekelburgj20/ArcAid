@@ -205,6 +205,6 @@ After deploy: `docker logs arcaid --tail 50` and verify no restart loop. `JWT_SE
 - `SPRINT_STATUS.md` — current/last-session work
 - `ROADMAP.md` — outstanding tasks, phantom anon-claim cleanup runbook
 - `CHANGELOG.md` — version-by-version history (do not duplicate here)
-- `docs/decisions/` — ADRs (0003 secrets, 0004 catalogue identity, 0005 pin-via-NULL, 0006 platform stratification, 0007 library=catalogue, 0008 room game tags, 0009 platform rules orthogonal, 0010 user identity layer, 0011 deleted-score tombstone, 0012 iScored session registry, 0013 cache watermark validation)
+- `docs/decisions/` — ADRs (0003 secrets, 0004 catalogue identity, 0005 pin-via-NULL, 0006 platform stratification, 0007 library=catalogue, 0008 room game tags, 0009 platform rules orthogonal, 0010 user identity layer, 0011 deleted-score tombstone, 0012 iScored session registry, 0013 cache watermark validation, 0014 manufacturer dedup guard + based_on_ipdb_url)
 - `docs/step-2-cleanup-plan.md` — library/catalogue unification cleanup plan (COMPLETE in v2.6.0; deviation noted at the top of the file)
 - `../CLAUDE.md` — multi-project orientation (parent monorepo)
