@@ -333,14 +333,16 @@ describe('catalogue-dedup-hardening: safe bulk-merge alias table + JP relaxation
         expect(res.log[0]!.targetId).toBe('row-a'); // richest (has opdb_id)
     });
 
-    it('(j2) trade-name aliases merge: Sonic vs Segasa; group aliases: Cirsa vs Unidesa', async () => {
+    it('(j2) trade-name aliases merge: Sonic vs Segasa', async () => {
         await seedPair('Sonic', 'Segasa', 'Prospector', 'Prospector');
-        const res1 = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
-        expect(res1.merged).toBe(1);
+        const res = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
+        expect(res.merged).toBe(1);
+    });
 
+    it('(j3) group aliases merge: Cirsa vs Unidesa', async () => {
         await seedPair('Cirsa', 'Unidesa', 'Mephisto', 'Mephisto');
-        const res2 = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
-        expect(res2.merged).toBe(1);
+        const res = await GlobalGameService.mergeIpdbDuplicates({ dryRun: true });
+        expect(res.merged).toBe(1);
     });
 
     it('(k) JP-prefixed row with a REAL manufacturer merges (faithful recreation)', async () => {
