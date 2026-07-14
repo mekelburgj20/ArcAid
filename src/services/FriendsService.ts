@@ -56,6 +56,54 @@ export class FriendsService {
         return { friendUserId };
     }
 
+    /**
+     * Add a friend by Discord snowflake id directly (no username lookup).
+     * The target must already be a known user in the system — either they
+     * have a `user_profiles` row (created on first Discord login) or at
+     * least one `user_mappings` alias (created on first score sync/submit).
+     */
+    static async addFriendById(userId: string, friendUserId: string): Promise<{ friendUserId: string }> {
+        if (friendUserId === userId) {
+            throw new Error('Cannot add yourself as a friend');
+        }
+
+        const db = await getDatabase();
+
+        const known = await db.get(
+            `SELECT 1 AS found FROM user_profiles WHERE discord_user_id = ?
+             UNION
+             SELECT 1 AS found FROM user_mappings WHERE discord_user_id = ?
+             LIMIT 1`,
+            friendUserId, friendUserId
+        );
+        if (!known) {
+            throw new Error(`Could not find user "${friendUserId}"`);
+        }
+
+        // Resolve a display name for the friend_discord_username cache column:
+        // the friend's chosen global display name first, else any iScored
+        // alias they hold, else null (caller falls back further at render time).
+        const profile = await db.get('SELECT display_name FROM user_profiles WHERE discord_user_id = ?', friendUserId);
+        let friendDisplayName: string | null = profile?.display_name ?? null;
+        if (!friendDisplayName) {
+            const alias = await db.get(
+                'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ? ORDER BY created_at, rowid LIMIT 1',
+                friendUserId
+            );
+            friendDisplayName = alias?.iscored_username ?? null;
+        }
+
+        const id = uuidv4();
+        await db.run(
+            `INSERT INTO friendships (id, user_id, friend_user_id, friend_discord_username)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(user_id, friend_user_id) DO UPDATE SET status = 'active'`,
+            id, userId, friendUserId, friendDisplayName
+        );
+
+        return { friendUserId };
+    }
+
     static async removeFriend(userId: string, friendUserId: string): Promise<void> {
         const db = await getDatabase();
         await db.run(

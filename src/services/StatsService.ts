@@ -446,6 +446,10 @@ export class StatsService {
             })
             : { tournamentWins: 0, milestones: 0, roomRecords: 0, recent: [] };
         const personalBests = await StatsService.getPersonalBests(discordUserId, gameRoomId);
+        // Weekly participation streak, canonical partition key = discordUserId
+        // directly (matches getPersonalBests's playerKey usage above — for a
+        // Discord-id caller, submitted_by_user_id IS the discord id).
+        const participationStreak = await StatsService.getParticipationStreak(discordUserId, gameRoomId);
 
         return {
             discordUserId,
@@ -460,6 +464,7 @@ export class StatsService {
             recentScores,
             achievements,
             personalBests,
+            participationStreak,
         };
     }
 
@@ -570,6 +575,7 @@ export class StatsService {
             })
             : { tournamentWins: 0, milestones: 0, roomRecords: 0, recent: [] };
         const personalBests = await StatsService.getPersonalBests(playerKey, gameRoomId);
+        const participationStreak = await StatsService.getParticipationStreak(playerKey, gameRoomId);
 
         return {
             discordUserId: mapping?.discord_user_id || null,
@@ -584,6 +590,7 @@ export class StatsService {
             recentScores,
             achievements,
             personalBests,
+            participationStreak,
         };
     }
 
@@ -642,6 +649,175 @@ export class StatsService {
         `, ...roomParams, playerKey);
 
         return rows;
+    }
+
+    /**
+     * S14 social loops — weekly participation streak from `score_history`
+     * (canonical partition key, orphaned rows excluded). "Week" is SQLite's
+     * own `strftime('%Y-%W', ...)` bucket (Monday-based week-of-year).
+     *
+     * Consecutiveness between two adjacent distinct weeks is verified by
+     * asking SQLite itself whether "7 days after the earlier week's first
+     * score" lands in the later week's bucket — NOT by diffing `%Y-%W`
+     * strings as integers, which breaks across year boundaries (e.g. week
+     * 2026-51 → 2027-00 is a 1-week gap in `%W` terms but a 2-unit jump in
+     * naive `year*53+week` arithmetic).
+     *
+     * `currentWeeks` is 0 unless the player's most recent scoring week is
+     * THIS week or the immediately-previous week (a player who scored last
+     * week but hasn't yet this week still has a "live" streak); otherwise
+     * it's the length of the consecutive run ending at that most-recent week.
+     * `bestWeeks` is the longest such run ever, regardless of recency.
+     */
+    static async getParticipationStreak(playerKey: string, gameRoomId?: string): Promise<{ currentWeeks: number; bestWeeks: number }> {
+        const db = await getDatabase();
+
+        const roomFilter = gameRoomId ? 'AND game_room_id = ?' : '';
+        const params = gameRoomId ? [playerKey, gameRoomId] : [playerKey];
+
+        const rows = await db.all(`
+            WITH weeks AS (
+                SELECT strftime('%Y-%W', created_at) AS week,
+                       MIN(created_at) AS week_start
+                FROM score_history
+                WHERE COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) = ?
+                  ${roomFilter}
+                  AND orphaned_at IS NULL
+                GROUP BY week
+            ),
+            ordered AS (
+                SELECT week, week_start,
+                       LAG(week_start) OVER (ORDER BY week_start) AS prev_week_start
+                FROM weeks
+            )
+            SELECT week,
+                   CASE WHEN prev_week_start IS NOT NULL
+                        AND strftime('%Y-%W', datetime(prev_week_start, '+7 days')) = week
+                   THEN 1 ELSE 0 END AS is_consecutive
+            FROM ordered
+            ORDER BY week_start ASC
+        `, ...params);
+
+        if (rows.length === 0) return { currentWeeks: 0, bestWeeks: 0 };
+
+        let bestWeeks = 0;
+        let run = 0;
+        const runs: number[] = [];
+        for (const r of rows) {
+            run = (r as any).is_consecutive ? run + 1 : 1;
+            runs.push(run);
+            if (run > bestWeeks) bestWeeks = run;
+        }
+
+        const nowRow = await db.get<{ week: string; prev_week: string }>(
+            `SELECT strftime('%Y-%W','now') as week, strftime('%Y-%W','now','-7 days') as prev_week`
+        );
+        const lastWeek = (rows[rows.length - 1] as any).week;
+        const isLive = !!nowRow && (lastWeek === nowRow.week || lastWeek === nowRow.prev_week);
+        const currentWeeks = isLive ? runs[runs.length - 1]! : 0;
+
+        return { currentWeeks, bestWeeks };
+    }
+
+    /**
+     * S14 social loops — head-to-head comparison of two players' best-per-game
+     * scores in a room. Identifier resolution mirrors the
+     * `/stats/enhanced/player/:identifier` dispatch: a 17-20 digit string is
+     * treated as a Discord snowflake, otherwise as an iScored username
+     * resolved via `user_mappings` (playerKey collapses to the mapped
+     * discord_user_id when present, else the `iscored:<username>` synthetic
+     * fallback — same rule as getEnhancedPlayerStatsByUsername).
+     */
+    static async comparePlayersHeadToHead(gameRoomId: string, aIdentifier: string, bIdentifier: string) {
+        const db = await getDatabase();
+
+        const resolve = async (identifier: string) => {
+            const isDiscordId = /^\d{17,20}$/.test(identifier);
+            let discordUserId: string | null;
+            let playerKey: string;
+            if (isDiscordId) {
+                discordUserId = identifier;
+                playerKey = identifier;
+            } else {
+                const mapping = await db.get('SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)', identifier);
+                discordUserId = mapping?.discord_user_id || null;
+                playerKey = mapping?.discord_user_id || `iscored:${identifier.toLowerCase()}`;
+            }
+            const profile = discordUserId
+                ? await db.get('SELECT display_name FROM user_profiles WHERE discord_user_id = ?', discordUserId)
+                : null;
+            const displayName: string = profile?.display_name ?? identifier;
+            return { identifier, playerKey, discordUserId, displayName };
+        };
+
+        const a = await resolve(aIdentifier);
+        const b = await resolve(bIdentifier);
+
+        // Canonical best-per-player-per-game (score_history, orphaned excluded),
+        // room-scoped, keyed by LOWER(game_name) so casing differences between
+        // the two players' rows for "the same" game still match up.
+        const bestPerGame = async (playerKey: string): Promise<Map<string, { game_name: string; score: number }>> => {
+            const rows = await db.all(`
+                SELECT game_name, score FROM (
+                    SELECT game_name, score,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY LOWER(game_name)
+                               ORDER BY score DESC, created_at ASC
+                           ) as rn
+                    FROM score_history
+                    WHERE game_room_id = ?
+                      AND orphaned_at IS NULL
+                      AND COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) = ?
+                )
+                WHERE rn = 1
+            `, gameRoomId, playerKey);
+            const map = new Map<string, { game_name: string; score: number }>();
+            for (const r of rows as any[]) map.set(r.game_name.toLowerCase(), { game_name: r.game_name, score: r.score });
+            return map;
+        };
+
+        const [aBests, bBests] = await Promise.all([bestPerGame(a.playerKey), bestPerGame(b.playerKey)]);
+
+        const allKeys = new Set<string>([...aBests.keys(), ...bBests.keys()]);
+        const sharedGames: Array<{ game_name: string; a_best: number; b_best: number; leader: 'a' | 'b' | 'tie'; gap: number }> = [];
+        let aOnlyGames = 0;
+        let bOnlyGames = 0;
+        let aWins = 0;
+        let bWins = 0;
+        let ties = 0;
+
+        for (const key of allKeys) {
+            const aEntry = aBests.get(key);
+            const bEntry = bBests.get(key);
+            if (aEntry && bEntry) {
+                let leader: 'a' | 'b' | 'tie';
+                if (aEntry.score > bEntry.score) { leader = 'a'; aWins++; }
+                else if (bEntry.score > aEntry.score) { leader = 'b'; bWins++; }
+                else { leader = 'tie'; ties++; }
+                sharedGames.push({
+                    game_name: aEntry.game_name,
+                    a_best: aEntry.score,
+                    b_best: bEntry.score,
+                    leader,
+                    gap: Math.abs(aEntry.score - bEntry.score),
+                });
+            } else if (aEntry) {
+                aOnlyGames++;
+            } else if (bEntry) {
+                bOnlyGames++;
+            }
+        }
+
+        sharedGames.sort((x, y) => x.game_name.localeCompare(y.game_name));
+
+        return {
+            a: { identifier: a.identifier, displayName: a.displayName, discordUserId: a.discordUserId },
+            b: { identifier: b.identifier, displayName: b.displayName, discordUserId: b.discordUserId },
+            sharedGames: sharedGames.slice(0, 100),
+            aOnlyGames,
+            bOnlyGames,
+            totals: { aWins, bWins, ties },
+        };
     }
 
     /**
@@ -753,6 +929,10 @@ export class StatsService {
             return {
                 discord_user_id: p.discord_user_id,
                 iscored_username: p.iscored_username,
+                // Selected by the query's user_profiles JOIN all along but
+                // never mapped through — the compare picker (and any
+                // display-name-aware consumer) needs it (S14 check-agent catch).
+                display_name: p.display_name ?? null,
                 games_played: p.games_played,
                 wins: winMap.get(p.player_key) || 0,
                 avg_finish_position: Math.round(avgFinish * 10) / 10,

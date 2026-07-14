@@ -3,6 +3,7 @@ import { LobbyFeedService } from './LobbyFeedService.js';
 import { NotificationService } from './NotificationService.js';
 import { UserProfileService } from './UserProfileService.js';
 import { AchievementService } from './AchievementService.js';
+import { StatsService } from './StatsService.js';
 import { logError } from '../utils/logger.js';
 import { emitScoreNew } from '../api/websocket.js';
 
@@ -212,13 +213,50 @@ export class LobbyFeedGenerator {
                 }).catch(() => {});
             }
 
+            // S14 social loops — weekly participation streak event. Detect
+            // "this submission is the player's first score_history row in the
+            // current week AND they had at least one row in the immediately-
+            // previous week" with a cheap two-count query (the just-submitted
+            // row is already in score_history by the time this runs — see
+            // callers). Only fires on the week's first score so a player
+            // scoring repeatedly in one week doesn't spam the feed.
+            {
+                const playerKey = discordUserId || `iscored:${username.toLowerCase()}`;
+                const weekCounts = await db.get<{ this_week: number; prev_week: number }>(`
+                    SELECT
+                        SUM(CASE WHEN strftime('%Y-%W', created_at) = strftime('%Y-%W','now') THEN 1 ELSE 0 END) as this_week,
+                        SUM(CASE WHEN strftime('%Y-%W', created_at) = strftime('%Y-%W','now','-7 days') THEN 1 ELSE 0 END) as prev_week
+                    FROM score_history
+                    WHERE game_room_id = ?
+                      AND orphaned_at IS NULL
+                      AND COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) = ?
+                `, gameRoomId, playerKey);
+
+                const isFirstThisWeek = (weekCounts?.this_week ?? 0) === 1;
+                const hadPrevWeek = (weekCounts?.prev_week ?? 0) > 0;
+
+                if (isFirstThisWeek && hadPrevWeek) {
+                    const { currentWeeks } = await StatsService.getParticipationStreak(playerKey, gameRoomId);
+                    if (currentWeeks >= 2 && isTypeEnabled(enabledTypes, 'streak_extended')) {
+                        await LobbyFeedService.emit({
+                            gameRoomId,
+                            type: 'streak_extended',
+                            icon: undefined,
+                            title: `${displayName} is on a ${currentWeeks}-week streak!`,
+                            playerId: discordUserId,
+                            metadata: { weeks: currentWeeks },
+                        });
+                    }
+                }
+            }
+
         } catch (error) {
             logError('LobbyFeedGenerator.onScoreSubmitted error:', error);
         }
     }
 }
 
-function isTypeEnabled(enabledTypes: string[] | null, type: string): boolean {
+export function isTypeEnabled(enabledTypes: string[] | null, type: string): boolean {
     if (!enabledTypes) return true; // null means all enabled
     return enabledTypes.includes(type);
 }

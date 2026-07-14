@@ -900,6 +900,28 @@ router.get('/:roomId/stats/enhanced/player/:identifier', async (req, res) => {
     }
 });
 
+// S14 social loops — head-to-head player comparison (public, no middleware —
+// mirrors the other stats routes).
+router.get('/:roomId/stats/compare', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const a = typeof req.query.a === 'string' ? req.query.a.trim() : '';
+        const b = typeof req.query.b === 'string' ? req.query.b.trim() : '';
+        if (!a || !b) {
+            return res.status(400).json({ error: 'Query params "a" and "b" are required' });
+        }
+        if (a === b) {
+            return res.status(400).json({ error: '"a" and "b" must be different players' });
+        }
+        const { StatsService } = await import('../../services/StatsService.js');
+        const result = await StatsService.comparePlayersHeadToHead(roomId, a, b);
+        res.json(result);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/stats/compare):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // All-time player rankings for a game
 router.get('/:roomId/stats/game/:name/players', async (req, res) => {
     try {

@@ -1,0 +1,466 @@
+import { describe, it, expect } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import { setupTestDb, createTestRoom } from './helpers.js';
+import { getDatabase } from '../database/database.js';
+import { signToken } from '../api/auth.js';
+import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
+import { LobbyFeedGenerator } from '../services/LobbyFeedGenerator.js';
+import { Scheduler } from '../engine/Scheduler.js';
+
+/**
+ * S14 social loops (WP4) — FriendsService follow-by-id + legacy follow-by-username
+ * routes (global.ts, mounted bare at /api per the api-auth.test.ts precedent),
+ * StatsService.comparePlayersHeadToHead + getParticipationStreak (rooms.ts, mounted
+ * at /api/rooms per the room-scores.test.ts / s13-achievements.test.ts precedent),
+ * the LobbyFeedGenerator weekly streak_extended feed event, and the Scheduler
+ * staleness-challenge per-room worker.
+ *
+ * FriendsService has ZERO prior test coverage — this file sets the precedent.
+ */
+async function createTestApp() {
+    await setupTestDb();
+
+    const app = express();
+    app.use(express.json());
+
+    const { default: globalRouter } = await import('../api/routes/global.js');
+    const { default: roomsRouter } = await import('../api/routes/rooms.js');
+    app.use('/api', globalRouter);
+    app.use('/api/rooms', roomsRouter);
+
+    return app;
+}
+
+function playerToken(discordId: string) {
+    return signToken({ role: 'player', gameRoomIds: [], discordId, username: discordId });
+}
+
+/**
+ * Direct score_history seeding — mirrors room-scores.test.ts's
+ * insertScoreHistoryRow verbatim (the canonical column set for tests that need
+ * explicit submitted_by_user_id / created_at, which createTestSubmission()
+ * can't express).
+ */
+async function insertScoreHistoryRow(opts: {
+    gameRoomId: string;
+    gameName: string;
+    iscoredUsername: string;
+    score: number;
+    discordUserId?: string | null;
+    submittedByUserId?: string | null;
+    source?: 'tournament' | 'community' | 'sync';
+    orphanedAt?: string | null;
+    createdAt?: string;
+}) {
+    const db = await getDatabase();
+    await db.run(
+        `INSERT INTO score_history (
+            game_name, game_room_id, game_id, iscored_username, discord_user_id, score, source,
+            submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id, orphaned_at, created_at
+         ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+        opts.gameName, opts.gameRoomId, opts.iscoredUsername,
+        opts.discordUserId ?? 'SYSTEM', opts.score, opts.source ?? 'community',
+        opts.gameRoomId, opts.submittedByUserId ?? null, opts.orphanedAt ?? null,
+        opts.createdAt ?? new Date().toISOString(),
+    );
+}
+
+/** Days-ago ISO timestamp, captured relative to a single reference instant so
+ * offsets exactly 7 days apart are guaranteed consecutive by the SAME rule
+ * the implementation itself uses to test consecutiveness (datetime(x,'+7 days')).
+ */
+function daysAgo(referenceMs: number, n: number): string {
+    return new Date(referenceMs - n * 24 * 60 * 60 * 1000).toISOString();
+}
+
+// ===========================================================================
+// (a) FOLLOW BY ID + legacy follow-by-username
+// ===========================================================================
+describe('POST /api/me/friends', () => {
+    it('follows a user seeded in user_profiles by friendUserId, creating a friendships row', async () => {
+        const app = await createTestApp();
+        const db = await getDatabase();
+        const followerId = '100000000000000001';
+        const targetId = '100000000000000002';
+        await db.run('INSERT INTO user_profiles (discord_user_id, display_name) VALUES (?, ?)', targetId, 'TargetPlayer');
+
+        const res = await request(app)
+            .post('/api/me/friends')
+            .set('Authorization', `Bearer ${playerToken(followerId)}`)
+            .send({ friendUserId: targetId });
+
+        expect(res.status).toBe(201);
+        expect(res.body.friendUserId).toBe(targetId);
+
+        const row = await db.get('SELECT * FROM friendships WHERE user_id = ? AND friend_user_id = ?', followerId, targetId);
+        expect(row).toBeTruthy();
+        expect(row.status).toBe('active');
+    });
+
+    it('rejects self-follow with 400', async () => {
+        const app = await createTestApp();
+        const selfId = '100000000000000003';
+
+        const res = await request(app)
+            .post('/api/me/friends')
+            .set('Authorization', `Bearer ${playerToken(selfId)}`)
+            .send({ friendUserId: selfId });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/yourself/i);
+    });
+
+    it('returns 404 for an unknown friendUserId (no user_profiles or user_mappings row)', async () => {
+        const app = await createTestApp();
+        const followerId = '100000000000000004';
+
+        const res = await request(app)
+            .post('/api/me/friends')
+            .set('Authorization', `Bearer ${playerToken(followerId)}`)
+            .send({ friendUserId: '999999999999999999' });
+
+        expect(res.status).toBe(404);
+    });
+
+    it('repeat follow is idempotent — status active, no duplicate row', async () => {
+        const app = await createTestApp();
+        const db = await getDatabase();
+        const followerId = '100000000000000005';
+        const targetId = '100000000000000006';
+        await db.run('INSERT INTO user_profiles (discord_user_id, display_name) VALUES (?, ?)', targetId, 'RepeatTarget');
+
+        const first = await request(app)
+            .post('/api/me/friends')
+            .set('Authorization', `Bearer ${playerToken(followerId)}`)
+            .send({ friendUserId: targetId });
+        expect(first.status).toBe(201);
+
+        const second = await request(app)
+            .post('/api/me/friends')
+            .set('Authorization', `Bearer ${playerToken(followerId)}`)
+            .send({ friendUserId: targetId });
+        expect(second.status).toBe(201);
+
+        const rows = await db.all('SELECT * FROM friendships WHERE user_id = ? AND friend_user_id = ?', followerId, targetId);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].status).toBe('active');
+    });
+
+    it('legacy {discordUsername} path still works (non-regression) — resolves via user_mappings alias', async () => {
+        const app = await createTestApp();
+        const db = await getDatabase();
+        const followerId = '100000000000000007';
+        const targetId = '100000000000000008';
+        await db.run(
+            'INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)',
+            targetId, 'LegacyAlias'
+        );
+
+        const res = await request(app)
+            .post('/api/me/friends')
+            .set('Authorization', `Bearer ${playerToken(followerId)}`)
+            .send({ discordUsername: 'LegacyAlias' });
+
+        expect(res.status).toBe(201);
+        expect(res.body.friendUserId).toBe(targetId);
+
+        const row = await db.get('SELECT * FROM friendships WHERE user_id = ? AND friend_user_id = ?', followerId, targetId);
+        expect(row).toBeTruthy();
+        expect(row.status).toBe('active');
+    });
+});
+
+// ===========================================================================
+// (b) COMPARE — head-to-head player comparison
+// ===========================================================================
+describe('GET /:roomId/stats/compare', () => {
+    it('2 shared games (with alias collapse) + 1 exclusive each, correct leader/gap/totals', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const playerA = '200000000000000001';
+        const playerB = '200000000000000002';
+
+        // G1 (shared): plain rows, A leads.
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Medieval Madness', iscoredUsername: 'AliceMain',
+            submittedByUserId: playerA, score: 5000,
+        });
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Medieval Madness', iscoredUsername: 'BobMain',
+            submittedByUserId: playerB, score: 3000,
+        });
+
+        // G2 (shared): player A has TWO aliases sharing one submitted_by_user_id.
+        // The OLDER alias holds the higher (winning) score — proves the canonical
+        // partition collapses aliases to ONE best-per-player row via score DESC,
+        // not via recency.
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Twilight Zone', iscoredUsername: 'AliceOld',
+            submittedByUserId: playerA, score: 9000, createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+        });
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Twilight Zone', iscoredUsername: 'AliceNewer',
+            submittedByUserId: playerA, score: 4000, createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+        });
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Twilight Zone', iscoredUsername: 'BobMain',
+            submittedByUserId: playerB, score: 7000,
+        });
+
+        // G3 (A only).
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Attack from Mars', iscoredUsername: 'AliceMain',
+            submittedByUserId: playerA, score: 4200,
+        });
+
+        // G4 (B only).
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Fish Tales', iscoredUsername: 'BobMain',
+            submittedByUserId: playerB, score: 3300,
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/compare`).query({ a: playerA, b: playerB });
+
+        expect(res.status).toBe(200);
+        expect(res.body.a.discordUserId).toBe(playerA);
+        expect(res.body.b.discordUserId).toBe(playerB);
+
+        expect(res.body.sharedGames).toHaveLength(2);
+        const mm = res.body.sharedGames.find((g: any) => g.game_name === 'Medieval Madness');
+        expect(mm).toMatchObject({ a_best: 5000, b_best: 3000, leader: 'a', gap: 2000 });
+
+        const tz = res.body.sharedGames.find((g: any) => g.game_name === 'Twilight Zone');
+        // Alias collapse: A's best on Twilight Zone is 9000 (from the OLDER alias),
+        // not 4000 (the newer one) — proves score DESC wins, not recency.
+        expect(tz).toMatchObject({ a_best: 9000, b_best: 7000, leader: 'a', gap: 2000 });
+
+        expect(res.body.aOnlyGames).toBe(1);
+        expect(res.body.bOnlyGames).toBe(1);
+        expect(res.body.totals).toEqual({ aWins: 2, bWins: 0, ties: 0 });
+    });
+
+    it('returns 400 when a and b are the same identifier', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const playerA = '200000000000000003';
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/compare`).query({ a: playerA, b: playerA });
+
+        expect(res.status).toBe(400);
+    });
+});
+
+// ===========================================================================
+// (c) STREAKS — participationStreak via the enhanced-player endpoint
+// ===========================================================================
+describe('GET /:roomId/stats/enhanced/player/:identifier — participationStreak', () => {
+    it('3 consecutive weeks + a gap + 1 isolated (live) week → bestWeeks 3, currentWeeks 1', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const playerId = '300000000000000001';
+        const ref = Date.now();
+
+        // Run of 3 consecutive weeks: -35, -28, -21 days.
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'Streaker',
+            submittedByUserId: playerId, score: 100, createdAt: daysAgo(ref, 35),
+        });
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'Streaker',
+            submittedByUserId: playerId, score: 110, createdAt: daysAgo(ref, 28),
+        });
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'Streaker',
+            submittedByUserId: playerId, score: 120, createdAt: daysAgo(ref, 21),
+        });
+        // Gap at -14 days (no row).
+        // Isolated week at -7 days ("last week" — live).
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'Streaker',
+            submittedByUserId: playerId, score: 130, createdAt: daysAgo(ref, 7),
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/enhanced/player/${playerId}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.participationStreak).toEqual({ currentWeeks: 1, bestWeeks: 3 });
+    });
+});
+
+// ===========================================================================
+// (d) STREAK EVENT — LobbyFeedGenerator.onScoreSubmitted streak_extended
+// ===========================================================================
+describe('LobbyFeedGenerator — weekly streak_extended feed event', () => {
+    it('first score this week with last-week history emits one streak_extended row; a second score the same week does not', async () => {
+        await setupTestDb();
+        const db = await getDatabase();
+        const roomId = await createTestRoom();
+        const playerId = '400000000000000001';
+        const ref = Date.now();
+
+        // Last week's history (establishes a live, 2-week-consecutive streak).
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'Streaker',
+            submittedByUserId: playerId, score: 500, createdAt: daysAgo(ref, 7),
+        });
+        // This week's row — represents the just-submitted score already written
+        // to score_history by the caller before onScoreSubmitted runs (per the
+        // implementation's own comment).
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'Streaker',
+            submittedByUserId: playerId, score: 600, createdAt: new Date(ref).toISOString(),
+        });
+
+        await LobbyFeedGenerator.onScoreSubmitted({
+            gameRoomId: roomId, gameName: 'Streak Game', username: 'Streaker', score: 600,
+            discordUserId: playerId, source: 'community',
+        });
+
+        const rowsAfterFirst = await db.all(
+            `SELECT * FROM lobby_feed_events WHERE game_room_id = ? AND type = 'streak_extended'`, roomId,
+        );
+        expect(rowsAfterFirst).toHaveLength(1);
+
+        // Second score, same week — must NOT emit a second streak_extended event.
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'Streaker',
+            submittedByUserId: playerId, score: 700, createdAt: new Date(ref + 1000).toISOString(),
+        });
+        await LobbyFeedGenerator.onScoreSubmitted({
+            gameRoomId: roomId, gameName: 'Streak Game', username: 'Streaker', score: 700,
+            discordUserId: playerId, source: 'community',
+        });
+
+        const rowsAfterSecond = await db.all(
+            `SELECT * FROM lobby_feed_events WHERE game_room_id = ? AND type = 'streak_extended'`, roomId,
+        );
+        expect(rowsAfterSecond).toHaveLength(1);
+    });
+
+    it('does not emit when streak_extended is disabled via LOBBY_FEED_SETTINGS.enabledTypes', async () => {
+        await setupTestDb();
+        const db = await getDatabase();
+        const roomId = await createTestRoom();
+        const playerId = '400000000000000002';
+        const ref = Date.now();
+
+        await GameRoomSettingsService.set(
+            roomId, 'LOBBY_FEED_SETTINGS', JSON.stringify({ enabledTypes: ['score_posted'] })
+        );
+
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'Streaker',
+            submittedByUserId: playerId, score: 500, createdAt: daysAgo(ref, 7),
+        });
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'Streaker',
+            submittedByUserId: playerId, score: 600, createdAt: new Date(ref).toISOString(),
+        });
+
+        await LobbyFeedGenerator.onScoreSubmitted({
+            gameRoomId: roomId, gameName: 'Streak Game', username: 'Streaker', score: 600,
+            discordUserId: playerId, source: 'community',
+        });
+
+        const rows = await db.all(
+            `SELECT * FROM lobby_feed_events WHERE game_room_id = ? AND type = 'streak_extended'`, roomId,
+        );
+        expect(rows).toHaveLength(0);
+    });
+});
+
+// ===========================================================================
+// (e) STALENESS — Scheduler's per-room staleness_challenge worker
+// ===========================================================================
+describe('Scheduler — staleness_challenge per-room worker', () => {
+    // Private method, extracted (not inline in the cron closure) — called via
+    // an `as any` cast to bypass TypeScript's compile-time privacy. This is
+    // the same runtime object the cron job itself invokes; it is not a mock
+    // and does not reach into node-cron.
+    function runStalenessCheck(gameRoomId: string): Promise<void> {
+        return (Scheduler.getInstance() as any).emitStalenessChallengeForRoom(gameRoomId);
+    }
+
+    it('emits one staleness_challenge row with correct metadata for a game past the default 14-day threshold', async () => {
+        await setupTestDb();
+        const db = await getDatabase();
+        const roomId = await createTestRoom();
+
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Dusty Table', iscoredUsername: 'OldChamp',
+            score: 9999, createdAt: new Date(Date.now() - 20 * 86400000).toISOString(),
+        });
+
+        await runStalenessCheck(roomId);
+
+        const rows = await db.all(
+            `SELECT * FROM lobby_feed_events WHERE game_room_id = ? AND type = 'staleness_challenge'`, roomId,
+        );
+        expect(rows).toHaveLength(1);
+        const metadata = JSON.parse(rows[0].metadata);
+        expect(metadata.topScore).toBe(9999);
+        expect(metadata.topPlayer).toBe('OldChamp');
+        expect(typeof metadata.days).toBe('number');
+        expect(metadata.days).toBeGreaterThanOrEqual(19);
+        expect(rows[0].game_name).toBe('Dusty Table');
+    });
+
+    it('re-running the same day is deduped — no second row', async () => {
+        await setupTestDb();
+        const db = await getDatabase();
+        const roomId = await createTestRoom();
+
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Dusty Table', iscoredUsername: 'OldChamp',
+            score: 9999, createdAt: new Date(Date.now() - 20 * 86400000).toISOString(),
+        });
+
+        await runStalenessCheck(roomId);
+        await runStalenessCheck(roomId);
+
+        const rows = await db.all(
+            `SELECT * FROM lobby_feed_events WHERE game_room_id = ? AND type = 'staleness_challenge'`, roomId,
+        );
+        expect(rows).toHaveLength(1);
+    });
+
+    it('emits nothing when staleness_challenge is disabled via LOBBY_FEED_SETTINGS.enabledTypes', async () => {
+        await setupTestDb();
+        const db = await getDatabase();
+        const roomId = await createTestRoom();
+
+        await GameRoomSettingsService.set(
+            roomId, 'LOBBY_FEED_SETTINGS', JSON.stringify({ enabledTypes: ['score_posted'] })
+        );
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Dusty Table', iscoredUsername: 'OldChamp',
+            score: 9999, createdAt: new Date(Date.now() - 20 * 86400000).toISOString(),
+        });
+
+        await runStalenessCheck(roomId);
+
+        const rows = await db.all(
+            `SELECT * FROM lobby_feed_events WHERE game_room_id = ? AND type = 'staleness_challenge'`, roomId,
+        );
+        expect(rows).toHaveLength(0);
+    });
+
+    it('emits nothing when no game is past the threshold', async () => {
+        await setupTestDb();
+        const db = await getDatabase();
+        const roomId = await createTestRoom();
+
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Fresh Table', iscoredUsername: 'ActivePlayer',
+            score: 100, createdAt: new Date().toISOString(),
+        });
+
+        await runStalenessCheck(roomId);
+
+        const rows = await db.all(
+            `SELECT * FROM lobby_feed_events WHERE game_room_id = ? AND type = 'staleness_challenge'`, roomId,
+        );
+        expect(rows).toHaveLength(0);
+    });
+});
