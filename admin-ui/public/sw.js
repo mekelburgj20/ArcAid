@@ -1,4 +1,4 @@
-const CACHE_NAME = 'arcaid-v96';
+const CACHE_NAME = 'arcaid-v97';
 const STATIC_ASSETS = [];
 
 self.addEventListener('install', (event) => {
@@ -65,4 +65,38 @@ self.addEventListener('fetch', (event) => {
 
   // All other requests (API calls, etc.): network only
   event.respondWith(fetch(request));
+});
+
+// --- Web push (S15) ---
+// Payload shape: { title, body, url, tag } — see WebPushService (backend).
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.registration.showNotification(payload.title || 'ArcAid', {
+      body: payload.body || '',
+      icon: '/arcaid-icon-192.png',
+      tag: payload.tag || undefined,
+      data: { url: payload.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Focus an existing tab already on the target URL; otherwise open one.
+      for (const client of windowClients) {
+        if (client.url === url && 'focus' in client) return client.focus();
+      }
+      return clients.openWindow(url);
+    })
+  );
 });

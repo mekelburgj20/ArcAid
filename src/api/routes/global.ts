@@ -5,7 +5,7 @@ import { requireAuth, requireDiscordUser, requireSuperAdmin } from '../middlewar
 import { writeLimiter, globalSubmitLimiter, authLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
-import { UpdatePreferencesSchema, MAX_SCORE } from '../schemas.js';
+import { UpdatePreferencesSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
@@ -19,6 +19,7 @@ import { getDatabase } from '../../database/database.js';
 import { getVersionInfo } from '../../utils/version.js';
 import { AuditService } from '../../services/AuditService.js';
 import { AccountDeletionService, LastSuperAdminError } from '../../services/AccountDeletionService.js';
+import { WebPushService } from '../../services/WebPushService.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 
 const router = Router();
@@ -232,6 +233,84 @@ router.put('/me/notification-preferences', requireDiscordUser, async (req, res) 
         res.json(prefs);
     } catch (error) {
         logError('API Error (PUT /api/me/notification-preferences):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Web Push (S15) ---
+
+// Public by design: the VAPID public key is what browsers need to subscribe.
+// `key: null` = push not configured on this server (FE hides the toggle).
+router.get('/push/vapid-public-key', async (_req, res) => {
+    try {
+        res.json({ key: await WebPushService.getPublicKey() });
+    } catch (error) {
+        logError('API Error (GET /api/push/vapid-public-key):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/me/push-subscriptions', requireDiscordUser, writeLimiter, async (req, res) => {
+    try {
+        const parsed = PushSubscriptionSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Invalid subscription payload' });
+        }
+        const { endpoint, keys } = parsed.data;
+        const userId = req.user!.discordId!;
+        const db = await getDatabase();
+        // Endpoints are globally unique (Push API spec) — a browser
+        // re-subscribing under a different account moves the row.
+        await db.run(
+            `INSERT INTO push_subscriptions (discord_user_id, endpoint, p256dh, auth)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(endpoint) DO UPDATE SET
+                discord_user_id = excluded.discord_user_id,
+                p256dh = excluded.p256dh,
+                auth = excluded.auth`,
+            userId, endpoint, keys.p256dh, keys.auth
+        );
+        // Subscribing IS the channel opt-in — merge webPush:true into the
+        // user's notification_prefs JSON server-side, so the flag write is
+        // atomic with the subscription from the client's perspective and the
+        // FE prefs draft can't race it.
+        const row = await db.get(
+            'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?', userId);
+        let prefs: Record<string, unknown> = {};
+        if (row?.notification_prefs) {
+            try { prefs = JSON.parse(row.notification_prefs); } catch { prefs = {}; }
+        }
+        prefs['webPush'] = true;
+        await db.run(
+            `INSERT INTO user_preferences (discord_user_id, notification_prefs)
+             VALUES (?, ?)
+             ON CONFLICT(discord_user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs`,
+            userId, JSON.stringify(prefs)
+        );
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (POST /api/me/push-subscriptions):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Device-level unsubscribe — removes ONE endpoint (this browser), own rows
+// only. The webPush channel flag deliberately stays set: other subscribed
+// devices keep receiving, and with zero rows left the dispatch no-ops.
+router.delete('/me/push-subscriptions', requireDiscordUser, writeLimiter, async (req, res) => {
+    try {
+        const parsed = PushUnsubscribeSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Invalid unsubscribe payload' });
+        }
+        const db = await getDatabase();
+        const result = await db.run(
+            'DELETE FROM push_subscriptions WHERE endpoint = ? AND discord_user_id = ?',
+            parsed.data.endpoint, req.user!.discordId!
+        );
+        res.json({ ok: true, removed: result?.changes ?? 0 });
+    } catch (error) {
+        logError('API Error (DELETE /api/me/push-subscriptions):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

@@ -272,6 +272,8 @@ export class AccountDeletionService {
             await del('user_preferences', 'DELETE FROM user_preferences WHERE discord_user_id = ?', id);
             // Refresh tokens — MUST go so the account cannot re-authenticate.
             await del('sessions', 'DELETE FROM sessions WHERE discord_user_id = ?', id);
+            // Browser push endpoints (S15) — device-identifying, must not outlive the account.
+            await del('push_subscriptions', 'DELETE FROM push_subscriptions WHERE discord_user_id = ?', id);
 
             // --- DELETE-OUTRIGHT social ---
             await del('friendships',

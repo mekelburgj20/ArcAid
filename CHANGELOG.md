@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.23.0] — unreleased
+
+**S15 — Web push (Phase C).** Browser push notifications as a second channel beside Discord DMs — opt-in, smallest shippable: `rankDethroned` + `tournamentWin` only.
+
+- **Dispatch inside `NotificationService.notify`** — a push rides the SAME per-type opt-in + rate-limit result as the DM (one event = one budget slot), additionally gated on the user's `webPush` channel flag (in the `notification_prefs` JSON, set when they subscribe a browser) and the `WEB_PUSH_TYPES` allowlist. Fire-and-forget both ways: a push failure never affects the DM, and closed DMs never suppress the push. Payload = per-type title + markdown-stripped first line + deep link (`pushUrl` supplied by the two high-value call sites) + collapse tag.
+- **`WebPushService`** — VAPID-signed sends via the `web-push` library; keys live in global settings (`WEB_PUSH_VAPID_PUBLIC_KEY` + `WEB_PUSH_VAPID_PRIVATE_KEY`, the private key added to `ENCRYPTED_SETTING_KEYS` so it's AES-GCM at rest), read through a 10s TTL cache. Both keys unset → the whole feature is inert (S10 OPS_ALERT ship-inert pattern). New `npm run generate-vapid-keys` prints a pair to paste into the super-admin Global Settings page (fields added there, private key masked).
+- **Migration 111** — `push_subscriptions` (per-device rows keyed on `discord_user_id`, globally-unique `endpoint`, FK-less by design). Expired endpoints (HTTP 404/410) are pruned at send time; the account-deletion purge (S12) now deletes the user's rows.
+- **Endpoints** — public `GET /api/push/vapid-public-key` (`key: null` = unconfigured, FE hides the UI); `POST /api/me/push-subscriptions` (Discord-authed + write-limited; endpoint-keyed upsert + merges `webPush: true` into the user's prefs server-side); `DELETE /api/me/push-subscriptions` (own rows only, device-level — the channel flag deliberately survives so other devices keep receiving).
+- **Account Settings — "Browser push"** sub-block in the Notifications card: one device-level toggle (permission prompt → subscribe → server registration, with rollback on server rejection), blocked-permission guidance, iOS install-to-Home-Screen hint, hidden entirely when the server has no VAPID keys.
+- **Service worker** — `push` (payload → tray notification) + `notificationclick` (focus an existing tab on the target URL or open one) handlers. SW → `arcaid-v97`.
+
+New `s15-web-push.test.ts` (10 cases: payload shape/deep-link/markdown-strip, every suppress gate, shared rate budget, channel independence, 410 prune vs 500 keep, deletion purge, private-key encryption round-trip). **Migration 111 consumed → next free = 112.**
+
+---
+
 ## [2.22.0] — unreleased
 
 **S14 — Social & competitive loops (Phase C).** Built via the established Fable-orchestrated Sonnet workflow (recon → 4 work packages → check → orchestrator review; zero blockers).
