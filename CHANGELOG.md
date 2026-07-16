@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.23.2] — unreleased
+
+**Room nicknames become a recognized identity lookup on room stat pages.** Discord OAuth login writes NO `user_mappings` row (a long-standing doc error claimed otherwise) — a player who logs in and submits on the web gets score attribution + a per-room `room_members.display_name` claim, but the name everyone sees them under was invisible to NAME-typed lookups, which read `user_mappings` only (field report: the operator's own alt). The room-scoped resolvers (`comparePlayersHeadToHead.resolve`, `getEnhancedPlayerStatsByUsername`) now fall back to `room_members(room_id, display_name)` when the global alias misses. Global alias always wins; **lookup-only** — no identity records are created, and NULL-attribution synced rows still fold solely via real alias links (per-room first-claim ≠ global alias ownership; the phantom-claim doctrine stands). Side benefit: player pages reached by a claimed nickname now expose `discordUserId`, so Follow gating works for web-native players. Backend-only, no SW bump, no migration. +3 tests.
+
+---
+
 ## [2.23.1] — unreleased
 
 **Fix: Compare / streaks / personal bests missed a Discord-linked player's pre-link scores (field report).** Comparing two players on the same leaderboard could return "No shared games yet": rows synced from iScored **before** an alias was Discord-linked carry `submitted_by_user_id` NULL and keyed as `iscored:<alias>` — a key the player-resolution side never produces for a mapped name, so half the player's history was invisible. All three S14/S13 per-player stats queries (`comparePlayersHeadToHead.bestPerGame`, `getParticipationStreak`, `getPersonalBests`) now use the **three-leg identity key** — `COALESCE(submitted_by_user_id, user_mappings.discord_user_id, 'iscored:' || LOWER(iscored_username))` — folding a linked alias's NULL-attribution rows into the mapped user (also collapses phantom split entries in personal-bests room ranks). Backend-only, no SW bump, no migration. +3 regression tests in `s14-social-loops.test.ts` (field-report shape, name-vs-snowflake cluster equality, streak fold).
