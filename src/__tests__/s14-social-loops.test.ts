@@ -330,6 +330,97 @@ describe('GET /:roomId/stats/compare', () => {
         expect(byName.body.sharedGames[0].a_best).toBe(500);
         expect(byId.body.sharedGames[0].a_best).toBe(500);
     });
+
+    // v2.23.2 — room-nickname fallback. Discord OAuth login writes NO
+    // user_mappings row: a web-native player's name exists only as their
+    // room_members.display_name claim, so a NAME-typed compare previously
+    // resolved to the synthetic 'iscored:<name>' key and missed every
+    // Discord-attributed score they had.
+    it('resolves a room-claimed nickname (no user_mappings row) to its Discord owner', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const db = await getDatabase();
+        const webNative = '200000000000000020';
+        const other = '200000000000000021';
+
+        // The web submit flow's claim: room_members only, NO user_mappings row.
+        await db.run(
+            `INSERT INTO room_members (user_id, room_id, source, display_name) VALUES (?, ?, 'submission', ?)`,
+            webNative, roomId, 'WebNick'
+        );
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Space Shuttle Deluxe', iscoredUsername: 'WebNick',
+            submittedByUserId: webNative, score: 1000000,
+        });
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Space Shuttle Deluxe', iscoredUsername: 'OtherGuy2',
+            submittedByUserId: other, score: 90000,
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/compare`)
+            .query({ a: 'WebNick', b: other });
+
+        expect(res.status).toBe(200);
+        expect(res.body.a.discordUserId).toBe(webNative);
+        expect(res.body.sharedGames).toHaveLength(1);
+        expect(res.body.sharedGames[0]).toMatchObject({
+            game_name: 'Space Shuttle Deluxe', a_best: 1000000, b_best: 90000, leader: 'a',
+        });
+    });
+
+    it('a global alias (user_mappings) outranks a same-name room nickname claim', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const db = await getDatabase();
+        const aliasOwner = '200000000000000030';
+        const nickOwner = '200000000000000031';
+        const other = '200000000000000032';
+
+        await db.run(
+            'INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)',
+            aliasOwner, 'Contested'
+        );
+        await db.run(
+            `INSERT INTO room_members (user_id, room_id, source, display_name) VALUES (?, ?, 'submission', ?)`,
+            nickOwner, roomId, 'Contested'
+        );
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Whirlwind', iscoredUsername: 'Contested',
+            submittedByUserId: aliasOwner, score: 800,
+        });
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Whirlwind', iscoredUsername: 'OtherGuy3',
+            submittedByUserId: other, score: 900,
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/compare`)
+            .query({ a: 'Contested', b: other });
+
+        expect(res.status).toBe(200);
+        expect(res.body.a.discordUserId).toBe(aliasOwner); // global alias wins
+        expect(res.body.sharedGames[0].a_best).toBe(800);
+    });
+
+    it('enhanced player stats by room-claimed nickname resolve the Discord identity (Follow gating)', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const db = await getDatabase();
+        const webNative = '200000000000000040';
+
+        await db.run(
+            `INSERT INTO room_members (user_id, room_id, source, display_name) VALUES (?, ?, 'submission', ?)`,
+            webNative, roomId, 'NickOnly'
+        );
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Fish Tales', iscoredUsername: 'NickOnly',
+            submittedByUserId: webNative, score: 1234,
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/enhanced/player/NickOnly`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.discordUserId).toBe(webNative);
+    });
 });
 
 // ===========================================================================

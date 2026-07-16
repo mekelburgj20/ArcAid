@@ -564,13 +564,27 @@ export class StatsService {
 
         const mapping = await db.get('SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)', username);
 
+        // Room-nickname fallback (v2.23.2): Discord OAuth login writes no
+        // user_mappings row, so a web-native player's name may exist only as
+        // this room's room_members.display_name claim. Global alias wins when
+        // both exist; lookup-only (creates no identity records).
+        let resolvedDiscordId: string | null = mapping?.discord_user_id || null;
+        if (!resolvedDiscordId && gameRoomId) {
+            const member = await db.get(
+                'SELECT user_id FROM room_members WHERE room_id = ? AND LOWER(display_name) = LOWER(?)',
+                gameRoomId, username
+            );
+            resolvedDiscordId = member?.user_id || null;
+        }
+
         // S13 trophy case: canonical partition key mirrors every other
-        // room-scoped ranking query — the real Discord id when this alias is
-        // mapped, else the 'iscored:<username>' synthetic fallback.
-        const playerKey = mapping?.discord_user_id || `iscored:${username.toLowerCase()}`;
+        // room-scoped ranking query — the real Discord id when this name is
+        // linked (alias or room claim), else the 'iscored:<username>' synthetic
+        // fallback.
+        const playerKey = resolvedDiscordId || `iscored:${username.toLowerCase()}`;
         const achievements = gameRoomId
             ? await AchievementService.getForPlayer(gameRoomId, {
-                discordUserId: mapping?.discord_user_id || null,
+                discordUserId: resolvedDiscordId,
                 username,
             })
             : { tournamentWins: 0, milestones: 0, roomRecords: 0, recent: [] };
@@ -578,7 +592,7 @@ export class StatsService {
         const participationStreak = await StatsService.getParticipationStreak(playerKey, gameRoomId);
 
         return {
-            discordUserId: mapping?.discord_user_id || null,
+            discordUserId: resolvedDiscordId,
             iscoredUsername: username,
             totalGamesPlayed: totalGames,
             totalWins: totalWins,
@@ -743,9 +757,25 @@ export class StatsService {
                 discordUserId = identifier;
                 playerKey = identifier;
             } else {
+                // Global alias first (user_mappings — the explicit claim), then
+                // this room's nickname claims: Discord OAuth login writes NO
+                // user_mappings row, so a web-native player's name may exist
+                // ONLY as their room_members.display_name claim — without this
+                // fallback they're unreachable by the very name this room
+                // displays them under. Lookup-only: no identity records are
+                // created, and NULL-attribution rows still fold solely via
+                // real alias links (per-room first-claim ≠ global ownership).
                 const mapping = await db.get('SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)', identifier);
-                discordUserId = mapping?.discord_user_id || null;
-                playerKey = mapping?.discord_user_id || `iscored:${identifier.toLowerCase()}`;
+                let resolved: string | null = mapping?.discord_user_id || null;
+                if (!resolved) {
+                    const member = await db.get(
+                        'SELECT user_id FROM room_members WHERE room_id = ? AND LOWER(display_name) = LOWER(?)',
+                        gameRoomId, identifier
+                    );
+                    resolved = member?.user_id || null;
+                }
+                discordUserId = resolved;
+                playerKey = resolved || `iscored:${identifier.toLowerCase()}`;
             }
             const profile = discordUserId
                 ? await db.get('SELECT display_name FROM user_profiles WHERE discord_user_id = ?', discordUserId)
