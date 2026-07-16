@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.23.1] — unreleased
+
+**Fix: Compare / streaks / personal bests missed a Discord-linked player's pre-link scores (field report).** Comparing two players on the same leaderboard could return "No shared games yet": rows synced from iScored **before** an alias was Discord-linked carry `submitted_by_user_id` NULL and keyed as `iscored:<alias>` — a key the player-resolution side never produces for a mapped name, so half the player's history was invisible. All three S14/S13 per-player stats queries (`comparePlayersHeadToHead.bestPerGame`, `getParticipationStreak`, `getPersonalBests`) now use the **three-leg identity key** — `COALESCE(submitted_by_user_id, user_mappings.discord_user_id, 'iscored:' || LOWER(iscored_username))` — folding a linked alias's NULL-attribution rows into the mapped user (also collapses phantom split entries in personal-bests room ranks). Backend-only, no SW bump, no migration. +3 regression tests in `s14-social-loops.test.ts` (field-report shape, name-vs-snowflake cluster equality, streak fold).
+
+---
+
 ## [2.23.0] — unreleased
 
 **S15 — Web push (Phase C).** Browser push notifications as a second channel beside Discord DMs — opt-in, smallest shippable: `rankDethroned` + `tournamentWin` only.
