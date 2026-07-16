@@ -16,6 +16,15 @@ export interface NotificationPrefs {
 
 export type NotificationType = keyof NotificationPrefs;
 
+/** The five per-type opt-in keys — the ONLY keys external writers may set. */
+export const PREF_TYPE_KEYS: readonly NotificationType[] = [
+    'tournamentWin',
+    'turnToPick',
+    'tournamentStarting',
+    'rankDethroned',
+    'friendScore',
+];
+
 /**
  * High-value retention types. These draw from an INDEPENDENT rate-limit budget
  * from the "chatty" types (turnToPick/friendScore/tournamentStarting) so a flood
@@ -295,10 +304,17 @@ export class NotificationService {
     }
 
     /**
-     * Record that the one-time flag-default footer has been shown to this user,
-     * by writing the `_hvFooterShown` marker into their notification_prefs JSON.
+     * Merge `updates` into the user's stored notification_prefs JSON and
+     * return the merged object. THE single write path for the prefs blob —
+     * every writer (the PUT route, the /arcaid-notifications command, the
+     * push-subscribe flow, the footer marker) must go through here so
+     * cross-feature keys (`webPush`, `_hvFooterShown`) survive each other's
+     * writes. Never rebuild-and-replace the JSON wholesale.
      */
-    private static async markFooterShown(userId: string): Promise<void> {
+    static async mergePrefs(
+        userId: string,
+        updates: Record<string, unknown>
+    ): Promise<Record<string, unknown>> {
         const db = await getDatabase();
         const row = await db.get(
             'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?',
@@ -308,15 +324,39 @@ export class NotificationService {
         if (row?.notification_prefs) {
             try { parsed = JSON.parse(row.notification_prefs); } catch { parsed = {}; }
         }
-        parsed[HV_FOOTER_MARKER] = true;
-        const json = JSON.stringify(parsed);
-        // UPSERT so a flag-defaulted user with no prior row still gets the marker.
+        const merged = { ...parsed, ...updates };
+        // UPSERT so a user with no prior row still gets one.
         await db.run(
             `INSERT INTO user_preferences (discord_user_id, notification_prefs)
              VALUES (?, ?)
              ON CONFLICT(discord_user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs`,
-            userId, json
+            userId, JSON.stringify(merged)
         );
+        return merged;
+    }
+
+    /**
+     * Extract ONLY the five typed opt-in booleans from an untrusted body —
+     * unknown keys and non-boolean values are dropped, so a caller-supplied
+     * object can never set (or clobber) channel flags or internal markers.
+     */
+    static typedPrefUpdates(body: unknown): Partial<Record<NotificationType, boolean>> {
+        const out: Partial<Record<NotificationType, boolean>> = {};
+        if (body && typeof body === 'object') {
+            for (const key of PREF_TYPE_KEYS) {
+                const value = (body as Record<string, unknown>)[key];
+                if (typeof value === 'boolean') out[key] = value;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Record that the one-time flag-default footer has been shown to this user,
+     * by writing the `_hvFooterShown` marker into their notification_prefs JSON.
+     */
+    private static async markFooterShown(userId: string): Promise<void> {
+        await this.mergePrefs(userId, { [HV_FOOTER_MARKER]: true });
     }
 
     /**

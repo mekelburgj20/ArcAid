@@ -39,6 +39,12 @@ interface VapidConfig {
 let vapidCache: { config: VapidConfig | null; ts: number } | null = null;
 const VAPID_TTL_MS = 10_000;
 
+// Dead-for-good endpoint statuses. 404/410 = gone per the Push API spec;
+// 400/401/403 = malformed subscription or VAPID key mismatch (e.g. after a
+// key rotation every pre-rotation row 403s forever) — retrying can never
+// succeed, so prune rather than log an error per event per device forever.
+const PRUNE_STATUSES: ReadonlySet<number> = new Set([400, 401, 403, 404, 410]);
+
 export class WebPushService {
     /** Plaintext public key, or null when push is not configured. */
     static async getPublicKey(): Promise<string | null> {
@@ -77,13 +83,14 @@ export class WebPushService {
                     delivered++;
                 } catch (err) {
                     const status = (err as { statusCode?: number })?.statusCode;
-                    if (status === 404 || status === 410) {
-                        // Endpoint gone (browser revoked/expired) — prune the row.
+                    if (status !== undefined && PRUNE_STATUSES.has(status)) {
+                        // Endpoint dead for good (revoked/expired/key-mismatch) — prune the row.
                         try {
                             await db.run('DELETE FROM push_subscriptions WHERE id = ?', sub.id);
-                            logInfo(`WebPushService: pruned expired subscription ${sub.id} for ${discordUserId} (HTTP ${status})`);
+                            logInfo(`WebPushService: pruned dead subscription ${sub.id} for ${discordUserId} (HTTP ${status})`);
                         } catch { /* prune failure is non-fatal */ }
                     } else {
+                        // Transient (5xx/429/network) — keep the row, retry on the next event.
                         logError(`WebPushService: send failed for ${discordUserId} (HTTP ${status ?? '?'}):`, err);
                     }
                 }

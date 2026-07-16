@@ -290,6 +290,24 @@ describe('web-push subscription lifecycle', () => {
         }, { timeout: 2000 });
     });
 
+    it('prunes the subscription row on 403 (VAPID key mismatch after rotation)', async () => {
+        await seedVapid();
+        await setPrefs('u-prune-3', { rankDethroned: true, webPush: true });
+        await seedSubscription('u-prune-3', 'https://push.example/rotated');
+        pushFailWith = 403;
+
+        await NotificationService.notify({
+            userId: 'u-prune-3', type: 'rankDethroned', message: 'm',
+        });
+
+        const db = await getDatabase();
+        await vi.waitFor(async () => {
+            const row = await db.get(
+                'SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', 'u-prune-3');
+            expect(row.c).toBe(0);
+        }, { timeout: 2000 });
+    });
+
     it('keeps the subscription row on a non-410 send failure', async () => {
         await seedVapid();
         await setPrefs('u-prune-2', { rankDethroned: true, webPush: true });
@@ -319,6 +337,54 @@ describe('web-push subscription lifecycle', () => {
         const kept = await db.get('SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', 'u-keep-1');
         expect(gone.c).toBe(0);
         expect(kept.c).toBe(1);
+    });
+});
+
+// ===========================================================================
+describe('prefs single-writer merge (review findings 1 + 4)', () => {
+    it('a bulk enable-all-shaped merge preserves the webPush flag and the footer marker', async () => {
+        // Regression: /arcaid-notifications Enable-all used to rebuild the
+        // JSON from only the 5 typed keys, silently wiping webPush.
+        await setPrefs('u-merge-1', { rankDethroned: false, webPush: true, _hvFooterShown: true });
+
+        await NotificationService.mergePrefs('u-merge-1', {
+            tournamentWin: true, turnToPick: true, tournamentStarting: true,
+            rankDethroned: true, friendScore: true,
+        });
+
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?', 'u-merge-1');
+        const stored = JSON.parse(row.notification_prefs);
+        expect(stored.webPush).toBe(true);
+        expect(stored._hvFooterShown).toBe(true);
+        expect(stored.rankDethroned).toBe(true);
+        expect(stored.friendScore).toBe(true);
+    });
+
+    it('typedPrefUpdates drops unknown keys and non-boolean values', () => {
+        const updates = NotificationService.typedPrefUpdates({
+            tournamentWin: true,
+            friendScore: 'yes',        // non-boolean → dropped
+            webPush: false,            // channel flag → never settable via PUT
+            _hvFooterShown: false,     // internal marker → never settable
+            evil: true,                // unknown → dropped
+        });
+        expect(updates).toEqual({ tournamentWin: true });
+    });
+
+    it('a stale full-object PUT-shaped update cannot clobber webPush (allowlist path)', async () => {
+        // Regression: a second tab's stale draft (loaded pre-subscribe, so no
+        // webPush key) used to overwrite the JSON wholesale on Save.
+        await setPrefs('u-merge-2', { rankDethroned: true, webPush: true });
+
+        const staleDraft = { tournamentWin: false, turnToPick: false, tournamentStarting: false, rankDethroned: false, friendScore: true };
+        const merged = await NotificationService.mergePrefs(
+            'u-merge-2', NotificationService.typedPrefUpdates(staleDraft));
+
+        expect(merged['webPush']).toBe(true);      // survived
+        expect(merged['rankDethroned']).toBe(false); // explicit user choice applied
+        expect(merged['friendScore']).toBe(true);
     });
 });
 

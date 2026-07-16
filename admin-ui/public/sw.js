@@ -89,14 +89,23 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/';
+  const raw = (event.notification.data && event.notification.data.url) || '/';
+  // Normalize via URL so 'https://arcaid.app' vs '.../' and relative
+  // fallbacks compare correctly against client.url (always absolute).
+  const target = new URL(raw, self.location.origin);
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // Focus an existing tab already on the target URL; otherwise open one.
+      // Focus an existing same-origin tab (navigating it if it's elsewhere
+      // in the app); only open a new window when none exists.
       for (const client of windowClients) {
-        if (client.url === url && 'focus' in client) return client.focus();
+        if (new URL(client.url).origin !== target.origin) continue;
+        const focused = 'focus' in client ? client.focus() : Promise.resolve(client);
+        if (client.url !== target.href && 'navigate' in client) {
+          return focused.then(() => client.navigate(target.href)).catch(() => {});
+        }
+        return focused;
       }
-      return clients.openWindow(url);
+      return clients.openWindow(target.href);
     })
   );
 });

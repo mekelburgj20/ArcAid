@@ -126,9 +126,24 @@ export default function AccountSettings() {
     if (!pushSupported) return;
     navigator.serviceWorker.ready
       .then(reg => reg.pushManager.getSubscription())
-      .then(sub => setPushSubscribed(!!sub))
+      .then(sub => {
+        setPushSubscribed(!!sub);
+        // Re-register the device's existing subscription under the CURRENT
+        // account (the server upsert is endpoint-keyed). After an account
+        // switch on a shared browser, the row would otherwise keep pointing
+        // at the previous user — their alerts popping on this device, the
+        // new user's never arriving, and unsubscribe deleting nothing.
+        const keys = sub?.toJSON().keys;
+        if (sub && keys?.p256dh && keys?.auth && playerToken) {
+          fetch('/api/me/push-subscriptions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } }),
+          }).catch(() => {});
+        }
+      })
       .catch(() => {});
-  }, [pushSupported]);
+  }, [pushSupported, playerToken]);
 
   // Debounced availability check
   useEffect(() => {

@@ -20,6 +20,7 @@ import { getVersionInfo } from '../../utils/version.js';
 import { AuditService } from '../../services/AuditService.js';
 import { AccountDeletionService, LastSuperAdminError } from '../../services/AccountDeletionService.js';
 import { WebPushService } from '../../services/WebPushService.js';
+import { NotificationService } from '../../services/NotificationService.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 
 const router = Router();
@@ -223,14 +224,14 @@ router.put('/me/notification-preferences', requireDiscordUser, async (req, res) 
         if (!prefs || typeof prefs !== 'object') {
             return res.status(400).json({ error: 'Body must be a JSON object' });
         }
-        const db = await getDatabase();
-        await db.run(
-            `INSERT INTO user_preferences (discord_user_id, notification_prefs)
-             VALUES (?, ?)
-             ON CONFLICT(discord_user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs`,
-            req.user!.discordId!, JSON.stringify(prefs)
-        );
-        res.json(prefs);
+        // Merge ONLY the five typed opt-in booleans — never replace the JSON
+        // wholesale. A stale multi-tab draft (or any caller-crafted body) can
+        // therefore never clobber cross-feature keys living in the same blob
+        // (S15 webPush channel flag, the one-time footer marker). Returns the
+        // full merged object so the FE state reflects those keys too.
+        const updates = NotificationService.typedPrefUpdates(prefs);
+        const merged = await NotificationService.mergePrefs(req.user!.discordId!, updates);
+        res.json(merged);
     } catch (error) {
         logError('API Error (PUT /api/me/notification-preferences):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -271,22 +272,10 @@ router.post('/me/push-subscriptions', requireDiscordUser, writeLimiter, async (r
             userId, endpoint, keys.p256dh, keys.auth
         );
         // Subscribing IS the channel opt-in — merge webPush:true into the
-        // user's notification_prefs JSON server-side, so the flag write is
-        // atomic with the subscription from the client's perspective and the
-        // FE prefs draft can't race it.
-        const row = await db.get(
-            'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?', userId);
-        let prefs: Record<string, unknown> = {};
-        if (row?.notification_prefs) {
-            try { prefs = JSON.parse(row.notification_prefs); } catch { prefs = {}; }
-        }
-        prefs['webPush'] = true;
-        await db.run(
-            `INSERT INTO user_preferences (discord_user_id, notification_prefs)
-             VALUES (?, ?)
-             ON CONFLICT(discord_user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs`,
-            userId, JSON.stringify(prefs)
-        );
+        // user's notification_prefs JSON server-side (single-writer helper;
+        // the PUT route's typed-keys allowlist means no other writer can
+        // clobber this flag).
+        await NotificationService.mergePrefs(userId, { webPush: true });
         res.json({ ok: true });
     } catch (error) {
         logError('API Error (POST /api/me/push-subscriptions):', error);
