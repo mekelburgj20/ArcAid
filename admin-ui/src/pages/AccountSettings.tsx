@@ -33,6 +33,17 @@ const NOTIF_TYPES: { key: string; label: string; helper: string }[] = [
   { key: 'friendScore', label: 'Friend Score', helper: 'When a player you follow posts a new score.' },
 ];
 
+// PushManager.subscribe wants the VAPID public key as raw bytes, but the
+// server hands out the standard base64url string — decode it.
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const output = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) output[i] = rawData.charCodeAt(i);
+  return output;
+}
+
 export default function AccountSettings() {
   const { discordUser, playerToken, loginWithDiscord, logoutPlayer } = useViewerAuth();
   const navigate = useNavigate();
@@ -59,6 +70,14 @@ export default function AccountSettings() {
   const [notifSaving, setNotifSaving] = useState(false);
   const [notifSaveError, setNotifSaveError] = useState<string | null>(null);
   const [notifSaved, setNotifSaved] = useState(false);
+
+  // Browser push (S15): device-level subscription state. vapidKey null =
+  // push not configured on this server → the whole sub-block stays hidden.
+  const [vapidKey, setVapidKey] = useState<string | null>(null);
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
   const loadProfile = useCallback(async () => {
     if (!playerToken) return;
@@ -97,6 +116,34 @@ export default function AccountSettings() {
   }, [playerToken]);
 
   useEffect(() => { loadPrefs(); }, [loadPrefs]);
+
+  // Browser push: server VAPID config + this device's current subscription.
+  useEffect(() => {
+    fetch('/api/push/vapid-public-key')
+      .then(r => (r.ok ? r.json() : { key: null }))
+      .then(d => setVapidKey(d?.key ?? null))
+      .catch(() => setVapidKey(null));
+    if (!pushSupported) return;
+    navigator.serviceWorker.ready
+      .then(reg => reg.pushManager.getSubscription())
+      .then(sub => {
+        setPushSubscribed(!!sub);
+        // Re-register the device's existing subscription under the CURRENT
+        // account (the server upsert is endpoint-keyed). After an account
+        // switch on a shared browser, the row would otherwise keep pointing
+        // at the previous user — their alerts popping on this device, the
+        // new user's never arriving, and unsubscribe deleting nothing.
+        const keys = sub?.toJSON().keys;
+        if (sub && keys?.p256dh && keys?.auth && playerToken) {
+          fetch('/api/me/push-subscriptions', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } }),
+          }).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, [pushSupported, playerToken]);
 
   // Debounced availability check
   useEffect(() => {
@@ -194,6 +241,66 @@ export default function AccountSettings() {
       setNotifSaveError('Network error.');
     }
     setNotifSaving(false);
+  };
+
+  // Browser push: subscribe/unsubscribe THIS device. Subscribing also flips
+  // the server-side webPush channel flag (merged into notification_prefs by
+  // POST /me/push-subscriptions); we mirror it into local prefs state so a
+  // later Save of the draft can't clobber it.
+  const togglePush = async () => {
+    if (!playerToken || !vapidKey || pushBusy) return;
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (pushSubscribed) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await fetch('/api/me/push-subscriptions', {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          }).catch(() => {});
+          await sub.unsubscribe().catch(() => {});
+        }
+        setPushSubscribed(false);
+      } else {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          setPushError(
+            permission === 'denied'
+              ? 'Notifications are blocked for this site. Enable them in your browser settings, then try again.'
+              : 'Notification permission was not granted.'
+          );
+          return;
+        }
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        });
+        const keys = sub.toJSON().keys;
+        if (!keys?.p256dh || !keys?.auth) {
+          await sub.unsubscribe().catch(() => {});
+          throw new Error('Browser returned an incomplete subscription.');
+        }
+        const res = await fetch('/api/me/push-subscriptions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } }),
+        });
+        if (!res.ok) {
+          await sub.unsubscribe().catch(() => {});
+          throw new Error('The server rejected the subscription.');
+        }
+        setPrefs(p => ({ ...(p ?? {}), webPush: true }));
+        setDraftPrefs(p => ({ ...(p ?? {}), webPush: true }));
+        setPushSubscribed(true);
+      }
+    } catch (e) {
+      setPushError(e instanceof Error ? e.message : 'Something went wrong enabling push.');
+    } finally {
+      setPushBusy(false);
+    }
   };
 
   const closeDeleteModal = () => {
@@ -449,6 +556,47 @@ export default function AccountSettings() {
                       {notifSaving ? 'Saving…' : 'Save'}
                     </button>
                   </div>
+                  {vapidKey && (
+                    <div className="mt-6 pt-4 border-t border-border">
+                      <h3 className="text-sm font-medium mb-1">Browser push</h3>
+                      {pushSupported ? (
+                        <>
+                          <label className="flex items-start justify-between gap-3 py-2.5 cursor-pointer">
+                            <span className="min-w-0">
+                              <span className="block text-sm text-primary">Push notifications on this device</span>
+                              <span className="block text-xs text-faint">
+                                Tournament Win and Rank Dethroned alerts as browser notifications, even when
+                                ArcAid isn't open. Uses the matching event toggles above.
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={pushSubscribed}
+                              disabled={pushBusy}
+                              onClick={togglePush}
+                              className={`shrink-0 mt-0.5 w-9 h-5 rounded-full border transition-colors disabled:opacity-50 ${pushSubscribed ? 'bg-neon-cyan/30 border-neon-cyan/50' : 'bg-surface border-border'}`}
+                            >
+                              <span
+                                className={`block w-4 h-4 rounded-full bg-primary transition-transform ${pushSubscribed ? 'translate-x-4' : 'translate-x-0.5'}`}
+                                style={{ marginTop: '1px' }}
+                              />
+                            </button>
+                          </label>
+                          {pushError && (
+                            <p className="mt-1 text-xs text-rose-400 inline-flex items-center gap-1">
+                              <AlertCircle size={12} /> {pushError}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-xs text-faint">
+                          Not supported in this browser. On iPhone/iPad, add ArcAid to your Home Screen
+                          first, then enable push from the installed app.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </section>

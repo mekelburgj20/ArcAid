@@ -1094,6 +1094,7 @@ export class TournamentEngine {
                             message: `Congrats! You won **${activeGame.name}** in **${tournamentRow.name}**!${winnerScore ? ` Score: **${winnerScore.toLocaleString()}**` : ''}${link ? `\n${link}` : ''}`,
                             roomId: tournamentRow.game_room_id,
                             tournamentId,
+                            pushUrl: link || undefined,
                         }).catch(() => {});
                     }).catch(() => {});
                 }).catch(() => {});

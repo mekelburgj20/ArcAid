@@ -148,6 +148,7 @@ export class LobbyFeedGenerator {
                             type: 'rankDethroned',
                             message: `You've been dethroned on **${gameName}**! ${displayName} posted ${formattedScore} ${marginClause} to claim #1.${link ? `\n${link}` : ''}`,
                             roomId: gameRoomId,
+                            pushUrl: link || undefined,
                         }).catch(() => {});
                     }
                 }

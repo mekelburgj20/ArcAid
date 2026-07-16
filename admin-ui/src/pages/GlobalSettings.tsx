@@ -21,9 +21,11 @@ const GLOBAL_KEYS = [
   'TWITCH_CLIENT_SECRET',
   'GLOBAL_PAGE_THEME',
   'NOTIFY_HIGH_VALUE_DEFAULT_ON',
+  'WEB_PUSH_VAPID_PUBLIC_KEY',
+  'WEB_PUSH_VAPID_PRIVATE_KEY',
 ];
 
-const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET'];
+const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET', 'WEB_PUSH_VAPID_PRIVATE_KEY'];
 
 const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   DISCORD_BOT_TOKEN: { label: 'Discord Bot Token', description: 'Bot token from the Discord Developer Portal.' },
@@ -39,6 +41,8 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   TWITCH_CLIENT_ID: { label: 'Twitch Client ID', description: 'Twitch app client ID for IGDB arcade/console catalogue sync. Create an app at https://dev.twitch.tv/console.' },
   TWITCH_CLIENT_SECRET: { label: 'Twitch Client Secret', description: 'Twitch app client secret for IGDB catalogue sync. Encrypted at rest.' },
   NOTIFY_HIGH_VALUE_DEFAULT_ON: { label: 'High-Value Notifications Default-On', description: 'When enabled, Discord-linked users receive dethrone + tournament-win DMs by default. An explicit per-user preference (on or off) always overrides this. Disabled or absent = opt-in only.' },
+  WEB_PUSH_VAPID_PUBLIC_KEY: { label: 'Web Push VAPID Public Key', description: 'Public half of the VAPID keypair for browser push notifications. Generate a pair with "npm run generate-vapid-keys". Both keys must be set for push to activate; rotating the pair invalidates every existing browser subscription.' },
+  WEB_PUSH_VAPID_PRIVATE_KEY: { label: 'Web Push VAPID Private Key', description: 'Private half of the VAPID keypair for browser push notifications. Encrypted at rest.' },
 };
 
 interface SuperAdmin {

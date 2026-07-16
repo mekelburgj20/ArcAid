@@ -1,4 +1,4 @@
-const CACHE_NAME = 'arcaid-v96';
+const CACHE_NAME = 'arcaid-v97';
 const STATIC_ASSETS = [];
 
 self.addEventListener('install', (event) => {
@@ -65,4 +65,47 @@ self.addEventListener('fetch', (event) => {
 
   // All other requests (API calls, etc.): network only
   event.respondWith(fetch(request));
+});
+
+// --- Web push (S15) ---
+// Payload shape: { title, body, url, tag } — see WebPushService (backend).
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : '' };
+  }
+  event.waitUntil(
+    self.registration.showNotification(payload.title || 'ArcAid', {
+      body: payload.body || '',
+      icon: '/arcaid-icon-192.png',
+      tag: payload.tag || undefined,
+      data: { url: payload.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const raw = (event.notification.data && event.notification.data.url) || '/';
+  // Normalize via URL so 'https://arcaid.app' vs '.../' and relative
+  // fallbacks compare correctly against client.url (always absolute).
+  const target = new URL(raw, self.location.origin);
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Focus an existing same-origin tab (navigating it if it's elsewhere
+      // in the app); only open a new window when none exists.
+      for (const client of windowClients) {
+        if (new URL(client.url).origin !== target.origin) continue;
+        const focused = 'focus' in client ? client.focus() : Promise.resolve(client);
+        if (client.url !== target.href && 'navigate' in client) {
+          return focused.then(() => client.navigate(target.href)).catch(() => {});
+        }
+        return focused;
+      }
+      return clients.openWindow(target.href);
+    })
+  );
 });

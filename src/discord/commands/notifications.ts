@@ -3,7 +3,6 @@ import { Command } from './index.js';
 import { logError } from '../../utils/logger.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { NotificationService, NotificationType } from '../../services/NotificationService.js';
-import { getDatabase } from '../../database/database.js';
 
 const PREF_LABELS: Record<NotificationType, string> = {
     tournamentWin: 'Tournament Win',
@@ -72,13 +71,10 @@ export const notifications: Command = {
                 for (const key of Object.keys(PREF_LABELS)) {
                     updated[key] = value;
                 }
-                const db = await getDatabase();
-                await db.run(
-                    `INSERT INTO user_preferences (discord_user_id, notification_prefs)
-                     VALUES (?, ?)
-                     ON CONFLICT(discord_user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs`,
-                    userId, JSON.stringify(updated)
-                );
+                // mergePrefs (NOT a wholesale replace) so cross-feature keys in
+                // the same JSON — the S15 webPush channel flag, the one-time
+                // footer marker — survive a bulk enable/disable.
+                await NotificationService.mergePrefs(userId, updated);
                 await interaction.editReply(`All notifications ${value ? 'enabled' : 'disabled'}.`);
                 return;
             }
@@ -91,14 +87,7 @@ export const notifications: Command = {
             }
 
             const newValue = !prefs[key];
-            const updated = { ...prefs, [key]: newValue };
-            const db = await getDatabase();
-            await db.run(
-                `INSERT INTO user_preferences (discord_user_id, notification_prefs)
-                 VALUES (?, ?)
-                 ON CONFLICT(discord_user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs`,
-                userId, JSON.stringify(updated)
-            );
+            await NotificationService.mergePrefs(userId, { [key]: newValue });
 
             await interaction.editReply(`**${PREF_LABELS[key]}** notifications: ${newValue ? '`ON`' : '`OFF`'}`);
         } catch (error) {

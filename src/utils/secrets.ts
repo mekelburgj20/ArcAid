@@ -49,6 +49,7 @@ export const ENCRYPTED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
     'ISCORED_PASSWORD',
     'OPDB_API_KEY',
     'TWITCH_CLIENT_SECRET',
+    'WEB_PUSH_VAPID_PRIVATE_KEY',
 ]);
 
 export function isEncryptedKey(key: string): boolean {

@@ -89,6 +89,23 @@ export const UpdatePreferencesSchema = z.object({
     ui_theme: z.enum(['dark', 'light', 'retro', 'cyberpunk', 'ocean', 'sunset', 'minimal', 'invaders', 'coffee', 'backglass', 'crt-green', 'plasma', 'cabinet', 'silverball', 'wizard', 'playfield', 'marquee']).nullable(),
 });
 
+// S15 web push — the browser PushSubscription shape (endpoint + the two
+// client-generated encryption keys). Push endpoints are always https URLs;
+// the keys are base64url (p256dh ≈ 87 chars, auth ≈ 22) — bounds + charset
+// keep garbage rows (which would fail on every future send) out of the table.
+const PushKeyString = z.string().min(16).max(256).regex(/^[A-Za-z0-9_-]+$/);
+export const PushSubscriptionSchema = z.object({
+    endpoint: z.string().url().max(2048).startsWith('https://'),
+    keys: z.object({
+        p256dh: PushKeyString,
+        auth: PushKeyString,
+    }),
+});
+
+export const PushUnsubscribeSchema = z.object({
+    endpoint: z.string().url().max(2048).startsWith('https://'),
+});
+
 export const CreateGameRoomSchema = z.object({
     name: z.string().min(1).max(100),
     slug: z.string().min(1).max(50).regex(/^[a-z0-9_]+$/, 'Slug must be lowercase alphanumeric with underscores'),

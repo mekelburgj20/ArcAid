@@ -1,6 +1,6 @@
 {
   "name": "arcaid",
-  "version": "2.22.0",
+  "version": "2.23.0",
   "description": "**ArcAid** is a modern, platform-agnostic tournament management system, the successor to TableFlipper. Designed to be server-independent and highly customizable.",
   "main": "dist/index.js",
   "type": "commonjs",
@@ -11,6 +11,7 @@
     "restore": "tsx src/cli-restore.ts",
     "scrape-styles": "tsx src/cli-scrape-styles.ts",
     "generate-secrets-key": "tsx scripts/generate-secrets-key.ts",
+    "generate-vapid-keys": "tsx scripts/generate-vapid-keys.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -45,6 +46,7 @@
     "sqlite": "^5.1.1",
     "sqlite3": "^6.0.1",
     "uuid": "^14.0.1",
+    "web-push": "3.6.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -58,6 +60,7 @@
     "@types/sqlite3": "^3.1.11",
     "@types/supertest": "^7.2.0",
     "@types/uuid": "^10.0.0",
+    "@types/web-push": "^3.6.4",
     "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
     "tsx": "^4.22.4",

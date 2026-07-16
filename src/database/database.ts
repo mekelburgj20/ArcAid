@@ -1784,6 +1784,23 @@ export async function initDatabase(): Promise<Database> {
                 `UPDATE global_games SET based_on_ipdb_url = NULL WHERE based_on_ipdb_url ${junkWhere.replace('%COL%', 'based_on_ipdb_url')}`
             );
         } },
+        // S15 web push — per-device browser push subscriptions. One row per
+        // (user, browser endpoint); endpoints are globally unique per the Push
+        // API spec, so a browser re-subscribing under a different account moves
+        // the row (ON CONFLICT(endpoint) at the write site). Deliberately
+        // FK-less: the account-deletion purge owns cleanup (AccountDeletionService),
+        // and expired endpoints are pruned on 404/410 at send time (WebPushService).
+        { name: '111_push_subscriptions', sql: `
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                discord_user_id TEXT NOT NULL,
+                endpoint TEXT NOT NULL UNIQUE,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(discord_user_id);
+        ` },
     ];
 
     for (const migration of migrations) {

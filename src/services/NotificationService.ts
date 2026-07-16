@@ -3,6 +3,7 @@ import { sendDirectMessage } from '../utils/discord.js';
 import { logError, logInfo } from '../utils/logger.js';
 import { PickAwardGate } from './PickAwardGate.js';
 import { SettingsService } from './SettingsService.js';
+import { WebPushService, type WebPushPayload } from './WebPushService.js';
 
 /** Notification preference keys — all default to false (opt-in only). */
 export interface NotificationPrefs {
@@ -14,6 +15,15 @@ export interface NotificationPrefs {
 }
 
 export type NotificationType = keyof NotificationPrefs;
+
+/** The five per-type opt-in keys — the ONLY keys external writers may set. */
+export const PREF_TYPE_KEYS: readonly NotificationType[] = [
+    'tournamentWin',
+    'turnToPick',
+    'tournamentStarting',
+    'rankDethroned',
+    'friendScore',
+];
 
 /**
  * High-value retention types. These draw from an INDEPENDENT rate-limit budget
@@ -29,6 +39,33 @@ const HIGH_VALUE_TYPES: ReadonlySet<NotificationType> = new Set<NotificationType
 type NotifClass = 'high' | 'chatty';
 function classOf(type: NotificationType): NotifClass {
     return HIGH_VALUE_TYPES.has(type) ? 'high' : 'chatty';
+}
+
+/**
+ * Types eligible for the browser web-push channel (S15). Smallest shippable
+ * per the sprint plan: the two high-value retention types only. Kept as a
+ * separate set from HIGH_VALUE_TYPES — today the members coincide, but the
+ * flag-default semantics and the push channel are independent concepts.
+ */
+const WEB_PUSH_TYPES: ReadonlySet<NotificationType> = new Set<NotificationType>([
+    'rankDethroned',
+    'tournamentWin',
+]);
+
+/** Notification-tray titles per push-eligible type; body carries the detail. */
+const PUSH_TITLES: Partial<Record<NotificationType, string>> = {
+    tournamentWin: '\u{1F3C6} You won the tournament!',
+    rankDethroned: '\u{1F451} You’ve been dethroned!',
+};
+
+/**
+ * Reduce a Discord-markdown DM message to a push notification body: strip
+ * bold/code markers and drop everything past the first line (deep links ride
+ * the payload's `url` field, not the text).
+ */
+function toPushBody(message: string): string {
+    const firstLine = message.replace(/\*\*/g, '').replace(/`/g, '').split('\n')[0] ?? '';
+    return firstLine.trim();
 }
 
 /**
@@ -60,6 +97,12 @@ interface NotifyParams {
     roomId?: string | null;
     /** Used by the pick-award gate defense-in-depth check (turnToPick only). */
     tournamentId?: string | null;
+    /**
+     * Deep link opened when the user clicks the web-push notification (S15).
+     * Only consulted for WEB_PUSH_TYPES; the Discord DM already embeds its
+     * link inside `message`. Falls back to the app root when absent.
+     */
+    pushUrl?: string;
 }
 
 /** In-memory rate limit bucket per (user, class). */
@@ -120,7 +163,7 @@ export class NotificationService {
             // 1. Resolve effective opt-in. Stored prefs win; for the two
             // HIGH_VALUE types only, an UNSET pref may be defaulted-ON by the
             // global flag. An explicit pref (true OR false) ALWAYS overrides.
-            const { prefs, explicitKeys } = await this.getPrefsWithExplicit(userId);
+            const { prefs, explicitKeys, webPushOptIn } = await this.getPrefsWithExplicit(userId);
             let optedIn = prefs[type];
             let optedInByFlag = false;
             if (!optedIn && HIGH_VALUE_TYPES.has(type) && !explicitKeys.has(type)) {
@@ -135,6 +178,24 @@ export class NotificationService {
             if (!this.checkRateLimit(userId, type)) {
                 logInfo(`NotificationService: rate-limited DM to ${userId} (type: ${type}, class: ${classOf(type)})`);
                 return false;
+            }
+
+            // 2b. Web push — second channel (S15). Rides the SAME opt-in +
+            // rate-limit result as the DM (one event = one budget slot);
+            // additionally gated on the user's webPush channel flag (set when
+            // they subscribe a browser — see POST /me/push-subscriptions) and
+            // the smallest-shippable type allowlist. Fire-and-forget: a push
+            // failure never affects the DM path, and a closed-DMs failure
+            // never suppresses the push. VAPID-unconfigured and
+            // no-subscriptions cases no-op inside WebPushService.
+            if (WEB_PUSH_TYPES.has(type) && webPushOptIn) {
+                const payload: WebPushPayload = {
+                    title: PUSH_TITLES[type] ?? 'ArcAid',
+                    body: toPushBody(message),
+                    url: params.pushUrl || (process.env.PUBLIC_URL || 'https://arcaid.app'),
+                    tag: `arcaid-${type}`,
+                };
+                WebPushService.sendToUser(userId, payload).catch(() => {});
             }
 
             // 3. Compose message. Flag-defaulted sends get a one-time footer so
@@ -184,10 +245,14 @@ export class NotificationService {
      * The merged `prefs` object loses the "explicitly false" vs "absent"
      * distinction; `explicitKeys` preserves it so a flag default never
      * overrides an explicit user choice (true OR false).
+     *
+     * `webPushOptIn` is the channel flag (`webPush: true` in the same JSON,
+     * written by POST /me/push-subscriptions) — deliberately NOT part of
+     * NotificationPrefs, which models per-TYPE opt-ins.
      */
     private static async getPrefsWithExplicit(
         userId: string
-    ): Promise<{ prefs: NotificationPrefs; explicitKeys: Set<string> }> {
+    ): Promise<{ prefs: NotificationPrefs; explicitKeys: Set<string>; webPushOptIn: boolean }> {
         const defaults: NotificationPrefs = {
             tournamentWin: false,
             turnToPick: false,
@@ -201,12 +266,18 @@ export class NotificationService {
                 'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?',
                 userId
             );
-            if (!row?.notification_prefs) return { prefs: defaults, explicitKeys: new Set() };
+            if (!row?.notification_prefs) {
+                return { prefs: defaults, explicitKeys: new Set(), webPushOptIn: false };
+            }
             const parsed = JSON.parse(row.notification_prefs);
             const explicitKeys = new Set<string>(Object.keys(parsed));
-            return { prefs: { ...defaults, ...parsed }, explicitKeys };
+            return {
+                prefs: { ...defaults, ...parsed },
+                explicitKeys,
+                webPushOptIn: parsed['webPush'] === true,
+            };
         } catch {
-            return { prefs: defaults, explicitKeys: new Set() };
+            return { prefs: defaults, explicitKeys: new Set(), webPushOptIn: false };
         }
     }
 
@@ -233,10 +304,17 @@ export class NotificationService {
     }
 
     /**
-     * Record that the one-time flag-default footer has been shown to this user,
-     * by writing the `_hvFooterShown` marker into their notification_prefs JSON.
+     * Merge `updates` into the user's stored notification_prefs JSON and
+     * return the merged object. THE single write path for the prefs blob —
+     * every writer (the PUT route, the /arcaid-notifications command, the
+     * push-subscribe flow, the footer marker) must go through here so
+     * cross-feature keys (`webPush`, `_hvFooterShown`) survive each other's
+     * writes. Never rebuild-and-replace the JSON wholesale.
      */
-    private static async markFooterShown(userId: string): Promise<void> {
+    static async mergePrefs(
+        userId: string,
+        updates: Record<string, unknown>
+    ): Promise<Record<string, unknown>> {
         const db = await getDatabase();
         const row = await db.get(
             'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?',
@@ -246,15 +324,39 @@ export class NotificationService {
         if (row?.notification_prefs) {
             try { parsed = JSON.parse(row.notification_prefs); } catch { parsed = {}; }
         }
-        parsed[HV_FOOTER_MARKER] = true;
-        const json = JSON.stringify(parsed);
-        // UPSERT so a flag-defaulted user with no prior row still gets the marker.
+        const merged = { ...parsed, ...updates };
+        // UPSERT so a user with no prior row still gets one.
         await db.run(
             `INSERT INTO user_preferences (discord_user_id, notification_prefs)
              VALUES (?, ?)
              ON CONFLICT(discord_user_id) DO UPDATE SET notification_prefs = excluded.notification_prefs`,
-            userId, json
+            userId, JSON.stringify(merged)
         );
+        return merged;
+    }
+
+    /**
+     * Extract ONLY the five typed opt-in booleans from an untrusted body —
+     * unknown keys and non-boolean values are dropped, so a caller-supplied
+     * object can never set (or clobber) channel flags or internal markers.
+     */
+    static typedPrefUpdates(body: unknown): Partial<Record<NotificationType, boolean>> {
+        const out: Partial<Record<NotificationType, boolean>> = {};
+        if (body && typeof body === 'object') {
+            for (const key of PREF_TYPE_KEYS) {
+                const value = (body as Record<string, unknown>)[key];
+                if (typeof value === 'boolean') out[key] = value;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Record that the one-time flag-default footer has been shown to this user,
+     * by writing the `_hvFooterShown` marker into their notification_prefs JSON.
+     */
+    private static async markFooterShown(userId: string): Promise<void> {
+        await this.mergePrefs(userId, { [HV_FOOTER_MARKER]: true });
     }
 
     /**
