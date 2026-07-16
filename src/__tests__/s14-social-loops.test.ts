@@ -249,6 +249,87 @@ describe('GET /:roomId/stats/compare', () => {
 
         expect(res.status).toBe(400);
     });
+
+    // Regression — rtx_pinball field report 2026-07-15: two players on the SAME
+    // leaderboard compared as "no shared games". A Discord-linked player's rows
+    // synced from iScored BEFORE the link carry submitted_by_user_id NULL, so
+    // they keyed as 'iscored:<alias>' — a key the resolver never produces for a
+    // mapped name. The three-leg key (submitted_by_user_id → user_mappings →
+    // synthetic) folds those rows back into the mapped user.
+    it('folds NULL-attribution rows of a Discord-linked alias into the mapped user (field-report shape)', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const db = await getDatabase();
+        const playerB = '200000000000000010';
+
+        // B is Discord-linked under the alias 'MekMain'.
+        await db.run(
+            'INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)',
+            playerB, 'MekMain'
+        );
+        // B's attributed (web) row.
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Fish Tales', iscoredUsername: 'MekMain',
+            submittedByUserId: playerB, score: 3300,
+        });
+        // B's PRE-LINK synced row: NULL attribution, alias only. Pre-fix this
+        // keyed as 'iscored:mekmain' and was invisible when comparing B.
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Space Shuttle Deluxe', iscoredUsername: 'MekMain',
+            submittedByUserId: null, score: 90000, source: 'sync',
+        });
+        // A is UNLINKED: a pure synced row under an unmapped alias.
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Space Shuttle Deluxe', iscoredUsername: 'ArcAidAlt',
+            submittedByUserId: null, score: 1000000, source: 'sync',
+        });
+
+        // a by unmapped NAME, b by snowflake — the prod shapes.
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/compare`)
+            .query({ a: 'ArcAidAlt', b: playerB });
+
+        expect(res.status).toBe(200);
+        expect(res.body.sharedGames).toHaveLength(1);
+        expect(res.body.sharedGames[0]).toMatchObject({
+            game_name: 'Space Shuttle Deluxe', a_best: 1000000, b_best: 90000, leader: 'a',
+        });
+        expect(res.body.aOnlyGames).toBe(0);
+        expect(res.body.bOnlyGames).toBe(1); // Fish Tales
+        expect(res.body.totals).toEqual({ aWins: 1, bWins: 0, ties: 0 });
+    });
+
+    it('mapped-alias NAME input and its snowflake input produce the same cluster', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const db = await getDatabase();
+        const playerB = '200000000000000011';
+        const other = '200000000000000012';
+
+        await db.run(
+            'INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)',
+            playerB, 'MekMain2'
+        );
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Whirlwind', iscoredUsername: 'MekMain2',
+            submittedByUserId: null, score: 500, source: 'sync',
+        });
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Whirlwind', iscoredUsername: 'OtherGuy',
+            submittedByUserId: other, score: 700,
+        });
+
+        const byName = await request(app).get(`/api/rooms/${roomId}/stats/compare`)
+            .query({ a: 'MekMain2', b: other });
+        const byId = await request(app).get(`/api/rooms/${roomId}/stats/compare`)
+            .query({ a: playerB, b: other });
+
+        expect(byName.status).toBe(200);
+        expect(byId.status).toBe(200);
+        expect(byName.body.sharedGames).toHaveLength(1);
+        expect(byId.body.sharedGames).toHaveLength(1);
+        expect(byName.body.sharedGames[0].a_best).toBe(500);
+        expect(byId.body.sharedGames[0].a_best).toBe(500);
+    });
 });
 
 // ===========================================================================
@@ -285,6 +366,38 @@ describe('GET /:roomId/stats/enhanced/player/:identifier — participationStreak
 
         expect(res.status).toBe(200);
         expect(res.body.participationStreak).toEqual({ currentWeeks: 1, bestWeeks: 3 });
+    });
+
+    // Regression (2026-07-15 identity-collapse hotfix): a Discord-linked
+    // player's pre-link synced week (NULL attribution, alias only) must fold
+    // into the same streak as their attributed weeks — pre-fix the two weeks
+    // keyed to different identities and the streak read 1 instead of 2.
+    it('folds a NULL-attribution week of a mapped alias into the same streak as attributed weeks', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const db = await getDatabase();
+        const playerId = '300000000000000002';
+        const ref = Date.now();
+
+        await db.run(
+            'INSERT INTO user_mappings (discord_user_id, iscored_username) VALUES (?, ?)',
+            playerId, 'StreakAlias'
+        );
+        // Week -7: pre-link synced row (NULL attribution, alias only).
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'StreakAlias',
+            submittedByUserId: null, score: 100, source: 'sync', createdAt: daysAgo(ref, 7),
+        });
+        // This week: attributed row.
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Streak Game', iscoredUsername: 'StreakAlias',
+            submittedByUserId: playerId, score: 200, createdAt: new Date(ref).toISOString(),
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/enhanced/player/${playerId}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.participationStreak).toEqual({ currentWeeks: 2, bestWeeks: 2 });
     });
 });
 

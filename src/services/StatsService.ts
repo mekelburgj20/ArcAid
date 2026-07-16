@@ -604,10 +604,12 @@ export class StatsService {
      * (tournament_id IS NULL) are implicitly excluded here too, consistent with
      * every other room-scoped query in this file (see file-header note).
      *
-     * `playerKey` is the canonical partition used everywhere else in the
-     * codebase: COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)).
-     * room_rank/total_players are computed over that same partition per game so
-     * multi-alias players collapse to one ranked row, matching LeaderboardService.
+     * `playerKey` is the three-leg identity key: COALESCE(submitted_by_user_id,
+     * um.discord_user_id, 'iscored:' || LOWER(iscored_username)) — the
+     * user_mappings leg folds NULL-attribution rows of a Discord-linked alias
+     * (pre-link iScored syncs) into the mapped user. room_rank/total_players
+     * are computed over that same partition per game so multi-alias players
+     * collapse to one ranked row, matching LeaderboardService.
      */
     private static async getPersonalBests(playerKey: string, gameRoomId?: string) {
         const db = await getDatabase();
@@ -619,9 +621,10 @@ export class StatsService {
         const rows = await db.all(`
             WITH scoped AS (
                 SELECT s.game_id AS game_id, g.name AS game_name, s.score AS score, s.timestamp AS timestamp,
-                       COALESCE(s.submitted_by_user_id, 'iscored:' || LOWER(s.iscored_username)) AS player_key
+                       COALESCE(s.submitted_by_user_id, um.discord_user_id, 'iscored:' || LOWER(s.iscored_username)) AS player_key
                 FROM submissions s
                 JOIN games g ON s.game_id = g.id
+                LEFT JOIN user_mappings um ON um.iscored_username = s.iscored_username COLLATE NOCASE
                 ${roomJoin}
                 WHERE s.orphaned_at IS NULL
                 ${roomWhere}
@@ -677,12 +680,13 @@ export class StatsService {
 
         const rows = await db.all(`
             WITH weeks AS (
-                SELECT strftime('%Y-%W', created_at) AS week,
-                       MIN(created_at) AS week_start
-                FROM score_history
-                WHERE COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) = ?
+                SELECT strftime('%Y-%W', sh.created_at) AS week,
+                       MIN(sh.created_at) AS week_start
+                FROM score_history sh
+                LEFT JOIN user_mappings um ON um.iscored_username = sh.iscored_username COLLATE NOCASE
+                WHERE COALESCE(sh.submitted_by_user_id, um.discord_user_id, 'iscored:' || LOWER(sh.iscored_username)) = ?
                   ${roomFilter}
-                  AND orphaned_at IS NULL
+                  AND sh.orphaned_at IS NULL
                 GROUP BY week
             ),
             ordered AS (
@@ -756,18 +760,28 @@ export class StatsService {
         // Canonical best-per-player-per-game (score_history, orphaned excluded),
         // room-scoped, keyed by LOWER(game_name) so casing differences between
         // the two players' rows for "the same" game still match up.
+        //
+        // Row identity is the THREE-leg key: submitted_by_user_id (web/attributed
+        // rows) → user_mappings.discord_user_id (rows synced from iScored BEFORE
+        // the alias was Discord-linked carry NULL attribution — the um join folds
+        // them into the mapped user) → the 'iscored:<name>' synthetic fallback.
+        // Without the middle leg, a linked player's pre-link sync history lives
+        // under a key the resolver can never produce, and compare reports
+        // "no shared games" for players who are on the same leaderboard
+        // (rtx_pinball field report, 2026-07-15).
         const bestPerGame = async (playerKey: string): Promise<Map<string, { game_name: string; score: number }>> => {
             const rows = await db.all(`
                 SELECT game_name, score FROM (
-                    SELECT game_name, score,
+                    SELECT sh.game_name AS game_name, sh.score AS score,
                            ROW_NUMBER() OVER (
-                               PARTITION BY LOWER(game_name)
-                               ORDER BY score DESC, created_at ASC
+                               PARTITION BY LOWER(sh.game_name)
+                               ORDER BY sh.score DESC, sh.created_at ASC
                            ) as rn
-                    FROM score_history
-                    WHERE game_room_id = ?
-                      AND orphaned_at IS NULL
-                      AND COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) = ?
+                    FROM score_history sh
+                    LEFT JOIN user_mappings um ON um.iscored_username = sh.iscored_username COLLATE NOCASE
+                    WHERE sh.game_room_id = ?
+                      AND sh.orphaned_at IS NULL
+                      AND COALESCE(sh.submitted_by_user_id, um.discord_user_id, 'iscored:' || LOWER(sh.iscored_username)) = ?
                 )
                 WHERE rn = 1
             `, gameRoomId, playerKey);
