@@ -1417,6 +1417,42 @@ router.post('/global/scores/:scoreId/report', writeLimiter, requireDiscordUser, 
     }
 });
 
+/**
+ * Report-a-problem (v2.25.0) — file a report against a catalogue game's
+ * metadata. Discord-authed (identity for abuse control); the server snapshots
+ * the disputed field's current value. Lands in the super-admin queue on
+ * /admin/catalogue.
+ */
+router.post('/global/games/:id/feedback', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const parsed = (await import('../schemas.js')).GameFeedbackSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid report' });
+        }
+        const { GameFeedbackService } = await import('../../services/GameFeedbackService.js');
+        const { id } = await GameFeedbackService.create({
+            globalGameId: req.params.id as string,
+            reporterDiscordId: req.user!.discordId!,
+            field: parsed.data.field,
+            suggestedValue: parsed.data.suggested_value,
+            note: parsed.data.note,
+        });
+        logInfo(`Game ${req.params.id} feedback (${parsed.data.field}) filed by ${req.user!.discordId}`);
+        res.status(201).json({ id });
+    } catch (error) {
+        const code = (error as Error & { code?: string })?.code;
+        if (code === 'GAME_NOT_FOUND') return res.status(404).json({ error: 'Game not found' });
+        if (code === 'DUPLICATE_REPORT') {
+            return res.status(409).json({ error: 'You already have an open report on this field — an admin will review it.' });
+        }
+        if (code === 'REPORT_LIMIT') {
+            return res.status(429).json({ error: 'You have too many open reports. Please wait for an admin to review them.' });
+        }
+        logError('API Error (POST /api/global/games/:id/feedback):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // ─── Global Game Ratings ───
 
 /**

@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.25.0] — unreleased
+
+**Report-a-problem: user-filed catalogue corrections + per-field source stamping.** The long-parked ROADMAP feature, unblocked by ADR 0014's source-precedence policy.
+
+- **"Report a problem" on game pages** — a flag link on the room Game Detail (below About This Game, shown when the game maps to a catalogue entry) and on the Global Game Detail hero. Discord-authed only (logged-out viewers get a login prompt in the modal). The form asks what's wrong (name / manufacturer / year / platforms / artwork / duplicate / other), an optional suggested correction, and an optional note. The server snapshots the disputed field's **current** value at filing time (never trusted from the client); duplicate open reports per (game, reporter, field) are rejected with a friendly 409, refiling after resolution is allowed.
+- **Super-admin review queue** — new "Game Info Reports" card on `/admin/catalogue` (Open/Resolved toggle). Each report shows the game (with a "game removed" badge if it was merged/deleted since — reports are FK-less with a denormalized name), the disputed field, current → suggested values, the reporter's note, IPDB/OPDB reference links, a "Find in list" shortcut into the catalogue browser, and a **source badge** answering "is this field ours to fix or upstream's?". Resolutions: **Fixed** / **Upstream** / **Dismiss**, each with an optional resolution note.
+- **Per-field source stamping (`global_games.field_sources`)** — the piece ADR 0014 deferred to this feature. Every write path now stamps which source last wrote each report-relevant field: catalogue importers via the `GlobalGameService.upsert` chokepoint (fields a source actually supplies get its `imported_from` label), admin manual edits stamp `manual` (presence-based — an explicit clear is still a manual write), and the background image downloaders stamp `artwork`. Legacy rows show "unknown" until a re-sync or edit touches them.
+- **Migration 112** — `game_feedback` table (mirrors `score_reports`' shape; partial UNIQUE index blocks duplicate open reports) + the `field_sources` column. **Next free migration = 113.**
+
+New `rap-game-feedback.test.ts` (9 cases: authz, server-side snapshot, duplicate/refile, unknown-game 404, empty-report 400, queue authz + list/resolve lifecycle, report-survives-game-deletion, and stamping at all three chokepoints). SW → `arcaid-v99`.
+
+---
+
 ## [2.24.1] — unreleased
 
 **Fix: CI flake — fire-and-forget post-submit chains raced the test DB reset.** The nested-transaction / `SQLITE_MISUSE` flakes (`community-scores-attribution` case (b), 2026-07-15; `room-scores` case (b), 2026-07-18 — the latter blocked the v2.24.0 deploy until rerun) were caused by fire-and-forget chains (lobby feed → achievements/milestones/friend events/notifications/web push, `RoomEventService.log`) still running when the next test reset the shared in-memory DB. New `src/utils/backgroundTasks.ts` — `trackBackground()` registry + `drainBackgroundTasks()` — wraps every such chain (the dynamic-import hops now RETURN the inner promise so the tracked chain settles only when the real work settles); the vitest setup drains before each DB reset. Production behavior unchanged (a Set add/delete per chain). `RoomEventService.log` is tracked at the source, covering its ~14 unawaited call sites at once.

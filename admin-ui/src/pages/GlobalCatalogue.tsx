@@ -4,7 +4,7 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import DataTable from '../components/DataTable';
-import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge, AlertTriangle, Layers } from 'lucide-react';
+import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge, AlertTriangle, Layers, Flag } from 'lucide-react';
 
 interface GlobalGame {
   id: string;
@@ -107,6 +107,49 @@ interface BulkMergeResult {
   }>;
 }
 
+/** Report-a-problem (v2.25.0) — one row of GET /admin/catalogue/feedback. */
+interface GameFeedbackItem {
+  id: string;
+  global_game_id: string;
+  game_name: string;
+  reporter_discord_id: string;
+  field: string;
+  current_value: string | null;
+  suggested_value: string | null;
+  note: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolution: string | null;
+  resolution_note: string | null;
+  live_name: string | null;
+  manufacturer: string | null;
+  year: number | null;
+  field_sources: string | null;
+  ipdb_url: string | null;
+  opdb_id: string | null;
+  vps_id: string | null;
+}
+
+const FEEDBACK_FIELD_LABELS: Record<string, string> = {
+  name: 'Name',
+  manufacturer: 'Manufacturer',
+  year: 'Year',
+  platforms: 'Platforms',
+  artwork: 'Artwork',
+  duplicate: 'Duplicate game',
+  other: 'Other',
+};
+
+/** Which source last wrote the disputed field ('{}' / unknown → null). */
+function feedbackFieldSource(item: GameFeedbackItem): string | null {
+  try {
+    const fs = JSON.parse(item.field_sources || '{}');
+    return typeof fs?.[item.field] === 'string' ? fs[item.field] : null;
+  } catch {
+    return null;
+  }
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   vps: 'VPS',
   opdb: 'OPDB',
@@ -144,12 +187,52 @@ export default function GlobalCatalogue() {
   const [mergeSource, setMergeSource] = useState<GlobalGame | null>(null);
   const [mergeRestrictIds, setMergeRestrictIds] = useState<string[] | null>(null);
 
+  // v2.25.0 report-a-problem review queue
+  const [feedbackItems, setFeedbackItems] = useState<GameFeedbackItem[] | null>(null);
+  const [feedbackView, setFeedbackView] = useState<'open' | 'resolved'>('open');
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [feedbackNotes, setFeedbackNotes] = useState<Record<string, string>>({});
+
   const [auditData, setAuditData] = useState<DedupAuditResult | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [stripping, setStripping] = useState(false);
   const [bulkMerging, setBulkMerging] = useState(false);
   const [bulkMergeResult, setBulkMergeResult] = useState<BulkMergeResult | null>(null);
+
+  const loadFeedback = useCallback(async (view: 'open' | 'resolved') => {
+    setFeedbackLoading(true);
+    try {
+      const rows = await api.get<GameFeedbackItem[]>(
+        `/admin/catalogue/feedback${view === 'resolved' ? '?status=resolved' : ''}`,
+      );
+      setFeedbackItems(rows || []);
+    } catch (err) {
+      console.error('Failed to load game feedback:', err);
+      setFeedbackItems([]);
+    } finally {
+      setFeedbackLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadFeedback(feedbackView); }, [feedbackView, loadFeedback]);
+
+  const handleResolveFeedback = async (id: string, resolution: 'fixed' | 'upstream' | 'dismissed') => {
+    setResolvingId(id);
+    try {
+      await api.post(`/admin/catalogue/feedback/${id}/resolve`, {
+        resolution,
+        note: feedbackNotes[id]?.trim() || undefined,
+      });
+      await loadFeedback(feedbackView);
+    } catch (err) {
+      console.error('Failed to resolve feedback:', err);
+      alert(err instanceof Error ? err.message : 'Resolve failed');
+    } finally {
+      setResolvingId(null);
+    }
+  };
 
   const loadData = useCallback(async () => {
     setLoadError(null);
@@ -580,6 +663,131 @@ export default function GlobalCatalogue() {
                 <SharedGroupCard key={group.ipdbId} group={group} onMergeRow={handleGroupMerge} />
               ))}
             </div>
+          </div>
+        )}
+      </NeonCard>
+
+      {/* v2.25.0 — report-a-problem review queue */}
+      <NeonCard className="mb-6" title="Game Info Reports">
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <p className="text-sm text-muted">
+            <Flag size={13} className="inline mr-1.5 -mt-0.5" />
+            User-filed reports on catalogue metadata. Fix the entry (edit it in the list below), or
+            answer "upstream" when the field comes from IPDB/VPS/OPDB (see the source badge).
+          </p>
+          <div className="flex gap-1">
+            {(['open', 'resolved'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => setFeedbackView(v)}
+                className={`px-3 py-1 rounded text-xs font-medium border transition-colors cursor-pointer ${
+                  feedbackView === v
+                    ? 'border-neon-cyan/50 bg-neon-cyan/10 text-neon-cyan'
+                    : 'border-border text-muted hover:text-primary'
+                }`}
+              >
+                {v === 'open' ? `Open${feedbackItems && feedbackView === 'open' ? ` (${feedbackItems.length})` : ''}` : 'Resolved'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {feedbackLoading ? (
+          <div className="text-muted text-sm py-4 text-center">Loading reports…</div>
+        ) : !feedbackItems || feedbackItems.length === 0 ? (
+          <div className="text-muted text-sm py-4 text-center">
+            {feedbackView === 'open' ? 'No open reports — all clear.' : 'No resolved reports yet.'}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {feedbackItems.map(item => {
+              const src = feedbackFieldSource(item);
+              const removed = item.live_name === null;
+              return (
+                <div key={item.id} className="bg-raised border border-border rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-primary">{item.live_name ?? item.game_name}</span>
+                        {removed && (
+                          <span className="px-1.5 py-0.5 text-[10px] uppercase rounded bg-surface border border-border text-faint">
+                            game removed
+                          </span>
+                        )}
+                        <span className="px-1.5 py-0.5 text-[10px] uppercase rounded bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan">
+                          {FEEDBACK_FIELD_LABELS[item.field] || item.field}
+                        </span>
+                        <span
+                          className="px-1.5 py-0.5 text-[10px] uppercase rounded bg-surface border border-border text-muted"
+                          title="Which source last wrote this field (unknown for rows untouched since v2.25.0)"
+                        >
+                          {src === 'manual' ? 'Source: manual (ours)' : src ? `Source: ${SOURCE_LABELS[src] || src}` : 'Source: unknown'}
+                        </span>
+                      </div>
+                      <div className="text-sm text-muted mt-1.5">
+                        {item.current_value != null && <>Current: <span className="text-primary">{item.current_value}</span></>}
+                        {item.suggested_value && <>{item.current_value != null && ' → '}Suggested: <span className="text-neon-green">{item.suggested_value}</span></>}
+                      </div>
+                      {item.note && <p className="text-sm text-muted mt-1 whitespace-pre-wrap">{item.note}</p>}
+                      <div className="text-xs text-faint mt-1.5 flex items-center gap-3 flex-wrap">
+                        <span>Reporter: {item.reporter_discord_id}</span>
+                        <span>{new Date(item.created_at.replace(' ', 'T') + 'Z').toLocaleString()}</span>
+                        {item.ipdb_url && (
+                          <a href={item.ipdb_url} target="_blank" rel="noopener noreferrer" className="text-neon-cyan hover:underline inline-flex items-center gap-1">
+                            <ExternalLink size={10} /> IPDB
+                          </a>
+                        )}
+                        {item.opdb_id && (
+                          <a href={`https://opdb.org/machines/${item.opdb_id}`} target="_blank" rel="noopener noreferrer" className="text-neon-cyan hover:underline inline-flex items-center gap-1">
+                            <ExternalLink size={10} /> OPDB
+                          </a>
+                        )}
+                        {!removed && (
+                          <button
+                            onClick={() => { setSearch(item.live_name ?? item.game_name); window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }}
+                            className="text-neon-cyan hover:underline cursor-pointer"
+                          >
+                            Find in list
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {item.resolved_at ? (
+                      <div className="text-xs text-muted text-right shrink-0">
+                        <span className={`px-2 py-0.5 rounded border text-[10px] uppercase ${
+                          item.resolution === 'fixed' ? 'border-neon-green/40 text-neon-green'
+                          : item.resolution === 'upstream' ? 'border-neon-cyan/40 text-neon-cyan'
+                          : 'border-border text-muted'
+                        }`}>{item.resolution}</span>
+                        {item.resolution_note && <p className="mt-1 max-w-[240px]">{item.resolution_note}</p>}
+                      </div>
+                    ) : (
+                      <div className="shrink-0 space-y-2 w-full sm:w-auto">
+                        <input
+                          value={feedbackNotes[item.id] || ''}
+                          onChange={e => setFeedbackNotes(n => ({ ...n, [item.id]: e.target.value }))}
+                          placeholder="Resolution note (optional)"
+                          maxLength={1000}
+                          className="w-full sm:w-64 px-2 py-1 bg-surface border border-border rounded text-xs text-primary placeholder-faint focus:outline-none focus:border-neon-cyan"
+                        />
+                        <div className="flex gap-1.5 justify-end">
+                          <NeonButton className="text-xs py-1 px-2" disabled={resolvingId === item.id} onClick={() => handleResolveFeedback(item.id, 'fixed')}>
+                            Fixed
+                          </NeonButton>
+                          <NeonButton variant="secondary" className="text-xs py-1 px-2" disabled={resolvingId === item.id} onClick={() => handleResolveFeedback(item.id, 'upstream')}>
+                            Upstream
+                          </NeonButton>
+                          <NeonButton variant="ghost" className="text-xs py-1 px-2" disabled={resolvingId === item.id} onClick={() => handleResolveFeedback(item.id, 'dismissed')}>
+                            Dismiss
+                          </NeonButton>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </NeonCard>

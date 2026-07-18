@@ -1801,6 +1801,50 @@ export async function initDatabase(): Promise<Database> {
             );
             CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(discord_user_id);
         ` },
+        // v2.25.0 report-a-problem — (a) game_feedback: user-filed reports on
+        // catalogue metadata, mirroring score_reports' shape. Deliberately
+        // FK-less with a denormalized game_name so a report survives its
+        // game's merge/deletion (audit-log pattern, like maintenance_runs).
+        // The partial UNIQUE index blocks duplicate OPEN reports per
+        // (game, reporter, field) — refiling after resolution is allowed.
+        // (b) global_games.field_sources: per-field source stamp JSON
+        // ({"manufacturer":"vps",...}), written at the GlobalGameService
+        // upsert/update chokepoints from now on ('{}' = legacy/unknown).
+        // Per-field source STORAGE was deferred from ADR 0014 to this feature.
+        // Handler (not sql) migration: the sql runner's silent catch could
+        // swallow a transient partial failure and mark 112 applied with the
+        // dedup UNIQUE index (the 409 contract) missing forever. Handlers
+        // propagate errors and halt startup instead; every statement here is
+        // idempotent so a halted retry is safe.
+        { name: '112_game_feedback_field_sources', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE IF NOT EXISTS game_feedback (
+                    id TEXT PRIMARY KEY,
+                    global_game_id TEXT NOT NULL,
+                    game_name TEXT NOT NULL,
+                    reporter_discord_id TEXT NOT NULL,
+                    field TEXT NOT NULL,
+                    current_value TEXT,
+                    suggested_value TEXT,
+                    note TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    resolved_at TEXT,
+                    resolved_by TEXT,
+                    resolution TEXT,
+                    resolution_note TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_game_feedback_game ON game_feedback(global_game_id);
+                CREATE INDEX IF NOT EXISTS idx_game_feedback_open ON game_feedback(resolved_at);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_game_feedback_dedup
+                    ON game_feedback(global_game_id, reporter_discord_id, field)
+                    WHERE resolved_at IS NULL;
+            `);
+            const cols = await db.all(`PRAGMA table_info(global_games)`);
+            if (!cols.some((c: { name: string }) => c.name === 'field_sources')) {
+                await db.exec(`ALTER TABLE global_games ADD COLUMN field_sources TEXT DEFAULT '{}'`);
+            }
+            console.log('[migration] 112: game_feedback + global_games.field_sources ready');
+        } },
     ];
 
     for (const migration of migrations) {
