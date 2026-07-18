@@ -12,6 +12,7 @@ import { logInfo, logError } from '../../utils/logger.js';
 import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
+import { trackBackground } from '../../utils/backgroundTasks.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -245,13 +246,15 @@ export const submitscore: Command = {
 
                 logInfo(`Score submitted: ${username} scored ${score} on ${gameName}`);
 
-                // Fire-and-forget lobby feed event
-                import('../../services/LobbyFeedGenerator.js').then(({ LobbyFeedGenerator }) => {
-                    LobbyFeedGenerator.onScoreSubmitted({
-                        gameRoomId: game.game_room_id, gameName, username: username!,
-                        score, discordUserId: interaction.user.id, source: 'tournament',
-                    }).catch(() => {});
-                }).catch(() => {});
+                // Fire-and-forget lobby feed event (tracked for test drain)
+                trackBackground(
+                    import('../../services/LobbyFeedGenerator.js')
+                        .then(({ LobbyFeedGenerator }) => LobbyFeedGenerator.onScoreSubmitted({
+                            gameRoomId: game.game_room_id, gameName, username: username!,
+                            score, discordUserId: interaction.user.id, source: 'tournament',
+                        }))
+                        .catch(() => {}),
+                );
 
                 // Fan-out to global scoreboard (best-effort — never blocks the room submission)
                 try {

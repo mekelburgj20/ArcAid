@@ -6,6 +6,7 @@ import { AchievementService } from './AchievementService.js';
 import { StatsService } from './StatsService.js';
 import { logError } from '../utils/logger.js';
 import { emitScoreNew } from '../api/websocket.js';
+import { trackBackground } from '../utils/backgroundTasks.js';
 
 interface ScoreSubmittedParams {
     gameRoomId: string;
@@ -95,14 +96,14 @@ export class LobbyFeedGenerator {
             // disabling the cosmetic feed event must never silently lose the
             // achievement).
             if (isNewRoomTop) {
-                AchievementService.award({
+                trackBackground(AchievementService.award({
                     gameRoomId,
                     discordUserId,
                     iscoredUsername: username,
                     type: 'room_record',
                     gameName,
                     metadata: { score },
-                }).catch(() => {});
+                }).catch(() => {}));
             }
 
             if (isNewRoomTop && isTypeEnabled(enabledTypes, 'new_high_score')) {
@@ -143,13 +144,13 @@ export class LobbyFeedGenerator {
                         const marginClause = margin > 0
                             ? `(beating you by ${marginStr})`
                             : '(tying your top score)';
-                        NotificationService.notify({
+                        trackBackground(NotificationService.notify({
                             userId: dethronedMapping.discord_user_id,
                             type: 'rankDethroned',
                             message: `You've been dethroned on **${gameName}**! ${displayName} posted ${formattedScore} ${marginClause} to claim #1.${link ? `\n${link}` : ''}`,
                             roomId: gameRoomId,
                             pushUrl: link || undefined,
-                        }).catch(() => {});
+                        }).catch(() => {}));
                     }
                 }
             }
@@ -182,36 +183,43 @@ export class LobbyFeedGenerator {
                 });
             }
 
-            // Check milestones (fire-and-forget)
-            import('./MilestoneService.js').then(({ MilestoneService }) => {
-                MilestoneService.checkAndEmit(gameRoomId, username, discordUserId).catch(() => {});
-            }).catch(() => {});
+            // Check milestones (fire-and-forget, tracked — the inner promise is
+            // RETURNED so the chain settles only when checkAndEmit settles)
+            trackBackground(
+                import('./MilestoneService.js')
+                    .then(({ MilestoneService }) => MilestoneService.checkAndEmit(gameRoomId, username, discordUserId))
+                    .catch(() => {}),
+            );
 
             // Friend score events + notifications (fire-and-forget, targeted per user)
             if (discordUserId) {
-                import('./FriendsService.js').then(({ FriendsService }) => {
-                    FriendsService.getPlayersWhoFriended(discordUserId!).then(async (friendIds) => {
-                        for (const friendId of friendIds) {
-                            await LobbyFeedService.emit({
-                                gameRoomId,
-                                type: 'friend_score',
-                                icon: undefined,
-                                title: `Your friend ${displayName} posted ${formattedScore} on ${gameName}`,
-                                playerId: discordUserId,
-                                gameName,
-                                targetUserId: friendId,
-                                metadata: { score },
-                            });
+                trackBackground(
+                    import('./FriendsService.js')
+                        .then(({ FriendsService }) => FriendsService.getPlayersWhoFriended(discordUserId!))
+                        .then(async (friendIds) => {
+                            for (const friendId of friendIds) {
+                                await LobbyFeedService.emit({
+                                    gameRoomId,
+                                    type: 'friend_score',
+                                    icon: undefined,
+                                    title: `Your friend ${displayName} posted ${formattedScore} on ${gameName}`,
+                                    playerId: discordUserId,
+                                    gameName,
+                                    targetUserId: friendId,
+                                    metadata: { score },
+                                });
 
-                            // DM notification for friend score
-                            NotificationService.notify({
-                                userId: friendId,
-                                type: 'friendScore',
-                                message: `Your friend **${displayName}** just posted **${formattedScore}** on **${gameName}**!`,
-                            }).catch(() => {});
-                        }
-                    }).catch(() => {});
-                }).catch(() => {});
+                                // DM notification for friend score (kept per-friend
+                                // best-effort — a failed DM must not skip the rest)
+                                await NotificationService.notify({
+                                    userId: friendId,
+                                    type: 'friendScore',
+                                    message: `Your friend **${displayName}** just posted **${formattedScore}** on **${gameName}**!`,
+                                }).catch(() => {});
+                            }
+                        })
+                        .catch(() => {}),
+                );
             }
 
             // S14 social loops — weekly participation streak event. Detect

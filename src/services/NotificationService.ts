@@ -4,6 +4,7 @@ import { logError, logInfo } from '../utils/logger.js';
 import { PickAwardGate } from './PickAwardGate.js';
 import { SettingsService } from './SettingsService.js';
 import { WebPushService, type WebPushPayload } from './WebPushService.js';
+import { trackBackground } from '../utils/backgroundTasks.js';
 
 /** Notification preference keys — all default to false (opt-in only). */
 export interface NotificationPrefs {
@@ -195,7 +196,7 @@ export class NotificationService {
                     url: params.pushUrl || (process.env.PUBLIC_URL || 'https://arcaid.app'),
                     tag: `arcaid-${type}`,
                 };
-                WebPushService.sendToUser(userId, payload).catch(() => {});
+                trackBackground(WebPushService.sendToUser(userId, payload).catch(() => {}));
             }
 
             // 3. Compose message. Flag-defaulted sends get a one-time footer so

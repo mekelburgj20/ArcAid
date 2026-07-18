@@ -4,6 +4,7 @@ import { IScoredNotificationGate } from './IScoredNotificationGate.js';
 import { getDatabase } from '../database/database.js';
 import { normalizeSubmitterUserId } from '../services/SubmissionContextService.js';
 import { OpsAlertService } from '../services/OpsAlertService.js';
+import { trackBackground } from '../utils/backgroundTasks.js';
 
 // Tick cadence for the notification-file gate. The actual `getAllScores` call
 // is gated inside `IScoredNotificationGate.shouldSync` so most ticks are a
@@ -445,13 +446,15 @@ export class ScoreSyncPoller {
                                 platform: localGame.platform ?? null,
                             });
 
-                            import('../services/LobbyFeedGenerator.js').then(({ LobbyFeedGenerator }) => {
-                                LobbyFeedGenerator.onScoreSubmitted({
-                                    gameRoomId: localGame.game_room_id, gameName: localGame.name,
-                                    username: resolvedName, score: scoreValue,
-                                    discordUserId, source: 'sync',
-                                }).catch(() => {});
-                            }).catch(() => {});
+                            trackBackground(
+                                import('../services/LobbyFeedGenerator.js')
+                                    .then(({ LobbyFeedGenerator }) => LobbyFeedGenerator.onScoreSubmitted({
+                                        gameRoomId: localGame.game_room_id, gameName: localGame.name,
+                                        username: resolvedName, score: scoreValue,
+                                        discordUserId, source: 'sync',
+                                    }))
+                                    .catch(() => {}),
+                            );
 
                             const { GlobalScoreService } = await import('../services/GlobalScoreService.js');
                             const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({

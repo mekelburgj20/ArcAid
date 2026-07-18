@@ -6,6 +6,7 @@ import { AnonymousIdentityService } from './AnonymousIdentityService.js';
 import { RoomNameClaimService } from './RoomNameClaimService.js';
 import { ScoreRankService, type SubmitRankResult } from './ScoreRankService.js';
 import { emitScoreNewGlobal } from '../api/websocket.js';
+import { trackBackground } from '../utils/backgroundTasks.js';
 
 export class CommunityScoreService {
     /**
@@ -72,13 +73,17 @@ export class CommunityScoreService {
             platform: options?.platform ?? null,
         });
 
-        // Fire-and-forget lobby feed event
-        import('./LobbyFeedGenerator.js').then(({ LobbyFeedGenerator }) => {
-            LobbyFeedGenerator.onScoreSubmitted({
-                gameRoomId, gameName, username: effectiveUsername, score,
-                discordUserId, source: 'community',
-            }).catch(() => {});
-        }).catch(() => {});
+        // Fire-and-forget lobby feed event (tracked so tests can drain it —
+        // the inner promise is RETURNED from the .then so the tracked chain
+        // settles only when onScoreSubmitted itself settles).
+        trackBackground(
+            import('./LobbyFeedGenerator.js')
+                .then(({ LobbyFeedGenerator }) => LobbyFeedGenerator.onScoreSubmitted({
+                    gameRoomId, gameName, username: effectiveUsername, score,
+                    discordUserId, source: 'community',
+                }))
+                .catch(() => {}),
+        );
 
         // Fan-out to global scoreboard (best-effort, never throws). Will early-
         // return inside fanOutFromRoomSubmission when the playerId is a guest
