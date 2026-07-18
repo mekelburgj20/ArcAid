@@ -1167,6 +1167,43 @@ router.get('/catalogue/sync-status', async (req, res) => {
     }
 });
 
+// --- Game Feedback (report-a-problem review queue, v2.25.0) ---
+
+/** GET /api/admin/catalogue/feedback?status=open|resolved — queue listing with live game context. */
+router.get('/catalogue/feedback', async (req, res) => {
+    try {
+        const { GameFeedbackService } = await import('../../services/GameFeedbackService.js');
+        const resolved = (req.query.status as string) === 'resolved';
+        const reports = await GameFeedbackService.list({ resolved });
+        res.json(reports);
+    } catch (error) {
+        logError('API Error (GET /api/admin/catalogue/feedback):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/catalogue/feedback/:id/resolve — body { resolution: fixed|upstream|dismissed, note? }. */
+router.post('/catalogue/feedback/:id/resolve', async (req, res) => {
+    try {
+        const parsed = (await import('../schemas.js')).ResolveGameFeedbackSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid resolution' });
+        }
+        const { GameFeedbackService } = await import('../../services/GameFeedbackService.js');
+        const ok = await GameFeedbackService.resolve({
+            id: req.params.id as string,
+            resolution: parsed.data.resolution,
+            note: parsed.data.note,
+            resolvedBy: req.user!.discordId || req.user!.username || 'admin',
+        });
+        if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/catalogue/feedback/:id/resolve):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // --- Score Reports (admin moderation queue) ---
 
 /** GET /api/admin/score-reports — list pending reports with full context */

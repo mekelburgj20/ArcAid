@@ -6,6 +6,7 @@ import { PlayerAvatar } from '../components/ScoreboardComponents';
 import StarRating from '../components/StarRating';
 import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
+import ReportProblemModal from '../components/ReportProblemModal';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import DiscordLoginButton from '../components/DiscordLoginButton';
@@ -130,6 +131,7 @@ export default function GlobalGameDetail() {
   const [total, setTotal] = useState(0);
   const [showSubmit, setShowSubmit] = useState(false);
   const [reportingId, setReportingId] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const [reportMessage, setReportMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   // v2.0.1: when navigated with ?from=<slug>, treat the Submit as a room-scoped
   // freeplay submission (respects the room's REQUIRE_DISCORD_LOGIN) rather than
@@ -481,11 +483,21 @@ export default function GlobalGameDetail() {
           <div className="flex flex-col justify-between">
             <div>
               <h1 className="font-display text-3xl font-bold mb-1">{displayName}</h1>
-              <div className="text-sm text-muted mb-3">
-                {game.manufacturer || 'Unknown manufacturer'}
-                {game.year ? ` · ${game.year}` : ''}
-                {game.subtype ? ` · ${game.subtype.toUpperCase()}` : ''}
-                {game.players ? ` · ${game.players}P` : ''}
+              <div className="text-sm text-muted mb-3 flex items-center gap-3 flex-wrap">
+                <span>
+                  {game.manufacturer || 'Unknown manufacturer'}
+                  {game.year ? ` · ${game.year}` : ''}
+                  {game.subtype ? ` · ${game.subtype.toUpperCase()}` : ''}
+                  {game.players ? ` · ${game.players}P` : ''}
+                </span>
+                {/* v2.25.0 report-a-problem */}
+                <button
+                  onClick={() => setReportOpen(true)}
+                  className="inline-flex items-center gap-1 text-xs text-faint hover:text-muted transition-colors cursor-pointer"
+                  title="Report wrong name, manufacturer, year, platforms or artwork"
+                >
+                  <Flag size={12} /> Report a problem
+                </button>
               </div>
               {/* Star rating */}
               {ratingInfo && (
@@ -952,6 +964,16 @@ export default function GlobalGameDetail() {
             setShowSubmit(false);
             refreshRankings();
           }}
+        />
+      )}
+
+      {/* v2.25.0 report-a-problem */}
+      {reportOpen && game && (
+        <ReportProblemModal
+          globalGameId={game.id}
+          gameName={displayName}
+          playerToken={playerToken}
+          onClose={() => setReportOpen(false)}
         />
       )}
     </div>

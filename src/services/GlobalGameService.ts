@@ -121,6 +121,8 @@ export interface GlobalGame {
     /** v2.12.0: JSON array of additional source names whose data has been
      *  folded onto this row via merge or cross-source upsert. */
     merged_from_sources: string | null;
+    /** v2.25.0: per-field source stamp JSON ('{}' = legacy/unknown). */
+    field_sources?: string | null;
     created_at: string;
 }
 
@@ -157,6 +159,58 @@ export interface GlobalGameInput {
     global_leaderboard?: boolean;
     imported_from?: string | null;
     source_updated_at?: string | null;
+}
+
+/**
+ * Report-a-problem (v2.25.0) — per-field source stamping.
+ *
+ * `global_games.field_sources` is a JSON object mapping report-relevant field
+ * keys to the source label that last wrote them ('vps' | 'opdb' | 'igdb' |
+ * 'wizard' | ... | 'manual'). Stamped at the upsert/update chokepoints going
+ * forward; legacy rows carry '{}' (= unknown). Used by the admin feedback
+ * queue to answer "is this field ours to fix or upstream's?" (ADR 0014).
+ */
+const STAMPABLE_SCALARS = ['display_name', 'manufacturer', 'year', 'subtype', 'players', 'description'] as const;
+const STAMPABLE_ARRAYS = ['platforms', 'themes', 'designers'] as const;
+const ARTWORK_KEYS = ['image_url', 'local_image_path', 'wheel_image_path'] as const;
+
+/**
+ * Merge new stamps into an existing field_sources JSON. `presenceBased`
+ * matches GlobalGameService.update's `'key' in fields` write semantics
+ * (an explicit null = deliberate clear, still a manual write); the default
+ * non-null semantics match upsert's COALESCE writes (null = "didn't supply").
+ */
+function stampFieldSources(
+    existingJson: string | null | undefined,
+    input: Partial<GlobalGameInput>,
+    opts: { isInsert?: boolean; sourceLabel?: string | null; presenceBased?: boolean },
+): string {
+    let out: Record<string, string>;
+    try {
+        const parsed = JSON.parse(existingJson || '{}');
+        out = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        out = {};
+    }
+    const src = opts.sourceLabel || 'manual';
+    const wrote = (key: string): boolean => opts.presenceBased
+        ? key in input
+        : (input as Record<string, unknown>)[key] != null;
+    if (opts.isInsert) {
+        out['name'] = src;
+        out['type'] = src;
+    } else if (opts.presenceBased && 'name' in input) {
+        out['name'] = src;
+    }
+    for (const k of STAMPABLE_SCALARS) if (wrote(k)) out[k] = src;
+    for (const k of STAMPABLE_ARRAYS) {
+        const v = (input as Record<string, unknown>)[k];
+        if (opts.presenceBased ? k in input : Array.isArray(v) && (v as unknown[]).length > 0) out[k] = src;
+    }
+    if (ARTWORK_KEYS.some(k => opts.presenceBased ? k in input : (input as Record<string, unknown>)[k] != null)) {
+        out['artwork'] = src;
+    }
+    return JSON.stringify(out);
 }
 
 export class GlobalGameService {
@@ -528,6 +582,17 @@ export class GlobalGameService {
                 mergedSources = [...existingMergedSources, input.imported_from];
             }
 
+            // v2.25.0: per-field source stamp — fields this input supplies
+            // (non-null, mirroring the COALESCE writes below) get attributed
+            // to the input's source. `existing` may predate the column, so
+            // read it fresh.
+            const fsRow = await db.get<{ field_sources: string | null }>(
+                'SELECT field_sources FROM global_games WHERE id = ?', existing.id,
+            );
+            const stampedFieldSources = stampFieldSources(fsRow?.field_sources, input, {
+                sourceLabel: input.imported_from,
+            });
+
             const updateSql = `UPDATE global_games SET
                     display_name = COALESCE(?, display_name),
                     manufacturer = COALESCE(?, manufacturer),
@@ -554,7 +619,8 @@ export class GlobalGameService {
                     source_rating = COALESCE(?, source_rating),
                     features = ?,
                     source_updated_at = COALESCE(?, source_updated_at),
-                    merged_from_sources = ?
+                    merged_from_sources = ?,
+                    field_sources = ?
                 WHERE id = ?`;
             const updateParams = [
                 input.display_name ?? null,
@@ -583,6 +649,7 @@ export class GlobalGameService {
                 JSON.stringify(mergedFeatures),
                 input.source_updated_at ?? null,
                 JSON.stringify(mergedSources),
+                stampedFieldSources,
                 existing.id,
             ];
 
@@ -638,7 +705,7 @@ export class GlobalGameService {
                 table_authors, table_download_urls, tutorial_urls, rules_urls,
                 description, source_rating, features,
                 status, submitted_by, reviewed_by, global_leaderboard,
-                imported_from, imported_at, source_updated_at
+                imported_from, imported_at, source_updated_at, field_sources
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -647,7 +714,7 @@ export class GlobalGameService {
                 ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?,
-                ?, ?, ?
+                ?, ?, ?, ?
             )`,
             id, input.name, input.display_name ?? null,
             input.manufacturer ?? null, input.year ?? null,
@@ -669,7 +736,8 @@ export class GlobalGameService {
             input.submitted_by ?? null, input.reviewed_by ?? null,
             input.global_leaderboard !== false ? 1 : 0,
             input.imported_from ?? null, now,
-            input.source_updated_at ?? null
+            input.source_updated_at ?? null,
+            stampFieldSources('{}', input, { isInsert: true, sourceLabel: input.imported_from })
         );
         return { id, action: 'inserted' };
     }
@@ -861,6 +929,15 @@ export class GlobalGameService {
         }
 
         if (sets.length === 0) return false;
+
+        // v2.25.0: admin/manual edits stamp 'manual' on the report-relevant
+        // fields they touch (presence-based — an explicit null is a
+        // deliberate clear, still a manual write).
+        const fsRow = await db.get<{ field_sources: string | null }>(
+            'SELECT field_sources FROM global_games WHERE id = ?', id,
+        );
+        sets.push('field_sources = ?');
+        params.push(stampFieldSources(fsRow?.field_sources, fields, { presenceBased: true }));
         params.push(id);
 
         const result = await db.run(
@@ -894,6 +971,10 @@ export class GlobalGameService {
             params.push(fields.wheel_image_path);
         }
         if (sets.length === 0) return false;
+
+        // v2.25.0: the background image pass knows its source — stamp artwork.
+        sets.push(`field_sources = json_set(COALESCE(field_sources, '{}'), '$.artwork', ?)`);
+        params.push(source);
 
         params.push(externalId);
         const result = await db.run(
@@ -929,6 +1010,9 @@ export class GlobalGameService {
             params.push(fields.wheel_image_path);
         }
         if (sets.length === 0) return false;
+
+        // v2.25.0: only the Wizard importer keys by external_url — stamp artwork.
+        sets.push(`field_sources = json_set(COALESCE(field_sources, '{}'), '$.artwork', 'wizard')`);
 
         params.push(externalUrl);
         const result = await db.run(

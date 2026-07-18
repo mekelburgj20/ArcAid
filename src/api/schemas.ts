@@ -266,3 +266,23 @@ export const RoomScoresQuerySchema = z.object({
     offset: z.coerce.number().int().min(0).default(0),
     search: z.string().trim().max(100).optional(),
 });
+
+/**
+ * Report-a-problem (v2.25.0) — POST /global/games/:id/feedback body. The
+ * disputed field's current value is snapshotted server-side, never trusted
+ * from the client. At least one of suggested_value/note must be non-empty.
+ */
+export const GameFeedbackSchema = z.object({
+    field: z.enum(['name', 'manufacturer', 'year', 'platforms', 'artwork', 'duplicate', 'other']),
+    suggested_value: z.string().trim().max(300).optional(),
+    note: z.string().trim().max(1000).optional(),
+}).refine(
+    (d) => !!(d.suggested_value || d.note),
+    { message: 'Provide a suggested correction or a note' },
+);
+
+/** POST /admin/catalogue/feedback/:id/resolve body. */
+export const ResolveGameFeedbackSchema = z.object({
+    resolution: z.enum(['fixed', 'upstream', 'dismissed']),
+    note: z.string().trim().max(1000).optional(),
+});

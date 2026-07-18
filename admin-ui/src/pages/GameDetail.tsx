@@ -8,7 +8,8 @@ import { api } from '../lib/api';
 import PlayerNameLink from '../components/PlayerNameLink';
 import { getPlatformDisplay } from '../lib/platforms';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
-import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink } from 'lucide-react';
+import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag } from 'lucide-react';
+import ReportProblemModal from '../components/ReportProblemModal';
 
 /** Decode a player JWT and pull the role + gameRoomIds claims. The viewer
  *  could be a player, room_admin, or super_admin — public-page tokens carry
@@ -177,6 +178,7 @@ export default function GameDetail() {
   const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [roomName, setRoomName] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const [stats, setStats] = useState<GameStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1472,7 +1474,29 @@ export default function GameDetail() {
             )}
           </div>
         )}
+
+        {/* v2.25.0 report-a-problem — gated on the catalogue mapping (reports
+            file against the global entry). Discord login handled in-modal. */}
+        {leaderboard?.globalGameId && (
+          <div className="mt-6 text-right">
+            <button
+              onClick={() => setReportOpen(true)}
+              className="inline-flex items-center gap-1.5 text-xs text-faint hover:text-muted transition-colors cursor-pointer"
+            >
+              <Flag size={12} /> Report a problem with this game's info
+            </button>
+          </div>
+        )}
       </main>
+
+      {reportOpen && leaderboard?.globalGameId && (
+        <ReportProblemModal
+          globalGameId={leaderboard.globalGameId}
+          gameName={stats?.gameName || name || ''}
+          playerToken={playerToken}
+          onClose={() => setReportOpen(false)}
+        />
+      )}
 
       {/* v2.0.1: Community Submit flow now uses unified SubmissionSheet
           (photo support + anon-claim prompt + login gate + OAuth draft). */}
