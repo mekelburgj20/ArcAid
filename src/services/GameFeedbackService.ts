@@ -19,6 +19,9 @@ export type ReportableField = typeof REPORTABLE_FIELDS[number];
 export const FEEDBACK_RESOLUTIONS = ['fixed', 'upstream', 'dismissed'] as const;
 export type FeedbackResolution = typeof FEEDBACK_RESOLUTIONS[number];
 
+/** Max unresolved reports one reporter may hold across the whole catalogue. */
+export const MAX_OPEN_REPORTS_PER_USER = 20;
+
 export interface GameFeedbackRow {
     id: string;
     global_game_id: string;
@@ -73,6 +76,18 @@ export class GameFeedbackService {
             throw err;
         }
 
+        // Spam floor: cap OPEN reports per reporter (the writeLimiter is only
+        // per-minute; without this, one account could bury the queue).
+        const open = await db.get<{ n: number }>(
+            'SELECT COUNT(*) AS n FROM game_feedback WHERE reporter_discord_id = ? AND resolved_at IS NULL',
+            params.reporterDiscordId,
+        );
+        if ((open?.n ?? 0) >= MAX_OPEN_REPORTS_PER_USER) {
+            const err = new Error('Too many open reports') as Error & { code?: string };
+            err.code = 'REPORT_LIMIT';
+            throw err;
+        }
+
         const currentValue = this.snapshotField(game, params.field);
         const id = crypto.randomUUID();
         try {
@@ -86,8 +101,10 @@ export class GameFeedbackService {
                 params.suggestedValue || null, params.note || null,
             );
         } catch (e: unknown) {
-            const sqlErr = e as { code?: string };
-            if (sqlErr?.code === 'SQLITE_CONSTRAINT') {
+            const sqlErr = e as { code?: string; message?: string };
+            // Only the partial UNIQUE dedup index maps to 409 — any other
+            // constraint is a real bug and must surface as a 500.
+            if (sqlErr?.code === 'SQLITE_CONSTRAINT' && String(sqlErr.message || '').includes('game_feedback')) {
                 const err = new Error('You already have an open report on this field') as Error & { code?: string };
                 err.code = 'DUPLICATE_REPORT';
                 throw err;

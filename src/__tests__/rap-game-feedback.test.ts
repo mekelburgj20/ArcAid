@@ -127,6 +127,27 @@ describe('POST /api/global/games/:id/feedback', () => {
         expect(refile.status).toBe(201);
     });
 
+    it('429s a reporter who exceeds the open-report cap', async () => {
+        const app = await createApp();
+        const gameId = await seedGame();
+        const db = await getDatabase();
+        const { MAX_OPEN_REPORTS_PER_USER } = await import('../services/GameFeedbackService.js');
+        const reporter = '111222333444555666';
+        for (let i = 0; i < MAX_OPEN_REPORTS_PER_USER; i++) {
+            await db.run(
+                `INSERT INTO game_feedback (id, global_game_id, game_name, reporter_discord_id, field, note)
+                 VALUES (?, ?, 'G', ?, 'other', ?)`,
+                crypto.randomUUID(), crypto.randomUUID(), reporter, `spam ${i}`,
+            );
+        }
+        const res = await request(app)
+            .post(`/api/global/games/${gameId}/feedback`)
+            .set('Authorization', `Bearer ${playerToken(reporter)}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ field: 'year', suggested_value: '1990' });
+        expect(res.status).toBe(429);
+    });
+
     it('404s an unknown game and 400s an empty report', async () => {
         const app = await createApp();
         const missing = await request(app)
@@ -266,6 +287,27 @@ describe('field_sources stamping', () => {
         expect(fs.display_name).toBe('vps');       // untouched by opdb input
         expect(fs.description).toBe('opdb');       // newly supplied
         expect(fs.manufacturer).toBe('opdb');      // supplied (identity match) → re-stamped
+    });
+
+    it('full-object PUT does NOT wipe upstream stamps on unchanged fields', async () => {
+        await setupTestDb();
+        const { id } = await GlobalGameService.upsert({
+            name: 'Stamp Test 4', manufacturer: 'Stern', year: 2001,
+            type: 'pinball', imported_from: 'vps',
+        });
+        // Edit-form shape: full object back, only display_name actually changed
+        await GlobalGameService.update(id, {
+            name: 'Stamp Test 4', manufacturer: 'Stern', year: 2001, display_name: 'The Fourth',
+        });
+        const db = await getDatabase();
+        const row = await db.get<{ field_sources: string }>(
+            'SELECT field_sources FROM global_games WHERE id = ?', id,
+        );
+        const fs = JSON.parse(row!.field_sources);
+        expect(fs.display_name).toBe('manual');  // the one real change
+        expect(fs.manufacturer).toBe('vps');     // unchanged → attribution kept
+        expect(fs.year).toBe('vps');
+        expect(fs.name).toBe('vps');
     });
 
     it("manual update() stamps 'manual' presence-based (explicit null = deliberate clear)", async () => {

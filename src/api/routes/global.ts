@@ -1445,6 +1445,9 @@ router.post('/global/games/:id/feedback', writeLimiter, requireDiscordUser, asyn
         if (code === 'DUPLICATE_REPORT') {
             return res.status(409).json({ error: 'You already have an open report on this field — an admin will review it.' });
         }
+        if (code === 'REPORT_LIMIT') {
+            return res.status(429).json({ error: 'You have too many open reports. Please wait for an admin to review them.' });
+        }
         logError('API Error (POST /api/global/games/:id/feedback):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }

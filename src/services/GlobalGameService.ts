@@ -930,14 +930,35 @@ export class GlobalGameService {
 
         if (sets.length === 0) return false;
 
-        // v2.25.0: admin/manual edits stamp 'manual' on the report-relevant
-        // fields they touch (presence-based — an explicit null is a
-        // deliberate clear, still a manual write).
-        const fsRow = await db.get<{ field_sources: string | null }>(
-            'SELECT field_sources FROM global_games WHERE id = ?', id,
+        // v2.25.0: admin/manual edits stamp 'manual' — but only on fields whose
+        // value actually CHANGES. A full-object PUT (standard edit-form shape)
+        // must not wipe upstream attribution on fields the admin never touched;
+        // an explicit clear (null over a value) IS a change, still stamped.
+        const current = await db.get<Record<string, unknown> & { field_sources: string | null }>(
+            `SELECT field_sources, name, display_name, manufacturer, year, subtype, players,
+                    description, platforms, themes, designers,
+                    image_url, local_image_path, wheel_image_path
+               FROM global_games WHERE id = ?`,
+            id,
         );
+        const changed: Partial<GlobalGameInput> = {};
+        if (current) {
+            const scalarKeys = ['name', 'display_name', 'manufacturer', 'year', 'subtype', 'players', 'description',
+                'image_url', 'local_image_path', 'wheel_image_path'] as const;
+            for (const k of scalarKeys) {
+                if (k in fields && ((fields as Record<string, unknown>)[k] ?? null) !== (current[k] ?? null)) {
+                    (changed as Record<string, unknown>)[k] = (fields as Record<string, unknown>)[k] ?? null;
+                }
+            }
+            const arrayKeys = ['platforms', 'themes', 'designers'] as const;
+            for (const k of arrayKeys) {
+                if (k in fields && JSON.stringify((fields as Record<string, unknown>)[k] || []) !== (current[k] || '[]')) {
+                    (changed as Record<string, unknown>)[k] = (fields as Record<string, unknown>)[k];
+                }
+            }
+        }
         sets.push('field_sources = ?');
-        params.push(stampFieldSources(fsRow?.field_sources, fields, { presenceBased: true }));
+        params.push(stampFieldSources(current?.field_sources, changed, { presenceBased: true }));
         params.push(id);
 
         const result = await db.run(
@@ -1011,8 +1032,17 @@ export class GlobalGameService {
         }
         if (sets.length === 0) return false;
 
-        // v2.25.0: only the Wizard importer keys by external_url — stamp artwork.
-        sets.push(`field_sources = json_set(COALESCE(field_sources, '{}'), '$.artwork', 'wizard')`);
+        // v2.25.0: only the Wizard importer keys by external_url — stamp
+        // artwork, but ONLY when this call actually writes it: the local/wheel
+        // paths always overwrite, while image_url is COALESCE-kept (existing
+        // wins), so an image_url-only call stamps only when the row had none.
+        if (fields.local_image_path !== undefined || fields.wheel_image_path !== undefined) {
+            sets.push(`field_sources = json_set(COALESCE(field_sources, '{}'), '$.artwork', 'wizard')`);
+        } else if (fields.image_url !== undefined) {
+            sets.push(`field_sources = CASE WHEN image_url IS NULL
+                THEN json_set(COALESCE(field_sources, '{}'), '$.artwork', 'wizard')
+                ELSE field_sources END`);
+        }
 
         params.push(externalUrl);
         const result = await db.run(
