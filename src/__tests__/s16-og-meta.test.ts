@@ -195,6 +195,18 @@ describe('OG shell serving', () => {
         expect(res.text).not.toContain('<baz>');
     });
 
+    it('does not corrupt the shell when a name contains String.replace patterns', async () => {
+        await createTestRoom('sharetest', 'Share Test Room');
+        const res = await request(createTestApp())
+            .get('/sharetest/games/' + encodeURIComponent("Cash $' Grab"))
+            .set('User-Agent', DISCORD_UA);
+        expect(res.status).toBe(200);
+        // `$'` in a replacement STRING splices the rest of the document into
+        // <title>; the replacer-function form must render the literal name.
+        expect(res.text).toContain('<title>Cash $&#39; Grab · Share Test Room · ArcAid</title>');
+        expect(res.text.match(/<\/html>/g)?.length).toBe(1);
+    });
+
     it('uses catalogue art as og:image when available, absolute-URL-ified', async () => {
         await createTestRoom('sharetest', 'Share Test Room');
         const db = await getDatabase();

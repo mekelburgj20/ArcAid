@@ -636,7 +636,7 @@ export default function GameDetail() {
             &larr; Leaderboard
           </Link>
           <div className="flex items-center justify-between gap-3 mt-1">
-            <h2 className="font-display text-2xl font-bold text-white">{stats?.gameName || name}</h2>
+            <h2 className="font-display text-2xl font-bold text-white min-w-0 break-words">{stats?.gameName || name}</h2>
             {/* S16 — Web Share (clipboard fallback) */}
             <ShareButton
               title={`${stats?.gameName || name} · ArcAid`}

@@ -23,8 +23,10 @@ import { logWarn } from '../utils/logger.js';
  *     entirely (settings hot-load into process.env via SettingsService).
  */
 
-// Curated preview-crawler UA fragments. Deliberately NOT a generic "bot"
-// heuristic — only agents known to fetch pages for link unfurls.
+// Curated UA fragments: link-unfurl crawlers plus the three major search
+// crawlers (googlebot/bingbot/applebot — better titles in search results is
+// the same legitimate dynamic-rendering use case). Deliberately NOT a generic
+// "bot" substring heuristic.
 const BOT_UA_RE = new RegExp(
     [
         'discordbot',
@@ -125,8 +127,10 @@ export function injectOgTags(shell: string, meta: OgMeta): string | null {
     const block = `    ${lines.join('\n    ')}\n  `;
     let html = shell.slice(0, headClose) + block + shell.slice(headClose);
     // Mirror the og:title into the document title so crawlers that read
-    // <title> (and any plain fetcher) see the page name too.
-    html = html.replace('<title>ArcAid</title>', `<title>${t} · ArcAid</title>`);
+    // <title> (and any plain fetcher) see the page name too. Replacer FUNCTION,
+    // not string — a name containing `$'`/`$&` would otherwise trigger
+    // String.replace's special replacement patterns and corrupt the document.
+    html = html.replace('<title>ArcAid</title>', () => `<title>${t} · ArcAid</title>`);
     return html;
 }
 
@@ -167,8 +171,11 @@ export async function maybeBuildOgShell(req: Request, frontendPath: string): Pro
         const room = await GameRoomService.getBySlug(route.slug);
         if (!room) return null;
 
+        const host = req.get('host');
+        if (!host) return null; // no Host header → can't build absolute og:url/og:image
+
         const db = await getDatabase();
-        const origin = `${req.protocol}://${req.get('host')}`;
+        const origin = `${req.protocol}://${host}`;
         const canonicalUrl = `${origin}/${encodeURIComponent(room.slug)}/${route.kind === 'game' ? 'games' : 'players'}/${encodeURIComponent(route.name)}`;
 
         let title: string;

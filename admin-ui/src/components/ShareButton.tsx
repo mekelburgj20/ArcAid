@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Share2, Check } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Share2, Check, X } from 'lucide-react';
 
 /**
  * S16 — Web Share button with clipboard fallback.
@@ -7,7 +7,10 @@ import { Share2, Check } from 'lucide-react';
  * Uses the native share sheet where available (mobile, some desktop browsers);
  * otherwise copies "text url" to the clipboard and flips the label to
  * "Copied!" for 2s (the Settings.tsx copy-link pattern — inline state, no
- * ToastProvider dependency so the button works on any page).
+ * ToastProvider dependency so the button works on any page). Non-secure
+ * contexts (plain-HTTP LAN deploys) have no navigator.clipboard — fall back to
+ * the legacy execCommand copy; if even that fails, show "Copy failed" rather
+ * than a silent no-op.
  */
 interface ShareButtonProps {
     /** Share-sheet title (some targets display it, most use text+url). */
@@ -25,8 +28,35 @@ const DEFAULT_CLASS =
     'inline-flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-medium transition-colors cursor-pointer ' +
     'border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20';
 
+function legacyCopy(value: string): boolean {
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = value;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+    } catch {
+        return false;
+    }
+}
+
 export default function ShareButton({ title, text, path, className, showLabel = true }: ShareButtonProps) {
-    const [copied, setCopied] = useState(false);
+    const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+    }, []);
+
+    const flash = (next: 'copied' | 'failed') => {
+        setState(next);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => setState('idle'), 2000);
+    };
 
     const handleShare = async () => {
         const url = `${window.location.origin}${path}`;
@@ -40,24 +70,28 @@ export default function ShareButton({ title, text, path, className, showLabel = 
                 // Anything else (e.g. NotAllowedError) → clipboard fallback below.
             }
         }
+        const payload = `${text} ${url}`;
         try {
-            await navigator.clipboard.writeText(`${text} ${url}`);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(payload);
+                flash('copied');
+                return;
+            }
         } catch {
-            // Clipboard unavailable (very old browser / non-secure context) — no-op.
+            // fall through to legacy copy
         }
+        flash(legacyCopy(payload) ? 'copied' : 'failed');
     };
 
     return (
         <button
             onClick={handleShare}
             className={className ?? DEFAULT_CLASS}
-            aria-label={copied ? 'Link copied' : 'Share'}
+            aria-label={state === 'copied' ? 'Link copied' : state === 'failed' ? 'Copy failed' : 'Share'}
             title="Share"
         >
-            {copied ? <Check size={14} /> : <Share2 size={14} />}
-            {showLabel && (copied ? 'Copied!' : 'Share')}
+            {state === 'copied' ? <Check size={14} /> : state === 'failed' ? <X size={14} /> : <Share2 size={14} />}
+            {showLabel && (state === 'copied' ? 'Copied!' : state === 'failed' ? 'Copy failed' : 'Share')}
         </button>
     );
 }
