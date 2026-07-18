@@ -8,9 +8,10 @@ import { EventEmitter } from 'events';
 import { initWebSocket } from './websocket.js';
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
-import { authLimiter, generalLimiter } from './rateLimit.js';
+import { authLimiter, generalLimiter, ogPreviewLimiter } from './rateLimit.js';
 import { correlationId } from './correlationId.js';
 import { auditLog } from './auditMiddleware.js';
+import { maybeBuildOgShell, isPreviewBot } from './ogMeta.js';
 
 // Route modules
 import authRouter from './routes/auth.js';
@@ -212,7 +213,24 @@ export function startApiServer(port: number = 3001) {
         logInfo('Found built Admin UI, serving static files.');
         app.use(express.static(frontendPath));
 
-        app.get(/^(?!\/api).*/, (req, res) => {
+        app.get(/^(?!\/api).*/, (req, res, next) => {
+            // S16: the catch-all sits outside the /api generalLimiter and a
+            // preview-bot UA now triggers DB lookups — cap that surface.
+            // Humans never enter the limiter.
+            if (isPreviewBot(req.get('user-agent'))) {
+                ogPreviewLimiter(req, res, next);
+                return;
+            }
+            next();
+        }, async (req, res) => {
+            // S16: link-preview crawlers on shareable routes get the shell with
+            // OG tags injected; everyone else (and any failure) gets the
+            // unmodified shell.
+            const ogShell = await maybeBuildOgShell(req, frontendPath);
+            if (ogShell) {
+                res.type('html').send(ogShell);
+                return;
+            }
             res.sendFile(path.join(frontendPath, 'index.html'));
         });
     }

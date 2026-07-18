@@ -32,6 +32,20 @@ export const pickLimiter = rateLimit({
     message: { error: 'Too many pick attempts. Please wait a moment.' },
 });
 
+/**
+ * S16 — OG meta injection on the SPA catch-all: 60 requests per minute per IP.
+ * The catch-all isn't under the /api generalLimiter, and a spoofed bot UA now
+ * triggers DB lookups there; this caps that surface. Applied ONLY to requests
+ * whose UA matches the preview-bot list — humans never hit it.
+ */
+export const ogPreviewLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many preview requests. Please try again later.',
+});
+
 /** General API: 100 requests per minute per IP */
 export const generalLimiter = rateLimit({
     windowMs: 60 * 1000,

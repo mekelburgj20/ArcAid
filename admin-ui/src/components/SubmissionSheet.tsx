@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserX, Trophy } from 'lucide-react';
 import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
+import ShareButton from './ShareButton';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { getPlatformDisplay } from '../lib/platforms';
 import type { SubmitRank } from '../lib/api';
@@ -594,6 +595,26 @@ export default function SubmissionSheet({
                         )}
 
                         <div className="grid grid-cols-1 gap-2 pt-1">
+                            {/* S16 — share the result (native share sheet, clipboard fallback).
+                                Links to the game's leaderboard page; OG meta makes the unfurl rich. */}
+                            {(target.kind === 'global' ? !!target.globalGameId : !!roomSlug) && (
+                                <ShareButton
+                                    title={`${target.gameName} · ArcAid`}
+                                    text={
+                                        submitRank?.rank === 1
+                                            ? `I'm #1 on ${target.gameName}!`
+                                            : submitRank?.rank != null
+                                                ? `I'm #${submitRank.rank} of ${submitRank.totalPlayers} on ${target.gameName}!`
+                                                : `I just posted a score on ${target.gameName}!`
+                                    }
+                                    path={
+                                        target.kind === 'global'
+                                            ? `/games/${target.globalGameId}`
+                                            : `/${roomSlug}/games/${encodeURIComponent(target.gameName)}`
+                                    }
+                                    className="w-full px-4 py-2 rounded border border-neon-cyan/40 text-neon-cyan text-sm hover:bg-neon-cyan/10 transition-colors inline-flex items-center justify-center gap-2 cursor-pointer"
+                                />
+                            )}
                             {/* View leaderboard — room GameDetail for tournament/freeplay,
                                 global game detail for global submissions. */}
                             {target.kind === 'global' ? (

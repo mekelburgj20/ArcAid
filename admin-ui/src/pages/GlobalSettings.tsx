@@ -23,6 +23,7 @@ const GLOBAL_KEYS = [
   'NOTIFY_HIGH_VALUE_DEFAULT_ON',
   'WEB_PUSH_VAPID_PUBLIC_KEY',
   'WEB_PUSH_VAPID_PRIVATE_KEY',
+  'OG_META_ENABLED',
 ];
 
 const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET', 'WEB_PUSH_VAPID_PRIVATE_KEY'];
@@ -43,6 +44,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   NOTIFY_HIGH_VALUE_DEFAULT_ON: { label: 'High-Value Notifications Default-On', description: 'When enabled, Discord-linked users receive dethrone + tournament-win DMs by default. An explicit per-user preference (on or off) always overrides this. Disabled or absent = opt-in only.' },
   WEB_PUSH_VAPID_PUBLIC_KEY: { label: 'Web Push VAPID Public Key', description: 'Public half of the VAPID keypair for browser push notifications. Generate a pair with "npm run generate-vapid-keys". Both keys must be set for push to activate; rotating the pair invalidates every existing browser subscription.' },
   WEB_PUSH_VAPID_PRIVATE_KEY: { label: 'Web Push VAPID Private Key', description: 'Private half of the VAPID keypair for browser push notifications. Encrypted at rest.' },
+  OG_META_ENABLED: { label: 'Link-Preview Meta (OG Tags)', description: 'Inject Open Graph tags into game/player pages for link-preview crawlers (Discord, Slack, Twitter). Kill-switch: set to Disabled if link previews misbehave. Humans always get the normal app either way.' },
 };
 
 interface SuperAdmin {
@@ -162,6 +164,16 @@ export default function GlobalSettings() {
                     >
                       <option value="false">Disabled (opt-in only)</option>
                       <option value="true">Enabled (default-on for Discord users)</option>
+                    </select>
+                  ) : key === 'OG_META_ENABLED' ? (
+                    /* S16 — default-ON kill-switch: absent/anything-but-"false" = enabled. */
+                    <select
+                      value={value === 'false' ? 'false' : 'true'}
+                      onChange={e => handleChange(key, e.target.value)}
+                      className={`${inputClass} flex-1`}
+                    >
+                      <option value="true">Enabled (default)</option>
+                      <option value="false">Disabled (kill-switch)</option>
                     </select>
                   ) : (
                     <>
