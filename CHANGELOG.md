@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.24.1] — unreleased
+
+**Fix: CI flake — fire-and-forget post-submit chains raced the test DB reset.** The nested-transaction / `SQLITE_MISUSE` flakes (`community-scores-attribution` case (b), 2026-07-15; `room-scores` case (b), 2026-07-18 — the latter blocked the v2.24.0 deploy until rerun) were caused by fire-and-forget chains (lobby feed → achievements/milestones/friend events/notifications/web push, `RoomEventService.log`) still running when the next test reset the shared in-memory DB. New `src/utils/backgroundTasks.ts` — `trackBackground()` registry + `drainBackgroundTasks()` — wraps every such chain (the dynamic-import hops now RETURN the inner promise so the tracked chain settles only when the real work settles); the vitest setup drains before each DB reset. Production behavior unchanged (a Set add/delete per chain). `RoomEventService.log` is tracked at the source, covering its ~14 unawaited call sites at once.
+
+---
+
 ## [2.24.0] — unreleased
 
 **S16 — Shareability (Phase C): Web Share + OG link-preview meta.**
