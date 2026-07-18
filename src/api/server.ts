@@ -11,6 +11,7 @@ import { logInfo, logError } from '../utils/logger.js';
 import { authLimiter, generalLimiter } from './rateLimit.js';
 import { correlationId } from './correlationId.js';
 import { auditLog } from './auditMiddleware.js';
+import { maybeBuildOgShell } from './ogMeta.js';
 
 // Route modules
 import authRouter from './routes/auth.js';
@@ -212,7 +213,15 @@ export function startApiServer(port: number = 3001) {
         logInfo('Found built Admin UI, serving static files.');
         app.use(express.static(frontendPath));
 
-        app.get(/^(?!\/api).*/, (req, res) => {
+        app.get(/^(?!\/api).*/, async (req, res) => {
+            // S16: link-preview crawlers on shareable routes get the shell with
+            // OG tags injected; everyone else (and any failure) gets the
+            // unmodified shell.
+            const ogShell = await maybeBuildOgShell(req, frontendPath);
+            if (ogShell) {
+                res.type('html').send(ogShell);
+                return;
+            }
             res.sendFile(path.join(frontendPath, 'index.html'));
         });
     }

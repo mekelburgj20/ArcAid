@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare } from 'lucide-react';
+import ShareButton from '../components/ShareButton';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 
 interface Achievements {
@@ -212,6 +213,12 @@ export default function PlayerDetail() {
             <GitCompare size={14} />
             Compare
           </Link>
+          {/* S16 — Web Share (clipboard fallback) */}
+          <ShareButton
+            title={`${displayName} · ArcAid`}
+            text={`Check out ${displayName}'s scores and stats on ArcAid!`}
+            path={`/${slug}/players/${encodeURIComponent(id || '')}`}
+          />
         </div>
       </div>
 

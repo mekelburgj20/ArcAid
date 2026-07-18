@@ -3,6 +3,7 @@ import { useParams, useSearchParams, Link } from 'react-router-dom';
 import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
 import SubmissionSheet from '../components/SubmissionSheet';
+import ShareButton from '../components/ShareButton';
 import { api } from '../lib/api';
 import PlayerNameLink from '../components/PlayerNameLink';
 import { getPlatformDisplay } from '../lib/platforms';
@@ -175,6 +176,7 @@ export default function GameDetail() {
   const { playerToken } = useViewerAuth();
   const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [roomName, setRoomName] = useState<string | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -252,7 +254,10 @@ export default function GameDetail() {
     if (!slug) return;
     fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
       .then(r => r.ok ? r.json() : null)
-      .then(portal => { if (portal?.id) setRoomId(portal.id); })
+      .then(portal => {
+        if (portal?.id) setRoomId(portal.id);
+        if (portal?.name) setRoomName(portal.name);
+      })
       .catch(() => {});
   }, [slug]);
 
@@ -630,7 +635,16 @@ export default function GameDetail() {
           <Link to={backToRoomHref} className="text-white/50 text-xs hover:text-white/70 no-underline transition-colors">
             &larr; Leaderboard
           </Link>
-          <h2 className="font-display text-2xl font-bold text-white mt-1">{stats?.gameName || name}</h2>
+          <div className="flex items-center justify-between gap-3 mt-1">
+            <h2 className="font-display text-2xl font-bold text-white">{stats?.gameName || name}</h2>
+            {/* S16 — Web Share (clipboard fallback) */}
+            <ShareButton
+              title={`${stats?.gameName || name} · ArcAid`}
+              text={`Check out the leaderboard for ${stats?.gameName || name}${roomName ? ` at ${roomName}` : ''} on ArcAid!`}
+              path={`/${slug}/games/${encodeURIComponent(name || '')}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-white/25 bg-white/10 text-white/80 hover:bg-white/20 text-xs font-medium transition-colors cursor-pointer shrink-0"
+            />
+          </div>
           {leaderboard && (
             <div className="flex items-center gap-3 flex-wrap">
               <p className="text-white/50 text-xs uppercase tracking-wider">{leaderboard.tournamentName}</p>

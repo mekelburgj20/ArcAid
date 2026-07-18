@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.24.0] — unreleased
+
+**S16 — Shareability (Phase C): Web Share + OG link-preview meta.**
+
+- **OG meta injection for link unfurls** — when a link-preview crawler (Discord, Slack, Twitter, Facebook, Telegram, WhatsApp, …) fetches `/:slug/games/:name` or `/:slug/players/:id`, the SPA shell is served with injected `og:title` / `og:description` / `og:url` / `og:image` + `twitter:*` tags, so shared links unfurl with the game or player name, the room name, and catalogue art (game art → room logo → ArcAid logo fallback). Player titles follow the display-resolution rule (`display_name ?? iscored_username`). **Safety contract:** only a curated preview-bot UA list ever receives modified HTML — human browsers always get the byte-identical shell via the unchanged `sendFile` path, every failure mode falls through to the unmodified shell, and the `OG_META_ENABLED` global setting (default on, select on Global Settings) is a kill-switch. New `src/api/ogMeta.ts`; the injection rides the existing SPA catch-all in `server.ts`.
+- **Web Share buttons** — new `ShareButton` component (native `navigator.share` sheet where available; clipboard copy + 2s "Copied!" state otherwise): on the room Game Detail hero, the Player Detail action row (next to Follow/Compare), and the post-submit result card ("I'm #1 on Medieval Madness!" / "I'm #4 of 12 on …" with a link to the game's leaderboard — the OG meta above makes that link unfurl rich).
+
+New `s16-og-meta.test.ts` (13 cases: bot-vs-human fall-through, kill-switch, unknown slug, display-name resolution, HTML escaping, catalogue-art og:image absolutization, route parsing incl. malformed encoding). SW → `arcaid-v98`. No migration (next free still 112).
+
+---
+
 ## [2.23.2] — unreleased
 
 **Room nicknames become a recognized identity lookup on room stat pages.** Discord OAuth login writes NO `user_mappings` row (a long-standing doc error claimed otherwise) — a player who logs in and submits on the web gets score attribution + a per-room `room_members.display_name` claim, but the name everyone sees them under was invisible to NAME-typed lookups, which read `user_mappings` only (field report: the operator's own alt). The room-scoped resolvers (`comparePlayersHeadToHead.resolve`, `getEnhancedPlayerStatsByUsername`) now fall back to `room_members(room_id, display_name)` when the global alias misses. Global alias always wins; **lookup-only** — no identity records are created, and NULL-attribution synced rows still fold solely via real alias links (per-room first-claim ≠ global alias ownership; the phantom-claim doctrine stands). Side benefit: player pages reached by a claimed nickname now expose `discordUserId`, so Follow gating works for web-native players. Backend-only, no SW bump, no migration. +3 tests.
