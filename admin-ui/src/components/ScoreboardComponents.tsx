@@ -8,6 +8,7 @@ import { fetchScoreCounts } from './scoreboard/scoreCountsBatcher';
 import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
+import { formatScore } from '../lib/format';
 
 // --- Shared interfaces ---
 
@@ -201,6 +202,8 @@ export function PlayerAvatar({ username, discordUserId, avatarHash, size = 24 }:
       <img
         src={`https://cdn.discordapp.com/avatars/${discordUserId}/${avatarHash}.png?size=64`}
         alt={username}
+        loading="lazy"
+        decoding="async"
         width={size}
         height={size}
         className="rounded-full flex-shrink-0 object-cover"
@@ -435,7 +438,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
         >
           <div className="w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-raised">
-            <img src={iconImage} alt="" className="w-full h-full object-contain" />
+            <img src={iconImage} alt="" loading="lazy" decoding="async" className="w-full h-full object-contain" />
           </div>
           <div className="min-w-0 flex-1">
             {(
@@ -464,6 +467,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                 <img
                   src={iconImage}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="h-full max-w-full object-contain drop-shadow-lg"
                 />
               </div>
@@ -499,6 +504,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
               <img
                 src={iconImage}
                 alt=""
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-contain"
               />
             </div>
@@ -551,7 +558,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             >
               <div className="absolute inset-0" style={bgSizeStyle(bgImage)} />
               {styleHeaderUrl && (
-                <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+                <img src={styleHeaderUrl} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-contain z-[1]" />
               )}
             </div>
           )}
@@ -598,9 +605,9 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                   entry.rank === 3 ? 'text-neon-green' :
                   isFill ? 'text-white/50' : 'text-faint';
                 const scoreColor = entry.rank === 1 ? 'text-neon-amber' : isViewerRow ? 'text-neon-cyan' : isFill ? 'text-white' : 'text-primary';
-                const formattedScore = entry.score >= 1_000_000_000_000
-                  ? `${(entry.score / 1_000_000_000_000).toFixed(1)}T`
-                  : entry.score.toLocaleString();
+                const formattedScore = formatScore(entry.score);
+                // Tooltip only needed when the score was abbreviated (ends in "T").
+                const scoreFullValueTitle = formattedScore.endsWith('T') ? entry.score.toLocaleString() : undefined;
 
                 return (
                   <div key={`${entry.rank}-${entry.iscored_username}`}>
@@ -624,7 +631,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         <span
                           className={`font-display font-bold mt-0.5 ${scoreColor}`}
                           style={{ fontSize: '0.875rem', ...scoreTextCSS, ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
-                          title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                          title={scoreFullValueTitle}
                         >
                           {formattedScore}
                         </span>
@@ -649,7 +656,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           <span
                             className={`font-display font-bold flex-shrink-0 ${scoreColor}`}
                             style={{ fontSize: '0.8125rem', ...scoreTextCSS, ...(globalStyles?.enabled && globalStyles.cssScores ? { color: globalStyles.cssScores } : {}) }}
-                            title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                            title={scoreFullValueTitle}
                           >
                             {formattedScore}
                           </span>

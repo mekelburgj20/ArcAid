@@ -110,6 +110,63 @@ export function getPlatformDisplay(raw: string | null | undefined): string {
 }
 
 /**
+ * S17 — short chip labels ("VPX", "FX Classic") for dense UI, complementing
+ * the long `DISPLAY_NAMES` ("Visual Pinball X"). Previously GlobalScoreboard
+ * kept its own third copy of the taxonomy; these exports retire it.
+ */
+const SHORT_LABELS: Record<string, string> = {
+    real: 'Real', atgames: 'AtGames',
+    vpx: 'VPX', vp9: 'VP9', vpxs: 'VPXS', vpxs_manual: 'VPXS Manual',
+    fp: 'Future Pinball', bam: 'BAM',
+    pinball_fx: 'FX', pinball_fx_classic: 'FX Classic',
+    pinball_fx_classic_vr: 'FX Classic VR', pinball_fx_midnight: 'FX Midnight',
+    pinball_fx_vr: 'FX VR', star_wars_pinball_vr: 'SW Pinball VR',
+    zaccaria: 'Zaccaria', zaccaria_vr: 'Zaccaria VR',
+    arcade: 'Arcade', nes: 'NES', snes: 'SNES', genesis: 'Genesis', saturn: 'Saturn',
+    n64: 'N64', ps1: 'PS1', ps2: 'PS2', dreamcast: 'Dreamcast',
+    gba: 'GBA', gb: 'Game Boy', gbc: 'GBC', sms: 'SMS', sega_cd: 'Sega CD',
+    game_gear: 'Game Gear', tg16: 'TG-16', atari_2600: 'Atari 2600', atari_7800: 'Atari 7800',
+    jaguar: 'Jaguar', '3do': '3DO', switch: 'Switch', wii: 'Wii', pc: 'PC',
+};
+
+/** Short chip label for any raw platform token (alias-folded; unknown → uppercased). */
+export function getPlatformShortLabel(raw: string | null | undefined): string {
+    if (!raw) return '';
+    const id = normalizePlatform(raw);
+    return SHORT_LABELS[id] || getPlatformDisplay(raw);
+}
+
+/**
+ * S17 — canonical platform grouping for filters, mirroring the backend's
+ * category taxonomy (physical / virtual_pinball / arcade_video — see
+ * `src/utils/platformMapping.ts`). Keys keep GlobalScoreboard's historical
+ * names so its filter URLs/state stay stable. Membership is the CURRENT
+ * canonical id set — the retired local copy predated the FX-family split and
+ * silently failed to match `pinball_fx_classic`-era ids. Match against
+ * `normalizePlatform`-folded ids.
+ */
+export const PLATFORM_GROUPS: Record<string, { label: string; platforms: string[] }> = {
+    physical: { label: 'Physical', platforms: ['real', 'atgames'] },
+    vpin: {
+        label: 'Virtual Pinball',
+        platforms: [
+            'vpx', 'vp9', 'vpxs', 'vpxs_manual', 'fp', 'bam',
+            'pinball_fx', 'pinball_fx_classic', 'pinball_fx_classic_vr',
+            'pinball_fx_midnight', 'pinball_fx_vr', 'star_wars_pinball_vr',
+            'zaccaria', 'zaccaria_vr',
+        ],
+    },
+    video: {
+        label: 'Arcade & Video',
+        platforms: [
+            'arcade', 'nes', 'snes', 'genesis', 'saturn', 'n64', 'ps1', 'ps2',
+            'dreamcast', 'gba', 'gb', 'gbc', 'sms', 'sega_cd', 'game_gear',
+            'tg16', 'atari_2600', 'atari_7800', 'jaguar', '3do', 'switch', 'wii', 'pc',
+        ],
+    },
+};
+
+/**
  * Normalize an array of raw platform strings: alias-fold, drop blanks,
  * dedupe on canonical id (preserving first-seen order). Returns the
  * canonical id list — pair with `getPlatformDisplay` for rendering.

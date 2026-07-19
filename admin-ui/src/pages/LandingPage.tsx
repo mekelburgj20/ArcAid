@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Users, Gamepad2, Trophy, ChevronRight } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
+import { formatCompactNumber } from '../lib/format';
 
 interface Room {
   id: string;
@@ -45,13 +46,6 @@ function imageForScore(s: RecentScore): string | null {
   if (s.wheel_image_path) return toCatalogueUrl(s.wheel_image_path);
   if (s.image_url) return s.image_url;
   return null;
-}
-
-function formatScore(n: number): string {
-  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  return n.toLocaleString();
 }
 
 function timeAgo(iso: string): string {
@@ -343,7 +337,7 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
           color: '#fbbf24',
           fontFamily: "'DM Mono', monospace",
         }}>
-          {formatScore(score.score)}
+          {formatCompactNumber(score.score)}
         </div>
       </div>
 

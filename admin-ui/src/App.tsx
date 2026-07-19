@@ -1,40 +1,48 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ViewerAuthProvider } from './contexts/ViewerAuthContext';
+import LoadingState from './components/LoadingState';
 
 // Layouts
-import SuperAdminLayout from './components/SuperAdminLayout';
-import RoomAdminLayout from './components/RoomAdminLayout';
 import PublicLayout from './components/PublicLayout';
 
-// Pages — Super Admin
+// S17 — the ENTIRE admin surface (both layouts + every subtree page) is
+// code-split via React.lazy: a QR-scanning player must never download admin
+// code. Vite emits one chunk per lazy import, fetched on first admin
+// navigation; the single <Suspense> around <Routes> shows the standard
+// spinner during that fetch. Public/player pages stay static — they are the
+// latency-critical path.
+const SuperAdminLayout = lazy(() => import('./components/SuperAdminLayout'));
+const RoomAdminLayout = lazy(() => import('./components/RoomAdminLayout'));
+
+// Pages — Super Admin (lazy)
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
-import SuperAdminDashboard from './pages/SuperAdminDashboard';
-import GameRoomManager from './pages/GameRoomManager';
-import GlobalSettings from './pages/GlobalSettings';
-import Backups from './pages/Backups';
-import Logs from './pages/Logs';
-import StyleCatalogue from './pages/StyleCatalogue';
-import GlobalCatalogue from './pages/GlobalCatalogue';
-import CatalogueApproval from './pages/CatalogueApproval';
+const SuperAdminDashboard = lazy(() => import('./pages/SuperAdminDashboard'));
+const GameRoomManager = lazy(() => import('./pages/GameRoomManager'));
+const GlobalSettings = lazy(() => import('./pages/GlobalSettings'));
+const Backups = lazy(() => import('./pages/Backups'));
+const Logs = lazy(() => import('./pages/Logs'));
+const StyleCatalogue = lazy(() => import('./pages/StyleCatalogue'));
+const GlobalCatalogue = lazy(() => import('./pages/GlobalCatalogue'));
+const CatalogueApproval = lazy(() => import('./pages/CatalogueApproval'));
 
-// Pages — Room Admin (reused existing)
-import Dashboard from './pages/Dashboard';
-import Tournaments from './pages/Tournaments';
-import GameLibrary from './pages/GameLibrary';
-import Leaderboard from './pages/Leaderboard';
-import Rankings from './pages/Rankings';
-import Stats from './pages/Stats';
-import History from './pages/History';
-import Settings from './pages/Settings';
-import Help from './pages/Help';
-import ActivityLog from './pages/ActivityLog';
-import GameStates from './pages/GameStates';
-import Identity from './pages/Identity';
-import LobbyAdmin from './pages/LobbyAdmin';
+// Pages — Room Admin (lazy)
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Tournaments = lazy(() => import('./pages/Tournaments'));
+const GameLibrary = lazy(() => import('./pages/GameLibrary'));
+const Leaderboard = lazy(() => import('./pages/Leaderboard'));
+const Rankings = lazy(() => import('./pages/Rankings'));
+const Stats = lazy(() => import('./pages/Stats'));
+const History = lazy(() => import('./pages/History'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Help = lazy(() => import('./pages/Help'));
+const ActivityLog = lazy(() => import('./pages/ActivityLog'));
+const GameStates = lazy(() => import('./pages/GameStates'));
+const Identity = lazy(() => import('./pages/Identity'));
+const LobbyAdmin = lazy(() => import('./pages/LobbyAdmin'));
 
 // Pages — Public
 import Scoreboard from './pages/Scoreboard';
@@ -103,6 +111,9 @@ function App() {
 
   return (
     <ToastProvider>
+      {/* S17: one Suspense boundary for every lazy admin chunk — the fallback
+          renders while a first-visit admin chunk downloads. */}
+      <Suspense fallback={<LoadingState />}>
       <Routes>
         {/* Landing page */}
         <Route path="/" element={<LandingPage />} />
@@ -195,6 +206,7 @@ function App() {
           <Route path="compare" element={<ComparePlayers />} />
         </Route>
       </Routes>
+      </Suspense>
     </ToastProvider>
   );
 }

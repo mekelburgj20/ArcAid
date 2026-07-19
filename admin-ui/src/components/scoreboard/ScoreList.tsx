@@ -3,6 +3,7 @@ import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
 import type { ScoreHistoryEntry } from './useScoreExpand';
+import { formatScore } from '../../lib/format';
 
 interface ScoreListProps {
   entries: RankedEntry[];
@@ -21,11 +22,6 @@ interface ScoreListProps {
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
-}
-
-function formatScore(score: number): string {
-  if (score >= 1_000_000_000_000) return `${(score / 1_000_000_000_000).toFixed(1)}T`;
-  return score.toLocaleString();
 }
 
 export default function ScoreList({
@@ -133,7 +129,7 @@ export default function ScoreList({
                   fontWeight: 700,
                   whiteSpace: 'nowrap',
                 }}
-                title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
               >
                 {formatScore(entry.score)}
               </span>

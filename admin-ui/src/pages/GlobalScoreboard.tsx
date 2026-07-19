@@ -10,6 +10,8 @@ import StarRating from '../components/StarRating';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import DiscordLoginButton from '../components/DiscordLoginButton';
+import { formatScore } from '../lib/format';
+import { PLATFORM_GROUPS, getPlatformShortLabel } from '../lib/platforms';
 
 interface TopScoreEntry {
   iscored_username: string;
@@ -54,35 +56,18 @@ type SortMode = 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'n
 
 const PAGE_SIZE = 30;
 
-const PLATFORM_GROUPS: Record<string, { label: string; platforms: string[] }> = {
-  physical: { label: 'Physical', platforms: ['real'] },
-  vpin: { label: 'Virtual Pinball', platforms: ['vpx', 'vp9', 'vpxs', 'fp', 'bam', 'pinball_fx', 'pinball_fx3', 'atgames', 'vr'] },
-  video: { label: 'Arcade & Video', platforms: ['arcade', 'nes', 'snes', 'genesis', 'saturn', 'n64', 'ps1', 'ps2', 'dreamcast', 'gba', 'gb', 'gbc', 'sms', 'sega_cd', 'game_gear', 'tg16', 'atari_2600', 'atari_7800', 'jaguar', '3do', 'switch', 'wii', 'pc'] },
-};
-
-/* Short display labels for platform IDs */
-const PLATFORM_LABELS: Record<string, string> = {
-  real: 'Real', atgames: 'AtGames', atgames_hd: 'AtGames HD', atgames_4k: 'AtGames 4K',
-  vpx: 'VPX', vp9: 'VP9', vpxs: 'VPXS', fp: 'Future Pinball', bam: 'BAM',
-  pinball_fx: 'Pinball FX', pinball_fx3: 'Pinball FX3', vr: 'VR',
-  arcade: 'Arcade', nes: 'NES', snes: 'SNES', genesis: 'Genesis', saturn: 'Saturn',
-  n64: 'N64', ps1: 'PS1', ps2: 'PS2', dreamcast: 'Dreamcast',
-  gba: 'GBA', gb: 'Game Boy', gbc: 'GBC', sms: 'SMS', sega_cd: 'Sega CD',
-  game_gear: 'Game Gear', tg16: 'TG-16', atari_2600: 'Atari 2600', atari_7800: 'Atari 7800',
-  jaguar: 'Jaguar', '3do': '3DO', switch: 'Switch', wii: 'Wii', pc: 'PC',
-};
+// S17: platform groups + short labels now come from lib/platforms.ts — this
+// page's local copies were the app's THIRD divergent taxonomy, stale since
+// the FX-family split (its filter sent retired tokens like 'pinball_fx3'/'vr'
+// that match no post-migration-094 catalogue row, so FX games silently
+// dropped out of the Virtual Pinball chip). Note one deliberate correction:
+// 'atgames' now lives in the Physical group, matching the backend taxonomy.
 
 function parsePlatforms(raw: string): string[] {
   try {
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : [];
   } catch { return []; }
-}
-
-function formatScore(n: number | null): string {
-  if (n === null || n === undefined) return '—';
-  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
-  return n.toLocaleString();
 }
 
 function toCatalogueUrl(path: string): string {
@@ -479,7 +464,7 @@ function PodiumSlot({ entry, rank, large }: { entry?: TopScoreEntry; rank: numbe
           </div>
           <span
             className={`font-mono font-bold ${s.score} ${large ? 'text-xs' : 'text-[11px]'}`}
-            title={entry.score >= 1e12 ? entry.score.toLocaleString() : undefined}
+            title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
           >
             {formatScore(entry.score)}
           </span>
@@ -522,7 +507,7 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
       <Link to={`/games/${game.global_game_id}`} className="block no-underline">
         <div className="relative h-28 bg-deep mx-3 rounded-lg overflow-hidden">
           {img ? (
-            <img src={img} alt={displayName} className="absolute inset-0 w-full h-full object-cover opacity-70" />
+            <img src={img} alt={displayName} loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover opacity-70" />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-muted text-xs">No image</div>
           )}
@@ -596,7 +581,7 @@ function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
         <div className="flex flex-wrap justify-center gap-1 min-w-0">
           {parsePlatforms(game.platforms).map(p => (
             <span key={p} className="px-1.5 py-0.5 text-[9px] rounded bg-border/30 text-muted/80">
-              {PLATFORM_LABELS[p] || p}
+              {getPlatformShortLabel(p)}
             </span>
           ))}
         </div>

@@ -7,6 +7,7 @@ import PlayerNameLink from '../PlayerNameLink';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
+import { formatScore } from '../../lib/format';
 
 interface BannerCardProps {
   lb: GameLeaderboard;
@@ -28,11 +29,6 @@ interface BannerCardProps {
   /** v2.2.8 — title-click nav target (replaces the GameCard Link overlay). */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
-}
-
-function formatScore(score: number): string {
-  if (score >= 1_000_000_000_000) return `${(score / 1_000_000_000_000).toFixed(1)}T`;
-  return score.toLocaleString();
 }
 
 function resolveImages(lb: GameLeaderboard) {
@@ -202,7 +198,7 @@ export default function BannerCard({
             }}
           />
           {styleHeaderUrl && (
-            <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+            <img src={styleHeaderUrl} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-contain z-[1]" />
           )}
         </div>
       )}
@@ -255,7 +251,7 @@ export default function BannerCard({
                         />
                         <span
                           className={`text-xs font-bold tabular-nums block ${scoreColor}`}
-                          title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                          title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
                         >
                           {formatScore(entry.score)}
                         </span>

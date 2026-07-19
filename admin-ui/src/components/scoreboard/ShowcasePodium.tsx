@@ -6,6 +6,7 @@ import PlayerNameLink from '../PlayerNameLink';
 import type { ShowcaseThemeConfig } from '../../lib/scoreboardThemes';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 import { TrophyIcon } from '../../assets/icons/ThemedIcons';
+import { formatScore } from '../../lib/format';
 
 interface ShowcasePodiumProps {
   entries: RankedEntry[];  // top 3 (or fewer)
@@ -17,11 +18,6 @@ interface ShowcasePodiumProps {
   playerHistory?: ScoreHistoryEntry[];
   historyLoading?: boolean;
   onTogglePlayer?: (username: string) => void;
-}
-
-function formatScore(score: number): string {
-  if (score >= 1_000_000_000_000) return `${(score / 1_000_000_000_000).toFixed(1)}T`;
-  return score.toLocaleString();
 }
 
 /** Expanded history panel for a podium entry */
@@ -156,7 +152,7 @@ function PodiumSlot({
                   color: pod.scoreColor,
                   fontSize: scoreSize,
                 }}
-                title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
               >
                 {formatScore(entry.score)}
               </span>

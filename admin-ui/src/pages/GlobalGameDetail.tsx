@@ -11,6 +11,7 @@ import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import DiscordLoginButton from '../components/DiscordLoginButton';
 import { getPlatformDisplay } from '../lib/platforms';
+import { formatScore } from '../lib/format';
 
 interface GlobalGame {
   id: string;
@@ -77,12 +78,6 @@ interface GlobalComment {
   body: string;
   created_at: string;
   avatar_hash?: string | null;
-}
-
-function formatScore(n: number | null | undefined): string {
-  if (n === null || n === undefined) return '—';
-  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
-  return n.toLocaleString();
 }
 
 function formatDate(iso: string): string {
@@ -785,6 +780,8 @@ export default function GlobalGameDetail() {
                         <img
                           src={`https://img.youtube.com/vi/${t.youtubeId}/hqdefault.jpg`}
                           alt={t.title || 'Tutorial'}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                         />
                         <div className="absolute inset-0 flex items-center justify-center">
