@@ -4,6 +4,7 @@ import { ToastProvider } from './components/Toast';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ViewerAuthProvider } from './contexts/ViewerAuthContext';
 import LoadingState from './components/LoadingState';
+import ChunkErrorBoundary from './components/ChunkErrorBoundary';
 
 // Layouts
 import PublicLayout from './components/PublicLayout';
@@ -112,7 +113,10 @@ function App() {
   return (
     <ToastProvider>
       {/* S17: one Suspense boundary for every lazy admin chunk — the fallback
-          renders while a first-visit admin chunk downloads. */}
+          renders while a first-visit admin chunk downloads. The error
+          boundary catches stale-chunk failures after a deploy (auto-reload
+          once, then a manual retry screen). */}
+      <ChunkErrorBoundary>
       <Suspense fallback={<LoadingState />}>
       <Routes>
         {/* Landing page */}
@@ -207,6 +211,7 @@ function App() {
         </Route>
       </Routes>
       </Suspense>
+      </ChunkErrorBoundary>
     </ToastProvider>
   );
 }

@@ -197,8 +197,9 @@ export default function BannerCard({
               backgroundPosition: 'top center',
             }}
           />
+          {/* Eager: card-header art on the always-visible scoreboard wall. */}
           {styleHeaderUrl && (
-            <img src={styleHeaderUrl} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+            <img src={styleHeaderUrl} alt="" decoding="async" className="absolute inset-0 w-full h-full object-contain z-[1]" />
           )}
         </div>
       )}

@@ -438,7 +438,9 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
         >
           <div className="w-12 h-12 flex-shrink-0 rounded overflow-hidden bg-raised">
-            <img src={iconImage} alt="" loading="lazy" decoding="async" className="w-full h-full object-contain" />
+            {/* Card-header art stays EAGER: the first card row is the page's
+                LCP candidate and the kiosk wall is always fully visible. */}
+            <img src={iconImage} alt="" decoding="async" className="w-full h-full object-contain" />
           </div>
           <div className="min-w-0 flex-1">
             {(
@@ -467,7 +469,6 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                 <img
                   src={iconImage}
                   alt=""
-                  loading="lazy"
                   decoding="async"
                   className="h-full max-w-full object-contain drop-shadow-lg"
                 />
@@ -504,7 +505,6 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
               <img
                 src={iconImage}
                 alt=""
-                loading="lazy"
                 decoding="async"
                 className="w-full h-full object-contain"
               />
@@ -558,7 +558,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             >
               <div className="absolute inset-0" style={bgSizeStyle(bgImage)} />
               {styleHeaderUrl && (
-                <img src={styleHeaderUrl} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+                <img src={styleHeaderUrl} alt="" decoding="async" className="absolute inset-0 w-full h-full object-contain z-[1]" />
               )}
             </div>
           )}
