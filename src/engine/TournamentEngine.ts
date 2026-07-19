@@ -618,7 +618,13 @@ export class TournamentEngine {
         const startedAtIso = new Date(startedAtMs).toISOString();
         try {
             const result = await maintenancePromise;
-            void MaintenanceRunService.record({
+            // AWAITED (was fire-and-forget `void`): callers — the S10 Force
+            // Maintenance endpoint and the s10 tests — read the trail row
+            // right after runMaintenance resolves; on a slow runner the read
+            // could beat the un-awaited INSERT (flaked CI 2026-07-19).
+            // record() never throws (internal try/catch), so awaiting cannot
+            // break the run.
+            await MaintenanceRunService.record({
                 gameRoomId,
                 tournamentId,
                 outcome: result.outcome,
@@ -628,7 +634,7 @@ export class TournamentEngine {
                 durationMs: Date.now() - startedAtMs,
             });
         } catch (err) {
-            void MaintenanceRunService.record({
+            await MaintenanceRunService.record({
                 gameRoomId,
                 tournamentId,
                 outcome: 'error',

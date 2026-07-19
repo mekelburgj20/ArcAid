@@ -642,7 +642,7 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
             }}
           />
           {styleHeaderUrl && (
-            <img src={styleHeaderUrl} alt="" className="absolute inset-0 w-full h-full object-contain z-[1]" />
+            <img src={styleHeaderUrl} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-contain z-[1]" />
           )}
         </div>
       )}

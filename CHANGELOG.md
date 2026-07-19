@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.26.0] — unreleased
+
+**S17 — Frontend performance (Phase D).** No behavior changes for players except faster loads and one filter-correctness fix.
+
+- **Route-level code splitting** — the entire admin surface (both admin layouts + all 21 admin pages) is now `React.lazy`-loaded behind a single Suspense boundary. A player scanning a QR code no longer downloads a byte of admin code; admins pay one spinner on their first admin navigation per deploy. (Bundle numbers in the PR.)
+- **`formatScore` centralized** — 11 page/component-local copies (plan said 8; it had grown) collapse into `lib/format.ts` (`formatScore` + `formatCompactNumber` for the LandingPage aggregate tiers). One deliberate keep: PublicStats' 4-tier K-compressor renders genuinely different output. Countdown helpers were already centralized next to `playerName()`; the two remaining variants have different signatures on purpose and were left.
+- **GlobalScoreboard's third divergent platform taxonomy retired** — its local groups predated the FX-family split and sent retired tokens (`pinball_fx3`, `vr`) that match no post-migration-094 row, so **FX-era games silently dropped out of the "Virtual Pinball" filter chip; that's now fixed**. Groups + short chip labels now come from `lib/platforms.ts` (new `PLATFORM_GROUPS` + `getPlatformShortLabel` exports, mirroring the backend category taxonomy). One deliberate correction: AtGames moved from the Virtual Pinball group to Physical, matching the backend.
+- **Lazy images** — `loading="lazy" decoding="async"` on below-the-header in-card images (score-row avatars, the global catalogue grid art, admin leaderboard style headers, YouTube tutorial thumbs); `decoding="async"` everywhere. Card-header art, page logos, and detail-page heroes deliberately stay **eager** — the first card row is the page's LCP candidate and the kiosk wall is always fully visible (adversarial-review catch).
+- **Dead code deleted** — `PinballPicker.tsx` (1,093 lines) + the abandoned `cards/GameCard.tsx` wrapper (~450 lines), both zero-import.
+- **Stale ROADMAP corrected** — the "batched score-counts endpoint" follow-up actually shipped in v2.19.0; re-verified and marked done. Folding counts into the leaderboard payload deliberately declined (one saved request isn't worth coupling the responses).
+
+- **Flake-family straggler fixed (backend, 2 files)** — the v2.24.1 drain-hook sweep missed `void`-style fire-and-forgets: `MaintenanceRunService.record` raced the S10 tests' (and Force Maintenance's) read of the trail row — now awaited inside `runMaintenance` (record never throws, so the run can't break); ScoreSyncPoller's two `void OpsAlertService.sendOperatorAlert` calls now register with the background-task tracker. Surfaced by a CI flake on this PR's first run.
+
+SW → `arcaid-v100`. No migration (next free still 113).
+
+---
+
 ## [2.25.0] — unreleased
 
 **Report-a-problem: user-filed catalogue corrections + per-field source stamping.** The long-parked ROADMAP feature, unblocked by ADR 0014's source-precedence policy.

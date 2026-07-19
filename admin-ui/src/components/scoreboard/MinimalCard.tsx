@@ -7,6 +7,7 @@ import PlayerNameLink from '../PlayerNameLink';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
+import { formatScore } from '../../lib/format';
 
 interface MinimalCardProps {
   lb: GameLeaderboard;
@@ -28,11 +29,6 @@ interface MinimalCardProps {
   /** v2.2.8 — title-click nav target. */
   titleLinkTo?: string;
   titleLinkOnClick?: (e: React.MouseEvent) => void;
-}
-
-function formatScore(score: number): string {
-  if (score >= 1_000_000_000_000) return `${(score / 1_000_000_000_000).toFixed(1)}T`;
-  return score.toLocaleString();
 }
 
 export default function MinimalCard({
@@ -204,7 +200,7 @@ export default function MinimalCard({
                     />
                     <span
                       className={`text-sm font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
-                      title={entry.score >= 1_000_000_000_000 ? entry.score.toLocaleString() : undefined}
+                      title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
                     >
                       {formatScore(entry.score)}
                     </span>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Trophy } from 'lucide-react';
+import { formatScore } from '../lib/format';
 
 interface HistoryEntry {
   game_name: string;
@@ -17,11 +18,6 @@ interface HistoryResponse {
   total: number;
   page: number;
   limit: number;
-}
-
-function abbreviateScore(n: number): string {
-  if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1)}T`;
-  return n.toLocaleString();
 }
 
 // Colors mirror TournamentBadge (admin History) — kept local since this page
@@ -134,13 +130,13 @@ export default function PublicHistory() {
                   {item.winner_name || 'No submissions'}
                 </span>
                 <span className="hidden sm:block text-center text-sm font-display text-neon-amber" title={item.winner_score != null ? item.winner_score.toLocaleString() : undefined}>
-                  {item.winner_score != null ? abbreviateScore(item.winner_score) : '—'}
+                  {item.winner_score != null ? formatScore(item.winner_score) : '—'}
                 </span>
                 <span className="hidden sm:block text-center text-xs text-faint">
                   {item.end_date ? new Date(item.end_date).toLocaleDateString() : '—'}
                 </span>
                 <span className="sm:hidden text-xs text-faint text-right">
-                  {item.winner_name || 'No submissions'} · {item.winner_score != null ? abbreviateScore(item.winner_score) : '—'}
+                  {item.winner_name || 'No submissions'} · {item.winner_score != null ? formatScore(item.winner_score) : '—'}
                 </span>
               </div>
             ))}

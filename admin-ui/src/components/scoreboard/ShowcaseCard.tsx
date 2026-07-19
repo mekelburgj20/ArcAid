@@ -118,6 +118,7 @@ export default function ShowcaseCard({
           <img
             src={styleHeaderUrl!}
             alt=""
+            decoding="async"
             style={{ display: 'block', objectFit: 'contain', maxWidth: 180, maxHeight: 130 }}
           />
         </div>

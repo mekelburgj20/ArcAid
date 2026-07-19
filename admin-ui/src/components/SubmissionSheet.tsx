@@ -7,6 +7,7 @@ import ShareButton from './ShareButton';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { getPlatformDisplay } from '../lib/platforms';
 import type { SubmitRank } from '../lib/api';
+import { formatScore } from '../lib/format';
 
 /**
  * Unified submission sheet (Sprint 3 + Sprint 10, plan §10 / §13 / §15).
@@ -100,15 +101,6 @@ function photoRequired(target: SubmissionTarget): boolean {
 function generateStateParam(): string {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
     return `st_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
-}
-
-/**
- * Local score formatter — there is no shared export; this mirrors the
- * scoreboard/ScoreList.tsx variant (≥1T → "X.XT", else locale-grouped).
- */
-function formatScore(n: number): string {
-    if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1)}T`;
-    return n.toLocaleString();
 }
 
 export const PENDING_SUBMISSION_STORAGE_KEY = 'arcaid_pending_submission';

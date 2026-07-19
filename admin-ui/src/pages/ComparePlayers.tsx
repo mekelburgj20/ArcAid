@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeftRight, Search, X, Trophy } from 'lucide-react';
+import { formatScore } from '../lib/format';
 
 /**
  * WP2 — S14 social loops: head-to-head player comparison.
@@ -39,15 +40,6 @@ interface CompareResult {
   aOnlyGames: number;
   bOnlyGames: number;
   totals: { aWins: number; bWins: number; ties: number };
-}
-
-function abbreviateScore(n: number): string {
-  if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1)}T`;
-  return n.toLocaleString();
-}
-
-function formatScore(n: number): string {
-  return n >= 1_000_000_000_000 ? abbreviateScore(n) : n.toLocaleString();
 }
 
 function playerLabel(p: PlayerOption): string {
