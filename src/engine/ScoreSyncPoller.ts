@@ -140,9 +140,9 @@ export class ScoreSyncPoller {
         if (priorErrors > 0) {
             logInfo(`ScoreSyncPoller: account ${accountName} recovered after ${priorErrors} failure(s)`);
             if (prior?.alerted) {
-                void OpsAlertService.sendOperatorAlert(
+                trackBackground(OpsAlertService.sendOperatorAlert(
                     `iScored sync for account "${accountName}" has RECOVERED after ${priorErrors} consecutive failure(s).`,
-                );
+                ));
             }
         }
         this.accountHealth.set(accountName, {
@@ -172,9 +172,9 @@ export class ScoreSyncPoller {
             alerted: prior?.alerted || crossedThreshold,
         });
         if (crossedThreshold) {
-            void OpsAlertService.sendOperatorAlert(
+            trackBackground(OpsAlertService.sendOperatorAlert(
                 `iScored sync for account "${accountName}" has failed ${errs} times in a row. Last error: ${message}`,
-            );
+            ));
         }
         return errs;
     }

@@ -17,7 +17,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 - **Dead code deleted** — `PinballPicker.tsx` (1,093 lines) + the abandoned `cards/GameCard.tsx` wrapper (~450 lines), both zero-import.
 - **Stale ROADMAP corrected** — the "batched score-counts endpoint" follow-up actually shipped in v2.19.0; re-verified and marked done. Folding counts into the leaderboard payload deliberately declined (one saved request isn't worth coupling the responses).
 
-SW → `arcaid-v100`. No migration (next free still 113). No backend changes.
+- **Flake-family straggler fixed (backend, 2 files)** — the v2.24.1 drain-hook sweep missed `void`-style fire-and-forgets: `MaintenanceRunService.record` raced the S10 tests' (and Force Maintenance's) read of the trail row — now awaited inside `runMaintenance` (record never throws, so the run can't break); ScoreSyncPoller's two `void OpsAlertService.sendOperatorAlert` calls now register with the background-task tracker. Surfaced by a CI flake on this PR's first run.
+
+SW → `arcaid-v100`. No migration (next free still 113).
 
 ---
 
