@@ -8,6 +8,7 @@ import { api } from '../lib/api';
 import PlayerNameLink from '../components/PlayerNameLink';
 import { getPlatformDisplay } from '../lib/platforms';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { useRoom } from '../contexts/RoomContext';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
 
@@ -176,8 +177,7 @@ export default function GameDetail() {
   const highlightName = (searchParams.get('highlight') || '').toLowerCase();
   const { playerToken } = useViewerAuth();
   const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
-  const [roomId, setRoomId] = useState<string | null>(null);
-  const [roomName, setRoomName] = useState<string | null>(null);
+  const { roomId, roomName } = useRoom();
   const [reportOpen, setReportOpen] = useState(false);
   const [stats, setStats] = useState<GameStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
@@ -250,18 +250,6 @@ export default function GameDetail() {
     localStorage.setItem('arcaid-user-id', id);
     return id;
   });
-
-  // Resolve room from slug
-  useEffect(() => {
-    if (!slug) return;
-    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(portal => {
-        if (portal?.id) setRoomId(portal.id);
-        if (portal?.name) setRoomName(portal.name);
-      })
-      .catch(() => {});
-  }, [slug]);
 
   // Load game data once room is resolved
   useEffect(() => {

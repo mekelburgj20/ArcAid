@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
+import { getPortal } from '../lib/portal';
 
 type State = { loading: boolean; enabled: boolean };
 
 const cache = new Map<string, boolean>();
 
 /**
- * Reads the ENABLE_GAME_PICK_AWARD flag for a room via /api/portal?slug=...
- * Shared lightweight cache so nav/pages don't re-fetch on every render.
+ * Reads the ENABLE_GAME_PICK_AWARD flag for a room via the shared portal
+ * cache (S18 — was its own private fetch of /api/portal?slug=...).
  *
  * Returns `{ loading, enabled }`. Treat `loading` as "unknown" — callers that
  * conditionally render a nav item should render nothing until loading resolves
@@ -23,8 +24,7 @@ export function usePickAwardEnabled(slug: string | undefined): State {
     if (cache.has(slug)) { setState({ loading: false, enabled: cache.get(slug)! }); return; }
 
     let cancelled = false;
-    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
-      .then(r => r.ok ? r.json() : null)
+    getPortal(slug)
       .then(data => {
         if (cancelled) return;
         const enabled = !!data?.pick_award_enabled;

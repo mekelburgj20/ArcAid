@@ -3,6 +3,7 @@ import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare } from 'lucide-react';
 import ShareButton from '../components/ShareButton';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { useRoom } from '../contexts/RoomContext';
 
 interface Achievements {
   tournamentWins: number;
@@ -70,21 +71,16 @@ export default function PlayerDetail() {
   const { discordUser, playerToken } = useViewerAuth();
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   const [followPending, setFollowPending] = useState(false);
+  const { roomId } = useRoom();
 
   useEffect(() => {
-    if (!id || !slug) return;
-    fetch('/api/rooms')
-      .then(r => r.json())
-      .then((rooms: Array<{ id: string; slug: string }>) => {
-        const found = rooms.find(r => r.slug.toLowerCase() === slug!.toLowerCase());
-        if (!found) { setLoading(false); return; }
-        return fetch(`/api/rooms/${found.id}/stats/enhanced/player/${encodeURIComponent(id!)}`);
-      })
-      .then(r => r?.json())
+    if (!id || !roomId) return;
+    fetch(`/api/rooms/${roomId}/stats/enhanced/player/${encodeURIComponent(id)}`)
+      .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setStats(data); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [slug, id]);
+  }, [roomId, id]);
 
   // Follow list — fetched once per viewer session (dep on the token string,
   // never a headers object; see v2.18.1 lesson).

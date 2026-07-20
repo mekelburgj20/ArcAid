@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
 import { Trophy } from 'lucide-react';
 import { formatScore } from '../lib/format';
+import { useRoom } from '../contexts/RoomContext';
 
 interface HistoryEntry {
   game_name: string;
@@ -39,24 +39,12 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 export default function PublicHistory() {
-  const { slug } = useParams<{ slug: string }>();
-  const [roomId, setRoomId] = useState<string | null>(null);
+  const { roomId } = useRoom();
   const [data, setData] = useState<HistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [typeFilter, setTypeFilter] = useState('');
   const limit = 20;
-
-  useEffect(() => {
-    if (!slug) return;
-    fetch('/api/rooms')
-      .then(r => r.json())
-      .then((rooms: Array<{ id: string; slug: string }>) => {
-        const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
-        if (found) setRoomId(found.id);
-      })
-      .catch(() => {});
-  }, [slug]);
 
   useEffect(() => {
     if (!roomId) return;

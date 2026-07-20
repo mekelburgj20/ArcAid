@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeftRight, Search, X, Trophy } from 'lucide-react';
 import { formatScore } from '../lib/format';
+import { useRoom } from '../contexts/RoomContext';
 
 /**
  * WP2 — S14 social loops: head-to-head player comparison.
@@ -56,7 +57,7 @@ export default function ComparePlayers() {
   const aParam = params.get('a') || '';
   const bParam = params.get('b') || '';
 
-  const [roomId, setRoomId] = useState<string | null>(null);
+  const { roomId } = useRoom();
   const [players, setPlayers] = useState<PlayerOption[]>([]);
   const [result, setResult] = useState<CompareResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,20 +65,14 @@ export default function ComparePlayers() {
   const [searchA, setSearchA] = useState('');
   const [searchB, setSearchB] = useState('');
 
-  // Resolve room + player list.
+  // Fetch player list for the picker.
   useEffect(() => {
-    if (!slug) return;
-    fetch('/api/rooms')
-      .then(r => r.json())
-      .then(async (rooms: Array<{ id: string; slug: string }>) => {
-        const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
-        if (!found) return;
-        setRoomId(found.id);
-        const list = await fetch(`/api/rooms/${found.id}/stats/enhanced/players`).then(r => (r.ok ? r.json() : []));
-        setPlayers(list || []);
-      })
+    if (!roomId) return;
+    fetch(`/api/rooms/${roomId}/stats/enhanced/players`)
+      .then(r => (r.ok ? r.json() : []))
+      .then(list => setPlayers(list || []))
       .catch(() => {});
-  }, [slug]);
+  }, [roomId]);
 
   // Fetch the comparison once both identifiers are set.
   useEffect(() => {

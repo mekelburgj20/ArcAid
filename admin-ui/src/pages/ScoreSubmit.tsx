@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import SubmissionSheet from '../components/SubmissionSheet';
+import { getPortal } from '../lib/portal';
 
 /**
  * Standalone score-submit page (e.g. the QR code target from scoreboard cards).
@@ -25,9 +26,8 @@ export default function ScoreSubmit() {
         let cancelled = false;
         (async () => {
             try {
-                const portal = await fetch(`/api/portal?slug=${encodeURIComponent(slug)}`);
-                if (!portal.ok) throw new Error('Room not found');
-                const { id } = await portal.json();
+                const portal = await getPortal(slug).catch(() => { throw new Error('Room not found'); });
+                const id = portal.roomId;
                 if (cancelled) return;
                 setRoomId(id);
 

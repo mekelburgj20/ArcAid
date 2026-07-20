@@ -8,6 +8,7 @@ import { MysteryAwardIcon } from '../assets/icons/ThemedIcons';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useToast } from '../components/Toast';
+import { getPortal } from '../lib/portal';
 
 interface GameAvailabilityEntry {
   name: string;
@@ -112,18 +113,15 @@ export default function Picks() {
   // Sprint 9: this page is the Picks surface; when the gate is off the page should not exist.
   const { loading: pickAwardLoading, enabled: pickAwardEnabled } = usePickAwardEnabled(slug);
 
-  // Resolve room
+  // Resolve room. S18 — reads the already-cached portal (PublicLayout resolved
+  // it for the same slug) via getPortal instead of fetching the full rooms list.
   useEffect(() => {
     if (!slug) return;
-    fetch('/api/rooms')
-      .then(r => r.json())
-      .then((rooms: Array<{ id: string; slug: string; name: string; logo_url: string | null }>) => {
-        const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
-        if (found) {
-          setRoomId(found.id);
-          setRoomName(found.name);
-          if (found.logo_url) setRoomLogoUrl(found.logo_url);
-        }
+    getPortal(slug)
+      .then(portal => {
+        setRoomId(portal.roomId);
+        setRoomName(portal.name);
+        if (portal.logo_url) setRoomLogoUrl(portal.logo_url);
       })
       .catch(() => {})
       .finally(() => setLoading(false));

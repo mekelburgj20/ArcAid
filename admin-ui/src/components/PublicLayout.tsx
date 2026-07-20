@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useParams, useLocation } from 'react-router-dom';
 import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
+import { getPortal, type Portal } from '../lib/portal';
+import { RoomContext } from '../contexts/RoomContext';
 import UserMenu from './UserMenu';
 import PendingSubmissionWatcher from './PendingSubmissionWatcher';
+import LoadingState from './LoadingState';
 import { PlayerQuickViewProvider } from '../contexts/PlayerQuickViewContext';
 
 interface PublicLayoutProps {
@@ -14,7 +17,8 @@ interface PublicLayoutProps {
 export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const { slug } = useParams<{ slug: string }>();
   const location = useLocation();
-  const [roomName, setRoomName] = useState(gameRoomName || 'ARCAID');
+  const [portal, setPortal] = useState<Portal | null>(null);
+  const [portalError, setPortalError] = useState(false);
   const { discordUser, loginWithDiscord, logoutPlayer } = useViewerAuth();
   const { loading: pickAwardLoading, enabled: pickAwardEnabled } = usePickAwardEnabled(slug);
 
@@ -25,19 +29,34 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const isScoreboard = pathParts.length === 1 && !!slug;
   const isLobbyPage = pathParts.length === 2 && pathParts[1] === 'lobby';
 
+  // Single portal fetch for the whole public subtree — getPortal() dedupes
+  // concurrent resolvers of the same slug, so this is the only network call
+  // no matter how many other consumers (nav's usePickAwardEnabled, child
+  // pages) resolve the same slug on the same mount.
   useEffect(() => {
-    if (gameRoomName) { setRoomName(gameRoomName); return; }
     if (!slug) return;
-    fetch('/api/rooms')
-      .then(r => r.json())
-      .then((rooms: Array<{ slug: string; name: string }>) => {
-        const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
-        if (found) setRoomName(found.name);
-      })
-      .catch(() => {});
-  }, [slug, gameRoomName]);
+    let cancelled = false;
+    // Reset so the loading gate re-engages on cross-room slug changes — children
+    // must never render under a stale room's context with the new slug's URL.
+    setPortal(null);
+    setPortalError(false);
+    getPortal(slug)
+      .then(p => { if (!cancelled) setPortal(p); })
+      .catch(() => { if (!cancelled) setPortalError(true); });
+    return () => { cancelled = true; };
+  }, [slug]);
 
-  // Lobby activity indicator: check for unseen events
+  const roomName = portal?.name ?? gameRoomName ?? 'ARCAID';
+  const resolvedRoomId = portal?.roomId ?? null;
+  // Stable identity across re-renders (lobby-dot/discordUser/pickAward state
+  // changes) so RoomContext consumers don't re-render on every parent update.
+  const roomCtx = useMemo(
+    () => ({ roomId: resolvedRoomId ?? '', roomSlug: slug || '', roomName }),
+    [resolvedRoomId, slug, roomName],
+  );
+
+  // Lobby activity indicator — depends on resolvedRoomId rather than fetching
+  // its own portal; guard until it's set.
   useEffect(() => {
     if (!slug) return;
     // When on lobby page, mark as seen
@@ -47,13 +66,9 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       return;
     }
     // Otherwise, check if there are newer events
-    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
+    if (!resolvedRoomId) return;
+    fetch(`/api/rooms/${resolvedRoomId}/lobby/feed?limit=1`)
       .then(r => r.ok ? r.json() : null)
-      .then(portal => {
-        if (!portal?.roomId) return;
-        return fetch(`/api/rooms/${portal.roomId}/lobby/feed?limit=1`);
-      })
-      .then(r => r?.ok ? r.json() : null)
       .then(events => {
         if (!events?.length) return;
         const lastSeen = localStorage.getItem(`lobby_last_seen_${slug}`);
@@ -62,7 +77,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
         }
       })
       .catch(() => {});
-  }, [slug, location.pathname]);
+  }, [resolvedRoomId, location.pathname]);
 
   const hasAdminToken = !!localStorage.getItem('arcaid_token');
 
@@ -133,11 +148,24 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
 
       {/* Page Content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {/* v2.13.16 — PlayerQuickViewProvider so PlayerNameLink calls from
-            any public page can open the player preview modal. */}
-        <PlayerQuickViewProvider>
-          <Outlet />
-        </PlayerQuickViewProvider>
+        {portalError ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2 text-center px-4">
+            <p className="font-pixel text-neon-magenta text-lg mb-1">Room not found</p>
+            <p className="text-muted text-sm">We couldn't find a room at this address.</p>
+          </div>
+        ) : !portal || !resolvedRoomId ? (
+          <LoadingState message="Loading room..." />
+        ) : (
+          /* v2.13.16 — PlayerQuickViewProvider so PlayerNameLink calls from
+              any public page can open the player preview modal.
+              S18 — RoomContext is provided here (outside PlayerQuickViewProvider)
+              so every page under the Outlet gets slug→room resolution for free. */
+          <RoomContext.Provider value={roomCtx}>
+            <PlayerQuickViewProvider>
+              <Outlet />
+            </PlayerQuickViewProvider>
+          </RoomContext.Provider>
+        )}
       </div>
 
       {/* Slim legal footer — flex-shrink-0 so it sits below the scroll region */}

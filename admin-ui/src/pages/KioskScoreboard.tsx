@@ -13,6 +13,7 @@ import {
 import CardRouter from '../components/scoreboard/CardRouter';
 import { deriveCardProps, deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
 import { getSocket } from '../lib/websocket';
+import { getPortal } from '../lib/portal';
 
 export default function KioskScoreboard() {
   const { slug } = useParams<{ slug: string }>();
@@ -28,12 +29,11 @@ export default function KioskScoreboard() {
   // Resolve room and fetch scoreboard config
   useEffect(() => {
     if (!slug) return;
-    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then((portal: { id: string; name: string }) => {
+    getPortal(slug)
+      .then(portal => {
         setRoomName(portal.name);
-        setRoomId(portal.id);
-        return fetch(`/api/rooms/${portal.id}/scoreboard-config`);
+        setRoomId(portal.roomId);
+        return fetch(`/api/rooms/${portal.roomId}/scoreboard-config`);
       })
       .then(r => r.ok ? r.json() : {})
       .then(cfg => { setConfig(cfg || {}); setConfigLoaded(true); })

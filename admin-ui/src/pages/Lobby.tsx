@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { MessageSquare, RefreshCw } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { useRoom } from '../contexts/RoomContext';
 import { getSocket } from '../lib/websocket';
 import SocialLinksBar from '../components/lobby/SocialLinksBar';
 import PinnedMessage from '../components/lobby/PinnedMessage';
@@ -51,7 +52,7 @@ interface ShelfItem {
 export default function Lobby() {
   const { slug } = useParams<{ slug: string }>();
   const { playerToken, discordUser } = useViewerAuth();
-  const [roomId, setRoomId] = useState<string | null>(null);
+  const { roomId } = useRoom();
 
   // Feed state
   const [events, setEvents] = useState<FeedEvent[]>([]);
@@ -64,15 +65,6 @@ export default function Lobby() {
   const [config, setConfig] = useState<LobbyConfig | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [shelfItems, setShelfItems] = useState<ShelfItem[]>([]);
-
-  // Resolve roomId from slug
-  useEffect(() => {
-    if (!slug) return;
-    fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.roomId) setRoomId(data.roomId); })
-      .catch(() => {});
-  }, [slug]);
 
   // Fetch lobby content (config, announcements, shelf)
   useEffect(() => {
