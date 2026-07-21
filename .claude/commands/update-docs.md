@@ -24,7 +24,7 @@ This command exists for two flows:
 - `CLAUDE.md` (ArcAid root) — Architecture tables, key patterns, database schema, session checklist, gotchas. Update when a new pattern lands or an existing one shifts.
 - `../CLAUDE.md` (parent repo root) — Repository overview shared across projects. Touch only if the repo-level structure or commands changed.
 - `package.json` — `version` field. **Read-only in this command** — never bump in `/update-docs`. If drift suggests a bump is needed, tell the user.
-- `admin-ui/public/sw.js` — PWA service worker. `CACHE_NAME` **must** be bumped every UI-visible release. **Read-only in this command** — bumps belong to the deploy/release flow.
+- `admin-ui/public/sw.js` — PWA service worker. Static cache name is build-derived (since v2.28.0, `arcaid-sw-build-id` Vite plugin) — no manual bump. **Read-only in this command** regardless.
 - `docs/decisions/` — Architecture Decision Records. See `docs/decisions/README.md` for the convention. The ADR scan is step 3 below.
 - `docs/VIDEO-TUTORIAL-SCRIPT.md` — Video tutorial scripts, episode list, B-roll checklist, production standards.
 - `docs/HOW-TO-GUIDE.md` — End-user how-to documentation.
@@ -64,6 +64,5 @@ After applying fixes, briefly note any process friction observed: docs that cons
 - Bump `package.json` version
 - Append to `CHANGELOG.md`
 - Roll the SPRINT_STATUS arc markers
-- Bump `admin-ui/public/sw.js` `CACHE_NAME`
 
-All four belong to `/release-docs <version>`. If `/update-docs` finds drift that one of these would fix, surface it and stop.
+These three belong to `/release-docs <version>`. If `/update-docs` finds drift that one of these would fix, surface it and stop. (The SW `CACHE_NAME` bump used to be a fourth item here — since v2.28.0 it's build-derived and no longer a manual step anywhere.)

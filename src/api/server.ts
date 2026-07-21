@@ -23,6 +23,36 @@ import usersRouter from './routes/users.js';
 export const serverEvents = new EventEmitter();
 
 /**
+ * S19 — Cache-Control policy for the built admin-ui frontend, applied via
+ * express.static's `setHeaders`.
+ *
+ * - `sw.js` / `index.html` -> no-cache (ETag revalidation stays on, express
+ *   defaults). These MUST be revalidated on every load — sw.js is how an
+ *   installed PWA discovers a new BUILD_ID, and index.html references the
+ *   current content-hashed bundle.
+ * - Anything under `/assets/` (Vite's content-hashed output) -> immutable,
+ *   1-year max-age. Safe because the filename changes whenever the content
+ *   does.
+ * - Everything else (manifest.json, icons, ...) -> no explicit header
+ *   (express.static defaults apply).
+ *
+ * Exported so the backend test suite can mount this against a fixture dist
+ * directory without booting the full server (DB/websocket/Discord).
+ */
+export function frontendStaticOptions(frontendPath: string): NonNullable<Parameters<typeof express.static>[1]> {
+    return {
+        setHeaders: (res, filePath) => {
+            const rel = path.relative(frontendPath, filePath);
+            if (rel === 'sw.js' || rel === 'index.html') {
+                res.setHeader('Cache-Control', 'no-cache');
+            } else if (rel.startsWith(`assets${path.sep}`)) {
+                res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            }
+        },
+    };
+}
+
+/**
  * Resolve default room for backward-compat aliases.
  * Returns the first game room's ID, or null if none exist.
  */
@@ -211,7 +241,7 @@ export function startApiServer(port: number = 3001) {
     const frontendPath = path.join(process.cwd(), 'admin-ui', 'dist');
     if (fs.existsSync(frontendPath)) {
         logInfo('Found built Admin UI, serving static files.');
-        app.use(express.static(frontendPath));
+        app.use(express.static(frontendPath, frontendStaticOptions(frontendPath)));
 
         app.get(/^(?!\/api).*/, (req, res, next) => {
             // S16: the catch-all sits outside the /api generalLimiter and a
@@ -223,6 +253,13 @@ export function startApiServer(port: number = 3001) {
             }
             next();
         }, async (req, res) => {
+            // S19: the SPA shell is index.html regardless of which branch below
+            // serves it — must always revalidate (see frontendStaticOptions).
+            // Set explicitly (not just relying on express.static, since this
+            // catch-all handler builds the response itself) and disable
+            // sendFile's own Cache-Control so it can't override this.
+            res.setHeader('Cache-Control', 'no-cache');
+
             // S16: link-preview crawlers on shareable routes get the shell with
             // OG tags injected; everyone else (and any failure) gets the
             // unmodified shell.
@@ -231,7 +268,7 @@ export function startApiServer(port: number = 3001) {
                 res.type('html').send(ogShell);
                 return;
             }
-            res.sendFile(path.join(frontendPath, 'index.html'));
+            res.sendFile(path.join(frontendPath, 'index.html'), { cacheControl: false });
         });
     }
 
