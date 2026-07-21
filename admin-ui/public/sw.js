@@ -1,24 +1,71 @@
-const CACHE_NAME = 'arcaid-v101';
-const STATIC_ASSETS = [];
+// BUILD_ID is replaced at build time by the `arcaid-sw-build-id` Vite plugin
+// (admin-ui/vite.config.ts), which derives it deterministically from the
+// built asset filenames + index.html contents (admin-ui/scripts/swBuildId.ts).
+// Under `vite dev` this placeholder is served raw (no build step runs), so
+// the dev-server cache name is literally `arcaid-static-__ARCAID_BUILD_ID__`
+// — harmless, since dev never goes through this build pipeline.
+const BUILD_ID = '__ARCAID_BUILD_ID__';
+const STATIC_CACHE = `arcaid-static-${BUILD_ID}`; // new name every build — no manual bump, ever
+const IMAGE_CACHE = 'arcaid-images-v1'; // stable name — survives deploys, LRU-capped below
+const IMAGE_CACHE_MAX_ENTRIES = 200;
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
+// Same-origin path prefixes served from data/ (see src/api/server.ts) — cover
+// art, style images, room assets, score photos. Checked BEFORE the static
+// asset extension regex so these never leak into STATIC_CACHE.
+const IMAGE_PATH_PREFIXES = [
+  '/api/catalogue-images/',
+  '/api/styles/images/',
+  '/api/room-assets/',
+  '/api/score-photos/',
+];
+
+function isImageRequest(url) {
+  return IMAGE_PATH_PREFIXES.some((prefix) => url.pathname.startsWith(prefix));
+}
+
+const STATIC_ASSET_RE = /\.(css|js|woff2?|ttf|eot|png|jpg|jpeg|svg|webp)$/;
+
+function isStaticAsset(url) {
+  if (url.pathname === '/sw.js') return false; // never cache the SW itself
+  return (
+    url.pathname.startsWith('/assets/') ||
+    STATIC_ASSET_RE.test(url.pathname) ||
+    url.hostname === 'fonts.googleapis.com' ||
+    url.hostname === 'fonts.gstatic.com'
   );
+}
+
+// LRU trim: caches.Cache#keys() returns entries in insertion order, so the
+// front of the list is the oldest. Called after every put into IMAGE_CACHE.
+async function trimImageCache(cache) {
+  const keys = await cache.keys();
+  const excess = keys.length - IMAGE_CACHE_MAX_ENTRIES;
+  if (excess <= 0) return;
+  for (let i = 0; i < excess; i++) {
+    await cache.delete(keys[i]);
+  }
+}
+
+self.addEventListener('install', () => {
+  // No install-time precache — an addAll() failure would block install for
+  // no benefit. Static assets populate STATIC_CACHE on first fetch instead.
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
+    caches.keys().then((keys) =>
+      Promise.all(
         keys
-          .filter((key) => key !== CACHE_NAME)
+          // Delete every legacy/stale cache (old `arcaid-v###` generations AND
+          // old `arcaid-static-*` generations from prior deploys) but ALWAYS
+          // keep the current STATIC_CACHE and the stable IMAGE_CACHE — a naive
+          // "delete everything but today's static cache" filter would wipe the
+          // image cache on every single deploy.
+          .filter((key) => key !== STATIC_CACHE && key !== IMAGE_CACHE)
           .map((key) => caches.delete(key))
-      );
-    })
+      )
+    )
   );
   self.clients.claim();
 });
@@ -26,13 +73,19 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // Navigation requests: network-first with cache fallback
+  // Non-GET (POST/PUT/DELETE/...): pass through untouched, never cache.
+  if (request.method !== 'GET') {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // Navigation requests: network-first with cache fallback.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((response) => {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
           return response;
         })
         .catch(() => caches.match(request))
@@ -40,21 +93,44 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets (CSS, JS, fonts): cache-first with network fallback
   const url = new URL(request.url);
-  const isStaticAsset =
-    url.pathname.match(/\.(css|js|woff2?|ttf|eot|png|jpg|svg|webp)$/) ||
-    url.hostname === 'fonts.googleapis.com' ||
-    url.hostname === 'fonts.gstatic.com';
 
-  if (isStaticAsset) {
+  // Image mounts: stale-while-revalidate, LRU-capped at IMAGE_CACHE_MAX_ENTRIES.
+  if (isImageRequest(url)) {
+    event.respondWith(
+      caches.open(IMAGE_CACHE).then(async (cache) => {
+        const cached = await cache.match(request);
+        if (cached) {
+          event.waitUntil(
+            fetch(request)
+              .then((response) => {
+                if (!response.ok) return;
+                return cache.put(request, response.clone()).then(() => trimImageCache(cache));
+              })
+              .catch(() => {})
+          );
+          return cached;
+        }
+        const response = await fetch(request);
+        if (response.ok) {
+          await cache.put(request, response.clone());
+          await trimImageCache(cache);
+        }
+        return response;
+      })
+    );
+    return;
+  }
+
+  // Build/static assets: cache-first with network fallback.
+  if (isStaticAsset(url)) {
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) return cached;
         return fetch(request).then((response) => {
           if (response.ok) {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
           }
           return response;
         });
@@ -63,7 +139,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // All other requests (API calls, etc.): network only
+  // Everything else (API calls, unknown): network only.
   event.respondWith(fetch(request));
 });
 

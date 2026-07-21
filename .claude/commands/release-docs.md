@@ -41,9 +41,9 @@ Single field: `"version": "<old>"` → `"version": "<new>"`. Don't touch anythin
 
 If `<!-- LATEST_ARC_START -->` is missing (file from before the markers landed), insert both markers around the current "Most recent arc" block first, then proceed.
 
-### 5. Bump `admin-ui/public/sw.js` `CACHE_NAME`
+### 5. Service worker — no action
 
-Walk the value forward by 1: `'arcaid-vN'` → `'arcaid-v{N+1}'`. The user may have already bumped it during deploys earlier in the arc — in which case there's nothing to do. Confirm by checking the latest CHANGELOG entry's "files touched" or the deploy commits.
+Since v2.28.0 the SW's static cache name (`arcaid-static-${BUILD_ID}`) is derived automatically at build time (`admin-ui/vite.config.ts`'s `arcaid-sw-build-id` plugin + `admin-ui/scripts/swBuildId.ts`) — there is no `CACHE_NAME` to bump by hand anymore. Nothing to do in this step.
 
 ### 6. ADR check
 

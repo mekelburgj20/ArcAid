@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.28.0] — unreleased
+
+**S19 — Service-worker overhaul.** Kills the manual `CACHE_NAME` bump ritual and the unbounded image cache in `admin-ui/public/sw.js`, without breaking the update path for already-installed PWAs.
+
+- **Build-derived BUILD_ID, no more manual bumping** — `admin-ui/vite.config.ts`'s new `arcaid-sw-build-id` Vite plugin (+ `admin-ui/scripts/swBuildId.ts`) computes a deterministic 12-hex-char id (sha-256 over the sorted built-asset filenames + `index.html` contents) and injects it into `sw.js`'s static cache name at `closeBundle`; throws loudly if the placeholder or `dist/sw.js`/`dist/index.html` are missing. Same build output → same BUILD_ID. `.claude/commands/release-docs.md` step 5 and `update-docs.md`'s doc inventory updated — the SW cache bump is no longer a release-checklist item.
+- **Two caches, path-scoped routing** — `STATIC_CACHE` (`arcaid-static-<BUILD_ID>`, a new name every build) covers JS/CSS/fonts/`/assets/*`; `IMAGE_CACHE` (`arcaid-images-v1`, stable across deploys) covers the four image mounts (`/api/catalogue-images`, `/api/styles/images`, `/api/room-assets`, `/api/score-photos`) via stale-while-revalidate, LRU-capped at 200 entries. Image routes are matched before the static-asset extension regex, so they can no longer leak into the static cache — previously unbounded growth (4.9GB / 187k files of catalogue images alone) is now capped.
+- **Activate sweep fixed to not eat the image cache** — deletes every cache except the two current names, clearing legacy `arcaid-v###` caches from pre-v2.28 installs and stale `arcaid-static-*` generations from prior deploys, while `IMAGE_CACHE` survives every deploy.
+- **HTTP cache headers** (`src/api/server.ts`) — new exported `frontendStaticOptions()` sets `sw.js`/`index.html` to `Cache-Control: no-cache` on both the static mount and the SPA catch-all's `sendFile`/OG-shell response branches, so an installed PWA always revalidates and discovers the new BUILD_ID; `/assets/*` (Vite's content-hashed output) gets `public, max-age=31536000, immutable`.
+- **Tests** — new `admin-ui/src/__tests__/sw.test.ts` (activate cache sweep, image/static/network-only routing, LRU eviction, `computeBuildId`/`injectBuildId`) and a new backend `src/__tests__/s19-static-cache-headers.test.ts` asserting the header contract against a fixture dist directory.
+- Push notification handlers (S15) untouched, byte-identical.
+
+No DB migration (next free still 113).
+
+---
+
 ## [2.27.0] — unreleased
 
 **S18 — RoomContext refactor (frontend-only).** Public pages resolved slug→room data redundantly: 9 raw `fetch('/api/portal?slug=…')` call sites plus 6 public pages fetching the FULL `/api/rooms` list just to resolve slug→roomId. Consolidated into one shared module-level portal cache plus one portal fetch in `PublicLayout`, provided to every child page via the existing `RoomContext`.
