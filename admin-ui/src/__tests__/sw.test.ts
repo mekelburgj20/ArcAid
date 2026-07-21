@@ -209,6 +209,23 @@ describe('sw.js', () => {
       expect(sw.store.size).toBe(0);
     });
 
+    it('never caches an /api/* route whose final segment looks like a static asset (M1 regression)', async () => {
+      // iScored usernames land unescaped-dot in URL paths (encodeURIComponent
+      // does not encode '.'), so a JSON endpoint like this can end in ".png"
+      // for a player literally named "foo.png". Without the /api/ guard in
+      // isStaticAsset(), the extension regex would cache this cache-first
+      // forever. This uses a path the (benign) leaderboard test above would
+      // NOT catch — the extension regex only matches image extensions.
+      const sw = loadServiceWorker({});
+      const req = makeRequest('https://arcaid.app/api/rooms/1/stats/enhanced/player/foo.png');
+
+      const response = await dispatchFetch(sw, req);
+
+      expect(response?.ok).toBe(true);
+      // Network-only path never opens a cache at all.
+      expect(sw.store.size).toBe(0);
+    });
+
     it('never caches non-GET requests, even on an image path', async () => {
       const sw = loadServiceWorker({});
       const req = makeRequest('https://arcaid.app/api/catalogue-images/x.jpg', { method: 'POST' });
@@ -217,6 +234,30 @@ describe('sw.js', () => {
 
       expect(response?.ok).toBe(true);
       expect(sw.store.get(IMAGE_CACHE)?.size ?? 0).toBe(0);
+    });
+  });
+
+  describe('navigation (network-first)', () => {
+    it('caches a successful navigation response in STATIC_CACHE', async () => {
+      const sw = loadServiceWorker({});
+      const req = makeRequest('https://arcaid.app/rtx_pinball/scoreboard', { mode: 'navigate' });
+
+      const response = await dispatchFetch(sw, req);
+
+      expect(response?.ok).toBe(true);
+      expect(sw.store.get(STATIC_CACHE)?.has(req.url)).toBe(true);
+    });
+
+    it('does not cache a failed navigation response (m1 regression)', async () => {
+      const sw = loadServiceWorker({
+        fetchImpl: async (request) => makeResponse(request.url, false),
+      });
+      const req = makeRequest('https://arcaid.app/rtx_pinball/scoreboard', { mode: 'navigate' });
+
+      const response = await dispatchFetch(sw, req);
+
+      expect(response?.ok).toBe(false);
+      expect(sw.store.get(STATIC_CACHE)?.has(req.url)).toBeFalsy();
     });
   });
 

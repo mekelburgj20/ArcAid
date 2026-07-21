@@ -27,6 +27,14 @@ const STATIC_ASSET_RE = /\.(css|js|woff2?|ttf|eot|png|jpg|jpeg|svg|webp)$/;
 
 function isStaticAsset(url) {
   if (url.pathname === '/sw.js') return false; // never cache the SW itself
+  // Never let an /api/* route fall through to the extension regex below — a
+  // JSON endpoint whose final path segment is a user-controlled value (e.g.
+  // an iScored username, which encodeURIComponent does NOT strip '.' from)
+  // could end in a static-looking extension like ".png" and get cached
+  // cache-first forever. isImageRequest() already claims the four image
+  // mounts before this function is ever consulted (see the fetch handler
+  // below) — this guard covers every other /api/* route.
+  if (url.pathname.startsWith('/api/')) return false;
   return (
     url.pathname.startsWith('/assets/') ||
     STATIC_ASSET_RE.test(url.pathname) ||
@@ -84,8 +92,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const clone = response.clone();
-          caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(request, clone));
+          }
           return response;
         })
         .catch(() => caches.match(request))
@@ -105,7 +115,7 @@ self.addEventListener('fetch', (event) => {
             fetch(request)
               .then((response) => {
                 if (!response.ok) return;
-                return cache.put(request, response.clone()).then(() => trimImageCache(cache));
+                return cache.put(request, response).then(() => trimImageCache(cache));
               })
               .catch(() => {})
           );

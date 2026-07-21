@@ -67,3 +67,52 @@ describe('S19 — frontend static cache headers', () => {
         expect(res.headers['cache-control']).not.toBe('public, max-age=31536000, immutable');
     });
 });
+
+// m2 (S19 review) — the SPA catch-all (server.ts's `app.get(/^(?!\/api).*/, ...)`)
+// sets its own Cache-Control rather than relying on frontendStaticOptions,
+// since it builds the response itself via res.sendFile/res.send instead of
+// going through express.static. That header-setting pair (res.setHeader +
+// sendFile's `{ cacheControl: false }`, which stops `send` from overriding
+// it) was previously untested — only the static mount was covered above.
+//
+// The real catch-all also calls maybeBuildOgShell(req, frontendPath) before
+// falling through to sendFile, which needs a live DB/SettingsService and
+// isn't something existing backend tests boot (see helpers.ts / api-auth.test.ts
+// precedent: minimal apps only). For a plain deep-link GET from a non-bot UA,
+// maybeBuildOgShell always returns null and execution falls through to the
+// exact sendFile call under test here — so this fixture reproduces the code
+// path server.ts actually runs for the common case, header-setting lines
+// copied verbatim.
+describe('S19 — SPA catch-all no-cache header (m2)', () => {
+    let fixtureDir: string;
+    let app: express.Express;
+
+    beforeAll(() => {
+        fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arcaid-catchall-fixture-'));
+        fs.writeFileSync(path.join(fixtureDir, 'index.html'), '<html><body>fixture shell</body></html>');
+
+        app = express();
+        app.get(/^(?!\/api).*/, (req, res) => {
+            // Verbatim copy of the header-setting lines from src/api/server.ts's
+            // catch-all (see the comment above `res.setHeader` there).
+            res.setHeader('Cache-Control', 'no-cache');
+            res.sendFile(path.join(fixtureDir, 'index.html'), { cacheControl: false });
+        });
+    });
+
+    afterAll(() => {
+        fs.rmSync(fixtureDir, { recursive: true, force: true });
+    });
+
+    it('GET /:slug/players/:id (a deep-link SPA route) carries Cache-Control: no-cache', async () => {
+        const res = await request(app).get('/rtx_pinball/players/mekelburgj');
+        expect(res.status).toBe(200);
+        expect(res.headers['cache-control']).toBe('no-cache');
+    });
+
+    it('GET / (root deep link) carries Cache-Control: no-cache', async () => {
+        const res = await request(app).get('/');
+        expect(res.status).toBe(200);
+        expect(res.headers['cache-control']).toBe('no-cache');
+    });
+});
