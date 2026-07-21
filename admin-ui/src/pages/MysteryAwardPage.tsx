@@ -7,6 +7,7 @@ import TournamentPoolTopper from '../components/TournamentPoolTopper';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useToast } from '../components/Toast';
+import { getPortal } from '../lib/portal';
 
 /**
  * Standalone Mystery Award page (v2.0.1) — shareable URL for Discord.
@@ -51,16 +52,15 @@ export default function MysteryAwardPage() {
     const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
     const [ready, setReady] = useState(false);
 
+    // S18 — reads the already-cached portal (PublicLayout resolved it for the
+    // same slug) via getPortal instead of fetching the full rooms list.
     useEffect(() => {
         if (!slug) return;
-        fetch('/api/rooms')
-            .then(r => r.ok ? r.json() : [])
-            .then((rooms: Array<{ id: string; slug: string; name: string; logo_url: string | null }>) => {
-                const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
-                if (!found) return;
-                setRoomId(found.id);
-                setRoomName(found.name);
-                if (found.logo_url) setRoomLogo(found.logo_url);
+        getPortal(slug)
+            .then(portal => {
+                setRoomId(portal.roomId);
+                setRoomName(portal.name);
+                if (portal.logo_url) setRoomLogo(portal.logo_url);
             })
             .catch(() => {});
     }, [slug]);

@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.27.0] — unreleased
+
+**S18 — RoomContext refactor (frontend-only).** Public pages resolved slug→room data redundantly: 9 raw `fetch('/api/portal?slug=…')` call sites plus 6 public pages fetching the FULL `/api/rooms` list just to resolve slug→roomId. Consolidated into one shared module-level portal cache plus one portal fetch in `PublicLayout`, provided to every child page via the existing `RoomContext`.
+
+- **New `admin-ui/src/lib/portal.ts`** — `getPortal(slug)` returns a shared, module-level cached promise per (lowercased) slug, so concurrent callers for the same slug share one network request. Failed lookups are NOT cached (the map entry is deleted before the rejection propagates), so a transient failure doesn't permanently poison a slug.
+- **`PublicLayout`** now does the ONE portal fetch for its entire subtree (dropped its separate full `/api/rooms` list fetch) and provides `RoomContext.Provider` around the `Outlet`/`PlayerQuickViewProvider` — every public page under it gets `{roomId, roomSlug, roomName}` for free via `useRoom()`, no fetch of its own. Loading renders the standard `LoadingState`; a portal 404 renders a friendly "Room not found" state instead of a blank/broken page. The nav-bar lobby-activity-dot poll no longer fetches the portal itself — it now waits on the layout's already-resolved roomId.
+- **7 pages converted to `useRoom()`, 2 hooks to the shared cache:** `Scoreboard.tsx`, `Lobby.tsx`, `GameDetail.tsx` (were fetching `/api/portal` directly), plus `PlayerDetail.tsx`, `PublicStats.tsx`, `PublicHistory.tsx`, `ComparePlayers.tsx` (were fetching the full `/api/rooms` list purely to resolve slug→id). `usePickAwardEnabled` and `ThemeProvider`'s room-theme hydration now read through the same shared `getPortal` cache instead of their own private fetches. Five more pages call `getPortal(slug)` directly rather than `useRoom()` because they either sit outside `PublicLayout`'s subtree or need a field (`logo_url`) that isn't in `RoomContextType`'s frozen `{roomId, roomSlug, roomName}` shape: `KioskScoreboard.tsx`, `ScoreSubmit.tsx`, `GlobalGameDetail.tsx`'s `?from=<slug>` branch (standalone, can't sit under the provider), plus `Picks.tsx` and `MysteryAwardPage.tsx` (need `logo_url` for their cabinet backglass art — the portal response already carries it, so this drops their full `/api/rooms` list fetch too, at zero extra network cost since the slug's portal is already cached by `PublicLayout`).
+
+Fetch-elimination tally: portal/rooms-list call sites collapsed from 9 raw `/api/portal` fetches + 6 full `/api/rooms` list fetches (used purely for slug→room resolution) down to 1 shared portal fetch per slug, reused by all 14 consumers. SW → `arcaid-v101`. No migration (backend untouched this sprint).
+
+---
+
 ## [2.26.0] — unreleased
 
 **S17 — Frontend performance (Phase D).** No behavior changes for players except faster loads and one filter-correctness fix.

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import PlayerNameLink from '../components/PlayerNameLink';
 import { Trophy, Flame, Users, Gamepad2, Zap, Clock, History } from 'lucide-react';
+import { useRoom } from '../contexts/RoomContext';
 
 interface PlayerSummary {
   discord_user_id: string;
@@ -65,27 +66,24 @@ export default function PublicStats() {
   const [overview, setOverview] = useState<StatsOverview | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const { roomId } = useRoom();
 
   useEffect(() => {
-    if (!slug) return;
+    if (!roomId) return;
     setLoading(true);
-    fetch('/api/rooms')
-      .then(r => r.json())
-      .then(async (rooms: Array<{ id: string; slug: string }>) => {
-        const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
-        if (!found) return;
-        const [playersRes, gamesRes, overviewRes] = await Promise.all([
-          fetch(`/api/rooms/${found.id}/stats/enhanced/players`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/rooms/${found.id}/stats/games-activity`).then(r => r.ok ? r.json() : []),
-          fetch(`/api/rooms/${found.id}/stats/overview`).then(r => r.ok ? r.json() : null),
-        ]);
-        setPlayers(playersRes || []);
-        setGames(gamesRes || []);
-        setOverview(overviewRes);
-      })
+    (async () => {
+      const [playersRes, gamesRes, overviewRes] = await Promise.all([
+        fetch(`/api/rooms/${roomId}/stats/enhanced/players`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/rooms/${roomId}/stats/games-activity`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/rooms/${roomId}/stats/overview`).then(r => r.ok ? r.json() : null),
+      ]);
+      setPlayers(playersRes || []);
+      setGames(gamesRes || []);
+      setOverview(overviewRes);
+    })()
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [slug]);
+  }, [roomId]);
 
   const setView = (v: View) => {
     const next = new URLSearchParams(params);

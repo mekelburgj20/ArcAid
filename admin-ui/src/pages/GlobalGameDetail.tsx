@@ -12,6 +12,7 @@ import UserMenu from '../components/UserMenu';
 import DiscordLoginButton from '../components/DiscordLoginButton';
 import { getPlatformDisplay } from '../lib/platforms';
 import { formatScore } from '../lib/format';
+import { getPortal } from '../lib/portal';
 
 interface GlobalGame {
   id: string;
@@ -176,13 +177,12 @@ export default function GlobalGameDetail() {
     let cancelled = false;
     (async () => {
       try {
-        const portal = await fetch(`/api/portal?slug=${encodeURIComponent(fromSlug)}`);
-        if (!portal.ok) return;
-        const p: { id: string } = await portal.json();
-        const cfgRes = await fetch(`/api/rooms/${p.id}/scoreboard-config`);
+        const p = await getPortal(fromSlug);
+        const roomId = p.roomId;
+        const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`);
         const cfg = cfgRes.ok ? await cfgRes.json() as Record<string, string> : {};
         if (cancelled) return;
-        setFromRoom({ id: p.id, requireLogin: cfg.REQUIRE_DISCORD_LOGIN === 'true' });
+        setFromRoom({ id: roomId, requireLogin: cfg.REQUIRE_DISCORD_LOGIN === 'true' });
       } catch { /* ignore — fall back to global */ }
     })();
     return () => { cancelled = true; };

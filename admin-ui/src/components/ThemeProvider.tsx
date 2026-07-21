@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, isAuthenticated } from '../lib/api';
+import { getPortal } from '../lib/portal';
 
 export type ThemeId = 'dark' | 'light' | 'retro' | 'cyberpunk' | 'ocean' | 'sunset' | 'minimal' | 'invaders' | 'coffee' | 'backglass' | 'crt-green' | 'plasma' | 'cabinet' | 'silverball' | 'wizard' | 'playfield' | 'marquee';
 
@@ -104,14 +105,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         } else {
           // Room pages use room-specific theme
           const pathSlug = window.location.pathname.split('/').filter(Boolean)[0] || '';
-          const portalRes = pathSlug && pathSlug !== 'admin'
-            ? await fetch(`/api/portal?slug=${encodeURIComponent(pathSlug)}`)
+          const portal = pathSlug && pathSlug !== 'admin'
+            ? await getPortal(pathSlug).catch(() => null)
             : null;
-          if (portalRes?.ok) {
-            const portal = await portalRes.json();
+          if (portal) {
             const serverPublicTheme = portal.public_theme || portal.ui_theme;
             if (serverPublicTheme) {
-              setPublicThemeState(serverPublicTheme);
+              setPublicThemeState(serverPublicTheme as ThemeId);
               localStorage.setItem(STORAGE_PUBLIC_KEY, serverPublicTheme);
             }
           }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Search, Plus } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
+import { useRoom } from '../contexts/RoomContext';
 import { useViewerAuth, useViewerHeaders, usePlayerHeaders } from '../contexts/ViewerAuthContext';
 import { useTheme } from '../components/ThemeProvider';
 import type { ThemeId } from '../components/ThemeProvider';
@@ -38,8 +39,7 @@ export default function Scoreboard() {
   const [flash, setFlash] = useState(false);
   const [scoreToast, setScoreToast] = useState<{ player: string; score: number; game: string } | null>(null);
   const [config, setConfig] = useState<Record<string, string>>({});
-  const [roomName, setRoomName] = useState('');
-  const [roomId, setRoomId] = useState('');
+  const { roomId, roomName } = useRoom();
   const [selectedGame, setSelectedGame] = useState<GameLeaderboard | null>(null);
   // v2.13.12 — game quick-view modal triggered by title click on tournament cards.
   // RoomScoresView / GlobalScoresView own their own modal state for their tabs.
@@ -120,17 +120,14 @@ export default function Scoreboard() {
     return false;
   };
 
-  // Resolve room and fetch scoreboard config (merged with user prefs if logged in)
+  // Fetch scoreboard config (merged with user prefs if logged in). S18 —
+  // roomId now comes from RoomContext (resolved once in PublicLayout)
+  // instead of this effect fetching /api/portal itself.
   useEffect(() => {
-    if (!slug) return;
+    if (!roomId) return;
     (async () => {
       try {
-        const portalRes = await fetch(`/api/portal?slug=${encodeURIComponent(slug)}`);
-        if (!portalRes.ok) return;
-        const portal: { id: string; name: string } = await portalRes.json();
-        setRoomName(portal.name);
-        setRoomId(portal.id);
-        const cfgRes = await fetch(`/api/rooms/${portal.id}/scoreboard-config`, { headers: viewerHeaders });
+        const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`, { headers: viewerHeaders });
         const cfg = cfgRes.ok ? await cfgRes.json() : {};
         setRoomConfig(cfg || {});
         if (playerToken) {
@@ -139,7 +136,7 @@ export default function Scoreboard() {
         setConfig(cfg || {});
       } catch { /* ignore */ }
     })();
-  }, [slug, playerToken]);
+  }, [roomId, playerToken]);
 
   // Listen for prefs-open event from PublicLayout nav gear button
   useEffect(() => {
