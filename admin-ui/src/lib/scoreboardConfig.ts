@@ -129,7 +129,9 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     gameTitleStyle: config.SCOREBOARD_GAME_TITLE_STYLE || 'default',
     bgBehindTitle: (config.SCOREBOARD_BG_MODE || 'cover') === 'fill-entire',
     mobileVertical: config.SCOREBOARD_MOBILE_VERTICAL !== 'false',
-    mobileScale: config.SCOREBOARD_MOBILE_SCALE ? parseFloat(config.SCOREBOARD_MOBILE_SCALE) : 0.6,
+    // s20: default bumped 0.6 -> 0.85 (interim mitigation until S21's mobile
+    // layout work) — rooms with an explicit SCOREBOARD_MOBILE_SCALE keep it.
+    mobileScale: config.SCOREBOARD_MOBILE_SCALE ? parseFloat(config.SCOREBOARD_MOBILE_SCALE) : 0.85,
   };
 }
 

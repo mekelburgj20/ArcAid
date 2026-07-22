@@ -6,6 +6,7 @@ import { useToast } from '../components/Toast';
 import { getSocket } from '../lib/websocket';
 import TournamentBadge from '../components/TournamentBadge';
 import LoadingState from '../components/LoadingState';
+import ConfirmModal from '../components/ConfirmModal';
 import StylePicker from '../components/StylePicker';
 import NeonButton from '../components/NeonButton';
 import CardRouter from '../components/scoreboard/CardRouter';
@@ -494,8 +495,9 @@ function AdminCardWrapper({ lb, children, onStyleClick, onEditDisplayName, onDel
   return (
     <div className="relative group">
       {children}
-      {/* Admin overlay — visible on hover */}
-      <div className="absolute top-0 left-0 right-0 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Admin overlay — visible on hover; also always-visible on touch/focus devices
+          (s20) so the toolbar isn't hover-only-inaccessible. */}
+      <div className="absolute top-0 left-0 right-0 z-20 opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
         <div className="flex flex-wrap items-center justify-center gap-1 p-1.5 bg-black/70 backdrop-blur-sm rounded-t-lg">
           <NeonButton variant="ghost" onClick={() => onEditDisplayName(lb)} className="text-[10px] px-1.5 py-0.5">
             <Pencil size={11} /> Name
@@ -533,9 +535,12 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loadingSubs, setLoadingSubs] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  // s20: confirm-before-delete, replacing native confirm().
+  const [pendingDelete, setPendingDelete] = useState<Submission | null>(null);
+
+  const requestDeleteSubmission = (sub: Submission) => setPendingDelete(sub);
 
   const deleteSubmission = async (sub: Submission) => {
-    if (!confirm(`Delete score ${sub.score.toLocaleString()} by ${sub.iscored_username}? Scores at or below this value that still exist on iScored will not re-import.`)) return;
     setDeleting(sub.id);
     try {
       await api.delete(`/rooms/${roomId}/admin/games/${lb.gameId}/submissions/${encodeURIComponent(sub.id)}`);
@@ -671,6 +676,15 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
                       entry.rank === 1 ? 'bg-neon-amber/8' : ''
                     }`}
                     onClick={() => toggleExpand(entry.iscored_username)}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleExpand(entry.iscored_username);
+                      }
+                    }}
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={`font-display font-bold text-xs w-5 text-center flex-shrink-0 ${
@@ -706,10 +720,12 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
                             <div className="flex items-center gap-2">
                               <span className="text-muted font-display">{sub.score.toLocaleString()}</span>
                               <button
-                                onClick={(e) => { e.stopPropagation(); deleteSubmission(sub); }}
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); requestDeleteSubmission(sub); }}
                                 disabled={deleting === sub.id}
-                                className="opacity-0 group-hover:opacity-100 text-red-400/60 hover:text-red-400 transition-all cursor-pointer disabled:opacity-30"
+                                className="p-4 -m-2 opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-red-400/60 hover:text-red-400 transition-all cursor-pointer disabled:opacity-30"
                                 title="Delete this score"
+                                aria-label="Delete this score"
                               >
                                 <Trash2 size={12} />
                               </button>
@@ -725,6 +741,19 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
           </>
         )}
       </div>
+      {pendingDelete && (
+        <ConfirmModal
+          title="Delete score"
+          message={`Delete score ${pendingDelete.score.toLocaleString()} by ${pendingDelete.iscored_username}? Scores at or below this value that still exist on iScored will not re-import.`}
+          confirmLabel="Delete"
+          onConfirm={() => {
+            const sub = pendingDelete;
+            setPendingDelete(null);
+            deleteSubmission(sub);
+          }}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   );
 }
@@ -745,6 +774,11 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [suppressions, setSuppressions] = useState<Suppression[] | null>(null);
   const [removingSuppression, setRemovingSuppression] = useState<string | null>(null);
+  // s20: confirm-before-delete for both destructive actions in this modal,
+  // replacing native confirm().
+  const [pendingConfirm, setPendingConfirm] = useState<
+    { kind: 'delete'; sub: Submission } | { kind: 'suppression'; s: Suppression } | null
+  >(null);
 
   const load = () => {
     setSubmissions(null);
@@ -763,7 +797,6 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [lb.gameId]);
 
   const handleDelete = async (sub: Submission) => {
-    if (!confirm(`Delete ${sub.iscored_username}'s score (${sub.score.toLocaleString()})? This wipes the row from the leaderboard and removes their score history for this game. Scores at or below this value that still exist on iScored will not re-import.`)) return;
     setDeletingId(sub.id);
     try {
       await api.delete(`/rooms/${roomId}/admin/games/${lb.gameId}/submissions/${encodeURIComponent(sub.id)}`);
@@ -778,7 +811,6 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
   };
 
   const handleRemoveSuppression = async (s: Suppression) => {
-    if (!confirm(`Remove the suppression for ${s.username} (${s.suppressedScore.toLocaleString()})? Their iScored score for this game will re-import on the next sync cycle.`)) return;
     setRemovingSuppression(s.username);
     try {
       await api.delete(`/rooms/${roomId}/admin/games/${lb.gameId}/suppressions/${encodeURIComponent(s.username)}`);
@@ -818,10 +850,11 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
                     <span className="text-faint text-[10px] w-20 text-right">{new Date(sub.timestamp).toLocaleDateString()}</span>
                     <button
                       type="button"
-                      onClick={() => handleDelete(sub)}
+                      onClick={() => setPendingConfirm({ kind: 'delete', sub })}
                       disabled={deletingId === sub.id}
-                      className="text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-30"
+                      className="p-4 -m-2 text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-30"
                       title="Delete score (wipes player from this game)"
+                      aria-label="Delete score (wipes player from this game)"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -854,10 +887,11 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
                     </span>
                     <button
                       type="button"
-                      onClick={() => handleRemoveSuppression(s)}
+                      onClick={() => setPendingConfirm({ kind: 'suppression', s })}
                       disabled={removingSuppression === s.username}
-                      className="text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-30"
+                      className="p-4 -m-2 text-red-400/60 hover:text-red-400 transition-colors disabled:opacity-30"
                       title="Remove suppression (allows iScored re-import)"
+                      aria-label="Remove suppression (allows iScored re-import)"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -871,6 +905,32 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
           <NeonButton variant="ghost" onClick={onClose}>Close</NeonButton>
         </div>
       </div>
+      {pendingConfirm?.kind === 'delete' && (
+        <ConfirmModal
+          title="Delete score"
+          message={`Delete ${pendingConfirm.sub.iscored_username}'s score (${pendingConfirm.sub.score.toLocaleString()})? This wipes the row from the leaderboard and removes their score history for this game. Scores at or below this value that still exist on iScored will not re-import.`}
+          confirmLabel="Delete"
+          onConfirm={() => {
+            const sub = pendingConfirm.sub;
+            setPendingConfirm(null);
+            handleDelete(sub);
+          }}
+          onCancel={() => setPendingConfirm(null)}
+        />
+      )}
+      {pendingConfirm?.kind === 'suppression' && (
+        <ConfirmModal
+          title="Remove suppression"
+          message={`Remove the suppression for ${pendingConfirm.s.username} (${pendingConfirm.s.suppressedScore.toLocaleString()})? Their iScored score for this game will re-import on the next sync cycle.`}
+          confirmLabel="Remove"
+          onConfirm={() => {
+            const s = pendingConfirm.s;
+            setPendingConfirm(null);
+            handleRemoveSuppression(s);
+          }}
+          onCancel={() => setPendingConfirm(null)}
+        />
+      )}
     </div>
   );
 }

@@ -693,7 +693,7 @@ export default function MysteryAward({
               {/* GI lighting pulse for image mode */}
               {backglassUrl && (
                 <div
-                  className="absolute inset-0 pointer-events-none"
+                  className="absolute inset-0 pointer-events-none mystery-gi-pulse-layer"
                   style={{
                     background: 'radial-gradient(ellipse at 50% 30%, rgba(255,136,0,0.08) 0%, transparent 70%)',
                     animation: 'mystery-gi-pulse 4s ease-in-out infinite',
@@ -935,6 +935,13 @@ export default function MysteryAward({
         @keyframes mystery-gi-pulse {
           0%, 100% { opacity: 0.4; }
           50% { opacity: 1; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          /* !important needed: the animation is set via inline style above,
+             which normal cascade order can't override. */
+          .mystery-gi-pulse-layer {
+            animation: none !important;
+          }
         }
       `}</style>
     </div>

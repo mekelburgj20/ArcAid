@@ -7,6 +7,7 @@ import StarRating from '../components/StarRating';
 import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ReportProblemModal from '../components/ReportProblemModal';
+import ConfirmModal from '../components/ConfirmModal';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import DiscordLoginButton from '../components/DiscordLoginButton';
@@ -129,6 +130,8 @@ export default function GlobalGameDetail() {
   const [reportingId, setReportingId] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportMessage, setReportMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  // s20: confirm-before-delete for self-delete score, replacing native confirm().
+  const [pendingDeleteScoreId, setPendingDeleteScoreId] = useState<string | null>(null);
   // v2.0.1: when navigated with ?from=<slug>, treat the Submit as a room-scoped
   // freeplay submission (respects the room's REQUIRE_DISCORD_LOGIN) rather than
   // a direct global submission (which always requires Discord login).
@@ -361,8 +364,12 @@ export default function GlobalGameDetail() {
     }
   };
 
-  const handleDeleteScore = async (scoreId: string) => {
-    if (!playerToken || !confirm('Delete this score? If you have other scores for this game, your next best will show instead.')) return;
+  const handleDeleteScore = (scoreId: string) => {
+    if (!playerToken) return;
+    setPendingDeleteScoreId(scoreId);
+  };
+
+  const performDeleteScore = async (scoreId: string) => {
     try {
       const res = await fetch(`/api/me/global-scores/${scoreId}`, {
         method: 'DELETE',
@@ -648,8 +655,9 @@ export default function GlobalGameDetail() {
                         {discordUser?.discordId === entry.discord_user_id && (
                           <button
                             onClick={() => handleDeleteScore(entry.score_id)}
-                            className="text-muted hover:text-red-400 mr-1"
+                            className="p-4 -m-2 text-muted hover:text-red-400"
                             title="Delete this score"
+                            aria-label="Delete this score"
                           >
                             <Trash2 className="w-3.5 h-3.5 inline" />
                           </button>
@@ -657,8 +665,9 @@ export default function GlobalGameDetail() {
                         <button
                           onClick={() => handleReport(entry.score_id)}
                           disabled={reportingId === entry.score_id}
-                          className="text-muted hover:text-red-400 disabled:opacity-50"
+                          className="p-4 -m-2 text-muted hover:text-red-400 disabled:opacity-50"
                           title="Report this score"
+                          aria-label="Report this score"
                         >
                           <Flag className="w-3.5 h-3.5 inline" />
                         </button>
@@ -961,6 +970,20 @@ export default function GlobalGameDetail() {
             setShowSubmit(false);
             refreshRankings();
           }}
+        />
+      )}
+
+      {pendingDeleteScoreId && (
+        <ConfirmModal
+          title="Delete score"
+          message="Delete this score? If you have other scores for this game, your next best will show instead."
+          confirmLabel="Delete"
+          onConfirm={() => {
+            const scoreId = pendingDeleteScoreId;
+            setPendingDeleteScoreId(null);
+            performDeleteScore(scoreId);
+          }}
+          onCancel={() => setPendingDeleteScoreId(null)}
         />
       )}
 

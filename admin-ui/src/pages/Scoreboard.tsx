@@ -313,6 +313,11 @@ export default function Scoreboard() {
         .animate-slideDown {
           animation: slideDown 0.3s ease-out forwards;
         }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-slideDown {
+            animation: none;
+          }
+        }
         /* v2.13.14 — scrollbar hidden; HorizontalScrollNav provides edge-hover
            arrow controls instead. overscroll-behavior-x kept so horizontal
            overscroll doesn't trigger browser swipe-back navigation. */
@@ -327,7 +332,7 @@ export default function Scoreboard() {
         .scoreboard-hscroll-nobar::-webkit-scrollbar { display: none; }
         /* Mobile: scale + vertical mode */
         @media (max-width: 640px) {
-          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.6); }
+          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.85); }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout {
             overflow-x: hidden !important;
           }
@@ -389,19 +394,23 @@ export default function Scoreboard() {
 
       {/* Tab toggle — Tournaments | Room Scores | Global (F2 3-tab unification) */}
       <div className="flex justify-center gap-1 pb-1" role="tablist" aria-label="Leaderboard tabs">
+        {/* s20: outer button carries the ≥44px hit area; inner span keeps the
+            original compact tab-chip visual. */}
         {(['tournaments', 'room', 'global'] as const).map(t => (
           <button
             key={t}
             role="tab"
             aria-selected={tab === t}
             onClick={() => selectTab(t)}
-            className={`px-3 py-1 text-xs rounded-lg border transition-colors cursor-pointer ${
+            className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
+          >
+            <span className={`px-3 py-1 text-xs rounded-lg border transition-colors ${
               tab === t
                 ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
                 : 'border-border/50 text-muted hover:text-primary'
-            }`}
-          >
-            {TAB_LABELS[t]}
+            }`}>
+              {TAB_LABELS[t]}
+            </span>
           </button>
         ))}
       </div>

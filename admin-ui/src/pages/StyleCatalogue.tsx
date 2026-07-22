@@ -238,7 +238,7 @@ function StyleCard({ style, onClick, onDelete, onApply }: { style: Style; onClic
           </div>
         )}
         {/* Hover actions */}
-        <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
           {onApply && (
             <button
               onClick={e => { e.stopPropagation(); onApply(); }}
