@@ -733,6 +733,10 @@ export default function GameDetail() {
                         tabIndex={hasMultiple ? 0 : undefined}
                         aria-expanded={hasMultiple ? expandedPlayer === entry.iscored_username : undefined}
                         onKeyDown={hasMultiple ? (e) => {
+                          // m3: ignore keydowns that bubbled up from a focused
+                          // child (e.g. the player-name Link) — only the row
+                          // itself being focused should toggle on Enter/Space.
+                          if (e.target !== e.currentTarget) return;
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
                             togglePlayerHistory(entry.iscored_username);

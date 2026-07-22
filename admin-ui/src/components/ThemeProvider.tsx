@@ -179,8 +179,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
 
     hydrate();
+    // s20 M1 fix: deps are [adminRoute, roomSlug], NOT [pathname, roomSlug].
+    // `pathname` is still read inside (for isGlobalPath), but must not be a
+    // dep — otherwise every same-room navigation (e.g. scoreboard -> lobby)
+    // re-fires this effect and setPublicThemeState(serverPublicTheme)
+    // clobbers a viewer's just-set personal theme back to the room's
+    // configured theme (visible flicker). Global sub-pages intentionally
+    // share one theme, so not re-hydrating between them is fine.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, roomSlug]);
+  }, [adminRoute, roomSlug]);
 
   const setPublicTheme = (newTheme: ThemeId) => {
     setPublicThemeState(newTheme);

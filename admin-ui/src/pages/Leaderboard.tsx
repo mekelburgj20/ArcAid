@@ -680,6 +680,10 @@ function AdminGameCard({ lb, roomId, maxScores, onStyleClick, onScoreDeleted, on
                     tabIndex={0}
                     aria-expanded={isExpanded}
                     onKeyDown={(e) => {
+                      // m3: ignore keydowns bubbled from a focused child (e.g.
+                      // the player-name Link) — only toggle when the row
+                      // itself is focused.
+                      if (e.target !== e.currentTarget) return;
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         toggleExpand(entry.iscored_username);
@@ -824,6 +828,11 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
   };
 
   return (
+    // m2 fix: the two ConfirmModals below are rendered as SIBLINGS of this
+    // backdrop div (not descendants), so a click on a ConfirmModal's own
+    // backdrop no longer bubbles up into this div's onClick={onClose} and
+    // closes the whole Manage Scores panel underneath it.
+    <>
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-surface border border-border rounded-lg w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-border/50">
@@ -905,32 +914,33 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
           <NeonButton variant="ghost" onClick={onClose}>Close</NeonButton>
         </div>
       </div>
-      {pendingConfirm?.kind === 'delete' && (
-        <ConfirmModal
-          title="Delete score"
-          message={`Delete ${pendingConfirm.sub.iscored_username}'s score (${pendingConfirm.sub.score.toLocaleString()})? This wipes the row from the leaderboard and removes their score history for this game. Scores at or below this value that still exist on iScored will not re-import.`}
-          confirmLabel="Delete"
-          onConfirm={() => {
-            const sub = pendingConfirm.sub;
-            setPendingConfirm(null);
-            handleDelete(sub);
-          }}
-          onCancel={() => setPendingConfirm(null)}
-        />
-      )}
-      {pendingConfirm?.kind === 'suppression' && (
-        <ConfirmModal
-          title="Remove suppression"
-          message={`Remove the suppression for ${pendingConfirm.s.username} (${pendingConfirm.s.suppressedScore.toLocaleString()})? Their iScored score for this game will re-import on the next sync cycle.`}
-          confirmLabel="Remove"
-          onConfirm={() => {
-            const s = pendingConfirm.s;
-            setPendingConfirm(null);
-            handleRemoveSuppression(s);
-          }}
-          onCancel={() => setPendingConfirm(null)}
-        />
-      )}
     </div>
+    {pendingConfirm?.kind === 'delete' && (
+      <ConfirmModal
+        title="Delete score"
+        message={`Delete ${pendingConfirm.sub.iscored_username}'s score (${pendingConfirm.sub.score.toLocaleString()})? This wipes the row from the leaderboard and removes their score history for this game. Scores at or below this value that still exist on iScored will not re-import.`}
+        confirmLabel="Delete"
+        onConfirm={() => {
+          const sub = pendingConfirm.sub;
+          setPendingConfirm(null);
+          handleDelete(sub);
+        }}
+        onCancel={() => setPendingConfirm(null)}
+      />
+    )}
+    {pendingConfirm?.kind === 'suppression' && (
+      <ConfirmModal
+        title="Remove suppression"
+        message={`Remove the suppression for ${pendingConfirm.s.username} (${pendingConfirm.s.suppressedScore.toLocaleString()})? Their iScored score for this game will re-import on the next sync cycle.`}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          const s = pendingConfirm.s;
+          setPendingConfirm(null);
+          handleRemoveSuppression(s);
+        }}
+        onCancel={() => setPendingConfirm(null)}
+      />
+    )}
+    </>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { ThemeProvider } from '../ThemeProvider';
+import { ThemeProvider, useTheme } from '../ThemeProvider';
 
 // s20 — regression coverage for the ThemeProvider re-theme bug: `globalTheme`
 // used to read `window.location.pathname` directly, so navigating between
@@ -52,6 +52,51 @@ function stubPortalFetch() {
   return fetchMock;
 }
 
+/** Stubbed portal that DOES return a server-side theme override (e.g. a room
+ *  configured for 'ocean'), used by the M1 regression test below. */
+function stubPortalFetchWithServerTheme(theme: string) {
+  const fetchMock = vi.fn((url: string) => {
+    if (url.startsWith('/api/portal')) {
+      const slug = new URL(url, 'http://localhost').searchParams.get('slug') || '';
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ id: slug, roomId: slug, slug, name: slug, public_theme: theme, ui_theme: theme }),
+      });
+    }
+    return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+  });
+  vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+  return fetchMock;
+}
+
+/** Probe that exposes setPublicTheme via a clickable button, plus buttons to
+ *  navigate between two same-room public pages (scoreboard <-> lobby). */
+function SameRoomHarness() {
+  const navigate = useNavigate();
+  const { setPublicTheme } = useTheme();
+  return (
+    <div>
+      <button onClick={() => setPublicTheme('cyberpunk')}>set-cyberpunk</button>
+      <button onClick={() => navigate('/roomx/lobby')}>go-lobby</button>
+      <button onClick={() => navigate('/roomx/scoreboard')}>go-scoreboard</button>
+    </div>
+  );
+}
+
+function renderSameRoomHarness(initialPath: string) {
+  return render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <ThemeProvider>
+        <SameRoomHarness />
+        <Routes>
+          <Route path="/:slug/scoreboard" element={<div>scoreboard-page</div>} />
+          <Route path="/:slug/lobby" element={<div>lobby-page</div>} />
+        </Routes>
+      </ThemeProvider>
+    </MemoryRouter>,
+  );
+}
+
 describe('ThemeProvider', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -92,5 +137,35 @@ describe('ThemeProvider', () => {
     renderHarness('/rooma');
 
     await waitFor(() => expect(document.documentElement.classList.contains('theme-cyberpunk')).toBe(true));
+  });
+
+  // s20 M1 regression: hydrate effect must be dep'd on [adminRoute, roomSlug],
+  // NOT [pathname, roomSlug]. If `pathname` were reinstated as a dep, this
+  // test fails — the hydrate effect re-fires on the scoreboard -> lobby
+  // navigation (same room, different pathname), refetches the portal, and
+  // `setPublicThemeState(serverPublicTheme)` reverts the viewer's just-set
+  // 'cyberpunk' personal theme back to the room's configured 'ocean' theme.
+  it('does not revert a viewer-set personal theme on same-room navigation (M1)', async () => {
+    stubPortalFetchWithServerTheme('ocean');
+
+    renderSameRoomHarness('/roomx/scoreboard');
+
+    // Hydrate resolves the room's configured server theme first.
+    await waitFor(() => expect(document.documentElement.classList.contains('theme-ocean')).toBe(true));
+
+    // Viewer picks a personal theme via Scoreboard prefs (setPublicTheme).
+    fireEvent.click(screen.getByText('set-cyberpunk'));
+    await waitFor(() => expect(document.documentElement.classList.contains('theme-cyberpunk')).toBe(true));
+
+    // Navigate within the SAME room (scoreboard -> lobby) — must NOT
+    // re-hydrate and clobber the viewer's chosen theme back to 'ocean'.
+    fireEvent.click(screen.getByText('go-lobby'));
+    await screen.findByText('lobby-page');
+
+    // Give any (incorrectly) re-fired async hydrate a chance to resolve.
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(document.documentElement.classList.contains('theme-cyberpunk')).toBe(true);
+    expect(document.documentElement.classList.contains('theme-ocean')).toBe(false);
   });
 });

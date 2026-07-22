@@ -641,36 +641,41 @@ export default function GlobalGameDetail() {
                         {formatDate(entry.submitted_at)}
                       </td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
-                        {entry.photo_url && (
-                          <a
-                            href={entry.photo_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-muted hover:text-neon-cyan text-xs inline-block mr-2"
-                            title="View proof"
-                          >
-                            proof
-                          </a>
-                        )}
-                        {discordUser?.discordId === entry.discord_user_id && (
+                        {/* m4: explicit flex + gap so the padded (p-4 -m-2,
+                            44px-ish) hit areas of the proof link and the two
+                            icon buttons no longer overlap each other. */}
+                        <div className="inline-flex items-center justify-end gap-3">
+                          {entry.photo_url && (
+                            <a
+                              href={entry.photo_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted hover:text-neon-cyan text-xs inline-block"
+                              title="View proof"
+                            >
+                              proof
+                            </a>
+                          )}
+                          {discordUser?.discordId === entry.discord_user_id && (
+                            <button
+                              onClick={() => handleDeleteScore(entry.score_id)}
+                              className="p-4 -m-2 text-muted hover:text-red-400"
+                              title="Delete this score"
+                              aria-label="Delete this score"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 inline" />
+                            </button>
+                          )}
                           <button
-                            onClick={() => handleDeleteScore(entry.score_id)}
-                            className="p-4 -m-2 text-muted hover:text-red-400"
-                            title="Delete this score"
-                            aria-label="Delete this score"
+                            onClick={() => handleReport(entry.score_id)}
+                            disabled={reportingId === entry.score_id}
+                            className="p-4 -m-2 text-muted hover:text-red-400 disabled:opacity-50"
+                            title="Report this score"
+                            aria-label="Report this score"
                           >
-                            <Trash2 className="w-3.5 h-3.5 inline" />
+                            <Flag className="w-3.5 h-3.5 inline" />
                           </button>
-                        )}
-                        <button
-                          onClick={() => handleReport(entry.score_id)}
-                          disabled={reportingId === entry.score_id}
-                          className="p-4 -m-2 text-muted hover:text-red-400 disabled:opacity-50"
-                          title="Report this score"
-                          aria-label="Report this score"
-                        >
-                          <Flag className="w-3.5 h-3.5 inline" />
-                        </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

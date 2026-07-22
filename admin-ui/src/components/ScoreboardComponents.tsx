@@ -648,6 +648,10 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         tabIndex={hasMultiple && !useTwoColumns ? 0 : undefined}
                         aria-expanded={hasMultiple && !useTwoColumns ? isExpanded : undefined}
                         onKeyDown={hasMultiple && !useTwoColumns ? (e) => {
+                          // m3: ignore keydowns bubbled from a focused child
+                          // (e.g. the player-name Link) — only toggle when the
+                          // row itself is focused.
+                          if (e.target !== e.currentTarget) return;
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
                             togglePlayer(entry.iscored_username);

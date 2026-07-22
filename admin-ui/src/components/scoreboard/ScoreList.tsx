@@ -70,6 +70,9 @@ export default function ScoreList({
               tabIndex={canExpand ? 0 : undefined}
               aria-expanded={canExpand ? isExpanded : undefined}
               onKeyDown={canExpand ? (e) => {
+                // m3: ignore keydowns bubbled from a focused child (e.g. the
+                // player-name Link) — only toggle when the row itself is focused.
+                if (e.target !== e.currentTarget) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   onTogglePlayer?.(entry.iscored_username);
