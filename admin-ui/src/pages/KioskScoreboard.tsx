@@ -213,7 +213,7 @@ export default function KioskScoreboard() {
           // with only SCOREBOARD_ZOOM set keep their current zoom untouched.
           ...(newConfig.kioskZoom !== 100 ? { zoom: `${newConfig.kioskZoom}%` } : {}),
           minHeight: '100vh',
-          paddingBottom: feedEvents.length > 0 ? 48 : undefined,
+          paddingBottom: feedEvents.length > 0 ? 60 : undefined,
         }}
       >
         {/* Title — solid background by default when bg image is set */}
@@ -356,7 +356,7 @@ export default function KioskScoreboard() {
       {tickerItems.length > 0 && (
         // s20: safe-area-inset-bottom accommodation — see ScoreboardTicker.tsx
         // for the box-sizing rationale (height grows, padding-bottom keeps the
-        // 36px content pinned above the unsafe strip on notched devices).
+        // 46px content pinned above the unsafe strip on notched devices).
         <div
           className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden"
           style={{ height: 'calc(46px + max(0px, env(safe-area-inset-bottom)))', paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}

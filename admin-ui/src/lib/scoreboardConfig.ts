@@ -109,12 +109,9 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     // fall back to SCOREBOARD_ZOOM so existing TVs keep their current zoom
     // with no config changes; otherwise 100. Clamped defensively [50, 300].
     kioskZoom: (() => {
-      const raw = config.KIOSK_ZOOM
-        ? parseInt(config.KIOSK_ZOOM, 10)
-        : config.SCOREBOARD_ZOOM
-          ? parseInt(config.SCOREBOARD_ZOOM, 10)
-          : 100;
-      const n = Number.isFinite(raw) ? raw : 100;
+      const kiosk = parseInt(config.KIOSK_ZOOM || '', 10);
+      const board = parseInt(config.SCOREBOARD_ZOOM || '', 10);
+      const n = Number.isFinite(kiosk) ? kiosk : Number.isFinite(board) ? board : 100;
       return Math.min(300, Math.max(50, n));
     })(),
     bgUrl: config.SCOREBOARD_BG_URL || '',

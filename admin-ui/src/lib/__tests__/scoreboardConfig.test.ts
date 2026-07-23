@@ -68,6 +68,11 @@ describe('deriveScoreboardConfig', () => {
       const cfg = deriveScoreboardConfig({ SCOREBOARD_ZOOM: '999' });
       expect(cfg.kioskZoom).toBe(300);
     });
+
+    it('cascades to SCOREBOARD_ZOOM when KIOSK_ZOOM is set but unparseable', () => {
+      const cfg = deriveScoreboardConfig({ KIOSK_ZOOM: 'abc', SCOREBOARD_ZOOM: '130' });
+      expect(cfg.kioskZoom).toBe(130);
+    });
   });
 
   describe('mobileVertical', () => {
