@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api, isAuthenticated } from '../lib/api';
 import { getPortal } from '../lib/portal';
 
@@ -40,19 +41,36 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_GLOBAL_KEY = 'arcaid-theme-global';
 const STORAGE_PUBLIC_KEY = 'arcaid-theme-public';
 const STORAGE_ADMIN_KEY = 'arcaid-theme-admin';
+const publicSlugKey = (slug: string) => `arcaid-theme-public-${slug}`;
 
-function isAdminRoute(): boolean {
-  const path = window.location.pathname;
+function isAdminPath(pathname: string): boolean {
   // /admin/* = super admin, /:slug/admin/* = room admin
-  const parts = path.split('/').filter(Boolean);
+  const parts = pathname.split('/').filter(Boolean);
   return parts[0] === 'admin' || parts[1] === 'admin';
 }
 
 const GLOBAL_PAGE_PREFIXES = ['/scoreboard', '/catalogue', '/games/'];
 
-function isGlobalPage(): boolean {
-  const path = window.location.pathname;
-  return path === '/' || GLOBAL_PAGE_PREFIXES.some(prefix => path.startsWith(prefix));
+function isGlobalPath(pathname: string): boolean {
+  return pathname === '/' || GLOBAL_PAGE_PREFIXES.some(prefix => pathname.startsWith(prefix));
+}
+
+// s20: top-level path segments that are reserved global/utility routes, never
+// a room slug. Without this guard, e.g. /friends or /my-rooms would be
+// (mis)treated as a room whose slug is "friends"/"my-rooms" — fetching and
+// writing that "room"'s public theme. See App.tsx's route table.
+const RESERVED_TOP_SEGMENTS = new Set([
+  'admin', 'login', 'auth', 'invite', 'privacy', 'terms',
+  'friends', 'account', 'my-rooms', 'scoreboard', 'games',
+]);
+
+/** Room slug for a room-scoped PUBLIC route only. Returns null for admin
+ *  routes, global pages, and other reserved top-level paths. */
+function getRoomSlug(pathname: string): string | null {
+  if (isAdminPath(pathname) || isGlobalPath(pathname)) return null;
+  const first = pathname.split('/').filter(Boolean)[0];
+  if (!first || RESERVED_TOP_SEGMENTS.has(first)) return null;
+  return first;
 }
 
 const ALL_THEME_CLASSES = ['theme-light', 'theme-retro', 'theme-cyberpunk', 'theme-ocean', 'theme-sunset', 'theme-minimal', 'theme-invaders', 'theme-coffee', 'theme-backglass', 'theme-crt-green', 'theme-plasma', 'theme-cabinet', 'theme-silverball', 'theme-wizard', 'theme-playfield', 'theme-marquee'];
@@ -66,9 +84,23 @@ function applyThemeClass(theme: ThemeId) {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  // Initialize from localStorage for instant rendering (no flash)
+  // s20: ThemeProvider mounts inside BrowserRouter (see main.tsx/App.tsx), so
+  // useLocation() is available and re-renders this component on every
+  // navigation — the root-cause fix for the no-re-theme bug (globalTheme used
+  // to read window.location.pathname directly, which nothing re-rendered on).
+  const location = useLocation();
+  const pathname = location.pathname;
+  const adminRoute = isAdminPath(pathname);
+  const roomSlug = getRoomSlug(pathname);
+
+  // Initialize from localStorage for instant rendering (no flash). Per-slug
+  // key takes priority over the legacy un-suffixed key when the initial URL
+  // is already a room's public route.
   const [publicThemeState, setPublicThemeState] = useState<ThemeId>(() => {
-    const stored = localStorage.getItem(STORAGE_PUBLIC_KEY) || localStorage.getItem(STORAGE_GLOBAL_KEY);
+    const initialSlug = getRoomSlug(window.location.pathname);
+    const stored = (initialSlug && localStorage.getItem(publicSlugKey(initialSlug)))
+      || localStorage.getItem(STORAGE_PUBLIC_KEY)
+      || localStorage.getItem(STORAGE_GLOBAL_KEY);
     return (stored as ThemeId) || 'dark';
   });
   // Admin theme is per-admin (stored in user preferences + localStorage)
@@ -78,7 +110,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   });
 
   // Effective theme depends on route: admin routes use per-admin theme, public uses room theme
-  const globalTheme = isAdminRoute() ? adminThemeState : publicThemeState;
+  const globalTheme = adminRoute ? adminThemeState : publicThemeState;
   const theme = globalTheme;
 
   // Apply theme class whenever effective theme changes
@@ -86,12 +118,31 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyThemeClass(theme);
   }, [theme]);
 
-  // Hydrate from API on mount and when slug changes
+  // Re-resolve the per-slug local theme immediately on entering a different
+  // room's public route (room A -> room B must not keep A's theme). Runs
+  // before the async hydrate effect below, so this is the instant/no-flash
+  // value; the network hydrate may still overwrite it with the room's
+  // configured theme once that resolves.
+  useEffect(() => {
+    if (adminRoute || !roomSlug) return;
+    // Resolution order: per-slug key -> legacy un-suffixed key -> default.
+    // Always set (rather than only when something is found) so navigating
+    // from a room WITH a saved theme to one WITHOUT doesn't keep showing the
+    // previous room's theme.
+    const stored = localStorage.getItem(publicSlugKey(roomSlug))
+      || localStorage.getItem(STORAGE_PUBLIC_KEY)
+      || localStorage.getItem(STORAGE_GLOBAL_KEY);
+    setPublicThemeState((stored as ThemeId) || 'dark');
+  }, [adminRoute, roomSlug]);
+
+  // Hydrate from API on mount and whenever the route's admin/public-slug
+  // classification changes (was `[]` — only ran once, so navigating between
+  // rooms or admin<->public never re-fetched the theme for the new context).
   useEffect(() => {
     const hydrate = async () => {
       try {
         // Global pages (/, /scoreboard, /catalogue, /games/*) use global page theme
-        if (isGlobalPage()) {
+        if (isGlobalPath(pathname)) {
           try {
             const configRes = await fetch('/api/global/config');
             if (configRes.ok) {
@@ -102,12 +153,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
               }
             }
           } catch { /* fall through to room theme */ }
-        } else {
+        } else if (roomSlug) {
           // Room pages use room-specific theme
-          const pathSlug = window.location.pathname.split('/').filter(Boolean)[0] || '';
-          const portal = pathSlug && pathSlug !== 'admin'
-            ? await getPortal(pathSlug).catch(() => null)
-            : null;
+          const portal = await getPortal(roomSlug).catch(() => null);
           if (portal) {
             const serverPublicTheme = portal.public_theme || portal.ui_theme;
             if (serverPublicTheme) {
@@ -131,14 +179,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
 
     hydrate();
-  }, []);
+    // s20 M1 fix: deps are [adminRoute, roomSlug], NOT [pathname, roomSlug].
+    // `pathname` is still read inside (for isGlobalPath), but must not be a
+    // dep — otherwise every same-room navigation (e.g. scoreboard -> lobby)
+    // re-fires this effect and setPublicThemeState(serverPublicTheme)
+    // clobbers a viewer's just-set personal theme back to the room's
+    // configured theme (visible flicker). Global sub-pages intentionally
+    // share one theme, so not re-hydrating between them is fine.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminRoute, roomSlug]);
 
   const setPublicTheme = (newTheme: ThemeId) => {
     setPublicThemeState(newTheme);
-    // Store per-slug so changing one room's theme doesn't affect others
-    const pathSlug = window.location.pathname.split('/').filter(Boolean)[0] || '';
-    if (pathSlug && pathSlug !== 'admin') {
-      localStorage.setItem(`arcaid-theme-public-${pathSlug}`, newTheme);
+    // Store per-slug so changing one room's theme doesn't affect others.
+    // Legacy un-suffixed key is also kept for back-compat (older sessions /
+    // global-page fallback still read it).
+    if (roomSlug) {
+      localStorage.setItem(publicSlugKey(roomSlug), newTheme);
     }
     localStorage.setItem(STORAGE_PUBLIC_KEY, newTheme);
     localStorage.setItem(STORAGE_GLOBAL_KEY, newTheme);
@@ -150,7 +207,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   };
 
   const setGlobalTheme = (newTheme: ThemeId) => {
-    if (isAdminRoute()) {
+    if (adminRoute) {
       setAdminTheme(newTheme);
     } else {
       setPublicTheme(newTheme);

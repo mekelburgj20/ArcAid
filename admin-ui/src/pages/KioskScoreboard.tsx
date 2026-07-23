@@ -340,7 +340,13 @@ export default function KioskScoreboard() {
 
       {/* Lobby feed ticker */}
       {tickerItems.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden" style={{ height: 36 }}>
+        // s20: safe-area-inset-bottom accommodation — see ScoreboardTicker.tsx
+        // for the box-sizing rationale (height grows, padding-bottom keeps the
+        // 36px content pinned above the unsafe strip on notched devices).
+        <div
+          className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden"
+          style={{ height: 'calc(36px + max(0px, env(safe-area-inset-bottom)))', paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
+        >
           <div className="kiosk-ticker flex items-center gap-10 whitespace-nowrap h-full px-4">
             {/* Double the items for seamless loop */}
             {[...tickerItems, ...tickerItems].map((item, i) => {
@@ -374,8 +380,14 @@ export default function KioskScoreboard() {
         .kiosk-ticker {
           animation: kiosk-ticker-scroll 60s linear infinite;
         }
+        @media (prefers-reduced-motion: reduce) {
+          .kiosk-ticker {
+            animation: none;
+            overflow-x: auto;
+          }
+        }
         @media (max-width: 640px) {
-          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.6); }
+          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.85); }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout { overflow-x: hidden !important; }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div { flex-direction: column !important; align-items: center !important; }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div > div { flex-shrink: 1 !important; max-width: 100% !important; }

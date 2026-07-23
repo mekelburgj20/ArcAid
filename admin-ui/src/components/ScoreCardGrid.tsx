@@ -138,12 +138,15 @@ export default function ScoreCardGrid({
               )}
 
               <button
-                className="absolute top-2 right-2 z-20 w-8 h-8 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/20 flex items-center justify-center opacity-0 group-hover/card:opacity-100 focus:opacity-100 transition-opacity cursor-pointer backdrop-blur-sm"
+                type="button"
+                className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none focus-visible:ring-2 focus-visible:ring-neon-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-deep opacity-0 group-hover/card:opacity-100 focus:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSubmit(lb); }}
                 aria-label={`Submit score for ${lb.displayName || lb.gameName}`}
                 title="Submit score"
               >
-                <Plus size={16} />
+                <span className="w-8 h-8 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
+                  <Plus size={16} />
+                </span>
               </button>
             </div>
           );

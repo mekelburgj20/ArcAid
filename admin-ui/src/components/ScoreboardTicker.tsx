@@ -94,7 +94,14 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
   if (tickerItems.length === 0) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden" style={{ height: 36 }}>
+    // s20: height grows by the safe-area inset (viewport-fit=cover clips the
+    // fixed-bottom bar on notched phones otherwise); padding-bottom of the
+    // same amount keeps the 36px content box pinned above the unsafe strip
+    // (box-sizing: border-box means height and padding compose exactly).
+    <div
+      className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden"
+      style={{ height: 'calc(36px + max(0px, env(safe-area-inset-bottom)))', paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
+    >
       <div className="scoreboard-ticker-track flex items-center gap-10 whitespace-nowrap h-full px-4">
         {/* Double the items for a seamless loop */}
         {[...tickerItems, ...tickerItems].map((item, i) => {

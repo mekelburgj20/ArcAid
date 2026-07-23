@@ -57,6 +57,7 @@
 
 /* Light theme (daisyUI-inspired clean light) */
 .theme-light {
+  color-scheme: light;
   --color-deep: oklch(95% 0 0);
   --color-surface: oklch(100% 0 0);
   --color-raised: oklch(98% 0 0);
@@ -171,6 +172,7 @@
 
 /* Coffee theme (warm cream/brown light theme, daisyUI retro-inspired) */
 .theme-coffee {
+  color-scheme: light;
   --color-deep: oklch(91.6% 0.034 90.5);
   --color-surface: oklch(88.3% 0.049 91.8);
   --color-raised: oklch(84.1% 0.065 90.9);
@@ -364,14 +366,20 @@
   box-sizing: border-box;
 }
 
+/* s20: color-scheme default lives on <html> (not body) so the per-theme
+   `.theme-light`/`.theme-coffee` overrides above actually take effect —
+   color-scheme is inherited, and an explicit value on body would otherwise
+   always win over html's for every descendant regardless of theme class. */
+html {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);
   background-color: var(--color-deep);
   color: var(--color-primary);
   min-height: 100vh;
-  /* Force dark-mode rendering for native form controls (dropdowns, date pickers, etc.) */
-  color-scheme: dark;
 }
 
 /* Force dropdown options to render with dark background even on stubborn browsers */
@@ -648,6 +656,18 @@ select option {
 
 .pulse {
   animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Global reduced-motion guard (s20) — the first @media block in this file.
+   Placed after the rules it overrides so cascade order (equal specificity)
+   picks this one when the user's OS/browser prefers reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .title-glow,
+  .title-fire,
+  .title-plasma,
+  .pulse {
+    animation: none;
+  }
 }
 
 /* Scrollbar styling */

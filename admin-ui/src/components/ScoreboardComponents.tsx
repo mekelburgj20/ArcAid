@@ -644,6 +644,19 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                         } ${isViewerRow ? 'bg-neon-cyan/10 border-l-2 border-l-neon-cyan' : ''
                         } ${hasMultiple && !useTwoColumns ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''}`}
                         onClick={hasMultiple && !useTwoColumns ? () => togglePlayer(entry.iscored_username) : undefined}
+                        role={hasMultiple && !useTwoColumns ? 'button' : undefined}
+                        tabIndex={hasMultiple && !useTwoColumns ? 0 : undefined}
+                        aria-expanded={hasMultiple && !useTwoColumns ? isExpanded : undefined}
+                        onKeyDown={hasMultiple && !useTwoColumns ? (e) => {
+                          // m3: ignore keydowns bubbled from a focused child
+                          // (e.g. the player-name Link) — only toggle when the
+                          // row itself is focused.
+                          if (e.target !== e.currentTarget) return;
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            togglePlayer(entry.iscored_username);
+                          }
+                        } : undefined}
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${rankColor}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>

@@ -127,7 +127,7 @@ const ADVANCED_NUMBER_PREFS: PrefDef[] = [
 
 const MOBILE_PREFS: PrefDef[] = [
   { key: 'SCOREBOARD_MOBILE_VERTICAL', label: 'Mobile Vertical Scroll', description: 'When on, cards stack vertically on mobile. When off, mobile uses the same layout as desktop.', type: 'toggle' },
-  { key: 'SCOREBOARD_MOBILE_SCALE', label: 'Mobile Scale Factor', description: 'Scale cards on mobile (0.3-1.0). Default 0.6 = 60% of desktop size.', type: 'number', min: 0.3, max: 1.0, step: 0.1 },
+  { key: 'SCOREBOARD_MOBILE_SCALE', label: 'Mobile Scale Factor', description: 'Scale cards on mobile (0.3-1.0). Default 0.85 = 85% of desktop size.', type: 'number', min: 0.3, max: 1.0, step: 0.1 },
 ];
 
 const ZOOM_PREF: PrefDef = { key: 'SCOREBOARD_ZOOM', label: 'Zoom', type: 'range', min: 50, max: 200, suffix: '%' };

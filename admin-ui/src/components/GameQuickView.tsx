@@ -34,6 +34,40 @@ interface Props {
 export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
   const [meta, setMeta] = useState<GlobalGameMeta | null>(null);
   const backdropMouseDown = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+
+  // s20: initial focus into the dialog + focus-return to the trigger on close.
+  useEffect(() => {
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    closeBtnRef.current?.focus();
+    return () => {
+      previouslyFocused.current?.focus?.();
+    };
+  }, []);
+
+  // s20: minimal Tab focus loop — keeps focus inside the dialog while open.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !dialogRef.current) return;
+      const focusables = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Pull catalogue metadata for the subtitle. Optional — if there's no
   // globalGameId or the fetch fails, the modal just shows the tournament name.
@@ -89,6 +123,10 @@ export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
       onClick={(e) => { if (e.target === e.currentTarget && backdropMouseDown.current) onClose(); }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={lb.gameName ? `${lb.gameName} preview` : 'Game preview'}
         className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
@@ -102,6 +140,7 @@ export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
           } : undefined}
         >
           <button
+            ref={closeBtnRef}
             onClick={onClose}
             aria-label="Close"
             className="absolute top-3 right-3 text-white/80 hover:text-white bg-black/40 hover:bg-black/60 rounded-full p-1.5 backdrop-blur-sm border-0 cursor-pointer transition-colors"
