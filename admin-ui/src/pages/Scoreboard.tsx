@@ -22,7 +22,6 @@ import GameQuickView from '../components/GameQuickView';
 import HorizontalScrollNav from '../components/HorizontalScrollNav';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
-import ScoreboardTicker from '../components/ScoreboardTicker';
 import { deriveCardProps } from '../lib/scoreboardConfig';
 import { deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../lib/scoreboardConfig';
 import { TAB_LABELS, tabSubtitle } from '../lib/scoresCopy';
@@ -655,9 +654,6 @@ export default function Scoreboard() {
           onSubmitted={() => { loadData(); loadRankings(); setSelectedGame(null); }}
         />
       )}
-
-      {/* S14: lobby feed ticker — visible on all three tabs. */}
-      {roomId && <ScoreboardTicker roomId={roomId} />}
 
       {/* Player display preferences modal */}
       {playerToken && (

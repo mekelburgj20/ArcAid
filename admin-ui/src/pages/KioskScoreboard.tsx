@@ -158,6 +158,17 @@ export default function KioskScoreboard() {
     return { id: e.id, title: e.title, ago, Icon: TICKER_ICONS[e.type] || Target };
   }), [feedEvents]);
 
+  // s21 — distance-based ticker speed (constant px/s); a fixed 60s duration
+  // crawled when the feed had few items. Mirrors ScoreboardTicker.tsx.
+  const tickerTrackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const track = tickerTrackRef.current;
+    if (!track) return;
+    const distance = track.scrollWidth / 2;
+    const seconds = Math.min(90, Math.max(15, distance / 70));
+    track.style.setProperty('--ticker-duration', `${seconds}s`);
+  }, [tickerItems]);
+
   // Guard: wait for config to load, then check if kiosk is enabled
   if (!configLoaded) {
     return <div className="min-h-screen bg-deep" />;
@@ -361,7 +372,7 @@ export default function KioskScoreboard() {
           className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden"
           style={{ height: 'calc(46px + max(0px, env(safe-area-inset-bottom)))', paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
         >
-          <div className="kiosk-ticker flex items-center gap-10 whitespace-nowrap h-full px-4">
+          <div ref={tickerTrackRef} className="kiosk-ticker flex items-center gap-10 whitespace-nowrap h-full px-4">
             {/* Double the items for seamless loop */}
             {[...tickerItems, ...tickerItems].map((item, i) => {
               const Icon = item.Icon;
@@ -392,7 +403,7 @@ export default function KioskScoreboard() {
           to { transform: translateX(-50%); }
         }
         .kiosk-ticker {
-          animation: kiosk-ticker-scroll 60s linear infinite;
+          animation: kiosk-ticker-scroll var(--ticker-duration, 60s) linear infinite;
         }
         @media (prefers-reduced-motion: reduce) {
           .kiosk-ticker {
