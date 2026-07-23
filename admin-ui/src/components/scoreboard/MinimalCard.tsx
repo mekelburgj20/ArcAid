@@ -94,7 +94,12 @@ export default function MinimalCard({
   const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition, qrOverlapPx);
 
   return (
-    <div style={{ position: 'relative', maxWidth: 380 }}>
+    // S21 — scoreboard-card-slot: forces width:100% at <=640px (see
+    // BannerCard.tsx for the full rationale). MinimalCard has no explicit
+    // width of its own (just this maxWidth cap), so without an explicit
+    // width the mobile CSS override wouldn't have anything to widen —
+    // the class supplies the mobile-only width:100% that's otherwise missing.
+    <div className="scoreboard-card-slot" style={{ position: 'relative', maxWidth: 380 }}>
       {/* QR code — top-right, above the card */}
       {showQr && qrPosition === 'top-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>

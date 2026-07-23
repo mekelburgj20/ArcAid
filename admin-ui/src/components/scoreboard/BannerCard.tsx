@@ -108,8 +108,12 @@ export default function BannerCard({
   const showQr = qrMode !== 'disabled';
   const qrMetrics = qrBottomMetrics(qrSize, showQr, qrPosition, qrOverlapPx);
 
+  // S21 — scoreboard-card-slot: at <=640px the page's mobile-vertical CSS
+  // forces this to width:100% so the card actually fills the full-width
+  // mobile column (the outer layout wrapper alone isn't enough — this
+  // inner div is where the fixed 280px lives).
   return (
-    <div style={{ position: 'relative', width: 280, maxWidth: '100%', display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="scoreboard-card-slot" style={{ position: 'relative', width: 280, maxWidth: '100%', display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* QR code — top-right, above the card */}
       {showQr && qrPosition === 'top-right' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
@@ -167,9 +171,9 @@ export default function BannerCard({
           </div>
         )}
         {(lb.tournamentName || lb.gameStatus === 'COMPLETED' || lb.isPinned) && (
-          <p className={`text-[11px] uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted flex items-center justify-center gap-1`}>
+          <p className={`text-[11px] sb-fs-11 uppercase tracking-wider ${hasIdentifierImage ? '' : 'mt-0.5'} text-muted flex items-center justify-center gap-1`}>
             {lb.isPinned ? (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm bg-neon-cyan/10 text-neon-cyan/80 text-[10px] tracking-normal normal-case">
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm bg-neon-cyan/10 text-neon-cyan/80 text-[10px] sb-fs-10 tracking-normal normal-case">
                 Pinned
               </span>
             ) : (
@@ -181,7 +185,7 @@ export default function BannerCard({
           </p>
         )}
         {showTimer && countdown && (
-          <p className="text-[10px] text-faint mt-0.5">{countdown}</p>
+          <p className="text-[10px] sb-fs-10 text-faint mt-0.5">{countdown}</p>
         )}
       </div>
 
@@ -248,7 +252,7 @@ export default function BannerCard({
                           slug={slug}
                           entry={entry}
                           onClick={e => e.stopPropagation()}
-                          className="text-[11px] truncate text-secondary block no-underline hover:text-neon-cyan transition-colors"
+                          className="text-[11px] sb-fs-11 truncate text-secondary block no-underline hover:text-neon-cyan transition-colors"
                         />
                         <span
                           className={`text-xs font-bold tabular-nums block ${scoreColor}`}
@@ -290,7 +294,7 @@ export default function BannerCard({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border/30 px-3 flex justify-between items-start text-[10px] text-faint" style={{ paddingTop: 8, paddingBottom: 8 + qrMetrics.footerExtra }}>
+      <div className="border-t border-border/30 px-3 flex justify-between items-start text-[10px] sb-fs-10 text-faint" style={{ paddingTop: 8, paddingBottom: 8 + qrMetrics.footerExtra }}>
         <a href={`/${slug}/games/${encodeURIComponent(lb.gameName)}`} className="text-neon-cyan/60 hover:text-neon-cyan transition-colors">
           Full Leaderboard &rarr;
         </a>

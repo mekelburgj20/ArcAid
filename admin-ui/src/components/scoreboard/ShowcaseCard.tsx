@@ -124,8 +124,9 @@ export default function ShowcaseCard({
         </div>
       )}
 
-      {/* Card shell */}
-      <div style={{
+      {/* Card shell. S21 — scoreboard-card-slot: forces width:100% at <=640px
+          (see BannerCard.tsx for the full rationale). */}
+      <div className="scoreboard-card-slot" style={{
         width: 380,
         maxWidth: '100%',
         position: 'relative',
@@ -238,7 +239,7 @@ export default function ShowcaseCard({
                 // tournament badge. Rendering preserves theme colors.
                 if (lb.isPinned) {
                   return (
-                    <span style={{
+                    <span className="sb-fs-10" style={{
                       padding: '4px 12px',
                       borderRadius: theme.badgeBorder ? 4 : 6,
                       background: cardBgFill ? 'rgba(0,0,0,0.6)' : theme.badgeBg,
@@ -263,7 +264,7 @@ export default function ShowcaseCard({
                 // / community rows have no tournament context to surface).
                 if (!label) return null;
                 return (
-              <span style={{
+              <span className="sb-fs-10" style={{
                 padding: '4px 12px',
                 borderRadius: tBadge ? 4 : (theme.badgeBorder ? 4 : 6),
                 background: cardBgFill
@@ -285,7 +286,7 @@ export default function ShowcaseCard({
                 <Lock size={12} style={{ color: theme.badgeColor, flexShrink: 0 }} />
               )}
               {showTimer && countdown && (
-                <span style={{
+                <span className="sb-fs-9" style={{
                   fontSize: 9,
                   color: cardBgFill ? 'rgba(255,255,255,0.7)' : theme.timerColor,
                   fontFamily: theme.monoFontFamily,
@@ -366,7 +367,7 @@ export default function ShowcaseCard({
             >
               Full Leaderboard &rarr;
             </a>
-            <span style={{ fontSize: 11, color: cardBgFill ? 'rgba(255,255,255,0.5)' : theme.metaColor }}>
+            <span className="sb-fs-11" style={{ fontSize: 11, color: cardBgFill ? 'rgba(255,255,255,0.55)' : theme.metaColor }}>
               {lb.rankings.length} player{lb.rankings.length !== 1 ? 's' : ''}
             </span>
           </div>

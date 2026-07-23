@@ -897,7 +897,9 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
     // ─ Plaque: hall-of-fame frame at game-card width ─
     if (rankingsStyle === 'plaque') {
       return outerWrap(
-        <div style={{
+        // S21 — scoreboard-card-slot: forces width:100% at <=640px so this
+        // ranking card matches the full-width mobile game cards.
+        <div className="scoreboard-card-slot" style={{
           width: gameCardW,
           maxWidth: '100%',
           position: 'relative',
@@ -995,7 +997,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
       return outerWrap(
         // v2.13.11 — flex-column + height:100% so the footer floats to the
         // bottom when the slot stretches to match game-card height.
-        <div style={{ width: gameCardW, maxWidth: '100%', padding: '4px 12px', fontFamily: tokens.font, display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div className="scoreboard-card-slot" style={{ width: gameCardW, maxWidth: '100%', padding: '4px 12px', fontFamily: tokens.font, display: 'flex', flexDirection: 'column', height: '100%' }}>
             <div style={{
               fontSize: 11,
               fontWeight: 700,
@@ -1071,7 +1073,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
         return n.toString();
       };
       return outerWrap(
-        <div style={{
+        <div className="scoreboard-card-slot" style={{
           width: gameCardW,
           maxWidth: '100%',
           position: 'relative',
@@ -1180,7 +1182,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
     return (
       <div style={{ position: 'relative', paddingTop: 42, marginTop: qrTopPad, maxWidth: '100%' }}>
         <link rel="stylesheet" href={showcaseTheme.googleFontsUrl} />
-        <div style={{
+        <div className="scoreboard-card-slot" style={{
           width: 380,
           maxWidth: '100%',
           position: 'relative',
@@ -1227,7 +1229,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
   if (scoreboardStyle === 'minimal') {
     return (
       <div style={{ position: 'relative', marginTop: qrTopPad || undefined, maxWidth: '100%' }}>
-        <div style={{
+        <div className="scoreboard-card-slot" style={{
           width: 380,
           maxWidth: '100%',
           position: 'relative',
@@ -1259,7 +1261,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
 
   // ── Banner style (default) ──
   return (
-    <div style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%', marginTop: qrTopPad || undefined }}>
+    <div className="scoreboard-card-slot" style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%', marginTop: qrTopPad || undefined }}>
       <div className="relative border-2 border-border rounded-lg overflow-hidden flex flex-col flex-1">
         <div className="absolute inset-0 bg-surface" />
         <div className="px-4 py-3 text-center border-b border-border/30 relative">
