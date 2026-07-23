@@ -808,37 +808,34 @@ export default function GlobalCatalogue() {
           <select
             value={filterType}
             onChange={e => setFilterType(e.target.value)}
-            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-white"
-            style={{ colorScheme: 'dark' }}
+            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-primary"
           >
-            <option value="" className="bg-surface-alt text-white">All Types</option>
-            <option value="pinball" className="bg-surface-alt text-white">Pinball</option>
-            <option value="arcade" className="bg-surface-alt text-white">Arcade</option>
-            <option value="video_game" className="bg-surface-alt text-white">Video Game</option>
+            <option value="" className="bg-surface-alt text-primary">All Types</option>
+            <option value="pinball" className="bg-surface-alt text-primary">Pinball</option>
+            <option value="arcade" className="bg-surface-alt text-primary">Arcade</option>
+            <option value="video_game" className="bg-surface-alt text-primary">Video Game</option>
           </select>
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
-            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-white"
-            style={{ colorScheme: 'dark' }}
+            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-primary"
           >
-            <option value="" className="bg-surface-alt text-white">All Status</option>
-            <option value="approved" className="bg-surface-alt text-white">Approved</option>
-            <option value="pending_review" className="bg-surface-alt text-white">Pending Review</option>
-            <option value="rejected" className="bg-surface-alt text-white">Rejected</option>
+            <option value="" className="bg-surface-alt text-primary">All Status</option>
+            <option value="approved" className="bg-surface-alt text-primary">Approved</option>
+            <option value="pending_review" className="bg-surface-alt text-primary">Pending Review</option>
+            <option value="rejected" className="bg-surface-alt text-primary">Rejected</option>
           </select>
           <select
             value={filterSource}
             onChange={e => setFilterSource(e.target.value)}
-            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-white"
-            style={{ colorScheme: 'dark' }}
+            className="bg-surface-alt border border-border rounded px-3 py-2 text-sm text-primary"
           >
-            <option value="" className="bg-surface-alt text-white">All Sources</option>
-            <option value="vps" className="bg-surface-alt text-white">VPS</option>
-            <option value="opdb" className="bg-surface-alt text-white">OPDB</option>
-            <option value="igdb" className="bg-surface-alt text-white">IGDB</option>
-            <option value="wizard" className="bg-surface-alt text-white">Wizard</option>
-            <option value="manual" className="bg-surface-alt text-white">Manual</option>
+            <option value="" className="bg-surface-alt text-primary">All Sources</option>
+            <option value="vps" className="bg-surface-alt text-primary">VPS</option>
+            <option value="opdb" className="bg-surface-alt text-primary">OPDB</option>
+            <option value="igdb" className="bg-surface-alt text-primary">IGDB</option>
+            <option value="wizard" className="bg-surface-alt text-primary">Wizard</option>
+            <option value="manual" className="bg-surface-alt text-primary">Manual</option>
           </select>
         </div>
 

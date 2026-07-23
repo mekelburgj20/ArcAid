@@ -11,6 +11,8 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
+import ConfirmModal from '../components/ConfirmModal';
+import { useToast } from '../components/Toast';
 
 /** Decode a player JWT and pull the role + gameRoomIds claims. The viewer
  *  could be a player, room_admin, or super_admin — public-page tokens carry
@@ -178,7 +180,10 @@ export default function GameDetail() {
   const { playerToken } = useViewerAuth();
   const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const { roomId, roomName } = useRoom();
+  const { toast } = useToast();
   const [reportOpen, setReportOpen] = useState(false);
+  // s20: confirm-before-delete for score-history rows, replacing native confirm().
+  const [pendingDeleteEntry, setPendingDeleteEntry] = useState<ScoreHistoryEntry | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
   const [leaderboard, setLeaderboard] = useState<GameLeaderboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -451,12 +456,18 @@ export default function GameDetail() {
     } catch {}
   };
 
+  /** s20: opens the confirm modal; the actual delete runs in
+   *  `performDeleteScoreHistory` once the user confirms. */
+  const handleDeleteScoreHistory = (entry: ScoreHistoryEntry) => {
+    if (!roomId || !playerToken) return;
+    setPendingDeleteEntry(entry);
+  };
+
   /** Delete one score_history row. Server gates: admin OR row owner. We
    *  optimistically drop the row from the expanded view, then refresh the
    *  leaderboard since the deleted score may have been this player's best. */
-  const handleDeleteScoreHistory = async (entry: ScoreHistoryEntry) => {
+  const performDeleteScoreHistory = async (entry: ScoreHistoryEntry) => {
     if (!roomId || !playerToken) return;
-    if (!confirm(`Delete this score (${entry.score.toLocaleString()})?`)) return;
     try {
       const res = await fetch(`/api/rooms/${roomId}/score-history/${entry.id}`, {
         method: 'DELETE',
@@ -464,7 +475,7 @@ export default function GameDetail() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Failed to delete score');
+        toast(err.error || 'Failed to delete score', 'error');
         return;
       }
       setPlayerHistory(prev => prev.filter(h => h.id !== entry.id));
@@ -504,7 +515,7 @@ export default function GameDetail() {
         .then(setGamePlayerRankings)
         .catch(() => {});
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete score');
+      toast(err instanceof Error ? err.message : 'Failed to delete score', 'error');
     }
   };
 
@@ -718,6 +729,19 @@ export default function GameDetail() {
                           displayRank === 1 ? 'bg-neon-amber/8' : ''
                         } ${hasMultiple ? 'cursor-pointer hover:bg-raised/50 transition-colors' : ''} ${isHighlighted ? 'ring-2 ring-inset ring-neon-cyan/60 bg-neon-cyan/5' : ''}`}
                         onClick={hasMultiple ? () => togglePlayerHistory(entry.iscored_username) : undefined}
+                        role={hasMultiple ? 'button' : undefined}
+                        tabIndex={hasMultiple ? 0 : undefined}
+                        aria-expanded={hasMultiple ? expandedPlayer === entry.iscored_username : undefined}
+                        onKeyDown={hasMultiple ? (e) => {
+                          // m3: ignore keydowns that bubbled up from a focused
+                          // child (e.g. the player-name Link) — only the row
+                          // itself being focused should toggle on Enter/Space.
+                          if (e.target !== e.currentTarget) return;
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            togglePlayerHistory(entry.iscored_username);
+                          }
+                        } : undefined}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
@@ -849,29 +873,38 @@ export default function GameDetail() {
                       cleanly to the legacy single-table view. */}
                   {distinctPlatforms.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-3">
+                      {/* s20: outer button carries the ≥44px hit area; inner span keeps the
+                          original compact pill visual (same outer/inner split as the
+                          Scoreboard.tsx submit button). */}
                       <button
                         type="button"
                         onClick={() => setSelectedPlatform(null)}
-                        className={`text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer ${
+                        aria-pressed={selectedPlatform === null}
+                        className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
+                      >
+                        <span className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                           selectedPlatform === null
                             ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
                             : 'border-border text-muted hover:text-primary hover:border-border/80'
-                        }`}
-                      >
-                        All
+                        }`}>
+                          All
+                        </span>
                       </button>
                       {distinctPlatforms.map(p => (
                         <button
                           key={p}
                           type="button"
                           onClick={() => setSelectedPlatform(p)}
-                          className={`text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer ${
+                          aria-pressed={selectedPlatform === p}
+                          className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
+                        >
+                          <span className={`text-xs px-3 py-1 rounded-full border transition-colors ${
                             selectedPlatform === p
                               ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
                               : 'border-border text-muted hover:text-primary hover:border-border/80'
-                          }`}
-                        >
-                          {getPlatformDisplay(p)}
+                          }`}>
+                            {getPlatformDisplay(p)}
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -1477,6 +1510,20 @@ export default function GameDetail() {
         )}
       </main>
 
+      {pendingDeleteEntry && (
+        <ConfirmModal
+          title="Delete score"
+          message={`Delete this score (${pendingDeleteEntry.score.toLocaleString()})?`}
+          confirmLabel="Delete"
+          onConfirm={() => {
+            const entry = pendingDeleteEntry;
+            setPendingDeleteEntry(null);
+            performDeleteScoreHistory(entry);
+          }}
+          onCancel={() => setPendingDeleteEntry(null)}
+        />
+      )}
+
       {reportOpen && leaderboard?.globalGameId && (
         <ReportProblemModal
           globalGameId={leaderboard.globalGameId}
@@ -1540,8 +1587,9 @@ function ScoreHistoryRow({ h, canDelete, onDelete }: {
           <button
             type="button"
             onClick={onDelete}
-            className="opacity-0 group-hover:opacity-100 text-red-400/60 hover:text-red-400 transition-all cursor-pointer"
+            className="p-4 -m-2 opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-red-400/60 hover:text-red-400 transition-all cursor-pointer"
             title="Delete this score"
+            aria-label="Delete this score"
           >
             <Trash2 size={12} />
           </button>

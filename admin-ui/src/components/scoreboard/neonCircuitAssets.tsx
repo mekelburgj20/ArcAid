@@ -131,10 +131,18 @@ export function GlowNodes() {
           0%, 100% { opacity: 0.3; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.4); }
         }
+        @media (prefers-reduced-motion: reduce) {
+          /* !important needed: the animation is set via inline style below,
+             which normal cascade order can't override. */
+          .scoreboard-glow-node {
+            animation: none !important;
+          }
+        }
       `}</style>
       {nodes.map((n, i) => (
         <div
           key={i}
+          className="scoreboard-glow-node"
           style={{
             position: 'absolute',
             borderRadius: '50%',

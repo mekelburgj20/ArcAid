@@ -86,7 +86,9 @@ export default function ShareButton({ title, text, path, className, showLabel = 
     return (
         <button
             onClick={handleShare}
-            className={className ?? DEFAULT_CLASS}
+            // s20: icon-only variant (showLabel=false) had no text to pad its hit
+            // area out to 44px — the labeled variant's text does that already.
+            className={`${className ?? DEFAULT_CLASS}${!showLabel ? ' min-h-11 min-w-11 justify-center' : ''}`}
             aria-label={state === 'copied' ? 'Link copied' : state === 'failed' ? 'Copy failed' : 'Share'}
             title="Share"
         >

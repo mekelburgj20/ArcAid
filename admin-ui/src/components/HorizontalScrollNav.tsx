@@ -21,6 +21,8 @@ interface Props {
   /** Movement threshold (px) that turns a mousedown+mousemove on the card
    *  area into a drag-to-scroll instead of a regular click. Default 5. */
   dragThresholdPx?: number;
+  /** s20: accessible name for the scroll region (role="region"). */
+  ariaLabel?: string;
   children: ReactNode;
 }
 
@@ -56,6 +58,7 @@ export default function HorizontalScrollNav({
   holdScrollPxPerFrame = 18,
   holdDelayMs = 280,
   dragThresholdPx = 5,
+  ariaLabel = 'Scrollable content',
   children,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -64,6 +67,9 @@ export default function HorizontalScrollNav({
   const [canRight, setCanRight] = useState(false);
   const [hoverLeft, setHoverLeft] = useState(false);
   const [hoverRight, setHoverRight] = useState(false);
+  // s20: keyboard path — arrows had no way to appear/scroll without a mouse.
+  // Focus-within reveals them same as hover; ArrowLeft/ArrowRight scroll.
+  const [focusWithin, setFocusWithin] = useState(false);
   const [wrapperRect, setWrapperRect] = useState<{ top: number; left: number; right: number; height: number } | null>(null);
 
   // Hold-state refs (mutable; never trigger re-render).
@@ -233,8 +239,8 @@ export default function HorizontalScrollNav({
     }, holdDelayMs);
   };
 
-  const showLeft = canLeft && hoverLeft && wrapperRect != null;
-  const showRight = canRight && hoverRight && wrapperRect != null;
+  const showLeft = canLeft && (hoverLeft || focusWithin) && wrapperRect != null;
+  const showRight = canRight && (hoverRight || focusWithin) && wrapperRect != null;
 
   // Per-button geometry. zone = how far INTO the wrapper the hover/click
   // area extends past the wrapper edge.
@@ -249,6 +255,24 @@ export default function HorizontalScrollNav({
         className={`overflow-x-auto scoreboard-hscroll-nobar ${className}`}
         onMouseDown={handleScrollMouseDown}
         style={{ cursor: 'grab' }}
+        tabIndex={0}
+        role="region"
+        aria-label={ariaLabel}
+        onFocus={() => setFocusWithin(true)}
+        onBlur={(e) => {
+          // Native focus-within semantics: only clear when focus leaves the
+          // whole region, not when it moves between children inside it.
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setFocusWithin(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            scrollBy('left', clickScrollPx, true);
+          } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            scrollBy('right', clickScrollPx, true);
+          }
+        }}
       >
         {children}
       </div>

@@ -66,6 +66,18 @@ export default function ScoreList({
               onClick={canExpand ? () => onTogglePlayer?.(entry.iscored_username) : undefined}
               onMouseEnter={hoverBorder ? (e) => { (e.currentTarget as HTMLElement).style.borderLeftColor = hoverBorder; } : undefined}
               onMouseLeave={hoverBorder ? (e) => { (e.currentTarget as HTMLElement).style.borderLeftColor = 'transparent'; } : undefined}
+              role={canExpand ? 'button' : undefined}
+              tabIndex={canExpand ? 0 : undefined}
+              aria-expanded={canExpand ? isExpanded : undefined}
+              onKeyDown={canExpand ? (e) => {
+                // m3: ignore keydowns bubbled from a focused child (e.g. the
+                // player-name Link) — only toggle when the row itself is focused.
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onTogglePlayer?.(entry.iscored_username);
+                }
+              } : undefined}
             >
               {/* Rank */}
               <span style={{

@@ -1081,14 +1081,14 @@ export default function Settings() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <label className="text-sm font-medium text-primary">Mobile Scale Factor</label>
-                  <p className="text-xs text-muted">Scale cards on mobile (0.3–1.0). Default 0.6 = 60% of desktop size.</p>
+                  <p className="text-xs text-muted">Scale cards on mobile (0.3–1.0). Default 0.85 = 85% of desktop size.</p>
                 </div>
                 <input
                   type="number"
                   min="0.3"
                   max="1"
                   step="0.05"
-                  value={settings.SCOREBOARD_MOBILE_SCALE || '0.6'}
+                  value={settings.SCOREBOARD_MOBILE_SCALE || '0.85'}
                   onChange={e => handleChange('SCOREBOARD_MOBILE_SCALE', e.target.value)}
                   className="w-20 rounded bg-deep border border-border px-2 py-1 text-sm text-primary"
                 />

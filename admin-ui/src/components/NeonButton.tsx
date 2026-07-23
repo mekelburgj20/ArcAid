@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 interface NeonButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -12,9 +13,16 @@ const variants = {
   secondary: 'bg-raised text-muted border-border hover:text-primary hover:border-border-glow',
 };
 
-export default function NeonButton({ variant = 'primary', children, className = '', disabled, ...props }: NeonButtonProps) {
+// s20: forwardRef so callers (e.g. ConfirmModal) can programmatically focus
+// the underlying <button> — was a plain function component, so a `ref` prop
+// silently no-op'd (React warns and leaves ref.current null).
+const NeonButton = forwardRef<HTMLButtonElement, NeonButtonProps>(function NeonButton(
+  { variant = 'primary', children, className = '', disabled, ...props },
+  ref,
+) {
   return (
     <button
+      ref={ref}
       className={`
         inline-flex items-center justify-center gap-2 px-4 py-2 rounded border text-sm font-medium
         transition-all duration-200 cursor-pointer
@@ -28,4 +36,6 @@ export default function NeonButton({ variant = 'primary', children, className = 
       {children}
     </button>
   );
-}
+});
+
+export default NeonButton;

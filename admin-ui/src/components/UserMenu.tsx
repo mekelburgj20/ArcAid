@@ -111,7 +111,7 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="User menu"
-        className="flex items-center gap-1.5 p-1 rounded hover:bg-raised transition-colors cursor-pointer bg-transparent border-0"
+        className="flex items-center justify-center gap-1.5 p-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded hover:bg-raised transition-colors cursor-pointer bg-transparent border-0"
       >
         {user.avatar ? (
           <img
