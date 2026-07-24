@@ -145,6 +145,11 @@ const KIOSK_TOGGLES: Record<string, { label: string; description: string; defaul
     description: 'When enabled, the kiosk display page is available at /{slug}/kiosk. When disabled, the kiosk page returns a 404.',
     defaultOn: true,
   },
+  'KIOSK_AUTO_SCROLL': {
+    label: 'Kiosk Auto-Scroll',
+    description: 'When the card row is wider than the screen (e.g. with Kiosk Zoom set for TV distance), slowly scroll it back and forth so every card gets screen time.',
+    defaultOn: true,
+  },
 };
 
 // Toggles that render inside the Global Card Styles card
