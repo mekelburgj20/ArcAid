@@ -449,15 +449,14 @@ export default function KioskScoreboard() {
       )}
 
       <style>{`
+        /* Kiosk display is non-interactive — hide the scrollbar entirely
+           (scrolling still works for auto-scroll and incidental touch). The
+           public Scoreboard page keeps its own visible thin-scrollbar copy. */
         .scoreboard-hscroll-layout {
-          scrollbar-width: thin;
-          scrollbar-color: var(--color-border) transparent;
+          scrollbar-width: none;
           overscroll-behavior-x: contain;
         }
-        .scoreboard-hscroll-layout::-webkit-scrollbar { height: 8px; }
-        .scoreboard-hscroll-layout::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 4px; }
-        .scoreboard-hscroll-layout::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
-        .scoreboard-hscroll-layout::-webkit-scrollbar-thumb:hover { background: var(--color-muted); }
+        .scoreboard-hscroll-layout::-webkit-scrollbar { display: none; }
         @keyframes kiosk-ticker-scroll {
           from { transform: translateX(0); }
           to { transform: translateX(-50%); }
