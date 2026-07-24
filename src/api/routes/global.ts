@@ -882,6 +882,9 @@ router.post('/rooms', requireDiscordUser, roomCreateLimiter, async (req, res) =>
         const data = validationResult.data;
 
         const db = await getDatabase();
+        // Cap check is read-outside-transaction: concurrent requests from one user can
+        // overshoot to ~5 rooms one time (bounded by the 3/hr limiter), then lock at >=3.
+        // Acceptable while the cap is anti-squatting, not billing — serialize before reuse.
         const ownedCount = await db.get<{ count: number }>(
             `SELECT COUNT(*) as count FROM game_room_admins WHERE discord_user_id = ? AND role = 'owner'`,
             discordId,
