@@ -176,6 +176,59 @@ export default function KioskScoreboard() {
     track.style.setProperty('--ticker-duration', `${seconds}s`);
   }, [tickerItems]);
 
+  // Kiosk attract mode — when the horizontal card row overflows the screen
+  // (typical once Kiosk Zoom is raised for TV distance), slowly ping-pong the
+  // row so every card gets screen time. Room toggle KIOSK_AUTO_SCROLL
+  // (default on); skipped under prefers-reduced-motion; pauses on user input.
+  const hscrollRef = useRef<HTMLDivElement>(null);
+  const autoScrollEnabled = config.KIOSK_AUTO_SCROLL !== 'false';
+  useEffect(() => {
+    const el = hscrollRef.current;
+    if (!el || !autoScrollEnabled) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const SPEED_PX_PER_SEC = 40;
+    const END_DWELL_MS = 3000;
+    const INTERACT_PAUSE_MS = 10000;
+    let raf = 0;
+    let last = 0;
+    let dir = 1;
+    // Own float accumulator — assigning back each frame; browsers round
+    // scrollLeft, so accumulating on the element itself stalls at low speeds.
+    let pos = el.scrollLeft;
+    let pauseUntil = performance.now() + END_DWELL_MS;
+
+    const onInteract = () => {
+      pauseUntil = performance.now() + INTERACT_PAUSE_MS;
+      pos = el.scrollLeft;
+    };
+    el.addEventListener('wheel', onInteract, { passive: true });
+    el.addEventListener('touchstart', onInteract, { passive: true });
+    el.addEventListener('pointerdown', onInteract);
+
+    const step = (now: number) => {
+      raf = requestAnimationFrame(step);
+      const dt = last ? (now - last) / 1000 : 0;
+      last = now;
+      if (now < pauseUntil) return;
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 4) return;
+      pos = Math.min(max, Math.max(0, pos + dir * SPEED_PX_PER_SEC * dt));
+      el.scrollLeft = pos;
+      if (pos >= max || pos <= 0) {
+        dir = -dir;
+        pauseUntil = now + END_DWELL_MS;
+      }
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      el.removeEventListener('wheel', onInteract);
+      el.removeEventListener('touchstart', onInteract);
+      el.removeEventListener('pointerdown', onInteract);
+    };
+  }, [autoScrollEnabled, effectiveLayout, visibleLeaderboards.length]);
+
   // Guard: wait for config to load, then check if kiosk is enabled
   if (!configLoaded) {
     return <div className="min-h-screen bg-deep" />;
@@ -336,7 +389,7 @@ export default function KioskScoreboard() {
             </div>
           ) : (
             <div className="flex-1 min-w-0">
-              <div className="-mx-4 sm:-mx-6 overflow-x-auto scoreboard-hscroll-layout">
+              <div ref={hscrollRef} className="-mx-4 sm:-mx-6 overflow-x-auto scoreboard-hscroll-layout">
                 <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                   {visibleLeaderboards.map(lb => (
                     <div key={lb.gameId} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>
