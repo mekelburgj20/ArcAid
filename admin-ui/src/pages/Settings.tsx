@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../lib/api';
@@ -101,6 +101,16 @@ const DEAD_KEYS = new Set(['GAME_ROOM_NAME', 'GAME_ROOM_SLUG']);
 // Saving a change to any of these asks for explicit confirmation first — each
 // flips how players reach or use the room.
 const DANGEROUS_KEYS = ['REQUIRE_DISCORD_LOGIN', 'ISCORED_ENABLED', 'DISCORD_ENABLED', 'GLOBAL_SCOREBOARD_ENABLED'];
+
+// D2 (standalone rooms, v2.32.0) — same default-on semantics as
+// SetupChecklist.tsx's isFlagOn: missing/undefined reads as enabled, matching
+// the server-side `isDiscordEnabledForRoom`/`getIScoredCredsForRoom` checks
+// (`raw !== 'false'`). Categories gated behind an integration toggle.
+const isFlagOn = (settings: Record<string, string>, key: string): boolean => settings[key] !== 'false';
+const INTEGRATION_GATE_KEYS: Record<string, string> = {
+  Discord: 'DISCORD_ENABLED',
+  iScored: 'ISCORED_ENABLED',
+};
 
 const CATEGORIES: Record<string, string[]> = {
   'Leaderboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
@@ -392,6 +402,11 @@ export default function Settings() {
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [showLegacyStyles, setShowLegacyStyles] = useState(false);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  // D2 (standalone rooms, v2.32.0) — categories whose credential card is
+  // hidden by default when the matching integration is toggled off
+  // (DISCORD_ENABLED / ISCORED_ENABLED). Session-only reveal, per category.
+  const [revealedIntegrationCards, setRevealedIntegrationCards] = useState<Set<string>>(new Set());
+  const [integrationsHighlighted, setIntegrationsHighlighted] = useState(false);
 
   // Users state
   const [localAdmins, setLocalAdmins] = useState<LocalAdmin[]>([]);
@@ -685,6 +700,22 @@ export default function Settings() {
     });
   };
 
+  // D2 (standalone rooms, v2.32.0) — reveal a hidden integration credential
+  // card for this session only, then scroll to and briefly highlight the
+  // Integrations toggles card (the actual on/off switch lives there).
+  const integrationsCardRef = useRef<HTMLDivElement>(null);
+  const revealIntegrationCard = (category: string) => {
+    setRevealedIntegrationCards(prev => new Set(prev).add(category));
+    integrationsCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setIntegrationsHighlighted(true);
+    setTimeout(() => setIntegrationsHighlighted(false), 1800);
+  };
+  const isIntegrationCardHidden = (category: string): boolean => {
+    const gateKey = INTEGRATION_GATE_KEYS[category];
+    if (!gateKey) return false;
+    return !isFlagOn(settings, gateKey) && !revealedIntegrationCards.has(category);
+  };
+
   const isSensitive = (key: string) => SENSITIVE_KEYS.some(s => key.includes(s));
 
   // Group settings by category — always show all keys (default to empty string if not in DB)
@@ -885,7 +916,11 @@ export default function Settings() {
   );
 
   const integrationsCard = (
-    <NeonCard title="Integrations" className="mb-4">
+    <div ref={integrationsCardRef}>
+      <NeonCard
+        title="Integrations"
+        className={`mb-4 transition-shadow ${integrationsHighlighted ? 'ring-2 ring-neon-cyan' : ''}`}
+      >
       <div className="space-y-4">
         {Object.entries(TOGGLE_SETTINGS).map(([key, { label, description, defaultOn }]) => {
           const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
@@ -911,7 +946,8 @@ export default function Settings() {
           );
         })}
       </div>
-    </NeonCard>
+      </NeonCard>
+    </div>
   );
 
   if (loading) return <LoadingState message="Loading settings..." />;
@@ -1191,6 +1227,19 @@ export default function Settings() {
             <div className="lg:w-1/2 lg:sticky lg:top-16 lg:self-start shrink-0">
               <ScoreboardPreview settings={settings} />
             </div>
+          </div>
+        ) : isIntegrationCardHidden(category) ? (
+          /* D2 (standalone rooms, v2.32.0) — quiet affordance in place of a
+             credential card whose integration toggle is off. Not airtight:
+             a reveal, not a wall. The Integrations toggles card (below) is
+             the real on/off switch and always renders. */
+          <div className="mb-4 px-1">
+            <button
+              onClick={() => revealIntegrationCard(category)}
+              className="text-xs text-faint hover:text-muted underline decoration-dotted cursor-pointer bg-transparent border-none p-0"
+            >
+              Integrations disabled for this room — Enable integrations…
+            </button>
           </div>
         ) : (
           /* ── All other categories ── */

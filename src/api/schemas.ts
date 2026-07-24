@@ -116,6 +116,12 @@ export const CreateGameRoomSchema = z.object({
     // Sprint 13 — optional short label (≤6 chars) for RoomTag badges. Server
     // normalizes on write (uppercase + slice); null means fall back to slug.
     short_tag: z.string().max(6).nullable().optional(),
+    // Standalone-room Phase 1 (v2.32.0) — when absent, behaves exactly as
+    // before (connected room, Discord/iScored integrations left on their
+    // normal defaults). 'standalone' seeds DISCORD_ENABLED/ISCORED_ENABLED
+    // false at creation — a pure-web room with no Discord guild or iScored
+    // board.
+    mode: z.enum(['standalone', 'connected']).optional(),
 });
 
 export const CreateLocalAdminSchema = z.object({

@@ -51,12 +51,17 @@ function classOf(type: NotificationType): NotifClass {
 const WEB_PUSH_TYPES: ReadonlySet<NotificationType> = new Set<NotificationType>([
     'rankDethroned',
     'tournamentWin',
+    // D4 (standalone rooms, v2.32.0) — turn-to-pick is time-sensitive (a
+    // pick window expiring auto-selects for the player), so it belongs on
+    // the same "worth waking up your phone for" tier as a win/dethrone.
+    'turnToPick',
 ]);
 
 /** Notification-tray titles per push-eligible type; body carries the detail. */
 const PUSH_TITLES: Partial<Record<NotificationType, string>> = {
     tournamentWin: '\u{1F3C6} You won the tournament!',
     rankDethroned: '\u{1F451} You’ve been dethroned!',
+    turnToPick: '\u{1F3AE} Your turn to pick!',
 };
 
 /**
@@ -138,21 +143,26 @@ export class NotificationService {
             if (!userId || !process.env.DISCORD_BOT_TOKEN) return false;
 
             // 0a. Per-room Discord gate — if roomId is supplied and the room
-            // has DISCORD_ENABLED=false, suppress. Means disabling the toggle
-            // stops outbound DMs for events originating in that room the same
-            // way it silences announcements and command responses.
+            // has DISCORD_ENABLED=false, suppress the DISCORD DM ONLY. A
+            // standalone/Discord-disabled room must still be able to deliver
+            // web push (2b, below) — pre-fix this early-returned and silently
+            // dropped the push channel too, which broke the whole
+            // Discord-disabled-room notification story (D4, v2.32.0).
+            let discordDeliveryAllowed = true;
             if (roomId) {
                 const { isDiscordEnabledForRoom } = await import('../utils/discord.js');
                 const enabled = await isDiscordEnabledForRoom(roomId);
                 if (!enabled) {
-                    logInfo(`NotificationService: ${type} suppressed (DISCORD_ENABLED=false) for room ${roomId}`);
-                    return false;
+                    logInfo(`NotificationService: ${type} DM suppressed (DISCORD_ENABLED=false) for room ${roomId}`);
+                    discordDeliveryAllowed = false;
                 }
             }
 
             // 0b. Pick-award gate defense-in-depth (plan §5) — callers passing roomId
             // for `turnToPick` get suppressed here too, even if the upstream gate was
             // missed. Callers without roomId fall through to prefs check (legacy).
+            // This is a feature-level gate (the whole pick-award flow is off room-wide),
+            // unlike 0a above, so it suppresses BOTH delivery channels.
             if (type === 'turnToPick' && roomId) {
                 const pickEnabled = await PickAwardGate.isEnabled(roomId, tournamentId);
                 if (!pickEnabled) {
@@ -181,14 +191,25 @@ export class NotificationService {
                 return false;
             }
 
-            // 2b. Web push — second channel (S15). Rides the SAME opt-in +
+            // Tracks whether anything was actually delivered/queued, across
+            // either channel — the return value's new, more accurate meaning
+            // (D4, v2.32.0). See the per-branch comments below for exactly
+            // when each channel counts toward it.
+            let delivered = false;
+
+            // 2b. Web push — second channel (S15). Evaluates INDEPENDENTLY of
+            // the Discord-DM gate above (0a) — rides the same opt-in +
             // rate-limit result as the DM (one event = one budget slot);
             // additionally gated on the user's webPush channel flag (set when
             // they subscribe a browser — see POST /me/push-subscriptions) and
             // the smallest-shippable type allowlist. Fire-and-forget: a push
             // failure never affects the DM path, and a closed-DMs failure
             // never suppresses the push. VAPID-unconfigured and
-            // no-subscriptions cases no-op inside WebPushService.
+            // no-subscriptions cases no-op inside WebPushService. Only counts
+            // toward `delivered` when there was no DM channel to begin with
+            // (discordDeliveryAllowed is false) — when a DM WAS attempted,
+            // the return value keeps reflecting the DM's own outcome, same as
+            // before this change (see s15-web-push.test.ts's closed-DMs case).
             if (WEB_PUSH_TYPES.has(type) && webPushOptIn) {
                 const payload: WebPushPayload = {
                     title: PUSH_TITLES[type] ?? 'ArcAid',
@@ -197,6 +218,7 @@ export class NotificationService {
                     tag: `arcaid-${type}`,
                 };
                 trackBackground(WebPushService.sendToUser(userId, payload).catch(() => {}));
+                if (!discordDeliveryAllowed) delivered = true;
             }
 
             // 3. Compose message. Flag-defaulted sends get a one-time footer so
@@ -209,15 +231,20 @@ export class NotificationService {
                 appendFooter = true;
             }
 
-            // 4. Send DM
-            const sent = await sendDirectMessage(userId, body);
-            if (sent) {
-                logInfo(`NotificationService: sent ${type} DM to ${userId}`);
-                if (appendFooter) {
-                    await this.markFooterShown(userId).catch(() => {});
+            // 4. Send DM — only attempted when the per-room Discord gate (0a)
+            // allows it.
+            if (discordDeliveryAllowed) {
+                const sent = await sendDirectMessage(userId, body);
+                if (sent) {
+                    logInfo(`NotificationService: sent ${type} DM to ${userId}`);
+                    if (appendFooter) {
+                        await this.markFooterShown(userId).catch(() => {});
+                    }
+                    delivered = true;
                 }
             }
-            return sent;
+
+            return delivered;
         } catch (error) {
             logError('NotificationService.notify error:', error);
             return false;

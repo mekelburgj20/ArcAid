@@ -1346,6 +1346,7 @@ export class TournamentEngine {
                             message: `You won **${activeGame.name}** in **${tournamentRow.name}** — it's your turn to pick the next ${term.game} for that slot. You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` or pick from the web.${link ? `\n${link}` : ''}`,
                             roomId: tournamentRow.game_room_id,
                             tournamentId,
+                            pushUrl: link || undefined,
                         }).catch(() => {});
                     }).catch(() => {});
                 }).catch(() => {});

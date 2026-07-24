@@ -34,6 +34,11 @@ export default function GameRoomManager() {
   const [formDescription, setFormDescription] = useState('');
   const [formIsPublic, setFormIsPublic] = useState(true);
   const [formShortTag, setFormShortTag] = useState('');
+  // Standalone-room Phase 1 (v2.32.0) — Connected/Standalone choice, create-only.
+  const [formMode, setFormMode] = useState<'connected' | 'standalone'>('connected');
+  // Rooms created as standalone THIS session, so the onboarding-message copy
+  // can branch even though GET /admin/rooms doesn't return game_room_settings.
+  const [standaloneRoomIds, setStandaloneRoomIds] = useState<Set<string>>(new Set());
 
   const loadRooms = () => {
     setLoading(true);
@@ -51,6 +56,7 @@ export default function GameRoomManager() {
     setFormDescription('');
     setFormIsPublic(true);
     setFormShortTag('');
+    setFormMode('connected');
     setShowCreate(false);
     setEditTarget(null);
   };
@@ -59,13 +65,17 @@ export default function GameRoomManager() {
     if (!formName.trim() || !formSlug.trim()) return;
     setSaving(true);
     try {
-      await api.post('/admin/rooms', {
+      const result = await api.post<{ success: boolean; room: Room }>('/admin/rooms', {
         name: formName.trim(),
         slug: formSlug.trim().toLowerCase(),
         description: formDescription.trim(),
         is_public: formIsPublic,
         short_tag: formShortTag.trim() || null,
+        mode: formMode,
       });
+      if (formMode === 'standalone' && result?.room?.id) {
+        setStandaloneRoomIds(prev => new Set(prev).add(result.room.id));
+      }
       toast('Room created', 'success');
       resetForm();
       loadRooms();
@@ -123,6 +133,30 @@ export default function GameRoomManager() {
 
   const copyOnboardingMessage = async (room: Room) => {
     const origin = window.location.origin;
+    // Standalone-room Phase 1 (v2.32.0) — this list only knows about a room's
+    // mode if it was created standalone THIS session (GET /admin/rooms doesn't
+    // return game_room_settings). Falls back to the connected steps otherwise,
+    // which matches today's back-compat behavior for every pre-existing room.
+    const isStandalone = standaloneRoomIds.has(room.id);
+    const quickSetup = isStandalone
+      ? [
+          `QUICK SETUP`,
+          `1. Log in and go to Settings`,
+          `2. Set your theme and branding (logo, background, colors)`,
+          `3. Set your timezone in Tournament Defaults`,
+          `4. Go to Game Library and import games (VPS or VPXS Wizard)`,
+          `5. Go to Tournaments and create your first tournament`,
+          `6. Share your public scoreboard link with your community: ${origin}/${room.slug}/`,
+        ]
+      : [
+          `QUICK SETUP`,
+          `1. Log in and go to Settings`,
+          `2. Enter your Discord Guild ID, default Announcement Channel ID, and Admin Role ID`,
+          `3. Enter your iScored credentials and Public URL`,
+          `4. Set your timezone in Tournament Defaults`,
+          `5. Go to Game Library and import games (VPS or VPXS Wizard)`,
+          `6. Go to Tournaments and create your first tournament`,
+        ];
     const message = [
       `Welcome to ArcAid! Here's everything you need to get started with your game room "${room.name}".`,
       ``,
@@ -133,13 +167,7 @@ export default function GameRoomManager() {
       `PUBLIC SCOREBOARD`,
       `Share this with your community: ${origin}/${room.slug}/`,
       ``,
-      `QUICK SETUP`,
-      `1. Log in and go to Settings`,
-      `2. Enter your Discord Guild ID, default Announcement Channel ID, and Admin Role ID`,
-      `3. Enter your iScored credentials and Public URL`,
-      `4. Set your timezone in Tournament Defaults`,
-      `5. Go to Game Library and import games (VPS or VPXS Wizard)`,
-      `6. Go to Tournaments and create your first tournament`,
+      ...quickSetup,
       ``,
       `HELP`,
       `Your admin panel has a Help page in the sidebar with a complete setup guide and Discord command reference.`,
@@ -230,6 +258,37 @@ export default function GameRoomManager() {
       {showForm && (
         <NeonCard glowColor="cyan" className="mb-6" title={editTarget ? 'Edit Room' : 'Create Room'}>
           <div className="space-y-4">
+            {!editTarget && (
+              <div>
+                <label className="text-xs text-faint block mb-1">Room Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormMode('connected')}
+                    className={`text-left px-3 py-2 rounded border cursor-pointer transition-colors ${
+                      formMode === 'connected'
+                        ? 'border-neon-cyan bg-neon-cyan/10'
+                        : 'border-border bg-raised hover:border-border/80'
+                    }`}
+                  >
+                    <p className="text-sm font-medium text-primary">Connected</p>
+                    <p className="text-xs text-muted">Discord + iScored integrations</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormMode('standalone')}
+                    className={`text-left px-3 py-2 rounded border cursor-pointer transition-colors ${
+                      formMode === 'standalone'
+                        ? 'border-neon-cyan bg-neon-cyan/10'
+                        : 'border-border bg-raised hover:border-border/80'
+                    }`}
+                  >
+                    <p className="text-sm font-medium text-primary">Standalone</p>
+                    <p className="text-xs text-muted">Web-only — no Discord server or iScored board needed</p>
+                  </button>
+                </div>
+              </div>
+            )}
             <div>
               <label className="text-xs text-faint block mb-1">Room Name</label>
               <input
