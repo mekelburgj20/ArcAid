@@ -75,6 +75,20 @@ export default function BannerCard({
   const hasIdentifierImage = !!styleHeaderUrl && !cardBgFill;
   const borderColor = TOURNAMENT_BORDER_COLORS[lb.tournamentType?.toUpperCase()] ?? 'border-border';
 
+  // D1 (v2.34.0) — reserve a fixed two-line title box so a wrapping title
+  // doesn't push the score area down vs sibling cards. Uses the SAME
+  // default the title's fontSize style falls back to (0.875rem = 14px at
+  // the app's default 16px root — no custom root font-size is set).
+  const effectiveTitleFontSize = titleFontSize || 14;
+  // 1.25 = Tailwind `leading-tight`, the line-height this title actually renders at.
+  const titleBoxMinHeight = effectiveTitleFontSize * 1.25 * 2;
+  const titleClampStyle: React.CSSProperties = {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: 2,
+    overflow: 'hidden',
+  };
+
   const [countdown, setCountdown] = useState<string | null>(
     lb.nextMaintenanceAt ? formatCountdown(lb.nextMaintenanceAt) : null
   );
@@ -153,14 +167,14 @@ export default function BannerCard({
               to={titleLinkTo}
               onClick={titleLinkOnClick}
               className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center no-underline text-primary hover:text-neon-cyan transition-colors ${getTitleStyleClass(gameTitleStyle)}`}
-              style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}
+              style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}
             >
-              {displayName}
+              <span style={titleClampStyle}>{displayName}</span>
               <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
             </Link>
           ) : (
-            <h3 className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-              {displayName}
+            <h3 className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}>
+              <span style={titleClampStyle}>{displayName}</span>
               <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
             </h3>
           )
