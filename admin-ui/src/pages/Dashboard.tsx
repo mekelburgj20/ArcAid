@@ -35,7 +35,7 @@ interface DashboardData {
 
 interface HealthData {
   discord: { enabled: boolean; ready: boolean; inGuild: boolean | null; guildId: string | null };
-  iscored: { enabled: boolean; configured: boolean };
+  iscored?: { enabled: boolean; configured: boolean };
   poller: {
     running: boolean; paused: boolean; lastPollAt: number | null; lastSuccessAt: number | null;
     lastPollSucceeded: boolean; consecutiveErrors: number;
@@ -166,7 +166,7 @@ export default function Dashboard() {
               "accounts.length > 0" here really does mean "this room polls
               an account". Enabled-but-unconfigured keeps the pre-existing
               behavior of simply not rendering the line. */}
-          {health && health.iscored.enabled === false ? (
+          {health && health.iscored?.enabled === false ? (
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-faint" />
               <span className="text-sm font-medium">iScored disabled</span>

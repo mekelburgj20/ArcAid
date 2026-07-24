@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.32.0] — unreleased
+
+**Standalone "pure ArcAid" room mode — Phase 1.** A room can now run with no Discord server and no iScored board, end to end.
+
+- **Room creation choice** — super-admin create-room form gains a Connected / Standalone segmented choice (default Connected). Standalone seeds `DISCORD_ENABLED='false'` + `ISCORED_ENABLED='false'` at creation; the copy-onboarding-message generator branches to web-only setup steps (no Guild ID / iScored credential prompts). Absent mode = connected — existing callers and rooms unchanged.
+- **Settings packaging** — the Discord and iScored credential categories collapse behind a quiet "Enable integrations…" affordance when their toggle is off (per-category; unset = visible, so existing rooms see no change). The Integrations toggles card and Discord Admins card stay visible — Discord OAuth is a room-independent identity provider.
+- **Health card room-scoping (leak fix)** — `GET /:roomId/admin/health` now returns `iscored: {enabled, configured}` and filters poller accounts to the room's own iScored account. Previously the dashboard showed the GLOBAL poller map — i.e. other rooms' sync health — on every room's dashboard. Disabled rooms get a neutral gray "iScored disabled" state mirroring the Discord treatment.
+- **Notification fixes (the bugs that would have silently killed the standalone winner flow):**
+  - `NotificationService.notify()` no longer short-circuits on `DISCORD_ENABLED='false'` before the web-push branch — the gate now suppresses only the Discord DM, so standalone rooms' players get web push (`tournamentWin`, `rankDethroned`, and now `turnToPick`). Connected-room behavior is unchanged path-for-path.
+  - `turnToPick` is now web-push-eligible with a deep link to the room's Picks page (was DM-only — the single most actionable notification in the pick flow had zero non-Discord delivery channel).
+- **Tests** — 4 new web-push cases (Discord-disabled room still pushes, connected-room parity, turnToPick push with correct deep link, push-flag-off isolation).
+
+No DB migration (next free still 113). Web push requires `WEB_PUSH_VAPID_*` keys seeded server-wide (S15) — verify on prod at deploy.
+
+---
+
 ## [2.31.0] — unreleased
 
 **Ranking-card restyle.** Ranking-group cards on the public scoreboard/kiosk no longer render flat gray for banner/minimal rooms, and now show which tournaments feed each ranking group.
