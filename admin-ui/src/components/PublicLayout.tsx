@@ -108,10 +108,14 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
           className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between"
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
         >
-          <Link to={`/${slug}`} className="no-underline flex items-center gap-2 sm:gap-3 min-w-0">
-            <img src="/arcaid-logo.png" alt="ArcAid" className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0" />
-            <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate">{roomName}</span>
-          </Link>
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <Link to="/" className="no-underline flex-shrink-0" aria-label="All game rooms" title="All game rooms">
+              <img src="/arcaid-logo.png" alt="ArcAid" className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0" />
+            </Link>
+            <Link to={`/${slug}`} className="no-underline min-w-0">
+              <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate block">{roomName}</span>
+            </Link>
+          </div>
           <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
             {navItems.map(item => (
               <NavLink

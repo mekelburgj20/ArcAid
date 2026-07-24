@@ -1,4 +1,4 @@
-import { useReducer, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import ScheduleBuilder from './ScheduleBuilder';
 import { InfoTip } from './Tooltip';
 import { getPlatformDisplay } from '../lib/platforms';
@@ -109,14 +109,69 @@ export function parseCleanupRule(raw: string | undefined): CleanupRule {
 
 // --- Sub-components ---
 
-function NumberStepper({ value, onChange, min = 0 }: { value: number; onChange: (v: number) => void; min?: number }) {
+/**
+ * Draft-state number input: the field can go empty while the user is
+ * actively editing (deleting the last digit no longer snaps to `min`).
+ * `draft === null` means "not editing" — the input renders `String(value)`
+ * straight from the prop. `draft` is the user's in-progress raw text
+ * (empty allowed) while typing; it commits (clamped) on blur, or reverts
+ * to the last valid `value` if left empty/invalid.
+ */
+export function NumberStepper({ value, onChange, min = 0 }: { value: number; onChange: (v: number) => void; min?: number }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  // Tracks the last value *we* emitted via onChange, so the effect below
+  // can tell "value changed because our own onChange echoed back" apart
+  // from "value changed externally" (e.g. this stepper instance reused
+  // across form opens with a new initial value) — only the latter should
+  // blow away an in-progress draft.
+  const lastEmitted = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (lastEmitted.current !== null && value === lastEmitted.current) return;
+    setDraft(null);
+  }, [value]);
+
+  const commit = () => {
+    if (draft === null) return;
+    const trimmed = draft.trim();
+    const parsed = parseInt(trimmed, 10);
+    if (trimmed !== '' && !Number.isNaN(parsed)) {
+      const clamped = Math.max(min, parsed);
+      lastEmitted.current = clamped;
+      onChange(clamped);
+    }
+    // invalid/empty: fall through — clearing draft reverts the rendered
+    // input to `value` (the last committed number), no onChange needed.
+    setDraft(null);
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setDraft(raw);
+    const trimmed = raw.trim();
+    if (trimmed === '') return;
+    const parsed = parseInt(trimmed, 10);
+    if (!Number.isNaN(parsed)) {
+      const clamped = Math.max(min, parsed);
+      lastEmitted.current = clamped;
+      onChange(clamped);
+    }
+  };
+
+  const stepBy = (delta: number) => {
+    setDraft(null);
+    const clamped = Math.max(min, value + delta);
+    lastEmitted.current = clamped;
+    onChange(clamped);
+  };
+
   return (
     <div className="flex items-center gap-0">
-      <button type="button" onClick={() => onChange(Math.max(min, value - 1))}
+      <button type="button" onClick={() => stepBy(-1)}
         className="px-3 py-2 bg-raised border border-border rounded-l text-muted hover:text-neon-cyan hover:border-neon-cyan transition-colors text-sm font-bold">−</button>
-      <input type="number" min={min} value={value} onChange={e => onChange(Math.max(min, parseInt(e.target.value) || 0))}
+      <input type="number" min={min} value={draft ?? String(value)} onChange={handleChange} onBlur={commit}
         className="w-14 text-center px-1 py-2 bg-raised border-y border-border text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
-      <button type="button" onClick={() => onChange(value + 1)}
+      <button type="button" onClick={() => stepBy(1)}
         className="px-3 py-2 bg-raised border border-border rounded-r text-muted hover:text-neon-cyan hover:border-neon-cyan transition-colors text-sm font-bold">+</button>
     </div>
   );
