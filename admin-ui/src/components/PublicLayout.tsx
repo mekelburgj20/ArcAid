@@ -7,6 +7,7 @@ import { getPortal, type Portal } from '../lib/portal';
 import { RoomContext } from '../contexts/RoomContext';
 import UserMenu from './UserMenu';
 import PendingSubmissionWatcher from './PendingSubmissionWatcher';
+import ScoreboardTicker from './ScoreboardTicker';
 import LoadingState from './LoadingState';
 import { PlayerQuickViewProvider } from '../contexts/PlayerQuickViewContext';
 
@@ -183,8 +184,20 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
         )}
       </div>
 
-      {/* Slim legal footer — flex-shrink-0 so it sits below the scroll region */}
-      <footer className="flex-shrink-0 border-t border-border py-1.5 px-4 flex items-center justify-center gap-3 text-[10px] text-faint z-40">
+      {/* s21 — lobby feed ticker, scoreboard page only. In-flow above the
+          footer (was fixed-bottom inside Scoreboard.tsx, painting over the
+          Privacy/Terms links). Renders null while the feed is empty. */}
+      {isScoreboard && resolvedRoomId && !portalError && (
+        <ScoreboardTicker roomId={resolvedRoomId} />
+      )}
+
+      {/* Slim legal footer — flex-shrink-0 so it sits below the scroll region.
+          s21: owns the safe-area bottom inset under viewport-fit=cover (was on
+          the fixed ticker). */}
+      <footer
+        className="flex-shrink-0 border-t border-border py-1.5 px-4 flex items-center justify-center gap-3 text-[10px] text-faint z-40"
+        style={{ paddingBottom: 'max(0.375rem, env(safe-area-inset-bottom))' }}
+      >
         <Link to="/privacy" className="hover:text-neon-cyan transition-colors no-underline">Privacy</Link>
         <span aria-hidden="true">·</span>
         <Link to="/terms" className="hover:text-neon-cyan transition-colors no-underline">Terms</Link>

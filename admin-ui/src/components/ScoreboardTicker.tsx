@@ -91,18 +91,26 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
     return { id: e.id, title: e.title, ago, Icon: TICKER_ICONS[e.type] || Target };
   }), [events]);
 
+  // s21 — distance-based marquee speed. The animation travels half the track
+  // width (the doubled item set), so a fixed 60s duration crawled when the
+  // feed had few items and raced when full. Constant px/s instead.
+  const trackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const distance = track.scrollWidth / 2;
+    const seconds = Math.min(90, Math.max(15, distance / 70));
+    track.style.setProperty('--ticker-duration', `${seconds}s`);
+  }, [tickerItems]);
+
   if (tickerItems.length === 0) return null;
 
   return (
-    // s20: height grows by the safe-area inset (viewport-fit=cover clips the
-    // fixed-bottom bar on notched phones otherwise); padding-bottom of the
-    // same amount keeps the 36px content box pinned above the unsafe strip
-    // (box-sizing: border-box means height and padding compose exactly).
-    <div
-      className="fixed bottom-0 left-0 right-0 z-40 bg-deep/90 border-t border-border/30 backdrop-blur-sm overflow-hidden"
-      style={{ height: 'calc(36px + max(0px, env(safe-area-inset-bottom)))', paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
-    >
-      <div className="scoreboard-ticker-track flex items-center gap-10 whitespace-nowrap h-full px-4">
+    // s21 — in-flow bar (was fixed bottom-0, which painted over PublicLayout's
+    // Privacy/Terms footer). PublicLayout mounts this above the footer; the
+    // footer now owns the safe-area inset, so the s20 height-calc hack is gone.
+    <div className="flex-shrink-0 h-9 bg-deep/90 border-t border-border/30 overflow-hidden">
+      <div ref={trackRef} className="scoreboard-ticker-track flex items-center gap-10 whitespace-nowrap h-full px-4">
         {/* Double the items for a seamless loop */}
         {[...tickerItems, ...tickerItems].map((item, i) => {
           const Icon = item.Icon;
@@ -121,7 +129,7 @@ export default function ScoreboardTicker({ roomId }: ScoreboardTickerProps) {
           to { transform: translateX(-50%); }
         }
         .scoreboard-ticker-track {
-          animation: scoreboard-ticker-scroll 60s linear infinite;
+          animation: scoreboard-ticker-scroll var(--ticker-duration, 60s) linear infinite;
         }
         .scoreboard-ticker-track:hover {
           animation-play-state: paused;

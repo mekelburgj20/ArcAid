@@ -86,7 +86,7 @@ const glassDeck: ShowcaseThemeConfig = {
   titleColor: '#ffffff',
   badgeBg: 'rgba(99,210,151,0.1)',
   badgeColor: '#63d297',
-  timerColor: 'rgba(255,255,255,0.5)',
+  timerColor: 'rgba(255,255,255,0.55)',
   dividerBg: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent)',
 
   podiumVariant: 'pyramid',
@@ -121,7 +121,7 @@ const glassDeck: ShowcaseThemeConfig = {
 
   footerBorder: 'rgba(255,255,255,0.08)',
   linkColor: 'rgba(99,210,151,0.8)',
-  metaColor: 'rgba(255,255,255,0.4)',
+  metaColor: 'rgba(255,255,255,0.55)',
 };
 
 // ═══════════════════════════════════════════
@@ -149,7 +149,7 @@ const neonCircuit: ShowcaseThemeConfig = {
   badgeBg: 'rgba(120,0,255,0.15)',
   badgeBorder: '1px solid rgba(120,0,255,0.3)',
   badgeColor: '#c77dff',
-  timerColor: 'rgba(255,255,255,0.5)',
+  timerColor: 'rgba(255,255,255,0.55)',
   dividerBg: 'linear-gradient(90deg, transparent, rgba(120,0,255,0.2), rgba(0,224,255,0.12), rgba(255,0,200,0.2), transparent)',
 
   podiumVariant: 'chip',
@@ -187,7 +187,7 @@ const neonCircuit: ShowcaseThemeConfig = {
   footerBorder: 'rgba(120,0,255,0.15)',
   linkColor: '#c77dff',
   linkLetterSpacing: '1px',
-  metaColor: 'rgba(255,255,255,0.15)',
+  metaColor: 'rgba(255,255,255,0.55)',
 
   hasScanlines: true,
 };

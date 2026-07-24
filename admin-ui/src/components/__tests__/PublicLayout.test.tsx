@@ -5,6 +5,12 @@ import PublicLayout from '../PublicLayout';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import { useRoom } from '../../contexts/RoomContext';
 
+// s21 — the ticker (mounted by PublicLayout on the scoreboard route) joins a
+// lobby socket channel; keep that inert under jsdom.
+vi.mock('../../lib/websocket', () => ({
+  getSocket: () => ({ emit: vi.fn(), on: vi.fn(), off: vi.fn() }),
+}));
+
 // S18 — PublicLayout owns the single portal fetch for its whole subtree and
 // provides RoomContext to every child route. This is the regression test for
 // both halves of that contract: exactly one /api/portal request no matter how
@@ -63,6 +69,40 @@ describe('PublicLayout', () => {
     expect(screen.getByTestId('roomName')).toHaveTextContent('RTX Pinball');
 
     expect(portalCalls).toHaveLength(1);
+  });
+
+  // s21 — the activity ticker used to be a fixed-bottom overlay inside
+  // Scoreboard.tsx that painted over the Privacy/Terms footer. It now mounts
+  // in-flow in PublicLayout (scoreboard route only), above the footer.
+  it('mounts the activity ticker in-flow on the scoreboard route, not as a fixed overlay', async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('/api/portal')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ id: 'room-1', roomId: 'room-1', slug: 'rtx_pinball', name: 'RTX Pinball', pick_award_enabled: false }),
+        });
+      }
+      if (url.includes('/lobby/feed')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { id: 1, type: 'new_high_score', title: 'Justin hit 1M on Fire Mountain', created_at: new Date().toISOString() },
+          ]),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderAt('/rtx_pinball');
+
+    const item = await screen.findAllByText(/Fire Mountain/);
+    expect(item.length).toBeGreaterThan(0);
+    // In-flow: no `fixed`-positioned ancestor (the old overlay regression).
+    expect(item[0].closest('div.fixed')).toBeNull();
+    // Footer links remain in the layout below it.
+    expect(screen.getByText('Privacy')).toBeInTheDocument();
+    expect(screen.getByText('Terms')).toBeInTheDocument();
   });
 
   it('renders a friendly not-found state when the portal 404s', async () => {
