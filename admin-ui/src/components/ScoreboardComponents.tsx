@@ -9,6 +9,7 @@ import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 // ShowcaseThemeConfig imported via SHOWCASE_THEMES lookup in RankingGroupCard
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
 import { formatScore } from '../lib/format';
+import { getTournamentColorHex } from '../lib/tournamentColors';
 
 // --- Shared interfaces ---
 
@@ -64,6 +65,9 @@ export interface RankingGroupData {
     rank_method: string;
     best_n: number;
     min_games: number;
+    /** v2.31.0 — underlying tournaments (id/name/type) for colored chips.
+     *  Optional: absent on stale/cached responses predating this field. */
+    tournaments?: { id: string; name: string; type: string }[];
   };
   rankings: Array<{
     rank: number;
@@ -802,6 +806,78 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
 
 export type RankingsCardStyle = 'match' | 'plaque' | 'compact' | 'sidebar';
 
+// ── D4: theme-derived gradient for banner/minimal ranking-card backgrounds ──
+// Verified against admin-ui/src/index.css: `--color-surface` and
+// `--color-border-glow` are both defined in the default @theme block AND all
+// 16 `.theme-*` overrides (17/17), so this flows through every theme
+// automatically. `--color-border-glow` is the closest existing "accent" var
+// (used for glow/hover accents elsewhere, e.g. the scrollbar-thumb hover) —
+// there is no dedicated `--color-accent` token in this codebase. Showcase
+// paths never read these constants (they keep using `showcaseTheme.cardBg`).
+const RANKING_CARD_GRADIENT_BG =
+  'linear-gradient(165deg, ' +
+  'color-mix(in srgb, var(--color-border-glow, #6366f1) 18%, var(--color-surface, #1a1a2e)) 0%, ' +
+  'var(--color-surface, #1a1a2e) 55%, ' +
+  'color-mix(in srgb, var(--color-border-glow, #6366f1) 8%, var(--color-surface, #1a1a2e)) 100%)';
+const RANKING_CARD_GRADIENT_BORDER = 'color-mix(in srgb, var(--color-border-glow, #6366f1) 35%, transparent)';
+
+// ── D3: tournament-name chips ──
+// One chip per tournament, colored by tournament type (D2's getTournamentColorHex).
+// Renders nothing when `tournaments` is absent/empty (stale cached payloads
+// predating v2.31.0's additive `tournaments` field on the group object).
+function TournamentChips({ tournaments, compact = false, justify = 'center' }: {
+  tournaments?: { id: string; name: string; type: string }[];
+  compact?: boolean;
+  justify?: 'center' | 'flex-start';
+}) {
+  if (!tournaments || tournaments.length === 0) return null;
+  const MAX_VISIBLE = 4;
+  const visible = tournaments.slice(0, MAX_VISIBLE);
+  const overflow = tournaments.length - visible.length;
+  const fontSize = compact ? 9 : 10;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: justify, marginTop: compact ? 2 : 6 }}>
+      {visible.map((t) => {
+        const hex = getTournamentColorHex(t.type);
+        return (
+          <span
+            key={t.id}
+            style={{
+              fontSize,
+              lineHeight: 1.5,
+              padding: '1px 7px',
+              borderRadius: 999,
+              color: hex,
+              border: `1px solid ${hex}73`,   // ~45% alpha
+              background: `${hex}1f`,          // ~12% alpha
+              whiteSpace: 'nowrap',
+              maxWidth: 130,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            title={t.name}
+          >
+            {t.name}
+          </span>
+        );
+      })}
+      {overflow > 0 && (
+        <span style={{
+          fontSize,
+          lineHeight: 1.5,
+          padding: '1px 7px',
+          borderRadius: 999,
+          color: 'var(--color-faint)',
+          border: '1px solid rgba(128,128,128,0.3)',
+          background: 'rgba(128,128,128,0.12)',
+        }}>
+          +{overflow}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle, showcaseThemeName, qrTopPad = 0, rankingsStyle = 'match' }: {
   group: RankingGroupData['group'];
   rankings: RankingGroupData['rankings'];
@@ -865,8 +941,12 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
   // so they still feel like part of the same scoreboard.
   if (rankingsStyle !== 'match') {
     const tokens = {
-      bg: showcaseTheme?.cardBg ?? 'var(--color-surface, #1a1a2e)',
-      border: showcaseTheme ? showcaseTheme.cardBorder.replace(/^1px solid /, '') : 'rgba(var(--border-rgb, 128,128,128), 0.4)',
+      // D4: showcase keeps its own theme background unchanged; every other
+      // style (plaque/sidebar consume `bg`/`border` directly — compact stays
+      // chrome-less by design and never reads these) gets the theme-derived
+      // gradient so all 17 themes flow through instead of a flat gray fill.
+      bg: showcaseTheme?.cardBg ?? RANKING_CARD_GRADIENT_BG,
+      border: showcaseTheme ? showcaseTheme.cardBorder.replace(/^1px solid /, '') : RANKING_CARD_GRADIENT_BORDER,
       shadow: showcaseTheme?.cardShadow ?? 'none',
       font: showcaseTheme?.fontFamily,
       titleColor: showcaseTheme?.titleColor ?? 'var(--color-primary)',
@@ -933,6 +1013,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
               }}>
                 Hall of Fame
               </h2>
+              <TournamentChips tournaments={group.tournaments} />
             </div>
             <div className="flex-1 relative" style={{ padding: '6px 10px' }}>
               {rankings.length === 0 ? (
@@ -999,18 +1080,30 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
         // bottom when the slot stretches to match game-card height.
         <div className="scoreboard-card-slot" style={{ width: gameCardW, maxWidth: '100%', padding: '4px 12px', fontFamily: tokens.font, display: 'flex', flexDirection: 'column', height: '100%' }}>
             <div style={{
-              fontSize: 11,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.18em',
-              color: tokens.titleColor,
-              textShadow: tokens.titleShadow,
-              opacity: 0.85,
+              display: 'flex',
+              alignItems: 'baseline',
+              flexWrap: 'wrap',
+              gap: 6,
               marginBottom: 10,
               paddingBottom: 6,
               borderBottom: `1px solid ${tokens.border}33`,
             }}>
-              {group.name}
+              <span style={{
+                fontSize: 11,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.18em',
+                color: tokens.titleColor,
+                textShadow: tokens.titleShadow,
+                opacity: 0.85,
+              }}>
+                {group.name}
+              </span>
+              {/* v2.31.0 — compact keeps chips inline (single row, reduced
+                  size) rather than omitting them: the dense layout has room
+                  for one wrapped row without pushing the ranked list down
+                  meaningfully. */}
+              <TournamentChips tournaments={group.tournaments} compact justify="flex-start" />
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
             {rankings.length === 0 ? (
@@ -1120,6 +1213,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
             }}>
               {group.name}
             </div>
+            <TournamentChips tournaments={group.tournaments} compact justify="flex-start" />
           </div>
             <div className="flex-1 relative" style={{ padding: '4px 0' }}>
               {rankings.length === 0 ? (
@@ -1215,6 +1309,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
             <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--color-muted)' }}>
               {group.name}
             </p>
+            <TournamentChips tournaments={group.tournaments} />
           </div>
           <div className="flex-1">{rankingRows(`1px solid ${border}22`)}</div>
           <div className="px-3 py-2 text-center relative" style={{ borderTop: `1px solid ${border}33`, fontSize: 10, color: 'var(--color-faint)' }}>
@@ -1235,8 +1330,10 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
           position: 'relative',
           overflow: 'hidden',
           borderRadius: '0.5rem',
-          border: '1px solid rgba(var(--border-rgb, 128,128,128), 0.4)',
-          background: 'var(--color-surface, #1a1a2e)',
+          // D4: theme-derived gradient (was the flat `--color-surface` fill) —
+          // flows through all 17 themes via --color-surface/--color-border-glow.
+          border: `1px solid ${RANKING_CARD_GRADIENT_BORDER}`,
+          background: RANKING_CARD_GRADIENT_BG,
           display: 'flex',
           flexDirection: 'column',
           height: '100%',
@@ -1249,6 +1346,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
             <div className="flex items-center gap-3 mt-1">
               <span className="text-[11px] uppercase tracking-wider text-muted">{group.name}</span>
             </div>
+            <TournamentChips tournaments={group.tournaments} justify="flex-start" />
           </div>
           <div className="flex-1">{rankingRows('1px solid rgba(var(--border-rgb, 128,128,128), 0.1)')}</div>
           <div className="px-3 py-2 text-center text-[10px] text-faint relative" style={{ borderTop: '1px solid rgba(var(--border-rgb, 128,128,128), 0.1)' }}>
@@ -1262,11 +1360,15 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
   // ── Banner style (default) ──
   return (
     <div className="scoreboard-card-slot" style={{ position: 'relative', width: 280, display: 'flex', flexDirection: 'column', height: '100%', marginTop: qrTopPad || undefined }}>
-      <div className="relative border-2 border-border rounded-lg overflow-hidden flex flex-col flex-1">
-        <div className="absolute inset-0 bg-surface" />
+      {/* D4: theme-derived gradient replaces the flat `bg-surface` fill; border
+          color is set inline (overriding the `border-border` utility class)
+          so the accent tint carries through here too. */}
+      <div className="relative border-2 rounded-lg overflow-hidden flex flex-col flex-1" style={{ borderColor: RANKING_CARD_GRADIENT_BORDER }}>
+        <div className="absolute inset-0" style={{ background: RANKING_CARD_GRADIENT_BG }} />
         <div className="px-4 py-3 text-center border-b border-border/30 relative">
           <h3 className="font-display font-bold leading-tight" style={{ fontSize: '0.875rem' }}>OVERALL RANKINGS</h3>
           <p className="text-[11px] uppercase tracking-wider mt-0.5 text-muted">{group.name}</p>
+          <TournamentChips tournaments={group.tournaments} />
         </div>
         <div className="flex-1 relative">{rankingRows('1px solid rgba(var(--border-rgb, 128,128,128), 0.1)')}</div>
         <div className="border-t border-border/30 px-3 py-2 text-center text-[10px] text-faint relative">

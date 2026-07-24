@@ -561,17 +561,32 @@ export class RankingService {
 
     /**
      * Get all active ranking groups with their computed rankings (for public display).
+     *
+     * v2.31.0 — each `group` also carries `tournaments` (id/name/type) for the
+     * underlying tournaments so the FE can render colored tournament-name chips
+     * on the ranking card. Additive only: sourced from `ranking_group_tournaments`
+     * + `tournaments`, one query per group alongside the existing tournament_ids
+     * lookup in getAll() (small N either way).
      */
     static async getActiveWithRankings(gameRoomId?: string): Promise<Array<{
-        group: RankingGroup;
+        group: RankingGroup & { tournaments: { id: string; name: string; type: string }[] };
         rankings: OverallRanking[];
     }>> {
         const groups = await this.getAll(gameRoomId);
         const active = groups.filter(g => g.is_active);
+        const db = await getDatabase();
         const results = [];
         for (const group of active) {
             const rankings = await this.getRankings(group.id);
-            results.push({ group, rankings });
+            let tournaments: { id: string; name: string; type: string }[] = [];
+            if (group.tournament_ids.length > 0) {
+                const placeholders = group.tournament_ids.map(() => '?').join(',');
+                tournaments = await db.all(
+                    `SELECT id, name, type FROM tournaments WHERE id IN (${placeholders})`,
+                    ...group.tournament_ids
+                );
+            }
+            results.push({ group: { ...group, tournaments }, rankings });
         }
         return results;
     }
