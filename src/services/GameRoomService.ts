@@ -52,41 +52,72 @@ export class GameRoomService {
         // behavior. 'standalone' additionally seeds the two integration
         // toggles off below.
         mode?: 'standalone' | 'connected';
+        // Public self-serve room creation (v2.33.0) — when set, the creator is
+        // granted 'owner' in game_room_admins inside the SAME transaction as
+        // the room insert, so a crash between the two calls can never leave a
+        // room with no admin. Absent for the super-admin creation path (no
+        // creator to grant — the super admin isn't a room admin by default).
+        ownerDiscordId?: string;
     }): Promise<GameRoom> {
         const db = await getDatabase();
         const id = crypto.randomUUID();
-        await db.run(
-            `INSERT INTO game_rooms (id, name, slug, description, is_public, logo_url, discord_guild_id, short_tag)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            id, data.name, data.slug.toLowerCase(),
-            data.description || '', data.is_public !== false ? 1 : 0,
-            data.logo_url || null, data.discord_guild_id || null,
-            normalizeShortTag(data.short_tag),
-        );
 
-        // v2.2.0: new rooms get safe-by-default identity. REQUIRE_DISCORD_LOGIN=true
-        // means walk-up web submitters must authenticate, which closes the
-        // anonymous-name collision surface entirely. Existing rooms are unaffected;
-        // admins can opt out per-room via Settings if they want kiosk/guest play.
-        // NOTE: kept true for standalone rooms too — Discord OAuth is a global
-        // IdP and works fine with no guild attached.
-        await db.run(
-            `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
-            id, 'REQUIRE_DISCORD_LOGIN', 'true',
-        );
+        await db.exec('BEGIN');
+        try {
+            await db.run(
+                `INSERT INTO game_rooms (id, name, slug, description, is_public, logo_url, discord_guild_id, short_tag)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                id, data.name, data.slug.toLowerCase(),
+                data.description || '', data.is_public !== false ? 1 : 0,
+                data.logo_url || null, data.discord_guild_id || null,
+                normalizeShortTag(data.short_tag),
+            );
 
-        // Standalone-room Phase 1 (v2.32.0): a pure-web room has no Discord
-        // guild and no iScored board, so both integrations start off. Admins
-        // can still flip them back on later via Settings > Integrations.
-        if (data.mode === 'standalone') {
+            // v2.2.0: new rooms get safe-by-default identity. REQUIRE_DISCORD_LOGIN=true
+            // means walk-up web submitters must authenticate, which closes the
+            // anonymous-name collision surface entirely. Existing rooms are unaffected;
+            // admins can opt out per-room via Settings if they want kiosk/guest play.
+            // NOTE: kept true for standalone rooms too — Discord OAuth is a global
+            // IdP and works fine with no guild attached.
             await db.run(
                 `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
-                id, 'DISCORD_ENABLED', 'false',
+                id, 'REQUIRE_DISCORD_LOGIN', 'true',
             );
-            await db.run(
-                `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
-                id, 'ISCORED_ENABLED', 'false',
-            );
+
+            // Standalone-room Phase 1 (v2.32.0): a pure-web room has no Discord
+            // guild and no iScored board, so both integrations start off. Admins
+            // can still flip them back on later via Settings > Integrations.
+            if (data.mode === 'standalone') {
+                await db.run(
+                    `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+                    id, 'DISCORD_ENABLED', 'false',
+                );
+                await db.run(
+                    `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+                    id, 'ISCORED_ENABLED', 'false',
+                );
+            }
+
+            if (data.ownerDiscordId) {
+                await db.run(
+                    'INSERT OR REPLACE INTO game_room_admins (game_room_id, discord_user_id, role) VALUES (?, ?, ?)',
+                    id, data.ownerDiscordId, 'owner',
+                );
+            }
+
+            await db.exec('COMMIT');
+        } catch (err) {
+            await db.exec('ROLLBACK');
+            throw err;
+        }
+
+        // room_members seeding is convenience (drives MyRooms.tsx), not
+        // authorization — fine to do after commit rather than inside the
+        // transaction (matches AdminService.addRoomDiscordAdmin's own
+        // non-transactional call to this same helper elsewhere).
+        if (data.ownerDiscordId) {
+            const { RoomMembershipService } = await import('./RoomMembershipService.js');
+            await RoomMembershipService.addMember(data.ownerDiscordId, id, 'admin_invite');
         }
 
         return (await GameRoomService.getById(id))!;

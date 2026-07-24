@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.33.0] — unreleased
+
+**Public self-serve room creation.** Anyone can create a game room from the landing site — no super-admin needed.
+
+- **Landing page** gains a "Create Game Room" card after the room grid (doubles as the empty-state CTA). Links to the new `/create-room` page.
+- **`/create-room`** — Discord-login-gated page (MyRooms pattern): room name, auto-derived editable URL slug, description, "list on landing page" checkbox. On success the creator is routed through the existing room-admin OAuth flow straight into their new room's admin dashboard (zero new auth surface — `DiscordCallback`/`auth.ts` untouched).
+- **`POST /api/rooms`** (public, `requireDiscordUser`): creates the room in **standalone** mode (Discord/iScored off — upgrade later via Settings) and writes the creator as `role='owner'` in `game_room_admins`, atomically (room insert + settings seeds + owner grant in one transaction).
+- **Guardrails:** 3 owned rooms per Discord user; new `roomCreateLimiter` (3/hour per user, per-`discordId` keyed) on top of the per-IP general limiter; server-side `RESERVED_ROOM_SLUGS` list so a room can't shadow `/admin`, `/scoreboard`, `/games`, `/assets`, etc.; `PUBLIC_ROOM_CREATION_ENABLED` global-setting kill switch (default on, unseeded — the future monetization lever).
+- Super-admin create path (`POST /admin/rooms`, GameRoomManager) unchanged: no cap, no reserved-list.
+- **Tests** — 6 new route-level cases (auth 401, create + owner grant + standalone seeds, reserved-slug 400, duplicate 409, cap 403, kill-switch 403).
+
+No DB migration (next free still 113). Adversarial review PASS-with-minors; accepted residual risks documented in-code (bounded cap race) and in the PR (throwaway-account friction is Discord's, plus the kill switch).
+
+---
+
 ## [2.32.0] — unreleased
 
 **Standalone "pure ArcAid" room mode — Phase 1.** A room can now run with no Discord server and no iScored board, end to end.

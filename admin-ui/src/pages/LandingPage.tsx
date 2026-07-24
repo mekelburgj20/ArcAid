@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Users, Gamepad2, Trophy, ChevronRight } from 'lucide-react';
+import { Users, Gamepad2, Trophy, ChevronRight, Plus } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import { formatCompactNumber } from '../lib/format';
 
@@ -115,13 +115,15 @@ export default function LandingPage() {
 
         {rooms.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-muted">No game rooms available yet.</p>
+            <p className="text-muted mb-6">No game rooms yet — create the first one.</p>
+            <CreateRoomCard />
           </div>
         ) : (
           <div className="flex flex-wrap justify-center gap-8 items-stretch">
             {rooms.map(room => (
               <RoomCard key={room.id} room={room} />
             ))}
+            <CreateRoomCard />
           </div>
         )}
       </div>
@@ -406,6 +408,62 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─── Create Room Card ─── */
+
+function CreateRoomCard() {
+  return (
+    <div style={{ width: 340, maxWidth: '100%', fontFamily: "'DM Sans', sans-serif" }}>
+      <Link
+        to="/create-room"
+        style={{
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: 20,
+          border: '1px dashed rgba(99,210,151,0.35)',
+          background: 'rgba(99,210,151,0.03)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          minHeight: 220,
+          textDecoration: 'none',
+          transition: 'transform 0.2s, box-shadow 0.2s, border-color 0.2s, background 0.2s',
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.borderColor = 'rgba(99,210,151,0.6)';
+          e.currentTarget.style.background = 'rgba(99,210,151,0.06)';
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.borderColor = 'rgba(99,210,151,0.35)';
+          e.currentTarget.style.background = 'rgba(99,210,151,0.03)';
+        }}
+      >
+        <div style={{
+          width: 48,
+          height: 48,
+          borderRadius: '50%',
+          background: 'rgba(99,210,151,0.12)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 14,
+        }}>
+          <Plus size={24} style={{ color: '#63d297' }} />
+        </div>
+        <span style={{ fontSize: 16, fontWeight: 700, color: '#63d297' }}>
+          Create Game Room
+        </span>
+        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
+          Free — sign in with Discord to start
+        </span>
+      </Link>
     </div>
   );
 }

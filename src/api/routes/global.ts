@@ -2,10 +2,10 @@ import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser, requireSuperAdmin } from '../middleware.js';
-import { writeLimiter, globalSubmitLimiter, authLimiter } from '../rateLimit.js';
+import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
-import { UpdatePreferencesSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE } from '../schemas.js';
+import { UpdatePreferencesSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
@@ -845,6 +845,71 @@ router.get('/rooms', async (req, res) => {
         res.json(enriched);
     } catch (error) {
         logError('API Error (GET /api/rooms):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/rooms — public self-serve room creation (v2.33.0).
+ *
+ * requireDiscordUser accepts any logged-in Discord identity, including plain
+ * 'player' role tokens — that's intentional, the guardrails below (kill
+ * switch, per-user cap, rate limit, reserved slugs) are the actual gate, not
+ * the auth role. Creator is granted 'owner' in game_room_admins atomically
+ * with the room insert (GameRoomService.create's ownerDiscordId param), and
+ * the room is always created in 'standalone' mode (Discord/iScored off) —
+ * mode is NOT accepted from the client payload.
+ */
+router.post('/rooms', requireDiscordUser, roomCreateLimiter, async (req, res) => {
+    try {
+        const discordId = req.user?.discordId;
+        if (!discordId) {
+            res.status(401).json({ error: 'Discord login required' });
+            return;
+        }
+
+        const killSwitch = await SettingsService.get('PUBLIC_ROOM_CREATION_ENABLED');
+        if (killSwitch === 'false') {
+            res.status(403).json({ error: 'Public room creation is currently disabled' });
+            return;
+        }
+
+        const validationResult = validate(PublicCreateRoomSchema, req.body);
+        if ('error' in validationResult) {
+            res.status(400).json({ error: validationResult.error });
+            return;
+        }
+        const data = validationResult.data;
+
+        const db = await getDatabase();
+        // Cap check is read-outside-transaction: concurrent requests from one user can
+        // overshoot to ~5 rooms one time (bounded by the 3/hr limiter), then lock at >=3.
+        // Acceptable while the cap is anti-squatting, not billing — serialize before reuse.
+        const ownedCount = await db.get<{ count: number }>(
+            `SELECT COUNT(*) as count FROM game_room_admins WHERE discord_user_id = ? AND role = 'owner'`,
+            discordId,
+        );
+        if ((ownedCount?.count || 0) >= 3) {
+            res.status(403).json({ error: 'Room limit reached (3). Contact the site admin if you need more.' });
+            return;
+        }
+
+        const existing = await GameRoomService.getBySlug(data.slug);
+        if (existing) {
+            res.status(409).json({ error: 'That URL is taken' });
+            return;
+        }
+
+        const room = await GameRoomService.create({
+            ...data,
+            mode: 'standalone',
+            ownerDiscordId: discordId,
+        });
+
+        logInfo(`Public room creation: ${data.name} (${data.slug}) by Discord user ${discordId}`);
+        res.json({ success: true, room: { id: room.id, slug: room.slug, name: room.name } });
+    } catch (error) {
+        logError('API Error (POST /api/rooms):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

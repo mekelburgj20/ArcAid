@@ -56,6 +56,7 @@ import PublicStats from './pages/PublicStats';
 import PublicHistory from './pages/PublicHistory';
 import ComparePlayers from './pages/ComparePlayers';
 import MyRooms from './pages/MyRooms';
+import CreateRoom from './pages/CreateRoom';
 
 // Pages — Kiosk
 import KioskScoreboard from './pages/KioskScoreboard';
@@ -183,6 +184,9 @@ function App() {
 
         {/* My Rooms (global, requires Discord login) */}
         <Route path="/my-rooms" element={<ViewerAuthProvider><MyRooms /></ViewerAuthProvider>} />
+
+        {/* Create Room (global, requires Discord login) */}
+        <Route path="/create-room" element={<ViewerAuthProvider><CreateRoom /></ViewerAuthProvider>} />
 
         {/* Global scoreboard (cross-room aggregate, public) */}
         <Route path="/scoreboard" element={<ViewerAuthProvider><GlobalScoreboard /></ViewerAuthProvider>} />

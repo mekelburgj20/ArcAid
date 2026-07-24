@@ -46,6 +46,23 @@ export const ogPreviewLimiter = rateLimit({
     message: 'Too many preview requests. Please try again later.',
 });
 
+/**
+ * Public room creation: 3 per hour per Discord user.
+ *
+ * Cloned from globalSubmitLimiter's per-discordId pattern (see its comment
+ * for the ipKeyGenerator/IPv6 rationale) — must be mounted AFTER
+ * requireDiscordUser so `req.user.discordId` is populated; falls back to IP
+ * only if that middleware hasn't run.
+ */
+export const roomCreateLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 3,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => req.user?.discordId || ipKeyGenerator(req.ip),
+    message: { error: 'Room creation limit reached (3 per hour). Please try again later.' },
+});
+
 /** General API: 100 requests per minute per IP */
 export const generalLimiter = rateLimit({
     windowMs: 60 * 1000,
