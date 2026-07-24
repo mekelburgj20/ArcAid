@@ -11,7 +11,7 @@ import {
   getTitleSizeClass,
 } from '../components/ScoreboardComponents';
 import CardRouter from '../components/scoreboard/CardRouter';
-import { deriveCardProps, deriveScoreboardConfig, getCardWidth } from '../lib/scoreboardConfig';
+import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../lib/scoreboardConfig';
 import { getSocket } from '../lib/websocket';
 import { getPortal } from '../lib/portal';
 
@@ -124,6 +124,13 @@ export default function KioskScoreboard() {
   const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
   const hasQrTop = useNewCards && (newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all') && newConfig.qrPosition === 'top-right';
   const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
+  // s21 — bottom-anchored QRs straddle the card's bottom edge; the overhang must
+  // be reserved on the layout item or it gets clipped (the hscroll container's
+  // overflow-x:auto also clips vertically). Scoreboard.tsx has carried this
+  // reservation since v2.13.3; the kiosk page never got it — QRs rendered cut off.
+  const cardMarginBottom = useNewCards
+    ? qrBottomMetrics(newConfig.qrSize, newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all', newConfig.qrPosition, newConfig.qrOverlapPx).overhang
+    : 0;
 
   // Measure header height so bg image can start below it
   const headerRef = useRef<HTMLDivElement>(null);
@@ -293,7 +300,7 @@ export default function KioskScoreboard() {
                 }}
               >
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="scoreboard-card-slot" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0 }}>
+                  <div key={lb.gameId} className="scoreboard-card-slot" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
                     {useNewCards ? (
                       <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx} gameTitleStyle={newConfig.gameTitleStyle} />
                     ) : (
@@ -302,7 +309,7 @@ export default function KioskScoreboard() {
                   </div>
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                  <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ overflow: 'visible', minWidth: 0 }}>
+                  <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
                     <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
                   </div>
                 ))}
@@ -312,7 +319,7 @@ export default function KioskScoreboard() {
             <div className="flex-1 min-w-0">
               <div className="flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
+                  <div key={lb.gameId} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
                     {useNewCards ? (
                       <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx} gameTitleStyle={newConfig.gameTitleStyle} />
                     ) : (
@@ -321,7 +328,7 @@ export default function KioskScoreboard() {
                   </div>
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                  <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%' }}>
+                  <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
                     <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
                   </div>
                 ))}
@@ -332,7 +339,7 @@ export default function KioskScoreboard() {
               <div className="-mx-4 sm:-mx-6 overflow-x-auto scoreboard-hscroll-layout">
                 <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                   {visibleLeaderboards.map(lb => (
-                    <div key={lb.gameId} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}) }}>
+                    <div key={lb.gameId} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>
                       {useNewCards ? (
                         <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx} gameTitleStyle={newConfig.gameTitleStyle} />
                       ) : (
@@ -341,7 +348,7 @@ export default function KioskScoreboard() {
                     </div>
                   ))}
                   {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                    <div key={`rank-${group.id}`} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))` }}>
+                    <div key={`rank-${group.id}`} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, marginBottom: cardMarginBottom || undefined }}>
                       <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
                     </div>
                   ))}
