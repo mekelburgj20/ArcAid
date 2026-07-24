@@ -79,8 +79,9 @@ export default function ScoreList({
                 }
               } : undefined}
             >
-              {/* Rank */}
-              <span style={{
+              {/* Rank. S21 — sb-fs-11 gives this a 12px mobile floor
+                  (readable now that mobileScale defaults to 1.0/no-shrink). */}
+              <span className="sb-fs-11" style={{
                 fontFamily: monoFontFamily,
                 fontSize: '11px',
                 fontWeight: 600,
@@ -106,6 +107,7 @@ export default function ScoreList({
                   slug={slug}
                   entry={entry}
                   onClick={e => e.stopPropagation()}
+                  className="sb-fs-13"
                   style={{
                     flex: 1,
                     fontSize: '13px',
@@ -119,7 +121,7 @@ export default function ScoreList({
                   }}
                 />
               ) : (
-                <span style={{
+                <span className="sb-fs-13" style={{
                   flex: 1,
                   fontSize: '13px',
                   color: nameColor,
@@ -134,6 +136,7 @@ export default function ScoreList({
 
               {/* Score */}
               <span
+                className="sb-fs-12"
                 style={{
                   fontSize: '12px',
                   color: scoreColor,

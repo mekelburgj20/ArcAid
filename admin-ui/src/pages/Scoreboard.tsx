@@ -22,7 +22,6 @@ import GameQuickView from '../components/GameQuickView';
 import HorizontalScrollNav from '../components/HorizontalScrollNav';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
-import ScoreboardTicker from '../components/ScoreboardTicker';
 import { deriveCardProps } from '../lib/scoreboardConfig';
 import { deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../lib/scoreboardConfig';
 import { TAB_LABELS, tabSubtitle } from '../lib/scoresCopy';
@@ -332,7 +331,7 @@ export default function Scoreboard() {
         .scoreboard-hscroll-nobar::-webkit-scrollbar { display: none; }
         /* Mobile: scale + vertical mode */
         @media (max-width: 640px) {
-          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 0.85); }
+          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 1); }
           .scoreboard-mobile-vertical .scoreboard-hscroll-layout {
             overflow-x: hidden !important;
           }
@@ -351,12 +350,37 @@ export default function Scoreboard() {
           .scoreboard-mobile-vertical .scoreboard-grid-layout > div {
             max-width: 100%;
           }
+          /* S21 — true mobile card layout: cards render at full width (no
+             fixed-px cap) at natural type scale. Applies to the layout
+             wrapper AND the card component's own inner width (BannerCard/
+             ShowcaseCard/MinimalCard/RankingGroupCard all set an explicit
+             px width on an inner element that a wrapper-only override can't
+             reach). */
+          .scoreboard-mobile-vertical .scoreboard-card-slot {
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+          /* S21 — SCOREBOARD_ZOOM (legacy TV zoom) must not apply on phones;
+             mirrors the mobile-scale mechanism above. */
+          .scoreboard-page-zoom {
+            zoom: 100% !important;
+          }
+          /* S21 — mobile type floors. Viewport-only (not gated behind
+             .scoreboard-mobile-vertical — readability at natural scale
+             applies regardless of the vertical-stacking toggle). Class name
+             encodes the ORIGINAL desktop px size; see ScoreList.tsx,
+             BannerCard.tsx, ShowcaseCard.tsx for call sites. */
+          .sb-fs-9  { font-size: 11px !important; }
+          .sb-fs-10 { font-size: 11px !important; }
+          .sb-fs-11 { font-size: 12px !important; }
+          .sb-fs-12 { font-size: 13px !important; }
+          .sb-fs-13 { font-size: 14px !important; }
         }
       `}</style>
 
       {/* Scrollable content — zoom applied here so it doesn't break the flex height chain */}
       <div
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scoreboard-page-zoom"
         style={{
           ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
           // S14: reserve room for the fixed-bottom lobby ticker so it doesn't
@@ -477,7 +501,7 @@ export default function Scoreboard() {
               }}
             >
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="relative group/card" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
+                <div key={lb.gameId} className="relative group/card scoreboard-card-slot" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
                   {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                   <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
                     <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
@@ -505,7 +529,7 @@ export default function Scoreboard() {
                 </div>
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                <div key={`rank-${group.id}`} style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
+                <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
                   <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
                 </div>
               ))}
@@ -516,7 +540,7 @@ export default function Scoreboard() {
           <div className="flex-1 min-w-0">
             <div className="flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
               {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
+                <div key={lb.gameId} className="relative group/card scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
                   {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                   <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
                     <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
@@ -544,7 +568,7 @@ export default function Scoreboard() {
                 </div>
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                <div key={`rank-${group.id}`} style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
+                <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
                   <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
                 </div>
               ))}
@@ -556,7 +580,7 @@ export default function Scoreboard() {
             <HorizontalScrollNav className="-mx-4 sm:-mx-6 scoreboard-hscroll-layout">
               <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
                 {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0 relative group/card" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>
+                  <div key={lb.gameId} className="flex-shrink-0 relative group/card scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>
                     {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
                     <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-2 right-2 z-20 w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/20 focus:bg-neon-cyan/20 flex items-center justify-center transition-colors cursor-pointer backdrop-blur-sm">
                       <Plus size={16} />
@@ -582,7 +606,7 @@ export default function Scoreboard() {
                   </div>
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                  <div key={`rank-${group.id}`} className="flex-shrink-0" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, marginBottom: cardMarginBottom || undefined }}>
+                  <div key={`rank-${group.id}`} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, marginBottom: cardMarginBottom || undefined }}>
                     <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
                   </div>
                 ))}
@@ -630,9 +654,6 @@ export default function Scoreboard() {
           onSubmitted={() => { loadData(); loadRankings(); setSelectedGame(null); }}
         />
       )}
-
-      {/* S14: lobby feed ticker — visible on all three tabs. */}
-      {roomId && <ScoreboardTicker roomId={roomId} />}
 
       {/* Player display preferences modal */}
       {playerToken && (

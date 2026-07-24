@@ -104,7 +104,7 @@ const DANGEROUS_KEYS = ['REQUIRE_DISCORD_LOGIN', 'ISCORED_ENABLED', 'DISCORD_ENA
 
 const CATEGORIES: Record<string, string[]> = {
   'Leaderboard Display': ['SCOREBOARD_LAYOUT', 'SCOREBOARD_GAME_COLUMNS', 'SCOREBOARD_CARD_SIZE', 'SCOREBOARD_CARD_LAYOUT', 'SCOREBOARD_WHEEL_SCALE', 'SCOREBOARD_BG_FILL', 'SCOREBOARD_BG_SIZE', 'SCOREBOARD_SCORE_STYLE', 'SCOREBOARD_GLASS_OPACITY', 'SCOREBOARD_GAME_TITLE_STYLE', 'SCOREBOARD_SCORE_COLUMNS', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_RANKINGS_POSITION', 'SCOREBOARD_ZOOM', 'SCOREBOARD_CARD_OPACITY', 'SCOREBOARD_QR_MODE'],
-  'Kiosk': ['KIOSK_REFRESH_SECONDS'],
+  'Kiosk': ['KIOSK_REFRESH_SECONDS', 'KIOSK_ZOOM'],
   'Game Room': ['GAME_ROOM_NAME', 'GAME_ROOM_SLUG'],
   'Discord': ['DISCORD_GUILD_ID', 'DISCORD_ADMIN_ROLE_ID', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_INVITE_URL'],
   'iScored': ['ISCORED_USERNAME', 'ISCORED_PASSWORD', 'ISCORED_PUBLIC_URL'],
@@ -257,6 +257,7 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   LOGO_MAX_HEIGHT: { label: 'Logo Max Height (px)', description: 'Maximum height of the logo in pixels. Default: 64.' },
   // Kiosk
   KIOSK_REFRESH_SECONDS: { label: 'Kiosk Auto-Refresh (seconds)', description: 'How often the kiosk view refreshes data. Default: 60. Set to 0 to disable auto-refresh.' },
+  KIOSK_ZOOM: { label: 'Kiosk Zoom (%)', description: 'Zoom for TV/kiosk displays. 130-150% recommended for across-the-room viewing. Leave empty to use Scoreboard Zoom.' },
 };
 
 const SELECT_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -1077,18 +1078,18 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Mobile Scale Factor */}
+              {/* Mobile Density (S21: shrink is now opt-in; 1.0 = full size default) */}
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <label className="text-sm font-medium text-primary">Mobile Scale Factor</label>
-                  <p className="text-xs text-muted">Scale cards on mobile (0.3–1.0). Default 0.85 = 85% of desktop size.</p>
+                  <label className="text-sm font-medium text-primary">Mobile Density</label>
+                  <p className="text-xs text-muted">Shrink cards to fit more on screen (0.3–1.0). Default 1.0 = full size, matching desktop.</p>
                 </div>
                 <input
                   type="number"
                   min="0.3"
                   max="1"
                   step="0.05"
-                  value={settings.SCOREBOARD_MOBILE_SCALE || '0.85'}
+                  value={settings.SCOREBOARD_MOBILE_SCALE || '1.0'}
                   onChange={e => handleChange('SCOREBOARD_MOBILE_SCALE', e.target.value)}
                   className="w-20 rounded bg-deep border border-border px-2 py-1 text-sm text-primary"
                 />
@@ -1228,6 +1229,17 @@ export default function Settings() {
                           />
                           <span className="text-sm text-muted w-12 text-right">{Math.round((parseFloat(value || '1') * 100))}%</span>
                         </div>
+                      ) : key === 'KIOSK_ZOOM' ? (
+                        <input
+                          type="number"
+                          min="50"
+                          max="300"
+                          step="5"
+                          placeholder="(uses Scoreboard Zoom)"
+                          value={value}
+                          onChange={e => handleChange(key, e.target.value)}
+                          className={`${inputClass} flex-1`}
+                        />
                       ) : SELECT_OPTIONS[key] ? (
                         <select
                           value={value || SELECT_OPTIONS[key][0].value}

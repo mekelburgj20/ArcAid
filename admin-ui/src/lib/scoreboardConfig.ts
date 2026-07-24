@@ -56,7 +56,11 @@ export interface ScoreboardConfig {
   gameTitleStyle: string;         // same options as titleStyle (glow, fire, plasma, etc.)
   bgBehindTitle: boolean;         // true when bgMode is 'fill-entire' — bg image extends behind title
   mobileVertical: boolean;        // true = force vertical scroll on mobile (default), false = keep desktop layout
-  mobileScale: number;            // mobile zoom factor, e.g. 0.6 = 60% of desktop size
+  mobileScale: number;            // mobile density factor, e.g. 0.6 = 60% of desktop size. 1.0 = full size (default, opt-in shrink only).
+  /** S21 — kiosk-only TV/distance zoom. Fallback chain: KIOSK_ZOOM if set,
+   *  else SCOREBOARD_ZOOM, else 100. Gated off at <=640px (see item 2's zoom
+   *  gate) — phones always render at natural scale regardless of this value. */
+  kioskZoom: number;
 }
 
 /**
@@ -101,6 +105,15 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
 
     layout: config.SCOREBOARD_LAYOUT || (style === 'showcase' || style === 'minimal' ? 'vertical' : 'scroll'),
     zoom: parseInt(config.SCOREBOARD_ZOOM || '100', 10) || 100,
+    // S21 — kiosk distance-tuning zoom. KIOSK_ZOOM wins when set; otherwise
+    // fall back to SCOREBOARD_ZOOM so existing TVs keep their current zoom
+    // with no config changes; otherwise 100. Clamped defensively [50, 300].
+    kioskZoom: (() => {
+      const kiosk = parseInt(config.KIOSK_ZOOM || '', 10);
+      const board = parseInt(config.SCOREBOARD_ZOOM || '', 10);
+      const n = Number.isFinite(kiosk) ? kiosk : Number.isFinite(board) ? board : 100;
+      return Math.min(300, Math.max(50, n));
+    })(),
     bgUrl: config.SCOREBOARD_BG_URL || '',
     bgMode: config.SCOREBOARD_BG_MODE || 'cover',
     bgOpacity: config.SCOREBOARD_BG_OPACITY ? parseFloat(config.SCOREBOARD_BG_OPACITY) : 1,
@@ -129,9 +142,16 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     gameTitleStyle: config.SCOREBOARD_GAME_TITLE_STYLE || 'default',
     bgBehindTitle: (config.SCOREBOARD_BG_MODE || 'cover') === 'fill-entire',
     mobileVertical: config.SCOREBOARD_MOBILE_VERTICAL !== 'false',
-    // s20: default bumped 0.6 -> 0.85 (interim mitigation until S21's mobile
-    // layout work) — rooms with an explicit SCOREBOARD_MOBILE_SCALE keep it.
-    mobileScale: config.SCOREBOARD_MOBILE_SCALE ? parseFloat(config.SCOREBOARD_MOBILE_SCALE) : 0.85,
+    // s20 bumped 0.6 -> 0.85 as an interim mitigation until the true mobile
+    // layout landed. S21 is that promised work (true full-width mobile cards
+    // at natural scale) — mobileScale is now an opt-in densifier defaulting
+    // to 1.0 (no shrink). Rooms/viewers with an explicit value keep it,
+    // clamped to the supported range.
+    mobileScale: (() => {
+      const raw = config.SCOREBOARD_MOBILE_SCALE ? parseFloat(config.SCOREBOARD_MOBILE_SCALE) : 1.0;
+      const n = Number.isFinite(raw) ? raw : 1.0;
+      return Math.min(1.0, Math.max(0.3, n));
+    })(),
   };
 }
 
