@@ -124,6 +124,31 @@ export const CreateGameRoomSchema = z.object({
     mode: z.enum(['standalone', 'connected']).optional(),
 });
 
+// Public self-serve room creation (v2.33.0) — route segments that a bare-slug
+// path (/<slug>, /<slug>/admin/*, etc.) would collide with. Hyphenated routes
+// like /my-rooms and /create-room can't collide since the slug regex below
+// excludes hyphens, but they're listed anyway for readers scanning this list.
+export const RESERVED_ROOM_SLUGS = [
+    'admin', 'login', 'auth', 'invite', 'privacy', 'terms', 'friends',
+    'account', 'scoreboard', 'games', 'api', 'assets', 'kiosk', 'submit',
+    'create', 'createroom', 'room', 'rooms', 'settings', 'static', 'public',
+    'www', 'arcaid', 'help', 'about',
+];
+
+// Public self-serve room creation (v2.33.0). Deliberately narrower than
+// CreateGameRoomSchema (super-admin path): no logo_url/discord_guild_id/
+// short_tag/mode — those stay super-admin-only or server-forced (mode is
+// always 'standalone' for this path, set in the route handler, not accepted
+// from the client).
+export const PublicCreateRoomSchema = z.object({
+    name: z.string().min(1).max(100),
+    slug: z.string().min(1).max(50)
+        .regex(/^[a-z0-9_]+$/, 'Slug must be lowercase alphanumeric with underscores')
+        .refine((slug) => !RESERVED_ROOM_SLUGS.includes(slug), 'This name is reserved'),
+    description: z.string().max(500).default(''),
+    is_public: z.boolean().default(true),
+});
+
 export const CreateLocalAdminSchema = z.object({
     username: z.string().min(1).max(50),
     password: z.string().min(8).max(100),
