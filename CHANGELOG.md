@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.31.0] — unreleased
+
+**Ranking-card restyle.** Ranking-group cards on the public scoreboard/kiosk no longer render flat gray for banner/minimal rooms, and now show which tournaments feed each ranking group.
+
+- **Theme-derived card background** — banner/minimal rooms' ranking cards (all rankings styles: match, plaque, sidebar; compact keeps its deliberate no-chrome look) get an accent-tinted gradient built from the room theme's CSS variables (`--color-border-glow` over `--color-surface` via `color-mix`), so all 17 public themes flow through automatically. Root cause of the gray: the only themed background source was gated on showcase style — banner/minimal fell back to flat `var(--color-surface)` in every variant. Showcase rooms are background-unchanged.
+- **Tournament chips** — each ranking card's header now lists the group's underlying tournaments as small pills colored by tournament type (gold/blue/purple/green — same scheme as Discord embeds, incl. tag-code types like `DG`/`WG-VPXS` via a FE port of `getTournamentColor`; unknown types render gray). Capped at 4 visible + `+N` overflow; chips wrap within the fixed card width.
+- **Backend (additive)** — `GET /rooms/:roomId/rankings` group objects now carry `tournaments: [{id, name, type}]` (from the existing `ranking_group_tournaments` join — no schema change). FE tolerates its absence.
+- **Tests** — new `tournamentColors` FE suite (5), `rankingsStyle` derivation coverage (3 — closing a pre-existing gap), and 3 backend `RankingService.tournaments` cases.
+
+No DB migration (next free still 113).
+
+---
+
 ## [2.30.2] — unreleased
 
 **Kiosk scrollbar polish.** The kiosk page's horizontal card-row scrollbar is hidden entirely (`scrollbar-width: none` + webkit equivalent) — visual noise on a non-interactive TV display. Scrolling still works for the auto-scroll attract mode and incidental touch; the public Scoreboard page keeps its visible thin scrollbar (interactive surface, separate CSS copy).
