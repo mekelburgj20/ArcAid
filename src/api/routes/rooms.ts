@@ -4789,9 +4789,26 @@ router.get('/:roomId/admin/health', requireAuth, requireRoomAccess('roomId'), as
         const ready = !!discordClient?.isReady();
         const inGuild = ready && guildId ? discordClient!.isInGuild(guildId) : null;
 
-        // --- Poller sync status (global singleton) ---
+        // --- Poller sync status (global singleton) — scoped to THIS room's
+        // account only (D3, v2.32.0). Pre-fix this leaked every OTHER room's
+        // iScored account health onto this room's dashboard, since the poller
+        // tracks accounts globally. `getIScoredCredsForRoom` already applies
+        // the room's ISCORED_ENABLED gate + per-room/env creds resolution;
+        // accountHealth (surfaced as PollerAccountStatus.name) is keyed by
+        // `creds.gameroomName` (see ScoreSyncPoller.recordAccountSuccess/Failure),
+        // so filtering on that name isolates this room's own account. No creds
+        // → no accounts (room isn't polled at all).
         const { ScoreSyncPoller } = await import('../../engine/ScoreSyncPoller.js');
-        const poller = ScoreSyncPoller.getInstance().getStatus();
+        const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+        const rawPoller = ScoreSyncPoller.getInstance().getStatus();
+        const iscoredEnabled = (await GameRoomSettingsService.get(roomId, 'ISCORED_ENABLED')) !== 'false';
+        const roomIScoredCreds = await getIScoredCredsForRoom(roomId);
+        const poller = {
+            ...rawPoller,
+            accounts: roomIScoredCreds
+                ? rawPoller.accounts.filter(a => a.name === roomIScoredCreds.gameroomName)
+                : [],
+        };
 
         // --- Per-tournament maintenance trail + next fire ---
         const { MaintenanceRunService } = await import('../../services/MaintenanceRunService.js');
@@ -4828,6 +4845,7 @@ router.get('/:roomId/admin/health', requireAuth, requireRoomAccess('roomId'), as
 
         res.json({
             discord: { enabled: discordEnabled, ready, inGuild, guildId: guildId || null },
+            iscored: { enabled: iscoredEnabled, configured: !!roomIScoredCreds },
             poller,
             maintenance,
             version: getVersionInfo(),

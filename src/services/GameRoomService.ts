@@ -48,6 +48,10 @@ export class GameRoomService {
         logo_url?: string;
         discord_guild_id?: string;
         short_tag?: string | null;
+        // Standalone-room Phase 1 (v2.32.0) — absent/'connected' = today's
+        // behavior. 'standalone' additionally seeds the two integration
+        // toggles off below.
+        mode?: 'standalone' | 'connected';
     }): Promise<GameRoom> {
         const db = await getDatabase();
         const id = crypto.randomUUID();
@@ -64,10 +68,26 @@ export class GameRoomService {
         // means walk-up web submitters must authenticate, which closes the
         // anonymous-name collision surface entirely. Existing rooms are unaffected;
         // admins can opt out per-room via Settings if they want kiosk/guest play.
+        // NOTE: kept true for standalone rooms too — Discord OAuth is a global
+        // IdP and works fine with no guild attached.
         await db.run(
             `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
             id, 'REQUIRE_DISCORD_LOGIN', 'true',
         );
+
+        // Standalone-room Phase 1 (v2.32.0): a pure-web room has no Discord
+        // guild and no iScored board, so both integrations start off. Admins
+        // can still flip them back on later via Settings > Integrations.
+        if (data.mode === 'standalone') {
+            await db.run(
+                `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+                id, 'DISCORD_ENABLED', 'false',
+            );
+            await db.run(
+                `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+                id, 'ISCORED_ENABLED', 'false',
+            );
+        }
 
         return (await GameRoomService.getById(id))!;
     }

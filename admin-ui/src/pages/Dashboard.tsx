@@ -35,6 +35,7 @@ interface DashboardData {
 
 interface HealthData {
   discord: { enabled: boolean; ready: boolean; inGuild: boolean | null; guildId: string | null };
+  iscored: { enabled: boolean; configured: boolean };
   poller: {
     running: boolean; paused: boolean; lastPollAt: number | null; lastSuccessAt: number | null;
     lastPollSucceeded: boolean; consecutiveErrors: number;
@@ -158,8 +159,19 @@ export default function Dashboard() {
             })()}
           </div>
 
-          {/* iScored sync — only shown when the room actually polls an account */}
-          {health && health.poller.accounts.length > 0 && (() => {
+          {/* iScored sync — D3 (v2.32.0): mirrors the Discord-disabled
+              treatment for a standalone/iScored-disabled room. Poller
+              accounts are now scoped server-side to THIS room's own account
+              (pre-fix this showed every OTHER room's poller health too), so
+              "accounts.length > 0" here really does mean "this room polls
+              an account". Enabled-but-unconfigured keeps the pre-existing
+              behavior of simply not rendering the line. */}
+          {health && health.iscored.enabled === false ? (
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-faint" />
+              <span className="text-sm font-medium">iScored disabled</span>
+            </div>
+          ) : health && health.poller.accounts.length > 0 ? (() => {
             const p = health.poller;
             const degraded = p.consecutiveErrors > 0 || p.accounts.some(a => a.consecutiveErrors > 0);
             const ok = p.lastPollSucceeded && !degraded;
@@ -171,7 +183,7 @@ export default function Dashboard() {
                 <span className="text-xs text-faint">· last {formatAgo(p.lastSuccessAt, now)}</span>
               </div>
             );
-          })()}
+          })() : null}
 
           <div className="flex items-center gap-2">
             <span className="text-muted text-sm">Active Tournaments:</span>

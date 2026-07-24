@@ -45,13 +45,16 @@ vi.mock('web-push', () => ({
 
 const sentDMs: Array<{ userId: string; content: string }> = [];
 let dmResult = true;
+// D4 (standalone rooms, v2.32.0) — mutable per-test so the DISCORD_ENABLED
+// gate can be exercised without a real game_room_settings row.
+let discordEnabledForRoom = true;
 
 vi.mock('../utils/discord.js', () => ({
     sendDirectMessage: vi.fn(async (userId: string, content: string) => {
         sentDMs.push({ userId, content });
         return dmResult;
     }),
-    isDiscordEnabledForRoom: async () => true,
+    isDiscordEnabledForRoom: async () => discordEnabledForRoom,
 }));
 
 // Imported AFTER the mock declarations (hoisted by vitest, but keep it explicit).
@@ -106,6 +109,7 @@ beforeEach(async () => {
     sentDMs.length = 0;
     pushFailWith = null;
     dmResult = true;
+    discordEnabledForRoom = true;
     NotificationService._resetForTesting();
     WebPushService._resetForTesting();
     process.env.DISCORD_BOT_TOKEN = 'test-token';
@@ -266,6 +270,85 @@ describe('web-push dispatch — gates', () => {
         await settle();
         expect(pushSends).toHaveLength(5);
         expect(sentDMs).toHaveLength(5);
+    });
+});
+
+// ===========================================================================
+// D4 (standalone rooms, v2.32.0) — the two real notification bugs fixed for
+// the standalone-room story: the DISCORD_ENABLED gate no longer suppresses
+// web push, and turnToPick becomes push-eligible with a deep link.
+describe('D4 — DISCORD_ENABLED gate no longer suppresses web push', () => {
+    it('a Discord-disabled room still delivers the push; the DM is never attempted', async () => {
+        discordEnabledForRoom = false;
+        await seedVapid();
+        await setPrefs('u-standalone-1', { rankDethroned: true, webPush: true });
+        await seedSubscription('u-standalone-1');
+
+        const ok = await NotificationService.notify({
+            userId: 'u-standalone-1',
+            type: 'rankDethroned',
+            message: 'You lost the top spot.',
+            roomId: 'room-standalone-1',
+        });
+
+        // Pre-fix: the DISCORD_ENABLED early-return suppressed EVERYTHING,
+        // including the push channel, and `ok` was always false here.
+        expect(ok).toBe(true);
+        expect(sentDMs).toHaveLength(0); // DM channel gated off — never attempted
+        await waitForPushCount(1);
+    });
+
+    it('a Discord-enabled room is unaffected (DM still attempted normally)', async () => {
+        discordEnabledForRoom = true;
+        await seedVapid();
+        await setPrefs('u-standalone-2', { rankDethroned: true, webPush: true });
+        await seedSubscription('u-standalone-2');
+
+        const ok = await NotificationService.notify({
+            userId: 'u-standalone-2', type: 'rankDethroned', message: 'm', roomId: 'room-connected-1',
+        });
+
+        expect(ok).toBe(true);
+        expect(sentDMs).toHaveLength(1);
+        await waitForPushCount(1);
+    });
+});
+
+describe('D4 — turnToPick is web-push-eligible with a deep link', () => {
+    it('delivers a push with title, correct tag, and the Picks-page deep link', async () => {
+        await seedVapid();
+        await setPrefs('u-pick-1', { turnToPick: true, webPush: true });
+        await seedSubscription('u-pick-1');
+
+        const ok = await NotificationService.notify({
+            userId: 'u-pick-1',
+            type: 'turnToPick',
+            message: `You won **Fire Mountain** — it's your turn to pick the next game.\nhttps://arcaid.app/rtx/picks`,
+            pushUrl: 'https://arcaid.app/rtx/picks',
+        });
+
+        expect(ok).toBe(true);
+        expect(sentDMs).toHaveLength(1);
+        await waitForPushCount(1);
+
+        const payload = JSON.parse(pushSends[0].body);
+        expect(payload.title).toContain('turn to pick');
+        expect(payload.url).toBe('https://arcaid.app/rtx/picks');
+        expect(payload.tag).toBe('arcaid-turnToPick');
+    });
+
+    it('does NOT push when the webPush channel flag is off (DM still sent)', async () => {
+        await seedVapid();
+        await setPrefs('u-pick-2', { turnToPick: true });
+        await seedSubscription('u-pick-2');
+
+        const ok = await NotificationService.notify({
+            userId: 'u-pick-2', type: 'turnToPick', message: 'm',
+        });
+
+        expect(ok).toBe(true);
+        await settle();
+        expect(pushSends).toHaveLength(0);
     });
 });
 
