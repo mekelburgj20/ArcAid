@@ -88,6 +88,18 @@ export default function ShowcaseCard({
   const listEntries = lb.rankings.slice(3, maxScores);
   const isChipPodium = theme.podiumVariant === 'chip';
 
+  // D1 (v2.34.0) — reserve a fixed two-line title box so a wrapping title
+  // doesn't push the meta row / podium down vs sibling cards in the same
+  // row. Uses the SAME default the title's fontSize style falls back to.
+  const effectiveTitleFontSize = titleFontSize || 18;
+  const titleBoxMinHeight = effectiveTitleFontSize * 1.2 * 2;
+  const titleClampStyle: React.CSSProperties = {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: 2,
+    overflow: 'hidden',
+  };
+
   // Minimum height: podium (~180px) + remaining score rows (~32px each)
   const minListRows = Math.max(0, minScores - 3);
   const contentMinHeight = 180 + minListRows * 32;
@@ -205,9 +217,10 @@ export default function ShowcaseCard({
                   wordBreak: 'break-word',
                   textAlign: 'center',
                   textDecoration: 'none',
+                  minHeight: titleBoxMinHeight,
                 }}
               >
-                {displayName}
+                <span style={titleClampStyle}>{displayName}</span>
                 <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
               </Link>
             ) : (
@@ -225,9 +238,10 @@ export default function ShowcaseCard({
                 gap: 4,
                 overflowWrap: 'break-word',
                 wordBreak: 'break-word',
+                minHeight: titleBoxMinHeight,
                 textAlign: 'center',
               }}>
-                {displayName}
+                <span style={titleClampStyle}>{displayName}</span>
                 <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
               </h2>
             )}
