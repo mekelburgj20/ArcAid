@@ -168,7 +168,7 @@ Example: WHO dunnit on `[vpx, vpxs, real, fx, fx_vr, atgames]`. Tournament Must=
 - **Image upload limit** 30MB. Formats PNG/APNG/JPEG/WebP. APNG animates natively in `<img>` tags.
 - **Score abbreviation:** scores ≥1T render as `X.XT` with full value in tooltip.
 - **Score toast:** WebSocket `score:new` carries `{ gameId, gameName, playerName, score }`; Scoreboard shows slide-down toast.
-- **Themes:** 11 themes in CSS variables. Admin theme is per-user (`user_preferences`); scoreboard theme is room-wide (`SCOREBOARD_THEME`). `ThemeProvider` reads localStorage first to avoid flash.
+- **Themes:** 17 themes in CSS variables (16 `.theme-*` classes in `ThemeProvider.tsx`'s `ALL_THEME_CLASSES` + the no-class dark default — count them there, don't trust a hardcoded number). Admin theme is per-user (`user_preferences`); public theme is per-room + per-slug localStorage key. `ThemeProvider` reads localStorage first to avoid flash.
 - **PWA:** `manifest.json` + `sw.js` in `admin-ui/public/`; service worker is cache-first for static assets, network-first for navigation.
 - **Public slug matching is case-insensitive.**
 
