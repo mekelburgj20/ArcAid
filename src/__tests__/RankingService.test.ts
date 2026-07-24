@@ -241,6 +241,76 @@ describe('RankingService', () => {
         });
     });
 
+    // v2.31.0 (ranking-card restyle, D1) — additive `tournaments` field on
+    // the group object returned by getActiveWithRankings, sourced from
+    // ranking_group_tournaments + tournaments(id, name, type).
+    describe('getActiveWithRankings tournaments attachment', () => {
+        it('attaches id/name/type for each tournament in the group', async () => {
+            const roomId = await createTestRoom();
+            const t1 = await createTestTournament(roomId, { name: 'Daily Grind', type: 'DG' });
+            const t2 = await createTestTournament(roomId, { name: 'Weekly VPXS', type: 'WG-VPXS' });
+            const groupId = crypto.randomUUID();
+
+            await RankingService.create({
+                id: groupId,
+                name: 'Season 1',
+                rank_method: 'max_10',
+                best_n: 25,
+                min_games: 1,
+                tournament_ids: [t1, t2],
+                game_room_id: roomId,
+            });
+
+            const results = await RankingService.getActiveWithRankings(roomId);
+            expect(results).toHaveLength(1);
+            const { group } = results[0]!;
+            expect(group.tournaments).toHaveLength(2);
+            const names = group.tournaments.map(t => t.name).sort();
+            expect(names).toEqual(['Daily Grind', 'Weekly VPXS']);
+            const dg = group.tournaments.find(t => t.id === t1);
+            expect(dg).toEqual({ id: t1, name: 'Daily Grind', type: 'DG' });
+        });
+
+        it('returns an empty tournaments array for a group with no tournaments', async () => {
+            const roomId = await createTestRoom();
+            const groupId = crypto.randomUUID();
+
+            await RankingService.create({
+                id: groupId,
+                name: 'Empty Group',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [],
+                game_room_id: roomId,
+            });
+
+            const results = await RankingService.getActiveWithRankings(roomId);
+            expect(results).toHaveLength(1);
+            expect(results[0]!.group.tournaments).toEqual([]);
+        });
+
+        it('excludes inactive groups (unchanged pre-existing filter)', async () => {
+            const roomId = await createTestRoom();
+            const groupId = crypto.randomUUID();
+            await RankingService.create({
+                id: groupId,
+                name: 'Inactive Group',
+                rank_method: 'max_10',
+                best_n: 10,
+                min_games: 1,
+                tournament_ids: [],
+                game_room_id: roomId,
+            });
+            const db = (await import('../database/database.js')).getDatabase;
+            const conn = await db();
+            await conn.run('UPDATE ranking_groups SET is_active = 0 WHERE id = ?', groupId);
+
+            const results = await RankingService.getActiveWithRankings(roomId);
+            expect(results).toHaveLength(0);
+        });
+    });
+
     describe('cache watermark auto-invalidation', () => {
         // These tests prove the cache self-invalidates on data changes —
         // no caller needs to remember to invoke invalidate(). Each scenario

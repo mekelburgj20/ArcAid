@@ -87,4 +87,25 @@ describe('deriveScoreboardConfig', () => {
       expect(deriveScoreboardConfig({ SCOREBOARD_MOBILE_VERTICAL: 'anything-else' }).mobileVertical).toBe(true);
     });
   });
+
+  // v2.31.0 (ranking-card restyle) — first coverage for rankingsStyle
+  // derivation/validation; closes a pre-existing gap (this field previously
+  // had no dedicated test).
+  describe('rankingsStyle', () => {
+    it('defaults to "match" when unset', () => {
+      const cfg = deriveScoreboardConfig({});
+      expect(cfg.rankingsStyle).toBe('match');
+    });
+
+    it('accepts each valid value', () => {
+      expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'match' }).rankingsStyle).toBe('match');
+      expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'plaque' }).rankingsStyle).toBe('plaque');
+      expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'compact' }).rankingsStyle).toBe('compact');
+      expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'sidebar' }).rankingsStyle).toBe('sidebar');
+    });
+
+    it('falls back to "match" for an unrecognized value', () => {
+      expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'junk' }).rankingsStyle).toBe('match');
+    });
+  });
 });
