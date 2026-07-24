@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown } from 'lucide-react';
+import { Building2, LayoutGrid, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown } from 'lucide-react';
 
 interface DiscordUser {
   discordId: string;
@@ -153,6 +153,16 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
             >
               <Building2 size={14} />
               My Rooms
+            </Link>
+            <Link
+              role="menuitem"
+              tabIndex={-1}
+              to="/"
+              onClick={() => setOpen(false)}
+              className={menuItemClass}
+            >
+              <LayoutGrid size={14} />
+              All Game Rooms
             </Link>
             <Link
               role="menuitem"
