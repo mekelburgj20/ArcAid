@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.34.0] — unreleased
+
+**Card title alignment + info-popup hover.**
+
+- **Reserved two-line title box** (Banner/Showcase/Minimal cards): a wrapping game title (e.g. "Black Knight Sword of Rage (Stern, 2019)") no longer pushes the card's meta row and podium/score area down relative to sibling cards — every title gets a fixed two-line box (derived from the card's title font size × its actual line-height), vertically centered, text clamped at 2 lines (full name remains on the game-detail page). Single-line titles center in the same box, so rows align exactly.
+- **Game info "ⓘ" popup opens on hover** (mouse): hovering the icon opens the bubble after a 100ms intent delay; moving the pointer into the bubble keeps it open, and leaving both closes it after a 300ms grace period — so the game-source link inside is reachable and clickable. Touch keeps tap-to-toggle (hover handlers are gated on `(hover: hover)`); keyboard/Escape behavior unchanged.
+- **Tests** — first GameInfoPopup coverage (3 fake-timer cases: open delay, grace-period close, re-enter cancels close).
+
+No DB migration (next free still 113).
+
+---
+
 ## [2.33.0] — unreleased
 
 **Public self-serve room creation.** Anyone can create a game room from the landing site — no super-admin needed.

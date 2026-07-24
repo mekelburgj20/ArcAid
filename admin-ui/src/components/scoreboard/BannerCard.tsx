@@ -80,7 +80,8 @@ export default function BannerCard({
   // default the title's fontSize style falls back to (0.875rem = 14px at
   // the app's default 16px root — no custom root font-size is set).
   const effectiveTitleFontSize = titleFontSize || 14;
-  const titleBoxMinHeight = effectiveTitleFontSize * 1.2 * 2;
+  // 1.25 = Tailwind `leading-tight`, the line-height this title actually renders at.
+  const titleBoxMinHeight = effectiveTitleFontSize * 1.25 * 2;
   const titleClampStyle: React.CSSProperties = {
     display: '-webkit-box',
     WebkitBoxOrient: 'vertical',
