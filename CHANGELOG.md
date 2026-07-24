@@ -6,6 +6,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.30.2] — unreleased
+
+**Kiosk scrollbar polish.** The kiosk page's horizontal card-row scrollbar is hidden entirely (`scrollbar-width: none` + webkit equivalent) — visual noise on a non-interactive TV display. Scrolling still works for the auto-scroll attract mode and incidental touch; the public Scoreboard page keeps its visible thin scrollbar (interactive surface, separate CSS copy).
+
+---
+
+## [2.30.1] — unreleased
+
+**Kiosk auto-scroll attract mode.** When the kiosk's horizontal card row overflows the screen (typical once Kiosk Zoom is raised for TV distance), the row now slowly ping-pongs (40px/s, 3s dwell at each end) so every card gets screen time. Only activates on actual overflow; pauses 10s on any user input (wheel/touch/pointer); skipped under `prefers-reduced-motion`. New room toggle `KIOSK_AUTO_SCROLL` (Settings → Kiosk, default ON) — flows through the existing `KIOSK_` prefix whitelist, no backend changes.
+
+---
+
+## [2.30.0] — unreleased
+
+**S21 — True mobile card layout + kiosk distance tuning.** Retires the mobile `zoom` shrink hack and decouples TV zoom from phone rendering.
+
+- **True mobile layout (≤640px)** — cards render as one full-width column at natural type scale via `.scoreboard-card-slot` overrides (applied to layout wrappers AND the card components' own fixed-px root widths — Banner 280 / Showcase 380 / Minimal 380 / all six RankingGroupCard variants). Smallest text gets +1–2px readability floors (`.sb-fs-*` classes; `!important` so they beat inline `fontSize` styles).
+- **`mobileScale` is now an opt-in densifier** — default 0.85 → **1.0** (no shrink unless a room/viewer explicitly sets it); relabeled "Mobile Density" in Settings + viewer prefs. S20's 0.85 was the interim mitigation; this is the promised fix.
+- **`SCOREBOARD_ZOOM` no longer applies at ≤640px** on either page (`.scoreboard-page-zoom` gate) — a TV operator's zoom stops re-scaling phone visitors.
+- **New `KIOSK_ZOOM` room setting** (Settings → Kiosk, 50–300%, hint recommends 130–150% for TV distance) with back-compat fallback chain `KIOSK_ZOOM → SCOREBOARD_ZOOM → 100` — existing TVs are byte-identical until the operator opts in. Flows through the `KIOSK_` prefix whitelist; zero backend changes.
+- **Kiosk ticker** 12px → 16px text, bar height 36 → 46px (S20 safe-area pattern preserved).
+- **Showcase secondary-text alpha floors ≥0.55** — glass-deck + neon-circuit `timerColor`/`metaColor` (neon-circuit meta was 0.15, near-invisible) + the hardcoded `cardBgFill` footer branch in `ShowcaseCard`.
+- **Field-check fixes (pre-merge, all pre-existing defects surfaced by first real kiosk/mobile inspection):** the activity ticker was a fixed-bottom overlay painting over the Privacy/Terms footer — now mounted in-flow by `PublicLayout` above the footer (scoreboard route only; footer takes over the safe-area inset); both tickers' fixed 60s marquee (crawled on short feeds) replaced with distance-based speed (~70px/s, clamped 15–90s); bottom-anchored kiosk QR codes rendered cut off — the v2.13.3 overhang reservation had only ever been applied to `Scoreboard.tsx`, now mirrored across all six kiosk card-slot wrappers.
+- **Tests** — first-ever coverage for `scoreboardConfig` derivation (15 cases: defaults, clamps, kioskZoom fallback chain incl. unparseable-input cascade) + a PublicLayout ticker-placement regression test.
+
+No DB migration (next free still 113).
+
+---
+
+## [2.29.0] — unreleased
+
+**S20 — Mobile & accessibility quick wins.**
+
+- **Hover-only controls now touch/keyboard accessible** — the card submit "+" (ScoreCardGrid), GameDetail self-delete trash, Leaderboard admin toolbar + per-submission delete, StyleCatalogue icons: visible under `@media(hover:none)` and keyboard focus, with ≥44px hit areas.
+- **`confirm()`/`alert()` → `ConfirmModal` + toast** in GameDetail, GlobalGameDetail, Leaderboard (remaining admin pages deferred to ROADMAP).
+- **Global `prefers-reduced-motion` support** — index.css block for the shared keyframe classes + per-component guards (kiosk ticker, Neon Circuit glow, MysteryAward pulse, score toast).
+- **PublicLayout nav** — `NavLink` with visible active state + `aria-current`, per-item aria-labels, small visible labels under icons on mobile, 44px targets (nav items, Discord button, UserMenu trigger).
+- **ThemeProvider re-theme + per-slug theme key (S18-deferred)** — theme now derives from `useLocation()` (the "mounts above the router" premise was stale — it's a `BrowserRouter` descendant): admin↔public transitions and room changes re-theme immediately; the per-slug `arcaid-theme-public-<slug>` key is finally READ (was write-only — themes bled across rooms); reserved top-level routes guarded against slug misfire. Review caught + fixed a hydrate-on-every-navigation regression that would have reverted viewer-set personal themes (fails-on-revert regression test included).
+- **`color-scheme`** — `.theme-light`/`.theme-coffee` get `color-scheme: light`; the default moved `body` → `html` so the per-theme cascade actually reaches native controls; GlobalCatalogue's hardcoded dark selects fixed.
+- **Keyboard/ARIA** — HorizontalScrollNav focusable region + arrow-key scroll + focus-revealed arrows; GameQuickView + ConfirmModal get `role="dialog"`/`aria-modal`/focus management (`NeonButton` converted to `forwardRef` so refs actually work); expandable score rows keyboard-operable in all four implementations, with child-link Enter passthrough.
+- **PWA polish** — new maskable 512px icon + real 180×180 apple-touch icon (the old link pointed at a non-square 1131×1189 logo); `viewport-fit=cover` + `env(safe-area-inset-*)` on the top nav and bottom tickers.
+- **`mobileScale` interim default 0.6 → 0.85** (superseded by 2.30.0's 1.0).
+- **44px touch-target sweep** — platform chips, scoreboard tab strip, ShareButton icon variant, GlobalGameDetail row icons.
+- **Tests** — ThemeProvider navigation/per-slug isolation (4 cases) + ScoreList keyboard expand (2 cases).
+
+No DB migration (next free still 113).
+
+---
+
 ## [2.28.0] — unreleased
 
 **S19 — Service-worker overhaul.** Kills the manual `CACHE_NAME` bump ritual and the unbounded image cache in `admin-ui/public/sw.js`, without breaking the update path for already-installed PWAs.
