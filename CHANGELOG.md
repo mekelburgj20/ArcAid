@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.34.1] — unreleased
+
+**Play-tester fixes: room-exit nav + number-field editing.**
+
+- **Way back to the main page** — the ArcAid logo in the room header now links to the landing page (all game rooms); the room name still links to the room's home. Previously both were one link to the room home, leaving no path from inside a room back to the site's front page. Logged-in users also get an "All Game Rooms" entry in the user menu (all three surfaces that share it); guests' path is the logo (no guest menu exists).
+- **Timeout/number fields can be emptied while typing** — `NumberStepper` (winner/runner-up pick windows, cleanup count, etc.) no longer snaps back to the minimum on every keystroke; the field may sit empty mid-edit and commits a clamped value on blur (reverting to the last valid number if left empty). ± buttons unchanged.
+- **Tests** — 6 new NumberStepper cases (first coverage).
+
+No DB migration (next free still 113).
+
+---
+
 ## [2.34.0] — unreleased
 
 **Card title alignment + info-popup hover.**
