@@ -92,8 +92,9 @@ describe('LandingPage', () => {
     // LoginButtons rendered (Discord + Google), not UserMenu.
     expect(screen.getAllByText('Login').length).toBeGreaterThan(0);
     expect(screen.queryByLabelText('User menu')).not.toBeInTheDocument();
-    // Admin link still present.
-    expect(screen.getByText('Admin')).toBeInTheDocument();
+    // v2.38.1 — the public "Admin" super-admin link was removed (reached via
+    // /login directly now); it must not appear on the landing page.
+    expect(screen.queryByText('Admin')).not.toBeInTheDocument();
   });
 
   it('signed-in: My Game Rooms is deduped from the public grid and shows the UserMenu', async () => {

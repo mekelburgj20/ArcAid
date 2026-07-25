@@ -115,12 +115,11 @@ export default function LandingPage() {
             <span className="font-pixel text-neon-cyan text-sm tracking-wider">ARCAID</span>
           </div>
           <div className="flex items-center gap-3">
-            <Link
-              to="/login"
-              className="text-xs text-muted hover:text-neon-cyan transition-colors no-underline"
-            >
-              Admin
-            </Link>
+            {/* Super-admin login is intentionally NOT linked here — it's reached
+                directly at /login (bookmark it). A public "Admin" link invited
+                non-admins to OAuth in with __super__ intent and land on the
+                (data-less, 403-gated) Super Admin shell — confusing, and needless
+                attack surface. SuperAdminLayout also role-guards now. */}
             {discordUser ? (
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
             ) : (
