@@ -1,21 +1,15 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Users, Gamepad2, Trophy, ChevronRight, Plus } from 'lucide-react';
+import { Users, Gamepad2, Trophy, ChevronRight, Plus, Building2 } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import { formatCompactNumber } from '../lib/format';
 import { resolveAvatarUrl } from '../lib/avatar';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import UserMenu from '../components/UserMenu';
+import LoginButtons from '../components/LoginButtons';
+import { splitLandingRooms, type PublicRoom, type MemberRoom, type RoomCardData } from '../lib/landingRooms';
 
-interface Room {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-  is_public: boolean;
-  logo_url: string | null;
-  activeGames: number;
-  activePlayers: number;
-  discordInviteUrl: string | null;
-}
+type Room = PublicRoom;
 
 interface RecentScore {
   id: string;
@@ -64,7 +58,9 @@ function timeAgo(iso: string): string {
 
 
 export default function LandingPage() {
+  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [myRoomsRaw, setMyRoomsRaw] = useState<MemberRoom[]>([]);
   const [recentScores, setRecentScores] = useState<RecentScore[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -77,6 +73,29 @@ export default function LandingPage() {
       setRecentScores(scoreData as RecentScore[]);
     }).finally(() => setLoading(false));
   }, []);
+
+  // D2 — "My Game Rooms": reuses the /api/me/rooms fetch/auth-header pattern
+  // from MyRooms.tsx. Only fetched when signed in.
+  const loadMyRooms = useCallback(async () => {
+    if (!playerToken) {
+      setMyRoomsRaw([]);
+      return;
+    }
+    try {
+      const res = await fetch('/api/me/rooms', { headers: { Authorization: `Bearer ${playerToken}` } });
+      if (res.ok) setMyRoomsRaw(await res.json());
+    } catch {}
+  }, [playerToken]);
+
+  useEffect(() => { loadMyRooms(); }, [loadMyRooms]);
+
+  const { myRooms, publicRooms } = useMemo(
+    () => splitLandingRooms(rooms, discordUser ? myRoomsRaw : []),
+    [rooms, myRoomsRaw, discordUser]
+  );
+
+  const handleLogin = () => loginWithDiscord('__global__', '/');
+  const handleGoogleLogin = () => loginWithGoogle('__global__', '/');
 
   if (loading) return <LoadingState message="Loading..." />;
 
@@ -92,18 +111,43 @@ export default function LandingPage() {
             <img src="/arcaid-logo.png" alt="ArcAid" className="w-10 h-10" />
             <span className="font-pixel text-neon-cyan text-sm tracking-wider">ARCAID</span>
           </div>
-          <Link
-            to="/login"
-            className="text-xs text-muted hover:text-neon-cyan transition-colors no-underline"
-          >
-            Admin
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/login"
+              className="text-xs text-muted hover:text-neon-cyan transition-colors no-underline"
+            >
+              Admin
+            </Link>
+            {discordUser ? (
+              <UserMenu user={discordUser} onLogout={logoutPlayer} />
+            ) : (
+              <LoginButtons onDiscordLogin={handleLogin} onGoogleLogin={handleGoogleLogin} />
+            )}
+          </div>
         </div>
       </div>
 
       {/* Global Scoreboard Promo */}
       {recentScores.length > 0 && (
         <ScoreboardPromo scores={recentScores} />
+      )}
+
+      {/* My Game Rooms (D2 — signed-in only, non-empty only) */}
+      {discordUser && myRooms.length > 0 && (
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-12">
+          <div className="text-center mb-8">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <Building2 size={22} className="text-neon-cyan" />
+              <h2 className="font-display text-2xl font-bold">My Game Rooms</h2>
+            </div>
+            <p className="text-muted text-sm">Rooms you belong to.</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-8 items-stretch">
+            {myRooms.map(room => (
+              <RoomCard key={room.id} room={room} />
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Game Rooms */}
@@ -113,14 +157,16 @@ export default function LandingPage() {
           <p className="text-muted">Choose a game room to view its leaderboards.</p>
         </div>
 
-        {rooms.length === 0 ? (
+        {publicRooms.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-muted mb-6">No game rooms yet — create the first one.</p>
+            <p className="text-muted mb-6">
+              {rooms.length === 0 ? 'No game rooms yet — create the first one.' : "You're a member of every game room."}
+            </p>
             <CreateRoomCard />
           </div>
         ) : (
           <div className="flex flex-wrap justify-center gap-8 items-stretch">
-            {rooms.map(room => (
+            {publicRooms.map(room => (
               <RoomCard key={room.id} room={room} />
             ))}
             <CreateRoomCard />
@@ -471,7 +517,8 @@ function CreateRoomCard() {
 
 /* ─── Room Card ─── */
 
-function RoomCard({ room }: { room: Room }) {
+function RoomCard({ room }: { room: RoomCardData }) {
+  const hasStats = room.activeGames !== undefined && room.activePlayers !== undefined;
   return (
     <div style={{
       width: 340,
@@ -518,9 +565,9 @@ function RoomCard({ room }: { room: Room }) {
 
         {/* Logo + Title area */}
         <div style={{ textAlign: 'center', padding: '28px 24px 16px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          {room.logo_url && (
+          {room.logoUrl && (
             <img
-              src={room.logo_url}
+              src={room.logoUrl}
               alt=""
               style={{
                 display: 'block',
@@ -554,43 +601,47 @@ function RoomCard({ room }: { room: Room }) {
           )}
         </div>
 
-        {/* Divider */}
-        <div style={{
-          height: 1,
-          margin: '0 20px',
-          background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent)',
-        }} />
+        {hasStats && (
+          <>
+            {/* Divider */}
+            <div style={{
+              height: 1,
+              margin: '0 20px',
+              background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent)',
+            }} />
 
-        {/* Stats */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          gap: 32,
-          padding: '16px 24px',
-        }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 4 }}>
-              <Users size={14} style={{ color: '#63d297' }} />
-              <span style={{ fontSize: 20, fontWeight: 700, color: '#63d297', fontFamily: "'DM Mono', monospace" }}>
-                {room.activePlayers}
-              </span>
+            {/* Stats */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: 32,
+              padding: '16px 24px',
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 4 }}>
+                  <Users size={14} style={{ color: '#63d297' }} />
+                  <span style={{ fontSize: 20, fontWeight: 700, color: '#63d297', fontFamily: "'DM Mono', monospace" }}>
+                    {room.activePlayers}
+                  </span>
+                </div>
+                <span style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)' }}>
+                  Players
+                </span>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 4 }}>
+                  <Gamepad2 size={14} style={{ color: '#63d297' }} />
+                  <span style={{ fontSize: 20, fontWeight: 700, color: '#63d297', fontFamily: "'DM Mono', monospace" }}>
+                    {room.activeGames}
+                  </span>
+                </div>
+                <span style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)' }}>
+                  Active Games
+                </span>
+              </div>
             </div>
-            <span style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)' }}>
-              Players
-            </span>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 4 }}>
-              <Gamepad2 size={14} style={{ color: '#63d297' }} />
-              <span style={{ fontSize: 20, fontWeight: 700, color: '#63d297', fontFamily: "'DM Mono', monospace" }}>
-                {room.activeGames}
-              </span>
-            </div>
-            <span style={{ fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)' }}>
-              Active Games
-            </span>
-          </div>
-        </div>
+          </>
+        )}
 
         {/* Divider */}
         <div style={{

@@ -5,6 +5,7 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
 import { resolveAvatarUrl } from '../lib/avatar';
 import { isGoogleUserId } from '../lib/identityProvider';
+import { buildPushErrorMessage } from '../lib/pushError';
 
 interface Profile {
   discord_user_id: string;
@@ -395,7 +396,10 @@ export default function AccountSettings() {
         setPushSubscribed(true);
       }
     } catch (e) {
-      setPushError(e instanceof Error ? e.message : 'Something went wrong enabling push.');
+      // v2.37.0 — Brave's push relay silently rejects subscribe() even with
+      // permission already granted; append a Brave-aware hint for that
+      // failure class rather than leaving the user with a bare AbortError.
+      setPushError(buildPushErrorMessage(e, Notification.permission));
     } finally {
       setPushBusy(false);
     }
