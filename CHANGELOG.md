@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.38.0] — unreleased
+
+**Explicit room join/leave.** My Game Rooms is now curatable, not just activity-derived.
+
+- **Join/leave endpoints** — idempotent `POST`/`DELETE /api/me/rooms/:roomId` (any signed-in provider). Implicit membership on score submission stays; leaving never touches admin grants; re-submitting a score re-joins.
+- **Bookmark toggle on landing room cards** (`BookmarkPlus`/`BookmarkCheck`) with optimistic section re-splitting; room pages get a contextual join/leave item in the user menu; My Rooms page gets per-room leave. Shared `useMyRooms` hook backs all three.
+- **Migration 115** — widens `room_members.source`'s CHECK to admit `'self_join'` (table rebuild per house pattern; handler-based so a failed rebuild halts startup instead of being silently marked applied).
+- **Silent-failure hardening** — the join route re-verifies the insert landed and errors loudly if not; found via the implementing agent proving the old CHECK constraint made joins silently no-op while reporting success (a live instance of the known swallowed-SQL-error gotcha). Regression test included.
+- **Tests** — 22 new (9 BE route incl. the silent-failure regression; 13 FE hook/toggle/menu/leave).
+
+Migration 115 consumed — **next free is now 116**.
+
+---
+
 ## [2.37.1] — unreleased
 
 **Landing-page user-menu z-fix.** The header's `backdrop-blur` creates a stacking context that trapped the UserMenu dropdown's z-index — page sections below (promo strip, room cards) painted over the open menu. Header now carries `relative z-40`.
