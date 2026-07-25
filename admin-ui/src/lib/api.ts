@@ -19,6 +19,21 @@ export function isAuthenticated(): boolean {
   return !!authToken;
 }
 
+/** Reads the `role` claim from the current admin JWT without verifying its
+ * signature — for FE routing/gating only (the server re-verifies every call).
+ * Returns null if there's no token or it can't be decoded. */
+export function getTokenRole(): string | null {
+  if (!authToken) return null;
+  try {
+    const parts = authToken.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.role === 'string' ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getAnonUserId(): string {
   let id = localStorage.getItem('arcaid_anon_id');
   if (!id) {

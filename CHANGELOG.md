@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.38.1] — unreleased
+
+**Super-admin login hardening (no data was ever exposed).** Removed the public "Admin" link from the landing page — it invited any visitor to OAuth in with super-admin intent and land on the (data-less, server-403-gated) Super Admin shell, which looked alarming despite exposing nothing. `SuperAdminLayout` now role-guards on the token's `role` claim: a non-super-admin token bounces to `/login` instead of rendering the chrome. Server-side `requireSuperAdmin` was and remains the real gate (every `/admin/*` call 403s for non-super-admins); this closes the confusing empty-shell and trims needless attack surface. Super admins reach the panel directly at `/login`.
+
+---
+
 ## [2.38.0] — unreleased
 
 **Explicit room join/leave.** My Game Rooms is now curatable, not just activity-derived.

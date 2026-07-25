@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Menu, X, DoorOpen, Palette, Globe, ClipboardList } from 'lucide-react';
-import { api, isAuthenticated, setToken } from '../lib/api';
+import { api, isAuthenticated, getTokenRole, setToken } from '../lib/api';
 import LoadingState from './LoadingState';
 
 export default function SuperAdminLayout() {
@@ -15,6 +15,16 @@ export default function SuperAdminLayout() {
 
   useEffect(() => {
     if (!isAuthenticated()) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    // Role guard: a non-super-admin token (e.g. a normal player who OAuth'd in
+    // via the old landing "Admin" link with __super__ intent) lands here with a
+    // valid-but-wrong-role token. The server 403s every /admin/* call regardless,
+    // but without this the empty Super Admin shell still renders — alarming and
+    // confusing. Bounce them to /login instead of painting the chrome.
+    if (getTokenRole() !== 'super_admin') {
+      setToken(null);
       navigate('/login', { replace: true });
       return;
     }
@@ -33,7 +43,7 @@ export default function SuperAdminLayout() {
     return () => clearInterval(interval);
   }, [navigate]);
 
-  if (!isAuthenticated()) return null;
+  if (!isAuthenticated() || getTokenRole() !== 'super_admin') return null;
   if (loading) return <LoadingState message="Loading..." />;
 
   const handleLogout = () => {
