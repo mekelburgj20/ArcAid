@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.37.1] — unreleased
+
+**Landing-page user-menu z-fix.** The header's `backdrop-blur` creates a stacking context that trapped the UserMenu dropdown's z-index — page sections below (promo strip, room cards) painted over the open menu. Header now carries `relative z-40`.
+
+---
+
 ## [2.37.0] — unreleased
 
 **Landing-page login + My Game Rooms + Brave push hint.**
