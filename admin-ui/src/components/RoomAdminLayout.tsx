@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity, Wrench, Palette, MessageSquare, Users } from 'lucide-react';
+import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity, Wrench, Palette, MessageSquare, Users, UserCheck } from 'lucide-react';
 import { api, isAuthenticated, setToken } from '../lib/api';
 import { RoomContext } from '../contexts/RoomContext';
 import LoadingState from './LoadingState';
@@ -11,6 +11,8 @@ interface Room {
   name: string;
   description: string;
   is_public: boolean;
+  /** v2.39.0 (approval rooms) — 'open' (default) | 'approval'. */
+  join_policy?: 'open' | 'approval';
 }
 
 export default function RoomAdminLayout() {
@@ -22,6 +24,9 @@ export default function RoomAdminLayout() {
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ username: string; avatar: string | null } | null>(null);
+  // v2.39.0 — Join Requests nav badge (approval rooms only). Same 60s-poll
+  // pattern as SuperAdminLayout's Catalogue Approvals badge.
+  const [pendingJoinRequests, setPendingJoinRequests] = useState<number>(0);
 
   useEffect(() => {
     if (!slug) return;
@@ -37,6 +42,18 @@ export default function RoomAdminLayout() {
       .catch(() => setError('Failed to load game room'))
       .finally(() => setLoading(false));
   }, [slug]);
+
+  useEffect(() => {
+    if (!room || room.join_policy !== 'approval') return;
+    const fetchPending = () => {
+      api.get<{ pending: number }>(`/rooms/${room.id}/admin/join-requests/count`)
+        .then(r => setPendingJoinRequests(r.pending || 0))
+        .catch(() => { /* nav badge is best-effort */ });
+    };
+    fetchPending();
+    const interval = setInterval(fetchPending, 60_000);
+    return () => clearInterval(interval);
+  }, [room]);
 
   useEffect(() => {
     if (!isAuthenticated()) return;
@@ -69,7 +86,7 @@ export default function RoomAdminLayout() {
   };
 
   const basePath = `/${slug}/admin`;
-  const navItems: Array<{ path: string; label: string; icon: React.ReactNode } | 'separator'> = [
+  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; badge?: number } | 'separator'> = [
     { path: `${basePath}/dashboard`, label: 'Dashboard', icon: <Home size={18} /> },
     'separator',
     { path: `${basePath}/tournaments`, label: 'Tournaments', icon: <Trophy size={18} /> },
@@ -86,6 +103,10 @@ export default function RoomAdminLayout() {
     { path: `${basePath}/settings`, label: 'Room Settings', icon: <SettingsIcon size={18} /> },
     'separator',
     { path: `${basePath}/identity`, label: 'Identity', icon: <Users size={18} /> },
+    // v2.39.0 — only shown for approval-policy rooms; badge = pending count.
+    ...(room.join_policy === 'approval'
+      ? [{ path: `${basePath}/join-requests`, label: 'Join Requests', icon: <UserCheck size={18} />, badge: pendingJoinRequests }]
+      : []),
     { path: `${basePath}/activity`, label: 'Activity', icon: <Activity size={18} /> },
     { path: `${basePath}/help`, label: 'Help', icon: <HelpCircle size={18} /> },
   ];
@@ -141,7 +162,12 @@ export default function RoomAdminLayout() {
                   `}
                 >
                   {item.icon}
-                  <span>{item.label}</span>
+                  <span className="flex-1">{item.label}</span>
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className="text-[10px] font-display font-bold px-1.5 py-0.5 rounded-full bg-neon-amber/20 text-neon-amber border border-neon-amber/40">
+                      {item.badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}

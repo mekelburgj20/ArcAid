@@ -77,6 +77,16 @@ interface DiscordAdmin {
   role: string;
 }
 
+/** v2.39.0 — GET /:roomId/admin/members (member picker). */
+interface RoomMember {
+  userId: string;
+  joinedAt: string;
+  source: string;
+  displayName: string | null;
+  avatarHash: string | null;
+  avatarUrl: string | null;
+}
+
 interface PendingInvite {
   id: string;
   token: string;
@@ -100,7 +110,7 @@ const DEAD_KEYS = new Set(['GAME_ROOM_NAME', 'GAME_ROOM_SLUG']);
 
 // Saving a change to any of these asks for explicit confirmation first — each
 // flips how players reach or use the room.
-const DANGEROUS_KEYS = ['REQUIRE_DISCORD_LOGIN', 'ISCORED_ENABLED', 'DISCORD_ENABLED', 'GLOBAL_SCOREBOARD_ENABLED'];
+const DANGEROUS_KEYS = ['REQUIRE_DISCORD_LOGIN', 'ISCORED_ENABLED', 'DISCORD_ENABLED', 'GLOBAL_SCOREBOARD_ENABLED', 'JOIN_POLICY'];
 
 // D2 (standalone rooms, v2.32.0) — same default-on semantics as
 // SetupChecklist.tsx's isFlagOn: missing/undefined reads as enabled, matching
@@ -217,6 +227,19 @@ const REQUIRE_LOGIN_OPTIONS: { value: string; label: string }[] = [
   { value: 'false', label: 'Guests can submit' },
   { value: 'true', label: 'Login required (any)' },
   { value: 'discord', label: 'Discord login required' },
+];
+
+// v2.39.0 — approval rooms. Rendered as its own 2-option select beside
+// REQUIRE_DISCORD_LOGIN, same pattern (kept out of TOGGLE_SETTINGS/boolean
+// diffing since it reads more naturally as a named policy than an on/off).
+const JOIN_POLICY_KEY = 'JOIN_POLICY';
+const JOIN_POLICY_META = {
+  label: 'Room visibility',
+  description: 'Open: anyone can view scores/leaderboards and join instantly. Approval required: the room is invisible (no scores, leaderboards, or other content) to non-members until a room admin approves their request to join.',
+};
+const JOIN_POLICY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'open', label: 'Open — anyone can view and join' },
+  { value: 'approval', label: 'Approval required — invisible to non-members until approved' },
 ];
 
 // Every boolean on/off toggle key → its default-when-absent value, aggregated
@@ -434,6 +457,11 @@ export default function Settings() {
   const [addingDiscord, setAddingDiscord] = useState(false);
   const [deleteAdminTarget, setDeleteAdminTarget] = useState<LocalAdmin | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  // v2.39.0 — member picker (replaces raw-ID pasting as the primary add-admin
+  // flow; the manual input below stays as an "advanced" fallback).
+  const [roomMembers, setRoomMembers] = useState<RoomMember[]>([]);
+  const [pickedMemberId, setPickedMemberId] = useState('');
+  const [addingPickedMember, setAddingPickedMember] = useState(false);
 
   // Branding upload state
   const [bgUrl, setBgUrl] = useState('');
@@ -457,6 +485,32 @@ export default function Settings() {
       const data = await api.get<PendingInvite[]>(`/rooms/${room.roomId}/admins/invites`);
       setPendingInvites(data);
     } catch {}
+  };
+
+  const fetchRoomMembers = async () => {
+    try {
+      const data = await api.get<RoomMember[]>(`/rooms/${room.roomId}/admin/members`);
+      setRoomMembers(data);
+    } catch {}
+  };
+
+  // v2.39.0 — member picker: add the selected room member as a Discord admin
+  // directly by their (provider-agnostic, works for Discord OR google:* ids
+  // since v2.35.0) raw user id — skips the username-lookup flow entirely
+  // since we already have the id from the members list.
+  const handleAddPickedMember = async () => {
+    if (!pickedMemberId) return;
+    setAddingPickedMember(true);
+    try {
+      await api.post(`/rooms/${room.roomId}/admins/discord`, { discord_user_id: pickedMemberId });
+      toast('Admin added.', 'success');
+      setPickedMemberId('');
+      fetchAdmins();
+    } catch (err: any) {
+      toast(err.message || 'Failed to add admin', 'error');
+    } finally {
+      setAddingPickedMember(false);
+    }
   };
 
   const handleInvite = async () => {
@@ -566,6 +620,7 @@ export default function Settings() {
       .catch(() => { toast('Failed to load settings', 'error'); setLoading(false); });
     fetchAdmins();
     fetchInvites();
+    fetchRoomMembers();
   }, []);
 
   // ── Unsaved-changes tracking (S8) ──────────────────────────────────────
@@ -683,8 +738,23 @@ export default function Settings() {
     // Confirm before saving a change to any access-affecting toggle.
     const changedDangerous = DANGEROUS_KEYS.filter(k => settingChanged(k, settings, baseline));
     if (changedDangerous.length > 0) {
-      const labels = changedDangerous.map(k => TOGGLE_SETTINGS[k]?.label || (k === REQUIRE_LOGIN_KEY ? REQUIRE_LOGIN_META.label : k)).join(', ');
-      if (!window.confirm(`You're changing: ${labels}. This affects how players access this room. Save these changes?`)) return;
+      const labelFor = (k: string) =>
+        TOGGLE_SETTINGS[k]?.label
+        || (k === REQUIRE_LOGIN_KEY ? REQUIRE_LOGIN_META.label : null)
+        || (k === JOIN_POLICY_KEY ? JOIN_POLICY_META.label : null)
+        || k;
+      const labels = changedDangerous.map(labelFor).join(', ');
+      // v2.39.0 — flip-to-approval gets its own explicit consequences dialog
+      // instead of the generic one (contract: state BOTH that the room
+      // becomes invisible to non-members AND that its Global Scoreboard
+      // footprint is removed).
+      const flippingToApproval = changedDangerous.includes(JOIN_POLICY_KEY)
+        && (baseline[JOIN_POLICY_KEY] ?? 'open') !== 'approval'
+        && settings[JOIN_POLICY_KEY] === 'approval';
+      const message = flippingToApproval
+        ? "Switching to \"Approval required\" will make this room invisible to non-members (no scores, leaderboards, or other content) until a room admin approves their request, and will remove this room's scores from the Global Scoreboard. Save this change?"
+        : `You're changing: ${labels}. This affects how players access this room. Save these changes?`;
+      if (!window.confirm(message)) return;
     }
     setSaving(true);
     try {
@@ -745,6 +815,8 @@ export default function Settings() {
     ...Object.keys(TOGGLE_SETTINGS),
     // v2.35.0 — rendered as its own 3-option select, not a boolean toggle.
     REQUIRE_LOGIN_KEY,
+    // v2.39.0 — rendered as its own 2-option select, not a boolean toggle.
+    JOIN_POLICY_KEY,
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
@@ -801,9 +873,37 @@ export default function Settings() {
       )}
 
       {showDiscordForm ? (
-        <div className="border border-border rounded p-4 space-y-3 mb-6">
+        <div className="border border-border rounded p-4 space-y-4 mb-6">
+          {/* v2.39.0 — member picker (primary flow): room members are already
+              known to us, so pick from the list rather than typing a
+              username/ID. Excludes users already listed as Discord admins. */}
+          {roomMembers.filter(m => !discordAdmins.some(a => a.discord_user_id === m.userId)).length > 0 && (
+            <div>
+              <label className="text-xs text-faint block mb-1">Add from room members</label>
+              <div className="flex gap-2">
+                <select
+                  value={pickedMemberId}
+                  onChange={e => setPickedMemberId(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">Select a member…</option>
+                  {roomMembers
+                    .filter(m => !discordAdmins.some(a => a.discord_user_id === m.userId))
+                    .map(m => (
+                      <option key={m.userId} value={m.userId}>
+                        {m.displayName || m.userId}
+                      </option>
+                    ))}
+                </select>
+                <NeonButton onClick={handleAddPickedMember} disabled={addingPickedMember || !pickedMemberId}>
+                  {addingPickedMember ? 'Adding...' : 'Add as Admin'}
+                </NeonButton>
+              </div>
+            </div>
+          )}
+
           <div>
-            <label className="text-xs text-faint block mb-1">Discord Username *</label>
+            <label className="text-xs text-faint block mb-1">Advanced: paste a username or ID</label>
             <input
               type="text"
               placeholder="e.g. ChuckRibbits"
@@ -811,17 +911,16 @@ export default function Settings() {
               onChange={e => setNewDiscordUser(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleAddDiscordAdmin()}
               className={inputClass}
-              autoFocus
             />
-            <p className="text-xs text-faint mt-1">Username or numeric ID. They'll be able to log in via Discord immediately.</p>
-          </div>
-          <div className="flex gap-2">
-            <NeonButton onClick={handleAddDiscordAdmin} disabled={addingDiscord || !newDiscordUser.trim()}>
-              {addingDiscord ? 'Adding...' : 'Add Discord Admin'}
-            </NeonButton>
-            <NeonButton variant="ghost" onClick={() => setShowDiscordForm(false)} disabled={addingDiscord}>
-              Cancel
-            </NeonButton>
+            <p className="text-xs text-faint mt-1">Username or numeric ID — use this for someone not yet a room member. They'll be able to log in via Discord immediately.</p>
+            <div className="flex gap-2 mt-2">
+              <NeonButton onClick={handleAddDiscordAdmin} disabled={addingDiscord || !newDiscordUser.trim()}>
+                {addingDiscord ? 'Adding...' : 'Add Discord Admin'}
+              </NeonButton>
+              <NeonButton variant="ghost" onClick={() => setShowDiscordForm(false)} disabled={addingDiscord}>
+                Cancel
+              </NeonButton>
+            </div>
           </div>
         </div>
       ) : (
@@ -973,6 +1072,22 @@ export default function Settings() {
             className={`${inputClass} w-auto min-w-[190px]`}
           >
             {REQUIRE_LOGIN_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        {/* v2.39.0 — JOIN_POLICY 2-option select (approval rooms). */}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-primary">{JOIN_POLICY_META.label}</p>
+            <p className="text-xs text-muted">{JOIN_POLICY_META.description}</p>
+          </div>
+          <select
+            value={settings[JOIN_POLICY_KEY] || 'open'}
+            onChange={e => handleChange(JOIN_POLICY_KEY, e.target.value)}
+            className={`${inputClass} w-auto min-w-[190px]`}
+          >
+            {JOIN_POLICY_OPTIONS.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
