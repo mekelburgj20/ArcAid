@@ -16,6 +16,13 @@ export interface UseMyRoomsResult {
   /** DELETE /api/me/rooms/:roomId. Optimistic — restores the row on failure.
    * Never touches game_room_admins (server-side; see RoomMembershipService). */
   leave: (roomId: string) => Promise<boolean>;
+  /** POST /api/me/rooms/:roomId/join-request (v2.39.0, approval rooms). Not
+   * optimistic — membership isn't granted until a room admin approves, so
+   * there's no "member" state to optimistically add. Returns the server's
+   * status ('pending' | 'member') or null on failure. On 'member' (the room
+   * turned out to already have the user, or was flipped back to open),
+   * refetches so the room shows up as joined without a page reload. */
+  requestJoin: (roomId: string) => Promise<'pending' | 'member' | null>;
   refetch: () => Promise<void>;
 }
 
@@ -112,5 +119,21 @@ export function useMyRooms(): UseMyRoomsResult {
     }
   }, [playerToken]);
 
-  return { rooms, loading, isMember, join, leave, refetch: load };
+  const requestJoin = useCallback(async (roomId: string): Promise<'pending' | 'member' | null> => {
+    if (!playerToken) return null;
+    try {
+      const res = await fetch(`/api/me/rooms/${roomId}/join-request`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.status === 'member') await load();
+      return data.status ?? null;
+    } catch {
+      return null;
+    }
+  }, [playerToken, load]);
+
+  return { rooms, loading, isMember, join, leave, requestJoin, refetch: load };
 }

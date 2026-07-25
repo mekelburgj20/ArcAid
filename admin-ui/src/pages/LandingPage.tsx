@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Users, Gamepad2, Trophy, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck } from 'lucide-react';
+import { Users, Gamepad2, Trophy, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck, Clock } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import { formatCompactNumber } from '../lib/format';
 import { resolveAvatarUrl } from '../lib/avatar';
@@ -66,7 +66,12 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(true);
   // D2 (v2.38.0) — explicit join/leave. Same hook backs the bookmark toggle
   // here and the room-page affordance in PublicLayout/UserMenu.
-  const { rooms: myRoomsRaw, join: joinRoom, leave: leaveRoom } = useMyRooms();
+  // v2.39.0 — requestJoin backs the "Request to join" branch for approval rooms.
+  const { rooms: myRoomsRaw, join: joinRoom, leave: leaveRoom, requestJoin } = useMyRooms();
+  // v2.39.0 — session-only "I already requested this room" set, so the card
+  // reflects a pending request immediately after clicking without waiting on
+  // a fresh /api/rooms fetch (that list doesn't carry per-viewer request state).
+  const [pendingRequests, setPendingRequests] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   useEffect(() => {
@@ -87,6 +92,21 @@ export default function LandingPage() {
   const handleJoin = async (room: RoomCardData) => {
     const ok = await joinRoom(room.id, { name: room.name, slug: room.slug, logoUrl: room.logoUrl });
     if (!ok) toast('Could not join that room — try again.', 'error');
+  };
+
+  // v2.39.0 — approval rooms: the bookmark toggle becomes a "Request to
+  // join" confirm + request instead of an instant join.
+  const handleRequestJoin = async (room: RoomCardData) => {
+    if (!window.confirm(`This room requires approval to join — request?`)) return;
+    const status = await requestJoin(room.id);
+    if (status === 'pending') {
+      setPendingRequests(prev => new Set(prev).add(room.id));
+      toast('Request sent — a room admin will review it.', 'success');
+    } else if (status === 'member') {
+      toast(`Added ${room.name} to My Game Rooms.`, 'success');
+    } else {
+      toast('Could not send your request — try again.', 'error');
+    }
   };
 
   const handleLeave = async (room: RoomCardData) => {
@@ -172,13 +192,18 @@ export default function LandingPage() {
           </div>
         ) : (
           <div className="flex flex-wrap justify-center gap-8 items-stretch">
-            {publicRooms.map(room => (
-              <RoomCard
-                key={room.id}
-                room={room}
-                toggle={discordUser ? { isMember: false, onToggle: () => handleJoin(room) } : undefined}
-              />
-            ))}
+            {publicRooms.map(room => {
+              const isApproval = room.joinPolicy === 'approval';
+              const isPending = pendingRequests.has(room.id);
+              const toggle = !discordUser ? undefined : isApproval
+                ? {
+                  isMember: false,
+                  pending: isPending,
+                  onToggle: () => handleRequestJoin(room),
+                }
+                : { isMember: false, onToggle: () => handleJoin(room) };
+              return <RoomCard key={room.id} room={room} toggle={toggle} />;
+            })}
             <CreateRoomCard />
           </div>
         )}
@@ -530,6 +555,9 @@ function CreateRoomCard() {
 interface RoomCardToggle {
   /** True renders the "member" (leave) state; false the "join" state. */
   isMember: boolean;
+  /** v2.39.0 — approval rooms: a request already sent this session. Renders
+   * a disabled "pending" state instead of the join affordance. */
+  pending?: boolean;
   onToggle: () => void;
 }
 
@@ -579,9 +607,10 @@ function RoomCard({ room, toggle }: { room: RoomCardData; toggle?: RoomCardToggl
         {toggle && (
           <button
             type="button"
-            onClick={e => { e.preventDefault(); e.stopPropagation(); toggle.onToggle(); }}
-            aria-label={toggle.isMember ? `Leave ${room.name}` : `Add ${room.name} to My Game Rooms`}
-            title={toggle.isMember ? 'Leave this room' : 'Add to My Game Rooms'}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); if (!toggle.pending) toggle.onToggle(); }}
+            disabled={toggle.pending}
+            aria-label={toggle.pending ? `Request pending for ${room.name}` : toggle.isMember ? `Leave ${room.name}` : `Add ${room.name} to My Game Rooms`}
+            title={toggle.pending ? 'Request pending — waiting on a room admin' : toggle.isMember ? 'Leave this room' : 'Add to My Game Rooms'}
             style={{
               position: 'absolute',
               top: 12,
@@ -593,20 +622,22 @@ function RoomCard({ room, toggle }: { room: RoomCardData; toggle?: RoomCardToggl
               alignItems: 'center',
               justifyContent: 'center',
               borderRadius: '50%',
-              background: toggle.isMember ? 'rgba(99,210,151,0.15)' : 'rgba(255,255,255,0.06)',
-              border: `1px solid ${toggle.isMember ? 'rgba(99,210,151,0.4)' : 'rgba(255,255,255,0.14)'}`,
-              color: toggle.isMember ? '#63d297' : 'rgba(255,255,255,0.55)',
-              cursor: 'pointer',
+              background: toggle.pending ? 'rgba(251,191,36,0.12)' : toggle.isMember ? 'rgba(99,210,151,0.15)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${toggle.pending ? 'rgba(251,191,36,0.4)' : toggle.isMember ? 'rgba(99,210,151,0.4)' : 'rgba(255,255,255,0.14)'}`,
+              color: toggle.pending ? '#fbbf24' : toggle.isMember ? '#63d297' : 'rgba(255,255,255,0.55)',
+              cursor: toggle.pending ? 'default' : 'pointer',
               transition: 'background 0.15s, border-color 0.15s, color 0.15s',
             }}
             onMouseEnter={e => {
+              if (toggle.pending) return;
               e.currentTarget.style.background = toggle.isMember ? 'rgba(99,210,151,0.25)' : 'rgba(255,255,255,0.12)';
             }}
             onMouseLeave={e => {
+              if (toggle.pending) return;
               e.currentTarget.style.background = toggle.isMember ? 'rgba(99,210,151,0.15)' : 'rgba(255,255,255,0.06)';
             }}
           >
-            {toggle.isMember ? <BookmarkCheck size={16} /> : <BookmarkPlus size={16} />}
+            {toggle.pending ? <Clock size={16} /> : toggle.isMember ? <BookmarkCheck size={16} /> : <BookmarkPlus size={16} />}
           </button>
         )}
 
