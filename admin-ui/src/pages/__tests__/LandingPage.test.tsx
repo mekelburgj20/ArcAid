@@ -48,8 +48,11 @@ const PUBLIC_ROOM_2 = {
   discordInviteUrl: null,
 };
 
-function mockFetch(opts: { rooms?: unknown[]; meRooms?: unknown[] }) {
+function mockFetch(opts: { rooms?: unknown[]; meRooms?: unknown[]; joinRequestStatus?: string }) {
   const fetchMock = vi.fn((url: string) => {
+    if (url.includes('join-request')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: opts.joinRequestStatus ?? 'pending' }) });
+    }
     if (url.startsWith('/api/rooms')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(opts.rooms ?? []) });
     }
@@ -183,6 +186,44 @@ describe('LandingPage', () => {
       // Un-membered room falls back into the public grid.
       expect(screen.getByText('RTX Pinball')).toBeInTheDocument();
       expect(fetchMock).toHaveBeenCalledWith('/api/me/rooms/room-1', expect.objectContaining({ method: 'DELETE' }));
+    });
+
+    // v2.39.0 — approval rooms: the bookmark toggle becomes "Request to join"
+    // for a non-member card on an 'approval'-policy room.
+    it('signed-in, non-member card on an approval room: confirms, posts a join-request, and shows a pending state', async () => {
+      signInAs('user-1', 'Justin');
+      const APPROVAL_ROOM = { ...PUBLIC_ROOM_2, join_policy: 'approval' };
+      const fetchMock = mockFetch({ rooms: [PUBLIC_ROOM_1, APPROVAL_ROOM], meRooms: [] });
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      renderLanding();
+      await waitFor(() => expect(screen.getByText('Other Room')).toBeInTheDocument());
+
+      const requestBtn = screen.getByLabelText('Add Other Room to My Game Rooms');
+      fireEvent.click(requestBtn);
+
+      expect(confirmSpy).toHaveBeenCalled();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+        '/api/me/rooms/room-2/join-request',
+        expect.objectContaining({ method: 'POST' }),
+      ));
+      // Pending state — not an instant join, no My Game Rooms section.
+      await waitFor(() => expect(screen.getByLabelText('Request pending for Other Room')).toBeInTheDocument());
+      expect(screen.queryByText('My Game Rooms')).not.toBeInTheDocument();
+      confirmSpy.mockRestore();
+    });
+
+    it('signed-in, declines the confirm dialog: no request sent', async () => {
+      signInAs('user-1', 'Justin');
+      const APPROVAL_ROOM = { ...PUBLIC_ROOM_2, join_policy: 'approval' };
+      const fetchMock = mockFetch({ rooms: [PUBLIC_ROOM_1, APPROVAL_ROOM], meRooms: [] });
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      renderLanding();
+      await waitFor(() => expect(screen.getByText('Other Room')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByLabelText('Add Other Room to My Game Rooms'));
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalledWith('/api/me/rooms/room-2/join-request', expect.anything());
+      confirmSpy.mockRestore();
     });
   });
 });
