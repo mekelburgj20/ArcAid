@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
-import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser, optionalDiscordUser } from '../middleware.js';
+import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser, optionalDiscordUser, roomVisibilityGate } from '../middleware.js';
 import { validate } from '../validate.js';
 import { isProviderUserId } from '../../utils/identityProvider.js';
 import {
@@ -119,6 +119,13 @@ async function ensurePlatformAllowed(opts: {
 // --- Public endpoints (no auth) ---
 
 // Portal info
+//
+// NOTE (v2.39.0 recon): this room-scoped portal has no FE consumers — every
+// public page resolves slug->room via the SEPARATE slug-keyed `GET /api/portal`
+// in global.ts (see admin-ui/src/lib/portal.ts), which is where join_policy +
+// viewer_status actually need to live for the FE join-gate to work (done
+// there too). Updated here as well for parity/back-compat in case anything
+// starts calling this room-scoped form.
 router.get('/:roomId/portal', async (req, res) => {
     try {
         const db = await getDatabase();
@@ -127,6 +134,13 @@ router.get('/:roomId/portal', async (req, res) => {
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
         const requireDiscordLogin = await GameRoomSettingsService.get(room.id, 'REQUIRE_DISCORD_LOGIN');
+        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+        const joinPolicy = await RoomAccessService.getJoinPolicy(room.id);
+        const authHeader = req.headers['authorization'];
+        const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const { verifyToken } = await import('../auth.js');
+        const payload = bearer ? verifyToken(bearer) : null;
+        const viewerStatus = await RoomAccessService.getViewerStatus(payload, room.id);
         res.json({
             slug: room.slug,
             name: room.name,
@@ -135,6 +149,8 @@ router.get('/:roomId/portal', async (req, res) => {
             ui_theme: uiTheme || 'dark',
             admin_theme: adminTheme || 'dark',
             require_discord_login: requireDiscordLogin === 'true',
+            join_policy: joinPolicy,
+            viewer_status: viewerStatus,
         });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/portal):', error);
@@ -143,6 +159,9 @@ router.get('/:roomId/portal', async (req, res) => {
 });
 
 // Scoreboard config (public — returns SCOREBOARD_*, LOGO_*, KIOSK_*, and GLOBAL_CARD_* settings)
+// v2.39.0 — deliberately NOT adding JOIN_POLICY here: the portal endpoints
+// (this file + global.ts) are the single source of truth for join_policy so
+// FE branching doesn't have two places to check.
 router.get('/:roomId/scoreboard-config', async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
@@ -169,6 +188,13 @@ router.get('/:roomId/scoreboard-config', async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
+// v2.39.0 — the ONE gate seam. Everything registered below this line for a
+// given :roomId is subject to the approval-room view gate; portal +
+// scoreboard-config above stay reachable for everyone by virtue of being
+// registered first (Express never falls through to this middleware for a
+// request either of those handlers already answered).
+router.use('/:roomId', roomVisibilityGate);
 
 // Game info by ID (public — used by QR code score submission page)
 router.get('/:roomId/games/:gameId/info', async (req, res) => {
@@ -3657,6 +3683,121 @@ router.delete('/:roomId/admins/invites/:inviteId', requireAuth, requireRoomAcces
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admins/invites/:inviteId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Approval-room join requests (v2.39.0) ---
+
+// Room-admin queue. ?status=pending (default) | resolved
+router.get('/:roomId/admin/join-requests', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { JoinRequestService } = await import('../../services/JoinRequestService.js');
+        const status = req.query.status === 'resolved' ? 'resolved' : 'pending';
+        const rows = status === 'resolved'
+            ? await JoinRequestService.listResolved(roomId)
+            : await JoinRequestService.listPending(roomId);
+
+        // Enrich with display_name/avatar so the admin queue doesn't render bare IDs.
+        const db = await getDatabase();
+        const enriched = await Promise.all(rows.map(async (r) => {
+            const profile = await db.get(
+                `SELECT display_name, avatar_hash, avatar_url FROM user_profiles WHERE discord_user_id = ?`,
+                r.user_id,
+            );
+            return {
+                id: r.id,
+                userId: r.user_id,
+                status: r.status,
+                requestedAt: r.requested_at,
+                resolvedAt: r.resolved_at,
+                resolvedBy: r.resolved_by,
+                displayName: profile?.display_name ?? null,
+                avatarUrl: profile?.avatar_url ?? null,
+                avatarHash: profile?.avatar_hash ?? null,
+            };
+        }));
+        res.json(enriched);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/join-requests):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.get('/:roomId/admin/join-requests/count', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const { JoinRequestService } = await import('../../services/JoinRequestService.js');
+        const pending = await JoinRequestService.countPending(req.params.roomId as string);
+        res.json({ pending });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/join-requests/count):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/admin/join-requests/:id/approve', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const id = parseInt(req.params.id as string, 10);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid request id' });
+        const resolvedBy = req.user?.discordId || req.user?.localAdminId || 'unknown';
+        const { JoinRequestService } = await import('../../services/JoinRequestService.js');
+        const ok = await JoinRequestService.approve(roomId, id, resolvedBy);
+        if (!ok) return res.status(404).json({ error: 'Join request not found or already resolved' });
+
+        // No approve-notification this release, by design (approval-rooms
+        // contract D2): none of the 5 existing NotificationType values
+        // ('tournamentWin' | 'turnToPick' | 'tournamentStarting' |
+        // 'rankDethroned' | 'friendScore') fits "you've been approved to join
+        // a room", and the contract explicitly says not to invent a 6th here.
+        // A raw unconditional DM (bypassing NotificationService) was
+        // considered and rejected — every existing DM path is opt-in/rate-
+        // limited via NotificationService, and a bespoke DM here would ignore
+        // a user's notification prefs. Deferred; add a real notification type
+        // in a future release if this is field-requested.
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/join-requests/:id/approve):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/:roomId/admin/join-requests/:id/deny', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const id = parseInt(req.params.id as string, 10);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid request id' });
+        const resolvedBy = req.user?.discordId || req.user?.localAdminId || 'unknown';
+        const { JoinRequestService } = await import('../../services/JoinRequestService.js');
+        const ok = await JoinRequestService.deny(roomId, id, resolvedBy);
+        if (!ok) return res.status(404).json({ error: 'Join request not found or already resolved' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/join-requests/:id/deny):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Member picker (v2.39.0) — provider-agnostic list of current room members for
+// the "add admin" picker in Settings, replacing raw-ID pasting as the primary
+// flow (the text/ID input stays as an advanced fallback).
+router.get('/:roomId/admin/members', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const db = await getDatabase();
+        const rows = await db.all(
+            `SELECT rm.user_id AS userId, rm.joined_at AS joinedAt, rm.source AS source,
+                    up.display_name AS displayName, up.avatar_hash AS avatarHash, up.avatar_url AS avatarUrl
+             FROM room_members rm
+             LEFT JOIN user_profiles up ON up.discord_user_id = rm.user_id
+             WHERE rm.room_id = ?
+             ORDER BY COALESCE(up.display_name, rm.user_id) COLLATE NOCASE ASC`,
+            roomId,
+        );
+        res.json(rows);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/members):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
