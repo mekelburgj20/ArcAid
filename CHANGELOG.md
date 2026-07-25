@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.37.0] — unreleased
+
+**Landing-page login + My Game Rooms + Brave push hint.**
+
+- **Sign in from the front door** — the landing page header now offers Discord/Google login (and the standard user menu once signed in) beside the existing Admin link. Logged-out layout unchanged.
+- **My Game Rooms** — signed-in visitors see the rooms they belong to in their own section above the public grid (deduped from it; unlisted member rooms render gracefully without public stats). Powered by the existing `/api/me/rooms` — FE-only.
+- **Brave push hint** — when enabling browser push fails with the push-service-abort class despite granted permission (Brave with "Use Google services for push messaging" off), the error now appends the exact brave://settings/privacy fix instead of leaving a bare browser error.
+- **Tests** — 14 new (landingRooms split/dedupe, pushError classification, LandingPage mount incl. logged-out regression).
+
+FE-only, no migration (next free still 115).
+
+---
+
 ## [2.36.0] — unreleased
 
 **Google ↔ Discord account linking.** A user who started with Google can link their Discord account — both logins then resolve to one canonical identity (the Discord one), so names, scores, admin grants, and Discord features all unify.
