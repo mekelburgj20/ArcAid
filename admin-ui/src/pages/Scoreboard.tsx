@@ -25,6 +25,7 @@ import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal
 import { deriveCardProps } from '../lib/scoreboardConfig';
 import { deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../lib/scoreboardConfig';
 import { TAB_LABELS, tabSubtitle } from '../lib/scoresCopy';
+import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
 
 
 interface LeaderboardWithViewer extends GameLeaderboard {
@@ -649,7 +650,9 @@ export default function Scoreboard() {
         <SubmissionSheet
           target={{ kind: 'tournament', roomId, gameName: selectedGame.gameName, gameStatus: selectedGame.gameStatus, requirePhoto }}
           roomSlug={slug}
-          requireLogin={config.REQUIRE_DISCORD_LOGIN === 'true'}
+          requireLogin={requiresAnyLogin(config.REQUIRE_DISCORD_LOGIN)}
+          discordOnly={requiresDiscordOnly(config.REQUIRE_DISCORD_LOGIN)}
+          discordEnabled={config.DISCORD_ENABLED !== 'false'}
           onClose={() => setSelectedGame(null)}
           onSubmitted={() => { loadData(); loadRankings(); setSelectedGame(null); }}
         />

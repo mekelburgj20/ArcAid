@@ -6,6 +6,7 @@ import GameQuickView from './GameQuickView';
 import SubmissionSheet from './SubmissionSheet';
 import type { GameLeaderboard, RankedEntry } from './ScoreboardComponents';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
 import {
   ROOM_SCORES_SEARCH_PLACEHOLDER,
   ROOM_SORT_LABELS,
@@ -235,7 +236,9 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
             requirePhoto: config.REQUIRE_SCORE_PHOTO === 'true',
           }}
           roomSlug={slug}
-          requireLogin={config.REQUIRE_DISCORD_LOGIN === 'true'}
+          requireLogin={requiresAnyLogin(config.REQUIRE_DISCORD_LOGIN)}
+          discordOnly={requiresDiscordOnly(config.REQUIRE_DISCORD_LOGIN)}
+          discordEnabled={config.DISCORD_ENABLED !== 'false'}
           onClose={() => setSubmissionTarget(null)}
           onSubmitted={() => {
             setSubmissionTarget(null);

@@ -184,6 +184,7 @@ router.post('/discord/callback', async (req, res) => {
                 discordId: user.id,
                 username: displayName,
                 avatar: avatarUrl || undefined,
+                provider: 'discord',
             });
             const refreshToken = generateRefreshToken();
             await createSession(user.id, refreshToken, token);
@@ -200,6 +201,7 @@ router.post('/discord/callback', async (req, res) => {
                 discordId: user.id,
                 username: displayName,
                 avatar: avatarUrl || undefined,
+                provider: 'discord',
             });
             const refreshToken = generateRefreshToken();
             await createSession(user.id, refreshToken, token);
@@ -214,6 +216,7 @@ router.post('/discord/callback', async (req, res) => {
             discordId: user.id,
             username: displayName,
             avatar: avatarUrl || undefined,
+            provider: 'discord',
         });
         const refreshToken = generateRefreshToken();
         await createSession(user.id, refreshToken, token);
@@ -221,6 +224,156 @@ router.post('/discord/callback', async (req, res) => {
         return res.json({ token, refreshToken, user: { discordId: user.id, username: displayName, avatar: avatarUrl } });
     } catch (error) {
         logError('API Error (POST /api/auth/discord/callback):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Google OAuth config
+router.get('/google', async (req, res) => {
+    try {
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        if (!clientId) {
+            return res.status(400).json({ error: 'Google OAuth not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.' });
+        }
+        res.json({ clientId });
+    } catch (error) {
+        logError('API Error (GET /api/auth/google):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Google OAuth callback
+router.post('/google/callback', async (req, res) => {
+    try {
+        const { code, redirectUri } = req.body;
+        if (!code || !redirectUri) {
+            return res.status(400).json({ error: 'Authorization code and redirectUri required' });
+        }
+
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+        if (!clientId || !clientSecret) {
+            return res.status(400).json({ error: 'Google OAuth not configured' });
+        }
+
+        // Exchange code for access token. Plain fetch — no id_token JWT
+        // verification library; the userinfo endpoint call below IS the
+        // verification (Google only returns profile data for a token it
+        // minted for this client).
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                code,
+                client_id: clientId,
+                client_secret: clientSecret,
+                redirect_uri: redirectUri,
+                grant_type: 'authorization_code',
+            }),
+        });
+
+        if (!tokenRes.ok) {
+            const err = await tokenRes.text();
+            logError('Google OAuth token exchange failed:', err);
+            return res.status(401).json({ error: 'Failed to exchange authorization code' });
+        }
+
+        const tokenData = await tokenRes.json() as { access_token: string; token_type: string };
+
+        // Get user info
+        const userRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+            headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        });
+        if (!userRes.ok) {
+            return res.status(401).json({ error: 'Failed to fetch Google user info' });
+        }
+        const profile = await userRes.json() as { sub: string; name?: string; email?: string; picture?: string };
+
+        const userId = `google:${profile.sub}`;
+        const displayName = profile.name || profile.email?.split('@')[0] || 'Player';
+        const pictureUrl = profile.picture || null;
+
+        // Upsert user_profiles with avatar_url (mirrors the Discord upsert
+        // above, but writes the new avatar_url column instead of
+        // avatar_hash — Google avatars are already full URLs, not CDN
+        // template hashes). display_name is NEVER touched here — it stays
+        // user-chosen (set via AccountSettings), same doctrine as Discord.
+        if (pictureUrl) {
+            const db = await getDatabase();
+            const existing = await db.get(
+                'SELECT avatar_url FROM user_profiles WHERE discord_user_id = ?', userId
+            );
+            const changed = !existing || existing.avatar_url !== pictureUrl;
+            await db.run(
+                `INSERT INTO user_profiles (discord_user_id, avatar_url, avatar_fetched_at)
+                 VALUES (?, ?, datetime('now'))
+                 ON CONFLICT(discord_user_id) DO UPDATE SET
+                    avatar_url = excluded.avatar_url,
+                    avatar_fetched_at = excluded.avatar_fetched_at,
+                    updated_at = datetime('now')`,
+                userId, pictureUrl
+            );
+            if (changed) {
+                await LeaderboardService.invalidateAll();
+            }
+        } else {
+            const db = await getDatabase();
+            await db.run(
+                `INSERT OR IGNORE INTO user_profiles (discord_user_id) VALUES (?)`,
+                userId
+            );
+        }
+
+        // Same role branch as Discord — role derivation is table-based and
+        // provider-agnostic (a Google user pasted into super_admins /
+        // game_room_admins by ID is a legitimate admin).
+        const isSuperAdmin = await AdminService.isSuperAdmin(userId);
+        if (isSuperAdmin) {
+            const token = signToken({
+                role: 'super_admin',
+                gameRoomIds: [],
+                discordId: userId,
+                username: displayName,
+                avatar: pictureUrl || undefined,
+                provider: 'google',
+            });
+            const refreshToken = generateRefreshToken();
+            await createSession(userId, refreshToken, token);
+            logInfo(`Google OAuth login (super_admin): ${displayName} (${userId})`);
+            return res.json({ token, refreshToken, user: { discordId: userId, username: displayName, avatar: pictureUrl } });
+        }
+
+        const roomIds = await AdminService.getRoomsForDiscordUser(userId);
+        if (roomIds.length > 0) {
+            const token = signToken({
+                role: 'room_admin',
+                gameRoomIds: roomIds,
+                discordId: userId,
+                username: displayName,
+                avatar: pictureUrl || undefined,
+                provider: 'google',
+            });
+            const refreshToken = generateRefreshToken();
+            await createSession(userId, refreshToken, token);
+            logInfo(`Google OAuth login (room_admin): ${displayName} (${userId}) for rooms: ${roomIds.join(', ')}`);
+            return res.json({ token, refreshToken, user: { discordId: userId, username: displayName, avatar: pictureUrl } });
+        }
+
+        const token = signToken({
+            role: 'player',
+            gameRoomIds: [],
+            discordId: userId,
+            username: displayName,
+            avatar: pictureUrl || undefined,
+            provider: 'google',
+        });
+        const refreshToken = generateRefreshToken();
+        await createSession(userId, refreshToken, token);
+        logInfo(`Google OAuth login (player): ${displayName} (${userId})`);
+        return res.json({ token, refreshToken, user: { discordId: userId, username: displayName, avatar: pictureUrl } });
+    } catch (error) {
+        logError('API Error (POST /api/auth/google/callback):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

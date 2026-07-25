@@ -10,6 +10,8 @@ const GLOBAL_KEYS = [
   'DISCORD_BOT_TOKEN',
   'DISCORD_CLIENT_ID',
   'DISCORD_CLIENT_SECRET',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
   'JWT_SECRET',
   'PORT',
   'MAX_LOG_LINES',
@@ -26,12 +28,14 @@ const GLOBAL_KEYS = [
   'OG_META_ENABLED',
 ];
 
-const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET', 'WEB_PUSH_VAPID_PRIVATE_KEY'];
+const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'GOOGLE_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET', 'WEB_PUSH_VAPID_PRIVATE_KEY'];
 
 const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   DISCORD_BOT_TOKEN: { label: 'Discord Bot Token', description: 'Bot token from the Discord Developer Portal.' },
   DISCORD_CLIENT_ID: { label: 'Discord Client ID', description: 'OAuth2 client ID for Discord login.' },
   DISCORD_CLIENT_SECRET: { label: 'Discord Client Secret', description: 'OAuth2 client secret for Discord login.' },
+  GOOGLE_CLIENT_ID: { label: 'Google Client ID', description: 'OAuth2 client ID for Google login.' },
+  GOOGLE_CLIENT_SECRET: { label: 'Google Client Secret', description: 'OAuth2 client secret for Google login. Encrypted at rest.' },
   JWT_SECRET: { label: 'JWT Secret', description: 'Secret used to sign authentication tokens.' },
   PORT: { label: 'Port', description: 'HTTP server port (default: 3001).' },
   MAX_LOG_LINES: { label: 'Max Log Lines', description: 'Maximum number of log lines returned by the API.' },

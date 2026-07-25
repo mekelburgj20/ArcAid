@@ -23,6 +23,10 @@ export interface TokenPayload {
     // Identity — exactly one of these is set:
     discordId?: string;
     localAdminId?: string;
+    // Identity provider for `discordId`. ABSENT = legacy token minted before
+    // Google login existed = treat as discord (see identityProvider.ts).
+    // localAdminId tokens never carry this — provider is a discordId-only concept.
+    provider?: 'discord' | 'google';
     // Display
     username?: string;
     avatar?: string;
@@ -84,26 +88,38 @@ export async function refreshAccessToken(
 
     const discordId: string = session.discord_user_id;
     const { AdminService } = await import('../services/AdminService.js');
+    const { providerOfUserId } = await import('../utils/identityProvider.js');
 
-    const mapping = await db.get(
-        'SELECT iscored_username, avatar_hash FROM user_mappings WHERE discord_user_id = ?',
+    // Username/avatar come from user_profiles (display_name / avatar_hash /
+    // avatar_url) — NOT user_mappings. user_mappings is the iScored-alias
+    // table (many-to-one Discord->iScored aliases); using it here was a
+    // doctrine drift that also meant a Google user's refreshed token showed
+    // their raw `google:<sub>` string as username (no user_mappings row is
+    // ever written for Google logins). user_profiles holds one row per
+    // logged-in identity (Discord OR Google) with the user-chosen display
+    // name and cached avatar — the correct read source for both providers.
+    const profile = await db.get(
+        'SELECT display_name, avatar_hash, avatar_url FROM user_profiles WHERE discord_user_id = ?',
         discordId,
     );
-    const username = mapping?.iscored_username || discordId;
-    const avatar = mapping?.avatar_hash
-        ? `https://cdn.discordapp.com/avatars/${discordId}/${mapping.avatar_hash}.png`
-        : undefined;
+    const username = profile?.display_name || discordId;
+    const avatar = profile?.avatar_url
+        ? profile.avatar_url
+        : profile?.avatar_hash
+            ? `https://cdn.discordapp.com/avatars/${discordId}/${profile.avatar_hash}.png`
+            : undefined;
+    const provider = providerOfUserId(discordId);
 
     let payload: TokenPayload;
     const isSuperAdmin = await AdminService.isSuperAdmin(discordId);
     if (isSuperAdmin) {
-        payload = { role: 'super_admin', gameRoomIds: [], discordId, username, avatar };
+        payload = { role: 'super_admin', gameRoomIds: [], discordId, username, avatar, provider };
     } else {
         const roomIds = await AdminService.getRoomsForDiscordUser(discordId);
         if (roomIds.length > 0) {
-            payload = { role: 'room_admin', gameRoomIds: roomIds, discordId, username, avatar };
+            payload = { role: 'room_admin', gameRoomIds: roomIds, discordId, username, avatar, provider };
         } else {
-            payload = { role: 'player', gameRoomIds: [], discordId, username, avatar };
+            payload = { role: 'player', gameRoomIds: [], discordId, username, avatar, provider };
         }
     }
 

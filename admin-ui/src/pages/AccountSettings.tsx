@@ -2,11 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle, AlertTriangle, Trash2 } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import LoginButtons from '../components/LoginButtons';
+import { resolveAvatarUrl } from '../lib/avatar';
 
 interface Profile {
   discord_user_id: string;
   display_name: string | null;
   avatar_hash: string | null;
+  avatar_url: string | null;
   avatar_fetched_at: string | null;
   aliases: string[];
 }
@@ -45,7 +48,7 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export default function AccountSettings() {
-  const { discordUser, playerToken, loginWithDiscord, logoutPlayer } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [draft, setDraft] = useState('');
@@ -352,21 +355,18 @@ export default function AccountSettings() {
       <div className="min-h-screen bg-deep flex items-center justify-center">
         <div className="text-center px-6">
           <UserIcon size={40} className="text-muted/30 mx-auto mb-3" />
-          <p className="text-muted mb-4">Log in with Discord to manage your account.</p>
-          <button
-            onClick={() => loginWithDiscord('__account__', '/account/settings')}
-            className="px-4 py-2 rounded border border-[#5865F2]/40 bg-[#5865F2]/10 text-[#5865F2] text-sm font-medium hover:bg-[#5865F2]/20 cursor-pointer"
-          >
-            Login
-          </button>
+          <p className="text-muted mb-4">Log in to manage your account.</p>
+          <LoginButtons
+            onDiscordLogin={() => loginWithDiscord('__account__', '/account/settings')}
+            onGoogleLogin={() => loginWithGoogle('__account__', '/account/settings')}
+            className="justify-center"
+          />
         </div>
       </div>
     );
   }
 
-  const avatarUrl = profile?.avatar_hash
-    ? `https://cdn.discordapp.com/avatars/${profile.discord_user_id}/${profile.avatar_hash}.png?size=128`
-    : null;
+  const avatarUrl = resolveAvatarUrl(profile?.discord_user_id, profile?.avatar_url ?? profile?.avatar_hash ?? null);
 
   const draftTrimmed = draft.trim();
   const isUnchanged = draftTrimmed === (profile?.display_name ?? '');

@@ -6,6 +6,7 @@ import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
 import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser, optionalDiscordUser } from '../middleware.js';
 import { validate } from '../validate.js';
+import { isProviderUserId } from '../../utils/identityProvider.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
     SettingsSchema,
@@ -147,8 +148,18 @@ router.get('/:roomId/scoreboard-config', async (req, res) => {
         const roomId = req.params.roomId as string;
         const allSettings = await GameRoomSettingsService.getAll(roomId);
         const config: Record<string, string> = {};
+        // v2.35.0 (Google login) — REQUIRE_DISCORD_LOGIN and DISCORD_ENABLED are
+        // explicit inclusions (not prefix-matched like the rest of this list).
+        // Pre-existing bug found while wiring D4/nudge support: FE call sites
+        // (Scoreboard.tsx, GlobalScoresView.tsx, RoomScoresView.tsx,
+        // GlobalGameDetail.tsx, GameDetail.tsx) all read `config.REQUIRE_DISCORD_LOGIN`
+        // from THIS endpoint's response to decide SubmissionSheet's `requireLogin`
+        // prop, but the key was never in the SCOREBOARD_/LOGO_/KIOSK_/GLOBAL_CARD_
+        // prefix allowlist — so it silently read as `undefined` and the
+        // "login required" hint never activated from these public surfaces.
+        const EXPLICIT_KEYS = ['REQUIRE_DISCORD_LOGIN', 'DISCORD_ENABLED'];
         for (const [key, value] of Object.entries(allSettings)) {
-            if (key.startsWith('SCOREBOARD_') || key.startsWith('LOGO_') || key.startsWith('KIOSK_') || key.startsWith('GLOBAL_CARD_')) {
+            if (key.startsWith('SCOREBOARD_') || key.startsWith('LOGO_') || key.startsWith('KIOSK_') || key.startsWith('GLOBAL_CARD_') || EXPLICIT_KEYS.includes(key)) {
                 config[key] = value;
             }
         }
@@ -835,8 +846,8 @@ router.get('/:roomId/stats/player/:identifier', async (req, res) => {
         const { StatsService } = await import('../../services/StatsService.js');
         const identifier = decodeURIComponent(req.params.identifier as string);
         const roomId = req.params.roomId as string;
-        const isDiscordId = /^\d{17,20}$/.test(identifier);
-        const stats = isDiscordId
+        const isProviderId = isProviderUserId(identifier);
+        const stats = isProviderId
             ? await StatsService.getPlayerStats(identifier, roomId)
             : await StatsService.getPlayerStatsByUsername(identifier, roomId);
         if (!stats) return res.status(404).json({ error: 'Player not found' });
@@ -888,8 +899,8 @@ router.get('/:roomId/stats/enhanced/player/:identifier', async (req, res) => {
         const { StatsService } = await import('../../services/StatsService.js');
         const identifier = decodeURIComponent(req.params.identifier as string);
         const roomId = req.params.roomId as string;
-        const isDiscordId = /^\d{17,20}$/.test(identifier);
-        const stats = isDiscordId
+        const isProviderId = isProviderUserId(identifier);
+        const stats = isProviderId
             ? await StatsService.getEnhancedPlayerStats(identifier, roomId)
             : await StatsService.getEnhancedPlayerStatsByUsername(identifier, roomId);
         if (!stats) return res.status(404).json({ error: 'Player not found' });
@@ -3528,7 +3539,10 @@ router.post('/:roomId/admins/discord', requireAuth, requireRoomAccess('roomId'),
 
         // Resolve username to ID if needed
         let resolvedId: string;
-        if (/^\d{17,20}$/.test(input.trim())) {
+        if (isProviderUserId(input.trim())) {
+            // Accept a pasted Discord snowflake OR a `google:<sub>` id directly —
+            // granting room-admin to a Google-identified user by pasted ID is
+            // legitimate (role derivation is table-based and provider-agnostic).
             resolvedId = input.trim();
         } else {
             const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');

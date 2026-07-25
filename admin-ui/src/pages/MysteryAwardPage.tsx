@@ -40,7 +40,7 @@ export default function MysteryAwardPage() {
     const { slug } = useParams<{ slug: string }>();
     const navigate = useNavigate();
     const { toast } = useToast();
-    const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
+    const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
     const { loading: gateLoading, enabled: gateEnabled } = usePickAwardEnabled(slug);
 
     const [roomId, setRoomId] = useState<string | null>(null);
@@ -156,12 +156,21 @@ export default function MysteryAwardPage() {
                 </Link>
 
                 {!discordUser && (
-                    <NeonButton
-                        onClick={() => loginWithDiscord(slug)}
-                        className="pointer-events-auto inline-flex items-center gap-1 text-xs px-3 py-1.5"
-                    >
-                        <LogIn size={12} /> <span className="hidden sm:inline">Log in to queue</span>
-                    </NeonButton>
+                    <div className="flex items-center gap-1.5">
+                        <NeonButton
+                            onClick={() => loginWithDiscord(slug)}
+                            className="pointer-events-auto inline-flex items-center gap-1 text-xs px-3 py-1.5"
+                        >
+                            <LogIn size={12} /> <span className="hidden sm:inline">Log in to queue</span>
+                        </NeonButton>
+                        <button
+                            type="button"
+                            onClick={() => loginWithGoogle(slug)}
+                            className="pointer-events-auto inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded border border-border bg-surface text-primary hover:bg-raised transition-colors cursor-pointer"
+                        >
+                            <LogIn size={12} /> <span className="hidden sm:inline">Google</span>
+                        </button>
+                    </div>
                 )}
             </div>
 

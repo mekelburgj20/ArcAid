@@ -13,6 +13,7 @@ import {
 } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
+import { isProviderUserId } from '../../utils/identityProvider.js';
 import { AdminService } from '../../services/AdminService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
 import { LogService } from '../../services/LogService.js';
@@ -111,7 +112,10 @@ router.post('/super-admins', async (req, res) => {
         // Resolve username to ID if needed
         const { resolveDiscordUserId } = await import('../../utils/discord.js');
         let resolvedId: string | null = null;
-        if (/^\d{17,20}$/.test(input.trim())) {
+        if (isProviderUserId(input.trim())) {
+            // Accept a pasted Discord snowflake OR a `google:<sub>` id directly —
+            // granting super_admin to a Google-identified user by pasted ID is
+            // legitimate (role derivation is table-based and provider-agnostic).
             resolvedId = input.trim();
         } else {
             // Gather candidate guild IDs: all rooms' configured guilds plus the env-level DISCORD_GUILD_ID fallback

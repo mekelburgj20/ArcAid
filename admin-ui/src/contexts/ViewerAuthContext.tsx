@@ -20,6 +20,13 @@ interface ViewerAuth {
    * to override the default return URL after the OAuth round trip.
    */
   loginWithDiscord: (returnSlug: string, returnPath?: string) => void;
+  /**
+   * v2.35.0 — Google OAuth login, mirroring loginWithDiscord's return-path
+   * and `state` conventions exactly (same localStorage key, same
+   * `player:<slug>` state prefix so GoogleCallback/DiscordCallback share the
+   * same return-routing logic).
+   */
+  loginWithGoogle: (returnSlug: string, returnPath?: string) => void;
   /** Log out the player session */
   logoutPlayer: () => void;
 }
@@ -92,6 +99,7 @@ export const ViewerAuthContext = createContext<ViewerAuth>({
   discordUser: null,
   playerToken: null,
   loginWithDiscord: () => {},
+  loginWithGoogle: () => {},
   logoutPlayer: () => {},
 });
 
@@ -185,6 +193,29 @@ export function ViewerAuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loginWithGoogle = useCallback(async (returnSlug: string, returnPath?: string) => {
+    const path = returnPath || `/${returnSlug}/lobby`;
+    localStorage.setItem('arcaid_player_return', path);
+
+    try {
+      const res = await fetch('/api/auth/google');
+      const { clientId } = await res.json();
+      if (!clientId) return;
+
+      const redirectUri = `${window.location.origin}/auth/google/callback`;
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'openid email profile',
+        state: `player:${returnSlug}`,
+      });
+      window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+    } catch {
+      // silently fail
+    }
+  }, []);
+
   const logoutPlayer = useCallback(() => {
     localStorage.removeItem(PLAYER_TOKEN_KEY);
     localStorage.removeItem(PLAYER_USER_KEY);
@@ -194,7 +225,7 @@ export function ViewerAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <ViewerAuthContext.Provider value={{ token: null, discordUser, playerToken, loginWithDiscord, logoutPlayer }}>
+    <ViewerAuthContext.Provider value={{ token: null, discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer }}>
       {children}
     </ViewerAuthContext.Provider>
   );

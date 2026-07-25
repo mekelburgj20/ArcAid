@@ -9,6 +9,8 @@ export interface Friend {
     /** v2.8.0: friend's chosen global display name (from user_profiles). */
     display_name: string | null;
     avatar_hash: string | null;
+    /** v2.35.0: full avatar URL for Google-identified friends (see lib/avatar.ts). */
+    avatar_url: string | null;
     status: string;
     created_at: string;
 }
@@ -120,12 +122,12 @@ export class FriendsService {
         return db.all(`
             SELECT f.id, f.friend_user_id, f.friend_discord_username, f.status, f.created_at,
                    MIN(m.iscored_username) AS iscored_username,
-                   up.avatar_hash, up.display_name
+                   up.avatar_hash, up.avatar_url, up.display_name
             FROM friendships f
             LEFT JOIN user_mappings m ON m.discord_user_id = f.friend_user_id
             LEFT JOIN user_profiles up ON up.discord_user_id = f.friend_user_id
             WHERE f.user_id = ? AND f.status = 'active'
-            GROUP BY f.id, f.friend_user_id, f.friend_discord_username, f.status, f.created_at, up.avatar_hash, up.display_name
+            GROUP BY f.id, f.friend_user_id, f.friend_discord_username, f.status, f.created_at, up.avatar_hash, up.avatar_url, up.display_name
             ORDER BY f.created_at DESC
         `, userId);
     }

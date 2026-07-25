@@ -10,6 +10,7 @@ import { AnonymousAvatarIcon } from '../assets/icons/ThemedIcons';
 import { SHOWCASE_THEMES, DEFAULT_SHOWCASE_THEME } from '../lib/scoreboardThemes';
 import { formatScore } from '../lib/format';
 import { getTournamentColorHex } from '../lib/tournamentColors';
+import { resolveAvatarUrl } from '../lib/avatar';
 
 // --- Shared interfaces ---
 
@@ -189,22 +190,25 @@ function isAnonymousDiscordId(discordUserId?: string | null): boolean {
   return ANONYMOUS_SENTINELS.has(discordUserId);
 }
 
-export function PlayerAvatar({ username, discordUserId, avatarHash, size = 24 }: {
+export function PlayerAvatar({ username, discordUserId, avatarHash, avatarUrl, size = 24 }: {
   username: string;
   discordUserId?: string | null;
   avatarHash?: string | null;
+  /** v2.35.0 — full avatar URL (Google users). Preferred over avatarHash when both are present. */
+  avatarUrl?: string | null;
   size?: number;
 }) {
   const [imgError, setImgError] = useState(false);
 
   // Sentinel IDs (SYSTEM/COMMUNITY/ANON) never map to a real Discord CDN path.
   const anonymous = isAnonymousDiscordId(discordUserId);
-  const hasDiscordAvatar = !anonymous && discordUserId && avatarHash && !imgError;
+  const resolvedSrc = !anonymous ? resolveAvatarUrl(discordUserId, avatarUrl ?? avatarHash) : null;
+  const hasDiscordAvatar = !anonymous && !!resolvedSrc && !imgError;
 
   if (hasDiscordAvatar) {
     return (
       <img
-        src={`https://cdn.discordapp.com/avatars/${discordUserId}/${avatarHash}.png?size=64`}
+        src={resolvedSrc!}
         alt={username}
         loading="lazy"
         decoding="async"

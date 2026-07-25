@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Building2, ArrowLeft, Home } from 'lucide-react';
 import { useViewerAuth, usePlayerHeaders } from '../contexts/ViewerAuthContext';
 import NeonButton from '../components/NeonButton';
+import LoginButtons from '../components/LoginButtons';
 
 const inputClass = "w-full px-4 py-3 bg-raised border border-border rounded text-primary placeholder-faint focus:outline-none focus:border-neon-cyan transition-colors";
 
@@ -21,7 +22,7 @@ function slugify(name: string): string {
 }
 
 export default function CreateRoom() {
-  const { discordUser, loginWithDiscord } = useViewerAuth();
+  const { discordUser, loginWithDiscord, loginWithGoogle } = useViewerAuth();
   const playerHeaders = usePlayerHeaders();
 
   const [name, setName] = useState('');
@@ -48,14 +49,14 @@ export default function CreateRoom() {
           <Building2 size={40} className="text-muted/30 mx-auto mb-3" />
           <h1 className="font-display text-xl font-bold mb-2">Create a Game Room</h1>
           <p className="text-muted mb-4">
-            Log in with Discord to create your own game room. You'll automatically become its admin.
+            Log in to create your own game room. You'll automatically become its admin.
           </p>
-          <button
-            onClick={() => loginWithDiscord('__createroom__', '/create-room')}
-            className="px-4 py-2 rounded border border-[#5865F2]/40 bg-[#5865F2]/10 text-[#5865F2] text-sm font-medium hover:bg-[#5865F2]/20 cursor-pointer"
-          >
-            Sign in with Discord
-          </button>
+          <LoginButtons
+            onDiscordLogin={() => loginWithDiscord('__createroom__', '/create-room')}
+            onGoogleLogin={() => loginWithGoogle('__createroom__', '/create-room')}
+            label="Sign in"
+            className="justify-center"
+          />
         </div>
       </div>
     );

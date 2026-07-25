@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Users, Gamepad2, Trophy, ChevronRight, Plus } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import { formatCompactNumber } from '../lib/format';
+import { resolveAvatarUrl } from '../lib/avatar';
 
 interface Room {
   id: string;
@@ -32,6 +33,8 @@ interface RecentScore {
   wheel_image_path: string | null;
   image_url: string | null;
   avatar_hash: string | null;
+  /** v2.35.0: full avatar URL for Google-identified players. */
+  avatar_url: string | null;
 }
 
 function toCatalogueUrl(path: string): string {
@@ -59,9 +62,6 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
-function avatarUrl(discordUserId: string, avatarHash: string): string {
-  return `https://cdn.discordapp.com/avatars/${discordUserId}/${avatarHash}.png?size=64`;
-}
 
 export default function LandingPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -256,7 +256,8 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
   const gameName = score.display_name || score.game_name;
   const [imgError, setImgError] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
-  const hasAvatar = score.discord_user_id && score.avatar_hash && !avatarError;
+  const resolvedAvatarSrc = resolveAvatarUrl(score.discord_user_id, score.avatar_url ?? score.avatar_hash);
+  const hasAvatar = !!resolvedAvatarSrc && !avatarError;
 
   // Initials fallback (v2.8.2: prefer chosen display_name).
   const playerLabel = score.player_display_name || score.iscored_username || '?';
@@ -364,7 +365,7 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
             {hasAvatar ? (
               <img
-                src={avatarUrl(score.discord_user_id, score.avatar_hash!)}
+                src={resolvedAvatarSrc!}
                 alt=""
                 width={18}
                 height={18}

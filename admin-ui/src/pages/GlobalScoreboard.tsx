@@ -9,7 +9,7 @@ import SubmissionSheet from '../components/SubmissionSheet';
 import StarRating from '../components/StarRating';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
-import DiscordLoginButton from '../components/DiscordLoginButton';
+import LoginButtons from '../components/LoginButtons';
 import { formatScore } from '../lib/format';
 import { PLATFORM_GROUPS, getPlatformShortLabel } from '../lib/platforms';
 
@@ -88,7 +88,7 @@ function imageFor(game: TopGame): string | null {
 }
 
 export default function GlobalScoreboard() {
-  const { discordUser, playerToken, loginWithDiscord, logoutPlayer } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
   const [games, setGames] = useState<TopGame[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -245,6 +245,10 @@ export default function GlobalScoreboard() {
     loginWithDiscord('__global__', '/scoreboard');
   };
 
+  const handleGoogleLogin = () => {
+    loginWithGoogle('__global__', '/scoreboard');
+  };
+
   const handleSubmitClick = (game: TopGame) => {
     if (!playerToken) {
       handleLogin();
@@ -275,8 +279,8 @@ export default function GlobalScoreboard() {
               /* v2.2.6: shared UserMenu so My Rooms / Friends are reachable here too. */
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
             ) : (
-              /* v2.2.7: shared Discord-brand Login button, matches PublicLayout. */
-              <DiscordLoginButton onClick={handleLogin} />
+              /* v2.2.7: shared Discord-brand Login button, matches PublicLayout. v2.35.0: + Google. */
+              <LoginButtons onDiscordLogin={handleLogin} onGoogleLogin={handleGoogleLogin} />
             )}
           </div>
         </div>

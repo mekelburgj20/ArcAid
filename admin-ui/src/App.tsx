@@ -81,6 +81,7 @@ import Terms from './pages/Terms';
 // Pages — Auth
 import RoomLogin from './pages/RoomLogin';
 import DiscordCallback from './pages/DiscordCallback';
+import GoogleCallback from './pages/GoogleCallback';
 import InviteAccept from './pages/InviteAccept';
 
 function NavigateToRoomLogin() {
@@ -128,6 +129,9 @@ function App() {
 
         {/* Discord OAuth callback */}
         <Route path="/auth/discord/callback" element={<DiscordCallback onLogin={() => setAuthed(true)} />} />
+
+        {/* Google OAuth callback */}
+        <Route path="/auth/google/callback" element={<GoogleCallback onLogin={() => setAuthed(true)} />} />
 
         {/* Invite acceptance (public) */}
         <Route path="/invite/:token" element={<InviteAccept />} />

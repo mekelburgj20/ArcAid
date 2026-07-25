@@ -485,6 +485,10 @@ router.get('/portal', async (req, res) => {
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
         const pickAwardEnabled = await PickAwardGate.isEnabled(room.id);
+        // v2.35.0 (Google login) — cheap additive field so public pages can
+        // decide whether to show the "sign in with Discord for DMs/picks"
+        // nudge next to the new Google login option, without a second fetch.
+        const discordEnabledRaw = await GameRoomSettingsService.get(room.id, 'DISCORD_ENABLED');
         res.json({
             id: room.id,
             roomId: room.id,
@@ -496,6 +500,7 @@ router.get('/portal', async (req, res) => {
             admin_theme: adminTheme || 'dark',
             is_public: !!room.is_public,
             pick_award_enabled: pickAwardEnabled,
+            discord_enabled: discordEnabledRaw !== 'false',
         });
     } catch (error) {
         logError('API Error (GET /api/portal):', error);
@@ -1008,6 +1013,7 @@ router.get('/global/recent-scores', async (req, res) => {
                 gg.wheel_image_path,
                 gg.image_url,
                 up.avatar_hash,
+                up.avatar_url,
                 up.display_name as player_display_name
             FROM global_scores gs
             JOIN global_games gg ON gg.id = gs.global_game_id

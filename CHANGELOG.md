@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.35.0] — unreleased
+
+**Sign in with Google.** ArcAid is no longer Discord-only — Google is a full second login provider.
+
+- **Google OAuth** end-to-end: `GET/POST /api/auth/google[/callback]` mirroring the Discord flow (no new dependencies; identity proven via Google's userinfo endpoint). Google users get namespaced subject IDs (`google:<sub>`) flowing through the existing identity columns — score attribution, display names, room membership, admin grants, web push, and web picks all work identically. Discord-channel features (DMs, @mentions, slash-command identity) are provider-gated and simply don't fire for Google users.
+- **`provider` JWT claim** (absent = legacy = Discord) + `src/utils/identityProvider.ts` helpers; six ID-vs-username dispatch sites fixed to recognize namespaced IDs.
+- **Google users can win tournaments**: winner resolution now prefers the top submission's own attribution before the Discord-command-populated `user_mappings` lookup — Google (and previously-unmapped Discord web) winners get picker slots and web-push "your turn to pick" instead of the silent admin-picks-manually path. Includes a sentinel-ID guard (`ANON`/`COMMUNITY`/`SYSTEM` legacy values can never be crowned).
+- **3-state room login policy**: `REQUIRE_DISCORD_LOGIN` becomes Guests / Any login / Discord required (3-option select in room Settings; SubmissionSheet shows the right buttons + copy per policy; orphan-on-flip semantics preserved incl. a fixed `false→discord` transition bug).
+- **Avatars**: migration 113 adds `user_profiles.avatar_url` (Google picture URLs) beside the Discord hash; shared `resolveAvatarUrl` helper replaces six hardcoded CDN-template sites.
+- **All 12 login surfaces** show both providers (Discord-integrated rooms get a "Sign in with Discord for DM notifications and picks" nudge at the two config-aware sites).
+- **Also fixed en route** (pre-existing): `/scoreboard-config` never included `REQUIRE_DISCORD_LOGIN`/`DISCORD_ENABLED` (silently-dead FE prop); token-refresh username/avatar now read `user_profiles` per doctrine (was `user_mappings`).
+- **Security**: `GOOGLE_CLIENT_SECRET` encrypted at rest from day one (`DISCORD_CLIENT_SECRET`'s plaintext-at-rest gap documented in ROADMAP — not flipped here to avoid breaking prod decrypt-on-read). Opus adversarial security review: PASS, no majors.
+- **Tests**: 5 new backend suites (identity helpers, Google OAuth, 3-state middleware matrix, notification gating, winner attribution) + FE avatar/login-policy coverage — backend 425, admin-ui 74.
+
+Migration 113 consumed — **next free is now 114**. Requires `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in Global Settings for the Google buttons to function (Discord-only continues to work without them).
+
+---
+
 ## [2.34.1] — unreleased
 
 **Play-tester fixes: room-exit nav + number-field editing.**
