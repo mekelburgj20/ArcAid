@@ -3699,11 +3699,13 @@ router.get('/:roomId/admin/join-requests', requireAuth, requireRoomAccess('roomI
             ? await JoinRequestService.listResolved(roomId)
             : await JoinRequestService.listPending(roomId);
 
-        // Enrich with display_name/avatar so the admin queue doesn't render bare IDs.
+        // Enrich with display_name/username/avatar so the admin queue doesn't
+        // render bare IDs. v2.40.0 (D1): username is the fallback below
+        // display_name — FE renders displayName ?? username ?? userId.
         const db = await getDatabase();
         const enriched = await Promise.all(rows.map(async (r) => {
             const profile = await db.get(
-                `SELECT display_name, avatar_hash, avatar_url FROM user_profiles WHERE discord_user_id = ?`,
+                `SELECT display_name, username, avatar_hash, avatar_url FROM user_profiles WHERE discord_user_id = ?`,
                 r.user_id,
             );
             return {
@@ -3714,6 +3716,7 @@ router.get('/:roomId/admin/join-requests', requireAuth, requireRoomAccess('roomI
                 resolvedAt: r.resolved_at,
                 resolvedBy: r.resolved_by,
                 displayName: profile?.display_name ?? null,
+                username: profile?.username ?? null,
                 avatarUrl: profile?.avatar_url ?? null,
                 avatarHash: profile?.avatar_hash ?? null,
             };

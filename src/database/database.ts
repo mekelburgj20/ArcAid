@@ -1915,6 +1915,18 @@ export async function initDatabase(): Promise<Database> {
             CREATE UNIQUE INDEX IF NOT EXISTS idx_join_requests_pending ON join_requests(game_room_id, user_id) WHERE status='pending';
             CREATE INDEX IF NOT EXISTS idx_join_requests_room_status ON join_requests(game_room_id, status);
         ` },
+        // v2.40.0 — join-request name resolution (tmp/joinreq-names-global-optin-
+        // contract.md, D1). The join-requests admin queue was rendering a raw
+        // Discord snowflake because login only ever persisted avatar_hash/url
+        // into user_profiles, never a name — display_name stays NULL until a
+        // user explicitly picks one (AccountSettings), so there was no fallback
+        // above the raw ID. `username` is a distinct, nullable, NON-unique
+        // fallback (unlike the user-chosen unique display_name): populated at
+        // every login with the same displayName value already computed there
+        // (Discord global_name||username, Google name||email-prefix), and again
+        // at join-request time from the JWT's username claim. Resolution order
+        // everywhere this ships: display_name ?? username ?? userId.
+        { name: '117_user_profiles_username', sql: `ALTER TABLE user_profiles ADD COLUMN username TEXT` },
     ];
 
     for (const migration of migrations) {

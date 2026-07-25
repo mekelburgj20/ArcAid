@@ -23,6 +23,8 @@ interface JoinRequestEntry {
   resolvedAt: string | null;
   resolvedBy: string | null;
   displayName: string | null;
+  /** v2.40.0 (D1) — fallback below displayName, above the raw userId. */
+  username: string | null;
   avatarUrl: string | null;
   avatarHash: string | null;
 }
@@ -39,7 +41,7 @@ function timeAgo(iso: string): string {
 
 function RequesterRow({ entry }: { entry: JoinRequestEntry }) {
   const avatarSrc = resolveAvatarUrl(entry.userId, entry.avatarUrl ?? entry.avatarHash);
-  const label = entry.displayName || entry.userId;
+  const label = entry.displayName || entry.username || entry.userId;
   return (
     <div className="flex items-center gap-3">
       {avatarSrc ? (
@@ -51,7 +53,7 @@ function RequesterRow({ entry }: { entry: JoinRequestEntry }) {
       )}
       <div className="min-w-0">
         <p className="text-sm font-medium text-primary truncate">{label}</p>
-        {entry.displayName && <p className="text-xs text-faint font-mono truncate">{entry.userId}</p>}
+        {label !== entry.userId && <p className="text-xs text-faint font-mono truncate">{entry.userId}</p>}
       </div>
     </div>
   );
@@ -88,7 +90,7 @@ export default function JoinRequests() {
     setActingOn(entry.id);
     try {
       await api.post(`/rooms/${roomId}/admin/join-requests/${entry.id}/approve`, {});
-      toast(`Approved ${entry.displayName || entry.userId}`, 'success');
+      toast(`Approved ${entry.displayName || entry.username || entry.userId}`, 'success');
       await refresh();
     } catch {
       toast('Failed to approve', 'error');
@@ -101,7 +103,7 @@ export default function JoinRequests() {
     setActingOn(entry.id);
     try {
       await api.post(`/rooms/${roomId}/admin/join-requests/${entry.id}/deny`, {});
-      toast(`Denied ${entry.displayName || entry.userId}`, 'success');
+      toast(`Denied ${entry.displayName || entry.username || entry.userId}`, 'success');
       await refresh();
     } catch {
       toast('Failed to deny', 'error');

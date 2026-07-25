@@ -271,6 +271,22 @@ router.post('/me/rooms/:roomId/join-request', requireDiscordUser, async (req, re
             return res.status(400).json({ error: 'This room does not require approval to join' });
         }
 
+        // v2.40.0 (D1) — best-effort username backfill so the admin join-
+        // requests queue can resolve a name instead of a raw Discord/Google
+        // ID (display_name stays user-chosen/unset; username is the fallback).
+        // Uses the JWT's username claim (same displayName value login already
+        // computed) — not a network call, so safe to run inline here.
+        if (req.user!.username) {
+            const db = await getDatabase();
+            await db.run(
+                `INSERT INTO user_profiles (discord_user_id, username) VALUES (?, ?)
+                 ON CONFLICT(discord_user_id) DO UPDATE SET
+                    username = excluded.username,
+                    updated_at = datetime('now')`,
+                req.user!.discordId, req.user!.username,
+            );
+        }
+
         const { JoinRequestService } = await import('../../services/JoinRequestService.js');
         const status = await JoinRequestService.request(roomId, req.user!.discordId!);
         res.json({ status });
