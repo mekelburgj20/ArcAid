@@ -1846,6 +1846,23 @@ export async function initDatabase(): Promise<Database> {
             console.log('[migration] 112: game_feedback + global_games.field_sources ready');
         } },
         { name: '113_user_profiles_avatar_url', sql: `ALTER TABLE user_profiles ADD COLUMN avatar_url TEXT` },
+        // v2.36.0 Google<->Discord identity linking. Maps a provider-namespaced
+        // login identity (currently only `google:<sub>`) to the canonical
+        // identity a linked user should operate as everywhere — always a
+        // Discord snowflake in v1 (Discord unlocks the channel/notification
+        // features). One google identity links to at most one Discord user
+        // (PK on provider_user_id); one Discord user may hold multiple linked
+        // google identities (harmless — the UI only ever offers linking one at
+        // a time). See IdentityLinkService.ts for the parallel-mechanism
+        // distinction from user_mappings.
+        { name: '114_user_identity_links', sql: `
+            CREATE TABLE IF NOT EXISTS user_identity_links (
+                provider_user_id TEXT PRIMARY KEY,
+                canonical_user_id TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_identity_links_canonical ON user_identity_links(canonical_user_id);
+        ` },
     ];
 
     for (const migration of migrations) {

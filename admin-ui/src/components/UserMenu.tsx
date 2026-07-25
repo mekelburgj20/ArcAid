@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, LayoutGrid, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown } from 'lucide-react';
+import { Building2, LayoutGrid, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown, Link2 } from 'lucide-react';
+import { isGoogleUserId } from '../lib/identityProvider';
 
 interface DiscordUser {
   discordId: string;
@@ -102,6 +103,12 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
 
   const menuItemClass = 'flex items-center gap-2 w-full px-3 py-2 text-left text-xs text-muted hover:text-neon-cyan hover:bg-raised rounded transition-colors no-underline cursor-pointer bg-transparent border-0';
 
+  // v2.36.0 — identity linking. A google:*-identity viewer sees a nudge to
+  // link Discord (this is the logged-in-state counterpart of the pre-login
+  // "Sign in with Discord to get DM notifications..." nudge shown alongside
+  // LoginButtons in the same nav slot).
+  const isGoogleIdentity = isGoogleUserId(user.discordId);
+
   return (
     <div ref={rootRef} className="relative ml-1 sm:ml-2">
       <button
@@ -138,7 +145,7 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
           {/* Identity header */}
           <div className="px-3 py-2 border-b border-border/50">
             <p className="text-xs text-primary font-medium truncate">{user.username}</p>
-            <p className="text-[10px] text-faint">Logged in with Discord</p>
+            <p className="text-[10px] text-faint">Logged in with {isGoogleIdentity ? 'Google' : 'Discord'}</p>
           </div>
 
           {/* Items — tabIndex=-1 per WAI-ARIA menu pattern; navigation is via
@@ -184,6 +191,18 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
               <UserIcon size={14} />
               Account settings
             </Link>
+            {isGoogleIdentity && (
+              <Link
+                role="menuitem"
+                tabIndex={-1}
+                to="/account/settings"
+                onClick={() => setOpen(false)}
+                className={`${menuItemClass} text-neon-cyan`}
+              >
+                <Link2 size={14} />
+                Link Discord account
+              </Link>
+            )}
             {showScoreboardPrefs && (
               <button
                 role="menuitem"

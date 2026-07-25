@@ -16,6 +16,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
   const [searchParams] = useSearchParams();
   const [error, setError] = useState('');
+  const [linkSuccess, setLinkSuccess] = useState(false);
   const exchanged = useRef(false);
 
   useEffect(() => {
@@ -25,9 +26,20 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
 
     const code = searchParams.get('code');
     const errorParam = searchParams.get('error');
-    const state = searchParams.get('state'); // room slug, player:slug, or __super__
+    const state = searchParams.get('state'); // room slug, player:slug, __super__, or link:<nonce>
+
+    // v2.36.0 — Google-account-link completion. The FE decodes its own
+    // `state` (never trusting it server-side beyond that) and posts the
+    // nonce explicitly alongside the code.
+    const isLinkFlow = state?.startsWith('link:') ?? false;
+    const linkNonce = isLinkFlow ? state!.slice('link:'.length) : undefined;
 
     if (errorParam) {
+      if (isLinkFlow) {
+        sessionStorage.removeItem('arcaid_link_nonce');
+        setError(`Discord authorization denied: ${searchParams.get('error_description') || errorParam}`);
+        return;
+      }
       // Sprint 13 (plan §10.3): if the user cancelled OAuth mid-claim flow, the
       // original page has a pending draft in sessionStorage + on the stored return
       // URL. Replace the success marker with `submit-cancelled` so the
@@ -66,7 +78,7 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
     fetch('/api/auth/discord/callback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, redirectUri }),
+      body: JSON.stringify({ code, redirectUri, ...(linkNonce ? { linkNonce } : {}) }),
     })
       .then(async res => {
         const data = await res.json();
@@ -74,6 +86,23 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
         return data;
       })
       .then(data => {
+        sessionStorage.removeItem('arcaid_link_nonce');
+
+        // v2.36.0 — link-flow completion. The response is a fresh token for
+        // the canonical (Discord) identity with `linked: true`. Store it like
+        // a normal player login (the account IS the player's session from
+        // here on, regardless of which button they clicked to log in), show
+        // a brief success state, then bounce back to Account Settings.
+        if (isLinkFlow) {
+          localStorage.setItem('arcaid_player_token', data.token);
+          if (data.refreshToken) localStorage.setItem('arcaid_player_refresh_token', data.refreshToken);
+          if (data.user) localStorage.setItem('arcaid_player_user', JSON.stringify(data.user));
+          window.dispatchEvent(new Event('arcaid_player_login'));
+          setLinkSuccess(true);
+          window.setTimeout(() => { window.location.href = '/account/settings'; }, 1200);
+          return;
+        }
+
         const payload = decodeJwtPayload(data.token);
         const role = payload?.role as string | undefined;
 
@@ -150,9 +179,28 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
         window.location.href = '/admin/dashboard';
       })
       .catch(err => {
-        setError(err.message || 'Discord login failed');
+        sessionStorage.removeItem('arcaid_link_nonce');
+        setError(
+          isLinkFlow
+            ? `Failed to link your Discord account: ${err.message || 'please try again from Account Settings.'}`
+            : (err.message || 'Discord login failed'),
+        );
       });
   }, [searchParams, onLogin]);
+
+  if (linkSuccess) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-deep">
+        <div className="text-center">
+          <div className="w-8 h-8 rounded-full bg-neon-cyan/10 border border-neon-cyan/40 text-neon-cyan flex items-center justify-center mx-auto mb-4">
+            ✓
+          </div>
+          <p className="text-primary text-sm">Discord account linked!</p>
+          <p className="text-muted text-xs mt-1">Redirecting to Account Settings…</p>
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (

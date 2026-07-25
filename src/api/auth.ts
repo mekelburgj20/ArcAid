@@ -86,9 +86,18 @@ export async function refreshAccessToken(
     );
     if (!session) return null;
 
-    const discordId: string = session.discord_user_id;
     const { AdminService } = await import('../services/AdminService.js');
     const { providerOfUserId } = await import('../utils/identityProvider.js');
+    const { IdentityLinkService } = await import('../services/IdentityLinkService.js');
+
+    // v2.36.0 — resolve to the canonical identity if this user has linked a
+    // google:* identity to a Discord snowflake. In practice `createLink`
+    // already rewrites `sessions.discord_user_id` inside its own transaction,
+    // so this is usually a no-op by the time a refresh happens; kept anyway
+    // per the shared-helper contract (defense-in-depth for sessions minted
+    // in some future path that forgets the rewrite, and for uniformity with
+    // the two OAuth callbacks).
+    const discordId: string = await IdentityLinkService.resolveCanonical(session.discord_user_id);
 
     // Username/avatar come from user_profiles (display_name / avatar_hash /
     // avatar_url) — NOT user_mappings. user_mappings is the iScored-alias
