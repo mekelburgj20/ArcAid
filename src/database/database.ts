@@ -1895,6 +1895,26 @@ export async function initDatabase(): Promise<Database> {
                     WHERE display_name IS NOT NULL;
             `);
         } },
+        // v2.39.0 — approval rooms (tmp/approval-rooms-contract.md). Per-room
+        // JOIN_POLICY ('open'|'approval', stored in game_room_settings — no
+        // schema change needed for that). This table backs the request queue
+        // for 'approval' rooms: a user requests, a room admin approves/denies.
+        // Partial unique index enforces at most one PENDING request per
+        // (room, user) — approved/denied rows don't block a fresh request
+        // (denied users may re-request; approved requests are historical).
+        { name: '116_join_requests', sql: `
+            CREATE TABLE IF NOT EXISTS join_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_room_id TEXT NOT NULL REFERENCES game_rooms(id) ON DELETE CASCADE,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','denied')),
+                requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+                resolved_at TEXT,
+                resolved_by TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_join_requests_pending ON join_requests(game_room_id, user_id) WHERE status='pending';
+            CREATE INDEX IF NOT EXISTS idx_join_requests_room_status ON join_requests(game_room_id, status);
+        ` },
     ];
 
     for (const migration of migrations) {
