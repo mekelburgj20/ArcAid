@@ -1,12 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, LayoutGrid, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown, Link2 } from 'lucide-react';
+import { Building2, LayoutGrid, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown, Link2, BookmarkPlus, BookmarkCheck } from 'lucide-react';
 import { isGoogleUserId } from '../lib/identityProvider';
 
 interface DiscordUser {
   discordId: string;
   username: string;
   avatar: string | null;
+}
+
+/** v2.38.0 — room-page join/leave contextual item (join-leave contract D2.2).
+ * Present only when PublicLayout has resolved the current room; absent on
+ * non-room pages (e.g. LandingPage, which uses its own bookmark toggle). */
+interface RoomMembershipProps {
+  roomName: string;
+  isMember: boolean;
+  onJoin: () => void;
+  onLeave: () => void;
 }
 
 interface UserMenuProps {
@@ -17,10 +27,11 @@ interface UserMenuProps {
   hasAdminToken?: boolean;
   /** Current room slug — required for the admin link, optional otherwise. */
   slug?: string;
+  roomMembership?: RoomMembershipProps;
   onLogout: () => void;
 }
 
-export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slug, onLogout }: UserMenuProps) {
+export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slug, roomMembership, onLogout }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -101,6 +112,13 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
     onLogout();
   };
 
+  const handleRoomMembershipClick = () => {
+    setOpen(false);
+    if (!roomMembership) return;
+    if (roomMembership.isMember) roomMembership.onLeave();
+    else roomMembership.onJoin();
+  };
+
   const menuItemClass = 'flex items-center gap-2 w-full px-3 py-2 text-left text-xs text-muted hover:text-neon-cyan hover:bg-raised rounded transition-colors no-underline cursor-pointer bg-transparent border-0';
 
   // v2.36.0 — identity linking. A google:*-identity viewer sees a nudge to
@@ -151,6 +169,18 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
           {/* Items — tabIndex=-1 per WAI-ARIA menu pattern; navigation is via
               arrow keys (Tab closes the menu, see the keydown effect above). */}
           <div className="py-1">
+            {roomMembership && (
+              <button
+                role="menuitem"
+                tabIndex={-1}
+                type="button"
+                onClick={handleRoomMembershipClick}
+                className={menuItemClass}
+              >
+                {roomMembership.isMember ? <BookmarkCheck size={14} /> : <BookmarkPlus size={14} />}
+                {roomMembership.isMember ? `Leave ${roomMembership.roomName}` : `Add ${roomMembership.roomName} to My Rooms`}
+              </button>
+            )}
             <Link
               role="menuitem"
               tabIndex={-1}

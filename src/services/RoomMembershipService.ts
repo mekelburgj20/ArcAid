@@ -1,7 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
 
-export type RoomMemberSource = 'submission' | 'admin_invite' | 'claim' | 'backfill';
+export type RoomMemberSource = 'submission' | 'admin_invite' | 'claim' | 'backfill' | 'self_join';
 
 export interface RoomForUser {
     roomId: string;
@@ -44,6 +44,13 @@ export class RoomMembershipService {
         }
     }
 
+    /**
+     * Explicit "leave" (v2.38.0). Deletes only the room_members row — deliberately
+     * does NOT touch game_room_admins. Admin/owner grants are a separate table;
+     * an owner who leaves just drops the room from their "My Game Rooms" list,
+     * they keep their admin rights and can still manage the room. Idempotent:
+     * deleting a non-existent row is a no-op, not an error.
+     */
     static async removeMember(userId: string, roomId: string): Promise<void> {
         const db = await getDatabase();
         await db.run(

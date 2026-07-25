@@ -1,26 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, ArrowLeft, Home, UserCheck, Trophy, Mail, Sparkles } from 'lucide-react';
+import { Building2, ArrowLeft, Home, UserCheck, Trophy, Mail, Sparkles, BookmarkPlus, LogOut } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { useMyRooms } from '../hooks/useMyRooms';
+import { useToast } from '../components/Toast';
 import LoginButtons from '../components/LoginButtons';
 
-type RoomMemberSource = 'submission' | 'admin_invite' | 'claim' | 'backfill';
-
-interface RoomForUser {
-  roomId: string;
-  name: string;
-  slug: string;
-  logoUrl: string | null;
-  joinedAt: string;
-  source: RoomMemberSource;
-  lastActivityAt: string | null;
-}
+type RoomMemberSource = 'submission' | 'admin_invite' | 'claim' | 'backfill' | 'self_join';
 
 const SOURCE_LABEL: Record<RoomMemberSource, string> = {
   submission: 'Submitted scores',
   admin_invite: 'Admin invite',
   claim: 'Claimed identity',
   backfill: 'Existing history',
+  self_join: 'Joined',
 };
 
 const SOURCE_ICON: Record<RoomMemberSource, React.ReactNode> = {
@@ -28,6 +21,7 @@ const SOURCE_ICON: Record<RoomMemberSource, React.ReactNode> = {
   admin_invite: <Mail size={12} />,
   claim: <UserCheck size={12} />,
   backfill: <Sparkles size={12} />,
+  self_join: <BookmarkPlus size={12} />,
 };
 
 function formatRelativeTime(iso: string | null): string {
@@ -48,20 +42,19 @@ function formatRelativeTime(iso: string | null): string {
 }
 
 export default function MyRooms() {
-  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
-  const [rooms, setRooms] = useState<RoomForUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { discordUser, loginWithDiscord, loginWithGoogle } = useViewerAuth();
+  // v2.38.0 — shared join/leave hook (was a local fetch here, now the same
+  // /api/me/rooms state + optimistic mutations LandingPage/PublicLayout use).
+  const { rooms, loading, leave } = useMyRooms();
+  const { toast } = useToast();
+  const [leavingId, setLeavingId] = useState<string | null>(null);
 
-  const loadRooms = useCallback(async () => {
-    if (!playerToken) return;
-    try {
-      const res = await fetch('/api/me/rooms', { headers: { Authorization: `Bearer ${playerToken}` } });
-      if (res.ok) setRooms(await res.json());
-    } catch {}
-    setLoading(false);
-  }, [playerToken]);
-
-  useEffect(() => { loadRooms(); }, [loadRooms]);
+  const handleLeave = async (room: { roomId: string; name: string }) => {
+    setLeavingId(room.roomId);
+    const ok = await leave(room.roomId);
+    setLeavingId(null);
+    toast(ok ? `Left ${room.name}.` : 'Could not leave that room — try again.', ok ? 'info' : 'error');
+  };
 
   if (!discordUser) {
     return (
@@ -111,7 +104,7 @@ export default function MyRooms() {
         ) : rooms.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-muted">You haven't joined any rooms yet.</p>
-            <p className="text-xs text-faint mt-1">Submit a score, accept an admin invite, or claim an anonymous identity to join a room.</p>
+            <p className="text-xs text-faint mt-1">Add a room from the home page, submit a score, accept an admin invite, or claim an anonymous identity to join a room.</p>
           </div>
         ) : (
           <div className="grid gap-3">
@@ -147,11 +140,24 @@ export default function MyRooms() {
                 {/* Source badge */}
                 <span
                   className="flex items-center gap-1 px-2 py-1 rounded bg-raised/50 text-faint text-[10px] uppercase tracking-wider flex-shrink-0"
-                  title={SOURCE_LABEL[room.source]}
+                  title={SOURCE_LABEL[room.source as RoomMemberSource]}
                 >
-                  {SOURCE_ICON[room.source]}
-                  <span className="hidden sm:inline">{SOURCE_LABEL[room.source]}</span>
+                  {SOURCE_ICON[room.source as RoomMemberSource]}
+                  <span className="hidden sm:inline">{SOURCE_LABEL[room.source as RoomMemberSource]}</span>
                 </span>
+
+                {/* v2.38.0 — leave affordance. preventDefault/stopPropagation so
+                    it never triggers the row-wide Link's navigation. */}
+                <button
+                  type="button"
+                  onClick={e => { e.preventDefault(); e.stopPropagation(); handleLeave(room); }}
+                  disabled={leavingId === room.roomId}
+                  aria-label={`Leave ${room.name}`}
+                  title="Leave this room"
+                  className="flex items-center justify-center w-8 h-8 rounded text-faint hover:text-neon-magenta hover:bg-neon-magenta/10 transition-colors flex-shrink-0 bg-transparent border-0 cursor-pointer disabled:opacity-40 disabled:cursor-wait"
+                >
+                  <LogOut size={14} />
+                </button>
               </Link>
             ))}
           </div>

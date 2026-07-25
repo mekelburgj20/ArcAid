@@ -3,6 +3,8 @@ import { Link, NavLink, Outlet, useParams, useLocation } from 'react-router-dom'
 import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
+import { useMyRooms } from '../hooks/useMyRooms';
+import { useToast } from './Toast';
 import { getPortal, type Portal } from '../lib/portal';
 import { RoomContext } from '../contexts/RoomContext';
 import UserMenu from './UserMenu';
@@ -23,6 +25,11 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const [portalError, setPortalError] = useState(false);
   const { discordUser, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
   const { loading: pickAwardLoading, enabled: pickAwardEnabled } = usePickAwardEnabled(slug);
+  // D2 (v2.38.0) — room-page join/leave affordance, surfaced as a UserMenu
+  // contextual item (chosen over a header button: s20/s21 already made mobile
+  // header space tight, and the menu item needs no extra layout work here).
+  const { isMember: isRoomMember, join: joinRoom, leave: leaveRoom } = useMyRooms();
+  const { toast } = useToast();
 
   const [lobbyHasNew, setLobbyHasNew] = useState(false);
 
@@ -82,6 +89,18 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   }, [resolvedRoomId, location.pathname]);
 
   const hasAdminToken = !!localStorage.getItem('arcaid_token');
+
+  const handleJoinRoom = async () => {
+    if (!resolvedRoomId) return;
+    const ok = await joinRoom(resolvedRoomId, { name: roomName, slug, logoUrl: portal?.logo_url ?? null });
+    toast(ok ? `Added ${roomName} to My Game Rooms.` : 'Could not join this room — try again.', ok ? 'success' : 'error');
+  };
+
+  const handleLeaveRoom = async () => {
+    if (!resolvedRoomId) return;
+    const ok = await leaveRoom(resolvedRoomId);
+    toast(ok ? `Left ${roomName}.` : 'Could not leave this room — try again.', ok ? 'info' : 'error');
+  };
 
   // Sprint 7 nav: Lobby | Scores | Picks* | Stats | Global
   // Picks is suppressed when ENABLE_GAME_PICK_AWARD is off. Keep it hidden
@@ -151,6 +170,12 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 showScoreboardPrefs={isScoreboard}
                 hasAdminToken={hasAdminToken}
                 onLogout={logoutPlayer}
+                roomMembership={resolvedRoomId ? {
+                  roomName,
+                  isMember: isRoomMember(resolvedRoomId),
+                  onJoin: handleJoinRoom,
+                  onLeave: handleLeaveRoom,
+                } : undefined}
               />
             ) : (
               <LoginButtons

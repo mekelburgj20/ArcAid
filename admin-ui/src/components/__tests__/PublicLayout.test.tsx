@@ -1,9 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import PublicLayout from '../PublicLayout';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
 import { useRoom } from '../../contexts/RoomContext';
+
+function b64url(obj: object): string {
+  return btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fakeJwt(payload: object): string {
+  return `${b64url({ alg: 'none' })}.${b64url(payload)}.sig`;
+}
+
+function signInAs(discordId: string, username = 'Tester') {
+  const exp = Math.floor(Date.now() / 1000) + 3600;
+  localStorage.setItem('arcaid_player_token', fakeJwt({ discordId, username, avatar: null, exp }));
+  localStorage.setItem('arcaid_player_user', JSON.stringify({ discordId, username, avatar: null }));
+}
 
 // s21 — the ticker (mounted by PublicLayout on the scoreboard route) joins a
 // lobby socket channel; keep that inert under jsdom.
@@ -117,5 +131,77 @@ describe('PublicLayout', () => {
     renderAt('/no-such-room/child');
 
     await waitFor(() => expect(screen.getByText('Room not found')).toBeInTheDocument());
+  });
+
+  // D2.2 (v2.38.0) — room-page join/leave affordance placed as a UserMenu
+  // contextual item (over a header button — mobile header space is already
+  // tight per s20/s21; see PublicLayout.tsx comment at the hook call site).
+  it('signed-in, non-member: UserMenu shows "Add <room> to My Rooms" and POSTs on click', async () => {
+    signInAs('user-1', 'Justin');
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/portal')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ id: 'room-1', roomId: 'room-1', slug: 'rtx_pinball', name: 'RTX Pinball', pick_award_enabled: false }),
+        });
+      }
+      if (init?.method === 'POST' && url.startsWith('/api/me/rooms/')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+      }
+      if (url.startsWith('/api/me/rooms')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderAt('/rtx_pinball/child');
+    await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
+
+    fireEvent.click(screen.getByLabelText('User menu'));
+    const joinItem = await screen.findByText('Add RTX Pinball to My Rooms');
+
+    fireEvent.click(joinItem);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/me/rooms/room-1',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+  });
+
+  it('signed-in, member: UserMenu shows "Leave <room>" and DELETEs on click', async () => {
+    signInAs('user-1', 'Justin');
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/portal')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ id: 'room-1', roomId: 'room-1', slug: 'rtx_pinball', name: 'RTX Pinball', pick_award_enabled: false }),
+        });
+      }
+      if (init?.method === 'DELETE' && url.startsWith('/api/me/rooms/')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+      }
+      if (url.startsWith('/api/me/rooms')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { roomId: 'room-1', name: 'RTX Pinball', slug: 'rtx_pinball', logoUrl: null, joinedAt: '2026-01-01', source: 'submission', lastActivityAt: null },
+          ]),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    renderAt('/rtx_pinball/child');
+    await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
+
+    fireEvent.click(screen.getByLabelText('User menu'));
+    const leaveItem = await screen.findByText('Leave RTX Pinball');
+
+    fireEvent.click(leaveItem);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/me/rooms/room-1',
+      expect.objectContaining({ method: 'DELETE' }),
+    ));
   });
 });

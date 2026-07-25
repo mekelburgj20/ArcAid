@@ -1863,6 +1863,38 @@ export async function initDatabase(): Promise<Database> {
             );
             CREATE INDEX IF NOT EXISTS idx_user_identity_links_canonical ON user_identity_links(canonical_user_id);
         ` },
+        // v2.38.0 — explicit room join/leave (tmp/join-leave-contract.md). Widens
+        // room_members.source's CHECK to admit 'self_join' (user-initiated join
+        // via the landing-page bookmark toggle / room-page affordance) alongside
+        // the existing submission/admin_invite/claim/backfill sources. SQLite
+        // can't ALTER a CHECK constraint in place, so rebuild per the
+        // 066/077/095 create-copy-drop-rename pattern. Handler (not plain sql)
+        // because the generic sql-migration runner swallows exec() errors
+        // silently (see the catch block in the loop below) — a botched rebuild
+        // of this table must halt startup, not get marked applied anyway.
+        // Safe under FK enforcement: this runs inside the migration loop,
+        // before initDatabase() sets PRAGMA foreign_keys = ON.
+        { name: '115_room_members_self_join_source', handler: async (db) => {
+            await db.exec(`
+                CREATE TABLE room_members_new (
+                    user_id TEXT NOT NULL,
+                    room_id TEXT NOT NULL,
+                    joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    source TEXT NOT NULL CHECK (source IN ('submission','admin_invite','claim','backfill','self_join')),
+                    display_name TEXT,
+                    PRIMARY KEY (user_id, room_id),
+                    FOREIGN KEY (room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+                );
+                INSERT INTO room_members_new (user_id, room_id, joined_at, source, display_name)
+                    SELECT user_id, room_id, joined_at, source, display_name FROM room_members;
+                DROP TABLE room_members;
+                ALTER TABLE room_members_new RENAME TO room_members;
+                CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(user_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_room_members_room_display_unique
+                    ON room_members(room_id, LOWER(display_name))
+                    WHERE display_name IS NOT NULL;
+            `);
+        } },
     ];
 
     for (const migration of migrations) {
