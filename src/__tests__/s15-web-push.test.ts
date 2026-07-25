@@ -129,11 +129,11 @@ afterEach(() => {
 describe('web-push dispatch — happy path', () => {
     it('delivers a push beside the DM with title, stripped body, deep link, and tag', async () => {
         await seedVapid();
-        await setPrefs('u-push-1', { rankDethroned: true, webPush: true });
-        await seedSubscription('u-push-1');
+        await setPrefs('300000000000000001', { rankDethroned: true, webPush: true });
+        await seedSubscription('300000000000000001');
 
         const ok = await NotificationService.notify({
-            userId: 'u-push-1',
+            userId: '300000000000000001',
             type: 'rankDethroned',
             message: `You've been dethroned on **WHO dunnit?**! Alice posted **123,456** (beating you by 1) to claim #1.\nhttps://arcaid.app/rtx/games/WHO%20dunnit%3F`,
             pushUrl: 'https://arcaid.app/rtx/games/WHO%20dunnit%3F',
@@ -144,7 +144,7 @@ describe('web-push dispatch — happy path', () => {
         await waitForPushCount(1);
 
         const send = pushSends[0];
-        expect(send.subscription.endpoint).toBe('https://push.example/u-push-1');
+        expect(send.subscription.endpoint).toBe('https://push.example/300000000000000001');
         expect(send.subscription.keys).toEqual({ p256dh: 'key-p256dh', auth: 'key-auth' });
         expect(send.options.vapidDetails.publicKey).toBe('test-public-key');
         expect(send.options.vapidDetails.privateKey).toBe('test-private-key');
@@ -159,11 +159,11 @@ describe('web-push dispatch — happy path', () => {
 
     it('falls back to the app root url when pushUrl is absent', async () => {
         await seedVapid();
-        await setPrefs('u-push-2', { tournamentWin: true, webPush: true });
-        await seedSubscription('u-push-2');
+        await setPrefs('300000000000000002', { tournamentWin: true, webPush: true });
+        await seedSubscription('300000000000000002');
 
         await NotificationService.notify({
-            userId: 'u-push-2',
+            userId: '300000000000000002',
             type: 'tournamentWin',
             message: 'Congrats! You won **Fire Mountain**!',
         });
@@ -177,11 +177,11 @@ describe('web-push dispatch — happy path', () => {
     it('still delivers the push when the Discord DM fails (closed DMs)', async () => {
         dmResult = false;
         await seedVapid();
-        await setPrefs('u-push-3', { rankDethroned: true, webPush: true });
-        await seedSubscription('u-push-3');
+        await setPrefs('300000000000000003', { rankDethroned: true, webPush: true });
+        await seedSubscription('300000000000000003');
 
         const ok = await NotificationService.notify({
-            userId: 'u-push-3',
+            userId: '300000000000000003',
             type: 'rankDethroned',
             message: 'You lost the top spot.',
         });
@@ -195,11 +195,11 @@ describe('web-push dispatch — happy path', () => {
 describe('web-push dispatch — gates', () => {
     it('does NOT push when the webPush channel flag is off (DM still sent)', async () => {
         await seedVapid();
-        await setPrefs('u-gate-1', { rankDethroned: true });
-        await seedSubscription('u-gate-1');
+        await setPrefs('300000000000000004', { rankDethroned: true });
+        await seedSubscription('300000000000000004');
 
         const ok = await NotificationService.notify({
-            userId: 'u-gate-1', type: 'rankDethroned', message: 'm',
+            userId: '300000000000000004', type: 'rankDethroned', message: 'm',
         });
 
         expect(ok).toBe(true);
@@ -209,11 +209,11 @@ describe('web-push dispatch — gates', () => {
 
     it('does NOT push for a type outside WEB_PUSH_TYPES (DM still sent)', async () => {
         await seedVapid();
-        await setPrefs('u-gate-2', { friendScore: true, webPush: true });
-        await seedSubscription('u-gate-2');
+        await setPrefs('300000000000000005', { friendScore: true, webPush: true });
+        await seedSubscription('300000000000000005');
 
         const ok = await NotificationService.notify({
-            userId: 'u-gate-2', type: 'friendScore', message: 'm',
+            userId: '300000000000000005', type: 'friendScore', message: 'm',
         });
 
         expect(ok).toBe(true);
@@ -223,11 +223,11 @@ describe('web-push dispatch — gates', () => {
 
     it('does NOT push (or DM) when the type opt-in is off — webPush alone is not an opt-in', async () => {
         await seedVapid();
-        await setPrefs('u-gate-3', { webPush: true });
-        await seedSubscription('u-gate-3');
+        await setPrefs('300000000000000006', { webPush: true });
+        await seedSubscription('300000000000000006');
 
         const ok = await NotificationService.notify({
-            userId: 'u-gate-3', type: 'rankDethroned', message: 'm',
+            userId: '300000000000000006', type: 'rankDethroned', message: 'm',
         });
 
         expect(ok).toBe(false);
@@ -237,11 +237,11 @@ describe('web-push dispatch — gates', () => {
     });
 
     it('no-ops without throwing when VAPID keys are not configured', async () => {
-        await setPrefs('u-gate-4', { rankDethroned: true, webPush: true });
-        await seedSubscription('u-gate-4');
+        await setPrefs('300000000000000007', { rankDethroned: true, webPush: true });
+        await seedSubscription('300000000000000007');
 
         const ok = await NotificationService.notify({
-            userId: 'u-gate-4', type: 'rankDethroned', message: 'm',
+            userId: '300000000000000007', type: 'rankDethroned', message: 'm',
         });
 
         expect(ok).toBe(true); // DM unaffected
@@ -251,20 +251,20 @@ describe('web-push dispatch — gates', () => {
 
     it('shares the DM rate-limit budget — a rate-limited event sends neither channel', async () => {
         await seedVapid();
-        await setPrefs('u-rate-1', { tournamentWin: true, rankDethroned: true, webPush: true });
-        await seedSubscription('u-rate-1');
+        await setPrefs('300000000000000008', { tournamentWin: true, rankDethroned: true, webPush: true });
+        await seedSubscription('300000000000000008');
 
         // Exhaust the high-value budget (5/window).
         for (let i = 0; i < 5; i++) {
             expect(await NotificationService.notify({
-                userId: 'u-rate-1', type: 'tournamentWin', message: `win ${i}`,
+                userId: '300000000000000008', type: 'tournamentWin', message: `win ${i}`,
             })).toBe(true);
         }
         await waitForPushCount(5);
 
         // 6th high-value event: blocked → no DM and no push.
         const blocked = await NotificationService.notify({
-            userId: 'u-rate-1', type: 'rankDethroned', message: 'over budget',
+            userId: '300000000000000008', type: 'rankDethroned', message: 'over budget',
         });
         expect(blocked).toBe(false);
         await settle();
@@ -281,11 +281,11 @@ describe('D4 — DISCORD_ENABLED gate no longer suppresses web push', () => {
     it('a Discord-disabled room still delivers the push; the DM is never attempted', async () => {
         discordEnabledForRoom = false;
         await seedVapid();
-        await setPrefs('u-standalone-1', { rankDethroned: true, webPush: true });
-        await seedSubscription('u-standalone-1');
+        await setPrefs('300000000000000009', { rankDethroned: true, webPush: true });
+        await seedSubscription('300000000000000009');
 
         const ok = await NotificationService.notify({
-            userId: 'u-standalone-1',
+            userId: '300000000000000009',
             type: 'rankDethroned',
             message: 'You lost the top spot.',
             roomId: 'room-standalone-1',
@@ -301,11 +301,11 @@ describe('D4 — DISCORD_ENABLED gate no longer suppresses web push', () => {
     it('a Discord-enabled room is unaffected (DM still attempted normally)', async () => {
         discordEnabledForRoom = true;
         await seedVapid();
-        await setPrefs('u-standalone-2', { rankDethroned: true, webPush: true });
-        await seedSubscription('u-standalone-2');
+        await setPrefs('300000000000000010', { rankDethroned: true, webPush: true });
+        await seedSubscription('300000000000000010');
 
         const ok = await NotificationService.notify({
-            userId: 'u-standalone-2', type: 'rankDethroned', message: 'm', roomId: 'room-connected-1',
+            userId: '300000000000000010', type: 'rankDethroned', message: 'm', roomId: 'room-connected-1',
         });
 
         expect(ok).toBe(true);
@@ -317,11 +317,11 @@ describe('D4 — DISCORD_ENABLED gate no longer suppresses web push', () => {
 describe('D4 — turnToPick is web-push-eligible with a deep link', () => {
     it('delivers a push with title, correct tag, and the Picks-page deep link', async () => {
         await seedVapid();
-        await setPrefs('u-pick-1', { turnToPick: true, webPush: true });
-        await seedSubscription('u-pick-1');
+        await setPrefs('300000000000000011', { turnToPick: true, webPush: true });
+        await seedSubscription('300000000000000011');
 
         const ok = await NotificationService.notify({
-            userId: 'u-pick-1',
+            userId: '300000000000000011',
             type: 'turnToPick',
             message: `You won **Fire Mountain** — it's your turn to pick the next game.\nhttps://arcaid.app/rtx/picks`,
             pushUrl: 'https://arcaid.app/rtx/picks',
@@ -339,11 +339,11 @@ describe('D4 — turnToPick is web-push-eligible with a deep link', () => {
 
     it('does NOT push when the webPush channel flag is off (DM still sent)', async () => {
         await seedVapid();
-        await setPrefs('u-pick-2', { turnToPick: true });
-        await seedSubscription('u-pick-2');
+        await setPrefs('300000000000000012', { turnToPick: true });
+        await seedSubscription('300000000000000012');
 
         const ok = await NotificationService.notify({
-            userId: 'u-pick-2', type: 'turnToPick', message: 'm',
+            userId: '300000000000000012', type: 'turnToPick', message: 'm',
         });
 
         expect(ok).toBe(true);
@@ -356,68 +356,68 @@ describe('D4 — turnToPick is web-push-eligible with a deep link', () => {
 describe('web-push subscription lifecycle', () => {
     it('prunes the subscription row when the push service returns 410 Gone', async () => {
         await seedVapid();
-        await setPrefs('u-prune-1', { rankDethroned: true, webPush: true });
-        await seedSubscription('u-prune-1', 'https://push.example/expired');
+        await setPrefs('300000000000000013', { rankDethroned: true, webPush: true });
+        await seedSubscription('300000000000000013', 'https://push.example/expired');
         pushFailWith = 410;
 
         const ok = await NotificationService.notify({
-            userId: 'u-prune-1', type: 'rankDethroned', message: 'm',
+            userId: '300000000000000013', type: 'rankDethroned', message: 'm',
         });
         expect(ok).toBe(true); // DM unaffected by the push failure
 
         const db = await getDatabase();
         await vi.waitFor(async () => {
             const row = await db.get(
-                'SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', 'u-prune-1');
+                'SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', '300000000000000013');
             expect(row.c).toBe(0);
         }, { timeout: 2000 });
     });
 
     it('prunes the subscription row on 403 (VAPID key mismatch after rotation)', async () => {
         await seedVapid();
-        await setPrefs('u-prune-3', { rankDethroned: true, webPush: true });
-        await seedSubscription('u-prune-3', 'https://push.example/rotated');
+        await setPrefs('300000000000000015', { rankDethroned: true, webPush: true });
+        await seedSubscription('300000000000000015', 'https://push.example/rotated');
         pushFailWith = 403;
 
         await NotificationService.notify({
-            userId: 'u-prune-3', type: 'rankDethroned', message: 'm',
+            userId: '300000000000000015', type: 'rankDethroned', message: 'm',
         });
 
         const db = await getDatabase();
         await vi.waitFor(async () => {
             const row = await db.get(
-                'SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', 'u-prune-3');
+                'SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', '300000000000000015');
             expect(row.c).toBe(0);
         }, { timeout: 2000 });
     });
 
     it('keeps the subscription row on a non-410 send failure', async () => {
         await seedVapid();
-        await setPrefs('u-prune-2', { rankDethroned: true, webPush: true });
-        await seedSubscription('u-prune-2');
+        await setPrefs('300000000000000014', { rankDethroned: true, webPush: true });
+        await seedSubscription('300000000000000014');
         pushFailWith = 500;
 
         await NotificationService.notify({
-            userId: 'u-prune-2', type: 'rankDethroned', message: 'm',
+            userId: '300000000000000014', type: 'rankDethroned', message: 'm',
         });
 
         await settle(150);
         const db = await getDatabase();
         const row = await db.get(
-            'SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', 'u-prune-2');
+            'SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', '300000000000000014');
         expect(row.c).toBe(1);
     });
 
     it('account deletion purges the user\'s push subscriptions and nobody else\'s', async () => {
-        await seedSubscription('u-del-1', 'https://push.example/del-a');
-        await seedSubscription('u-del-1', 'https://push.example/del-b');
-        await seedSubscription('u-keep-1', 'https://push.example/keep');
+        await seedSubscription('300000000000000016', 'https://push.example/del-a');
+        await seedSubscription('300000000000000016', 'https://push.example/del-b');
+        await seedSubscription('300000000000000017', 'https://push.example/keep');
 
-        await AccountDeletionService.anonymizeUser('u-del-1', { actor: 'self' });
+        await AccountDeletionService.anonymizeUser('300000000000000016', { actor: 'self' });
 
         const db = await getDatabase();
-        const gone = await db.get('SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', 'u-del-1');
-        const kept = await db.get('SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', 'u-keep-1');
+        const gone = await db.get('SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', '300000000000000016');
+        const kept = await db.get('SELECT COUNT(*) as c FROM push_subscriptions WHERE discord_user_id = ?', '300000000000000017');
         expect(gone.c).toBe(0);
         expect(kept.c).toBe(1);
     });
@@ -428,16 +428,16 @@ describe('prefs single-writer merge (review findings 1 + 4)', () => {
     it('a bulk enable-all-shaped merge preserves the webPush flag and the footer marker', async () => {
         // Regression: /arcaid-notifications Enable-all used to rebuild the
         // JSON from only the 5 typed keys, silently wiping webPush.
-        await setPrefs('u-merge-1', { rankDethroned: false, webPush: true, _hvFooterShown: true });
+        await setPrefs('300000000000000018', { rankDethroned: false, webPush: true, _hvFooterShown: true });
 
-        await NotificationService.mergePrefs('u-merge-1', {
+        await NotificationService.mergePrefs('300000000000000018', {
             tournamentWin: true, turnToPick: true, tournamentStarting: true,
             rankDethroned: true, friendScore: true,
         });
 
         const db = await getDatabase();
         const row = await db.get(
-            'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?', 'u-merge-1');
+            'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?', '300000000000000018');
         const stored = JSON.parse(row.notification_prefs);
         expect(stored.webPush).toBe(true);
         expect(stored._hvFooterShown).toBe(true);
@@ -459,11 +459,11 @@ describe('prefs single-writer merge (review findings 1 + 4)', () => {
     it('a stale full-object PUT-shaped update cannot clobber webPush (allowlist path)', async () => {
         // Regression: a second tab's stale draft (loaded pre-subscribe, so no
         // webPush key) used to overwrite the JSON wholesale on Save.
-        await setPrefs('u-merge-2', { rankDethroned: true, webPush: true });
+        await setPrefs('300000000000000019', { rankDethroned: true, webPush: true });
 
         const staleDraft = { tournamentWin: false, turnToPick: false, tournamentStarting: false, rankDethroned: false, friendScore: true };
         const merged = await NotificationService.mergePrefs(
-            'u-merge-2', NotificationService.typedPrefUpdates(staleDraft));
+            '300000000000000019', NotificationService.typedPrefUpdates(staleDraft));
 
         expect(merged['webPush']).toBe(true);      // survived
         expect(merged['rankDethroned']).toBe(false); // explicit user choice applied

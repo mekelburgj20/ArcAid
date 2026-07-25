@@ -123,8 +123,8 @@ describe('LobbyFeedGenerator — dethrone DM decoupled from feed toggle', () => 
         await disableFeedType(roomId, 'new_high_score');
 
         // Previous #1 is a Discord-mapped, opted-in user.
-        await mapDiscordAlias('disc-old-king', 'OldKing');
-        await setPrefs('disc-old-king', { rankDethroned: true });
+        await mapDiscordAlias('200000000000000001', 'OldKing');
+        await setPrefs('200000000000000001', { rankDethroned: true });
         await seedCommunityScore(roomId, 'WHO dunnit?', 'OldKing', 1000);
 
         const emitSpy = vi.spyOn(LobbyFeedService, 'emit');
@@ -136,13 +136,13 @@ describe('LobbyFeedGenerator — dethrone DM decoupled from feed toggle', () => 
             gameName: 'WHO dunnit?',
             username: 'Challenger',
             score: 5000,
-            discordUserId: 'disc-challenger',
+            discordUserId: '200000000000000002',
             source: 'community',
         });
         await flush();
 
         // DM fired despite the feed toggle being off.
-        expect(sentDMs.some((d) => d.userId === 'disc-old-king')).toBe(true);
+        expect(sentDMs.some((d) => d.userId === '200000000000000001')).toBe(true);
         expect(sentDMs[0]!.content).toContain('dethroned');
 
         // No new_high_score feed event was emitted (still gated).
@@ -154,8 +154,8 @@ describe('LobbyFeedGenerator — dethrone DM decoupled from feed toggle', () => 
         const roomId = await createTestRoom('decouple-2', 'Decouple 2');
         await disableFeedType(roomId, 'new_high_score');
 
-        await mapDiscordAlias('disc-old-king-2', 'OldKing2');
-        await setPrefs('disc-old-king-2', { rankDethroned: true });
+        await mapDiscordAlias('200000000000000003', 'OldKing2');
+        await setPrefs('200000000000000003', { rankDethroned: true });
         await seedCommunityScore(roomId, 'Medieval Madness', 'OldKing2', 1000);
 
         const emitSpy = vi.spyOn(LobbyFeedService, 'emit');
@@ -166,7 +166,7 @@ describe('LobbyFeedGenerator — dethrone DM decoupled from feed toggle', () => 
             gameName: 'Medieval Madness',
             username: 'Challenger2',
             score: 9000,
-            discordUserId: 'disc-challenger-2',
+            discordUserId: '200000000000000004',
             source: 'community',
         });
         await flush();
@@ -183,8 +183,8 @@ describe('LobbyFeedGenerator — dethrone DM decoupled from feed toggle', () => 
 describe('LobbyFeedGenerator — dethrone DM deep link + margin', () => {
     it('contains the game deep link and the formatted margin (new − previous top)', async () => {
         const roomId = await createTestRoom('deeplink', 'Deep Link');
-        await mapDiscordAlias('disc-king-3', 'King3');
-        await setPrefs('disc-king-3', { rankDethroned: true });
+        await mapDiscordAlias('200000000000000005', 'King3');
+        await setPrefs('200000000000000005', { rankDethroned: true });
         await seedCommunityScore(roomId, 'WHO dunnit?', 'King3', 1_000_000);
 
         await seedCommunityScore(roomId, 'WHO dunnit?', 'Usurper', 2_500_000);
@@ -193,12 +193,12 @@ describe('LobbyFeedGenerator — dethrone DM deep link + margin', () => {
             gameName: 'WHO dunnit?',
             username: 'Usurper',
             score: 2_500_000,
-            discordUserId: 'disc-usurper',
+            discordUserId: '200000000000000006',
             source: 'community',
         });
         await flush();
 
-        const dm = sentDMs.find((d) => d.userId === 'disc-king-3');
+        const dm = sentDMs.find((d) => d.userId === '200000000000000005');
         expect(dm).toBeTruthy();
         // Game deep link (name-encoded), not the bare room landing page.
         expect(dm!.content).toContain('/deeplink/games/' + encodeURIComponent('WHO dunnit?'));
@@ -209,8 +209,8 @@ describe('LobbyFeedGenerator — dethrone DM deep link + margin', () => {
 
     it('renders the tie wording (no "by 0") when the new top equals the previous top', async () => {
         const roomId = await createTestRoom('tie', 'Tie');
-        await mapDiscordAlias('disc-king-4', 'King4');
-        await setPrefs('disc-king-4', { rankDethroned: true });
+        await mapDiscordAlias('200000000000000007', 'King4');
+        await setPrefs('200000000000000007', { rankDethroned: true });
         await seedCommunityScore(roomId, 'Attack from Mars', 'King4', 4242);
 
         // Equal top score — challenger ties and (by sort) takes index 0.
@@ -220,12 +220,12 @@ describe('LobbyFeedGenerator — dethrone DM deep link + margin', () => {
             gameName: 'Attack from Mars',
             username: 'Tier',
             score: 4242,
-            discordUserId: 'disc-tier',
+            discordUserId: '200000000000000008',
             source: 'community',
         });
         await flush();
 
-        const dm = sentDMs.find((d) => d.userId === 'disc-king-4');
+        const dm = sentDMs.find((d) => d.userId === '200000000000000007');
         // Note: with a strict equal tie the new submitter may or may not be ranked
         // #1 depending on stable-sort order; assert only that IF a DM fired it uses
         // tie wording and never "by 0".
@@ -243,8 +243,8 @@ describe('NotificationService — per-room DISCORD_ENABLED gate', () => {
     it('suppresses the dethrone DM when the room has DISCORD_ENABLED=false', async () => {
         const roomId = await createTestRoom('disabled-room', 'Disabled Room');
         await GameRoomSettingsService.set(roomId, 'DISCORD_ENABLED', 'false');
-        await mapDiscordAlias('disc-king-5', 'King5');
-        await setPrefs('disc-king-5', { rankDethroned: true });
+        await mapDiscordAlias('200000000000000009', 'King5');
+        await setPrefs('200000000000000009', { rankDethroned: true });
         await seedCommunityScore(roomId, 'Twilight Zone', 'King5', 100);
 
         await seedCommunityScore(roomId, 'Twilight Zone', 'Newcomer', 200);
@@ -253,19 +253,19 @@ describe('NotificationService — per-room DISCORD_ENABLED gate', () => {
             gameName: 'Twilight Zone',
             username: 'Newcomer',
             score: 200,
-            discordUserId: 'disc-newcomer',
+            discordUserId: '200000000000000010',
             source: 'community',
         });
         await flush();
 
-        expect(sentDMs.find((d) => d.userId === 'disc-king-5')).toBeUndefined();
+        expect(sentDMs.find((d) => d.userId === '200000000000000009')).toBeUndefined();
     });
 
     it('sends the dethrone DM when DISCORD_ENABLED is unset/true', async () => {
         const roomId = await createTestRoom('enabled-room', 'Enabled Room');
         // DISCORD_ENABLED unset → enabled by default.
-        await mapDiscordAlias('disc-king-6', 'King6');
-        await setPrefs('disc-king-6', { rankDethroned: true });
+        await mapDiscordAlias('200000000000000011', 'King6');
+        await setPrefs('200000000000000011', { rankDethroned: true });
         await seedCommunityScore(roomId, 'Funhouse', 'King6', 100);
 
         await seedCommunityScore(roomId, 'Funhouse', 'Beater', 300);
@@ -274,20 +274,20 @@ describe('NotificationService — per-room DISCORD_ENABLED gate', () => {
             gameName: 'Funhouse',
             username: 'Beater',
             score: 300,
-            discordUserId: 'disc-beater',
+            discordUserId: '200000000000000012',
             source: 'community',
         });
         await flush();
 
-        expect(sentDMs.find((d) => d.userId === 'disc-king-6')).toBeTruthy();
+        expect(sentDMs.find((d) => d.userId === '200000000000000011')).toBeTruthy();
     });
 
     it('notify() returns false when the room is Discord-disabled', async () => {
         const roomId = await createTestRoom('gate-direct', 'Gate Direct');
         await GameRoomSettingsService.set(roomId, 'DISCORD_ENABLED', 'false');
-        await setPrefs('u-direct', { rankDethroned: true });
+        await setPrefs('200000000000000013', { rankDethroned: true });
         const result = await NotificationService.notify({
-            userId: 'u-direct',
+            userId: '200000000000000013',
             type: 'rankDethroned',
             message: 'hi',
             roomId,
@@ -302,35 +302,35 @@ describe('NotificationService — per-room DISCORD_ENABLED gate', () => {
 // ===========================================================================
 describe('NotificationService — per-class rate-limit budgets', () => {
     it('a full chatty bucket does NOT block a high-value DM', async () => {
-        await setPrefs('u-rl-1', {
+        await setPrefs('200000000000000014', {
             friendScore: true, turnToPick: true, rankDethroned: true, tournamentWin: true,
         });
         // Exhaust the chatty bucket (cap 5) with friendScore sends.
         for (let i = 0; i < 5; i++) {
-            const ok = await NotificationService.notify({ userId: 'u-rl-1', type: 'friendScore', message: `c${i}` });
+            const ok = await NotificationService.notify({ userId: '200000000000000014', type: 'friendScore', message: `c${i}` });
             expect(ok).toBe(true);
         }
         // 6th chatty is blocked.
-        const blocked = await NotificationService.notify({ userId: 'u-rl-1', type: 'friendScore', message: 'c6' });
+        const blocked = await NotificationService.notify({ userId: '200000000000000014', type: 'friendScore', message: 'c6' });
         expect(blocked).toBe(false);
 
         // High-value still sends from its own bucket.
-        const hv = await NotificationService.notify({ userId: 'u-rl-1', type: 'rankDethroned', message: 'hv' });
+        const hv = await NotificationService.notify({ userId: '200000000000000014', type: 'rankDethroned', message: 'hv' });
         expect(hv).toBe(true);
     });
 
     it('a full high-value bucket blocks a 6th high-value but a chatty type still sends', async () => {
-        await setPrefs('u-rl-2', {
+        await setPrefs('200000000000000015', {
             friendScore: true, rankDethroned: true, tournamentWin: true,
         });
         for (let i = 0; i < 5; i++) {
-            const ok = await NotificationService.notify({ userId: 'u-rl-2', type: 'rankDethroned', message: `h${i}` });
+            const ok = await NotificationService.notify({ userId: '200000000000000015', type: 'rankDethroned', message: `h${i}` });
             expect(ok).toBe(true);
         }
-        const blockedHv = await NotificationService.notify({ userId: 'u-rl-2', type: 'tournamentWin', message: 'h6' });
+        const blockedHv = await NotificationService.notify({ userId: '200000000000000015', type: 'tournamentWin', message: 'h6' });
         expect(blockedHv).toBe(false);
 
-        const chatty = await NotificationService.notify({ userId: 'u-rl-2', type: 'friendScore', message: 'c' });
+        const chatty = await NotificationService.notify({ userId: '200000000000000015', type: 'friendScore', message: 'c' });
         expect(chatty).toBe(true);
     });
 });
@@ -385,11 +385,11 @@ describe('Scheduler.resolveTournamentStartingRecipients — room scoping', () =>
 
     it('each room-scoped recipient is notified with roomId set (DISCORD_ENABLED gate applies)', async () => {
         const roomA = await createTestRoom('scoped-notify', 'Scoped Notify');
-        await setPrefs('sn1', { tournamentStarting: true });
+        await setPrefs('200000000000000016', { tournamentStarting: true });
         const db = await getDatabase();
         await db.run(
             `INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'backfill')`,
-            'sn1', roomA
+            '200000000000000016', roomA
         );
 
         // Simulate the notifier's per-recipient send with roomId, then flip the
@@ -404,7 +404,7 @@ describe('Scheduler.resolveTournamentStartingRecipients — room scoping', () =>
                 roomId: roomA,
             });
         }
-        expect(sentDMs.find((d) => d.userId === 'sn1')).toBeTruthy();
+        expect(sentDMs.find((d) => d.userId === '200000000000000016')).toBeTruthy();
 
         // Now disable Discord for the room and assert suppression.
         sentDMs.length = 0;
@@ -418,7 +418,7 @@ describe('Scheduler.resolveTournamentStartingRecipients — room scoping', () =>
                 roomId: roomA,
             });
         }
-        expect(sentDMs.find((d) => d.userId === 'sn1')).toBeUndefined();
+        expect(sentDMs.find((d) => d.userId === '200000000000000016')).toBeUndefined();
     });
 });
 
@@ -429,7 +429,7 @@ describe('NotificationService — NOTIFY_HIGH_VALUE_DEFAULT_ON default-off', () 
     it('does NOT send a high-value DM to a user with no explicit pref when the flag is unset', async () => {
         // No flag row + no stored pref for the user.
         const result = await NotificationService.notify({
-            userId: 'flag-off-user',
+            userId: '200000000000000017',
             type: 'rankDethroned',
             message: 'dethroned',
         });
@@ -441,7 +441,7 @@ describe('NotificationService — NOTIFY_HIGH_VALUE_DEFAULT_ON default-off', () 
         await SettingsService.saveMany({ NOTIFY_HIGH_VALUE_DEFAULT_ON: 'false' });
         NotificationService.invalidateFlagCache();
         const result = await NotificationService.notify({
-            userId: 'flag-false-user',
+            userId: '200000000000000018',
             type: 'tournamentWin',
             message: 'you won',
         });
@@ -460,42 +460,42 @@ describe('NotificationService — NOTIFY_HIGH_VALUE_DEFAULT_ON flip on', () => {
 
     it('(a) user with no rankDethroned key → DM sent (defaulted opted-in)', async () => {
         const result = await NotificationService.notify({
-            userId: 'flag-a', type: 'rankDethroned', message: 'dethroned',
+            userId: '200000000000000019', type: 'rankDethroned', message: 'dethroned',
         });
         expect(result).toBe(true);
     });
 
     it('(b) explicit rankDethroned:false → NO DM (explicit wins over flag)', async () => {
-        await setPrefs('flag-b', { rankDethroned: false });
+        await setPrefs('200000000000000020', { rankDethroned: false });
         const result = await NotificationService.notify({
-            userId: 'flag-b', type: 'rankDethroned', message: 'dethroned',
+            userId: '200000000000000020', type: 'rankDethroned', message: 'dethroned',
         });
         expect(result).toBe(false);
     });
 
     it('(c) explicit rankDethroned:true → DM sent (unchanged)', async () => {
-        await setPrefs('flag-c', { rankDethroned: true });
+        await setPrefs('200000000000000021', { rankDethroned: true });
         const result = await NotificationService.notify({
-            userId: 'flag-c', type: 'rankDethroned', message: 'dethroned',
+            userId: '200000000000000021', type: 'rankDethroned', message: 'dethroned',
         });
         expect(result).toBe(true);
     });
 
     it('applies the same matrix to tournamentWin', async () => {
         // no key → on
-        expect(await NotificationService.notify({ userId: 'tw-a', type: 'tournamentWin', message: 'x' })).toBe(true);
+        expect(await NotificationService.notify({ userId: '200000000000000022', type: 'tournamentWin', message: 'x' })).toBe(true);
         // explicit false → off
-        await setPrefs('tw-b', { tournamentWin: false });
-        expect(await NotificationService.notify({ userId: 'tw-b', type: 'tournamentWin', message: 'x' })).toBe(false);
+        await setPrefs('200000000000000023', { tournamentWin: false });
+        expect(await NotificationService.notify({ userId: '200000000000000023', type: 'tournamentWin', message: 'x' })).toBe(false);
         // explicit true → on
-        await setPrefs('tw-c', { tournamentWin: true });
-        expect(await NotificationService.notify({ userId: 'tw-c', type: 'tournamentWin', message: 'x' })).toBe(true);
+        await setPrefs('200000000000000024', { tournamentWin: true });
+        expect(await NotificationService.notify({ userId: '200000000000000024', type: 'tournamentWin', message: 'x' })).toBe(true);
     });
 
     it('does NOT affect a chatty type — flag only touches the two high-value types', async () => {
         // friendScore with no explicit pref + flag on → still OFF.
         const result = await NotificationService.notify({
-            userId: 'chatty-unaffected', type: 'friendScore', message: 'friend',
+            userId: '200000000000000025', type: 'friendScore', message: 'friend',
         });
         expect(result).toBe(false);
     });
@@ -511,22 +511,22 @@ describe('NotificationService — one-time flag-default footer', () => {
     });
 
     it('appends the manage-notifications footer on the first flag-defaulted DM, then never again', async () => {
-        await NotificationService.notify({ userId: 'footer-user', type: 'rankDethroned', message: 'first' });
+        await NotificationService.notify({ userId: '200000000000000026', type: 'rankDethroned', message: 'first' });
         expect(sentDMs[0]!.content).toContain('manage these notifications via /arcaid-notifications or Account Settings');
 
         // Marker persisted into prefs JSON.
-        const stored = await getStoredPrefs('footer-user');
+        const stored = await getStoredPrefs('200000000000000026');
         expect(stored._hvFooterShown).toBe(true);
 
         // Second flag-defaulted DM → no footer.
         sentDMs.length = 0;
-        await NotificationService.notify({ userId: 'footer-user', type: 'tournamentWin', message: 'second' });
+        await NotificationService.notify({ userId: '200000000000000026', type: 'tournamentWin', message: 'second' });
         expect(sentDMs[0]!.content).not.toContain('manage these notifications');
     });
 
     it('never appends the footer for an explicitly-opted-in user', async () => {
-        await setPrefs('explicit-footer', { rankDethroned: true });
-        await NotificationService.notify({ userId: 'explicit-footer', type: 'rankDethroned', message: 'm' });
+        await setPrefs('200000000000000027', { rankDethroned: true });
+        await NotificationService.notify({ userId: '200000000000000027', type: 'rankDethroned', message: 'm' });
         expect(sentDMs[0]!.content).not.toContain('manage these notifications');
     });
 });
@@ -544,19 +544,19 @@ describe('NotificationService — flag interacts with gate + rate limit', () => 
         const roomId = await createTestRoom('flag-gate', 'Flag Gate');
         await GameRoomSettingsService.set(roomId, 'DISCORD_ENABLED', 'false');
         const result = await NotificationService.notify({
-            userId: 'fg-user', type: 'rankDethroned', message: 'm', roomId,
+            userId: '200000000000000028', type: 'rankDethroned', message: 'm', roomId,
         });
         expect(result).toBe(false);
     });
 
     it('flag ON + chatty bucket full → high-value still sends (separate budget)', async () => {
-        await setPrefs('fg-rl', { friendScore: true }); // explicit chatty opt-in; rankDethroned defaulted by flag
+        await setPrefs('200000000000000029', { friendScore: true }); // explicit chatty opt-in; rankDethroned defaulted by flag
         for (let i = 0; i < 5; i++) {
-            await NotificationService.notify({ userId: 'fg-rl', type: 'friendScore', message: `c${i}` });
+            await NotificationService.notify({ userId: '200000000000000029', type: 'friendScore', message: `c${i}` });
         }
         // Chatty now exhausted.
-        expect(await NotificationService.notify({ userId: 'fg-rl', type: 'friendScore', message: 'c6' })).toBe(false);
+        expect(await NotificationService.notify({ userId: '200000000000000029', type: 'friendScore', message: 'c6' })).toBe(false);
         // Flag-defaulted high-value still sends from its own bucket.
-        expect(await NotificationService.notify({ userId: 'fg-rl', type: 'rankDethroned', message: 'hv' })).toBe(true);
+        expect(await NotificationService.notify({ userId: '200000000000000029', type: 'rankDethroned', message: 'hv' })).toBe(true);
     });
 });

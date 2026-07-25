@@ -92,12 +92,20 @@ export class OrphanService {
         prevValue: string | null,
         newValue: string
     ): Promise<void> {
-        const prev = prevValue === 'true';
-        const next = newValue === 'true';
+        // v2.35.0 — REQUIRE_DISCORD_LOGIN gained a third value ('discord':
+        // provider must be Discord specifically). Both 'true' and 'discord'
+        // mean "login is required" for orphan purposes — a 'false' -> 'discord'
+        // transition must orphan anonymous rows exactly like 'false' -> 'true'
+        // did, and a 'true' <-> 'discord' transition is a no-op here (rows
+        // are already orphaned either way; only the *provider* requirement
+        // changed, which this table has no per-row concept of).
+        const requiresLogin = (v: string | null) => v === 'true' || v === 'discord';
+        const prev = requiresLogin(prevValue);
+        const next = requiresLogin(newValue);
         if (prev === next) return;
         if (next) {
             const n = await OrphanService.orphanAnonymousRows(roomId);
-            logInfo(`OrphanService: orphaned ${n} anonymous rows in room ${roomId} (REQUIRE_DISCORD_LOGIN → true)`);
+            logInfo(`OrphanService: orphaned ${n} anonymous rows in room ${roomId} (REQUIRE_DISCORD_LOGIN → ${newValue})`);
         } else {
             const n = await OrphanService.restoreOrphanedRows(roomId);
             logInfo(`OrphanService: restored ${n} orphaned rows in room ${roomId} (REQUIRE_DISCORD_LOGIN → false)`);

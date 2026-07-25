@@ -17,6 +17,7 @@ import { RoomEventService } from '../services/RoomEventService.js';
 import { parsePlatformsList } from '../utils/platformRules.js';
 import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
 import { AchievementService } from '../services/AchievementService.js';
+import { isProviderUserId } from '../utils/identityProvider.js';
 
 /**
  * Outcome of a single maintenance run, surfaced to the S10 maintenance-run
@@ -961,7 +962,7 @@ export class TournamentEngine {
         // `submissions` is the union of (Discord-submitted) + (guest-submitted) +
         // (iScored-synced via ScoreSyncPoller), so it's the right source.
         const topSubmission = await db.get(
-            `SELECT iscored_username, score, discord_user_id FROM submissions
+            `SELECT iscored_username, score, discord_user_id, submitted_by_user_id FROM submissions
              WHERE game_id = ? ORDER BY score DESC LIMIT 1`,
             activeGame.id
         );
@@ -1043,8 +1044,29 @@ export class TournamentEngine {
         }
 
         // Resolve winner
-        let winnerId: string | null = null;
-        if (winnerIscoredName) {
+        // v2.35.0 — prefer the top submission's OWN attribution
+        // (submitted_by_user_id for web submits, discord_user_id for legacy
+        // Discord-bot submits/iScored sync) over the user_mappings
+        // iscored-username lookup. This makes Google-identified web players
+        // first-class winners (they never get a user_mappings row — that
+        // table is Discord-alias-only) and is also just more precise for
+        // Discord users: a direct attribution beats a name-based guess.
+        // Fall back to the user_mappings lookup only when the submission row
+        // has no attribution at all (pure iScored-synced/anonymous rows).
+        //
+        // `discord_user_id` on `submissions` is legacy NOT NULL — anonymous/
+        // community submits write a sentinel ('COMMUNITY', 'ANON', 'SYSTEM')
+        // rather than leaving it null, so it must be shape-checked via
+        // isProviderUserId before being trusted as a real attribution
+        // (submitted_by_user_id has no such legacy sentinel problem — it's
+        // NULL or a real id, never a placeholder string).
+        const directDiscordUserId = topSubmission?.discord_user_id && isProviderUserId(topSubmission.discord_user_id)
+            ? topSubmission.discord_user_id
+            : null;
+        let winnerId: string | null = topSubmission?.submitted_by_user_id || directDiscordUserId || null;
+        if (winnerId) {
+            logInfo(`   -> Winner ID resolved from submission attribution: ${winnerId}`);
+        } else if (winnerIscoredName) {
             const mapping = await db.get(
                 'SELECT discord_user_id FROM user_mappings WHERE LOWER(iscored_username) = LOWER(?)',
                 winnerIscoredName

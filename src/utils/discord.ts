@@ -1,6 +1,7 @@
 import { REST, Routes, EmbedBuilder } from 'discord.js';
 import { logError } from './logger.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
+import { isDiscordUserId, isGoogleUserId } from './identityProvider.js';
 
 /** Embed accent colors keyed by tournament tag or type. */
 const TAG_COLORS: Record<string, number> = {
@@ -72,7 +73,13 @@ export async function sendDirectMessage(userId: string, content: string): Promis
  */
 export async function resolveDiscordUserId(input: string, guildId?: string): Promise<string | null> {
     // If it's already a numeric ID, return as-is
-    if (/^\d{17,20}$/.test(input)) return input;
+    if (isDiscordUserId(input)) return input;
+
+    // A `google:<sub>` id has no Discord identity to resolve — it feeds
+    // Discord-channel operations (mentions, guild lookups), so return null
+    // rather than wasting a guild-member-search REST call on a string that
+    // can never match a Discord username.
+    if (isGoogleUserId(input)) return null;
 
     // Strip leading @ if present
     const username = input.replace(/^@/, '');
@@ -124,6 +131,9 @@ export async function sendChannelEmbed(channelId: string, embed: EmbedBuilder): 
  * whether the failure is fatal — for caching it usually isn't.
  */
 export async function fetchAvatarHash(discordUserId: string): Promise<string | null> {
+    // Non-snowflake ids (e.g. `google:<sub>`) have no Discord user to fetch —
+    // skip the doomed REST call entirely.
+    if (!isDiscordUserId(discordUserId)) return null;
     const token = process.env.DISCORD_BOT_TOKEN;
     if (!token) return null;
     try {
@@ -141,6 +151,11 @@ export async function fetchAvatarHash(discordUserId: string): Promise<string | n
  * otherwise returns the fallback display name (plain text, no ping).
  */
 export async function formatUserMention(userId: string, fallbackName: string, gameRoomId?: string | null): Promise<string> {
+    // Non-Discord identities (e.g. `google:<sub>`) can never be mentioned —
+    // always fall back to the plain-bold-name branch.
+    if (!isDiscordUserId(userId)) {
+        return `**${fallbackName}**`;
+    }
     if (gameRoomId) {
         const setting = await GameRoomSettingsService.get(gameRoomId, 'DISCORD_MENTIONS_ENABLED');
         if (setting === 'false') {

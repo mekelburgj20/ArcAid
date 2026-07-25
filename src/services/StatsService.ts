@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { AchievementService } from './AchievementService.js';
+import { isProviderUserId } from '../utils/identityProvider.js';
 
 /**
  * v2.4.0 note on pinned games:
@@ -740,20 +741,21 @@ export class StatsService {
     /**
      * S14 social loops — head-to-head comparison of two players' best-per-game
      * scores in a room. Identifier resolution mirrors the
-     * `/stats/enhanced/player/:identifier` dispatch: a 17-20 digit string is
-     * treated as a Discord snowflake, otherwise as an iScored username
-     * resolved via `user_mappings` (playerKey collapses to the mapped
-     * discord_user_id when present, else the `iscored:<username>` synthetic
-     * fallback — same rule as getEnhancedPlayerStatsByUsername).
+     * `/stats/enhanced/player/:identifier` dispatch: a provider identity key
+     * (17-20 digit Discord snowflake OR `google:<sub>`) is treated as an ID,
+     * otherwise as an iScored username resolved via `user_mappings`
+     * (playerKey collapses to the mapped discord_user_id when present, else
+     * the `iscored:<username>` synthetic fallback — same rule as
+     * getEnhancedPlayerStatsByUsername).
      */
     static async comparePlayersHeadToHead(gameRoomId: string, aIdentifier: string, bIdentifier: string) {
         const db = await getDatabase();
 
         const resolve = async (identifier: string) => {
-            const isDiscordId = /^\d{17,20}$/.test(identifier);
+            const isProviderId = isProviderUserId(identifier);
             let discordUserId: string | null;
             let playerKey: string;
-            if (isDiscordId) {
+            if (isProviderId) {
                 discordUserId = identifier;
                 playerKey = identifier;
             } else {

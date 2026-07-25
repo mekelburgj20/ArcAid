@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { sendDirectMessage } from '../utils/discord.js';
+import { isDiscordUserId } from '../utils/identityProvider.js';
 import { logError, logInfo } from '../utils/logger.js';
 import { PickAwardGate } from './PickAwardGate.js';
 import { SettingsService } from './SettingsService.js';
@@ -156,6 +157,14 @@ export class NotificationService {
                     logInfo(`NotificationService: ${type} DM suppressed (DISCORD_ENABLED=false) for room ${roomId}`);
                     discordDeliveryAllowed = false;
                 }
+            }
+
+            // 0a2. Non-Discord identities (e.g. `google:<sub>`) have no DM
+            // channel — never attempt sendDirectMessage for them. Silent skip
+            // (no logError, no wasted REST call); web push (2b, below)
+            // evaluates independently of this flag.
+            if (discordDeliveryAllowed && !isDiscordUserId(userId)) {
+                discordDeliveryAllowed = false;
             }
 
             // 0b. Pick-award gate defense-in-depth (plan §5) — callers passing roomId

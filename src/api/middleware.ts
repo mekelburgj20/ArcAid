@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken, TokenPayload } from './auth.js';
+import { providerOfUserId } from '../utils/identityProvider.js';
 
 // Augment Express Request to include user
 declare global {
@@ -64,9 +65,20 @@ export function requireRoomAccess(paramName: string = 'roomId') {
 }
 
 /**
- * Conditional Discord login: only enforced when the room's
- * REQUIRE_DISCORD_LOGIN setting is 'true'. Otherwise passes through
- * untouched (submissions remain anonymous-friendly).
+ * Conditional Discord login: enforced when the room's REQUIRE_DISCORD_LOGIN
+ * setting is 'true' or 'discord'. Otherwise passes through untouched
+ * (submissions remain anonymous-friendly).
+ *
+ * Three-value domain (Google-login contract, v2.35.0):
+ *   - 'false'   — guests allowed, no login required.
+ *   - 'true'    — any logged-in provider accepted (Discord OR Google). This
+ *                 is a deliberate semantics broadening from the pre-Google
+ *                 behavior (previously 'true' meant Discord specifically,
+ *                 because Discord was the only provider) — existing Discord
+ *                 users are unaffected, Google users are newly allowed.
+ *   - 'discord' — provider must be Discord specifically. Rooms that rely on
+ *                 Discord-integrated features (DMs, /pick-game, role-based
+ *                 admin) opt into this to keep the Discord guarantee.
  *
  * When enforced, attaches req.user with discordId present.
  * Falls back to open access on setting-lookup errors (fail-open on infra
@@ -100,10 +112,17 @@ export function conditionalRequireDiscordUser(roomIdParam = 'roomId') {
             if (payload?.discordId) req.user = payload;
         }
 
-        if (required === 'true') {
+        if (required === 'true' || required === 'discord') {
             if (!req.user?.discordId) {
-                res.status(401).json({ error: 'Discord login required for this room' });
+                res.status(401).json({ error: required === 'discord' ? 'Discord login required for this room' : 'Login required for this room' });
                 return;
+            }
+            if (required === 'discord') {
+                const provider = req.user.provider ?? providerOfUserId(req.user.discordId);
+                if (provider !== 'discord') {
+                    res.status(401).json({ error: 'Discord login required for this room' });
+                    return;
+                }
             }
         }
 

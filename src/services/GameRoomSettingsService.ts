@@ -140,7 +140,7 @@ export class GameRoomSettingsService {
             'DELETE FROM game_room_settings WHERE game_room_id = ? AND key = ?',
             gameRoomId, key
         );
-        if (key === REQUIRE_LOGIN_KEY && prev === 'true') {
+        if (key === REQUIRE_LOGIN_KEY && (prev === 'true' || prev === 'discord')) {
             // Deleting REQUIRE_DISCORD_LOGIN is equivalent to turning it off.
             await OrphanService.handleRequireLoginFlip(gameRoomId, prev, 'false');
             await invalidateLeaderboardCaches(gameRoomId);
