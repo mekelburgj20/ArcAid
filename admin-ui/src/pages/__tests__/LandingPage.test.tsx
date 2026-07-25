@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import LandingPage from '../LandingPage';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
@@ -134,5 +134,54 @@ describe('LandingPage', () => {
     expect(within(section).queryByText('Active Games')).not.toBeInTheDocument();
     // The still-public, non-member room remains untouched with its stats.
     expect(screen.getByText('RTX Pinball')).toBeInTheDocument();
+  });
+
+  // D2.1 (v2.38.0) — bookmark join/leave toggle on room cards.
+  describe('join/leave bookmark toggle', () => {
+    it('logged-out: no toggle buttons render', async () => {
+      mockFetch({ rooms: [PUBLIC_ROOM_1, PUBLIC_ROOM_2] });
+      renderLanding();
+      await waitFor(() => expect(screen.getByText('RTX Pinball')).toBeInTheDocument());
+
+      expect(screen.queryByLabelText(/Add .* to My Game Rooms/)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Leave /)).not.toBeInTheDocument();
+    });
+
+    it('signed-in, non-member card: clicking the toggle joins and re-splits into My Game Rooms', async () => {
+      signInAs('user-1', 'Justin');
+      const fetchMock = mockFetch({ rooms: [PUBLIC_ROOM_1, PUBLIC_ROOM_2], meRooms: [] });
+      renderLanding();
+      await waitFor(() => expect(screen.getByText('RTX Pinball')).toBeInTheDocument());
+      expect(screen.queryByText('My Game Rooms')).not.toBeInTheDocument();
+
+      const joinBtn = screen.getByLabelText('Add RTX Pinball to My Game Rooms');
+      fireEvent.click(joinBtn);
+
+      // Optimistic re-split — no need to wait on the network.
+      await waitFor(() => expect(screen.getByText('My Game Rooms')).toBeInTheDocument());
+      expect(screen.getAllByText('RTX Pinball')).toHaveLength(1);
+      expect(fetchMock).toHaveBeenCalledWith('/api/me/rooms/room-1', expect.objectContaining({ method: 'POST' }));
+
+      // Click didn't navigate the card-wide Link (still on the landing page).
+      expect(screen.getByText('Game Rooms')).toBeInTheDocument();
+    });
+
+    it('signed-in, member card: clicking the toggle leaves and the room drops out of My Game Rooms', async () => {
+      signInAs('user-1', 'Justin');
+      const fetchMock = mockFetch({
+        rooms: [PUBLIC_ROOM_1, PUBLIC_ROOM_2],
+        meRooms: [{ roomId: 'room-1', name: 'RTX Pinball', slug: 'rtx_pinball', logoUrl: null, joinedAt: '2026-01-01', source: 'submission', lastActivityAt: null }],
+      });
+      renderLanding();
+      await waitFor(() => expect(screen.getByText('My Game Rooms')).toBeInTheDocument());
+
+      const leaveBtn = screen.getByLabelText('Leave RTX Pinball');
+      fireEvent.click(leaveBtn);
+
+      await waitFor(() => expect(screen.queryByText('My Game Rooms')).not.toBeInTheDocument());
+      // Un-membered room falls back into the public grid.
+      expect(screen.getByText('RTX Pinball')).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledWith('/api/me/rooms/room-1', expect.objectContaining({ method: 'DELETE' }));
+    });
   });
 });

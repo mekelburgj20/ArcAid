@@ -205,6 +205,48 @@ router.get('/me/rooms', requireDiscordUser, async (req, res) => {
     }
 });
 
+// Explicit join/leave (v2.38.0 — join-leave contract). Both idempotent: joining
+// an already-member room or leaving a non-member room is a 200 no-op, not an
+// error. Leave never touches game_room_admins — see RoomMembershipService.removeMember.
+router.post('/me/rooms/:roomId', requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const room = await GameRoomService.getById(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
+        await RoomMembershipService.addMember(req.user!.discordId!, roomId, 'self_join');
+
+        // addMember swallows its own DB errors (fire-and-forget contract for its
+        // other callers — ScoreHistoryService et al — is intentional and must stay
+        // that way). This explicit join route can't make the same trade: re-query
+        // to confirm the row actually landed before reporting success. Caught a
+        // real bug during implementation — a stale CHECK constraint silently
+        // rejected the insert while the route still returned { success: true }.
+        const joined = await RoomMembershipService.isMember(req.user!.discordId!, roomId);
+        if (!joined) {
+            logError('API Error (POST /api/me/rooms/:roomId): addMember did not persist', new Error(`join failed for user=${req.user!.discordId} room=${roomId}`));
+            return res.status(500).json({ error: 'Internal Server Error' });
+        }
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/me/rooms/:roomId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/me/rooms/:roomId', requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
+        await RoomMembershipService.removeMember(req.user!.discordId!, roomId);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE /api/me/rooms/:roomId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // --- Notification Preferences ---
 
 router.get('/me/notification-preferences', requireDiscordUser, async (req, res) => {

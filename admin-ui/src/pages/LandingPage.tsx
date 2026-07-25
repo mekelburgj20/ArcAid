@@ -1,13 +1,15 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Users, Gamepad2, Trophy, ChevronRight, Plus, Building2 } from 'lucide-react';
+import { Users, Gamepad2, Trophy, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import { formatCompactNumber } from '../lib/format';
 import { resolveAvatarUrl } from '../lib/avatar';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import { useMyRooms } from '../hooks/useMyRooms';
+import { useToast } from '../components/Toast';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
-import { splitLandingRooms, type PublicRoom, type MemberRoom, type RoomCardData } from '../lib/landingRooms';
+import { splitLandingRooms, type PublicRoom, type RoomCardData } from '../lib/landingRooms';
 
 type Room = PublicRoom;
 
@@ -58,11 +60,14 @@ function timeAgo(iso: string): string {
 
 
 export default function LandingPage() {
-  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
+  const { discordUser, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [myRoomsRaw, setMyRoomsRaw] = useState<MemberRoom[]>([]);
   const [recentScores, setRecentScores] = useState<RecentScore[]>([]);
   const [loading, setLoading] = useState(true);
+  // D2 (v2.38.0) — explicit join/leave. Same hook backs the bookmark toggle
+  // here and the room-page affordance in PublicLayout/UserMenu.
+  const { rooms: myRoomsRaw, join: joinRoom, leave: leaveRoom } = useMyRooms();
+  const { toast } = useToast();
 
   useEffect(() => {
     Promise.all([
@@ -74,25 +79,20 @@ export default function LandingPage() {
     }).finally(() => setLoading(false));
   }, []);
 
-  // D2 — "My Game Rooms": reuses the /api/me/rooms fetch/auth-header pattern
-  // from MyRooms.tsx. Only fetched when signed in.
-  const loadMyRooms = useCallback(async () => {
-    if (!playerToken) {
-      setMyRoomsRaw([]);
-      return;
-    }
-    try {
-      const res = await fetch('/api/me/rooms', { headers: { Authorization: `Bearer ${playerToken}` } });
-      if (res.ok) setMyRoomsRaw(await res.json());
-    } catch {}
-  }, [playerToken]);
-
-  useEffect(() => { loadMyRooms(); }, [loadMyRooms]);
-
   const { myRooms, publicRooms } = useMemo(
     () => splitLandingRooms(rooms, discordUser ? myRoomsRaw : []),
     [rooms, myRoomsRaw, discordUser]
   );
+
+  const handleJoin = async (room: RoomCardData) => {
+    const ok = await joinRoom(room.id, { name: room.name, slug: room.slug, logoUrl: room.logoUrl });
+    if (!ok) toast('Could not join that room — try again.', 'error');
+  };
+
+  const handleLeave = async (room: RoomCardData) => {
+    const ok = await leaveRoom(room.id);
+    toast(ok ? `Left ${room.name}.` : 'Could not leave that room — try again.', ok ? 'info' : 'error');
+  };
 
   const handleLogin = () => loginWithDiscord('__global__', '/');
   const handleGoogleLogin = () => loginWithGoogle('__global__', '/');
@@ -147,7 +147,11 @@ export default function LandingPage() {
           </div>
           <div className="flex flex-wrap justify-center gap-8 items-stretch">
             {myRooms.map(room => (
-              <RoomCard key={room.id} room={room} />
+              <RoomCard
+                key={room.id}
+                room={room}
+                toggle={discordUser ? { isMember: true, onToggle: () => handleLeave(room) } : undefined}
+              />
             ))}
           </div>
         </div>
@@ -170,7 +174,11 @@ export default function LandingPage() {
         ) : (
           <div className="flex flex-wrap justify-center gap-8 items-stretch">
             {publicRooms.map(room => (
-              <RoomCard key={room.id} room={room} />
+              <RoomCard
+                key={room.id}
+                room={room}
+                toggle={discordUser ? { isMember: false, onToggle: () => handleJoin(room) } : undefined}
+              />
             ))}
             <CreateRoomCard />
           </div>
@@ -520,7 +528,13 @@ function CreateRoomCard() {
 
 /* ─── Room Card ─── */
 
-function RoomCard({ room }: { room: RoomCardData }) {
+interface RoomCardToggle {
+  /** True renders the "member" (leave) state; false the "join" state. */
+  isMember: boolean;
+  onToggle: () => void;
+}
+
+function RoomCard({ room, toggle }: { room: RoomCardData; toggle?: RoomCardToggle }) {
   const hasStats = room.activeGames !== undefined && room.activePlayers !== undefined;
   return (
     <div style={{
@@ -560,6 +574,43 @@ function RoomCard({ room }: { room: RoomCardData }) {
           aria-label={`View ${room.name} scoreboard`}
           style={{ position: 'absolute', inset: 0, zIndex: 1 }}
         />
+
+        {/* D2 (v2.38.0) — bookmark join/leave toggle. zIndex 2 + preventDefault/
+            stopPropagation so it never triggers the card-wide Link above it. */}
+        {toggle && (
+          <button
+            type="button"
+            onClick={e => { e.preventDefault(); e.stopPropagation(); toggle.onToggle(); }}
+            aria-label={toggle.isMember ? `Leave ${room.name}` : `Add ${room.name} to My Game Rooms`}
+            title={toggle.isMember ? 'Leave this room' : 'Add to My Game Rooms'}
+            style={{
+              position: 'absolute',
+              top: 12,
+              right: 12,
+              zIndex: 2,
+              width: 32,
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              background: toggle.isMember ? 'rgba(99,210,151,0.15)' : 'rgba(255,255,255,0.06)',
+              border: `1px solid ${toggle.isMember ? 'rgba(99,210,151,0.4)' : 'rgba(255,255,255,0.14)'}`,
+              color: toggle.isMember ? '#63d297' : 'rgba(255,255,255,0.55)',
+              cursor: 'pointer',
+              transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = toggle.isMember ? 'rgba(99,210,151,0.25)' : 'rgba(255,255,255,0.12)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = toggle.isMember ? 'rgba(99,210,151,0.15)' : 'rgba(255,255,255,0.06)';
+            }}
+          >
+            {toggle.isMember ? <BookmarkCheck size={16} /> : <BookmarkPlus size={16} />}
+          </button>
+        )}
+
         {/* Accent bar */}
         <div style={{
           height: 2,
