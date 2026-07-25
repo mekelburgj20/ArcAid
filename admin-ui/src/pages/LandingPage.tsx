@@ -105,7 +105,10 @@ export default function LandingPage() {
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" />
 
       {/* Header */}
-      <div className="border-b border-border bg-surface/80 backdrop-blur-sm">
+      {/* relative z-40: backdrop-blur creates a stacking context, which traps
+          the UserMenu dropdown's z-50 inside it — without a z-index here the
+          whole header paints below the position:relative sections that follow. */}
+      <div className="border-b border-border bg-surface/80 backdrop-blur-sm relative z-40">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="/arcaid-logo.png" alt="ArcAid" className="w-10 h-10" />
