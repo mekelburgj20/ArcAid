@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams, useLocation, useNavigate } from 'react-router-dom';
 import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity, Wrench, Palette, MessageSquare, Users, UserCheck } from 'lucide-react';
 import { api, isAuthenticated, setToken } from '../lib/api';
+import { getPortal } from '../lib/portal';
 import { RoomContext } from '../contexts/RoomContext';
 import LoadingState from './LoadingState';
 
@@ -30,16 +31,25 @@ export default function RoomAdminLayout() {
 
   useEffect(() => {
     if (!slug) return;
-    api.get<Room[]>('/rooms')
-      .then(rooms => {
-        const found = rooms.find(r => r.slug.toLowerCase() === slug.toLowerCase());
-        if (found) {
-          setRoom(found);
-        } else {
-          setError('Game room not found');
-        }
+    // Resolve via the portal (slug→room) endpoint, NOT the public `/rooms`
+    // list. The public list is `is_public = 1` only, so resolving the admin
+    // shell from it made a non-public room's OWN admin get "Game room not
+    // found" (v2.39.0 approval/private rooms made non-public rooms common).
+    // Portal resolves any room regardless of is_public — the same resolver
+    // PublicLayout already uses — and the real admin data stays gated
+    // server-side by requireRoomAccess on every endpoint.
+    getPortal(slug)
+      .then(p => {
+        setRoom({
+          id: p.roomId,
+          slug: p.slug,
+          name: p.name,
+          description: p.description ?? '',
+          is_public: p.is_public ?? true,
+          join_policy: p.join_policy ?? 'open',
+        });
       })
-      .catch(() => setError('Failed to load game room'))
+      .catch(() => setError('Game room not found'))
       .finally(() => setLoading(false));
   }, [slug]);
 
