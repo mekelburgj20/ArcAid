@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.36.0] — unreleased
+
+**Google ↔ Discord account linking.** A user who started with Google can link their Discord account — both logins then resolve to one canonical identity (the Discord one), so names, scores, admin grants, and Discord features all unify.
+
+- **Migration 114**: `user_identity_links(provider_user_id PK → canonical_user_id)` + canonical index.
+- **Login-time canonical resolution** in both OAuth callbacks and token refresh: once linked, "Sign in with Google" signs you in *as your Discord-linked self*. Unlinked users: exact no-op.
+- **Ownership-proving link flow**: Account Settings → "Link Discord account" → one-time crypto-random nonce (10-min TTL, single-use, bound to the authenticated Google identity) → standard Discord OAuth → server proves both identities before writing the link and rewriting attribution (scores across all four score tables, room memberships, preferences, push subscriptions, admin grants, sessions) in one transaction. Last-write-wins conflict rules (beta-accepted).
+- **Unlink** (row delete only — identities diverge going forward; no un-merge, the confirm says so).
+- **UserMenu** shows a "Link Discord account" nudge for Google-identity users and now reports the actual login provider (fixed a hardcoded "Logged in with Discord" label).
+- **Security**: Opus adversarial review PASS — account-takeover vectors (link-to-victim's-Discord incl. super-admin escalation, victim's-Google-to-attacker's-Discord, nonce replay/CSRF/race) all verified blocked; 35 new tests incl. fail-on-revert takeover cases.
+
+Migration 114 consumed — **next free is now 115**.
+
+---
+
 ## [2.35.0] — unreleased
 
 **Sign in with Google.** ArcAid is no longer Discord-only — Google is a full second login provider.
