@@ -22,6 +22,7 @@ router.get('/me/profile', requireAuth, requireDiscordUser, async (req, res) => {
             discord_user_id: profile.discord_user_id,
             display_name: profile.display_name,
             avatar_hash: profile.avatar_hash,
+            avatar_url: profile.avatar_url,
             avatar_fetched_at: profile.avatar_fetched_at,
             aliases,
         });

@@ -60,6 +60,7 @@ export class UserProfileService {
         discord_user_id: string;
         display_name: string | null;
         avatar_hash: string | null;
+        avatar_url: string | null;
         avatar_fetched_at: string | null;
     }> {
         const db = await getDatabase();
@@ -68,7 +69,7 @@ export class UserProfileService {
             discordUserId,
         );
         const row = await db.get(
-            `SELECT discord_user_id, display_name, avatar_hash, avatar_fetched_at
+            `SELECT discord_user_id, display_name, avatar_hash, avatar_url, avatar_fetched_at
              FROM user_profiles WHERE discord_user_id = ?`,
             discordUserId,
         );
@@ -76,6 +77,7 @@ export class UserProfileService {
             discord_user_id: string;
             display_name: string | null;
             avatar_hash: string | null;
+            avatar_url: string | null;
             avatar_fetched_at: string | null;
         };
     }
