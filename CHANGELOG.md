@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.39.0] — unreleased
+
+**Approval rooms (private rooms).** A room can now be set to require approval — invisible to non-members beyond its name/logo, with a request-to-join queue.
+
+- **`JOIN_POLICY` per-room setting** (`open` default | `approval`), a hand-rendered select beside the login-policy control in room Settings, in `DANGEROUS_KEYS`. Flipping to approval shows a confirm dialog (room becomes invisible to non-members AND its scores leave the Global Scoreboard).
+- **View gate** — one `roomVisibilityGate` mounted once in `rooms.ts` (after portal/scoreboard-config, which stay reachable so the join screen renders on-brand). Non-members/guests get `403 APPROVAL_REQUIRED` on every scores/stats/lobby/history/games/pick endpoint; members, room admins, and super-admins pass. Portal carries `join_policy` + `viewer_status` so the FE gates before calling anything.
+- **Join requests** (migration 116, `join_requests` + partial-unique on pending): `POST /api/me/rooms/:roomId/join-request`; room-admin queue page with approve/deny (approve → membership via v2.38's hardened path) + a 60s-polled nav badge. Approvers = room owner + room admins.
+- **Leak closures** — WebSocket `join:room`/`join:lobby`/`join:game` membership-checked (token via Socket.io handshake `auth`); OG link-preview returns the generic shell for approval rooms; the five Discord cross-room read commands exclude approval rooms; global fan-out skips approval rooms and flipping to approval scrubs already-fanned rows + recalcs; the public `GET /api/rooms` list zeroes approval rooms' activity counts and nulls their invite URL (keeps name/slug/logo/`join_policy` for discovery).
+- **Member-picker admin add** — room admins are added by picking from the member list (name + avatar, works for Google- or Discord-authed members) instead of pasting an opaque user ID; raw-ID entry kept as an advanced fallback.
+- **Kiosk on approval rooms: not supported** this release (renders the join gate; `KIOSK_KEY` pairing is on the roadmap).
+- **Security**: Opus adversarial review PASS-with-minors — view gate un-bypassable incl. the legacy-alias vector; the one metadata leak found (activity counts) fixed. 63 new tests; backend 516, admin-ui 110.
+
+Migration 116 consumed — **next free is now 117**.
+
+---
+
 ## [2.38.1] — unreleased
 
 **Super-admin login hardening (no data was ever exposed).** Removed the public "Admin" link from the landing page — it invited any visitor to OAuth in with super-admin intent and land on the (data-less, server-403-gated) Super Admin shell, which looked alarming despite exposing nothing. `SuperAdminLayout` now role-guards on the token's `role` claim: a non-super-admin token bounces to `/login` instead of rendering the chrome. Server-side `requireSuperAdmin` was and remains the real gate (every `/admin/*` call 403s for non-super-admins); this closes the confusing empty-shell and trims needless attack surface. Super admins reach the panel directly at `/login`.
