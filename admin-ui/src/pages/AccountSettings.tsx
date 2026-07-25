@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle, AlertTriangle, Trash2 } from 'lucide-react';
+import { ArrowLeft, Home, User as UserIcon, CheckCircle2, AlertCircle, AlertTriangle, Trash2, Link2, Unlink } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoginButtons from '../components/LoginButtons';
 import { resolveAvatarUrl } from '../lib/avatar';
+import { isGoogleUserId } from '../lib/identityProvider';
 
 interface Profile {
   discord_user_id: string;
@@ -66,6 +67,18 @@ export default function AccountSettings() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const backdropMouseDown = useRef(false);
 
+  // Connected accounts (v2.36.0 — Google<->Discord identity linking).
+  // A google:*-identity viewer sees a "Link Discord account" button; a
+  // Discord-identity (canonical) viewer sees whichever google identities are
+  // currently linked to them, with an unlink option each.
+  const isGoogleIdentity = isGoogleUserId(discordUser?.discordId);
+  const [links, setLinks] = useState<{ provider_user_id: string; created_at: string }[] | null>(null);
+  const [linksLoading, setLinksLoading] = useState(true);
+  const [linkStarting, setLinkStarting] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [unlinkTarget, setUnlinkTarget] = useState<string | null>(null);
+  const [unlinking, setUnlinking] = useState(false);
+
   // Notification preferences (independent fetch from the profile load)
   const [prefs, setPrefs] = useState<Record<string, boolean> | null>(null);
   const [draftPrefs, setDraftPrefs] = useState<Record<string, boolean> | null>(null);
@@ -100,6 +113,88 @@ export default function AccountSettings() {
   }, [playerToken]);
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  // Only a Discord-identity (canonical) viewer can HAVE links pointing at
+  // them in v1 — a google identity is always the link's provider side, never
+  // its canonical side, so skip the fetch entirely for that case.
+  const loadLinks = useCallback(async () => {
+    if (!playerToken || isGoogleIdentity) { setLinksLoading(false); return; }
+    try {
+      const res = await fetch('/api/auth/link/discord', {
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLinks(data.links ?? []);
+      }
+    } catch {
+      // network error — section stays empty
+    }
+    setLinksLoading(false);
+  }, [playerToken, isGoogleIdentity]);
+
+  useEffect(() => { loadLinks(); }, [loadLinks]);
+
+  const startDiscordLink = async () => {
+    if (!playerToken || linkStarting) return;
+    setLinkStarting(true);
+    setLinkError(null);
+    try {
+      const res = await fetch('/api/auth/link/discord/start', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLinkError(data.error ?? 'Could not start the link. Please try again.');
+        setLinkStarting(false);
+        return;
+      }
+      // Mirrors ViewerAuthContext.loginWithDiscord's OAuth-URL construction
+      // (deliberate near-duplicate, same precedent as GoogleCallback/
+      // DiscordCallback) but with a `link:<nonce>` state instead of
+      // `player:<slug>` — the nonce proves this same browser session started
+      // the link when DiscordCallback posts it back explicitly.
+      sessionStorage.setItem('arcaid_link_nonce', data.nonce);
+      const clientRes = await fetch('/api/auth/discord');
+      const clientData = await clientRes.json();
+      if (!clientData.clientId) {
+        setLinkError('Discord login is not configured on this server.');
+        setLinkStarting(false);
+        return;
+      }
+      const redirectUri = `${window.location.origin}/auth/discord/callback`;
+      const params = new URLSearchParams({
+        client_id: clientData.clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'identify',
+        state: `link:${data.nonce}`,
+      });
+      window.location.href = `https://discord.com/api/oauth2/authorize?${params}`;
+    } catch {
+      setLinkError('Network error. Please try again.');
+      setLinkStarting(false);
+    }
+  };
+
+  const confirmUnlink = async () => {
+    if (!playerToken || !unlinkTarget) return;
+    setUnlinking(true);
+    try {
+      const res = await fetch(`/api/auth/link/discord/${encodeURIComponent(unlinkTarget)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (res.ok) {
+        setLinks(prev => (prev ?? []).filter(l => l.provider_user_id !== unlinkTarget));
+      }
+    } catch {
+      // best-effort — the row stays listed, user can retry
+    }
+    setUnlinking(false);
+    setUnlinkTarget(null);
+  };
 
   const loadPrefs = useCallback(async () => {
     if (!playerToken) return;
@@ -497,6 +592,78 @@ export default function AccountSettings() {
               <p className="mt-2 text-xs text-faint">
                 Scores submitted under any of these names count for you on every leaderboard.
               </p>
+            </section>
+
+            <section className="mt-8 pt-8 border-t border-border">
+              <h2 className="text-sm font-medium mb-2">Connected accounts</h2>
+              {isGoogleIdentity ? (
+                <>
+                  <p className="text-xs text-muted mb-3">
+                    You're signed in with Google. Link a Discord account to get DM
+                    notifications and tournament picks — both logins will work for the
+                    same account afterward.
+                  </p>
+                  {linkError && (
+                    <p className="mb-2 text-xs text-rose-400 inline-flex items-center gap-1">
+                      <AlertCircle size={12} /> {linkError}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={startDiscordLink}
+                    disabled={linkStarting}
+                    className="px-4 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-sm font-medium hover:bg-neon-cyan/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Link2 size={14} /> {linkStarting ? 'Redirecting…' : 'Link Discord account'}
+                  </button>
+                </>
+              ) : linksLoading ? (
+                <p className="text-sm text-muted">Loading…</p>
+              ) : links && links.length > 0 ? (
+                <ul className="space-y-2">
+                  {links.map(l => (
+                    <li
+                      key={l.provider_user_id}
+                      className="flex items-center justify-between gap-3 text-sm bg-surface border border-border rounded px-3 py-2"
+                    >
+                      <span className="font-mono text-xs text-muted truncate">{l.provider_user_id}</span>
+                      {unlinkTarget === l.provider_user_id ? (
+                        <span className="flex items-center gap-2 shrink-0">
+                          <span className="text-[11px] text-muted hidden sm:inline">
+                            Google login becomes separate.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={confirmUnlink}
+                            disabled={unlinking}
+                            className="px-2 py-1 rounded border border-rose-500/40 text-rose-400 text-xs hover:bg-rose-500/10 disabled:opacity-50 cursor-pointer"
+                          >
+                            {unlinking ? '…' : 'Confirm unlink'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setUnlinkTarget(null)}
+                            disabled={unlinking}
+                            className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-primary cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setUnlinkTarget(l.provider_user_id)}
+                          className="px-2 py-1 rounded border border-border text-xs text-muted hover:text-rose-400 hover:border-rose-500/40 cursor-pointer shrink-0 inline-flex items-center gap-1"
+                        >
+                          <Unlink size={12} /> Unlink
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted">No linked Google accounts.</p>
+              )}
             </section>
 
             <section className="mt-8 pt-8 border-t border-border">
