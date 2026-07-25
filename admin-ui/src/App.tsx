@@ -122,7 +122,7 @@ function App() {
       <Suspense fallback={<LoadingState />}>
       <Routes>
         {/* Landing page */}
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<ViewerAuthProvider><LandingPage /></ViewerAuthProvider>} />
 
         {/* Super admin login */}
         <Route path="/login" element={<Login onLogin={() => setAuthed(true)} />} />
