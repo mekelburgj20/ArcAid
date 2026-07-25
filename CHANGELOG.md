@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.39.1] — unreleased
+
+**Fix: non-public rooms' admin panel showed "Game room not found."** `RoomAdminLayout` resolved the room from the public `GET /api/rooms` list (`is_public = 1` only), so the owner of a non-public room — now a common case with v2.39.0 approval/private rooms — couldn't open their own admin panel. It now resolves via the shared `getPortal(slug)` endpoint (the same slug→room resolver `PublicLayout` uses), which returns any room regardless of `is_public`. Admin data remains gated server-side by `requireRoomAccess` on every endpoint; this only fixes chrome resolution.
+
+---
+
 ## [2.39.0] — unreleased
 
 **Approval rooms (private rooms).** A room can now be set to require approval — invisible to non-members beyond its name/logo, with a request-to-join queue.
