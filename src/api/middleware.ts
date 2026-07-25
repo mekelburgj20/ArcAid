@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken, TokenPayload } from './auth.js';
 import { providerOfUserId } from '../utils/identityProvider.js';
+import { RoomAccessService } from '../services/RoomAccessService.js';
 
 // Augment Express Request to include user
 declare global {
@@ -168,6 +169,49 @@ export function requireDiscordUser(req: Request, res: Response, next: NextFuncti
     }
 
     req.user = payload;
+    next();
+}
+
+/**
+ * Approval-rooms (v2.39.0) hard view gate. Mounted ONCE via
+ * `router.use('/:roomId', roomVisibilityGate)` in rooms.ts, registered AFTER
+ * the portal + scoreboard-config route handlers so those two stay reachable
+ * for everyone (structural bypass by registration order — Express never
+ * reaches this middleware for a request those routes already answered).
+ * Every other room-scoped route — public reads, submit paths, picks, lobby,
+ * comments, stats, history, dashboard, game_library, tournaments,
+ * games/active, and the admin routes — passes through it.
+ *
+ * 'open' policy (or the setting absent): next() immediately, zero extra
+ * queries beyond the settings read. 'approval' policy: decode the Bearer
+ * token independently (requireAuth hasn't run yet at this point in the
+ * chain — mirrors conditionalRequireDiscordUser's decode pattern) and defer
+ * to RoomAccessService.canViewRoom, the same check the WebSocket join
+ * handlers use. Guests (no token) and non-members always 403.
+ */
+export async function roomVisibilityGate(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const roomId = req.params.roomId as string;
+    if (!roomId) return next();
+
+    let policy: 'open' | 'approval' = 'open';
+    try {
+        policy = await RoomAccessService.getJoinPolicy(roomId);
+    } catch {
+        // Fail-open on infra failure, not auth failure — matches
+        // conditionalRequireDiscordUser's fail-open-on-lookup-error contract.
+        return next();
+    }
+    if (policy !== 'approval') return next();
+
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const payload = token ? verifyToken(token) : null;
+
+    const allowed = await RoomAccessService.canViewRoom(payload, roomId);
+    if (!allowed) {
+        res.status(403).json({ error: 'This room requires approval to join', code: 'APPROVAL_REQUIRED' });
+        return;
+    }
     next();
 }
 

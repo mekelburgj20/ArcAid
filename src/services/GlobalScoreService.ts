@@ -189,6 +189,26 @@ export class GlobalScoreService {
     }
 
     /**
+     * Approval-rooms (v2.39.0) — bulk soft-delete every global_scores row that
+     * originated from `roomId`, called when the room's JOIN_POLICY flips
+     * open -> approval (see JoinPolicyService.handlePolicyFlip). Rows can span
+     * many different global_game_ids, so this invalidates the WHOLE cache
+     * rather than per-game (same "admin-initiated and infrequent" trade-off
+     * `invalidateLeaderboardCaches` already makes for the REQUIRE_DISCORD_LOGIN
+     * orphan flip). Returns the number of rows scrubbed.
+     */
+    static async scrubRoomOnApprovalFlip(roomId: string): Promise<number> {
+        const db = await getDatabase();
+        const result = await db.run(
+            `UPDATE global_scores SET deleted_at = datetime('now'), deleted_by = ?
+             WHERE origin_game_room_id = ? AND deleted_at IS NULL`,
+            'system:join_policy_flip', roomId,
+        );
+        await GlobalLeaderboardService.invalidateAll();
+        return result.changes ?? 0;
+    }
+
+    /**
      * Hard delete — removes the row and unlinks the photo file.
      */
     static async hardDelete(scoreId: string): Promise<boolean> {
@@ -300,6 +320,13 @@ export class GlobalScoreService {
             if (normalizeSubmitterUserId(opts.playerId) === null) return null;
 
             const db = await getDatabase();
+
+            // Approval rooms (v2.39.0): a room requiring approval to join must
+            // stay invisible to non-members, and that includes its footprint
+            // on the Global Scoreboard — so new submissions from an
+            // 'approval'-policy room never fan out at all.
+            const { RoomAccessService } = await import('./RoomAccessService.js');
+            if ((await RoomAccessService.getJoinPolicy(opts.gameRoomId)) === 'approval') return null;
 
             // Check the room's global opt-in setting (default ON)
             const enabledRow = await db.get(

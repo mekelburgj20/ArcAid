@@ -1,8 +1,50 @@
 import { Server as HttpServer } from 'http';
-import { Server as SocketServer } from 'socket.io';
+import { Server as SocketServer, Socket } from 'socket.io';
 import { logInfo, logError } from '../utils/logger.js';
+import { verifyToken } from './auth.js';
+import { RoomAccessService } from '../services/RoomAccessService.js';
+import { getDatabase } from '../database/database.js';
 
 let io: SocketServer | null = null;
+
+/**
+ * Approval-rooms (v2.39.0) leak closure. FE passes the player token via the
+ * Socket.io `auth` handshake payload (see admin-ui/src/lib/websocket.ts).
+ * 'open'-policy rooms: unchanged, zero added latency beyond the policy read
+ * itself (mirrors the HTTP gate's short-circuit). 'approval'-policy rooms:
+ * defers to the same RoomAccessService.canViewRoom check the HTTP gate uses.
+ * A client without access silently doesn't join — no error channel, the
+ * room's live-update channels are simply inert for them (matching "hard-gate
+ * VIEWING", not just page-load reads).
+ */
+async function canJoinRoomChannel(socket: Socket, roomId: string): Promise<boolean> {
+    if (!roomId) return false;
+    try {
+        const policy = await RoomAccessService.getJoinPolicy(roomId);
+        if (policy !== 'approval') return true;
+        const token = (socket.handshake.auth as { token?: string } | undefined)?.token;
+        const payload = token ? verifyToken(token) : null;
+        return RoomAccessService.canViewRoom(payload, roomId);
+    } catch {
+        // Fail-open on infra failure (matches the HTTP gate + conditionalRequireDiscordUser).
+        return true;
+    }
+}
+
+/** `join:game` only knows a gameId — resolve its room via the denormalized
+ * `games.game_room_id` column (cheap: indexed PK lookup, no join needed —
+ * see CLAUDE.md's pin-to-scoreboard section) before applying the same gate. */
+async function resolveGameRoomId(gameId: string): Promise<string | null> {
+    try {
+        const db = await getDatabase();
+        const row = await db.get<{ game_room_id: string | null }>(
+            'SELECT game_room_id FROM games WHERE id = ?', gameId,
+        );
+        return row?.game_room_id ?? null;
+    } catch {
+        return null;
+    }
+}
 
 /**
  * Initialize Socket.io server on the existing HTTP server.
@@ -28,7 +70,10 @@ export function initWebSocket(httpServer: HttpServer): SocketServer {
         });
 
         // Allow clients to join a specific game room for targeted updates
-        socket.on('join:game', (gameId: string) => {
+        socket.on('join:game', async (gameId: string) => {
+            const roomId = await resolveGameRoomId(gameId);
+            // No room attribution (manual/legacy game) — nothing to gate.
+            if (roomId && !(await canJoinRoomChannel(socket, roomId))) return;
             socket.join(`game:${gameId}`);
         });
 
@@ -37,7 +82,8 @@ export function initWebSocket(httpServer: HttpServer): SocketServer {
         });
 
         // Lobby feed: room-scoped channel
-        socket.on('join:lobby', (roomId: string) => {
+        socket.on('join:lobby', async (roomId: string) => {
+            if (!(await canJoinRoomChannel(socket, roomId))) return;
             socket.join(`lobby:${roomId}`);
         });
 
@@ -48,7 +94,8 @@ export function initWebSocket(httpServer: HttpServer): SocketServer {
         // Room-scoped scoreboard channel (S4): score:new + leaderboard:updated
         // are emitted to room:<id> so a score in one room doesn't refresh
         // another's boards. Scoreboard / admin Leaderboard / Kiosk join on mount.
-        socket.on('join:room', (roomId: string) => {
+        socket.on('join:room', async (roomId: string) => {
+            if (!(await canJoinRoomChannel(socket, roomId))) return;
             socket.join(`room:${roomId}`);
         });
 

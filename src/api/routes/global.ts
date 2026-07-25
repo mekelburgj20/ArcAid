@@ -214,6 +214,14 @@ router.post('/me/rooms/:roomId', requireDiscordUser, async (req, res) => {
         const room = await GameRoomService.getById(roomId);
         if (!room) return res.status(404).json({ error: 'Room not found' });
 
+        // v2.39.0 (approval rooms) — plain self-join is an 'open'-policy-only
+        // shortcut. An 'approval' room must go through the request/approve
+        // queue (POST .../join-request) instead.
+        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+        if ((await RoomAccessService.getJoinPolicy(roomId)) === 'approval') {
+            return res.status(403).json({ error: 'This room requires approval to join', code: 'APPROVAL_REQUIRED' });
+        }
+
         const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
         await RoomMembershipService.addMember(req.user!.discordId!, roomId, 'self_join');
 
@@ -243,6 +251,31 @@ router.delete('/me/rooms/:roomId', requireDiscordUser, async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/me/rooms/:roomId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// v2.39.0 — approval rooms. Request to join an 'approval'-policy room.
+// 400 for 'open' rooms (they use the plain self-join POST above instead).
+// Idempotent: already-member -> 200 {status:'member'}; existing pending
+// request -> 200 {status:'pending'} (the partial unique index backstops
+// races too). A prior denial does not block a fresh request.
+router.post('/me/rooms/:roomId/join-request', requireDiscordUser, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const room = await GameRoomService.getById(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+        if ((await RoomAccessService.getJoinPolicy(roomId)) !== 'approval') {
+            return res.status(400).json({ error: 'This room does not require approval to join' });
+        }
+
+        const { JoinRequestService } = await import('../../services/JoinRequestService.js');
+        const status = await JoinRequestService.request(roomId, req.user!.discordId!);
+        res.json({ status });
+    } catch (error) {
+        logError('API Error (POST /api/me/rooms/:roomId/join-request):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -516,6 +549,14 @@ router.get('/styles/:id', requireAuth, async (req, res) => {
 });
 
 // Portal info by slug (public — used by Scoreboard, GameAvailability, etc.)
+//
+// v2.39.0 (approval rooms): this is the LIVE portal endpoint — admin-ui's
+// lib/portal.ts::getPortal() is the sole FE consumer used by every public
+// page, so join_policy + viewer_status live here (not the room-scoped
+// rooms.ts portal, which has no FE consumers — see the note there). Stays
+// unauthenticated / always 200: the room's existence, name, logo and theme
+// must render even for a non-member on an 'approval' room so the join-gate
+// screen has something to show.
 router.get('/portal', async (req, res) => {
     try {
         const slug = req.query.slug as string;
@@ -524,6 +565,7 @@ router.get('/portal', async (req, res) => {
         if (!room) return res.status(404).json({ error: 'Room not found' });
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
         const { PickAwardGate } = await import('../../services/PickAwardGate.js');
+        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
         const pickAwardEnabled = await PickAwardGate.isEnabled(room.id);
@@ -531,6 +573,13 @@ router.get('/portal', async (req, res) => {
         // decide whether to show the "sign in with Discord for DMs/picks"
         // nudge next to the new Google login option, without a second fetch.
         const discordEnabledRaw = await GameRoomSettingsService.get(room.id, 'DISCORD_ENABLED');
+
+        const joinPolicy = await RoomAccessService.getJoinPolicy(room.id);
+        const authHeader = req.headers['authorization'];
+        const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const payload = bearer ? (await import('../auth.js')).verifyToken(bearer) : null;
+        const viewerStatus = await RoomAccessService.getViewerStatus(payload, room.id);
+
         res.json({
             id: room.id,
             roomId: room.id,
@@ -543,6 +592,8 @@ router.get('/portal', async (req, res) => {
             is_public: !!room.is_public,
             pick_award_enabled: pickAwardEnabled,
             discord_enabled: discordEnabledRaw !== 'false',
+            join_policy: joinPolicy,
+            viewer_status: viewerStatus,
         });
     } catch (error) {
         logError('API Error (GET /api/portal):', error);
@@ -861,6 +912,37 @@ router.get('/rooms', async (req, res) => {
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
 
         const enriched = await Promise.all(rooms.map(async (room) => {
+            const logoUrl = room.logo_url || null;
+            // v2.39.0 — safe/non-secret: lets landing-page cards branch the
+            // bookmark toggle into "Request to join" without a second fetch.
+            const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+            const joinPolicy = await RoomAccessService.getJoinPolicy(room.id);
+
+            // Security review fix (pre-merge, v2.39.0) — this endpoint is
+            // fully unauthenticated (no requireAuth/optional-decode today), so
+            // per-viewer membership would mean adding auth decoding to a route
+            // that's never needed it. Simplest-correct + safest default: an
+            // 'approval'-policy room strips activity counts + the Discord
+            // invite link for EVERY caller of this public list, unconditionally
+            // (not just guests) — those are exactly the "stats"/contact-info
+            // categories the contract bars for non-members, and a member
+            // browsing the landing page has other ways to see the room's real
+            // numbers (the room's own pages, once inside). name/slug/logo/
+            // description/join_policy stay so the "Request to join" card is
+            // still discoverable and renders normally. Skips the two count
+            // queries entirely for approval rooms — nothing computes them just
+            // to throw them away.
+            if (joinPolicy === 'approval') {
+                return {
+                    ...room,
+                    logo_url: logoUrl,
+                    activeGames: 0,
+                    activePlayers: 0,
+                    discordInviteUrl: null,
+                    join_policy: joinPolicy,
+                };
+            }
+
             // Count active games (games → tournaments → room)
             const activeGames = await db.get(
                 `SELECT COUNT(*) as count FROM games g
@@ -878,7 +960,6 @@ router.get('/rooms', async (req, res) => {
                 room.id
             );
             const discordInvite = await GameRoomSettingsService.get(room.id, 'DISCORD_INVITE_URL');
-            const logoUrl = room.logo_url || null;
 
             return {
                 ...room,
@@ -886,6 +967,7 @@ router.get('/rooms', async (req, res) => {
                 activeGames: activeGames?.count || 0,
                 activePlayers: activePlayers?.count || 0,
                 discordInviteUrl: discordInvite || null,
+                join_policy: joinPolicy,
             };
         }));
 

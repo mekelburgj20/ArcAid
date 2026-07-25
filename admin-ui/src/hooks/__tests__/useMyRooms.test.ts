@@ -153,4 +153,85 @@ describe('useMyRooms', () => {
     // Reverted — still a member.
     expect(result.current.isMember('room-1')).toBe(true);
   });
+
+  // v2.39.0 — approval rooms (tmp/approval-rooms-contract.md, D2/D4).
+  describe('requestJoin', () => {
+    it('guest: no-op, returns null, no fetch', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useMyRooms(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      let status: string | null = 'unset';
+      await act(async () => { status = await result.current.requestJoin('room-1'); });
+      expect(status).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('posts to the join-request endpoint and returns "pending"', async () => {
+      signInAs('discord-6');
+      const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'pending' }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useMyRooms(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      let status: string | null = null;
+      await act(async () => { status = await result.current.requestJoin('room-approval-1'); });
+      expect(status).toBe('pending');
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/me/rooms/room-approval-1/join-request',
+        expect.objectContaining({ method: 'POST' }),
+      );
+      // Not optimistic — no membership row added for a pending request.
+      expect(result.current.isMember('room-approval-1')).toBe(false);
+    });
+
+    it('refetches membership when the server reports "member" (already a member, or policy flipped back to open)', async () => {
+      signInAs('discord-7');
+      let listCallCount = 0;
+      const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'member' }) });
+        listCallCount += 1;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(
+            listCallCount > 1
+              ? [{ roomId: 'room-2', name: 'Room 2', slug: 'room_2', logoUrl: null, joinedAt: '2026-01-01', source: 'self_join', lastActivityAt: null }]
+              : [],
+          ),
+        });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useMyRooms(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.isMember('room-2')).toBe(false);
+
+      let status: string | null = null;
+      await act(async () => { status = await result.current.requestJoin('room-2'); });
+      expect(status).toBe('member');
+      await waitFor(() => expect(result.current.isMember('room-2')).toBe(true));
+    });
+
+    it('returns null on a failed request', async () => {
+      signInAs('discord-8');
+      const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') return Promise.resolve({ ok: false, json: () => Promise.resolve({ error: 'nope' }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useMyRooms(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      let status: string | null = 'unset';
+      await act(async () => { status = await result.current.requestJoin('room-3'); });
+      expect(status).toBeNull();
+    });
+  });
 });

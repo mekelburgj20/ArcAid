@@ -204,4 +204,85 @@ describe('PublicLayout', () => {
       expect.objectContaining({ method: 'DELETE' }),
     ));
   });
+
+  // v2.39.0 — approval rooms (tmp/approval-rooms-contract.md, D1/D4). The
+  // portal's join_policy/viewer_status drive a hard content swap: the gate
+  // screen renders instead of <Outlet/>, so ChildProbe never mounts.
+  describe('approval-room view gate', () => {
+    it('guest on an approval room: gate screen renders, no login/no request button posted', async () => {
+      const fetchMock = vi.fn((url: string) => {
+        if (url.startsWith('/api/portal')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              id: 'room-2', roomId: 'room-2', slug: 'approval_room', name: 'Approval Room',
+              pick_award_enabled: false, join_policy: 'approval', viewer_status: 'none',
+            }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+      vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+      renderAt('/approval_room/child');
+
+      await waitFor(() => expect(screen.getByText('This room requires approval to join')).toBeInTheDocument());
+      expect(screen.queryByTestId('roomId')).toBeNull();
+      expect(screen.getByText('Sign in to request to join.')).toBeInTheDocument();
+    });
+
+    it('signed-in non-member: shows "Request to join" and posts to the join-request endpoint', async () => {
+      signInAs('user-2', 'Justin');
+      const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+        if (url.startsWith('/api/portal')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              id: 'room-2', roomId: 'room-2', slug: 'approval_room', name: 'Approval Room',
+              pick_award_enabled: false, join_policy: 'approval', viewer_status: 'none',
+            }),
+          });
+        }
+        if (init?.method === 'POST' && url.includes('join-request')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'pending' }) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+      vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+      renderAt('/approval_room/child');
+      const btn = await screen.findByText('Request to join');
+      fireEvent.click(btn);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+        '/api/me/rooms/room-2/join-request',
+        expect.objectContaining({ method: 'POST' }),
+      ));
+      await waitFor(() => expect(screen.getByText('Request pending')).toBeInTheDocument());
+    });
+
+    it('a member sees the room normally, not the gate', async () => {
+      // Distinct slug from the other two tests in this block — lib/portal.ts
+      // caches settled portal promises per-slug for the SPA session, so
+      // reusing 'approval_room' here would silently replay an earlier test's
+      // (different) viewer_status instead of hitting this test's fetch mock.
+      const fetchMock = vi.fn((url: string) => {
+        if (url.startsWith('/api/portal')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              id: 'room-3', roomId: 'room-3', slug: 'approval_room_member', name: 'Approval Room',
+              pick_award_enabled: false, join_policy: 'approval', viewer_status: 'member',
+            }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+      vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+      renderAt('/approval_room_member/child');
+      await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-3'));
+      expect(screen.queryByText('This room requires approval to join')).toBeNull();
+    });
+  });
 });

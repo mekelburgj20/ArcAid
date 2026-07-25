@@ -27,6 +27,12 @@ export interface Portal {
   pick_award_enabled?: boolean;
   /** v2.35.0 — drives the "sign in with Discord for DMs/picks" login nudge. */
   discord_enabled?: boolean;
+  /** v2.39.0 (approval rooms) — 'open' (default) | 'approval'. */
+  join_policy?: 'open' | 'approval';
+  /** v2.39.0 — this viewer's relationship to the room. 'none'/'pending' only
+   * matter when join_policy is 'approval' — open rooms render normally
+   * regardless of this value. */
+  viewer_status?: 'admin' | 'member' | 'pending' | 'none';
 }
 
 const cache = new Map<string, Promise<Portal>>();
@@ -36,7 +42,14 @@ export function getPortal(slug: string): Promise<Portal> {
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const promise = fetch(`/api/portal?slug=${encodeURIComponent(slug)}`)
+  // v2.39.0 — attach the player token (when present) so the server can
+  // resolve viewer_status (member/admin/pending) instead of always seeing a
+  // guest. Read directly from localStorage rather than via a hook: this
+  // module is a plain fetch-cache, not a React consumer.
+  const playerToken = localStorage.getItem('arcaid_player_token');
+  const headers: Record<string, string> = playerToken ? { Authorization: `Bearer ${playerToken}` } : {};
+
+  const promise = fetch(`/api/portal?slug=${encodeURIComponent(slug)}`, { headers })
     .then(r => {
       if (!r.ok) throw new Error(`Room not found: ${slug}`);
       return r.json() as Promise<Portal>;
@@ -53,4 +66,10 @@ export function getPortal(slug: string): Promise<Portal> {
 
   cache.set(key, promise);
   return promise;
+}
+
+/** Drop the cached portal for a slug — used after a join-request/approval so
+ * a caller can force a fresh resolve instead of waiting for a full reload. */
+export function invalidatePortal(slug: string): void {
+  cache.delete(slug.toLowerCase());
 }

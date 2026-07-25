@@ -25,6 +25,10 @@ export default function KioskScoreboard() {
   const [roomId, setRoomId] = useState('');
   const [feedEvents, setFeedEvents] = useState<Array<{ id: number; type: string; title: string; created_at: string }>>([]);
   const [scoreToast, setScoreToast] = useState<{ player: string; score: number; game: string } | null>(null);
+  // v2.39.0 (approval rooms) — kiosk has no login flow, so it can only ever
+  // render the graceful gate message for an 'approval' room (see contract:
+  // "NOT supported this release" — no KIOSK_KEY pairing mechanism yet).
+  const [gated, setGated] = useState(false);
 
   // Resolve room and fetch scoreboard config
   useEffect(() => {
@@ -33,6 +37,9 @@ export default function KioskScoreboard() {
       .then(portal => {
         setRoomName(portal.name);
         setRoomId(portal.roomId);
+        const isGated = portal.join_policy === 'approval'
+          && (portal.viewer_status ?? 'none') !== 'admin' && (portal.viewer_status ?? 'none') !== 'member';
+        setGated(isGated);
         return fetch(`/api/rooms/${portal.roomId}/scoreboard-config`);
       })
       .then(r => r.ok ? r.json() : {})
@@ -240,6 +247,19 @@ export default function KioskScoreboard() {
     return (
       <div className="min-h-screen bg-deep flex items-center justify-center">
         <p className="text-muted font-display text-lg">Kiosk mode is not available for this room</p>
+      </div>
+    );
+  }
+  // v2.39.0 (approval rooms) — kiosk mode isn't supported on approval rooms
+  // this release. Without it, the leaderboard/rankings/lobby fetches below
+  // would each silently 403 and render an empty-looking board; show an
+  // explicit message instead.
+  if (gated) {
+    return (
+      <div className="min-h-screen bg-deep flex items-center justify-center text-center px-6">
+        <p className="text-muted font-display text-lg">
+          {roomName || 'This room'} requires approval to join — kiosk display isn't available for approval rooms yet.
+        </p>
       </div>
     );
   }

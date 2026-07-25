@@ -12,6 +12,7 @@ import LoginButtons from './LoginButtons';
 import PendingSubmissionWatcher from './PendingSubmissionWatcher';
 import ScoreboardTicker from './ScoreboardTicker';
 import LoadingState from './LoadingState';
+import RoomJoinGate from './RoomJoinGate';
 import { PlayerQuickViewProvider } from '../contexts/PlayerQuickViewContext';
 
 interface PublicLayoutProps {
@@ -28,8 +29,16 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   // D2 (v2.38.0) — room-page join/leave affordance, surfaced as a UserMenu
   // contextual item (chosen over a header button: s20/s21 already made mobile
   // header space tight, and the menu item needs no extra layout work here).
-  const { isMember: isRoomMember, join: joinRoom, leave: leaveRoom } = useMyRooms();
+  const { isMember: isRoomMember, join: joinRoom, leave: leaveRoom, requestJoin } = useMyRooms();
   const { toast } = useToast();
+
+  // v2.39.0 — approval rooms hard-gate viewing. Mirrors the server-side gate:
+  // 'open' (or absent) never gates; 'approval' gates unless the viewer is a
+  // member/admin. 'pending' also renders the gate (with a "request pending"
+  // message) rather than the normal room content.
+  const joinPolicy = portal?.join_policy ?? 'open';
+  const viewerStatus = portal?.viewer_status ?? 'none';
+  const isGated = joinPolicy === 'approval' && (viewerStatus === 'none' || viewerStatus === 'pending');
 
   const [lobbyHasNew, setLobbyHasNew] = useState(false);
 
@@ -105,14 +114,18 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   // Sprint 7 nav: Lobby | Scores | Picks* | Stats | Global
   // Picks is suppressed when ENABLE_GAME_PICK_AWARD is off. Keep it hidden
   // during the initial fetch to avoid a flash of mismatched nav.
-  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; end?: boolean }> = [
-    { path: `/${slug}/lobby`, label: 'Lobby', icon: <MessageSquare size={16} /> },
-    { path: `/${slug}`, label: 'Scores', icon: <Monitor size={16} />, end: true },
-  ];
-  if (!pickAwardLoading && pickAwardEnabled) {
-    navItems.push({ path: `/${slug}/picks`, label: 'Picks', icon: <Gamepad2 size={16} /> });
+  // v2.39.0 — while gated, every room-scoped tab leads to a page that would
+  // just 403 (each fetches its own gated endpoints) — only "Global" survives,
+  // since /scoreboard isn't room-scoped.
+  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; end?: boolean }> = [];
+  if (!isGated) {
+    navItems.push({ path: `/${slug}/lobby`, label: 'Lobby', icon: <MessageSquare size={16} /> });
+    navItems.push({ path: `/${slug}`, label: 'Scores', icon: <Monitor size={16} />, end: true });
+    if (!pickAwardLoading && pickAwardEnabled) {
+      navItems.push({ path: `/${slug}/picks`, label: 'Picks', icon: <Gamepad2 size={16} /> });
+    }
+    navItems.push({ path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> });
   }
-  navItems.push({ path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> });
   navItems.push({ path: '/scoreboard', label: 'Global', icon: <Trophy size={16} /> });
 
   return (
@@ -200,6 +213,14 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
           </div>
         ) : !portal || !resolvedRoomId ? (
           <LoadingState message="Loading room..." />
+        ) : isGated ? (
+          <RoomJoinGate
+            portal={portal}
+            discordUser={discordUser}
+            onLoginDiscord={() => slug && loginWithDiscord(slug, location.pathname + location.search)}
+            onLoginGoogle={() => slug && loginWithGoogle(slug, location.pathname + location.search)}
+            onRequestJoin={() => requestJoin(resolvedRoomId)}
+          />
         ) : (
           /* v2.13.16 — PlayerQuickViewProvider so PlayerNameLink calls from
               any public page can open the player preview modal.
@@ -216,7 +237,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       {/* s21 — lobby feed ticker, scoreboard page only. In-flow above the
           footer (was fixed-bottom inside Scoreboard.tsx, painting over the
           Privacy/Terms links). Renders null while the feed is empty. */}
-      {isScoreboard && resolvedRoomId && !portalError && (
+      {isScoreboard && resolvedRoomId && !portalError && !isGated && (
         <ScoreboardTicker roomId={resolvedRoomId} />
       )}
 

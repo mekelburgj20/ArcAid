@@ -55,6 +55,7 @@ function deriveTargetType(path: string): string {
     // Match common resource patterns
     const patterns: [RegExp, string][] = [
         [/\/tournaments/, 'tournament'],
+        [/\/join-requests/, 'join_request'],
         [/\/rooms/, 'room'],
         [/\/settings/, 'settings'],
         [/\/game_library/, 'game_library'],
