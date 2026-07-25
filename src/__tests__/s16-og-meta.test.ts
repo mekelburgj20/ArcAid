@@ -149,6 +149,25 @@ describe('OG shell serving', () => {
         expect(res.text).toBe(SHELL);
     });
 
+    // v2.39.0 — approval rooms leak closure: a link-preview crawler is not a
+    // "member", so an 'approval'-policy room must never unfurl.
+    it('serves the unmodified shell to a bot on an approval-policy room', async () => {
+        const roomId = await createTestRoom('approvaltest', 'Approval Test Room');
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO games (id, name, status, game_room_id) VALUES (?, 'Medieval Madness', 'ACTIVE', ?)`,
+            crypto.randomUUID(), roomId,
+        );
+        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+        await GameRoomSettingsService.set(roomId, 'JOIN_POLICY', 'approval');
+
+        const res = await request(createTestApp())
+            .get('/approvaltest/games/Medieval%20Madness')
+            .set('User-Agent', DISCORD_UA);
+        expect(res.status).toBe(200);
+        expect(res.text).toBe(SHELL);
+    });
+
     it('kill-switch OG_META_ENABLED=false disables injection even for bots', async () => {
         await createTestRoom('sharetest', 'Share Test Room');
         process.env.OG_META_ENABLED = 'false';
