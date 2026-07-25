@@ -912,6 +912,37 @@ router.get('/rooms', async (req, res) => {
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
 
         const enriched = await Promise.all(rooms.map(async (room) => {
+            const logoUrl = room.logo_url || null;
+            // v2.39.0 — safe/non-secret: lets landing-page cards branch the
+            // bookmark toggle into "Request to join" without a second fetch.
+            const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+            const joinPolicy = await RoomAccessService.getJoinPolicy(room.id);
+
+            // Security review fix (pre-merge, v2.39.0) — this endpoint is
+            // fully unauthenticated (no requireAuth/optional-decode today), so
+            // per-viewer membership would mean adding auth decoding to a route
+            // that's never needed it. Simplest-correct + safest default: an
+            // 'approval'-policy room strips activity counts + the Discord
+            // invite link for EVERY caller of this public list, unconditionally
+            // (not just guests) — those are exactly the "stats"/contact-info
+            // categories the contract bars for non-members, and a member
+            // browsing the landing page has other ways to see the room's real
+            // numbers (the room's own pages, once inside). name/slug/logo/
+            // description/join_policy stay so the "Request to join" card is
+            // still discoverable and renders normally. Skips the two count
+            // queries entirely for approval rooms — nothing computes them just
+            // to throw them away.
+            if (joinPolicy === 'approval') {
+                return {
+                    ...room,
+                    logo_url: logoUrl,
+                    activeGames: 0,
+                    activePlayers: 0,
+                    discordInviteUrl: null,
+                    join_policy: joinPolicy,
+                };
+            }
+
             // Count active games (games → tournaments → room)
             const activeGames = await db.get(
                 `SELECT COUNT(*) as count FROM games g
@@ -929,11 +960,6 @@ router.get('/rooms', async (req, res) => {
                 room.id
             );
             const discordInvite = await GameRoomSettingsService.get(room.id, 'DISCORD_INVITE_URL');
-            const logoUrl = room.logo_url || null;
-            // v2.39.0 — safe/non-secret: lets landing-page cards branch the
-            // bookmark toggle into "Request to join" without a second fetch.
-            const { RoomAccessService } = await import('../../services/RoomAccessService.js');
-            const joinPolicy = await RoomAccessService.getJoinPolicy(room.id);
 
             return {
                 ...room,

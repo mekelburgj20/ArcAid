@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import express from 'express';
+import request from 'supertest';
+import { setupTestDb, createTestRoom, createTestTournament, createTestGame, createTestSubmission } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { GlobalScoreService } from '../services/GlobalScoreService.js';
@@ -198,5 +200,63 @@ describe('RoomAccessService.canViewRoom — unit', () => {
         expect(await RoomAccessService.canViewRoom(
             { role: 'player', gameRoomIds: [], discordId: 'discord-cvr-2' }, roomId,
         )).toBe(false);
+    });
+});
+
+// Security review fix (pre-merge, v2.39.0) — GET /api/rooms is fully public
+// (no auth at all) and enriches every is_public room with activeGames/
+// activePlayers/discordInviteUrl. An approval-policy room must still be
+// discoverable there (join_policy carries through so the FE can render a
+// "Request to join" card) but its aggregate activity counts and Discord
+// invite link are exactly the "stats"/contact-info categories the contract
+// bars for non-members — those must be stripped, not just left ungated.
+describe('GET /api/rooms — approval rooms do not leak activity counts', () => {
+    async function createTestApp() {
+        await setupTestDb();
+        const app = express();
+        app.use(express.json());
+        const { default: globalRouter } = await import('../api/routes/global.js');
+        app.use('/api', globalRouter);
+        return app;
+    }
+
+    it('strips activeGames/activePlayers/discordInviteUrl for an approval-policy room, even though join_policy is still exposed', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('leak-approval-room', 'Approval Leak Room');
+        await GameRoomSettingsService.set(roomId, 'JOIN_POLICY', 'approval');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_INVITE_URL', 'https://discord.gg/example');
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId, { name: 'Hidden Game' });
+        await createTestSubmission(gameId, { username: 'HiddenPlayer', score: 12345 });
+
+        const res = await request(app).get('/api/rooms');
+        expect(res.status).toBe(200);
+        const room = res.body.find((r: any) => r.id === roomId);
+        expect(room).toBeDefined();
+        // Still discoverable.
+        expect(room.name).toBe('Approval Leak Room');
+        expect(room.join_policy).toBe('approval');
+        // But the leak categories are gone.
+        expect(room.activeGames).toBe(0);
+        expect(room.activePlayers).toBe(0);
+        expect(room.discordInviteUrl).toBeNull();
+    });
+
+    it('an open room in the same response still carries real counts (control)', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('leak-open-room', 'Open Room');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_INVITE_URL', 'https://discord.gg/open-example');
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId, { name: 'Visible Game' });
+        await createTestSubmission(gameId, { username: 'VisiblePlayer', score: 54321 });
+
+        const res = await request(app).get('/api/rooms');
+        expect(res.status).toBe(200);
+        const room = res.body.find((r: any) => r.id === roomId);
+        expect(room).toBeDefined();
+        expect(room.join_policy).toBe('open');
+        expect(room.activeGames).toBe(1);
+        expect(room.activePlayers).toBe(1);
+        expect(room.discordInviteUrl).toBe('https://discord.gg/open-example');
     });
 });
