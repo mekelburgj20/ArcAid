@@ -1845,6 +1845,7 @@ export async function initDatabase(): Promise<Database> {
             }
             console.log('[migration] 112: game_feedback + global_games.field_sources ready');
         } },
+        { name: '113_user_profiles_avatar_url', sql: `ALTER TABLE user_profiles ADD COLUMN avatar_url TEXT` },
     ];
 
     for (const migration of migrations) {
