@@ -9,6 +9,7 @@ import PlayerNameLink from '../components/PlayerNameLink';
 import { getPlatformDisplay } from '../lib/platforms';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
+import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
 import ConfirmModal from '../components/ConfirmModal';
@@ -238,6 +239,8 @@ export default function GameDetail() {
   // Room config for SubmissionSheet — photo + login requirements come from game-info/portal.
   const [requirePhoto, setRequirePhoto] = useState(false);
   const [requireLogin, setRequireLogin] = useState(false);
+  const [discordOnlyLogin, setDiscordOnlyLogin] = useState(false);
+  const [discordEnabled, setDiscordEnabled] = useState(true);
 
   // Comments/tips state
   const [tips, setTips] = useState<GameComment[]>([]);
@@ -343,7 +346,9 @@ export default function GameDetail() {
       .then(r => r.ok ? r.json() : {})
       .then((cfg: Record<string, string>) => {
         setRequirePhoto(cfg.REQUIRE_SCORE_PHOTO === 'true');
-        setRequireLogin(cfg.REQUIRE_DISCORD_LOGIN === 'true');
+        setRequireLogin(requiresAnyLogin(cfg.REQUIRE_DISCORD_LOGIN));
+        setDiscordOnlyLogin(requiresDiscordOnly(cfg.REQUIRE_DISCORD_LOGIN));
+        setDiscordEnabled(cfg.DISCORD_ENABLED !== 'false');
       })
       .catch(() => {});
   }, [name, roomId]);
@@ -1546,6 +1551,8 @@ export default function GameDetail() {
           }}
           roomSlug={slug}
           requireLogin={requireLogin}
+          discordOnly={discordOnlyLogin}
+          discordEnabled={discordEnabled}
           onClose={() => setSubmissionOpen(false)}
           onSubmitted={() => {
             setSubmissionOpen(false);

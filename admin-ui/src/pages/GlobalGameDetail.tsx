@@ -10,10 +10,11 @@ import ReportProblemModal from '../components/ReportProblemModal';
 import ConfirmModal from '../components/ConfirmModal';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
-import DiscordLoginButton from '../components/DiscordLoginButton';
+import LoginButtons from '../components/LoginButtons';
 import { getPlatformDisplay } from '../lib/platforms';
 import { formatScore } from '../lib/format';
 import { getPortal } from '../lib/portal';
+import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
 
 interface GlobalGame {
   id: string;
@@ -114,7 +115,7 @@ export default function GlobalGameDetail() {
   const { globalGameId } = useParams<{ globalGameId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const fromSlug = searchParams.get('from');
-  const { discordUser, playerToken, loginWithDiscord, logoutPlayer } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
   const [game, setGame] = useState<GlobalGame | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -135,7 +136,7 @@ export default function GlobalGameDetail() {
   // v2.0.1: when navigated with ?from=<slug>, treat the Submit as a room-scoped
   // freeplay submission (respects the room's REQUIRE_DISCORD_LOGIN) rather than
   // a direct global submission (which always requires Discord login).
-  const [fromRoom, setFromRoom] = useState<{ id: string; requireLogin: boolean } | null>(null);
+  const [fromRoom, setFromRoom] = useState<{ id: string; requireLogin: boolean; discordOnly: boolean; discordEnabled: boolean } | null>(null);
 
   // Rating state
   const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
@@ -185,7 +186,12 @@ export default function GlobalGameDetail() {
         const cfgRes = await fetch(`/api/rooms/${roomId}/scoreboard-config`);
         const cfg = cfgRes.ok ? await cfgRes.json() as Record<string, string> : {};
         if (cancelled) return;
-        setFromRoom({ id: roomId, requireLogin: cfg.REQUIRE_DISCORD_LOGIN === 'true' });
+        setFromRoom({
+            id: roomId,
+            requireLogin: requiresAnyLogin(cfg.REQUIRE_DISCORD_LOGIN),
+            discordOnly: requiresDiscordOnly(cfg.REQUIRE_DISCORD_LOGIN),
+            discordEnabled: cfg.DISCORD_ENABLED !== 'false',
+        });
       } catch { /* ignore — fall back to global */ }
     })();
     return () => { cancelled = true; };
@@ -325,6 +331,11 @@ export default function GlobalGameDetail() {
     loginWithDiscord('__global__', returnPath);
   };
 
+  const handleGoogleLogin = () => {
+    const returnPath = fromSlug ? `/games/${globalGameId}?from=${encodeURIComponent(fromSlug)}` : `/games/${globalGameId}`;
+    loginWithGoogle('__global__', returnPath);
+  };
+
   const handleSubmitClick = () => {
     // v2.0.1 — when navigated from a room (?from=<slug>), let SubmissionSheet
     // decide whether to require login based on the room's setting. Direct
@@ -458,8 +469,8 @@ export default function GlobalGameDetail() {
               /* v2.2.6: shared UserMenu — surfaces My Rooms / Friends / Log out here too. */
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
             ) : (
-              /* v2.2.7: shared Discord-brand Login button. */
-              <DiscordLoginButton onClick={handleLogin} />
+              /* v2.2.7: shared Discord-brand Login button. v2.35.0: + Google. */
+              <LoginButtons onDiscordLogin={handleLogin} onGoogleLogin={handleGoogleLogin} />
             )}
           </div>
         </div>
@@ -970,6 +981,8 @@ export default function GlobalGameDetail() {
           }
           roomSlug={fromSlug || undefined}
           requireLogin={fromRoom?.requireLogin}
+          discordOnly={fromRoom?.discordOnly}
+          discordEnabled={fromRoom?.discordEnabled}
           onClose={() => setShowSubmit(false)}
           onSubmitted={() => {
             setShowSubmit(false);

@@ -196,15 +196,28 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     description: 'When enabled, scores submitted in this room are also fanned out to the global ArcAid Leaderboard at arcaid.app/scoreboard. Players can still opt out per-score.',
     defaultOn: true,
   },
-  'REQUIRE_DISCORD_LOGIN': {
-    label: 'Require login for score submissions',
-    description: 'When enabled, players must log in with Discord before submitting scores. Anonymous scores already in this room will be hidden from every leaderboard while this is on; toggle it back off to restore them. Existing anonymous rows are preserved either way — they are simply orphaned, not deleted.',
-  },
   'ENABLE_GAME_PICK_AWARD': {
     label: 'Enable Game Pick Award',
     description: 'When enabled, tournament winners earn the right to pick the next game (Picks tab, /pick-game command, Mystery Award spinner, and turn-to-pick DMs are all active). When disabled, the whole pick-award flow is suppressed room-wide and a moderator queues games manually. Per-tournament winner-picks settings can further disable this but cannot override a room-level off switch.',
   },
 };
+
+// REQUIRE_DISCORD_LOGIN — v2.35.0: gained a third value ('discord') alongside
+// the pre-existing 'false'/'true' now that Google is a second login provider.
+// Rendered as a dedicated 3-option select (not a boolean toggle) since it's
+// no longer a simple on/off. Kept out of TOGGLE_SETTINGS so settingChanged's
+// boolean-compare branch doesn't apply to it (falls through to plain string
+// compare, which is correct for a 3-value key).
+const REQUIRE_LOGIN_KEY = 'REQUIRE_DISCORD_LOGIN';
+const REQUIRE_LOGIN_META = {
+  label: 'Require login for score submissions',
+  description: "Guests can submit: anyone may submit scores anonymously. Login required (any): players must sign in with Discord OR Google before submitting. Discord login required: only Discord sign-in is accepted (needed for DM notifications, /pick-game, and role-based room admin). Anonymous scores already in this room are hidden from every leaderboard whenever login is required; switching back to guests-allowed restores them. Existing anonymous rows are preserved either way — they are simply orphaned, not deleted.",
+};
+const REQUIRE_LOGIN_OPTIONS: { value: string; label: string }[] = [
+  { value: 'false', label: 'Guests can submit' },
+  { value: 'true', label: 'Login required (any)' },
+  { value: 'discord', label: 'Discord login required' },
+];
 
 // Every boolean on/off toggle key → its default-when-absent value, aggregated
 // from the toggle maps + the two inline toggles. Used by the dirty diff so a
@@ -670,7 +683,7 @@ export default function Settings() {
     // Confirm before saving a change to any access-affecting toggle.
     const changedDangerous = DANGEROUS_KEYS.filter(k => settingChanged(k, settings, baseline));
     if (changedDangerous.length > 0) {
-      const labels = changedDangerous.map(k => TOGGLE_SETTINGS[k]?.label || k).join(', ');
+      const labels = changedDangerous.map(k => TOGGLE_SETTINGS[k]?.label || (k === REQUIRE_LOGIN_KEY ? REQUIRE_LOGIN_META.label : k)).join(', ');
       if (!window.confirm(`You're changing: ${labels}. This affects how players access this room. Save these changes?`)) return;
     }
     setSaving(true);
@@ -730,6 +743,8 @@ export default function Settings() {
     ...Object.keys(SCOREBOARD_TOGGLES),
     ...Object.keys(KIOSK_TOGGLES),
     ...Object.keys(TOGGLE_SETTINGS),
+    // v2.35.0 — rendered as its own 3-option select, not a boolean toggle.
+    REQUIRE_LOGIN_KEY,
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
@@ -945,6 +960,23 @@ export default function Settings() {
             </div>
           );
         })}
+        {/* v2.35.0 — REQUIRE_DISCORD_LOGIN 3-option select (Google login added
+            a third value, so this is no longer a simple boolean toggle). */}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-primary">{REQUIRE_LOGIN_META.label}</p>
+            <p className="text-xs text-muted">{REQUIRE_LOGIN_META.description}</p>
+          </div>
+          <select
+            value={settings[REQUIRE_LOGIN_KEY] || 'false'}
+            onChange={e => handleChange(REQUIRE_LOGIN_KEY, e.target.value)}
+            className={`${inputClass} w-auto min-w-[190px]`}
+          >
+            {REQUIRE_LOGIN_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
       </NeonCard>
     </div>

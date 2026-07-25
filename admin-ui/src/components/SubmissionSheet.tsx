@@ -69,8 +69,27 @@ export interface SubmissionSheetProps {
      * v2.0.1: when true and the viewer has no player token, the sheet renders
      * a login-required state immediately instead of the form. Saves the user
      * from typing name+score+photo only to be rejected server-side.
+     *
+     * v2.35.0: true for BOTH REQUIRE_DISCORD_LOGIN values that require login
+     * ('true' or 'discord') — callers should derive this via
+     * `requiresAnyLogin()` from `lib/loginPolicy.ts`.
      */
     requireLogin?: boolean;
+    /**
+     * v2.35.0 (Google login) — true when the room's REQUIRE_DISCORD_LOGIN is
+     * specifically 'discord' (not just 'true'): only the Discord login option
+     * is offered, with copy explaining why. Callers should derive this via
+     * `requiresDiscordOnly()` from `lib/loginPolicy.ts`.
+     */
+    discordOnly?: boolean;
+    /**
+     * v2.35.0 (Google login) — true when the room's DISCORD_ENABLED !== 'false'.
+     * Drives the one-line "Sign in with Discord to get DM notifications and
+     * tournament picks" nudge shown under the login buttons when both
+     * providers are offered. Undefined/omitted = nudge not shown (caller
+     * doesn't have this cheaply at hand).
+     */
+    discordEnabled?: boolean;
 }
 
 type Phase =
@@ -117,8 +136,10 @@ export default function SubmissionSheet({
     commitDraftState,
     roomSlug,
     requireLogin,
+    discordOnly,
+    discordEnabled,
 }: SubmissionSheetProps) {
-    const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
+    const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
     const [playerName, setPlayerName] = useState(
         initialPlayerName ??
             discordUser?.username ??
@@ -578,12 +599,25 @@ export default function SubmissionSheet({
 
                         {/* S5 guest-conversion CTA — every Nth guest submit. */}
                         {!playerToken && roomSlug && guestCount % GUEST_CTA_EVERY_N === 0 && (
-                            <NeonButton
-                                onClick={() => loginWithDiscord(roomSlug)}
-                                className="w-full inline-flex items-center justify-center gap-2"
-                            >
-                                <LogIn size={16} /> Log in with Discord to claim your scores and get dethrone alerts
-                            </NeonButton>
+                            <div className="space-y-2">
+                                <NeonButton
+                                    onClick={() => loginWithDiscord(roomSlug)}
+                                    className="w-full inline-flex items-center justify-center gap-2"
+                                >
+                                    <LogIn size={16} /> Log in with Discord to claim your scores and get dethrone alerts
+                                </NeonButton>
+                                {/* v2.35.0 — Google option alongside the primary Discord CTA,
+                                    suppressed when the room requires Discord specifically. */}
+                                {!discordOnly && (
+                                    <button
+                                        type="button"
+                                        onClick={() => loginWithGoogle(roomSlug)}
+                                        className="w-full px-4 py-2 rounded border border-border text-muted text-sm hover:text-primary hover:border-border/80 transition-colors cursor-pointer"
+                                    >
+                                        or continue with Google
+                                    </button>
+                                )}
+                            </div>
                         )}
 
                         <div className="grid grid-cols-1 gap-2 pt-1">
@@ -656,7 +690,9 @@ export default function SubmissionSheet({
                                     Log in to submit a score
                                 </p>
                                 <p className="text-xs text-muted leading-relaxed">
-                                    This room requires a Discord login for score submissions. Log in to submit on <span className="text-primary font-medium">{target.gameName}</span>.
+                                    {discordOnly
+                                        ? 'This room requires Discord sign-in to submit scores.'
+                                        : 'This room requires login for score submissions.'} Log in to submit on <span className="text-primary font-medium">{target.gameName}</span>.
                                 </p>
                             </div>
                         </div>
@@ -668,6 +704,21 @@ export default function SubmissionSheet({
                             >
                                 <LogIn size={16} /> Log in with Discord
                             </NeonButton>
+                            {!discordOnly && (
+                                <button
+                                    type="button"
+                                    onClick={() => roomSlug && loginWithGoogle(roomSlug)}
+                                    disabled={!roomSlug}
+                                    className="w-full px-4 py-2 rounded border border-border bg-surface text-primary text-sm font-medium hover:bg-raised hover:border-border/80 transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
+                                >
+                                    <LogIn size={16} /> Log in with Google
+                                </button>
+                            )}
+                            {!discordOnly && discordEnabled && (
+                                <p className="text-[11px] text-faint text-center">
+                                    Sign in with Discord to get DM notifications and tournament picks.
+                                </p>
+                            )}
                             <button
                                 type="button"
                                 onClick={onClose}

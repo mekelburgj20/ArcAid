@@ -3,7 +3,7 @@ import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Star, Crosshair, X } from 'lucide-react';
 import MysteryAward from '../components/MysteryAward';
 import PickGameModal from '../components/PickGameModal';
-import DiscordLoginButton from '../components/DiscordLoginButton';
+import LoginButtons from '../components/LoginButtons';
 import { MysteryAwardIcon } from '../assets/icons/ThemedIcons';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
@@ -105,7 +105,7 @@ export default function Picks() {
   const [showPicker, setShowPicker] = useState(false);
 
   // Pick game state
-  const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
   const { toast } = useToast();
   const [pickStatus, setPickStatus] = useState<PickStatusData | null>(null);
   const [pickTarget, setPickTarget] = useState<string | null>(null);
@@ -312,15 +312,19 @@ export default function Picks() {
             <div className="min-w-0">
               <h2 className="font-display text-sm font-bold text-primary">Log in to pick games</h2>
               <p className="text-xs text-muted mt-1">
-                Log in with Discord to pick games and spin for awards.
+                Log in to pick games and spin for awards.
               </p>
             </div>
-            <DiscordLoginButton
-              onClick={() => {
+            <LoginButtons
+              onDiscordLogin={() => {
                 const back = `/${slug}/picks${window.location.search || ''}`;
                 loginWithDiscord(slug, back);
               }}
-              label="Log in with Discord"
+              onGoogleLogin={() => {
+                const back = `/${slug}/picks${window.location.search || ''}`;
+                loginWithGoogle(slug, back);
+              }}
+              label="Log in"
               className="flex-shrink-0"
             />
           </div>

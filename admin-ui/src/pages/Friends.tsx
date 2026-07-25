@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { UserPlus, Trash2, Users, ArrowLeft, Home } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import LoginButtons from '../components/LoginButtons';
+import { resolveAvatarUrl } from '../lib/avatar';
 
 interface Friend {
   id: string;
@@ -11,11 +13,13 @@ interface Friend {
   /** v2.8.0: friend's chosen global display name. */
   display_name: string | null;
   avatar_hash: string | null;
+  /** v2.35.0: full avatar URL for Google-identified friends. */
+  avatar_url: string | null;
   created_at: string;
 }
 
 export default function Friends() {
-  const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState('');
@@ -74,13 +78,12 @@ export default function Friends() {
       <div className="min-h-screen bg-deep flex items-center justify-center">
         <div className="text-center">
           <Users size={40} className="text-muted/30 mx-auto mb-3" />
-          <p className="text-muted mb-4">Log in with Discord to manage your friends list</p>
-          <button
-            onClick={() => loginWithDiscord('__friends__')}
-            className="px-4 py-2 rounded border border-[#5865F2]/40 bg-[#5865F2]/10 text-[#5865F2] text-sm font-medium hover:bg-[#5865F2]/20 cursor-pointer"
-          >
-            Login
-          </button>
+          <p className="text-muted mb-4">Log in to manage your friends list</p>
+          <LoginButtons
+            onDiscordLogin={() => loginWithDiscord('__friends__')}
+            onGoogleLogin={() => loginWithGoogle('__friends__')}
+            className="justify-center"
+          />
         </div>
       </div>
     );
@@ -149,9 +152,9 @@ export default function Friends() {
             {friends.map(f => (
               <div key={f.id} className="flex items-center gap-3 px-4 py-3">
                 {/* Avatar */}
-                {f.avatar_hash && f.friend_user_id ? (
+                {resolveAvatarUrl(f.friend_user_id, f.avatar_url ?? f.avatar_hash) ? (
                   <img
-                    src={`https://cdn.discordapp.com/avatars/${f.friend_user_id}/${f.avatar_hash}.webp?size=64`}
+                    src={resolveAvatarUrl(f.friend_user_id, f.avatar_url ?? f.avatar_hash)!}
                     alt=""
                     className="w-8 h-8 rounded-full border border-border"
                   />

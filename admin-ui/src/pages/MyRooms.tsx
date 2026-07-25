@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, ArrowLeft, Home, UserCheck, Trophy, Mail, Sparkles } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
+import LoginButtons from '../components/LoginButtons';
 
 type RoomMemberSource = 'submission' | 'admin_invite' | 'claim' | 'backfill';
 
@@ -47,7 +48,7 @@ function formatRelativeTime(iso: string | null): string {
 }
 
 export default function MyRooms() {
-  const { discordUser, playerToken, loginWithDiscord } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
   const [rooms, setRooms] = useState<RoomForUser[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -67,13 +68,12 @@ export default function MyRooms() {
       <div className="min-h-screen bg-deep flex items-center justify-center">
         <div className="text-center">
           <Building2 size={40} className="text-muted/30 mx-auto mb-3" />
-          <p className="text-muted mb-4">Log in with Discord to see the rooms you belong to</p>
-          <button
-            onClick={() => loginWithDiscord('__myrooms__', '/my-rooms')}
-            className="px-4 py-2 rounded border border-[#5865F2]/40 bg-[#5865F2]/10 text-[#5865F2] text-sm font-medium hover:bg-[#5865F2]/20 cursor-pointer"
-          >
-            Login
-          </button>
+          <p className="text-muted mb-4">Log in to see the rooms you belong to</p>
+          <LoginButtons
+            onDiscordLogin={() => loginWithDiscord('__myrooms__', '/my-rooms')}
+            onGoogleLogin={() => loginWithGoogle('__myrooms__', '/my-rooms')}
+            className="justify-center"
+          />
         </div>
       </div>
     );

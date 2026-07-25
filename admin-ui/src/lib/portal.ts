@@ -25,6 +25,8 @@ export interface Portal {
   public_theme?: string | null;
   is_public?: boolean;
   pick_award_enabled?: boolean;
+  /** v2.35.0 — drives the "sign in with Discord for DMs/picks" login nudge. */
+  discord_enabled?: boolean;
 }
 
 const cache = new Map<string, Promise<Portal>>();
