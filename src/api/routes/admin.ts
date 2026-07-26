@@ -1458,6 +1458,25 @@ router.post('/bans', async (req, res) => {
             });
         }
 
+        // m5 fix (S22 Phase 2 adversarial review) — refuse self-ban. Compares
+        // both the raw id AND the canonical resolution of both sides, so a
+        // super-admin can't route around this by naming a Google/Discord
+        // alias linked to their own canonical identity instead of their
+        // literal token id. Only meaningful for a discordId-bearing actor —
+        // a local-admin (password) super-admin has no discordId and isn't a
+        // possible ban target (bans are keyed on provider ids).
+        const actorId = req.user!.discordId;
+        if (actorId) {
+            const { IdentityLinkService } = await import('../../services/IdentityLinkService.js');
+            const [actorCanonical, targetCanonical] = await Promise.all([
+                IdentityLinkService.resolveCanonical(actorId),
+                IdentityLinkService.resolveCanonical(discordUserId),
+            ]);
+            if (actorId === discordUserId || actorCanonical === targetCanonical) {
+                return res.status(400).json({ error: 'You cannot ban your own account.' });
+            }
+        }
+
         const ban = await ScoreReportService.ban(
             discordUserId,
             (req.user!.discordId || req.user!.username || 'admin'),

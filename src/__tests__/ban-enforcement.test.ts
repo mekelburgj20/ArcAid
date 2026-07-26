@@ -83,6 +83,12 @@ describe('BanService.isIdentityBanned — unit', () => {
     });
 
     it('not banned once the ban has expired', async () => {
+        // n3 (accepted nit, S22 Phase 2 adversarial review) — `past` is
+        // "60s ago", which is virtually always still TODAY (UTC). In the
+        // extremely rare case this test runs within 60s of UTC midnight,
+        // `past` would land on the PREVIOUS calendar day instead — still a
+        // valid "expired" case either way (datetime() comparison handles
+        // both), so this is a non-issue in practice; noted per review.
         const past = new Date(Date.now() - 60_000).toISOString();
         await seedBan('discord-expired-1', { expiresAt: past });
         const result = await BanService.isIdentityBanned('discord-expired-1');

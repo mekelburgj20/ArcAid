@@ -235,11 +235,22 @@ export class ScoreReportService {
 
     /**
      * List all bans with optional filter on active-only.
+     *
+     * m6 fix (S22 Phase 2 adversarial review) — `expires_at` is stored as a
+     * `.toISOString()` string (`...T...Z`), and comparing that raw string
+     * directly against sqlite's `datetime('now')` (`YYYY-MM-DD HH:MM:SS`,
+     * space-separated) is a STRING comparison where `'T'` (0x54) sorts after
+     * `' '` (0x20) — so a same-calendar-day expiry that's actually already
+     * PAST would still compare as "greater than now" and read as still
+     * active. Wrapping both sides in `datetime(...)` normalizes to the same
+     * representation first. Same bug BanService.isIdentityBanned had (fixed
+     * there first, ported here — see that file's comment for the empirical
+     * confirmation).
      */
     static async listBans(activeOnly = false): Promise<UserBan[]> {
         const db = await getDatabase();
         const filter = activeOnly
-            ? `WHERE lifted_at IS NULL AND (expires_at IS NULL OR expires_at > datetime('now'))`
+            ? `WHERE lifted_at IS NULL AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))`
             : '';
         return db.all(`SELECT * FROM user_bans ${filter} ORDER BY banned_at DESC`);
     }

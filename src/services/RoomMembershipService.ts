@@ -74,6 +74,11 @@ export class RoomMembershipService {
      * the max of submissions.timestamp / community_scores.created_at scoped to the
      * (user, room) pair. Falls back to joined_at when the user has no scores yet
      * (e.g. backfilled admin who never submitted).
+     *
+     * m2 fix (S22 Phase 2 adversarial review) — excludes suspended rooms:
+     * "My Rooms" must not surface a room the caller can't actually visit.
+     * The membership row itself is left untouched (unsuspending restores it
+     * to this list with no re-join needed).
      */
     static async listRoomsForUser(userId: string): Promise<RoomForUser[]> {
         if (!isRealUserId(userId)) return [];
@@ -105,7 +110,7 @@ export class RoomMembershipService {
                 ) AS lastActivityAt
              FROM room_members rm
              JOIN game_rooms gr ON gr.id = rm.room_id
-             WHERE rm.user_id = ?
+             WHERE rm.user_id = ? AND gr.suspended_at IS NULL
              ORDER BY COALESCE(lastActivityAt, joinedAt) DESC`,
             userId
         );

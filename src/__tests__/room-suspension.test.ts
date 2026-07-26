@@ -208,16 +208,22 @@ describe('POST /api/admin/rooms/:roomId/suspend + /unsuspend', () => {
         expect(room?.suspended_by).toBe('super-audit-1');
         expect(room?.suspended_reason).toBe('reported for abuse');
 
-        // Fire-and-forget audit write (AuditService.log in auditMiddleware) —
-        // flush a tick before asserting. Actor is the token's `username`
-        // (auditMiddleware prefers username over discordId), not the discordId
-        // param — see superAdminToken()'s hardcoded 'SuperAdmin' username.
-        await new Promise((r) => setTimeout(r, 20));
+        // Fire-and-forget audit write (AuditService.log in auditMiddleware).
+        // Actor is the token's `username` (auditMiddleware prefers username
+        // over discordId), not the discordId param — see superAdminToken()'s
+        // hardcoded 'SuperAdmin' username.
+        // n4 fix (S22 Phase 2 adversarial review) — poll instead of a fixed
+        // sleep to avoid CI flakiness under load; 500ms budget, 25ms steps.
         const db = await getDatabase();
-        const auditRow = await db.get(
-            `SELECT * FROM audit_log WHERE actor = ? AND action LIKE '%suspend%'`,
-            'SuperAdmin',
-        );
+        let auditRow: unknown = null;
+        const deadline = Date.now() + 500;
+        while (!auditRow && Date.now() < deadline) {
+            auditRow = await db.get(
+                `SELECT * FROM audit_log WHERE actor = ? AND action LIKE '%suspend%'`,
+                'SuperAdmin',
+            );
+            if (!auditRow) await new Promise((r) => setTimeout(r, 25));
+        }
         expect(auditRow).toBeTruthy();
     });
 

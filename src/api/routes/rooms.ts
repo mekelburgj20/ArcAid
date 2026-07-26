@@ -173,6 +173,15 @@ router.get('/:roomId/portal', async (req, res) => {
 router.get('/:roomId/scoreboard-config', async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
+        // m1 fix (S22 Phase 2 adversarial review) — this route registers
+        // BEFORE roomVisibilityGate (same structural bypass as portal above),
+        // so a suspended room's scoreboard-config was reachable by anyone.
+        // Approval-room behavior is intentionally untouched — only suspension
+        // gates here.
+        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+        if (await RoomAccessService.isSuspended(roomId)) {
+            return res.status(403).json({ error: 'This room has been suspended pending review.', code: 'ROOM_SUSPENDED' });
+        }
         const allSettings = await GameRoomSettingsService.getAll(roomId);
         const config: Record<string, string> = {};
         // v2.35.0 (Google login) — REQUIRE_DISCORD_LOGIN and DISCORD_ENABLED are

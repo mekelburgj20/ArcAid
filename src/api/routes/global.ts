@@ -214,10 +214,16 @@ router.post('/me/rooms/:roomId', requireDiscordUser, async (req, res) => {
         const room = await GameRoomService.getById(roomId);
         if (!room) return res.status(404).json({ error: 'Room not found' });
 
+        // m2 fix (S22 Phase 2 adversarial review) — a suspended room must
+        // refuse self-join the same as it refuses everything else.
+        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+        if (await RoomAccessService.isSuspended(roomId)) {
+            return res.status(403).json({ error: 'This room has been suspended pending review.', code: 'ROOM_SUSPENDED' });
+        }
+
         // v2.39.0 (approval rooms) — plain self-join is an 'open'-policy-only
         // shortcut. An 'approval' room must go through the request/approve
         // queue (POST .../join-request) instead.
-        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
         if ((await RoomAccessService.getJoinPolicy(roomId)) === 'approval') {
             return res.status(403).json({ error: 'This room requires approval to join', code: 'APPROVAL_REQUIRED' });
         }
@@ -1346,6 +1352,20 @@ router.get('/submit/platforms', async (req, res) => {
         const db = await getDatabase();
         const { parsePlatformsList, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
         const { normalizePlatform } = await import('../../utils/platformMapping.js');
+
+        // m3 fix (S22 Phase 2 adversarial review) — this route sits outside
+        // rooms.ts (so it doesn't pass through roomVisibilityGate) and is the
+        // resolver SubmissionSheet calls to build the platform picker; a
+        // suspended room's picker must refuse the same as its submit
+        // endpoints do. Approval-room behavior is deliberately untouched
+        // (this route has never gated on join_policy — accepted pre-existing
+        // posture) — only suspension gates here.
+        if (roomId) {
+            const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+            if (await RoomAccessService.isSuspended(roomId)) {
+                return res.status(403).json({ error: 'This room has been suspended pending review.', code: 'ROOM_SUSPENDED' });
+            }
+        }
 
         // v2.5.1: alias-fold + dedupe so the picker never shows VPX/vpx/vpxs
         // duplicates. Stored data may have legacy mixed-case strings; client

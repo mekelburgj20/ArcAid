@@ -357,4 +357,78 @@ describe('GET /api/admin/bans + POST /api/admin/bans/:banId/lift', () => {
         expect(ban.lifted_at).not.toBeNull();
         void playerId;
     });
+
+    // m6 fix (S22 Phase 2 adversarial review) — listBans(activeOnly) compared
+    // the raw ISO-8601 expires_at string directly against sqlite's
+    // datetime('now'), which is wrong for a same-calendar-day expiry (see
+    // ScoreReportService.listBans's updated comment). This locks the fix in
+    // at the route level via ?active=1.
+    it('?active=1 excludes a ban that expired earlier TODAY (same-day expiry)', async () => {
+        const app = await createApp();
+        const db = await getDatabase();
+        const pastToday = new Date(Date.now() - 60_000).toISOString();
+        await db.run(
+            `INSERT INTO user_bans (id, discord_user_id, banned_by, expires_at) VALUES (?, ?, 'admin', ?)`,
+            crypto.randomUUID(), 'discord-m6-expired-today', pastToday,
+        );
+
+        const activeList = await request(app)
+            .get('/api/admin/bans?active=1')
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp());
+        expect(activeList.status).toBe(200);
+        expect(activeList.body.find((b: any) => b.discord_user_id === 'discord-m6-expired-today')).toBeUndefined();
+
+        const fullList = await request(app)
+            .get('/api/admin/bans')
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp());
+        expect(fullList.body.find((b: any) => b.discord_user_id === 'discord-m6-expired-today')).toBeTruthy();
+    });
+});
+
+describe('POST /api/admin/bans — self-ban guard (m5, S22 Phase 2 adversarial review)', () => {
+    it('400s when a super-admin tries to ban their own discordId', async () => {
+        const app = await createApp();
+        const selfId = 'discord-self-ban-1';
+        const token = signToken({ role: 'super_admin', gameRoomIds: [], discordId: selfId, username: 'admin' });
+        const res = await request(app)
+            .post('/api/admin/bans')
+            .set('Authorization', `Bearer ${token}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ discordUserId: selfId });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/cannot ban your own account/i);
+    });
+
+    it('400s when banning a linked alias of the actor\'s own canonical identity', async () => {
+        const app = await createApp();
+        const db = await getDatabase();
+        const canonicalId = 'discord-self-ban-canonical';
+        const linkedAlias = 'google:self-ban-alias';
+        await db.run(
+            `INSERT INTO user_identity_links (provider_user_id, canonical_user_id) VALUES (?, ?)`,
+            linkedAlias, canonicalId,
+        );
+        const token = signToken({ role: 'super_admin', gameRoomIds: [], discordId: canonicalId, username: 'admin' });
+
+        const res = await request(app)
+            .post('/api/admin/bans')
+            .set('Authorization', `Bearer ${token}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ discordUserId: linkedAlias });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/cannot ban your own account/i);
+    });
+
+    it('allows banning a DIFFERENT identity (control)', async () => {
+        const app = await createApp();
+        const token = signToken({ role: 'super_admin', gameRoomIds: [], discordId: 'discord-self-ban-actor', username: 'admin' });
+        const res = await request(app)
+            .post('/api/admin/bans')
+            .set('Authorization', `Bearer ${token}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ discordUserId: 'discord-someone-else-entirely' });
+        expect(res.status).toBe(201);
+    });
 });
