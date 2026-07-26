@@ -484,6 +484,7 @@ export default function GameRoomManager() {
               value={suspendReason}
               onChange={(e) => setSuspendReason(e.target.value)}
               placeholder="Why is this room being suspended?"
+              maxLength={500}
               className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 mb-4"
             />
             <div className="flex justify-end gap-3">

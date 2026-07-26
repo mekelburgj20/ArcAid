@@ -149,8 +149,19 @@ export default function Reports() {
   const [actingOn, setActingOn] = useState<string | number | null>(null);
   const [resolutionNotes, setResolutionNotes] = useState<Record<string, string>>({});
   const [confirmTarget, setConfirmTarget] = useState<ConfirmAction | null>(null);
-  const [banDurationDays, setBanDurationDays] = useState('');
-  const [banReason, setBanReason] = useState('');
+  // m9 fix (S22 Phase 2 adversarial review) — each confirm-with-input modal
+  // (score-ban / suspend-room / ban-identity) gets its OWN reason/duration
+  // state. Previously score-ban and ban-identity shared one `banReason` +
+  // `banDurationDays` pair, so a duration typed for one report could bleed
+  // into a DIFFERENT report's ban if the admin opened a second modal without
+  // the first one's `finally` block having cleared it (e.g. via Cancel,
+  // which never cleared state at all). Reset explicitly on both open (the
+  // "open*" helpers below) and cancel.
+  const [scoreBanDurationDays, setScoreBanDurationDays] = useState('');
+  const [scoreBanReason, setScoreBanReason] = useState('');
+  const [suspendReason, setSuspendReason] = useState('');
+  const [banIdentityDurationDays, setBanIdentityDurationDays] = useState('');
+  const [banIdentityReason, setBanIdentityReason] = useState('');
   // Inline "done" feedback for Reset display name (contract: "show the
   // result inline" — the report row itself doesn't disappear until
   // separately dismissed/resolved, so this renders next to it).
@@ -250,8 +261,8 @@ export default function Reports() {
     } finally {
       setActingOn(null);
       setConfirmTarget(null);
-      setBanDurationDays('');
-      setBanReason('');
+      setScoreBanDurationDays('');
+      setScoreBanReason('');
     }
   };
 
@@ -260,7 +271,7 @@ export default function Reports() {
     if (!report.game_room_id) return;
     setActingOn(report.id);
     try {
-      await api.post(`/admin/rooms/${report.game_room_id}/suspend`, { reason: banReason.trim() || undefined });
+      await api.post(`/admin/rooms/${report.game_room_id}/suspend`, { reason: suspendReason.trim() || undefined });
       toast('Room suspended', 'success');
       await refresh();
     } catch (err) {
@@ -268,7 +279,7 @@ export default function Reports() {
     } finally {
       setActingOn(null);
       setConfirmTarget(null);
-      setBanReason('');
+      setSuspendReason('');
     }
   };
 
@@ -295,8 +306,8 @@ export default function Reports() {
     try {
       await api.post('/admin/bans', {
         discordUserId: report.target_user_id,
-        durationDays: banDurationDays ? parseInt(banDurationDays, 10) : null,
-        reason: banReason.trim() || undefined,
+        durationDays: banIdentityDurationDays ? parseInt(banIdentityDurationDays, 10) : null,
+        reason: banIdentityReason.trim() || undefined,
       });
       toast('Identity banned', 'success');
     } catch (err) {
@@ -304,9 +315,27 @@ export default function Reports() {
     } finally {
       setActingOn(null);
       setConfirmTarget(null);
-      setBanDurationDays('');
-      setBanReason('');
+      setBanIdentityDurationDays('');
+      setBanIdentityReason('');
     }
+  };
+
+  // m9 fix (S22 Phase 2 adversarial review) — dedicated "open" helpers so
+  // each confirm-with-input modal starts from a clean slate every time,
+  // regardless of what a PREVIOUS open/cancel left behind.
+  const openScoreBanModal = (report: ScoreReportRow) => {
+    setScoreBanDurationDays('');
+    setScoreBanReason('');
+    setConfirmTarget({ kind: 'score-ban', report });
+  };
+  const openSuspendRoomModal = (report: ContentReportRow) => {
+    setSuspendReason('');
+    setConfirmTarget({ kind: 'suspend-room', report });
+  };
+  const openBanIdentityModal = (report: ContentReportRow) => {
+    setBanIdentityDurationDays('');
+    setBanIdentityReason('');
+    setConfirmTarget({ kind: 'ban-identity', report });
   };
 
   /** S22 Phase 2 (v2.44.0) — Bans tab: lift an active ban. */
@@ -418,6 +447,7 @@ export default function Reports() {
                     type="text"
                     value={banFormReason}
                     onChange={(e) => setBanFormReason(e.target.value)}
+                    maxLength={500}
                     className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50"
                   />
                 </div>
@@ -543,7 +573,7 @@ export default function Reports() {
                           <NeonButton
                             variant="danger"
                             className="text-xs px-3 py-1.5"
-                            onClick={() => setConfirmTarget({ kind: 'suspend-room', report: r })}
+                            onClick={() => openSuspendRoomModal(r)}
                             disabled={actingOn === r.id}
                           >
                             <ShieldAlert size={13} className="inline -mt-0.5 mr-1" />
@@ -560,15 +590,22 @@ export default function Reports() {
                             >
                               Reset display name
                             </NeonButton>
-                            <NeonButton
-                              variant="danger"
-                              className="text-xs px-3 py-1.5"
-                              onClick={() => setConfirmTarget({ kind: 'ban-identity', report: r })}
-                              disabled={actingOn === r.id}
-                            >
-                              <UserX size={13} className="inline -mt-0.5 mr-1" />
-                              Ban identity
-                            </NeonButton>
+                            {/* m8 fix (S22 Phase 2 adversarial review) — an
+                                iscored:* synthetic id has no login identity to
+                                ban (same guard the server enforces on both
+                                ban routes); hide the action entirely rather
+                                than let the admin hit a 400. */}
+                            {!r.target_user_id.startsWith('iscored:') && (
+                              <NeonButton
+                                variant="danger"
+                                className="text-xs px-3 py-1.5"
+                                onClick={() => openBanIdentityModal(r)}
+                                disabled={actingOn === r.id}
+                              >
+                                <UserX size={13} className="inline -mt-0.5 mr-1" />
+                                Ban identity
+                              </NeonButton>
+                            )}
                           </>
                         )}
                         <NeonButton
@@ -661,7 +698,7 @@ export default function Reports() {
                         <NeonButton
                           variant="danger"
                           className="text-xs px-3 py-1.5"
-                          onClick={() => setConfirmTarget({ kind: 'score-ban', report: r })}
+                          onClick={() => openScoreBanModal(r)}
                           disabled={actingOn === r.id}
                         >
                           <Ban size={13} className="inline -mt-0.5 mr-1" />
@@ -704,25 +741,26 @@ export default function Reports() {
             <input
               type="number"
               min={1}
-              value={banDurationDays}
-              onChange={(e) => setBanDurationDays(e.target.value)}
+              value={scoreBanDurationDays}
+              onChange={(e) => setScoreBanDurationDays(e.target.value)}
               placeholder="Permanent"
               className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 mb-3"
             />
             <label className="block text-xs text-faint mb-1">Reason (optional)</label>
             <input
               type="text"
-              value={banReason}
-              onChange={(e) => setBanReason(e.target.value)}
+              value={scoreBanReason}
+              onChange={(e) => setScoreBanReason(e.target.value)}
+              maxLength={500}
               className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 mb-4"
             />
             <div className="flex justify-end gap-3">
-              <NeonButton variant="ghost" onClick={() => setConfirmTarget(null)}>Cancel</NeonButton>
+              <NeonButton variant="ghost" onClick={() => { setConfirmTarget(null); setScoreBanDurationDays(''); setScoreBanReason(''); }}>Cancel</NeonButton>
               <NeonButton
                 variant="danger"
                 onClick={() => handleScoreAction(confirmTarget.report.id, 'ban', {
-                  durationDays: banDurationDays ? parseInt(banDurationDays, 10) : null,
-                  reason: banReason || undefined,
+                  durationDays: scoreBanDurationDays ? parseInt(scoreBanDurationDays, 10) : null,
+                  reason: scoreBanReason || undefined,
                 })}
               >
                 Ban Player
@@ -735,7 +773,7 @@ export default function Reports() {
       {confirmTarget?.kind === 'suspend-room' && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm"
-          onClick={() => { setConfirmTarget(null); setBanReason(''); }}
+          onClick={() => { setConfirmTarget(null); setSuspendReason(''); }}
         >
           <div
             role="dialog"
@@ -754,13 +792,14 @@ export default function Reports() {
             <label className="block text-xs text-faint mb-1">Reason (optional, internal)</label>
             <input
               type="text"
-              value={banReason}
-              onChange={(e) => setBanReason(e.target.value)}
+              value={suspendReason}
+              onChange={(e) => setSuspendReason(e.target.value)}
               placeholder="Why is this room being suspended?"
+              maxLength={500}
               className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 mb-4"
             />
             <div className="flex justify-end gap-3">
-              <NeonButton variant="ghost" onClick={() => { setConfirmTarget(null); setBanReason(''); }}>Cancel</NeonButton>
+              <NeonButton variant="ghost" onClick={() => { setConfirmTarget(null); setSuspendReason(''); }}>Cancel</NeonButton>
               <NeonButton variant="danger" onClick={() => handleSuspendRoom(confirmTarget.report)}>
                 Suspend Room
               </NeonButton>
@@ -780,7 +819,10 @@ export default function Reports() {
       )}
 
       {confirmTarget?.kind === 'ban-identity' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm" onClick={() => setConfirmTarget(null)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm"
+          onClick={() => { setConfirmTarget(null); setBanIdentityDurationDays(''); setBanIdentityReason(''); }}
+        >
           <div
             role="dialog"
             aria-modal="true"
@@ -796,20 +838,21 @@ export default function Reports() {
             <input
               type="number"
               min={1}
-              value={banDurationDays}
-              onChange={(e) => setBanDurationDays(e.target.value)}
+              value={banIdentityDurationDays}
+              onChange={(e) => setBanIdentityDurationDays(e.target.value)}
               placeholder="Permanent"
               className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 mb-3"
             />
             <label className="block text-xs text-faint mb-1">Reason (optional)</label>
             <input
               type="text"
-              value={banReason}
-              onChange={(e) => setBanReason(e.target.value)}
+              value={banIdentityReason}
+              onChange={(e) => setBanIdentityReason(e.target.value)}
+              maxLength={500}
               className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 mb-4"
             />
             <div className="flex justify-end gap-3">
-              <NeonButton variant="ghost" onClick={() => setConfirmTarget(null)}>Cancel</NeonButton>
+              <NeonButton variant="ghost" onClick={() => { setConfirmTarget(null); setBanIdentityDurationDays(''); setBanIdentityReason(''); }}>Cancel</NeonButton>
               <NeonButton variant="danger" onClick={() => handleBanIdentity(confirmTarget.report)}>
                 Ban Identity
               </NeonButton>
