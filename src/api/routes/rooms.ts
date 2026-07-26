@@ -1385,6 +1385,9 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequ
 
         res.status(201).json(result);
     } catch (error) {
+        if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
+            return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
+        }
         logError('API Error (POST rooms/:roomId/community-scores/:gameName):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
@@ -1451,6 +1454,11 @@ router.post('/:roomId/submit/name-check', async (req, res) => {
         const result = await RoomNameClaimService.checkAvailability(roomId, name, claimant);
         res.json(result);
     } catch (error) {
+        // S22 Phase 1 (v2.43.0) — blocklist rejection; SubmissionSheet's
+        // pre-submit prompt should render this as a message, not a crash.
+        if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
+            return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
+        }
         logError('API Error (POST rooms/:roomId/submit/name-check):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
@@ -1564,6 +1572,9 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
 
         res.status(201).json(result);
     } catch (error) {
+        if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
+            return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
+        }
         logError('API Error (POST rooms/:roomId/submit-score/:gameName):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
@@ -1709,6 +1720,9 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             requested: result.requested,
         });
     } catch (error) {
+        if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
+            return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
+        }
         logError('API Error (POST rooms/:roomId/freeplay-score):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }

@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { logError, logInfo } from '../utils/logger.js';
+import { assertNameAllowed } from '../utils/contentBlocklist.js';
 
 /**
  * Per-Discord-user global profile. Owns the user-chosen display name and the
@@ -133,6 +134,12 @@ export class UserProfileService {
             logInfo(`UserProfileService.setDisplayName: cleared for ${discordUserId}`);
             return null;
         }
+
+        // S22 Phase 1 (v2.43.0) — blocklist check before the existing
+        // availability checks. Throws NAME_NOT_ALLOWED; users.ts maps coded
+        // errors from this method to HTTP the same way it already does for
+        // DISPLAY_NAME_TAKEN.
+        assertNameAllowed(name, 'display_name');
 
         const check = await this.checkDisplayNameAvailability(discordUserId, name);
         if (!check.available) {

@@ -1,4 +1,15 @@
 import { z } from 'zod';
+import { containsBlockedTerm } from '../utils/contentBlocklist.js';
+
+// S22 Phase 1 content moderation (v2.43.0) — shared field-level refine so a
+// blocked-term name fails Zod validation before it ever reaches a service.
+// Applied per-field (not per-object) so `.omit()`/`.default()` composition
+// on the containing z.object() keeps working (ZodEffects from an
+// object-level `.refine()` loses those methods).
+const blockedTermMessage = "This name isn't allowed.";
+function noBlockedTerm(value: string): boolean {
+    return !containsBlockedTerm(value);
+}
 
 // Simple cron expression validation (5 or 6 fields)
 const cronSchema = z.string().regex(
@@ -16,7 +27,7 @@ const platformRulesSchema = z.object({
 
 export const CreateTournamentSchema = z.object({
     id: z.string().uuid(),
-    name: z.string().min(1, 'Name required').max(100),
+    name: z.string().min(1, 'Name required').max(100).refine(noBlockedTerm, blockedTermMessage),
     type: z.string().min(1).max(50),
     mode: z.enum(['pinball', 'videogame']).default('pinball'),
     cadence: z.object({
@@ -107,21 +118,48 @@ export const PushUnsubscribeSchema = z.object({
 });
 
 export const CreateGameRoomSchema = z.object({
-    name: z.string().min(1).max(100),
-    slug: z.string().min(1).max(50).regex(/^[a-z0-9_]+$/, 'Slug must be lowercase alphanumeric with underscores'),
+    name: z.string().min(1).max(100).refine(noBlockedTerm, blockedTermMessage),
+    slug: z.string().min(1).max(50).regex(/^[a-z0-9_]+$/, 'Slug must be lowercase alphanumeric with underscores')
+        .refine(noBlockedTerm, blockedTermMessage),
     description: z.string().max(500).default(''),
     is_public: z.boolean().default(true),
     logo_url: z.string().url().optional().or(z.literal('')),
     discord_guild_id: z.string().optional().default(''),
     // Sprint 13 — optional short label (≤6 chars) for RoomTag badges. Server
     // normalizes on write (uppercase + slice); null means fall back to slug.
-    short_tag: z.string().max(6).nullable().optional(),
+    // n3 (S22 Phase 1 adversarial review) — short_tag renders publicly on
+    // room cards; a 6-char field is short but some blocked terms still fit
+    // whole ("gook", "nigga" doesn't but others do) or as a truncated hint.
+    short_tag: z.string().max(6).nullable().optional()
+        .refine((v) => v == null || noBlockedTerm(v), blockedTermMessage),
     // Standalone-room Phase 1 (v2.32.0) — when absent, behaves exactly as
     // before (connected room, Discord/iScored integrations left on their
     // normal defaults). 'standalone' seeds DISCORD_ENABLED/ISCORED_ENABLED
     // false at creation — a pure-web room with no Discord guild or iScored
     // board.
     mode: z.enum(['standalone', 'connected']).optional(),
+});
+
+/**
+ * PUT /api/admin/rooms/:roomId body (v2.43.0 — S22 Phase 1 recon risk #2:
+ * this route previously had NO Zod schema at all). Covers exactly the
+ * fields `GameRoomService.update` whitelists — every field optional since
+ * the route is a partial-update PATCH-style PUT (only supplied fields are
+ * written). Blocklist refine on name/slug; no other behavior change.
+ */
+export const UpdateGameRoomSchema = z.object({
+    name: z.string().min(1).max(100).refine(noBlockedTerm, blockedTermMessage).optional(),
+    slug: z.string().min(1).max(50).regex(/^[a-z0-9_]+$/, 'Slug must be lowercase alphanumeric with underscores')
+        .refine(noBlockedTerm, blockedTermMessage).optional(),
+    description: z.string().max(500).optional(),
+    is_public: z.boolean().optional(),
+    logo_url: z.string().url().or(z.literal('')).nullable().optional(),
+    discord_guild_id: z.string().nullable().optional(),
+    // n3 (S22 Phase 1 adversarial review) — short_tag renders publicly on
+    // room cards; a 6-char field is short but some blocked terms still fit
+    // whole ("gook", "nigga" doesn't but others do) or as a truncated hint.
+    short_tag: z.string().max(6).nullable().optional()
+        .refine((v) => v == null || noBlockedTerm(v), blockedTermMessage),
 });
 
 // Public self-serve room creation (v2.33.0) — route segments that a bare-slug
@@ -141,10 +179,11 @@ export const RESERVED_ROOM_SLUGS = [
 // always 'standalone' for this path, set in the route handler, not accepted
 // from the client).
 export const PublicCreateRoomSchema = z.object({
-    name: z.string().min(1).max(100),
+    name: z.string().min(1).max(100).refine(noBlockedTerm, blockedTermMessage),
     slug: z.string().min(1).max(50)
         .regex(/^[a-z0-9_]+$/, 'Slug must be lowercase alphanumeric with underscores')
-        .refine((slug) => !RESERVED_ROOM_SLUGS.includes(slug), 'This name is reserved'),
+        .refine((slug) => !RESERVED_ROOM_SLUGS.includes(slug), 'This name is reserved')
+        .refine(noBlockedTerm, blockedTermMessage),
     description: z.string().max(500).default(''),
     is_public: z.boolean().default(true),
 });
@@ -316,4 +355,46 @@ export const GameFeedbackSchema = z.object({
 export const ResolveGameFeedbackSchema = z.object({
     resolution: z.enum(['fixed', 'upstream', 'dismissed']),
     note: z.string().trim().max(1000).optional(),
+});
+
+/**
+ * S22 Phase 1 content moderation (v2.43.0) — POST /global/rooms/:roomId/report
+ * body. Room existence + reporter identity come from the route (param +
+ * verified token), not the body.
+ */
+export const RoomReportSchema = z.object({
+    reason: z.string().trim().max(500).optional(),
+});
+
+/**
+ * POST /global/report-name body. `roomId`/`targetUserId` are optional context
+ * — the service handles both identity-keyed and room+name-keyed dedup.
+ */
+export const NameReportSchema = z.object({
+    roomId: z.string().min(1).optional(),
+    targetUserId: z.string().min(1).optional(),
+    targetName: z.string().trim().min(1).max(64),
+    reason: z.string().trim().max(500).optional(),
+});
+
+/** POST /admin/reports/:id/resolve body. */
+export const ResolveContentReportSchema = z.object({
+    resolution: z.string().trim().min(1).max(500),
+});
+
+/**
+ * m7 (S22 Phase 1 adversarial review) — POST /admin/score-reports/:reportId/ban
+ * and POST /admin/bans bodies. Previously unvalidated: `{"durationDays":"abc"}`
+ * coerced to `new Date(NaN)` inside ScoreReportService.ban, silently
+ * producing a garbage `expires_at` and a 500 further down the line instead of
+ * a clear 400 at the boundary.
+ */
+export const BanActionSchema = z.object({
+    durationDays: z.number().int().min(1).max(3650).nullable().optional(),
+    reason: z.string().trim().max(500).optional(),
+});
+
+/** POST /admin/bans body — BanActionSchema plus the target identity. */
+export const CreateBanSchema = BanActionSchema.extend({
+    discordUserId: z.string().min(1, 'discordUserId is required'),
 });

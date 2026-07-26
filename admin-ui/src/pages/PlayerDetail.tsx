@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare } from 'lucide-react';
+import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare, Flag } from 'lucide-react';
 import ShareButton from '../components/ShareButton';
+import ReportContentModal from '../components/ReportContentModal';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 
@@ -72,6 +73,8 @@ export default function PlayerDetail() {
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   const [followPending, setFollowPending] = useState(false);
   const { roomId } = useRoom();
+  // S22 Phase 1 (v2.43.0) — discreet, signed-in-only "report this name" affordance.
+  const [showReportName, setShowReportName] = useState(false);
 
   useEffect(() => {
     if (!id || !roomId) return;
@@ -217,8 +220,31 @@ export default function PlayerDetail() {
             path={`/${slug}/players/${encodeURIComponent(id || '')}`}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-xs font-medium text-muted hover:text-primary hover:border-neon-cyan/40 transition-colors cursor-pointer"
           />
+          {discordUser && (
+            <button
+              onClick={() => setShowReportName(true)}
+              title="Report this name"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-xs font-medium text-muted hover:text-neon-magenta hover:border-neon-magenta/40 transition-colors cursor-pointer bg-transparent"
+            >
+              <Flag size={14} />
+            </button>
+          )}
         </div>
       </div>
+
+      {showReportName && (
+        <ReportContentModal
+          title="Report this name"
+          targetLabel={displayName}
+          endpoint="/global/report-name"
+          extraBody={{
+            roomId: roomId || undefined,
+            targetUserId: stats.discordUserId || undefined,
+            targetName: id || displayName,
+          }}
+          onClose={() => setShowReportName(false)}
+        />
+      )}
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
         {/* Stat Cards */}

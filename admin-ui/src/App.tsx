@@ -29,6 +29,7 @@ const Logs = lazy(() => import('./pages/Logs'));
 const StyleCatalogue = lazy(() => import('./pages/StyleCatalogue'));
 const GlobalCatalogue = lazy(() => import('./pages/GlobalCatalogue'));
 const CatalogueApproval = lazy(() => import('./pages/CatalogueApproval'));
+const Reports = lazy(() => import('./pages/Reports'));
 
 // Pages — Room Admin (lazy)
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -152,6 +153,7 @@ function App() {
           <Route path="styles" element={<StyleCatalogue />} />
           <Route path="catalogue" element={<GlobalCatalogue />} />
           <Route path="catalogue/approvals" element={<CatalogueApproval />} />
+          <Route path="reports" element={<Reports />} />
           <Route path="backups" element={<Backups />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<GlobalSettings />} />

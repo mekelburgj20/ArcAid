@@ -9,7 +9,8 @@ import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import {
     SettingsSchema,
-    BackupRestoreParamsSchema, CreateGameRoomSchema,
+    BackupRestoreParamsSchema, CreateGameRoomSchema, UpdateGameRoomSchema,
+    ResolveContentReportSchema, BanActionSchema, CreateBanSchema,
 } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
@@ -31,6 +32,7 @@ import { OPDBImportService } from '../../services/OPDBImportService.js';
 import { IGDBImportService } from '../../services/IGDBImportService.js';
 import { SyncLogService } from '../../services/SyncLogService.js';
 import { ScoreReportService } from '../../services/ScoreReportService.js';
+import { ContentReportService } from '../../services/ContentReportService.js';
 import { GlobalScoreService } from '../../services/GlobalScoreService.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 
@@ -71,7 +73,14 @@ router.post('/rooms', async (req, res) => {
 
 router.put('/rooms/:roomId', async (req, res) => {
     try {
-        const updated = await GameRoomService.update(req.params.roomId as string, req.body);
+        // v2.43.0 — S22 Phase 1 recon risk #2: this route previously accepted
+        // req.body with NO Zod validation at all. UpdateGameRoomSchema covers
+        // exactly the fields GameRoomService.update whitelists, plus the
+        // blocklist refine on name/slug.
+        const validationResult = validate(UpdateGameRoomSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const updated = await GameRoomService.update(req.params.roomId as string, validationResult.data);
         if (!updated) return res.status(404).json({ error: 'Room not found' });
         res.json({ success: true });
     } catch (error) {
@@ -1265,18 +1274,110 @@ router.post('/score-reports/:reportId/hard-delete', async (req, res) => {
 /** POST /api/admin/score-reports/:reportId/ban — body: { durationDays?: number|null, reason?: string } */
 router.post('/score-reports/:reportId/ban', async (req, res) => {
     try {
-        const durationDays = req.body?.durationDays ?? null;
-        const reason = req.body?.reason;
+        const validationResult = validate(BanActionSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { durationDays, reason } = validationResult.data;
+
+        const reportId = req.params.reportId as string;
+        const report = await ScoreReportService.getById(reportId);
+        if (!report) return res.status(404).json({ error: 'Report not found' });
+
+        // m6 (S22 Phase 1 adversarial review) — a score synced FROM iScored
+        // carries a synthetic `iscored:<username>` player_id (no login
+        // identity behind it, see GlobalScoreService's fan-out doctrine).
+        // Banning that id writes a user_bans row that can never match any
+        // real session — a silent no-op that looks like it worked. Reject
+        // explicitly instead.
+        const db = await getDatabase();
+        const scoreRow = await db.get<{ player_id: string | null }>(
+            'SELECT player_id FROM global_scores WHERE id = ?', report.score_id,
+        );
+        if (scoreRow?.player_id?.startsWith('iscored:')) {
+            return res.status(400).json({
+                error: "Cannot ban an iScored-synced name — it has no login identity to ban. Use Soft Delete or Hard Delete instead.",
+            });
+        }
+
         const ok = await ScoreReportService.banUser(
-            req.params.reportId as string,
+            reportId,
             (req.user!.discordId || req.user!.username || 'admin'),
-            durationDays,
-            reason
+            durationDays ?? null,
+            reason,
         );
         if (!ok) return res.status(404).json({ error: 'Report not found' });
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/score-reports/:reportId/ban):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Content Moderation Reports (v2.43.0 — S22 Phase 1) ---
+// Rooms/player-name reports land in content_reports (ContentReportService);
+// the pre-existing score-reports queue above is reused untouched. This
+// section wires the new table into the same super-admin surface.
+
+/** GET /api/admin/reports?status=pending|resolved&type=room|player_name&limit&offset */
+router.get('/reports', async (req, res) => {
+    try {
+        const status = req.query.status === 'resolved' ? 'resolved' : 'pending';
+        const type = req.query.type === 'room' || req.query.type === 'player_name'
+            ? req.query.type
+            : undefined;
+        const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+        const offset = parseInt(req.query.offset as string) || 0;
+        const reports = await ContentReportService.list({ status, type, limit, offset });
+        res.json(reports);
+    } catch (error) {
+        logError('API Error (GET /api/admin/reports):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** GET /api/admin/reports/pending-count — sum of open content_reports + open score_reports (one badge). */
+router.get('/reports/pending-count', async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const [contentCount, scoreRow] = await Promise.all([
+            ContentReportService.pendingCount(),
+            db.get<{ n: number }>('SELECT COUNT(*) AS n FROM score_reports WHERE resolved_at IS NULL'),
+        ]);
+        res.json({ pending: contentCount + (scoreRow?.n ?? 0) });
+    } catch (error) {
+        logError('API Error (GET /api/admin/reports/pending-count):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/reports/:id/dismiss */
+router.post('/reports/:id/dismiss', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id as string, 10);
+        if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid report id' });
+        const ok = await ContentReportService.dismiss(id, (req.user!.discordId || req.user!.username || 'admin'));
+        if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/reports/:id/dismiss):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/reports/:id/resolve — body: { resolution: string } */
+router.post('/reports/:id/resolve', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id as string, 10);
+        if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid report id' });
+        const validationResult = validate(ResolveContentReportSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const ok = await ContentReportService.resolve(
+            id, (req.user!.discordId || req.user!.username || 'admin'), validationResult.data.resolution,
+        );
+        if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/reports/:id/resolve):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -1298,8 +1399,9 @@ router.get('/bans', async (req, res) => {
 /** POST /api/admin/bans — body: { discordUserId, durationDays?, reason? } */
 router.post('/bans', async (req, res) => {
     try {
-        const { discordUserId, durationDays, reason } = req.body || {};
-        if (!discordUserId) return res.status(400).json({ error: 'discordUserId is required' });
+        const validationResult = validate(CreateBanSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { discordUserId, durationDays, reason } = validationResult.data;
         const ban = await ScoreReportService.ban(
             discordUserId,
             (req.user!.discordId || req.user!.username || 'admin'),

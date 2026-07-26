@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { isGoogleUserId } from '../utils/identityProvider.js';
+import { containsBlockedTerm } from '../utils/contentBlocklist.js';
 
 /**
  * Google<->Discord canonical-identity linking (v2.36.0).
@@ -195,13 +196,22 @@ export class IdentityLinkService {
                     googleUserId,
                 );
                 if (googleProfile) {
+                    // m3 (S22 Phase 1 adversarial review) — the COALESCE below
+                    // copies the google row's display_name onto the canonical
+                    // snowflake profile whenever the snowflake's own is unset.
+                    // Without a check here, a blocked display_name set before
+                    // this doctrine existed (or otherwise never re-validated)
+                    // would get laundered onto the canonical profile at link
+                    // time. Pass null instead — same as an unset display_name,
+                    // COALESCE just leaves the snowflake's own value in place.
+                    const safeDisplayName = containsBlockedTerm(googleProfile.display_name) ? null : googleProfile.display_name;
                     await db.run(
                         `UPDATE user_profiles
                             SET display_name = COALESCE(display_name, ?),
                                 avatar_url = COALESCE(avatar_url, ?),
                                 updated_at = datetime('now')
                           WHERE discord_user_id = ?`,
-                        googleProfile.display_name, googleProfile.avatar_url, discordUserId,
+                        safeDisplayName, googleProfile.avatar_url, discordUserId,
                     );
                 }
                 await db.run(`DELETE FROM user_profiles WHERE discord_user_id = ?`, googleUserId);
