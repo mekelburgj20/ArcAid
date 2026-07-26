@@ -189,6 +189,21 @@ export class GlobalScoreService {
     }
 
     /**
+     * The two `deleted_by` sentinel values this file itself writes when
+     * scrubbing a room's global footprint for privacy reasons (JOIN_POLICY
+     * flip / SHARE_TO_GLOBAL off). Every OTHER soft-delete on global_scores —
+     * a player's own delete (global.ts), a super-admin delete (admin.ts), or
+     * a score-report resolution (ScoreReportService) — stamps a real user/
+     * moderator id instead. backfillRoomToGlobal's restore step below MUST
+     * only touch rows tombstoned by one of these two sentinels: restoring a
+     * moderated or self-deleted row would resurrect it onto the public
+     * Global Scoreboard, which is a distinct bug from (and worse than) the
+     * "why doesn't my score come back" problem this restore step exists to
+     * solve.
+     */
+    private static readonly PRIVACY_SCRUB_SENTINELS = ['system:join_policy_flip', 'system:share_to_global_off'] as const;
+
+    /**
      * Approval-rooms (v2.39.0) / SHARE_TO_GLOBAL opt-in (v2.40.0) — bulk
      * soft-delete every global_scores row that originated from `roomId`.
      * Shared by two callers: JoinPolicyService.handlePolicyFlip (JOIN_POLICY
@@ -218,15 +233,23 @@ export class GlobalScoreService {
     /**
      * SHARE_TO_GLOBAL opt-in OFF->ON back-fill (v2.40.0). Two steps:
      *   1. Restore any of the room's global_scores rows previously soft-
-     *      deleted by a scrub (flip-to-approval, or an earlier SHARE_TO_GLOBAL
-     *      OFF) — this is what makes the OFF->ON->OFF->ON toggle sequence
-     *      idempotent. Without this step, calling fanOutFromRoomSubmission
-     *      again for a score that was already fanned out once (then scrubbed)
-     *      would silently no-op forever: its dedup check matches on
-     *      (global_game_id, origin_game_room_id, iscored_username, score)
-     *      WITHOUT a `deleted_at IS NULL` filter, so the soft-deleted row
-     *      counts as "already exists" and blocks re-insertion — restoring
-     *      first sidesteps that hazard entirely instead of fighting it.
+     *      deleted by a PRIVACY scrub (flip-to-approval, or an earlier
+     *      SHARE_TO_GLOBAL OFF — i.e. `deleted_by` is one of
+     *      PRIVACY_SCRUB_SENTINELS) — this is what makes the
+     *      OFF->ON->OFF->ON toggle sequence idempotent. Without this step,
+     *      calling fanOutFromRoomSubmission again for a score that was
+     *      already fanned out once (then scrubbed) would silently no-op
+     *      forever: its dedup check matches on (global_game_id,
+     *      origin_game_room_id, iscored_username, score) WITHOUT a
+     *      `deleted_at IS NULL` filter, so the soft-deleted row counts as
+     *      "already exists" and blocks re-insertion — restoring first
+     *      sidesteps that hazard entirely instead of fighting it. The
+     *      `deleted_by` scoping is deliberate and load-bearing: a row
+     *      soft-deleted by a player's own delete, a super-admin delete, or a
+     *      score-report resolution carries a real user/moderator id there,
+     *      NOT a sentinel — this restore must never touch those, or a
+     *      moderated/cheat score would reappear on the public Global
+     *      Scoreboard the next time the room re-opts in.
      *   2. Walk the room's score_history for anything not yet represented
      *      (new since the room went private, or never resolved a global game
      *      at submit time) and fan it out fresh via the normal per-row path —
@@ -237,8 +260,9 @@ export class GlobalScoreService {
 
         const restoreResult = await db.run(
             `UPDATE global_scores SET deleted_at = NULL, deleted_by = NULL
-             WHERE origin_game_room_id = ? AND deleted_at IS NOT NULL`,
-            roomId,
+             WHERE origin_game_room_id = ? AND deleted_at IS NOT NULL
+               AND deleted_by IN (${this.PRIVACY_SCRUB_SENTINELS.map(() => '?').join(',')})`,
+            roomId, ...this.PRIVACY_SCRUB_SENTINELS,
         );
 
         const rows = await db.all(

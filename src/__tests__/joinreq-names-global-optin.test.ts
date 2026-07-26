@@ -343,6 +343,43 @@ describe('D2 — SHARE_TO_GLOBAL toggle on an already-approval room', () => {
         expect(rows).toHaveLength(1);
     });
 
+    it('OFF->ON back-fill does NOT resurrect a moderated/self-deleted global_scores row (regression)', async () => {
+        await setupTestDb();
+        const roomId = await makeApprovalRoom('s2g-no-resurrect');
+        const globalGameId = await seedGlobalGame('No Resurrect Game');
+        const db = await getDatabase();
+
+        // Simulate a super-admin (or player self-delete) removing a cheat/
+        // unwanted score from the Global Scoreboard BEFORE the room ever
+        // toggles SHARE_TO_GLOBAL — deleted_by is a real id, not one of the
+        // 'system:*' privacy-scrub sentinels.
+        await db.run(
+            `INSERT INTO global_scores (id, global_game_id, player_id, iscored_username, score, origin_type, origin_game_room_id, deleted_at, deleted_by)
+             VALUES (?, ?, 'discord-cheater-1', 'CheaterPlayer', 999999, 'game_room', ?, datetime('now'), 'discord-moderator-1')`,
+            crypto.randomUUID(), globalGameId, roomId,
+        );
+
+        // A genuinely new, never-fanned-out score for the same room/game —
+        // this must still fan out normally so the fix doesn't over-correct.
+        await seedScoreHistory(roomId, { gameName: 'No Resurrect Game', username: 'HonestPlayer', discordUserId: 'discord-honest-1', score: 4000 });
+
+        await GameRoomSettingsService.set(roomId, 'SHARE_TO_GLOBAL', 'true');
+
+        const moderatedRow = await db.get(
+            `SELECT deleted_at, deleted_by FROM global_scores WHERE origin_game_room_id = ? AND LOWER(iscored_username) = LOWER(?)`,
+            roomId, 'CheaterPlayer',
+        );
+        expect(moderatedRow.deleted_at).not.toBeNull();
+        expect(moderatedRow.deleted_by).toBe('discord-moderator-1');
+
+        const honestRow = await db.get(
+            `SELECT deleted_at FROM global_scores WHERE origin_game_room_id = ? AND LOWER(iscored_username) = LOWER(?) AND score = ?`,
+            roomId, 'HonestPlayer', 4000,
+        );
+        expect(honestRow).toBeDefined();
+        expect(honestRow.deleted_at).toBeNull();
+    });
+
     it('is a no-op for an open room even if SHARE_TO_GLOBAL is toggled', async () => {
         await setupTestDb();
         const roomId = await createTestRoom('s2g-open-noop');
