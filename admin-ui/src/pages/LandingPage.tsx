@@ -9,6 +9,7 @@ import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from '../components/Toast';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
+import ArcaidLogoAnimated from '../components/ArcaidLogoAnimated';
 import { splitLandingRooms, type PublicRoom, type RoomCardData } from '../lib/landingRooms';
 
 type Room = PublicRoom;
@@ -147,6 +148,20 @@ export default function LandingPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Hero — Delta House Chrome wordmark. Prominent, first thing you see.
+          Dark backdrop (matches the design's assumed #0C0C13 stage) — bg-deep
+          renders near-black under the default dark theme; under a light theme
+          this section intentionally stays dark so the neon glow still reads
+          (see DEVIATIONS in the S22 logo-refresh session notes). */}
+      <div style={{
+        background: '#0C0C13',
+        padding: '48px 16px 40px',
+        display: 'flex',
+        justifyContent: 'center',
+      }}>
+        <ArcaidLogoAnimated maxWidth={760} />
       </div>
 
       {/* Global Scoreboard Promo */}
