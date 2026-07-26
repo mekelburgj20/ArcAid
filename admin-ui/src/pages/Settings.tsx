@@ -110,7 +110,7 @@ const DEAD_KEYS = new Set(['GAME_ROOM_NAME', 'GAME_ROOM_SLUG']);
 
 // Saving a change to any of these asks for explicit confirmation first — each
 // flips how players reach or use the room.
-const DANGEROUS_KEYS = ['REQUIRE_DISCORD_LOGIN', 'ISCORED_ENABLED', 'DISCORD_ENABLED', 'GLOBAL_SCOREBOARD_ENABLED', 'JOIN_POLICY', 'SHARE_TO_GLOBAL'];
+const DANGEROUS_KEYS = ['REQUIRE_DISCORD_LOGIN', 'ISCORED_ENABLED', 'DISCORD_ENABLED', 'GLOBAL_SCOREBOARD_ENABLED', 'JOIN_POLICY'];
 
 // D2 (standalone rooms, v2.32.0) — same default-on semantics as
 // SetupChecklist.tsx's isFlagOn: missing/undefined reads as enabled, matching
@@ -241,16 +241,6 @@ const JOIN_POLICY_OPTIONS: { value: string; label: string }[] = [
   { value: 'open', label: 'Open — anyone can view and join' },
   { value: 'approval', label: 'Approval required — invisible to non-members until approved' },
 ];
-
-// v2.40.0 — SHARE_TO_GLOBAL opt-in. Rendered only when JOIN_POLICY is
-// 'approval' (open rooms already share unconditionally, so the toggle would
-// be meaningless noise there). Kept as its own on/off, not folded into
-// TOGGLE_SETTINGS, so it can carry the JOIN_POLICY-gated visibility rule.
-const SHARE_TO_GLOBAL_KEY = 'SHARE_TO_GLOBAL';
-const SHARE_TO_GLOBAL_META = {
-  label: 'Share scores to the Global Scoreboard',
-  description: 'This room stays private otherwise — only members can view it — but with this on, its scores still appear at arcaid.app/scoreboard alongside every other room\'s.',
-};
 
 // Every boolean on/off toggle key → its default-when-absent value, aggregated
 // from the toggle maps + the two inline toggles. Used by the dirty diff so a
@@ -752,20 +742,18 @@ export default function Settings() {
         TOGGLE_SETTINGS[k]?.label
         || (k === REQUIRE_LOGIN_KEY ? REQUIRE_LOGIN_META.label : null)
         || (k === JOIN_POLICY_KEY ? JOIN_POLICY_META.label : null)
-        || (k === SHARE_TO_GLOBAL_KEY ? SHARE_TO_GLOBAL_META.label : null)
         || k;
       const labels = changedDangerous.map(labelFor).join(', ');
       // v2.39.0 — flip-to-approval gets its own explicit consequences dialog
-      // instead of the generic one (contract: state BOTH that the room
-      // becomes invisible to non-members AND that its Global Scoreboard
-      // footprint is removed) — UNLESS SHARE_TO_GLOBAL is (or is being) set
-      // to on, in which case the room's global footprint is kept (v2.40.0).
+      // instead of the generic one. v2.41.0: the approval flip no longer
+      // touches the Global Scoreboard (that room-level opt-in gate was
+      // removed — per-submission excludeFromGlobal governs fan-out uniformly
+      // now), so this states only the view-gating consequence.
       const flippingToApproval = changedDangerous.includes(JOIN_POLICY_KEY)
         && (baseline[JOIN_POLICY_KEY] ?? 'open') !== 'approval'
         && settings[JOIN_POLICY_KEY] === 'approval';
-      const keepsGlobalShare = settings[SHARE_TO_GLOBAL_KEY] === 'true';
       const message = flippingToApproval
-        ? `Switching to "Approval required" will make this room invisible to non-members (no scores, leaderboards, or other content) until a room admin approves their request${keepsGlobalShare ? ' (its scores will remain on the Global Scoreboard — "Share to Global Scoreboard" is enabled)' : ", and will remove this room's scores from the Global Scoreboard"}. Save this change?`
+        ? 'Switching to "Approval required" will make this room invisible to non-members (no scores, leaderboards, or other content) until a room admin approves their request. Save this change?'
         : `You're changing: ${labels}. This affects how players access this room. Save these changes?`;
       if (!window.confirm(message)) return;
     }
@@ -830,8 +818,6 @@ export default function Settings() {
     REQUIRE_LOGIN_KEY,
     // v2.39.0 — rendered as its own 2-option select, not a boolean toggle.
     JOIN_POLICY_KEY,
-    // v2.40.0 — rendered as its own conditional toggle (only when JOIN_POLICY is 'approval').
-    SHARE_TO_GLOBAL_KEY,
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
@@ -1107,28 +1093,6 @@ export default function Settings() {
             ))}
           </select>
         </div>
-        {/* v2.40.0 — SHARE_TO_GLOBAL, shown only for approval-policy rooms
-            (open rooms already share unconditionally). */}
-        {(settings[JOIN_POLICY_KEY] || 'open') === 'approval' && (
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-primary">{SHARE_TO_GLOBAL_META.label}</p>
-              <p className="text-xs text-muted">{SHARE_TO_GLOBAL_META.description}</p>
-            </div>
-            <button
-              onClick={() => handleChange(SHARE_TO_GLOBAL_KEY, settings[SHARE_TO_GLOBAL_KEY] === 'true' ? 'false' : 'true')}
-              className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border-none flex-shrink-0 ${
-                settings[SHARE_TO_GLOBAL_KEY] === 'true' ? 'bg-neon-cyan' : 'bg-raised border border-border'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${
-                  settings[SHARE_TO_GLOBAL_KEY] === 'true' ? 'translate-x-6' : ''
-                }`}
-              />
-            </button>
-          </div>
-        )}
       </div>
       </NeonCard>
     </div>

@@ -10,6 +10,15 @@ import { RoomAccessService } from '../services/RoomAccessService.js';
 import { discordExcludedRoomIds, buildEnabledRoomSqlFilter } from '../utils/discordRoomFilter.js';
 
 // v2.39.0 — approval-rooms leak closures (tmp/approval-rooms-contract.md, D3).
+//
+// v2.41.0 (tmp/player-governs-global-contract.md) removed the room-level
+// Global Scoreboard fan-out gate that the "approval-room early return" and
+// "flip-to-approval scrub" describe blocks below used to assert — per-
+// submission `excludeFromGlobal` now governs fan-out uniformly for open and
+// approval-policy rooms alike. Those two blocks were updated in place to
+// assert the new (non-)behavior rather than deleted, since the surrounding
+// D3 leak-closure tests (Discord exclusion, canViewRoom, GET /api/rooms
+// count-stripping) are unrelated and must stay intact.
 
 async function seedGlobalGame(name: string) {
     const db = await getDatabase();
@@ -21,8 +30,8 @@ async function seedGlobalGame(name: string) {
     return id;
 }
 
-describe('GlobalScoreService.fanOutFromRoomSubmission — approval-room early return', () => {
-    it('returns null (does not fan out) when the origin room is approval-policy', async () => {
+describe('GlobalScoreService.fanOutFromRoomSubmission — approval-room fan-out (v2.41.0: no room-level gate)', () => {
+    it('fans out normally even when the origin room is approval-policy (room-level gate removed)', async () => {
         await setupTestDb();
         const roomId = await createTestRoom('fanout-approval');
         await GameRoomSettingsService.set(roomId, 'JOIN_POLICY', 'approval');
@@ -35,7 +44,7 @@ describe('GlobalScoreService.fanOutFromRoomSubmission — approval-room early re
             iscoredUsername: 'FanOutPlayer',
             score: 5000,
         });
-        expect(result).toBeNull();
+        expect(result).not.toBeNull();
     });
 
     it('fans out normally for the same room/game when the policy is open (control)', async () => {
@@ -54,8 +63,8 @@ describe('GlobalScoreService.fanOutFromRoomSubmission — approval-room early re
     });
 });
 
-describe('flip-to-approval scrub', () => {
-    it('soft-deletes the room\'s global_scores rows when JOIN_POLICY flips open -> approval', async () => {
+describe('flip-to-approval (v2.41.0: no longer scrubs the Global Scoreboard)', () => {
+    it('leaves the room\'s global_scores rows untouched when JOIN_POLICY flips open -> approval', async () => {
         await setupTestDb();
         const roomId = await createTestRoom('scrub-room');
         const globalGameId = await seedGlobalGame('Scrub Game');
@@ -76,11 +85,11 @@ describe('flip-to-approval scrub', () => {
         const after = await db.get(
             `SELECT deleted_at, deleted_by FROM global_scores WHERE origin_game_room_id = ?`, roomId,
         );
-        expect(after.deleted_at).not.toBeNull();
-        expect(after.deleted_by).toBe('system:join_policy_flip');
+        expect(after.deleted_at).toBeNull();
+        expect(after.deleted_by).toBeNull();
     });
 
-    it('does not retroactively restore scrubbed rows when flipping back to open', async () => {
+    it('flipping back to open still leaves existing rows untouched (nothing to restore — nothing was scrubbed)', async () => {
         await setupTestDb();
         const roomId = await createTestRoom('scrub-room-2');
         const globalGameId = await seedGlobalGame('Scrub Game 2');
@@ -97,7 +106,7 @@ describe('flip-to-approval scrub', () => {
         const row = await db.get(
             `SELECT deleted_at FROM global_scores WHERE origin_game_room_id = ?`, roomId,
         );
-        expect(row.deleted_at).not.toBeNull();
+        expect(row.deleted_at).toBeNull();
     });
 
     it('is a no-op when the policy does not actually change direction', async () => {

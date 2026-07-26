@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import crypto from 'crypto';
 import express from 'express';
 import request from 'supertest';
 import { setupTestDb, createTestRoom, createTestTournament, createTestGame, createTestSubmission } from './helpers.js';
@@ -224,5 +225,140 @@ describe('self-join on an approval room', () => {
 
         const isMember = await RoomMembershipService.isMember('discord-self-join-1', roomId);
         expect(isMember).toBe(false);
+    });
+});
+
+// D2 (v2.41.0, tmp/player-governs-global-contract.md) — the contract's
+// premise is that approval-room submit endpoints are ALREADY member-gated via
+// `roomVisibilityGate` (mounted at `router.use('/:roomId', roomVisibilityGate)`
+// in rooms.ts, BEFORE the submit-score/freeplay-score/community-scores route
+// registrations), so removing the room-level Global Scoreboard fan-out gate
+// does not open a "non-members can submit scores to a private room" hole.
+// These tests lock that premise in.
+async function seedPlatformForGame(gameName: string) {
+    const db = await getDatabase();
+    await db.run(
+        `INSERT INTO global_games (id, name, type, platforms, status) VALUES (?, ?, 'pinball', ?, 'approved')`,
+        crypto.randomUUID(), gameName, JSON.stringify(['real']),
+    );
+    return db;
+}
+
+// Minimal valid PNG signature (8-byte header + padding) — passes the
+// magic-byte check in uploadValidation.ts's isAllowedImage.
+const VALID_PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(8)]);
+
+describe('roomVisibilityGate — approval room, submit endpoints are member-gated (D2, v2.41.0)', () => {
+    describe('POST /:roomId/submit-score/:gameName', () => {
+        it('403s a guest (no token)', async () => {
+            const app = await createTestApp();
+            const roomId = await makeApprovalRoom('submit-gate-guest');
+            const gameName = 'Submit Gate Guest Game';
+            await seedPlatformForGame(gameName);
+
+            const res = await request(app)
+                .post(`/api/rooms/${roomId}/submit-score/${encodeURIComponent(gameName)}`)
+                .field('username', 'Guesty')
+                .field('score', '1000')
+                .field('platform', 'real');
+            expect(res.status).toBe(403);
+            expect(res.body.code).toBe('APPROVAL_REQUIRED');
+        });
+
+        it('403s a logged-in non-member', async () => {
+            const app = await createTestApp();
+            const roomId = await makeApprovalRoom('submit-gate-nonmember');
+            const gameName = 'Submit Gate Nonmember Game';
+            await seedPlatformForGame(gameName);
+            const token = playerToken('discord-submit-nonmember-1');
+
+            const res = await request(app)
+                .post(`/api/rooms/${roomId}/submit-score/${encodeURIComponent(gameName)}`)
+                .set('Authorization', `Bearer ${token}`)
+                .field('username', 'NonMember')
+                .field('score', '1000')
+                .field('platform', 'real');
+            expect(res.status).toBe(403);
+            expect(res.body.code).toBe('APPROVAL_REQUIRED');
+        });
+
+        it('allows a room member through to the handler (201)', async () => {
+            const app = await createTestApp();
+            const roomId = await makeApprovalRoom('submit-gate-member');
+            const gameName = 'Submit Gate Member Game';
+            await seedPlatformForGame(gameName);
+            const discordId = 'discord-submit-member-1';
+            await RoomMembershipService.addMember(discordId, roomId, 'self_join');
+            const token = playerToken(discordId);
+
+            const res = await request(app)
+                .post(`/api/rooms/${roomId}/submit-score/${encodeURIComponent(gameName)}`)
+                .set('Authorization', `Bearer ${token}`)
+                .field('username', 'Member')
+                .field('score', '1000')
+                .field('platform', 'real');
+            expect(res.status).toBe(201);
+        });
+    });
+
+    describe('POST /:roomId/freeplay-score', () => {
+        it('403s a guest (no token)', async () => {
+            const app = await createTestApp();
+            const roomId = await makeApprovalRoom('freeplay-gate-guest');
+            const gameName = 'Freeplay Gate Guest Game';
+            const db = await seedPlatformForGame(gameName);
+            const gg = await db.get('SELECT id FROM global_games WHERE name = ?', gameName);
+
+            const res = await request(app)
+                .post(`/api/rooms/${roomId}/freeplay-score`)
+                .field('globalGameId', gg.id)
+                .field('username', 'Guesty')
+                .field('score', '1000')
+                .field('platform', 'real')
+                .attach('photo', VALID_PNG, { filename: 'score.png', contentType: 'image/png' });
+            expect(res.status).toBe(403);
+            expect(res.body.code).toBe('APPROVAL_REQUIRED');
+        });
+
+        it('403s a logged-in non-member', async () => {
+            const app = await createTestApp();
+            const roomId = await makeApprovalRoom('freeplay-gate-nonmember');
+            const gameName = 'Freeplay Gate Nonmember Game';
+            const db = await seedPlatformForGame(gameName);
+            const gg = await db.get('SELECT id FROM global_games WHERE name = ?', gameName);
+            const token = playerToken('discord-freeplay-nonmember-1');
+
+            const res = await request(app)
+                .post(`/api/rooms/${roomId}/freeplay-score`)
+                .set('Authorization', `Bearer ${token}`)
+                .field('globalGameId', gg.id)
+                .field('username', 'NonMember')
+                .field('score', '1000')
+                .field('platform', 'real')
+                .attach('photo', VALID_PNG, { filename: 'score.png', contentType: 'image/png' });
+            expect(res.status).toBe(403);
+            expect(res.body.code).toBe('APPROVAL_REQUIRED');
+        });
+
+        it('allows a room member through to the handler (201)', async () => {
+            const app = await createTestApp();
+            const roomId = await makeApprovalRoom('freeplay-gate-member');
+            const gameName = 'Freeplay Gate Member Game';
+            const db = await seedPlatformForGame(gameName);
+            const gg = await db.get('SELECT id FROM global_games WHERE name = ?', gameName);
+            const discordId = 'discord-freeplay-member-1';
+            await RoomMembershipService.addMember(discordId, roomId, 'self_join');
+            const token = playerToken(discordId);
+
+            const res = await request(app)
+                .post(`/api/rooms/${roomId}/freeplay-score`)
+                .set('Authorization', `Bearer ${token}`)
+                .field('globalGameId', gg.id)
+                .field('username', 'Member')
+                .field('score', '1000')
+                .field('platform', 'real')
+                .attach('photo', VALID_PNG, { filename: 'score.png', contentType: 'image/png' });
+            expect(res.status).toBe(201);
+        });
     });
 });
