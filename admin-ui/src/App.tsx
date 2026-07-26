@@ -58,6 +58,7 @@ import PublicHistory from './pages/PublicHistory';
 import ComparePlayers from './pages/ComparePlayers';
 import MyRooms from './pages/MyRooms';
 import CreateRoom from './pages/CreateRoom';
+import RoomMembers from './pages/RoomMembers';
 
 // Pages — Kiosk
 import KioskScoreboard from './pages/KioskScoreboard';
@@ -210,6 +211,7 @@ function App() {
           <Route path="lobby" element={<Lobby />} />
           <Route path="players" element={<PlayersToStatsRedirect />} />
           <Route path="players/:id" element={<PlayerDetail />} />
+          <Route path="members" element={<RoomMembers />} />
           <Route path="picks" element={<Picks />} />
           <Route path="mystery-award" element={<MysteryAwardPage />} />
           <Route path="games" element={<GamesToPicksRedirect />} />

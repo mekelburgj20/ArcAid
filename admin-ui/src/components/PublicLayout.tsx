@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useParams, useLocation } from 'react-router-dom';
-import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare } from 'lucide-react';
+import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare, Users } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useMyRooms } from '../hooks/useMyRooms';
@@ -125,6 +125,11 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       navItems.push({ path: `/${slug}/picks`, label: 'Picks', icon: <Gamepad2 size={16} /> });
     }
     navItems.push({ path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> });
+    // v2.42.0 — Members/Players page. Static "Players" label in the nav
+    // (reads fine whether the room is roster-based or score-poster-based);
+    // the page itself flips its own header between "Members"/"Players"
+    // depending on join_policy.
+    navItems.push({ path: `/${slug}/members`, label: 'Players', icon: <Users size={16} /> });
   }
   navItems.push({ path: '/scoreboard', label: 'Global', icon: <Trophy size={16} /> });
 
