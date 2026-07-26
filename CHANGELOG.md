@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.45.3] — unreleased
+
+**Landing hero × scoreboard ticker overlap (third user-feedback round).** The remaining "seam" was the ScoreboardPromo band's purple gradient starting at full strength on its top edge — a hard boundary against the flat page background above. Per the user's layout direction:
+
+- The score-ticker row now slides UP behind the logo (negative-margin wrapper, `clamp(-120px, -19vw, -48px)` so the overlap stays proportional on phones): tile tops tuck behind the bottom of the triangle, just under the ARCAID wordmark. The hero wrapper is `z-index:10; pointer-events:none` so the tiles/links beneath stay clickable.
+- `ScoreboardPromo` restructured: ticker first, header row below; the band's tint now fades IN from transparent (no visible top edge anywhere).
+- The 🏆 "Global Scoreboard" heading is now a link to `/scoreboard` (hover affordance), alongside the existing View All Scores button.
+
 ## [2.45.2] — unreleased
 
 **Logo hero: crop the design box's dead space (second user-feedback round).** After v2.45.1 removed the hero's dedicated backdrop, the hero region still *read* as "its own black section" — root cause (verified by probing computed styles on prod: hero and page paint the identical `bg-deep`): the source 620×560 composition carries ~120px of empty margin above and below the visible triangle+wordmark, which at hero scale reserved ~300px of empty page background and ended abruptly at the Global Scoreboard band.

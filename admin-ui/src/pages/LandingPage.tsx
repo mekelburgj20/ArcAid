@@ -156,16 +156,29 @@ export default function LandingPage() {
           a light theme this reads flatter (the glow assumes a near-black
           stage) — a known, accepted tradeoff, not fixed here. */}
       <div style={{
-        padding: '8px 16px 4px',
+        padding: '8px 16px 0',
         display: 'flex',
         justifyContent: 'center',
+        /* v2.45.3 — the mark floats ABOVE the scoreboard ticker (the promo
+           below pulls itself up behind the triangle's lower half via
+           negative margin). pointer-events pass through: the logo is
+           decorative, the tiles under it stay clickable. */
+        position: 'relative',
+        zIndex: 10,
+        pointerEvents: 'none',
       }}>
         <ArcaidLogoAnimated maxWidth={680} />
       </div>
 
-      {/* Global Scoreboard Promo */}
+      {/* Global Scoreboard Promo — pulled up so the scrolling tiles slide
+          behind the bottom of the triangle, just under the ARCAID wordmark
+          (user layout direction, 2026-07-26). The clamp keeps the overlap
+          proportional on phones (hero height scales with viewport width)
+          and fixed once the hero hits its 680px cap. */}
       {recentScores.length > 0 && (
-        <ScoreboardPromo scores={recentScores} />
+        <div style={{ marginTop: 'clamp(-120px, -19vw, -48px)', position: 'relative' }}>
+          <ScoreboardPromo scores={recentScores} />
+        </div>
       )}
 
       {/* My Game Rooms (D2 — signed-in only, non-empty only) */}
@@ -240,10 +253,38 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
       position: 'relative',
       overflow: 'hidden',
       borderBottom: '1px solid rgba(255,255,255,0.06)',
-      background: 'linear-gradient(180deg, rgba(139,92,246,0.08) 0%, transparent 100%)',
+      /* v2.45.3 — fade the tint IN from transparent so the section has no
+         visible top edge (the old 0.08-at-0% start painted a hard seam
+         where the band met the page background above it). */
+      background: 'linear-gradient(180deg, transparent 0%, rgba(139,92,246,0.07) 30%, rgba(139,92,246,0.04) 70%, transparent 100%)',
     }}>
-      {/* Header row */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-4">
+      {/* Scrolling ticker FIRST — its top row slides up behind the logo
+          (see the negative-margin wrapper at the call site). */}
+      <div style={{
+        overflow: 'hidden',
+        padding: '4px 0 16px',
+        maskImage: 'linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%)',
+        WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%)',
+      }}>
+        <Link to="/scoreboard" style={{ textDecoration: 'none', display: 'block' }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 14,
+              width: 'max-content',
+              animation: `ticker-scroll ${scores.length * 4}s linear infinite`,
+            }}
+          >
+            {doubled.map((s, i) => (
+              <ScoreTickerCard key={`${s.id}-${i}`} score={s} />
+            ))}
+          </div>
+        </Link>
+      </div>
+
+      {/* Header row — below the tiles since the tiles hug the logo now.
+          The heading itself navigates to the Global Scoreboard (user ask). */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-1 pb-6">
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -251,7 +292,18 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
           flexWrap: 'wrap',
           gap: 12,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Link
+            to="/scoreboard"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 10,
+              textDecoration: 'none',
+              transition: 'opacity 0.2s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+          >
             <Trophy size={22} style={{ color: '#fbbf24' }} />
             <h2 style={{
               fontSize: 20,
@@ -262,7 +314,7 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
             }}>
               Global Scoreboard
             </h2>
-          </div>
+          </Link>
           <Link
             to="/scoreboard"
             style={{
@@ -302,29 +354,6 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
         }}>
           Recent scores from players across all game rooms
         </p>
-      </div>
-
-      {/* Scrolling ticker */}
-      <div style={{
-        overflow: 'hidden',
-        padding: '4px 0 24px',
-        maskImage: 'linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%)',
-        WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, black 5%, black 95%, transparent 100%)',
-      }}>
-        <Link to="/scoreboard" style={{ textDecoration: 'none', display: 'block' }}>
-          <div
-            style={{
-              display: 'flex',
-              gap: 14,
-              width: 'max-content',
-              animation: `ticker-scroll ${scores.length * 4}s linear infinite`,
-            }}
-          >
-            {doubled.map((s, i) => (
-              <ScoreTickerCard key={`${s.id}-${i}`} score={s} />
-            ))}
-          </div>
-        </Link>
       </div>
 
       {/* Inline keyframes */}
