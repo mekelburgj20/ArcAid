@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.40.0] — unreleased
+
+**Join-request names + private-room Global Scoreboard opt-in.** Two fixes from live approval-room testing.
+
+- **Join Requests now show a name, not a raw ID.** Login persisted only the avatar, never the provider username, and most users haven't set a global display name — so the approval queue rendered a bare Discord/Google ID. New `user_profiles.username` fallback (migration 117), written at every login and at join-request time; the queue renders `display name → username → ID`. (A request created *before* this release still shows its ID until that user next authenticates — one-time backfill gap.)
+- **Private rooms can opt into the Global Scoreboard.** New per-room `SHARE_TO_GLOBAL` toggle (shown only when Join Policy is "Approval required", in `DANGEROUS_KEYS`): an approval room stays private but its scores appear on `/scoreboard`. Off by default. Turning it on back-fills the room's existing scores; turning it off (or flipping to approval without it) scrubs them. The flip-to-approval confirm copy is now conditional.
+- **Security/integrity verified**: adversarial review confirmed no clickable path from a globally-shared private-room score into the gated room (game links → global game page, player names unlinked, room tag → public filter). Review also caught + fixed a MAJOR — the back-fill's row-restore was scoped to privacy-scrub tombstones only, so a moderated or self-deleted global score can never be resurrected by a share toggle (regression-tested).
+
+Migration 117 consumed — **next free is now 118**.
+
+---
+
 ## [2.39.1] — unreleased
 
 **Fix: non-public rooms' admin panel showed "Game room not found."** `RoomAdminLayout` resolved the room from the public `GET /api/rooms` list (`is_public = 1` only), so the owner of a non-public room — now a common case with v2.39.0 approval/private rooms — couldn't open their own admin panel. It now resolves via the shared `getPortal(slug)` endpoint (the same slug→room resolver `PublicLayout` uses), which returns any room regardless of `is_public`. Admin data remains gated server-side by `requireRoomAccess` on every endpoint; this only fixes chrome resolution.
