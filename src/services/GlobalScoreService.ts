@@ -189,112 +189,6 @@ export class GlobalScoreService {
     }
 
     /**
-     * The two `deleted_by` sentinel values this file itself writes when
-     * scrubbing a room's global footprint for privacy reasons (JOIN_POLICY
-     * flip / SHARE_TO_GLOBAL off). Every OTHER soft-delete on global_scores —
-     * a player's own delete (global.ts), a super-admin delete (admin.ts), or
-     * a score-report resolution (ScoreReportService) — stamps a real user/
-     * moderator id instead. backfillRoomToGlobal's restore step below MUST
-     * only touch rows tombstoned by one of these two sentinels: restoring a
-     * moderated or self-deleted row would resurrect it onto the public
-     * Global Scoreboard, which is a distinct bug from (and worse than) the
-     * "why doesn't my score come back" problem this restore step exists to
-     * solve.
-     */
-    private static readonly PRIVACY_SCRUB_SENTINELS = ['system:join_policy_flip', 'system:share_to_global_off'] as const;
-
-    /**
-     * Approval-rooms (v2.39.0) / SHARE_TO_GLOBAL opt-in (v2.40.0) — bulk
-     * soft-delete every global_scores row that originated from `roomId`.
-     * Shared by two callers: JoinPolicyService.handlePolicyFlip (JOIN_POLICY
-     * open -> approval, when the room hasn't opted in) and
-     * GameRoomSettingsService's SHARE_TO_GLOBAL ON -> OFF dispatch. Rows can
-     * span many different global_game_ids, so this invalidates the WHOLE
-     * cache rather than per-game (same "admin-initiated and infrequent"
-     * trade-off `invalidateLeaderboardCaches` already makes for the
-     * REQUIRE_DISCORD_LOGIN orphan flip). Returns the number of rows scrubbed.
-     */
-    static async scrubRoomFromGlobal(roomId: string, deletedBy: string): Promise<number> {
-        const db = await getDatabase();
-        const result = await db.run(
-            `UPDATE global_scores SET deleted_at = datetime('now'), deleted_by = ?
-             WHERE origin_game_room_id = ? AND deleted_at IS NULL`,
-            deletedBy, roomId,
-        );
-        await GlobalLeaderboardService.invalidateAll();
-        return result.changes ?? 0;
-    }
-
-    /** Back-compat name for the JOIN_POLICY open->approval flip call site. */
-    static async scrubRoomOnApprovalFlip(roomId: string): Promise<number> {
-        return this.scrubRoomFromGlobal(roomId, 'system:join_policy_flip');
-    }
-
-    /**
-     * SHARE_TO_GLOBAL opt-in OFF->ON back-fill (v2.40.0). Two steps:
-     *   1. Restore any of the room's global_scores rows previously soft-
-     *      deleted by a PRIVACY scrub (flip-to-approval, or an earlier
-     *      SHARE_TO_GLOBAL OFF — i.e. `deleted_by` is one of
-     *      PRIVACY_SCRUB_SENTINELS) — this is what makes the
-     *      OFF->ON->OFF->ON toggle sequence idempotent. Without this step,
-     *      calling fanOutFromRoomSubmission again for a score that was
-     *      already fanned out once (then scrubbed) would silently no-op
-     *      forever: its dedup check matches on (global_game_id,
-     *      origin_game_room_id, iscored_username, score) WITHOUT a
-     *      `deleted_at IS NULL` filter, so the soft-deleted row counts as
-     *      "already exists" and blocks re-insertion — restoring first
-     *      sidesteps that hazard entirely instead of fighting it. The
-     *      `deleted_by` scoping is deliberate and load-bearing: a row
-     *      soft-deleted by a player's own delete, a super-admin delete, or a
-     *      score-report resolution carries a real user/moderator id there,
-     *      NOT a sentinel — this restore must never touch those, or a
-     *      moderated/cheat score would reappear on the public Global
-     *      Scoreboard the next time the room re-opts in.
-     *   2. Walk the room's score_history for anything not yet represented
-     *      (new since the room went private, or never resolved a global game
-     *      at submit time) and fan it out fresh via the normal per-row path —
-     *      that call's own dedup check makes re-running this harmless.
-     */
-    static async backfillRoomToGlobal(roomId: string): Promise<{ restored: number; fannedOut: number }> {
-        const db = await getDatabase();
-
-        const restoreResult = await db.run(
-            `UPDATE global_scores SET deleted_at = NULL, deleted_by = NULL
-             WHERE origin_game_room_id = ? AND deleted_at IS NOT NULL
-               AND deleted_by IN (${this.PRIVACY_SCRUB_SENTINELS.map(() => '?').join(',')})`,
-            roomId, ...this.PRIVACY_SCRUB_SENTINELS,
-        );
-
-        const rows = await db.all(
-            `SELECT game_name, game_id, iscored_username, discord_user_id, score,
-                    photo_url, submitted_during_tournament_id, submitted_by_anonymous_name, platform
-             FROM score_history
-             WHERE game_room_id = ? AND orphaned_at IS NULL`,
-            roomId,
-        );
-
-        let fannedOut = 0;
-        for (const row of rows) {
-            const result = await this.fanOutFromRoomSubmission({
-                gameRoomId: roomId,
-                gameName: row.game_name,
-                gameId: row.game_id ?? undefined,
-                playerId: row.discord_user_id || 'COMMUNITY',
-                iscoredUsername: row.iscored_username,
-                score: row.score,
-                photoUrl: row.photo_url,
-                tournamentId: row.submitted_during_tournament_id ?? null,
-                submittedByAnonymousName: row.submitted_by_anonymous_name ?? null,
-                platform: row.platform ?? null,
-            });
-            if (result) fannedOut++;
-        }
-
-        await GlobalLeaderboardService.invalidateAll();
-        return { restored: restoreResult.changes ?? 0, fannedOut };
-    }
-
-    /**
      * Hard delete — removes the row and unlinks the photo file.
      */
     static async hardDelete(scoreId: string): Promise<boolean> {
@@ -379,6 +273,14 @@ export class GlobalScoreService {
      *   - No global_game_id can be resolved
      *   - The user set excludeFromGlobal (but we still record with the flag set)
      *
+     * v2.41.0: the room-level approval-policy gate (JOIN_POLICY==='approval'
+     * skip) and its per-room opt-in escape hatch (both v2.39.0/v2.40.0) were
+     * removed. Whether a room-originated score reaches the Global Scoreboard
+     * is now governed ONLY by the per-submission `excludeFromGlobal` flag
+     * (player-controlled, default off) — identically for open and
+     * approval-policy rooms. Approval-room view gating (who can see the room
+     * at all) is unaffected; this only concerns individual score fan-out.
+     *
      * Does not throw — fan-out is best-effort and should never break the
      * room-scoped submission flow.
      */
@@ -406,22 +308,6 @@ export class GlobalScoreService {
             if (normalizeSubmitterUserId(opts.playerId) === null) return null;
 
             const db = await getDatabase();
-
-            // Approval rooms (v2.39.0): a room requiring approval to join must
-            // stay invisible to non-members, and that includes its footprint
-            // on the Global Scoreboard — so new submissions from an
-            // 'approval'-policy room never fan out UNLESS the room has
-            // explicitly opted in via SHARE_TO_GLOBAL (v2.40.0). Read fresh,
-            // no cache, same as the policy read and the GLOBAL_SCOREBOARD_
-            // ENABLED check just below.
-            const { RoomAccessService } = await import('./RoomAccessService.js');
-            if ((await RoomAccessService.getJoinPolicy(opts.gameRoomId)) === 'approval') {
-                const shareRow = await db.get(
-                    `SELECT value FROM game_room_settings WHERE game_room_id = ? AND key = 'SHARE_TO_GLOBAL'`,
-                    opts.gameRoomId
-                );
-                if (!shareRow || shareRow.value !== 'true') return null;
-            }
 
             // Check the room's global opt-in setting (default ON)
             const enabledRow = await db.get(
