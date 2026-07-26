@@ -11,8 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 **Landing hero × scoreboard ticker overlap (third user-feedback round).** The remaining "seam" was the ScoreboardPromo band's purple gradient starting at full strength on its top edge — a hard boundary against the flat page background above. Per the user's layout direction:
 
 - The score-ticker row now slides UP behind the logo (negative-margin wrapper, `clamp(-120px, -19vw, -48px)` so the overlap stays proportional on phones): tile tops tuck behind the bottom of the triangle, just under the ARCAID wordmark. The hero wrapper is `z-index:10; pointer-events:none` so the tiles/links beneath stay clickable.
-- Header row (🏆 Global Scoreboard left, View All Scores right — original horizontal layout) stays ABOVE the tiles: on sm+ the deeper pull-up (`clamp(-190px, -28vw, -56px)`, `.landing-promo-pull`) lands it in the clear margins flanking the mark's lower half; phones pull up only −36px so the header never collides with the wordmark/triangle glow. The band's tint fades IN from transparent (no visible top edge anywhere).
-- The 🏆 "Global Scoreboard" heading is now a link to `/scoreboard` (hover affordance), alongside the existing View All Scores button.
+- The 🏆 "Global Scoreboard" heading + subcaption are REMOVED entirely (final user direction after two intermediate placements); the section's only chrome is the **View All Scores** button, right-aligned under the tiles. The band's tint fades IN from transparent (no visible top edge anywhere).
 
 ## [2.45.2] — unreleased
 

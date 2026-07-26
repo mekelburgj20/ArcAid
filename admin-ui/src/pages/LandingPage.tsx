@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Users, Gamepad2, Trophy, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck, Clock } from 'lucide-react';
+import { Users, Gamepad2, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck, Clock } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import { formatCompactNumber } from '../lib/format';
 import { resolveAvatarUrl } from '../lib/avatar';
@@ -176,7 +176,7 @@ export default function LandingPage() {
           proportional on phones (hero height scales with viewport width)
           and fixed once the hero hits its 680px cap. */}
       {recentScores.length > 0 && (
-        <div className="landing-promo-pull" style={{ position: 'relative' }}>
+        <div style={{ marginTop: 'clamp(-120px, -19vw, -48px)', position: 'relative' }}>
           <ScoreboardPromo scores={recentScores} />
         </div>
       )}
@@ -258,83 +258,6 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
          where the band met the page background above it). */
       background: 'linear-gradient(180deg, transparent 0%, rgba(139,92,246,0.07) 30%, rgba(139,92,246,0.04) 70%, transparent 100%)',
     }}>
-      {/* Header row ABOVE the tiles (user direction, round 4), original
-          horizontal layout: heading left, View All Scores right. The whole
-          section is pulled up behind the logo, so this row lands in the
-          clear margins flanking the mark's lower half — the hero passes
-          pointer events through, so both links stay clickable. */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-2 pb-2">
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 12,
-        }}>
-          <Link
-            to="/scoreboard"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 10,
-              textDecoration: 'none',
-              transition: 'opacity 0.2s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
-          >
-            <Trophy size={22} style={{ color: '#fbbf24' }} />
-            <h2 style={{
-              fontSize: 20,
-              fontWeight: 700,
-              color: '#ffffff',
-              fontFamily: "'DM Sans', sans-serif",
-              margin: 0,
-            }}>
-              Global Scoreboard
-            </h2>
-          </Link>
-          <Link
-            to="/scoreboard"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 20px',
-              borderRadius: 10,
-              background: 'linear-gradient(135deg, rgba(139,92,246,0.5), rgba(236,72,153,0.5))',
-              border: '1px solid rgba(139,92,246,0.4)',
-              color: '#ffffff',
-              fontSize: 13,
-              fontWeight: 600,
-              textDecoration: 'none',
-              letterSpacing: 0.5,
-              transition: 'all 0.2s',
-              fontFamily: "'DM Sans', sans-serif",
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.7), rgba(236,72,153,0.7))';
-              e.currentTarget.style.transform = 'translateY(-1px)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.5), rgba(236,72,153,0.5))';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }}
-          >
-            View All Scores
-            <ChevronRight size={14} />
-          </Link>
-        </div>
-        <p style={{
-          fontSize: 13,
-          color: 'rgba(255,255,255,0.45)',
-          margin: '6px 0 0',
-          fontFamily: "'DM Sans', sans-serif",
-        }}>
-          Recent scores from players across all game rooms
-        </p>
-      </div>
-
       {/* Scrolling ticker — its top row slides up behind the logo
           (see the negative-margin wrapper at the call site). */}
       <div style={{
@@ -359,17 +282,44 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
         </Link>
       </div>
 
+      {/* View All Scores — under the tiles, right-aligned (user direction,
+          round 5: the Global Scoreboard heading is gone; the button is the
+          section's only chrome). */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-5" style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Link
+          to="/scoreboard"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 20px',
+            borderRadius: 10,
+            background: 'linear-gradient(135deg, rgba(139,92,246,0.5), rgba(236,72,153,0.5))',
+            border: '1px solid rgba(139,92,246,0.4)',
+            color: '#ffffff',
+            fontSize: 13,
+            fontWeight: 600,
+            textDecoration: 'none',
+            letterSpacing: 0.5,
+            transition: 'all 0.2s',
+            fontFamily: "'DM Sans', sans-serif",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.7), rgba(236,72,153,0.7))';
+            e.currentTarget.style.transform = 'translateY(-1px)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.5), rgba(236,72,153,0.5))';
+            e.currentTarget.style.transform = 'translateY(0)';
+          }}
+        >
+          View All Scores
+          <ChevronRight size={14} />
+        </Link>
+      </div>
+
       {/* Inline keyframes */}
       <style>{`
-        /* Promo pull-up behind the hero mark. Phones get a small pull only
-           (the header row would collide with the wordmark/triangle glow on
-           a narrow screen); sm+ pulls the whole band up so the header row
-           flanks the mark's lower half and the tiles tuck under the
-           triangle tip. */
-        .landing-promo-pull { margin-top: -36px; }
-        @media (min-width: 640px) {
-          .landing-promo-pull { margin-top: clamp(-190px, -28vw, -56px); }
-        }
         @keyframes ticker-scroll {
           0% { transform: translateX(0); }
           100% { transform: translateX(-50%); }
