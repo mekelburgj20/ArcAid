@@ -25,6 +25,20 @@
 const SIGN_WIDTH = 620;
 const SIGN_HEIGHT = 560;
 
+/**
+ * v2.45.2 — the source 620x560 design box carries large empty margins: the
+ * visible triangle+wordmark composition only spans roughly y=120..440. At
+ * hero scale that dead space rendered as ~300px of empty page background
+ * above/below the mark, which read as "the logo has its own black section"
+ * (user report, 2026-07-26). Crop the LAYOUT box to the visible bounds and
+ * shift the (absolutely-positioned) sign up correspondingly — the glow
+ * halos still paint outside the layout box (overflow is visible, they're
+ * translucent), but the hero no longer reserves empty page height.
+ */
+const CROP_TOP = 95;
+const CROP_BOTTOM = 85;
+const CROPPED_HEIGHT = SIGN_HEIGHT - CROP_TOP - CROP_BOTTOM;
+
 interface ArcaidLogoAnimatedProps {
   /** Widest the rendered mark should ever get, in px. Narrower viewports
    * scale down proportionally (see `.arcaid-logo-sign` transform) so it
@@ -101,13 +115,15 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           container-type: inline-size;
           position: relative;
           width: 100%;
-          aspect-ratio: ${SIGN_WIDTH} / ${SIGN_HEIGHT};
+          aspect-ratio: ${SIGN_WIDTH} / ${CROPPED_HEIGHT};
           margin: 0 auto;
         }
 
         .arcaid-logo-sign {
           position: absolute;
-          inset: 0;
+          left: 0;
+          top: ${-CROP_TOP * 0.5}px; /* fallback pairs with the scale(0.5) fallback below */
+          top: calc(${CROP_TOP} / ${SIGN_WIDTH} * -100cqw);
           width: ${SIGN_WIDTH}px;
           height: ${SIGN_HEIGHT}px;
           transform: scale(0.5); /* fallback for browsers without container query units */

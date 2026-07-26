@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.45.2] — unreleased
+
+**Logo hero: crop the design box's dead space (second user-feedback round).** After v2.45.1 removed the hero's dedicated backdrop, the hero region still *read* as "its own black section" — root cause (verified by probing computed styles on prod: hero and page paint the identical `bg-deep`): the source 620×560 composition carries ~120px of empty margin above and below the visible triangle+wordmark, which at hero scale reserved ~300px of empty page background and ended abruptly at the Global Scoreboard band.
+
+- `ArcaidLogoAnimated`: the layout box now crops to the composition's visible bounds (`CROP_TOP=95`/`CROP_BOTTOM=85` of the 560 design height; wrap `aspect-ratio` 620/380, sign shifted up by the scaled crop). The glow halos still paint outside the layout box (overflow visible, translucent) — nothing is clipped, the hero just stops reserving empty height.
+- Landing hero cap 760→680px, padding 16/8→8/4px. Page now flows header → mark → content with no dead zone.
+
 ## [2.45.1] — unreleased
 
 **Logo refresh fix round.** User feedback on the shipped v2.45.0 "Delta House Chrome" logo — three issues, all addressed:

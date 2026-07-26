@@ -156,11 +156,11 @@ export default function LandingPage() {
           a light theme this reads flatter (the glow assumes a near-black
           stage) — a known, accepted tradeoff, not fixed here. */}
       <div style={{
-        padding: '16px 16px 8px',
+        padding: '8px 16px 4px',
         display: 'flex',
         justifyContent: 'center',
       }}>
-        <ArcaidLogoAnimated maxWidth={760} />
+        <ArcaidLogoAnimated maxWidth={680} />
       </div>
 
       {/* Global Scoreboard Promo */}
