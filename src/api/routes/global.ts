@@ -854,6 +854,9 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, async (
         await SubmissionDraftService.consume(stateParam);
         res.json({ ok: true });
     } catch (error) {
+        if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
+            return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
+        }
         logError('API Error (POST /api/submission-drafts/:stateParam/commit):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
@@ -906,6 +909,9 @@ router.post('/submission-drafts/:stateParam/commit-as-guest', writeLimiter, asyn
         await SubmissionDraftService.consume(stateParam);
         res.json({ ok: true });
     } catch (error) {
+        if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
+            return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
+        }
         logError('API Error (POST /api/submission-drafts/:stateParam/commit-as-guest):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
@@ -1664,6 +1670,79 @@ router.post('/global/games/:id/feedback', writeLimiter, requireDiscordUser, asyn
             return res.status(429).json({ error: 'You have too many open reports. Please wait for an admin to review them.' });
         }
         logError('API Error (POST /api/global/games/:id/feedback):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ─── Content Moderation Reports (v2.43.0 — S22 Phase 1) ───
+// Deliberately in global.ts, NOT rooms.ts: room reports must work for
+// non-members of approval rooms (who can see name/logo via the public
+// portal) — the room's view-visibility gate must never block reporting.
+
+/**
+ * POST /api/global/rooms/:roomId/report — flag a room. Discord/Google-authed
+ * (requireDiscordUser passes for either — ids are namespaced through the
+ * same claims), rate-limited.
+ */
+router.post('/global/rooms/:roomId/report', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const parsed = (await import('../schemas.js')).RoomReportSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid report' });
+        }
+        const { ContentReportService } = await import('../../services/ContentReportService.js');
+        const { id } = await ContentReportService.submitRoomReport({
+            roomId: req.params.roomId as string,
+            reporterUserId: req.user!.discordId!,
+            reason: parsed.data.reason,
+        });
+        logInfo(`Room ${req.params.roomId} reported by ${req.user!.discordId}`);
+        res.status(200).json({ ok: true, id });
+    } catch (error) {
+        const code = (error as Error & { code?: string })?.code;
+        if (code === 'ROOM_NOT_FOUND') return res.status(404).json({ error: 'Room not found' });
+        if (code === 'DUPLICATE_REPORT') {
+            return res.status(409).json({ error: "You've already reported this room." });
+        }
+        if (code === 'REPORT_LIMIT') {
+            return res.status(429).json({ error: 'You have too many open reports. Please wait for an admin to review them.' });
+        }
+        logError('API Error (POST /api/global/rooms/:roomId/report):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/global/report-name — flag a player name (room-scoped or global
+ * surface). `targetUserId`, when known, keys dedup on identity; otherwise
+ * keys on (room, name-as-typed).
+ */
+router.post('/global/report-name', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const parsed = (await import('../schemas.js')).NameReportSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid report' });
+        }
+        const { ContentReportService } = await import('../../services/ContentReportService.js');
+        const { id } = await ContentReportService.submitNameReport({
+            roomId: parsed.data.roomId,
+            targetUserId: parsed.data.targetUserId,
+            targetName: parsed.data.targetName,
+            reporterUserId: req.user!.discordId!,
+            reason: parsed.data.reason,
+        });
+        logInfo(`Player name "${parsed.data.targetName}" reported by ${req.user!.discordId}`);
+        res.status(200).json({ ok: true, id });
+    } catch (error) {
+        const code = (error as Error & { code?: string })?.code;
+        if (code === 'ROOM_NOT_FOUND') return res.status(404).json({ error: 'Room not found' });
+        if (code === 'DUPLICATE_REPORT') {
+            return res.status(409).json({ error: "You've already reported this name." });
+        }
+        if (code === 'REPORT_LIMIT') {
+            return res.status(429).json({ error: 'You have too many open reports. Please wait for an admin to review them.' });
+        }
+        logError('API Error (POST /api/global/report-name):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

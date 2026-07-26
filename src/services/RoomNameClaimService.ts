@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
+import { assertNameAllowed } from '../utils/contentBlocklist.js';
 
 /**
  * v2.2.0 — first-claim-wins identity service.
@@ -56,6 +57,9 @@ export class RoomNameClaimService {
         const trimmed = requestedName.trim();
         if (!trimmed) throw new Error('RoomNameClaimService.resolveAndClaim: requestedName is empty');
         if (!roomId) throw new Error('RoomNameClaimService.resolveAndClaim: roomId is required');
+        // S22 Phase 1 (v2.43.0) — reject the DESIRED name before the
+        // claim/suffix loop, both Discord + anon paths. Throws NAME_NOT_ALLOWED.
+        assertNameAllowed(trimmed, 'room_member_name');
 
         const db = await getDatabase();
 
@@ -206,6 +210,10 @@ export class RoomNameClaimService {
         const trimmed = requestedName.trim();
         if (!trimmed) throw new Error('RoomNameClaimService.checkAvailability: requestedName is empty');
         if (!roomId) throw new Error('RoomNameClaimService.checkAvailability: roomId is required');
+        // S22 Phase 1 (v2.43.0) — same blocklist check as resolveAndClaim, so
+        // the FE pre-submit check learns about a blocked name before the user
+        // commits to submitting (rather than failing only at claim time).
+        assertNameAllowed(trimmed, 'room_member_name');
 
         const ownerOfRequested = await this.findClaimOwner(roomId, trimmed);
         if (!ownerOfRequested || this.isOwnedByClaimant(ownerOfRequested, claimant)) {

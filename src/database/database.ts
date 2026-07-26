@@ -1927,6 +1927,32 @@ export async function initDatabase(): Promise<Database> {
         // at join-request time from the JWT's username claim. Resolution order
         // everywhere this ships: display_name ?? username ?? userId.
         { name: '117_user_profiles_username', sql: `ALTER TABLE user_profiles ADD COLUMN username TEXT` },
+        // v2.43.0 — S22 Phase 1 content moderation: unified reports table for
+        // both room reports and player-name reports (same shape, rendered
+        // together in the super-admin queue — not two tables). The partial
+        // UNIQUE index is the anti-spam dedup mechanism (join_requests
+        // pattern, migration 116): INSERT and catch the constraint violation
+        // → 409, rather than an app-level SELECT-then-INSERT race. A resolved
+        // report doesn't block a fresh one — the target may misbehave again.
+        { name: '118_content_reports', sql: `
+            CREATE TABLE IF NOT EXISTS content_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_type TEXT NOT NULL CHECK (target_type IN ('room','player_name')),
+                target_key TEXT NOT NULL,
+                game_room_id TEXT REFERENCES game_rooms(id) ON DELETE CASCADE,
+                target_user_id TEXT,
+                target_name TEXT,
+                reporter_user_id TEXT NOT NULL,
+                reason TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                resolved_at TEXT,
+                resolved_by TEXT,
+                resolution TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_content_reports_open_dedup
+                ON content_reports(target_key, reporter_user_id) WHERE resolved_at IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_content_reports_status ON content_reports(target_type, resolved_at);
+        ` },
     ];
 
     for (const migration of migrations) {

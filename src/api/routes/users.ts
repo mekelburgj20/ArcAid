@@ -56,6 +56,10 @@ router.patch('/me/profile', requireAuth, requireDiscordUser, async (req, res) =>
         if (e.code === 'DISPLAY_NAME_TAKEN') {
             return res.status(409).json({ error: 'Display name not available', reason: e.reason });
         }
+        // S22 Phase 1 (v2.43.0) — blocklist rejection from UserProfileService.setDisplayName.
+        if (e.code === 'NAME_NOT_ALLOWED') {
+            return res.status(400).json({ error: e.message, code: e.code });
+        }
         logError('API Error (PATCH /api/users/me/profile):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
