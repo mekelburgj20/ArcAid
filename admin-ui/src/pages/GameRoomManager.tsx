@@ -6,7 +6,7 @@ import NeonButton from '../components/NeonButton';
 import DataTable from '../components/DataTable';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingState from '../components/LoadingState';
-import { Copy, Check, ExternalLink } from 'lucide-react';
+import { Copy, Check, ExternalLink, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 interface Room {
   id: string;
@@ -15,6 +15,10 @@ interface Room {
   description: string;
   is_public: boolean;
   short_tag: string | null;
+  /** S22 Phase 2 (v2.44.0) — super-admin room suspension. */
+  suspended_at?: string | null;
+  suspended_by?: string | null;
+  suspended_reason?: string | null;
 }
 
 const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
@@ -27,6 +31,11 @@ export default function GameRoomManager() {
   const [saving, setSaving] = useState(false);
   const [editTarget, setEditTarget] = useState<Room | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Room | null>(null);
+  // S22 Phase 2 (v2.44.0) — suspend/unsuspend
+  const [suspendTarget, setSuspendTarget] = useState<Room | null>(null);
+  const [unsuspendTarget, setUnsuspendTarget] = useState<Room | null>(null);
+  const [suspendReason, setSuspendReason] = useState('');
+  const [suspending, setSuspending] = useState(false);
 
   // Form state
   const [formName, setFormName] = useState('');
@@ -184,6 +193,38 @@ export default function GameRoomManager() {
     }
   };
 
+  // S22 Phase 2 (v2.44.0) — suspend/unsuspend. Idempotent on the server;
+  // re-fetches the list afterward so the badge/button reflect the new state.
+  const handleSuspend = async () => {
+    if (!suspendTarget) return;
+    setSuspending(true);
+    try {
+      await api.post(`/admin/rooms/${suspendTarget.id}/suspend`, {
+        reason: suspendReason.trim() || undefined,
+      });
+      toast(`${suspendTarget.name} suspended`, 'success');
+      setSuspendTarget(null);
+      setSuspendReason('');
+      loadRooms();
+    } catch (err: any) {
+      toast(err.message || 'Failed to suspend room', 'error');
+    } finally {
+      setSuspending(false);
+    }
+  };
+
+  const handleUnsuspend = async () => {
+    if (!unsuspendTarget) return;
+    try {
+      await api.post(`/admin/rooms/${unsuspendTarget.id}/unsuspend`, {});
+      toast(`${unsuspendTarget.name} unsuspended`, 'success');
+      setUnsuspendTarget(null);
+      loadRooms();
+    } catch (err: any) {
+      toast(err.message || 'Failed to unsuspend room', 'error');
+    }
+  };
+
   const autoSlug = (name: string) => {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '');
   };
@@ -216,9 +257,19 @@ export default function GameRoomManager() {
       key: 'is_public',
       header: 'Visibility',
       render: (item: Room) => (
-        <span className={`text-xs px-2 py-0.5 rounded ${item.is_public ? 'bg-neon-green/10 text-neon-green border border-neon-green/30' : 'bg-raised text-faint border border-border'}`}>
-          {item.is_public ? 'Public' : 'Private'}
-        </span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={`text-xs px-2 py-0.5 rounded ${item.is_public ? 'bg-neon-green/10 text-neon-green border border-neon-green/30' : 'bg-raised text-faint border border-border'}`}>
+            {item.is_public ? 'Public' : 'Private'}
+          </span>
+          {item.suspended_at && (
+            <span
+              className="text-xs px-2 py-0.5 rounded bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/30 inline-flex items-center gap-1"
+              title={item.suspended_reason || 'Suspended pending review'}
+            >
+              <ShieldAlert size={12} /> SUSPENDED
+            </span>
+          )}
+        </div>
       ),
     },
     {
@@ -236,6 +287,25 @@ export default function GameRoomManager() {
             {copiedRoomId === item.id ? <><Check size={14} className="text-neon-green" /> Copied</> : <><Copy size={14} /> Onboard</>}
           </NeonButton>
           <NeonButton variant="ghost" onClick={() => startEdit(item)}>Edit</NeonButton>
+          {item.suspended_at ? (
+            <NeonButton
+              variant="ghost"
+              className="text-xs px-2 py-1"
+              onClick={() => setUnsuspendTarget(item)}
+              title="Restore public/admin access to this room"
+            >
+              <ShieldCheck size={14} className="inline -mt-0.5 mr-1" /> Unsuspend
+            </NeonButton>
+          ) : (
+            <NeonButton
+              variant="danger"
+              className="text-xs px-2 py-1"
+              onClick={() => setSuspendTarget(item)}
+              title="Hide this room and block access pending review"
+            >
+              <ShieldAlert size={14} className="inline -mt-0.5 mr-1" /> Suspend
+            </NeonButton>
+          )}
           <NeonButton variant="danger" onClick={() => setDeleteTarget(item)}>Delete</NeonButton>
         </div>
       ),
@@ -384,6 +454,55 @@ export default function GameRoomManager() {
           confirmLabel="Delete"
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
+      {/* S22 Phase 2 (v2.44.0) — suspend, with an optional reason (super-admin
+          moderation context, not shown to the public — just to other admins
+          reviewing this list and to the room's own admins when they hit the
+          403). Custom modal (not ConfirmModal) since it needs the reason field. */}
+      {suspendTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-deep/80 backdrop-blur-sm"
+          onClick={() => { setSuspendTarget(null); setSuspendReason(''); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Suspend room"
+            className="bg-surface border border-border rounded-lg p-6 w-full max-w-md shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-display text-lg font-bold text-primary mb-2">Suspend "{suspendTarget.name}"?</h3>
+            <p className="text-muted mb-4 text-sm">
+              This hides the room from the public listing and blocks ALL access — including the room's own admins —
+              until you unsuspend it.
+            </p>
+            <label className="block text-xs text-faint mb-1">Reason (optional, internal)</label>
+            <input
+              type="text"
+              value={suspendReason}
+              onChange={(e) => setSuspendReason(e.target.value)}
+              placeholder="Why is this room being suspended?"
+              className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 mb-4"
+            />
+            <div className="flex justify-end gap-3">
+              <NeonButton variant="ghost" onClick={() => { setSuspendTarget(null); setSuspendReason(''); }}>Cancel</NeonButton>
+              <NeonButton variant="danger" onClick={handleSuspend} disabled={suspending}>
+                {suspending ? 'Suspending...' : 'Suspend Room'}
+              </NeonButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {unsuspendTarget && (
+        <ConfirmModal
+          title="Unsuspend Room"
+          message={`Restore access to "${unsuspendTarget.name}"? It will reappear in the public listing and become accessible again.`}
+          confirmLabel="Unsuspend"
+          onConfirm={handleUnsuspend}
+          onCancel={() => setUnsuspendTarget(null)}
         />
       )}
     </div>
