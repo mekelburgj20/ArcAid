@@ -89,6 +89,29 @@ describe('Reports page', () => {
     expect(screen.getByText(/Bob/)).toBeInTheDocument();
   });
 
+  it('m1: player-name headline is the reported target_name SNAPSHOT, not the current resolved identity — the resolved identity renders as secondary "Currently:" context', async () => {
+    mockFetch({
+      roomsPending: [],
+      namesPending: [{
+        id: 3, target_type: 'player_name', target_key: 'name:discord-renamed:oldbadname', game_room_id: 'r1',
+        target_user_id: 'discord-renamed', target_name: 'OldBadName', reporter_user_id: 'discord-2',
+        reason: null, created_at: new Date().toISOString(),
+        resolved_at: null, resolved_by: null, resolution: null,
+        room_name: 'Some Room', room_slug: 'some-room', reporter_display_name: null,
+        reporter_username: 'Bob', target_display_name: 'NewCleanName', target_username: null,
+      }],
+    });
+
+    renderReports();
+    await waitFor(() => expect(screen.getByText('No pending room reports.')).toBeInTheDocument());
+
+    screen.getByText('Player Names').click();
+    // Headline is the snapshot, not the renamed current identity.
+    await waitFor(() => expect(screen.getByText('OldBadName')).toBeInTheDocument());
+    // The current identity appears only as secondary context.
+    expect(screen.getByText(/Currently: NewCleanName/)).toBeInTheDocument();
+  });
+
   it('switches to the Scores tab and loads the pre-existing score-reports queue', async () => {
     mockFetch({
       scoresPending: [{

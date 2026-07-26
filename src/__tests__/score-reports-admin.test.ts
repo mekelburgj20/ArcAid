@@ -144,6 +144,39 @@ describe('POST /api/admin/score-reports/:reportId/soft-delete', () => {
     });
 });
 
+describe('POST /api/admin/score-reports/:reportId/hard-delete', () => {
+    // m8 (S22 Phase 1 adversarial review) — this endpoint had zero coverage
+    // despite the CHANGELOG line claiming otherwise; added here and the
+    // CHANGELOG corrected in the same fix round.
+    it('permanently deletes the score row and resolves the report', async () => {
+        const app = await createApp();
+        const { scoreId } = await seedGlobalScore();
+        const reportId = await seedScoreReport(scoreId, 'definitely fake');
+
+        const res = await request(app)
+            .post(`/api/admin/score-reports/${reportId}/hard-delete`)
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp());
+        expect(res.status).toBe(200);
+
+        const db = await getDatabase();
+        const score = await db.get('SELECT * FROM global_scores WHERE id = ?', scoreId);
+        expect(score).toBeUndefined(); // row is gone, not just soft-deleted
+
+        const report = await db.get('SELECT resolution FROM score_reports WHERE id = ?', reportId);
+        expect(report.resolution).toBe('deleted');
+    });
+
+    it('404s an unknown report id', async () => {
+        const app = await createApp();
+        const res = await request(app)
+            .post(`/api/admin/score-reports/${crypto.randomUUID()}/hard-delete`)
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp());
+        expect(res.status).toBe(404);
+    });
+});
+
 describe('POST /api/admin/score-reports/:reportId/ban', () => {
     it('bans the reported player, soft-deletes the score, and creates a user_bans row', async () => {
         const app = await createApp();
@@ -185,6 +218,94 @@ describe('POST /api/admin/score-reports/:reportId/ban', () => {
         const db = await getDatabase();
         const ban = await db.get('SELECT * FROM user_bans WHERE discord_user_id = ?', playerId);
         expect(ban.expires_at).toBeNull();
+    });
+
+    // m6 (S22 Phase 1 adversarial review) — a score synced FROM iScored
+    // carries a synthetic `iscored:<username>` player_id with no login
+    // identity behind it. Banning it previously wrote a user_bans row that
+    // could never match any real session — a silent no-op. Must 400 instead.
+    it('400s banning a score with a synthetic iscored: player_id, and writes NO user_bans row', async () => {
+        const app = await createApp();
+        const { scoreId } = await seedGlobalScore({ playerId: 'iscored:offender_alias' });
+        const reportId = await seedScoreReport(scoreId, 'obviously synced from iScored');
+
+        const res = await request(app)
+            .post(`/api/admin/score-reports/${reportId}/ban`)
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ durationDays: 30 });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/iScored/);
+
+        const db = await getDatabase();
+        const ban = await db.get('SELECT * FROM user_bans WHERE discord_user_id = ?', 'iscored:offender_alias');
+        expect(ban).toBeUndefined();
+
+        // Report stays unresolved — the admin needs to pick a different action.
+        const report = await db.get('SELECT resolved_at FROM score_reports WHERE id = ?', reportId);
+        expect(report.resolved_at).toBeNull();
+    });
+
+    // m7 (S22 Phase 1 adversarial review) — ban bodies were previously
+    // unvalidated: {"durationDays":"abc"} coerced to `new Date(NaN)` deep
+    // inside ScoreReportService.ban, surfacing as an opaque 500 instead of a
+    // clear 400 at the API boundary.
+    it('400s a garbage durationDays instead of 500ing', async () => {
+        const app = await createApp();
+        const { scoreId } = await seedGlobalScore();
+        const reportId = await seedScoreReport(scoreId);
+
+        const res = await request(app)
+            .post(`/api/admin/score-reports/${reportId}/ban`)
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ durationDays: 'abc' });
+        expect(res.status).toBe(400);
+    });
+
+    it('400s a durationDays out of the sane 1..3650 range', async () => {
+        const app = await createApp();
+        const { scoreId } = await seedGlobalScore();
+        const reportId = await seedScoreReport(scoreId);
+
+        const res = await request(app)
+            .post(`/api/admin/score-reports/${reportId}/ban`)
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ durationDays: 999999 });
+        expect(res.status).toBe(400);
+    });
+});
+
+describe('POST /api/admin/bans (m7 validation)', () => {
+    it('400s a missing discordUserId', async () => {
+        const app = await createApp();
+        const res = await request(app)
+            .post('/api/admin/bans')
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({});
+        expect(res.status).toBe(400);
+    });
+
+    it('400s a garbage durationDays instead of 500ing', async () => {
+        const app = await createApp();
+        const res = await request(app)
+            .post('/api/admin/bans')
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ discordUserId: 'discord-m7-target', durationDays: 'abc' });
+        expect(res.status).toBe(400);
+    });
+
+    it('accepts a valid body', async () => {
+        const app = await createApp();
+        const res = await request(app)
+            .post('/api/admin/bans')
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ discordUserId: 'discord-m7-target-2', durationDays: 30, reason: 'test' });
+        expect(res.status).toBe(201);
     });
 });
 
