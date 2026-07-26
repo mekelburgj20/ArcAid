@@ -132,8 +132,7 @@ export default function LandingPage() {
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm relative z-40">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/arcaid-logo.png" alt="ArcAid" className="w-10 h-10" />
-            <span className="font-pixel text-neon-cyan text-sm tracking-wider">ARCAID</span>
+            <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-16 w-auto" />
           </div>
           <div className="flex items-center gap-3">
             {/* Super-admin login is intentionally NOT linked here — it's reached
@@ -151,13 +150,13 @@ export default function LandingPage() {
       </div>
 
       {/* Hero — Delta House Chrome wordmark. Prominent, first thing you see.
-          Dark backdrop (matches the design's assumed #0C0C13 stage) — bg-deep
-          renders near-black under the default dark theme; under a light theme
-          this section intentionally stays dark so the neon glow still reads
-          (see DEVIATIONS in the S22 logo-refresh session notes). */}
+          v2.45.1 fix: no dedicated backdrop section — it renders directly on
+          the page's own bg-deep (the same background the room grid below
+          sits on) so there's no visible seam between hero and content. Under
+          a light theme this reads flatter (the glow assumes a near-black
+          stage) — a known, accepted tradeoff, not fixed here. */}
       <div style={{
-        background: '#0C0C13',
-        padding: '48px 16px 40px',
+        padding: '16px 16px 8px',
         display: 'flex',
         justifyContent: 'center',
       }}>

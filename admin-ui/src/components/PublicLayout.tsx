@@ -156,7 +156,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
         >
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link to="/" className="no-underline flex-shrink-0" aria-label="All game rooms" title="All game rooms">
-              <img src="/arcaid-logo.png" alt="ArcAid" className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0" />
+              <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-8 sm:h-9 w-auto flex-shrink-0" />
             </Link>
             <Link to={`/${slug}`} className="no-underline min-w-0">
               <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate block">{roomName}</span>
