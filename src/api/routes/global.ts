@@ -276,7 +276,11 @@ router.post('/me/rooms/:roomId/join-request', requireDiscordUser, async (req, re
         // ID (display_name stays user-chosen/unset; username is the fallback).
         // Uses the JWT's username claim (same displayName value login already
         // computed) — not a network call, so safe to run inline here.
-        if (req.user!.username) {
+        // Guard: never persist a username that IS the raw id — a refreshed
+        // token degrades its username claim to the discord id when the user
+        // has no display_name, and writing that here would clobber a good
+        // stored username with the id (v2.40.1 regression fix).
+        if (req.user!.username && req.user!.username !== req.user!.discordId) {
             const db = await getDatabase();
             await db.run(
                 `INSERT INTO user_profiles (discord_user_id, username) VALUES (?, ?)

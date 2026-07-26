@@ -108,10 +108,14 @@ export async function refreshAccessToken(
     // logged-in identity (Discord OR Google) with the user-chosen display
     // name and cached avatar — the correct read source for both providers.
     const profile = await db.get(
-        'SELECT display_name, avatar_hash, avatar_url FROM user_profiles WHERE discord_user_id = ?',
+        'SELECT display_name, username, avatar_hash, avatar_url FROM user_profiles WHERE discord_user_id = ?',
         discordId,
     );
-    const username = profile?.display_name || discordId;
+    // Fall back through the provider `username` (v2.40.0) before the raw id.
+    // Pre-fix this degraded to `discordId` for any user without a chosen
+    // display_name, which then poisoned user_profiles.username via the
+    // join-request upsert (v2.40.1 regression fix).
+    const username = profile?.display_name || profile?.username || discordId;
     const avatar = profile?.avatar_url
         ? profile.avatar_url
         : profile?.avatar_hash
