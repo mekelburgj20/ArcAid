@@ -196,6 +196,27 @@ router.get('/:roomId/scoreboard-config', async (req, res) => {
 // request either of those handlers already answered).
 router.use('/:roomId', roomVisibilityGate);
 
+// Members / Players (v2.42.0) — registered AFTER roomVisibilityGate so this
+// is automatically public for 'open' rooms and members/admins/super-only for
+// 'approval' rooms, same as every other route below the gate. requireAuth is
+// deliberately NOT added — the gate IS the access control (mirrors how
+// leaderboard/stats public reads are unauthenticated).
+router.get('/:roomId/members', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { RoomRosterService } = await import('../../services/RoomRosterService.js');
+        // Response is a bare array (contract D1) — the FE independently reads
+        // join_policy off `getPortal(slug)` (already fetched/cached by
+        // PublicLayout, zero extra network cost) to decide labels/columns,
+        // so this endpoint doesn't need to duplicate that field.
+        const { members } = await RoomRosterService.getRoster(roomId);
+        res.json(members);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/members):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // Game info by ID (public — used by QR code score submission page)
 router.get('/:roomId/games/:gameId/info', async (req, res) => {
     try {
