@@ -72,6 +72,17 @@ Design settled in-session with the user; ship in two releases:
 
 **Also in this arc — member-picker admin add (Google-admin UX gap).** BE already accepts `google:*` ids on the admin-add endpoints (v2.35.0 D3.1) but the FE flow is Discord-username-or-pasted-snowflake — a Google user's id is opaque/unknowable. Replace/augment with "Add admin → pick from room members" (names + avatars, provider-agnostic). Kills the ID-pasting UX for both providers.
 
+### Content moderation: report a room / name + blocklist + admin action tools (S22 core, user-asked 2026-07-25)
+
+Now that anyone can create a public room (v2.33.0) and pick their own room name/slug + display names, we need a moderation surface for profane/crude content. NOT built yet. Three layers, cheapest first:
+
+1. **Prevention at input (blocklist).** A curated, normalized (case/l33t/diacritic/zero-width-folded) blocklist check on room name, slug, tournament names, and display names at create/rename time. Unambiguous-slurs-only to avoid the Scunthorpe problem. Catches low-effort abuse; never catches determined creativity (that's what reports are for).
+2. **Report → admin queue (the backbone).** A "report" affordance on rooms and player names → a super-admin review queue. **Clone `ScoreReportService`'s exact shape** (`id, target, reporter, reason, created_at, resolved_at, resolved_by, resolution` + UNIQUE(target, reporter) anti-spam) for a `room_reports` / `name_reports` table; reuse **v2.39.0's join-request admin-queue UI pattern** (list + approve/deny-style actions + nav badge). Consider ONE shared "Reports" admin page with type tabs (scores / comments / rooms / names / catalogue) — several planned report types converge here (see the comment report/flag item + catalogue "report a problem" item).
+3. **Admin action tools (make reports meaningful).** Super-admin: rename room, force display-name reset (ties to the "Admin display-name override" item), **suspend room** (hidden + inaccessible pending review — softer than delete), **ban identity** (block login/creation for a provider id — ties to the "Admin ban" item under Player Self-Service + Moderation). A queue without teeth just documents abuse.
+4. **(Optional, later) automated screening.** Async cheap-LLM (Haiku-class) pass on new room names/descriptions that FLAGS to the queue rather than blocking. v2 nicety, not launch-critical.
+
+Accountability foundation already shipped: room creation requires login, is capped (3/user), rate-limited, and kill-switchable (v2.33.0) — identity friction is the strongest deterrent. Sequences naturally after the membership/privacy arc (shares the admin-queue pattern).
+
 ### Brand casing: "Arcaid" not "ArcAid" (decision 2026-07-25)
 
 Standardize prose/UI strings on "Arcaid" (logo wordmark is stylized all-caps ARCAID — unaffected). Sweep UI strings + docs in a cleanup pass; new text uses "Arcaid" from now on. Domain/repo/package names untouched.
