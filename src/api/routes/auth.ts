@@ -181,6 +181,10 @@ router.post('/discord/callback', async (req, res) => {
 
         // Cache avatar hash in user_profiles. Upsert so a row exists for every
         // user who has logged in (display_name stays NULL until they pick one).
+        // v2.40.0 (D1): also persist `username` = displayName on every login
+        // (last-write-wins) — a nullable, non-unique fallback consulted when
+        // display_name is unset, distinct from the user-chosen unique
+        // display_name which this code path never touches.
         if (user.avatar) {
             const db = await getDatabase();
             const existing = await db.get(
@@ -188,24 +192,28 @@ router.post('/discord/callback', async (req, res) => {
             );
             const changed = !existing || existing.avatar_hash !== user.avatar;
             await db.run(
-                `INSERT INTO user_profiles (discord_user_id, avatar_hash, avatar_fetched_at)
-                 VALUES (?, ?, datetime('now'))
+                `INSERT INTO user_profiles (discord_user_id, avatar_hash, avatar_fetched_at, username)
+                 VALUES (?, ?, datetime('now'), ?)
                  ON CONFLICT(discord_user_id) DO UPDATE SET
                     avatar_hash = excluded.avatar_hash,
                     avatar_fetched_at = excluded.avatar_fetched_at,
+                    username = excluded.username,
                     updated_at = datetime('now')`,
-                canonicalUserId, user.avatar
+                canonicalUserId, user.avatar, displayName
             );
             if (changed) {
                 await LeaderboardService.invalidateAll();
             }
         } else {
             // Even without an avatar, ensure the user_profiles row exists so
-            // display_name can be set later.
+            // display_name can be set later, and keep username fresh.
             const db = await getDatabase();
             await db.run(
-                `INSERT OR IGNORE INTO user_profiles (discord_user_id) VALUES (?)`,
-                canonicalUserId
+                `INSERT INTO user_profiles (discord_user_id, username) VALUES (?, ?)
+                 ON CONFLICT(discord_user_id) DO UPDATE SET
+                    username = excluded.username,
+                    updated_at = datetime('now')`,
+                canonicalUserId, displayName
             );
         }
 
@@ -394,6 +402,8 @@ router.post('/google/callback', async (req, res) => {
         // avatar_hash — Google avatars are already full URLs, not CDN
         // template hashes). display_name is NEVER touched here — it stays
         // user-chosen (set via AccountSettings), same doctrine as Discord.
+        // v2.40.0 (D1): username = displayName persists on every login here
+        // too, same fallback doctrine as the Discord branch above.
         if (pictureUrl) {
             const db = await getDatabase();
             const existing = await db.get(
@@ -401,13 +411,14 @@ router.post('/google/callback', async (req, res) => {
             );
             const changed = !existing || existing.avatar_url !== pictureUrl;
             await db.run(
-                `INSERT INTO user_profiles (discord_user_id, avatar_url, avatar_fetched_at)
-                 VALUES (?, ?, datetime('now'))
+                `INSERT INTO user_profiles (discord_user_id, avatar_url, avatar_fetched_at, username)
+                 VALUES (?, ?, datetime('now'), ?)
                  ON CONFLICT(discord_user_id) DO UPDATE SET
                     avatar_url = excluded.avatar_url,
                     avatar_fetched_at = excluded.avatar_fetched_at,
+                    username = excluded.username,
                     updated_at = datetime('now')`,
-                canonicalUserId, pictureUrl
+                canonicalUserId, pictureUrl, displayName
             );
             if (changed) {
                 await LeaderboardService.invalidateAll();
@@ -415,8 +426,11 @@ router.post('/google/callback', async (req, res) => {
         } else {
             const db = await getDatabase();
             await db.run(
-                `INSERT OR IGNORE INTO user_profiles (discord_user_id) VALUES (?)`,
-                canonicalUserId
+                `INSERT INTO user_profiles (discord_user_id, username) VALUES (?, ?)
+                 ON CONFLICT(discord_user_id) DO UPDATE SET
+                    username = excluded.username,
+                    updated_at = datetime('now')`,
+                canonicalUserId, displayName
             );
         }
 
