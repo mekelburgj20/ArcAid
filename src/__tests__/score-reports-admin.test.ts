@@ -307,6 +307,24 @@ describe('POST /api/admin/bans (m7 validation)', () => {
             .send({ discordUserId: 'discord-m7-target-2', durationDays: 30, reason: 'test' });
         expect(res.status).toBe(201);
     });
+
+    // S22 Phase 2 (v2.44.0) — verified Phase 1 only added the iscored:*
+    // rejection to POST /score-reports/:reportId/ban; this direct-ban route
+    // (now also used by the Reports page's Bans tab add-ban form and the
+    // player_name "Ban identity" quick action) needed the same guard.
+    it('400s an iscored:* synthetic id — no login identity to ban', async () => {
+        const app = await createApp();
+        const res = await request(app)
+            .post('/api/admin/bans')
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ discordUserId: 'iscored:some_alias' });
+        expect(res.status).toBe(400);
+
+        const db = await getDatabase();
+        const ban = await db.get('SELECT * FROM user_bans WHERE discord_user_id = ?', 'iscored:some_alias');
+        expect(ban).toBeUndefined();
+    });
 });
 
 describe('GET /api/admin/bans + POST /api/admin/bans/:banId/lift', () => {

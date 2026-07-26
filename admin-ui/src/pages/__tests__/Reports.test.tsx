@@ -13,6 +13,7 @@ function mockFetch(opts: {
   roomsPending?: unknown[];
   namesPending?: unknown[];
   scoresPending?: unknown[];
+  bans?: unknown[];
 }) {
   const fetchMock = vi.fn((url: string) => {
     if (url.includes('/admin/reports') && url.includes('type=room') && url.includes('status=pending')) {
@@ -29,6 +30,10 @@ function mockFetch(opts: {
     }
     if (url.includes('/admin/score-reports') && url.includes('status=resolved')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    }
+    // S22 Phase 2 (v2.44.0) — Bans tab.
+    if (url.includes('/admin/bans')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(opts.bans ?? []) });
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
   });
@@ -137,5 +142,47 @@ describe('Reports page', () => {
     mockFetch({});
     renderReports();
     await waitFor(() => expect(screen.getByText('No pending room reports.')).toBeInTheDocument());
+  });
+
+  // S22 Phase 2 (v2.44.0) — Bans tab.
+  it('switches to the Bans tab and lists active + lifted bans, with Lift only on the active one', async () => {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    mockFetch({
+      bans: [
+        {
+          id: 'ban-1', discord_user_id: 'discord-active-1', reason: 'Spamming slurs',
+          banned_by: 'admin-1', banned_at: new Date().toISOString(),
+          expires_at: future, lifted_at: null, lifted_by: null,
+        },
+        {
+          id: 'ban-2', discord_user_id: 'discord-lifted-1', reason: null,
+          banned_by: 'admin-1', banned_at: new Date().toISOString(),
+          expires_at: null, lifted_at: new Date().toISOString(), lifted_by: 'admin-2',
+        },
+      ],
+    });
+
+    renderReports();
+    await waitFor(() => expect(screen.getByText('No pending room reports.')).toBeInTheDocument());
+
+    screen.getByText('Bans').click();
+    await waitFor(() => expect(screen.getByText('discord-active-1')).toBeInTheDocument());
+    expect(screen.getByText('discord-lifted-1')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.getByText('Lifted')).toBeInTheDocument();
+    // Only the active ban gets a Lift button.
+    expect(screen.getAllByText('Lift')).toHaveLength(1);
+    // The add-ban form is present.
+    expect(screen.getByText('Ban an identity')).toBeInTheDocument();
+  });
+
+  it('Bans tab hides the "Show resolved" toggle (bans are not pending/resolved-shaped)', async () => {
+    mockFetch({ bans: [] });
+    renderReports();
+    await waitFor(() => expect(screen.getByText('No pending room reports.')).toBeInTheDocument());
+    expect(screen.getByText('Show resolved')).toBeInTheDocument();
+    screen.getByText('Bans').click();
+    await waitFor(() => expect(screen.getByText('No bans yet.')).toBeInTheDocument());
+    expect(screen.queryByText('Show resolved')).not.toBeInTheDocument();
   });
 });

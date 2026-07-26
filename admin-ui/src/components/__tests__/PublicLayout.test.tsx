@@ -285,4 +285,31 @@ describe('PublicLayout', () => {
       expect(screen.queryByText('This room requires approval to join')).toBeNull();
     });
   });
+
+  // S22 Phase 2 (v2.44.0) — suspended-room minimal portal shape renders a
+  // centered "suspended" shell instead of the normal room content/gate, and
+  // never mounts the child route (no roomId ships in the minimal response).
+  describe('suspended-room shell', () => {
+    it('renders the suspended message and never mounts the child route', async () => {
+      const fetchMock = vi.fn((url: string) => {
+        if (url.startsWith('/api/portal')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ suspended: true, name: 'Suspended Room', slug: 'suspended_room' }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+      vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+      renderAt('/suspended_room/child');
+
+      await waitFor(() => expect(screen.getByText('This room has been suspended')).toBeInTheDocument());
+      // Room name renders both in the nav bar and the shell heading.
+      expect(screen.getAllByText('Suspended Room').length).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByTestId('roomId')).toBeNull();
+      // No approval-gate copy — suspension is a distinct message, not the join gate.
+      expect(screen.queryByText('This room requires approval to join')).toBeNull();
+    });
+  });
 });
