@@ -57,9 +57,20 @@ export class RoomNameClaimService {
         const trimmed = requestedName.trim();
         if (!trimmed) throw new Error('RoomNameClaimService.resolveAndClaim: requestedName is empty');
         if (!roomId) throw new Error('RoomNameClaimService.resolveAndClaim: roomId is required');
-        // S22 Phase 1 (v2.43.0) — reject the DESIRED name before the
-        // claim/suffix loop, both Discord + anon paths. Throws NAME_NOT_ALLOWED.
-        assertNameAllowed(trimmed, 'room_member_name');
+
+        // S22 Phase 1 (v2.43.0, M2 — prevention-at-input ONLY, per the
+        // ROADMAP's stated policy: the blocklist acts at create/rename/claim
+        // time, never retroactively). If the claimant already owns this exact
+        // name, this is a re-submission under an existing name, not a new
+        // claim — skip the assert entirely so an established player keeps
+        // submitting under their existing name even if a later blocklist
+        // update would now reject it. Only a genuinely NEW claim (name not
+        // already owned by this claimant) is asserted before the suffix loop.
+        let owner = await this.findClaimOwner(roomId, trimmed);
+        const alreadyOwnedByClaimant = owner !== null && this.isOwnedByClaimant(owner, claimant);
+        if (!alreadyOwnedByClaimant) {
+            assertNameAllowed(trimmed, 'room_member_name');
+        }
 
         const db = await getDatabase();
 
@@ -74,10 +85,11 @@ export class RoomNameClaimService {
         // Suffix loop: walk _2, _3, … until we find a name that's either free
         // or already owned by this claimant. Discord claimants get the same
         // treatment — they can rotate their per-room display name too.
+        // Reuses the `owner` lookup already done above for the first
+        // (unsuffixed) candidate rather than re-querying.
         let candidate = trimmed;
         let suffix = 1;
         while (true) {
-            const owner = await this.findClaimOwner(roomId, candidate);
             if (!owner) break;                          // Free — we can claim it
             if (this.isOwnedByClaimant(owner, claimant)) break;  // Already ours — reuse
             suffix++;
@@ -87,6 +99,7 @@ export class RoomNameClaimService {
                 );
             }
             candidate = `${trimmed}_${suffix}`;
+            owner = await this.findClaimOwner(roomId, candidate);
         }
 
         // Persist the claim. Sessionless callers skip persistence — they just

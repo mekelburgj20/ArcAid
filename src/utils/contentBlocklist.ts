@@ -14,10 +14,12 @@ import { BLOCKED_TERMS } from './blocklistTerms.js';
 // Zero-width / invisible characters sometimes used to break up a slur so a
 // naive substring check misses it: ZERO WIDTH SPACE, ZERO WIDTH NON-JOINER,
 // ZERO WIDTH JOINER, LEFT-TO-RIGHT MARK, RIGHT-TO-LEFT MARK (U+200B–U+200F),
-// plus ZERO WIDTH NO-BREAK SPACE / BOM (U+FEFF). Built from explicit code
-// points via String.fromCharCode rather than embedding the literal invisible
-// characters in source (which would be unreadable/unreviewable).
-const ZERO_WIDTH_CODE_POINTS = [0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0xfeff];
+// ZERO WIDTH NO-BREAK SPACE / BOM (U+FEFF), plus (m9 hardening) SOFT HYPHEN
+// (U+00AD) and WORD JOINER (U+2060) — both invisible-in-rendering characters
+// usable for the same insertion trick. Built from explicit code points via
+// String.fromCharCode rather than embedding the literal invisible characters
+// in source (which would be unreadable/unreviewable).
+const ZERO_WIDTH_CODE_POINTS = [0x00ad, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x2060, 0xfeff];
 const ZERO_WIDTH_RE = new RegExp(
     '[' + ZERO_WIDTH_CODE_POINTS.map((c) => String.fromCharCode(c)).join('') + ']',
     'g',
@@ -31,14 +33,18 @@ const COMBINING_MARKS_RE = new RegExp(
     'g',
 );
 
-// Common l33t-speak substitutions.
+// Common l33t-speak substitutions. '6'/'9' → 'g' (m9 hardening: "ni66er" shape).
+// Deliberately NOT adding doubled-letter collapsing here or anywhere else —
+// that would multiply M1a's false-positive surface (see collapseSeparators).
 const LEET_MAP: Record<string, string> = {
     '0': 'o',
     '1': 'i',
     '3': 'e',
     '4': 'a',
     '5': 's',
+    '6': 'g',
     '7': 't',
+    '9': 'g',
     '$': 's',
     '@': 'a',
     '8': 'b',
@@ -46,6 +52,10 @@ const LEET_MAP: Record<string, string> = {
 };
 
 const SEPARATOR_RE = /[\s._-]+/g;
+// Same character class as SEPARATOR_RE but with a capturing group, so
+// String.split keeps the separator runs as elements — collapseSeparators
+// needs to inspect the alphanumeric run length on both sides of each run.
+const SEPARATOR_RE_CAPTURE = /([\s._-]+)/g;
 
 function stripDiacritics(input: string): string {
     // NFKD decomposes accented characters into base + combining marks;
@@ -70,9 +80,38 @@ export function normalizeForBlocklist(input: string): string {
     return leetFold(stripped.toLowerCase());
 }
 
-/** Removes spaces, dots, underscores, and hyphens — catches "n.i.g.g.e.r"-style insertion. */
+/**
+ * Removes a separator run ONLY when the alphanumeric runs on BOTH sides are
+ * each exactly 1 character — the real letter-spacing attack shape
+ * ("n.i.g.g.e.r", "n_i_g_g_e_r", "n i g g e r"). A separator between two
+ * ordinary (2+ char) words is a real word boundary and is kept.
+ *
+ * Without this guard, blindly stripping every separator collapses word
+ * boundaries across an entire name/phrase, producing false positives across
+ * ordinary two-word names — e.g. "Bingo Okada" → "bingookada" (contains
+ * "gook"), "Wet Backspin" → "wetbackspin" (contains "wetback"), "Ski Kelly"
+ * would similarly collide with any 3-letter+ term straddling the boundary.
+ * Verified empirically against a battery of real-name false positives
+ * (M1a fix, S22 Phase 1 adversarial review).
+ */
 function collapseSeparators(input: string): string {
-    return input.replace(SEPARATOR_RE, '');
+    // Capturing split keeps the separator runs as their own array elements,
+    // alternating: text, sep, text, sep, ..., text.
+    const parts = input.split(SEPARATOR_RE_CAPTURE);
+    let result = parts[0] ?? '';
+    for (let i = 1; i < parts.length; i += 2) {
+        const sep = parts[i] ?? '';
+        const before = parts[i - 1] ?? '';
+        const after = parts[i + 1] ?? '';
+        if (before.length === 1 && after.length === 1) {
+            // Both adjacent runs are single characters — the letter-spacing
+            // attack shape. Strip the separator so the letters read as one word.
+        } else {
+            result += sep;
+        }
+        result += after;
+    }
+    return result;
 }
 
 /**
@@ -111,4 +150,18 @@ export function assertNameAllowed(value: string | null | undefined, kind: Blockl
         err.kind = kind;
         throw err;
     }
+}
+
+/**
+ * m2 fix (S22 Phase 1 adversarial review) — for provider-supplied fields
+ * (OAuth display name at Discord/Google login) that must NEVER block the
+ * login itself: returns `value` unchanged when it passes the blocklist, or
+ * `null` when it's blocked. Callers persist the returned value as the public
+ * `username` fallback column — a blocked provider name is stored as NULL so
+ * public renders fall back to the raw id instead of laundering the slur,
+ * while the login/session itself proceeds unaffected.
+ */
+export function sanitizeProviderUsername(value: string | null | undefined): string | null {
+    if (!value) return null;
+    return containsBlockedTerm(value) ? null : value;
 }

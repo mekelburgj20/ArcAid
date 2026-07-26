@@ -18,11 +18,13 @@
 export const BLOCKED_TERMS: string[] = [
     'nigger',
     'nigga',
-    'kike',
     'gook',
     'wetback',
-    'beaner',
     'faggot',
     'raghead',
     'towelhead',
 ];
+
+// Reviewed and deliberately excluded (real-name collision risk, S22 Phase 1
+// adversarial review, M1b): 'kike' (standard Spanish diminutive of Enrique),
+// 'beaner' (substring of "beanery", a plausible room name).
