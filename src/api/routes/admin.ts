@@ -10,7 +10,7 @@ import { isAllowedImage } from '../uploadValidation.js';
 import {
     SettingsSchema,
     BackupRestoreParamsSchema, CreateGameRoomSchema, UpdateGameRoomSchema,
-    ResolveContentReportSchema,
+    ResolveContentReportSchema, BanActionSchema, CreateBanSchema,
 } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
@@ -1274,13 +1274,35 @@ router.post('/score-reports/:reportId/hard-delete', async (req, res) => {
 /** POST /api/admin/score-reports/:reportId/ban — body: { durationDays?: number|null, reason?: string } */
 router.post('/score-reports/:reportId/ban', async (req, res) => {
     try {
-        const durationDays = req.body?.durationDays ?? null;
-        const reason = req.body?.reason;
+        const validationResult = validate(BanActionSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { durationDays, reason } = validationResult.data;
+
+        const reportId = req.params.reportId as string;
+        const report = await ScoreReportService.getById(reportId);
+        if (!report) return res.status(404).json({ error: 'Report not found' });
+
+        // m6 (S22 Phase 1 adversarial review) — a score synced FROM iScored
+        // carries a synthetic `iscored:<username>` player_id (no login
+        // identity behind it, see GlobalScoreService's fan-out doctrine).
+        // Banning that id writes a user_bans row that can never match any
+        // real session — a silent no-op that looks like it worked. Reject
+        // explicitly instead.
+        const db = await getDatabase();
+        const scoreRow = await db.get<{ player_id: string | null }>(
+            'SELECT player_id FROM global_scores WHERE id = ?', report.score_id,
+        );
+        if (scoreRow?.player_id?.startsWith('iscored:')) {
+            return res.status(400).json({
+                error: "Cannot ban an iScored-synced name — it has no login identity to ban. Use Soft Delete or Hard Delete instead.",
+            });
+        }
+
         const ok = await ScoreReportService.banUser(
-            req.params.reportId as string,
+            reportId,
             (req.user!.discordId || req.user!.username || 'admin'),
-            durationDays,
-            reason
+            durationDays ?? null,
+            reason,
         );
         if (!ok) return res.status(404).json({ error: 'Report not found' });
         res.json({ success: true });
@@ -1377,8 +1399,9 @@ router.get('/bans', async (req, res) => {
 /** POST /api/admin/bans — body: { discordUserId, durationDays?, reason? } */
 router.post('/bans', async (req, res) => {
     try {
-        const { discordUserId, durationDays, reason } = req.body || {};
-        if (!discordUserId) return res.status(400).json({ error: 'discordUserId is required' });
+        const validationResult = validate(CreateBanSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { discordUserId, durationDays, reason } = validationResult.data;
         const ban = await ScoreReportService.ban(
             discordUserId,
             (req.user!.discordId || req.user!.username || 'admin'),

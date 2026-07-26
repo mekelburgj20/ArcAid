@@ -127,7 +127,11 @@ export const CreateGameRoomSchema = z.object({
     discord_guild_id: z.string().optional().default(''),
     // Sprint 13 — optional short label (≤6 chars) for RoomTag badges. Server
     // normalizes on write (uppercase + slice); null means fall back to slug.
-    short_tag: z.string().max(6).nullable().optional(),
+    // n3 (S22 Phase 1 adversarial review) — short_tag renders publicly on
+    // room cards; a 6-char field is short but some blocked terms still fit
+    // whole ("gook", "nigga" doesn't but others do) or as a truncated hint.
+    short_tag: z.string().max(6).nullable().optional()
+        .refine((v) => v == null || noBlockedTerm(v), blockedTermMessage),
     // Standalone-room Phase 1 (v2.32.0) — when absent, behaves exactly as
     // before (connected room, Discord/iScored integrations left on their
     // normal defaults). 'standalone' seeds DISCORD_ENABLED/ISCORED_ENABLED
@@ -151,7 +155,11 @@ export const UpdateGameRoomSchema = z.object({
     is_public: z.boolean().optional(),
     logo_url: z.string().url().or(z.literal('')).nullable().optional(),
     discord_guild_id: z.string().nullable().optional(),
-    short_tag: z.string().max(6).nullable().optional(),
+    // n3 (S22 Phase 1 adversarial review) — short_tag renders publicly on
+    // room cards; a 6-char field is short but some blocked terms still fit
+    // whole ("gook", "nigga" doesn't but others do) or as a truncated hint.
+    short_tag: z.string().max(6).nullable().optional()
+        .refine((v) => v == null || noBlockedTerm(v), blockedTermMessage),
 });
 
 // Public self-serve room creation (v2.33.0) — route segments that a bare-slug
@@ -372,4 +380,21 @@ export const NameReportSchema = z.object({
 /** POST /admin/reports/:id/resolve body. */
 export const ResolveContentReportSchema = z.object({
     resolution: z.string().trim().min(1).max(500),
+});
+
+/**
+ * m7 (S22 Phase 1 adversarial review) — POST /admin/score-reports/:reportId/ban
+ * and POST /admin/bans bodies. Previously unvalidated: `{"durationDays":"abc"}`
+ * coerced to `new Date(NaN)` inside ScoreReportService.ban, silently
+ * producing a garbage `expires_at` and a 500 further down the line instead of
+ * a clear 400 at the boundary.
+ */
+export const BanActionSchema = z.object({
+    durationDays: z.number().int().min(1).max(3650).nullable().optional(),
+    reason: z.string().trim().max(500).optional(),
+});
+
+/** POST /admin/bans body — BanActionSchema plus the target identity. */
+export const CreateBanSchema = BanActionSchema.extend({
+    discordUserId: z.string().min(1, 'discordUserId is required'),
 });

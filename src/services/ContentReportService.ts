@@ -58,6 +58,18 @@ function normalizeReason(reason?: string | null): string | null {
     return trimmed || null;
 }
 
+/**
+ * n4 (S22 Phase 1 adversarial review) — normalizes the name part of a
+ * room+name-keyed `target_key` so trivial variation (extra internal
+ * whitespace, differing Unicode compatibility forms, case) doesn't dodge the
+ * dedup index. NFKC (compose, not decompose — this is a dedup key, not the
+ * blocklist matcher; no need to strip diacritics here) → trim → collapse
+ * internal whitespace runs → lowercase.
+ */
+function normalizeNameForKey(name: string): string {
+    return name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 export class ContentReportService {
     /**
      * File a report against a room. Throws coded errors: `ROOM_NOT_FOUND`,
@@ -118,7 +130,7 @@ export class ContentReportService {
 
         const targetKey = params.targetUserId
             ? `name:${params.targetUserId}`
-            : `name:${params.roomId ?? 'global'}:${params.targetName.toLowerCase()}`;
+            : `name:${params.roomId ?? 'global'}:${normalizeNameForKey(params.targetName)}`;
         const reason = normalizeReason(params.reason);
 
         try {
@@ -233,7 +245,18 @@ export class ContentReportService {
 
     private static mapInsertError(err: unknown): Error {
         const sqlErr = err as { code?: string; message?: string };
-        if (sqlErr?.code === 'SQLITE_CONSTRAINT' && String(sqlErr.message || '').includes('content_reports')) {
+        const message = String(sqlErr?.message || '');
+        // Tightened (S22 Phase 1 adversarial review): require BOTH the SQLite
+        // UNIQUE-constraint code AND the table name in the message before
+        // mapping to 409. `code === 'SQLITE_CONSTRAINT'` alone also fires for
+        // CHECK/NOT NULL/FK violations on this table (e.g. a bad target_type)
+        // — those are real bugs and must surface as a 500, not be
+        // misreported to the caller as "you already reported this".
+        if (
+            sqlErr?.code === 'SQLITE_CONSTRAINT' &&
+            message.includes('UNIQUE constraint failed') &&
+            message.includes('content_reports')
+        ) {
             return codedError('You already have an open report on this target', 'DUPLICATE_REPORT');
         }
         return err as Error;
