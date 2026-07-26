@@ -175,6 +175,20 @@ router.post('/discord/callback', async (req, res) => {
             if (!googleUserId) {
                 return res.status(400).json({ error: 'Invalid or expired link request. Please try linking again from Account Settings.' });
             }
+
+            // M2 fix (S22 Phase 2 adversarial review) — the discordBanCheck
+            // above only covers the Discord snowflake being linked TO; the
+            // google id being linked FROM was never checked, so a banned
+            // google:X identity holding a still-valid access token could link
+            // a clean snowflake and mint a brand-new token+refresh pair
+            // through this flow, repeatably. Check BEFORE createLink so a
+            // banned google id writes no user_identity_links row and mints no
+            // token — same "leaves no trace" contract as discordBanCheck.
+            const googleBanCheck = await BanService.isIdentityBanned(googleUserId);
+            if (googleBanCheck.banned) {
+                return res.status(403).json({ error: 'This account is banned.' });
+            }
+
             try {
                 await IdentityLinkService.createLink(googleUserId, canonicalUserId);
             } catch (err) {
@@ -297,6 +311,14 @@ router.post('/link/discord/start', requireDiscordUser, async (req, res) => {
         const userId = req.user!.discordId;
         if (!userId || !isGoogleUserId(userId)) {
             return res.status(400).json({ error: 'Only a Google-signed-in account can start a Discord link. Nothing to link.' });
+        }
+        // M2 fix (S22 Phase 2 adversarial review) — a banned identity must not
+        // be able to mint a link nonce at all (the callback-side check above
+        // covers the nonce's google id being consumed, but this closes the
+        // door earlier — a banned caller can't even start the flow).
+        const banCheck = await BanService.isIdentityBanned(userId);
+        if (banCheck.banned) {
+            return res.status(403).json({ error: 'This account is banned.' });
         }
         const nonce = LinkNonceStore.create(userId);
         res.json({ nonce });
