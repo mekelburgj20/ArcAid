@@ -79,8 +79,23 @@ function reporterLabel(r: ContentReportRow): string {
   return r.reporter_display_name || r.reporter_username || r.reporter_user_id;
 }
 
-function targetLabel(r: ContentReportRow): string {
-  return r.target_display_name || r.target_username || r.target_name || r.target_user_id || 'Unknown';
+/**
+ * m1 fix (S22 Phase 1 adversarial review): the headline for a player_name
+ * report must be the `target_name` SNAPSHOT — the offending string as
+ * reported at the time — not the target's current resolved profile
+ * identity. A player can rename after being reported; the report is about
+ * the name they used, not whoever they are now. The resolved identity (when
+ * known) renders as secondary context via `targetCurrentIdentity`.
+ */
+function targetHeadline(r: ContentReportRow): string {
+  return r.target_name || 'Unknown name';
+}
+
+/** Current resolved profile identity, if different from the reported snapshot — secondary context only. */
+function targetCurrentIdentity(r: ContentReportRow): string | null {
+  const current = r.target_display_name || r.target_username || null;
+  if (!current || current === r.target_name) return null;
+  return current;
 }
 
 const TABS: Array<{ key: ReportTab; label: string }> = [
@@ -183,8 +198,11 @@ export default function Reports() {
         'success',
       );
       await refresh();
-    } catch {
-      toast('Action failed', 'error');
+    } catch (err) {
+      // m6 (S22 Phase 1 adversarial review) — surface the server's actual
+      // message (e.g. "Cannot ban an iScored-synced name...") instead of a
+      // generic failure toast, so the admin knows WHY the action was rejected.
+      toast(err instanceof Error ? err.message : 'Action failed', 'error');
     } finally {
       setActingOn(null);
       setConfirmTarget(null);
@@ -239,7 +257,7 @@ export default function Reports() {
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-primary">
-                        {tab === 'rooms' ? (r.room_name || r.target_name || 'Unknown room') : targetLabel(r)}
+                        {tab === 'rooms' ? (r.room_name || r.target_name || 'Unknown room') : targetHeadline(r)}
                         {tab === 'rooms' && r.room_slug && (
                           <Link
                             to={`/${r.room_slug}`}
@@ -253,6 +271,9 @@ export default function Reports() {
                       </p>
                       {tab === 'names' && r.room_name && (
                         <p className="text-xs text-faint mt-0.5">in room: {r.room_name}</p>
+                      )}
+                      {tab === 'names' && targetCurrentIdentity(r) && (
+                        <p className="text-xs text-faint mt-0.5">Currently: {targetCurrentIdentity(r)}</p>
                       )}
                       <p className="text-xs text-faint mt-0.5">
                         Reported by {reporterLabel(r)} · {timeAgo(r.created_at)}
