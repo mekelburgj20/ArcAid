@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Menu, X, DoorOpen, Palette, Globe, ClipboardList } from 'lucide-react';
+import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Menu, X, DoorOpen, Palette, Globe, ClipboardList, Flag } from 'lucide-react';
 import { api, isAuthenticated, getTokenRole, setToken } from '../lib/api';
 import LoadingState from './LoadingState';
 
@@ -12,6 +12,8 @@ export default function SuperAdminLayout() {
   const [loading, setLoading] = useState(true);
   // v2.5.0: Catalogue Approvals nav badge — refreshed on mount + every 60s.
   const [pendingCount, setPendingCount] = useState<number>(0);
+  // v2.43.0 (S22 Phase 1): Reports nav badge — same refresh idiom.
+  const [reportsPendingCount, setReportsPendingCount] = useState<number>(0);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -40,7 +42,16 @@ export default function SuperAdminLayout() {
     };
     fetchPending();
     const interval = setInterval(fetchPending, 60_000);
-    return () => clearInterval(interval);
+
+    const fetchReportsPending = () => {
+      api.get<{ pending: number }>('/admin/reports/pending-count')
+        .then(r => setReportsPendingCount(r.pending || 0))
+        .catch(() => { /* nav badge is best-effort */ });
+    };
+    fetchReportsPending();
+    const reportsInterval = setInterval(fetchReportsPending, 60_000);
+
+    return () => { clearInterval(interval); clearInterval(reportsInterval); };
   }, [navigate]);
 
   if (!isAuthenticated() || getTokenRole() !== 'super_admin') return null;
@@ -57,6 +68,7 @@ export default function SuperAdminLayout() {
     { path: '/admin/styles', label: 'Style Catalogue', icon: <Palette size={18} /> },
     { path: '/admin/catalogue', label: 'Global Catalogue', icon: <Globe size={18} /> },
     { path: '/admin/catalogue/approvals', label: 'Approvals', icon: <ClipboardList size={18} />, badge: pendingCount },
+    { path: '/admin/reports', label: 'Reports', icon: <Flag size={18} />, badge: reportsPendingCount },
     { path: '/admin/backups', label: 'Backups', icon: <HardDrive size={18} /> },
     { path: '/admin/logs', label: 'Logs', icon: <Activity size={18} /> },
     { path: '/admin/settings', label: 'Global Settings', icon: <SettingsIcon size={18} /> },

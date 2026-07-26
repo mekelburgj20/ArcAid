@@ -14,6 +14,7 @@ import ScoreboardTicker from './ScoreboardTicker';
 import LoadingState from './LoadingState';
 import RoomJoinGate from './RoomJoinGate';
 import { PlayerQuickViewProvider } from '../contexts/PlayerQuickViewContext';
+import ReportContentModal from './ReportContentModal';
 
 interface PublicLayoutProps {
   gameRoomName?: string;
@@ -41,6 +42,9 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const isGated = joinPolicy === 'approval' && (viewerStatus === 'none' || viewerStatus === 'pending');
 
   const [lobbyHasNew, setLobbyHasNew] = useState(false);
+  // S22 Phase 1 (v2.43.0) — discreet "Report room" affordance, signed-in
+  // users only (any provider), hidden for guests.
+  const [showReportRoom, setShowReportRoom] = useState(false);
 
   // Show prefs gear only on scoreboard page (/:slug with no extra segments)
   const pathParts = location.pathname.split('/').filter(Boolean);
@@ -256,7 +260,28 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
         <Link to="/privacy" className="hover:text-neon-cyan transition-colors no-underline">Privacy</Link>
         <span aria-hidden="true">·</span>
         <Link to="/terms" className="hover:text-neon-cyan transition-colors no-underline">Terms</Link>
+        {/* S22 Phase 1 (v2.43.0) — discreet, signed-in-only report affordance. */}
+        {discordUser && resolvedRoomId && (
+          <>
+            <span aria-hidden="true">·</span>
+            <button
+              onClick={() => setShowReportRoom(true)}
+              className="hover:text-neon-magenta transition-colors bg-transparent border-0 p-0 cursor-pointer text-[10px] text-faint"
+            >
+              Report room
+            </button>
+          </>
+        )}
       </footer>
+
+      {showReportRoom && resolvedRoomId && (
+        <ReportContentModal
+          title="Report this room"
+          targetLabel={roomName}
+          endpoint={`/global/rooms/${resolvedRoomId}/report`}
+          onClose={() => setShowReportRoom(false)}
+        />
+      )}
 
       {/* Scanline overlay */}
       <div className="fixed inset-0 pointer-events-none z-50 scanlines" />
