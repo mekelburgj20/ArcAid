@@ -16,14 +16,22 @@ let io: SocketServer | null = null;
  * A client without access silently doesn't join — no error channel, the
  * room's live-update channels are simply inert for them (matching "hard-gate
  * VIEWING", not just page-load reads).
+ *
+ * S22 Phase 2 (v2.44.0) — suspension check runs first (mirrors
+ * `roomVisibilityGate`'s ordering): a suspended room's channels are inert for
+ * everyone except super-admins, regardless of join policy.
  */
 async function canJoinRoomChannel(socket: Socket, roomId: string): Promise<boolean> {
     if (!roomId) return false;
     try {
-        const policy = await RoomAccessService.getJoinPolicy(roomId);
-        if (policy !== 'approval') return true;
         const token = (socket.handshake.auth as { token?: string } | undefined)?.token;
         const payload = token ? verifyToken(token) : null;
+
+        const suspended = await RoomAccessService.isSuspended(roomId);
+        if (suspended && payload?.role !== 'super_admin') return false;
+
+        const policy = await RoomAccessService.getJoinPolicy(roomId);
+        if (policy !== 'approval') return true;
         return RoomAccessService.canViewRoom(payload, roomId);
     } catch {
         // Fail-open on infra failure (matches the HTTP gate + conditionalRequireDiscordUser).

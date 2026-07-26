@@ -171,6 +171,11 @@ export async function maybeBuildOgShell(req: Request, frontendPath: string): Pro
         const room = await GameRoomService.getBySlug(route.slug);
         if (!room) return null;
 
+        // S22 Phase 2 (v2.44.0) — a suspended room is hidden pending review;
+        // a link-preview crawler must see the generic unmodified shell, same
+        // as the approval-room leak closure below.
+        if (room.suspended_at) return null;
+
         // v2.39.0 (approval rooms) leak closure — a link-preview crawler is
         // not a "member", so an 'approval'-policy room must never unfurl its
         // game/player content. Early-return to the generic unmodified shell.

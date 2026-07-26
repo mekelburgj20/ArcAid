@@ -398,3 +398,25 @@ export const BanActionSchema = z.object({
 export const CreateBanSchema = BanActionSchema.extend({
     discordUserId: z.string().min(1, 'discordUserId is required'),
 });
+
+/**
+ * S22 Phase 2 (v2.44.0) — POST /admin/rooms/:roomId/suspend body.
+ * `reason` is optional context stored on `game_rooms.suspended_reason`.
+ */
+export const SuspendRoomSchema = z.object({
+    reason: z.string().trim().max(500).optional(),
+});
+
+/**
+ * S22 Phase 2 (v2.44.0) — PATCH /admin/users/:userId/display-name body.
+ * `null` clears the override (render falls back to username/id); a non-null
+ * value is re-validated through the same checks as self-service
+ * (UserProfileService.setDisplayName) — this schema only enforces the shape.
+ * Phase 2 ships clear-to-null only from the Reports UI, but the endpoint
+ * itself accepts a non-null value too (kept generic, not clear-only, since
+ * setDisplayName already supports it and a future free-text rename UI should
+ * not need a new endpoint).
+ */
+export const AdminSetDisplayNameSchema = z.object({
+    displayName: z.string().trim().min(1).max(32).nullable(),
+});

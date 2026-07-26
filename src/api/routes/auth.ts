@@ -10,6 +10,7 @@ import { IdentityLinkService } from '../../services/IdentityLinkService.js';
 import { LinkNonceStore } from '../../services/LinkNonceStore.js';
 import { isGoogleUserId } from '../../utils/identityProvider.js';
 import { sanitizeProviderUsername } from '../../utils/contentBlocklist.js';
+import { BanService } from '../../services/BanService.js';
 
 const router = Router();
 
@@ -153,6 +154,15 @@ router.post('/discord/callback', async (req, res) => {
         // Discord snowflake is never a `provider_user_id` key in v1, so this
         // is always a no-op for a Discord login — canonicalUserId === user.id.
         const canonicalUserId = await IdentityLinkService.resolveCanonical(user.id);
+
+        // S22 Phase 2 (v2.44.0) — ban enforcement at token issuance. Checked
+        // right after canonical resolution, before ANY writes (linkNonce
+        // consumption, user_profiles upsert) so a banned login leaves no
+        // trace — no profile row, no consumed link nonce, no session.
+        const discordBanCheck = await BanService.isIdentityBanned(user.id);
+        if (discordBanCheck.banned) {
+            return res.status(403).json({ error: 'This account is banned.' });
+        }
 
         // v2.36.0 — Google-account-link completion. Exchanges + user-info
         // fetch above are unconditional (needed either way); this branch only
@@ -403,6 +413,14 @@ router.post('/google/callback', async (req, res) => {
         // only the id canonicalizes.
         const canonicalUserId = await IdentityLinkService.resolveCanonical(userId);
 
+        // S22 Phase 2 (v2.44.0) — same ban-at-login enforcement as the
+        // Discord callback above, checked on the raw `google:<sub>` id before
+        // any writes.
+        const googleBanCheck = await BanService.isIdentityBanned(userId);
+        if (googleBanCheck.banned) {
+            return res.status(403).json({ error: 'This account is banned.' });
+        }
+
         // Upsert user_profiles with avatar_url (mirrors the Discord upsert
         // above, but writes the new avatar_url column instead of
         // avatar_hash — Google avatars are already full URLs, not CDN
@@ -512,6 +530,13 @@ router.post('/refresh', async (req, res) => {
 
         res.json({ token: result.token, refreshToken: result.refreshToken });
     } catch (error) {
+        // S22 Phase 2 (v2.44.0) — banned-identity refresh. Distinct code (still
+        // a 401, so api.ts's existing refresh-failure handling redirects to
+        // login without any FE change needed) rather than the generic 500 path.
+        const e = error as Error & { code?: string };
+        if (e.code === 'ACCOUNT_BANNED') {
+            return res.status(401).json({ error: 'This account is banned.', code: 'ACCOUNT_BANNED' });
+        }
         logError('API Error (POST /api/auth/refresh):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }

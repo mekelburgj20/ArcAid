@@ -40,6 +40,9 @@ export interface ContentReportRow {
 export interface ContentReportEnriched extends ContentReportRow {
     room_name: string | null;
     room_slug: string | null;
+    /** S22 Phase 2 (v2.44.0) — lets the Reports page hide "Suspend room" once
+     * a room is already suspended, without a second round-trip. */
+    room_suspended_at: string | null;
     reporter_display_name: string | null;
     reporter_username: string | null;
     target_display_name: string | null;
@@ -172,14 +175,14 @@ export class ContentReportService {
         const order = opts.status === 'resolved' ? 'r.resolved_at DESC' : 'r.created_at ASC';
 
         const rows = await db.all<ContentReportRow[]>(
-            `SELECT r.*, gr.name AS room_name, gr.slug AS room_slug
+            `SELECT r.*, gr.name AS room_name, gr.slug AS room_slug, gr.suspended_at AS room_suspended_at
                FROM content_reports r
                LEFT JOIN game_rooms gr ON gr.id = r.game_room_id
               WHERE ${clauses.join(' AND ')}
               ORDER BY ${order}
               LIMIT ? OFFSET ?`,
             ...params, limit, offset,
-        ) as Array<ContentReportRow & { room_name: string | null; room_slug: string | null }>;
+        ) as Array<ContentReportRow & { room_name: string | null; room_slug: string | null; room_suspended_at: string | null }>;
 
         return Promise.all(rows.map(async (r) => {
             const reporterProfile = await db.get<{ display_name: string | null; username: string | null }>(

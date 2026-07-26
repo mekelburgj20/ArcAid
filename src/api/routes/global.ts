@@ -592,6 +592,16 @@ router.get('/portal', async (req, res) => {
         if (!slug) return res.status(400).json({ error: 'slug query parameter is required' });
         const room = await GameRoomService.getBySlug(slug);
         if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        // S22 Phase 2 (v2.44.0) — a suspended room returns a minimal shape
+        // (no settings/config/scores) so the public FE can render the
+        // suspended shell instead of the room's normal content. Checked
+        // before any of the settings/theme/join-policy reads below — none of
+        // that is needed for the minimal response.
+        if (room.suspended_at) {
+            return res.json({ suspended: true, name: room.name, slug: room.slug });
+        }
+
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
         const { PickAwardGate } = await import('../../services/PickAwardGate.js');
         const { RoomAccessService } = await import('../../services/RoomAccessService.js');
@@ -1029,6 +1039,15 @@ router.post('/rooms', requireDiscordUser, roomCreateLimiter, async (req, res) =>
         const discordId = req.user?.discordId;
         if (!discordId) {
             res.status(401).json({ error: 'Discord login required' });
+            return;
+        }
+
+        // S22 Phase 2 (v2.44.0) — ban enforcement on room creation, checked
+        // before the kill-switch/cap checks per contract.
+        const { BanService } = await import('../../services/BanService.js');
+        const banCheck = await BanService.isIdentityBanned(discordId);
+        if (banCheck.banned) {
+            res.status(403).json({ error: 'This account is banned.' });
             return;
         }
 

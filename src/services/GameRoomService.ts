@@ -22,7 +22,9 @@ export class GameRoomService {
 
     static async getPublic(): Promise<GameRoom[]> {
         const db = await getDatabase();
-        return db.all('SELECT * FROM game_rooms WHERE is_public = 1 ORDER BY name ASC');
+        // S22 Phase 2 (v2.44.0) — suspended rooms are hidden + inaccessible
+        // pending review; excluded from the public listing outright.
+        return db.all('SELECT * FROM game_rooms WHERE is_public = 1 AND suspended_at IS NULL ORDER BY name ASC');
     }
 
     static async getById(id: string): Promise<GameRoom | undefined> {
@@ -148,6 +150,31 @@ export class GameRoomService {
         params.push(id);
 
         const result = await db.run(`UPDATE game_rooms SET ${sets.join(', ')} WHERE id = ?`, ...params);
+        return (result.changes || 0) > 0;
+    }
+
+    /**
+     * S22 Phase 2 (v2.44.0) — super-admin room suspension. Idempotent: calling
+     * this on an already-suspended room just refreshes `suspended_by`/reason
+     * (the orchestrator's chosen semantic over 409, so a super-admin editing
+     * the reason doesn't need a separate "unsuspend then resuspend" dance).
+     */
+    static async suspend(id: string, suspendedBy: string, reason?: string | null): Promise<boolean> {
+        const db = await getDatabase();
+        const result = await db.run(
+            `UPDATE game_rooms SET suspended_at = datetime('now'), suspended_by = ?, suspended_reason = ? WHERE id = ?`,
+            suspendedBy, reason ?? null, id,
+        );
+        return (result.changes || 0) > 0;
+    }
+
+    /** Clears all three suspension columns. Idempotent on an already-active room. */
+    static async unsuspend(id: string): Promise<boolean> {
+        const db = await getDatabase();
+        const result = await db.run(
+            `UPDATE game_rooms SET suspended_at = NULL, suspended_by = NULL, suspended_reason = NULL WHERE id = ?`,
+            id,
+        );
         return (result.changes || 0) > 0;
     }
 

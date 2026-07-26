@@ -9,16 +9,22 @@ import { getDatabase } from '../database/database.js';
  * non-members; a cross-room Discord read command has no per-guild-membership
  * concept today, so the safe default is to exclude it entirely rather than
  * leak scores/games to anyone who can run the command. See ROADMAP for a
- * future guild-implies-membership refinement).
+ * future guild-implies-membership refinement), UNION suspended rooms (S22
+ * Phase 2, v2.44.0 — `game_rooms.suspended_at IS NOT NULL`; suspension hides
+ * a room from everyone except super-admins, and Discord slash commands have
+ * no super-admin concept, so a suspended room is excluded unconditionally).
  */
 export async function discordExcludedRoomIds(): Promise<string[]> {
     const db = await getDatabase();
-    const rows = (await db.all(
+    const settingsRows = (await db.all(
         `SELECT game_room_id FROM game_room_settings
          WHERE (key = 'DISCORD_ENABLED' AND value = 'false')
             OR (key = 'JOIN_POLICY' AND value = 'approval')`,
     )) as Array<{ game_room_id: string }>;
-    return Array.from(new Set(rows.map(r => r.game_room_id)));
+    const suspendedRows = (await db.all(
+        `SELECT id AS game_room_id FROM game_rooms WHERE suspended_at IS NOT NULL`,
+    )) as Array<{ game_room_id: string }>;
+    return Array.from(new Set([...settingsRows, ...suspendedRows].map(r => r.game_room_id)));
 }
 
 /**
