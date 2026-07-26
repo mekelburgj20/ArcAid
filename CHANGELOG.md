@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.40.1] — unreleased
+
+**Fix: join-request names reverted to raw IDs (v2.40.0 regression).** Two interacting bugs corrupted `user_profiles.username`: (1) `refreshAccessToken` degraded the token's username claim to the raw Discord/Google ID for any user without a chosen display name (it never read the v2.40.0 `username` column), and (2) the join-request-time upsert wrote that degraded claim straight back into `user_profiles.username`, clobbering the good value. A user who was approved, left, and re-requested therefore showed their ID again (pending + resolved history). Fixes: refresh now falls back `display_name → username → id`; the join-request upsert refuses to persist a username equal to the id. Corrupted rows are repaired on prod (recovered from the iScored alias where available, else cleared so the real name returns on next login).
+
+---
+
 ## [2.40.0] — unreleased
 
 **Join-request names + private-room Global Scoreboard opt-in.** Two fixes from live approval-room testing.

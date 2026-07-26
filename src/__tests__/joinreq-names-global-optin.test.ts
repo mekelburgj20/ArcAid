@@ -222,6 +222,32 @@ describe('D1 — join-request time username backfill + endpoint', () => {
         expect(list.body[0].username).toBe('Endpoint Fallback');
         expect(list.body[0].userId).toBe(discordId);
     });
+
+    // v2.40.1 regression: a refreshed token degrades its username claim to the
+    // raw id for a user with no display_name; the join-request upsert must NOT
+    // clobber a previously-good stored username with that id.
+    it('does NOT overwrite a good stored username when the JWT claim is the raw id', async () => {
+        const app = await createFullApp();
+        const roomId = await makeApprovalRoom('jr-username-noclobber');
+        const discordId = 'discord-noclobber-1';
+
+        // Seed a good username (as a prior fresh login would have).
+        const db = await getDatabase();
+        await db.run(
+            'INSERT INTO user_profiles (discord_user_id, username) VALUES (?, ?)',
+            discordId, 'Krobs',
+        );
+
+        // Request with a degraded token whose username claim == the id.
+        const degraded = playerToken(discordId, discordId);
+        const res = await request(app)
+            .post(`/api/me/rooms/${roomId}/join-request`)
+            .set('Authorization', `Bearer ${degraded}`);
+        expect(res.status).toBe(200);
+
+        const profile = await db.get('SELECT username FROM user_profiles WHERE discord_user_id = ?', discordId);
+        expect(profile.username).toBe('Krobs'); // unchanged, not clobbered to the id
+    });
 });
 
 describe('D2 — SHARE_TO_GLOBAL fan-out gate', () => {
