@@ -17,6 +17,46 @@ import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
+export interface ResolvedSubmitGame {
+    id: string;
+    iscored_id: string;
+    tournament_id: string;
+    game_room_id: string | null;
+}
+
+export type ResolveSubmitGameResult =
+    | { ok: true; game: ResolvedSubmitGame }
+    | { ok: false; reason: 'not_found' }
+    | { ok: false; reason: 'suspended' };
+
+/**
+ * S22 Phase 2 (v2.44.0, M1 fix) — extracted so the suspension guard is
+ * unit-testable without a full discord.js interaction mock. `/submit-score`'s
+ * autocomplete lists ACTIVE games across every room (not scoped to the
+ * invoking guild — see the autocomplete handler below), so the guild-level
+ * Discord-enabled/suspension gate in `DiscordClient.ts` (which only knows
+ * about the INVOKING guild's mapped room) cannot catch a resolved game
+ * belonging to a DIFFERENT, suspended room. This function re-checks
+ * suspension against the game's ACTUAL room right before any write happens.
+ */
+export async function resolveActiveSubmitGame(gameName: string): Promise<ResolveSubmitGameResult> {
+    const db = await getDatabase();
+    const game = await db.get<ResolvedSubmitGame>(`
+        SELECT g.id, g.iscored_id, g.tournament_id, t.game_room_id
+        FROM games g
+        JOIN tournaments t ON g.tournament_id = t.id
+        WHERE g.name = ? COLLATE NOCASE AND g.status = 'ACTIVE'
+    `, gameName);
+    if (!game || !game.iscored_id) return { ok: false, reason: 'not_found' };
+    if (game.game_room_id) {
+        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+        if (await RoomAccessService.isSuspended(game.game_room_id)) {
+            return { ok: false, reason: 'suspended' };
+        }
+    }
+    return { ok: true, game };
+}
+
 export const submitscore: Command = {
     data: new SlashCommandBuilder()
         .setName('submit-score')
@@ -107,18 +147,18 @@ export const submitscore: Command = {
         const db = await getDatabase();
 
         try {
-            // Find the game ID and room
-            const game = await db.get(`
-                SELECT g.id, g.iscored_id, g.tournament_id, t.game_room_id
-                FROM games g
-                JOIN tournaments t ON g.tournament_id = t.id
-                WHERE g.name = ? COLLATE NOCASE AND g.status = 'ACTIVE'
-            `, gameName);
-
-            if (!game || !game.iscored_id) {
-                await interaction.editReply(`Could not find an active ${term.game} named '${gameName}' linked to iScored.`);
+            // Find the game ID and room, refusing when the game's room is
+            // suspended (S22 Phase 2, M1 fix — see resolveActiveSubmitGame).
+            const resolved = await resolveActiveSubmitGame(gameName);
+            if (!resolved.ok) {
+                if (resolved.reason === 'suspended') {
+                    await interaction.editReply('This room has been suspended pending review. Score submission is disabled.');
+                } else {
+                    await interaction.editReply(`Could not find an active ${term.game} named '${gameName}' linked to iScored.`);
+                }
                 return;
             }
+            const game = resolved.game;
 
             // v2.5.0: resolve submittable platforms for this game in this room.
             // If the game has 1 submittable platform, auto-fill. If 2+ and the
@@ -230,7 +270,7 @@ export const submitscore: Command = {
                 // Log to score history
                 const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
                 await ScoreHistoryService.log({
-                    gameName, gameRoomId: game.game_room_id, gameId: game.id,
+                    gameName, gameRoomId: game.game_room_id!, gameId: game.id,
                     username: username!, discordUserId: interaction.user.id,
                     score, photoUrl: photo.url, source: 'tournament',
                     tournamentId: game.tournament_id,
@@ -250,7 +290,7 @@ export const submitscore: Command = {
                 trackBackground(
                     import('../../services/LobbyFeedGenerator.js')
                         .then(({ LobbyFeedGenerator }) => LobbyFeedGenerator.onScoreSubmitted({
-                            gameRoomId: game.game_room_id, gameName, username: username!,
+                            gameRoomId: game.game_room_id!, gameName, username: username!,
                             score, discordUserId: interaction.user.id, source: 'tournament',
                         }))
                         .catch(() => {}),
@@ -260,7 +300,7 @@ export const submitscore: Command = {
                 try {
                     const { GlobalScoreService } = await import('../../services/GlobalScoreService.js');
                     const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({
-                        gameRoomId: game.game_room_id,
+                        gameRoomId: game.game_room_id!,
                         gameName,
                         gameId: game.id,
                         playerId: interaction.user.id,
