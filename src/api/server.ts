@@ -26,15 +26,24 @@ export const serverEvents = new EventEmitter();
  * S19 — Cache-Control policy for the built admin-ui frontend, applied via
  * express.static's `setHeaders`.
  *
- * - `sw.js` / `index.html` -> no-cache (ETag revalidation stays on, express
- *   defaults). These MUST be revalidated on every load — sw.js is how an
- *   installed PWA discovers a new BUILD_ID, and index.html references the
- *   current content-hashed bundle.
+ * - `sw.js` / `index.html` / `manifest.json` -> no-cache (ETag revalidation
+ *   stays on, express defaults). These MUST be revalidated on every load —
+ *   sw.js is how an installed PWA discovers a new BUILD_ID, index.html
+ *   references the current content-hashed bundle, and manifest.json's icon
+ *   paths can change the same way (added v2.45.1 — see below).
  * - Anything under `/assets/` (Vite's content-hashed output) -> immutable,
  *   1-year max-age. Safe because the filename changes whenever the content
  *   does.
- * - Everything else (manifest.json, icons, ...) -> no explicit header
- *   (express.static defaults apply).
+ * - Everything else in public/ (icons, fonts, favicons, ...) -> a modest
+ *   explicit max-age (v2.45.1). Previously these got NO explicit header at
+ *   all, so browsers fell back to heuristic freshness off Last-Modified —
+ *   when v2.45.0 overwrote arcaid-logo.png/arcaid-icon-*.png in place (same
+ *   filenames, new content), that heuristic served the stale cached bytes
+ *   for days, and the PWA icon cache compounded it (a delete+reinstall still
+ *   showed the old icon). The actual fix for that release is shipping new
+ *   filenames per asset (see CHANGELOG); this max-age is defense in depth so
+ *   a *future* same-name overwrite goes stale for at most a day instead of
+ *   indefinitely.
  *
  * Exported so the backend test suite can mount this against a fixture dist
  * directory without booting the full server (DB/websocket/Discord).
@@ -43,10 +52,12 @@ export function frontendStaticOptions(frontendPath: string): NonNullable<Paramet
     return {
         setHeaders: (res, filePath) => {
             const rel = path.relative(frontendPath, filePath);
-            if (rel === 'sw.js' || rel === 'index.html') {
+            if (rel === 'sw.js' || rel === 'index.html' || rel === 'manifest.json') {
                 res.setHeader('Cache-Control', 'no-cache');
             } else if (rel.startsWith(`assets${path.sep}`)) {
                 res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            } else {
+                res.setHeader('Cache-Control', 'public, max-age=86400');
             }
         },
     };

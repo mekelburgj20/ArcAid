@@ -81,8 +81,7 @@ export default function SuperAdminLayout() {
         <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer p-0">
           {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
-        <img src="/arcaid-logo.png" alt="ArcAid" className="w-7 h-7" />
-        <span className="font-pixel text-neon-cyan text-xs">ARCAID</span>
+        <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-9 w-auto" />
       </div>
 
       {/* Sidebar overlay (mobile) */}
@@ -98,11 +97,8 @@ export default function SuperAdminLayout() {
         md:translate-x-0
       `}>
         <div className="p-5 border-b border-border flex items-center gap-3">
-          <img src="/arcaid-logo.png" alt="ArcAid" className="w-10 h-10" />
-          <div>
-            <h2 className="font-pixel text-neon-cyan text-xs">ARCAID</h2>
-            <span className="text-faint text-xs">Super Admin</span>
-          </div>
+          <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-14 w-auto" />
+          <span className="text-faint text-xs">Super Admin</span>
         </div>
         <nav className="flex-1 py-2 flex flex-col gap-0.5 overflow-y-auto">
           {navItems.map(item => {

@@ -223,7 +223,7 @@ export async function maybeBuildOgShell(req: Request, frontendPath: string): Pro
             description = `Scores, stats and trophies for ${playerName} at ${room.name} on ArcAid.`;
         }
 
-        if (!image) image = normalizeImageUrl(room.logo_url) || '/arcaid-logo.png';
+        if (!image) image = normalizeImageUrl(room.logo_url) || '/arcaid-logo-v2.png';
 
         const shell = await loadShell(frontendPath);
         return injectOgTags(shell, {
