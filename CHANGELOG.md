@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.42.0] — unreleased
+
+**Room Players/Members page.** A new room page (nav: "Players") listing the room's active users, linking each to their player detail.
+
+- **Open rooms** → everyone who has posted a score: distinct *identified* submitters from `score_history` (guests/anonymous excluded via `submitted_by_user_id IS NOT NULL`, orphaned scores excluded), with score count + last-active. Read from the scores themselves, not `room_members` (whose join-source flag is unreliable for "has posted").
+- **Approval (private) rooms** → the approved-member roster from `room_members`, with owner/admin badges. Rides the existing view gate: the members list is **members-only** for approval rooms (a non-member gets `403 APPROVAL_REQUIRED`) and public for open rooms — verified with tests.
+- Names resolve `display_name → username → iScored alias → id` server-side; rows link to `/:slug/players/:name` (plain text when a player has no iScored alias to link).
+- New `RoomRosterService` + `GET /:roomId/members` (registered below the gate); FE page `/:slug/members`. No migration.
+
+---
+
 ## [2.41.0] — unreleased
 
 **Global Scoreboard sharing is the player's choice, per submission — not a room setting.** Removes the room-level `SHARE_TO_GLOBAL` toggle (v2.40.0) and the approval-room fan-out block (v2.39.0) in favor of the pre-existing per-submission opt-out that already governs open rooms.
