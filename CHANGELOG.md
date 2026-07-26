@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.45.0] — unreleased
+
+**Logo refresh: "Delta House Chrome."** Replaces the pixel-art mascot mark with a new neon-glitch chrome wordmark across every brand placement.
+
+- **`ArcaidLogoAnimated` component** (`admin-ui/src/components/ArcaidLogoAnimated.tsx`) — faithful port of the source "Delta House Chrome" composition (rotated double-triangle neon SVG + chrome "ARCAıD" wordmark with pink/cyan glitch-ghost layers on a 4s cycle, chrome pinball sphere standing in for the dotless-i's tittle). Self-hosted `Orbitron` 900 subset font (`admin-ui/public/fonts/orbitron-900.woff2`, ~6KB, extracted from the source bundle's embedded base64) via a scoped `@font-face` — no new Google Fonts dependency. Responsive sizing is CSS-only: a container-query (`cqw`) transform scale, capped by a `maxWidth` prop, so the mark grows to its cap on wide screens and shrinks proportionally on narrow ones without ever overflowing horizontally. Freezes to its static (non-animated) resting frame under `prefers-reduced-motion: reduce`.
+- **Landing page hero.** `LandingPage.tsx` now opens with the animated wordmark as a prominent, centered hero (760px cap) on a dedicated `#0C0C13` backdrop — the design assumes a near-black stage for its glow layers to read. Existing page content (room grid, My Game Rooms, Global Scoreboard promo) is unchanged below it.
+- **Still-image placements.** Every other logo placement (nav/header logos in `PublicLayout`, `SuperAdminLayout`, `RoomAdminLayout`; `Login`/`RoomLogin`/`InviteAccept`/`DiscordCallback`/`GoogleCallback`; `GlobalScoreboard` header; the landing page's own small header lockup) now render a still derivative of the new mark — same filenames, same CSS/dimensions at each call site (asset swap only). PWA/favicon icons (`arcaid-icon-192.png`, `arcaid-icon-512.png`, `arcaid-icon-512-maskable.png`, `apple-touch-icon-180.png`) were regenerated from the new mark on a filled `#0C0C13` square (maskable variant insets the mark to ~80% so Android's icon mask doesn't clip the glow). All derivatives were re-encoded as optimized PNGs (well under the 2MB source) with verified alpha transparency on the non-icon assets.
+- Root version bump only (admin-ui-only change) per repo convention.
+
+---
+
 ## [2.44.0] — unreleased
 
 **Content moderation, Phase 2: admin action tools (S22).** The remediation "teeth" Phase 1's Reports queue deferred: super-admin room suspension, an admin display-name reset action, and ban enforcement extended to every token-issuance point. Room-tier bans, ban content cascade, per-submit ban enforcement, and ban Discord DMs remain out of scope — tracked in ROADMAP.
