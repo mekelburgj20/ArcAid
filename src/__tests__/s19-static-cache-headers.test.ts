@@ -27,6 +27,7 @@ describe('S19 — frontend static cache headers', () => {
         fs.writeFileSync(path.join(fixtureDir, 'sw.js'), '// fixture service worker');
         fs.writeFileSync(path.join(fixtureDir, 'assets', 'app-deadbeef123.js'), 'console.log(1);');
         fs.writeFileSync(path.join(fixtureDir, 'manifest.json'), '{}');
+        fs.writeFileSync(path.join(fixtureDir, 'arcaid-icon-192-v2.png'), 'fixture icon bytes');
 
         app = express();
         app.use(express.static(fixtureDir, frontendStaticOptions(fixtureDir)));
@@ -60,11 +61,23 @@ describe('S19 — frontend static cache headers', () => {
         expect(res.headers['cache-control']).toBe('public, max-age=31536000, immutable');
     });
 
-    it('GET /manifest.json (not sw.js/index.html/assets) gets no explicit override', async () => {
+    // v2.45.1 — manifest.json joined the no-cache set: its icon paths can
+    // change release-to-release (exactly what happened this release), so it
+    // needs the same always-revalidate treatment as sw.js/index.html.
+    it('GET /manifest.json carries Cache-Control: no-cache', async () => {
         const res = await request(app).get('/manifest.json');
         expect(res.status).toBe(200);
-        expect(res.headers['cache-control']).not.toBe('no-cache');
-        expect(res.headers['cache-control']).not.toBe('public, max-age=31536000, immutable');
+        expect(res.headers['cache-control']).toBe('no-cache');
+    });
+
+    // v2.45.1 — everything else in public/ (icons, fonts, favicons, ...)
+    // previously got no explicit header (heuristic freshness off
+    // Last-Modified) — now a modest explicit max-age so a future same-name
+    // asset overwrite can't go stale indefinitely.
+    it('GET /arcaid-icon-192-v2.png (not sw.js/index.html/manifest/assets) gets a modest explicit max-age', async () => {
+        const res = await request(app).get('/arcaid-icon-192-v2.png');
+        expect(res.status).toBe(200);
+        expect(res.headers['cache-control']).toBe('public, max-age=86400');
     });
 });
 
