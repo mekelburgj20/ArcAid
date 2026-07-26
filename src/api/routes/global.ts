@@ -280,7 +280,16 @@ router.post('/me/rooms/:roomId/join-request', requireDiscordUser, async (req, re
         // token degrades its username claim to the discord id when the user
         // has no display_name, and writing that here would clobber a good
         // stored username with the id (v2.40.1 regression fix).
-        if (req.user!.username && req.user!.username !== req.user!.discordId) {
+        // m2 (S22 Phase 1) — also skip when the JWT's username claim is
+        // blocklisted: unlike the login upserts (which also refresh
+        // avatar and so always write, nulling a blocked name), this backfill
+        // ONLY writes username — writing NULL here would clobber a
+        // perfectly good previously-stored value with a stale/blocked claim.
+        // Skipping the write entirely leaves any existing stored value
+        // untouched, which is the safer choice for an insert-or-update that
+        // only touches this one column.
+        const { containsBlockedTerm } = await import('../../utils/contentBlocklist.js');
+        if (req.user!.username && req.user!.username !== req.user!.discordId && !containsBlockedTerm(req.user!.username)) {
             const db = await getDatabase();
             await db.run(
                 `INSERT INTO user_profiles (discord_user_id, username) VALUES (?, ?)

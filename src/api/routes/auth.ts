@@ -9,6 +9,7 @@ import { getDatabase } from '../../database/database.js';
 import { IdentityLinkService } from '../../services/IdentityLinkService.js';
 import { LinkNonceStore } from '../../services/LinkNonceStore.js';
 import { isGoogleUserId } from '../../utils/identityProvider.js';
+import { sanitizeProviderUsername } from '../../utils/contentBlocklist.js';
 
 const router = Router();
 
@@ -185,6 +186,11 @@ router.post('/discord/callback', async (req, res) => {
         // (last-write-wins) — a nullable, non-unique fallback consulted when
         // display_name is unset, distinct from the user-chosen unique
         // display_name which this code path never touches.
+        // m2 (S22 Phase 1) — a blocked provider display name is never
+        // rejected at login, but is stored as NULL (not the raw slur) so
+        // every public render of this fallback (join-request queue,
+        // leaderboards, etc.) falls back to the raw id instead.
+        const storedUsername = sanitizeProviderUsername(displayName);
         if (user.avatar) {
             const db = await getDatabase();
             const existing = await db.get(
@@ -199,7 +205,7 @@ router.post('/discord/callback', async (req, res) => {
                     avatar_fetched_at = excluded.avatar_fetched_at,
                     username = excluded.username,
                     updated_at = datetime('now')`,
-                canonicalUserId, user.avatar, displayName
+                canonicalUserId, user.avatar, storedUsername
             );
             if (changed) {
                 await LeaderboardService.invalidateAll();
@@ -213,7 +219,7 @@ router.post('/discord/callback', async (req, res) => {
                  ON CONFLICT(discord_user_id) DO UPDATE SET
                     username = excluded.username,
                     updated_at = datetime('now')`,
-                canonicalUserId, displayName
+                canonicalUserId, storedUsername
             );
         }
 
@@ -404,6 +410,10 @@ router.post('/google/callback', async (req, res) => {
         // user-chosen (set via AccountSettings), same doctrine as Discord.
         // v2.40.0 (D1): username = displayName persists on every login here
         // too, same fallback doctrine as the Discord branch above.
+        // m2 (S22 Phase 1) — same NULL-not-reject treatment as the Discord
+        // branch: a blocked provider name never blocks login, only the
+        // stored public fallback.
+        const storedUsername = sanitizeProviderUsername(displayName);
         if (pictureUrl) {
             const db = await getDatabase();
             const existing = await db.get(
@@ -418,7 +428,7 @@ router.post('/google/callback', async (req, res) => {
                     avatar_fetched_at = excluded.avatar_fetched_at,
                     username = excluded.username,
                     updated_at = datetime('now')`,
-                canonicalUserId, pictureUrl, displayName
+                canonicalUserId, pictureUrl, storedUsername
             );
             if (changed) {
                 await LeaderboardService.invalidateAll();
@@ -430,7 +440,7 @@ router.post('/google/callback', async (req, res) => {
                  ON CONFLICT(discord_user_id) DO UPDATE SET
                     username = excluded.username,
                     updated_at = datetime('now')`,
-                canonicalUserId, displayName
+                canonicalUserId, storedUsername
             );
         }
 
