@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.41.0] — unreleased
+
+**Global Scoreboard sharing is the player's choice, per submission — not a room setting.** Removes the room-level `SHARE_TO_GLOBAL` toggle (v2.40.0) and the approval-room fan-out block (v2.39.0) in favor of the pre-existing per-submission opt-out that already governs open rooms.
+
+- A room score fans out to the Global Scoreboard **by default**, and the submitting player can uncheck that per submission (`excludeFromGlobal`, already in the submit flow) — the same for open and approval (private) rooms. A private room's *content* (leaderboards, feed, membership) stays gated; each individual score is the player's to share.
+- Deleted the `SHARE_TO_GLOBAL` admin toggle + its scrub/back-fill/flip machinery (`JoinPolicyService` removed entirely; `GlobalScoreService.scrub*/backfill*` and `GameRoomSettingsService.handleShareToGlobalFlip` gone). The flip-to-approval confirm no longer claims scores leave the Global Scoreboard (states only the view-gating consequence).
+- **Verified (with tests): approval-room score submission is already members-only** — the `roomVisibilityGate` covers `submit-score`/`freeplay-score`/`community-scores`, so a non-member gets `403 APPROVAL_REQUIRED`. Only approved members can post to a private room's scoreboard.
+- No migration (any stored `SHARE_TO_GLOBAL` key is now inert). All other approval-room gating unchanged.
+
+*Note on discovery:* listing a private room on the landing page is the separate "list on landing page" (`is_public`) setting — an `is_public` approval room shows on the landing page (activity counts stripped) with entry gated by approval.
+
+---
+
 ## [2.40.1] — unreleased
 
 **Fix: join-request names reverted to raw IDs (v2.40.0 regression).** Two interacting bugs corrupted `user_profiles.username`: (1) `refreshAccessToken` degraded the token's username claim to the raw Discord/Google ID for any user without a chosen display name (it never read the v2.40.0 `username` column), and (2) the join-request-time upsert wrote that degraded claim straight back into `user_profiles.username`, clobbering the good value. A user who was approved, left, and re-requested therefore showed their ID again (pending + resolved history). Fixes: refresh now falls back `display_name → username → id`; the join-request upsert refuses to persist a username equal to the id. Corrupted rows are repaired on prod (recovered from the iScored alias where available, else cleared so the real name returns on next login).
