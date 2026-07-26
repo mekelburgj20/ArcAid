@@ -13,6 +13,7 @@ function mockFetch(opts: {
   roomsPending?: unknown[];
   namesPending?: unknown[];
   scoresPending?: unknown[];
+  bans?: unknown[];
 }) {
   const fetchMock = vi.fn((url: string) => {
     if (url.includes('/admin/reports') && url.includes('type=room') && url.includes('status=pending')) {
@@ -29,6 +30,10 @@ function mockFetch(opts: {
     }
     if (url.includes('/admin/score-reports') && url.includes('status=resolved')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    }
+    // S22 Phase 2 (v2.44.0) — Bans tab.
+    if (url.includes('/admin/bans')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(opts.bans ?? []) });
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
   });
@@ -89,6 +94,46 @@ describe('Reports page', () => {
     expect(screen.getByText(/Bob/)).toBeInTheDocument();
   });
 
+  // m8 fix (S22 Phase 2 adversarial review) — an iscored:* synthetic
+  // target_user_id has no login identity to ban; the "Ban identity" quick
+  // action must be hidden (not just disabled) for it, while "Reset display
+  // name" (which doesn't require a login identity) stays available.
+  it('m8: hides "Ban identity" for an iscored:* target_user_id, but shows it for a real identity', async () => {
+    mockFetch({
+      roomsPending: [],
+      namesPending: [
+        {
+          id: 10, target_type: 'player_name', target_key: 'name:iscored:troll99:troll', game_room_id: 'r1',
+          target_user_id: 'iscored:troll99', target_name: 'IscoredTroll', reporter_user_id: 'discord-2',
+          reason: null, created_at: new Date().toISOString(),
+          resolved_at: null, resolved_by: null, resolution: null,
+          room_name: 'Some Room', room_slug: 'some-room', reporter_display_name: null,
+          reporter_username: 'Bob', target_display_name: null, target_username: null,
+        },
+        {
+          id: 11, target_type: 'player_name', target_key: 'name:discord-real-1:realtroll', game_room_id: 'r1',
+          target_user_id: 'discord-real-1', target_name: 'RealTroll', reporter_user_id: 'discord-2',
+          reason: null, created_at: new Date().toISOString(),
+          resolved_at: null, resolved_by: null, resolution: null,
+          room_name: 'Some Room', room_slug: 'some-room', reporter_display_name: null,
+          reporter_username: 'Bob', target_display_name: null, target_username: null,
+        },
+      ],
+    });
+
+    renderReports();
+    await waitFor(() => expect(screen.getByText('No pending room reports.')).toBeInTheDocument());
+
+    screen.getByText('Player Names').click();
+    await waitFor(() => expect(screen.getByText('IscoredTroll')).toBeInTheDocument());
+    expect(screen.getByText('RealTroll')).toBeInTheDocument();
+
+    // Only ONE "Ban identity" button — for the real identity row, not the
+    // iscored:* row. Both rows get "Reset display name".
+    expect(screen.getAllByText('Ban identity')).toHaveLength(1);
+    expect(screen.getAllByText('Reset display name')).toHaveLength(2);
+  });
+
   it('m1: player-name headline is the reported target_name SNAPSHOT, not the current resolved identity — the resolved identity renders as secondary "Currently:" context', async () => {
     mockFetch({
       roomsPending: [],
@@ -137,5 +182,47 @@ describe('Reports page', () => {
     mockFetch({});
     renderReports();
     await waitFor(() => expect(screen.getByText('No pending room reports.')).toBeInTheDocument());
+  });
+
+  // S22 Phase 2 (v2.44.0) — Bans tab.
+  it('switches to the Bans tab and lists active + lifted bans, with Lift only on the active one', async () => {
+    const future = new Date(Date.now() + 86400000).toISOString();
+    mockFetch({
+      bans: [
+        {
+          id: 'ban-1', discord_user_id: 'discord-active-1', reason: 'Spamming slurs',
+          banned_by: 'admin-1', banned_at: new Date().toISOString(),
+          expires_at: future, lifted_at: null, lifted_by: null,
+        },
+        {
+          id: 'ban-2', discord_user_id: 'discord-lifted-1', reason: null,
+          banned_by: 'admin-1', banned_at: new Date().toISOString(),
+          expires_at: null, lifted_at: new Date().toISOString(), lifted_by: 'admin-2',
+        },
+      ],
+    });
+
+    renderReports();
+    await waitFor(() => expect(screen.getByText('No pending room reports.')).toBeInTheDocument());
+
+    screen.getByText('Bans').click();
+    await waitFor(() => expect(screen.getByText('discord-active-1')).toBeInTheDocument());
+    expect(screen.getByText('discord-lifted-1')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.getByText('Lifted')).toBeInTheDocument();
+    // Only the active ban gets a Lift button.
+    expect(screen.getAllByText('Lift')).toHaveLength(1);
+    // The add-ban form is present.
+    expect(screen.getByText('Ban an identity')).toBeInTheDocument();
+  });
+
+  it('Bans tab hides the "Show resolved" toggle (bans are not pending/resolved-shaped)', async () => {
+    mockFetch({ bans: [] });
+    renderReports();
+    await waitFor(() => expect(screen.getByText('No pending room reports.')).toBeInTheDocument());
+    expect(screen.getByText('Show resolved')).toBeInTheDocument();
+    screen.getByText('Bans').click();
+    await waitFor(() => expect(screen.getByText('No bans yet.')).toBeInTheDocument());
+    expect(screen.queryByText('Show resolved')).not.toBeInTheDocument();
   });
 });

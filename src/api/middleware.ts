@@ -188,10 +188,30 @@ export function requireDiscordUser(req: Request, res: Response, next: NextFuncti
  * chain — mirrors conditionalRequireDiscordUser's decode pattern) and defer
  * to RoomAccessService.canViewRoom, the same check the WebSocket join
  * handlers use. Guests (no token) and non-members always 403.
+ *
+ * S22 Phase 2 (v2.44.0) — a suspension check runs FIRST, ahead of the
+ * approval-policy check: suspension blocks everyone except super-admins,
+ * including the room's own admins (design decision #2 — "hidden +
+ * inaccessible pending review"), which is strictly stronger than the
+ * approval gate's member/admin allowance.
  */
 export async function roomVisibilityGate(req: Request, res: Response, next: NextFunction): Promise<void> {
     const roomId = req.params.roomId as string;
     if (!roomId) return next();
+
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const payload = token ? verifyToken(token) : null;
+
+    try {
+        const suspended = await RoomAccessService.isSuspended(roomId);
+        if (suspended && payload?.role !== 'super_admin') {
+            res.status(403).json({ error: 'This room has been suspended pending review.', code: 'ROOM_SUSPENDED' });
+            return;
+        }
+    } catch {
+        // Fail-open on infra failure, not auth failure.
+    }
 
     let policy: 'open' | 'approval' = 'open';
     try {
@@ -202,10 +222,6 @@ export async function roomVisibilityGate(req: Request, res: Response, next: Next
         return next();
     }
     if (policy !== 'approval') return next();
-
-    const authHeader = req.headers['authorization'];
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    const payload = token ? verifyToken(token) : null;
 
     const allowed = await RoomAccessService.canViewRoom(payload, roomId);
     if (!allowed) {

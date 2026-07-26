@@ -214,10 +214,16 @@ router.post('/me/rooms/:roomId', requireDiscordUser, async (req, res) => {
         const room = await GameRoomService.getById(roomId);
         if (!room) return res.status(404).json({ error: 'Room not found' });
 
+        // m2 fix (S22 Phase 2 adversarial review) — a suspended room must
+        // refuse self-join the same as it refuses everything else.
+        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+        if (await RoomAccessService.isSuspended(roomId)) {
+            return res.status(403).json({ error: 'This room has been suspended pending review.', code: 'ROOM_SUSPENDED' });
+        }
+
         // v2.39.0 (approval rooms) — plain self-join is an 'open'-policy-only
         // shortcut. An 'approval' room must go through the request/approve
         // queue (POST .../join-request) instead.
-        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
         if ((await RoomAccessService.getJoinPolicy(roomId)) === 'approval') {
             return res.status(403).json({ error: 'This room requires approval to join', code: 'APPROVAL_REQUIRED' });
         }
@@ -592,6 +598,16 @@ router.get('/portal', async (req, res) => {
         if (!slug) return res.status(400).json({ error: 'slug query parameter is required' });
         const room = await GameRoomService.getBySlug(slug);
         if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        // S22 Phase 2 (v2.44.0) — a suspended room returns a minimal shape
+        // (no settings/config/scores) so the public FE can render the
+        // suspended shell instead of the room's normal content. Checked
+        // before any of the settings/theme/join-policy reads below — none of
+        // that is needed for the minimal response.
+        if (room.suspended_at) {
+            return res.json({ suspended: true, name: room.name, slug: room.slug });
+        }
+
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
         const { PickAwardGate } = await import('../../services/PickAwardGate.js');
         const { RoomAccessService } = await import('../../services/RoomAccessService.js');
@@ -1032,6 +1048,15 @@ router.post('/rooms', requireDiscordUser, roomCreateLimiter, async (req, res) =>
             return;
         }
 
+        // S22 Phase 2 (v2.44.0) — ban enforcement on room creation, checked
+        // before the kill-switch/cap checks per contract.
+        const { BanService } = await import('../../services/BanService.js');
+        const banCheck = await BanService.isIdentityBanned(discordId);
+        if (banCheck.banned) {
+            res.status(403).json({ error: 'This account is banned.' });
+            return;
+        }
+
         const killSwitch = await SettingsService.get('PUBLIC_ROOM_CREATION_ENABLED');
         if (killSwitch === 'false') {
             res.status(403).json({ error: 'Public room creation is currently disabled' });
@@ -1327,6 +1352,20 @@ router.get('/submit/platforms', async (req, res) => {
         const db = await getDatabase();
         const { parsePlatformsList, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
         const { normalizePlatform } = await import('../../utils/platformMapping.js');
+
+        // m3 fix (S22 Phase 2 adversarial review) — this route sits outside
+        // rooms.ts (so it doesn't pass through roomVisibilityGate) and is the
+        // resolver SubmissionSheet calls to build the platform picker; a
+        // suspended room's picker must refuse the same as its submit
+        // endpoints do. Approval-room behavior is deliberately untouched
+        // (this route has never gated on join_policy — accepted pre-existing
+        // posture) — only suspension gates here.
+        if (roomId) {
+            const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+            if (await RoomAccessService.isSuspended(roomId)) {
+                return res.status(403).json({ error: 'This room has been suspended pending review.', code: 'ROOM_SUSPENDED' });
+            }
+        }
 
         // v2.5.1: alias-fold + dedupe so the picker never shows VPX/vpx/vpxs
         // duplicates. Stored data may have legacy mixed-case strings; client

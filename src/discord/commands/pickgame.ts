@@ -135,6 +135,16 @@ export const pickgame: Command = {
                 return;
             }
 
+            // S22 Phase 2 (v2.44.0, M1 fix) — same rationale as activategame.ts:
+            // tournament name resolution isn't guild-scoped.
+            if (tournament.game_room_id) {
+                const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+                if (await RoomAccessService.isSuspended(tournament.game_room_id)) {
+                    await interaction.editReply('This room has been suspended pending review. Game picking is disabled.');
+                    return;
+                }
+            }
+
             // Pick-award gate (plan §8) — short-circuit with exact reply string.
             const pickEnabled = await PickAwardGate.isEnabled(tournament.game_room_id, tournament.id);
             if (!pickEnabled) {

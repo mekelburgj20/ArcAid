@@ -197,34 +197,22 @@ export class DiscordClient {
             if (!command) return;
 
             // Per-room gate: if this guild maps to a room that has Discord
-            // integration disabled, refuse. Covers slash commands the same way
+            // integration disabled OR is suspended (S22 Phase 2, v2.44.0),
+            // refuse. Covers slash commands the same way
             // `resolveAnnouncementChannelId` gates outbound announcements.
             // DM interactions (no guildId) and guilds not linked to any room
-            // fall through to normal handling.
+            // fall through to normal handling. See `guildInteractionBlockReason`
+            // for the combined check (extracted for unit-testability).
             if (interaction.guildId) {
                 try {
-                    const { getDatabase } = await import('../database/database.js');
-                    const db = await getDatabase();
-                    const rows = await db.all(
-                        `SELECT game_room_id FROM game_room_settings
-                         WHERE key = 'DISCORD_GUILD_ID' AND value = ?`,
-                        interaction.guildId,
-                    ) as Array<{ game_room_id: string }>;
-                    if (rows.length > 0) {
-                        const { isDiscordEnabledForRoom } = await import('../utils/discord.js');
-                        const anyEnabled = await Promise.all(
-                            rows.map(r => isDiscordEnabledForRoom(r.game_room_id)),
-                        ).then(results => results.some(Boolean));
-                        if (!anyEnabled) {
-                            await interaction.reply({
-                                content: 'ArcAid is not connected to this Discord server.',
-                                ephemeral: true,
-                            });
-                            return;
-                        }
+                    const { guildInteractionBlockReason } = await import('../utils/discord.js');
+                    const blockReason = await guildInteractionBlockReason(interaction.guildId);
+                    if (blockReason) {
+                        await interaction.reply({ content: blockReason, ephemeral: true });
+                        return;
                     }
                 } catch (gateErr) {
-                    logError('Discord-enabled gate check failed — allowing command:', gateErr);
+                    logError('Discord-enabled/suspension gate check failed — allowing command:', gateErr);
                 }
             }
 

@@ -178,6 +178,49 @@ export async function isDiscordEnabledForRoom(gameRoomId?: string | null): Promi
 }
 
 /**
+ * S22 Phase 2 (v2.44.0, M1 fix) — combined guild-level interaction gate.
+ * `guildId` maps to zero or more rooms via `DISCORD_GUILD_ID` in
+ * `game_room_settings`. Refuses (returns the ephemeral reply text) when:
+ *   1. ANY mapped room is suspended — suspension blocks everyone (design
+ *      decision #2), so it's checked first and independently of the
+ *      Discord-enabled check below (a suspended-but-Discord-enabled room
+ *      must still be refused).
+ *   2. otherwise, when NONE of the mapped rooms have Discord enabled
+ *      (pre-existing behavior, unchanged).
+ * Returns `null` to allow the interaction through (no mapped room, or at
+ * least one mapped room is active + enabled).
+ *
+ * Extracted from `DiscordClient.ts`'s `InteractionCreate` handler so this
+ * gate is unit-testable without a discord.js gateway/interaction mock.
+ */
+export async function guildInteractionBlockReason(guildId: string): Promise<string | null> {
+    const { getDatabase } = await import('../database/database.js');
+    const db = await getDatabase();
+    const rows = await db.all(
+        `SELECT game_room_id FROM game_room_settings WHERE key = 'DISCORD_GUILD_ID' AND value = ?`,
+        guildId,
+    ) as Array<{ game_room_id: string }>;
+    if (rows.length === 0) return null;
+
+    const roomIds = rows.map(r => r.game_room_id);
+    const placeholders = roomIds.map(() => '?').join(', ');
+    const suspendedRows = await db.all(
+        `SELECT id FROM game_rooms WHERE id IN (${placeholders}) AND suspended_at IS NOT NULL`,
+        ...roomIds,
+    );
+    if (suspendedRows.length > 0) {
+        return 'This room has been suspended pending review.';
+    }
+
+    const anyEnabled = await Promise.all(roomIds.map(id => isDiscordEnabledForRoom(id)))
+        .then(results => results.some(Boolean));
+    if (!anyEnabled) {
+        return 'ArcAid is not connected to this Discord server.';
+    }
+    return null;
+}
+
+/**
  * Resolves the Discord channel that announcements for a tournament in this
  * room should target. Precedence: tournament-specific channel → per-room
  * `DISCORD_ANNOUNCEMENT_CHANNEL_ID` → env fallback. Returns `null` when the

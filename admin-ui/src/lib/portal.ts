@@ -33,6 +33,11 @@ export interface Portal {
    * matter when join_policy is 'approval' — open rooms render normally
    * regardless of this value. */
   viewer_status?: 'admin' | 'member' | 'pending' | 'none';
+  /** S22 Phase 2 (v2.44.0) — when true, every other field except name/slug is
+   * absent: the server intentionally ships a minimal shape for a suspended
+   * room (no settings/config/scores). Callers must check this BEFORE relying
+   * on `roomId`/`id` being present. */
+  suspended?: boolean;
 }
 
 const cache = new Map<string, Promise<Portal>>();

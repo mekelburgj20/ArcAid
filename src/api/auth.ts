@@ -89,6 +89,7 @@ export async function refreshAccessToken(
     const { AdminService } = await import('../services/AdminService.js');
     const { providerOfUserId } = await import('../utils/identityProvider.js');
     const { IdentityLinkService } = await import('../services/IdentityLinkService.js');
+    const { BanService } = await import('../services/BanService.js');
 
     // v2.36.0 — resolve to the canonical identity if this user has linked a
     // google:* identity to a Discord snowflake. In practice `createLink`
@@ -98,6 +99,20 @@ export async function refreshAccessToken(
     // in some future path that forgets the rewrite, and for uniformity with
     // the two OAuth callbacks).
     const discordId: string = await IdentityLinkService.resolveCanonical(session.discord_user_id);
+
+    // S22 Phase 2 (v2.44.0) — ban enforcement at token issuance. Checked on
+    // every refresh (not just at login) so a ban placed mid-session takes
+    // effect the moment the current access token expires, and a lifted/expired
+    // ban lets the SAME refresh token start working again (no session
+    // revocation on ban — see BanService doc comment). Throws a coded error
+    // (mirrors the DISPLAY_NAME_TAKEN convention) so the route layer can
+    // surface a distinct 401 code instead of the generic "expired token" one.
+    const banCheck = await BanService.isIdentityBanned(discordId);
+    if (banCheck.banned) {
+        const err = new Error('Account is banned') as Error & { code?: string };
+        err.code = 'ACCOUNT_BANNED';
+        throw err;
+    }
 
     // Username/avatar come from user_profiles (display_name / avatar_hash /
     // avatar_url) — NOT user_mappings. user_mappings is the iScored-alias

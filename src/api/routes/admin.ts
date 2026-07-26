@@ -11,6 +11,7 @@ import {
     SettingsSchema,
     BackupRestoreParamsSchema, CreateGameRoomSchema, UpdateGameRoomSchema,
     ResolveContentReportSchema, BanActionSchema, CreateBanSchema,
+    SuspendRoomSchema, AdminSetDisplayNameSchema,
 } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
@@ -96,6 +97,47 @@ router.delete('/rooms/:roomId', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/admin/rooms/:roomId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/admin/rooms/:roomId/suspend — S22 Phase 2 (v2.44.0) — body:
+ * { reason?: string }. Idempotent 200: suspending an already-suspended room
+ * just refreshes suspended_by/reason rather than 409ing (a super-admin
+ * editing the reason shouldn't need to unsuspend first).
+ */
+router.post('/rooms/:roomId/suspend', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const room = await GameRoomService.getById(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        const validationResult = validate(SuspendRoomSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const actor = req.user!.discordId || req.user!.localAdminId || 'admin';
+        await GameRoomService.suspend(roomId, actor, validationResult.data.reason ?? null);
+        logInfo(`Room suspended: ${room.name} (${room.slug}) by ${actor}`);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/rooms/:roomId/suspend):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/rooms/:roomId/unsuspend — S22 Phase 2 (v2.44.0). Idempotent. */
+router.post('/rooms/:roomId/unsuspend', async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const room = await GameRoomService.getById(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        await GameRoomService.unsuspend(roomId);
+        logInfo(`Room unsuspended: ${room.name} (${room.slug}) by ${req.user!.discordId || req.user!.localAdminId || 'admin'}`);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/rooms/:roomId/unsuspend):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -1402,6 +1444,39 @@ router.post('/bans', async (req, res) => {
         const validationResult = validate(CreateBanSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const { discordUserId, durationDays, reason } = validationResult.data;
+
+        // S22 Phase 2 (v2.44.0) — same guard as the score-report ban route
+        // (m6, S22 Phase 1): an `iscored:*` synthetic id has no login
+        // identity behind it — a ban row naming one can never match a real
+        // session, silently no-opping. Verified Phase 1 only added this check
+        // to POST /score-reports/:reportId/ban; this direct-ban route (used
+        // by the Reports page's standalone add-ban form and "Ban identity"
+        // quick action) needed it too.
+        if (discordUserId.startsWith('iscored:')) {
+            return res.status(400).json({
+                error: "Cannot ban an iScored-synced name — it has no login identity to ban.",
+            });
+        }
+
+        // m5 fix (S22 Phase 2 adversarial review) — refuse self-ban. Compares
+        // both the raw id AND the canonical resolution of both sides, so a
+        // super-admin can't route around this by naming a Google/Discord
+        // alias linked to their own canonical identity instead of their
+        // literal token id. Only meaningful for a discordId-bearing actor —
+        // a local-admin (password) super-admin has no discordId and isn't a
+        // possible ban target (bans are keyed on provider ids).
+        const actorId = req.user!.discordId;
+        if (actorId) {
+            const { IdentityLinkService } = await import('../../services/IdentityLinkService.js');
+            const [actorCanonical, targetCanonical] = await Promise.all([
+                IdentityLinkService.resolveCanonical(actorId),
+                IdentityLinkService.resolveCanonical(discordUserId),
+            ]);
+            if (actorId === discordUserId || actorCanonical === targetCanonical) {
+                return res.status(400).json({ error: 'You cannot ban your own account.' });
+            }
+        }
+
         const ban = await ScoreReportService.ban(
             discordUserId,
             (req.user!.discordId || req.user!.username || 'admin'),
@@ -1423,6 +1498,53 @@ router.post('/bans/:banId/lift', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/bans/:banId/lift):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Admin display-name override (S22 Phase 2, v2.44.0) ---
+
+/**
+ * PATCH /api/admin/users/:userId/display-name — body: { displayName: string | null }.
+ * `null` clears the override (render falls back to username/id). Non-null
+ * re-validates through the exact SAME checks as self-service —
+ * `UserProfileService.setDisplayName` already accepts an arbitrary target
+ * `discordUserId` (it's not hardcoded to `req.user`), so this route calls it
+ * directly rather than duplicating length/blocklist/uniqueness logic in a
+ * parallel path. 404s when the target has no `user_profiles` row — this
+ * endpoint resets/overrides an EXISTING user's display name, it doesn't
+ * create a profile for an id nobody has ever logged in as.
+ */
+router.patch('/users/:userId/display-name', async (req, res) => {
+    try {
+        const userId = req.params.userId as string;
+        const validationResult = validate(AdminSetDisplayNameSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const db = await getDatabase();
+        const existing = await db.get('SELECT discord_user_id FROM user_profiles WHERE discord_user_id = ?', userId);
+        if (!existing) return res.status(404).json({ error: 'No profile found for this user' });
+
+        const { UserProfileService } = await import('../../services/UserProfileService.js');
+        const next = await UserProfileService.setDisplayName(userId, validationResult.data.displayName);
+
+        // Display name change ripples through every leaderboard render —
+        // same invalidation as the self-service PATCH /users/me/profile.
+        const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+        const { GlobalLeaderboardService } = await import('../../services/GlobalLeaderboardService.js');
+        await LeaderboardService.invalidateAll();
+        await GlobalLeaderboardService.invalidateAll();
+
+        res.json({ display_name: next });
+    } catch (error) {
+        const e = error as Error & { code?: string; reason?: string };
+        if (e.code === 'DISPLAY_NAME_TAKEN') {
+            return res.status(409).json({ error: 'Display name not available', reason: e.reason });
+        }
+        if (e.code === 'NAME_NOT_ALLOWED') {
+            return res.status(400).json({ error: e.message, code: e.code });
+        }
+        logError('API Error (PATCH /api/admin/users/:userId/display-name):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

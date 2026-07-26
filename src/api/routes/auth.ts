@@ -10,6 +10,7 @@ import { IdentityLinkService } from '../../services/IdentityLinkService.js';
 import { LinkNonceStore } from '../../services/LinkNonceStore.js';
 import { isGoogleUserId } from '../../utils/identityProvider.js';
 import { sanitizeProviderUsername } from '../../utils/contentBlocklist.js';
+import { BanService } from '../../services/BanService.js';
 
 const router = Router();
 
@@ -154,6 +155,15 @@ router.post('/discord/callback', async (req, res) => {
         // is always a no-op for a Discord login — canonicalUserId === user.id.
         const canonicalUserId = await IdentityLinkService.resolveCanonical(user.id);
 
+        // S22 Phase 2 (v2.44.0) — ban enforcement at token issuance. Checked
+        // right after canonical resolution, before ANY writes (linkNonce
+        // consumption, user_profiles upsert) so a banned login leaves no
+        // trace — no profile row, no consumed link nonce, no session.
+        const discordBanCheck = await BanService.isIdentityBanned(user.id);
+        if (discordBanCheck.banned) {
+            return res.status(403).json({ error: 'This account is banned.' });
+        }
+
         // v2.36.0 — Google-account-link completion. Exchanges + user-info
         // fetch above are unconditional (needed either way); this branch only
         // decides whether we ALSO consume a pending link nonce before minting
@@ -165,6 +175,20 @@ router.post('/discord/callback', async (req, res) => {
             if (!googleUserId) {
                 return res.status(400).json({ error: 'Invalid or expired link request. Please try linking again from Account Settings.' });
             }
+
+            // M2 fix (S22 Phase 2 adversarial review) — the discordBanCheck
+            // above only covers the Discord snowflake being linked TO; the
+            // google id being linked FROM was never checked, so a banned
+            // google:X identity holding a still-valid access token could link
+            // a clean snowflake and mint a brand-new token+refresh pair
+            // through this flow, repeatably. Check BEFORE createLink so a
+            // banned google id writes no user_identity_links row and mints no
+            // token — same "leaves no trace" contract as discordBanCheck.
+            const googleBanCheck = await BanService.isIdentityBanned(googleUserId);
+            if (googleBanCheck.banned) {
+                return res.status(403).json({ error: 'This account is banned.' });
+            }
+
             try {
                 await IdentityLinkService.createLink(googleUserId, canonicalUserId);
             } catch (err) {
@@ -288,6 +312,14 @@ router.post('/link/discord/start', requireDiscordUser, async (req, res) => {
         if (!userId || !isGoogleUserId(userId)) {
             return res.status(400).json({ error: 'Only a Google-signed-in account can start a Discord link. Nothing to link.' });
         }
+        // M2 fix (S22 Phase 2 adversarial review) — a banned identity must not
+        // be able to mint a link nonce at all (the callback-side check above
+        // covers the nonce's google id being consumed, but this closes the
+        // door earlier — a banned caller can't even start the flow).
+        const banCheck = await BanService.isIdentityBanned(userId);
+        if (banCheck.banned) {
+            return res.status(403).json({ error: 'This account is banned.' });
+        }
         const nonce = LinkNonceStore.create(userId);
         res.json({ nonce });
     } catch (error) {
@@ -403,6 +435,14 @@ router.post('/google/callback', async (req, res) => {
         // only the id canonicalizes.
         const canonicalUserId = await IdentityLinkService.resolveCanonical(userId);
 
+        // S22 Phase 2 (v2.44.0) — same ban-at-login enforcement as the
+        // Discord callback above, checked on the raw `google:<sub>` id before
+        // any writes.
+        const googleBanCheck = await BanService.isIdentityBanned(userId);
+        if (googleBanCheck.banned) {
+            return res.status(403).json({ error: 'This account is banned.' });
+        }
+
         // Upsert user_profiles with avatar_url (mirrors the Discord upsert
         // above, but writes the new avatar_url column instead of
         // avatar_hash — Google avatars are already full URLs, not CDN
@@ -512,6 +552,13 @@ router.post('/refresh', async (req, res) => {
 
         res.json({ token: result.token, refreshToken: result.refreshToken });
     } catch (error) {
+        // S22 Phase 2 (v2.44.0) — banned-identity refresh. Distinct code (still
+        // a 401, so api.ts's existing refresh-failure handling redirects to
+        // login without any FE change needed) rather than the generic 500 path.
+        const e = error as Error & { code?: string };
+        if (e.code === 'ACCOUNT_BANNED') {
+            return res.status(401).json({ error: 'This account is banned.', code: 'ACCOUNT_BANNED' });
+        }
         logError('API Error (POST /api/auth/refresh):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }

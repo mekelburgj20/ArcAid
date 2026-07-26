@@ -6,6 +6,26 @@ import { getDatabase } from '../database/database.js';
 import { signToken } from '../api/auth.js';
 import { IdentityLinkService } from '../services/IdentityLinkService.js';
 import { LinkNonceStore } from '../services/LinkNonceStore.js';
+import { BanService } from '../services/BanService.js';
+
+/**
+ * M2 fix (S22 Phase 2 adversarial review) — a banned `google:X` identity
+ * holding a still-valid access token could use this exact link flow to link
+ * a clean Discord snowflake and mint a brand-new 24h token+refresh pair,
+ * repeatably: the pre-fix code ban-checked only the Discord snowflake being
+ * linked TO (auth.ts's `discordBanCheck`), never the google id consumed from
+ * the nonce. Two enforcement points, tested below: `POST
+ * /auth/link/discord/start` (can't even mint a nonce while banned) and `POST
+ * /auth/discord/callback` with a valid nonce for a banned google id (no link
+ * row, no token).
+ */
+async function seedBan(discordUserId: string): Promise<void> {
+    const db = await getDatabase();
+    await db.run(
+        `INSERT INTO user_bans (id, discord_user_id, banned_by) VALUES (?, ?, 'test-admin')`,
+        `ban-${discordUserId}`, discordUserId,
+    );
+}
 
 /**
  * Coverage for the v2.36.0 Google->Discord account-link HTTP flow:
@@ -85,6 +105,22 @@ describe('POST /api/auth/link/discord/start', () => {
         expect(res.status).toBe(200);
         expect(typeof res.body.nonce).toBe('string');
         expect(res.body.nonce.length).toBeGreaterThan(0);
+    });
+
+    // M2 fix (S22 Phase 2 adversarial review).
+    it('403s a banned google identity — no nonce minted', async () => {
+        const app = await createTestApp();
+        const googleId = 'google:sub-banned-start';
+        await seedBan(googleId);
+        const token = signToken({ role: 'player', gameRoomIds: [], discordId: googleId, provider: 'google' });
+
+        const res = await request(app)
+            .post('/api/auth/link/discord/start')
+            .set('Authorization', `Bearer ${token}`);
+        expect(res.status).toBe(403);
+
+        const banCheck = await BanService.isIdentityBanned(googleId);
+        expect(banCheck.banned).toBe(true); // sanity — the seed actually took
     });
 });
 
@@ -206,6 +242,29 @@ describe('POST /api/auth/discord/callback — link completion', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.linked).toBeUndefined();
+    });
+
+    // M2 fix (S22 Phase 2 adversarial review) — the nonce's google id was
+    // never ban-checked pre-fix, only the Discord snowflake being linked TO.
+    it('banned google id + valid nonce: 403 at callback, no link row, no token minted', async () => {
+        const app = await createTestApp();
+        const googleId = 'google:sub-banned-callback';
+        const discordId = '888899990000111122';
+        await seedBan(googleId);
+
+        const nonce = LinkNonceStore.create(googleId);
+        mockDiscordFetch({ id: discordId, username: 'discorduser', global_name: 'Discord User' });
+
+        const res = await request(app)
+            .post('/api/auth/discord/callback')
+            .send({ code: 'fake-code', redirectUri: 'https://arcaid.app/auth/discord/callback', linkNonce: nonce });
+
+        expect(res.status).toBe(403);
+        expect(res.body.token).toBeUndefined();
+
+        const db = await getDatabase();
+        const linkRow = await db.get('SELECT * FROM user_identity_links WHERE provider_user_id = ?', googleId);
+        expect(linkRow).toBeUndefined();
     });
 });
 

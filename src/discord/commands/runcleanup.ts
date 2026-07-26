@@ -19,12 +19,22 @@ export const runcleanup: Command = {
             const db = await getDatabase();
             const engine = TournamentEngine.getInstance();
 
-            const tournaments = await db.all('SELECT id, name, cleanup_rule FROM tournaments WHERE is_active = 1');
+            const tournaments = await db.all('SELECT id, name, cleanup_rule, game_room_id FROM tournaments WHERE is_active = 1');
 
             let totalDeleted = 0;
             const results: string[] = [];
+            const { RoomAccessService } = await import('../../services/RoomAccessService.js');
 
             for (const t of tournaments) {
+                // S22 Phase 2 (v2.44.0, M1 fix) — this command is unscoped by
+                // design (runs cleanup for EVERY active tournament regardless
+                // of the invoking guild), so it must check EACH tournament's
+                // own room rather than relying on the guild-level gate.
+                if (t.game_room_id && await RoomAccessService.isSuspended(t.game_room_id)) {
+                    results.push(`**${t.name}**: Skipped (room suspended)`);
+                    continue;
+                }
+
                 let rule: CleanupRule = { mode: 'retain', count: 0 };
                 try { rule = JSON.parse(t.cleanup_rule || '{}'); } catch {}
 

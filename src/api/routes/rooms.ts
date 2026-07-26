@@ -131,6 +131,14 @@ router.get('/:roomId/portal', async (req, res) => {
         const db = await getDatabase();
         const room = await GameRoomService.getById(req.params.roomId as string);
         if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        // S22 Phase 2 (v2.44.0) — parity with the slug-keyed GET /api/portal
+        // in global.ts. This room-scoped variant has no FE consumers today
+        // (see the note above), but kept consistent in case that changes.
+        if (room.suspended_at) {
+            return res.json({ suspended: true, name: room.name, slug: room.slug });
+        }
+
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
         const requireDiscordLogin = await GameRoomSettingsService.get(room.id, 'REQUIRE_DISCORD_LOGIN');
@@ -165,6 +173,15 @@ router.get('/:roomId/portal', async (req, res) => {
 router.get('/:roomId/scoreboard-config', async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
+        // m1 fix (S22 Phase 2 adversarial review) — this route registers
+        // BEFORE roomVisibilityGate (same structural bypass as portal above),
+        // so a suspended room's scoreboard-config was reachable by anyone.
+        // Approval-room behavior is intentionally untouched — only suspension
+        // gates here.
+        const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+        if (await RoomAccessService.isSuspended(roomId)) {
+            return res.status(403).json({ error: 'This room has been suspended pending review.', code: 'ROOM_SUSPENDED' });
+        }
         const allSettings = await GameRoomSettingsService.getAll(roomId);
         const config: Record<string, string> = {};
         // v2.35.0 (Google login) — REQUIRE_DISCORD_LOGIN and DISCORD_ENABLED are

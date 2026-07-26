@@ -33,8 +33,20 @@ export const forcemaintenance: Command = {
 
         try {
             const db = await getDatabase();
-            const row = await db.get('SELECT name FROM tournaments WHERE id = ?', tournamentId);
+            const row = await db.get('SELECT name, game_room_id FROM tournaments WHERE id = ?', tournamentId);
             const name = row?.name || tournamentId;
+
+            // S22 Phase 2 (v2.44.0, M1 fix) — autocomplete lists ALL active
+            // tournaments regardless of the invoking guild, so the guild-level
+            // suspension gate can't catch a tournament belonging to a
+            // DIFFERENT, suspended room.
+            if (row?.game_room_id) {
+                const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+                if (await RoomAccessService.isSuspended(row.game_room_id)) {
+                    await interaction.editReply(`**${name}**'s room has been suspended pending review. Maintenance is disabled.`);
+                    return;
+                }
+            }
 
             await engine.runMaintenance(tournamentId);
             await interaction.editReply(`Maintenance for **${name}** has been manually triggered and completed.`);

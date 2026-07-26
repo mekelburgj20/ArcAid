@@ -1953,6 +1953,16 @@ export async function initDatabase(): Promise<Database> {
                 ON content_reports(target_key, reporter_user_id) WHERE resolved_at IS NULL;
             CREATE INDEX IF NOT EXISTS idx_content_reports_status ON content_reports(target_type, resolved_at);
         ` },
+        // v2.44.0 — S22 Phase 2: super-admin room suspension. A COLUMN on
+        // game_rooms (not a game_room_settings key) — this is super-admin-
+        // imposed moderation state, not room config: it must survive settings
+        // tooling untouched and be cheap to join into room listings.
+        // `suspended_at IS NOT NULL` is the suspended predicate everywhere.
+        { name: '119_room_suspension', sql: `
+            ALTER TABLE game_rooms ADD COLUMN suspended_at TEXT;
+            ALTER TABLE game_rooms ADD COLUMN suspended_by TEXT;
+            ALTER TABLE game_rooms ADD COLUMN suspended_reason TEXT;
+        ` },
     ];
 
     for (const migration of migrations) {

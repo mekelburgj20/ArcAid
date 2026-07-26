@@ -177,6 +177,11 @@ export interface GameRoom {
     /** Sprint 13 — optional short label for RoomTag badges. Falls back to slug-derived when null. */
     short_tag: string | null;
     created_at: string;
+    /** S22 Phase 2 (v2.44.0) — super-admin room suspension (migration 119).
+     * `suspended_at IS NOT NULL` is the suspended predicate. */
+    suspended_at?: string | null;
+    suspended_by?: string | null;
+    suspended_reason?: string | null;
 }
 
 export interface LocalAdmin {

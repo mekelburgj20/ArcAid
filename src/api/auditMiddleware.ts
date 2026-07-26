@@ -64,6 +64,11 @@ function deriveTargetType(path: string): string {
         [/\/super-admins/, 'super_admin'],
         [/\/backups/, 'backup'],
         [/\/merge-player/, 'player'],
+        // m7 fix (S22 Phase 2 adversarial review) — PATCH
+        // /admin/users/:userId/display-name previously fell through to
+        // 'unknown' (no pattern matched `/users`), so the audit row for the
+        // admin display-name override had no usable target_type.
+        [/\/users/, 'user'],
         [/\/games/, 'game'],
         [/\/scheduler/, 'scheduler'],
         [/\/ratings/, 'rating'],
@@ -76,8 +81,10 @@ function deriveTargetType(path: string): string {
 
 /** Derive target ID from route params */
 function deriveTargetId(params: Record<string, any>): string {
-    // Try common param names
-    return params.id || params.roomId || params.name || params.discordId || '';
+    // Try common param names. `userId` added (m7 fix, S22 Phase 2 adversarial
+    // review) for PATCH /admin/users/:userId/display-name — previously fell
+    // through to '' since no prior param name matched.
+    return params.id || params.roomId || params.name || params.discordId || params.userId || '';
 }
 
 /** Remove sensitive fields from request body before logging */

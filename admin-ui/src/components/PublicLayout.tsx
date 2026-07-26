@@ -40,6 +40,10 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const joinPolicy = portal?.join_policy ?? 'open';
   const viewerStatus = portal?.viewer_status ?? 'none';
   const isGated = joinPolicy === 'approval' && (viewerStatus === 'none' || viewerStatus === 'pending');
+  // S22 Phase 2 (v2.44.0) — suspended rooms ship a minimal portal shape (no
+  // roomId/settings/config). Checked ahead of the loading/gated branches
+  // below since `resolvedRoomId` is never present for a suspended room.
+  const isSuspended = !!portal?.suspended;
 
   const [lobbyHasNew, setLobbyHasNew] = useState(false);
   // S22 Phase 1 (v2.43.0) — discreet "Report room" affordance, signed-in
@@ -122,7 +126,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   // just 403 (each fetches its own gated endpoints) — only "Global" survives,
   // since /scoreboard isn't room-scoped.
   const navItems: Array<{ path: string; label: string; icon: React.ReactNode; end?: boolean }> = [];
-  if (!isGated) {
+  if (!isGated && !isSuspended) {
     navItems.push({ path: `/${slug}/lobby`, label: 'Lobby', icon: <MessageSquare size={16} /> });
     navItems.push({ path: `/${slug}`, label: 'Scores', icon: <Monitor size={16} />, end: true });
     if (!pickAwardLoading && pickAwardEnabled) {
@@ -220,7 +224,22 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             <p className="font-pixel text-neon-magenta text-lg mb-1">Room not found</p>
             <p className="text-muted text-sm">We couldn't find a room at this address.</p>
           </div>
-        ) : !portal || !resolvedRoomId ? (
+        ) : !portal ? (
+          <LoadingState message="Loading room..." />
+        ) : isSuspended ? (
+          // S22 Phase 2 (v2.44.0) — styled like the approval-gate shell below:
+          // centered message, room branding withheld (the minimal portal
+          // response has no logo_url), no login CTA needed.
+          <div className="flex flex-col items-center justify-center flex-1 px-6 py-16 text-center">
+            <h1 className="font-display text-2xl font-bold mb-2">{portal.name}</h1>
+            <div className="flex items-center gap-2 text-neon-magenta mb-2">
+              <span className="font-medium">This room has been suspended</span>
+            </div>
+            <p className="text-muted text-sm max-w-sm">
+              This room is temporarily hidden pending review. Check back later.
+            </p>
+          </div>
+        ) : !resolvedRoomId ? (
           <LoadingState message="Loading room..." />
         ) : isGated ? (
           <RoomJoinGate

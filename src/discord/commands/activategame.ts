@@ -64,6 +64,18 @@ export const activategame: Command = {
                 return;
             }
 
+            // S22 Phase 2 (v2.44.0, M1 fix) — tournament name resolution is
+            // NOT guild-scoped (autocomplete lists ALL active tournaments), so
+            // the guild-level suspension gate (DiscordClient.ts) can't catch a
+            // same-named tournament belonging to a DIFFERENT, suspended room.
+            if (tournament.game_room_id) {
+                const { RoomAccessService } = await import('../../services/RoomAccessService.js');
+                if (await RoomAccessService.isSuspended(tournament.game_room_id)) {
+                    await interaction.editReply('This room has been suspended pending review. Game activation is disabled.');
+                    return;
+                }
+            }
+
             // Enforce platform rules. Game's effective platforms = catalogue ∪ room tags.
             let platformRules = { required: [] as string[], excluded: [] as string[] };
             try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}

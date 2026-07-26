@@ -1,4 +1,5 @@
 import type { TokenPayload } from '../api/auth.js';
+import { getDatabase } from '../database/database.js';
 import { GameRoomSettingsService } from './GameRoomSettingsService.js';
 import { AdminService } from './AdminService.js';
 import { RoomMembershipService } from './RoomMembershipService.js';
@@ -19,6 +20,21 @@ export class RoomAccessService {
     static async getJoinPolicy(roomId: string): Promise<JoinPolicy> {
         const raw = await GameRoomSettingsService.get(roomId, 'JOIN_POLICY');
         return raw === 'approval' ? 'approval' : 'open';
+    }
+
+    /**
+     * S22 Phase 2 (v2.44.0) — super-admin room suspension
+     * (`game_rooms.suspended_at`). Single source of truth consulted by
+     * `roomVisibilityGate` (HTTP) and `canJoinRoomChannel` (WebSocket) so the
+     * two enforcement points can never drift, mirroring the `getJoinPolicy` /
+     * `canViewRoom` pairing above.
+     */
+    static async isSuspended(roomId: string): Promise<boolean> {
+        const db = await getDatabase();
+        const row = await db.get<{ suspended_at: string | null }>(
+            'SELECT suspended_at FROM game_rooms WHERE id = ?', roomId,
+        );
+        return !!row?.suspended_at;
     }
 
     /**
