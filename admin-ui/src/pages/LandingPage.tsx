@@ -282,10 +282,10 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
         </Link>
       </div>
 
-      {/* View All Scores — under the tiles, right-aligned (user direction,
-          round 5: the Global Scoreboard heading is gone; the button is the
-          section's only chrome). */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-5" style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      {/* View All Scores — under the tiles, hugging the RIGHT VIEWPORT edge
+          (not the max-w-5xl column): the ticker is full-bleed, so the button
+          lands under the last visible tile (user direction, round 6). */}
+      <div className="px-4 sm:px-8 pb-5" style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Link
           to="/scoreboard"
           style={{
