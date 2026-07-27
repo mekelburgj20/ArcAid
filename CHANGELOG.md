@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.45.4] — unreleased
+
+**Landing motto.** User-authored tagline — "Run the room. Settle scores. Own the arcade." — rendered in the free band between the ARCAID wordmark and the ticker tiles (absolutely positioned at 64% of the logo box so it anchors proportionally at every viewport size; uppercase DM Sans, letter-spaced, cyan-tinged text-shadow for legibility over the triangle glow and tile tops).
+
 ## [2.45.3] — unreleased
 
 **Landing hero × scoreboard ticker overlap (third user-feedback round).** The remaining "seam" was the ScoreboardPromo band's purple gradient starting at full strength on its top edge — a hard boundary against the flat page background above. Per the user's layout direction:
