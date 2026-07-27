@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ## [2.45.4] — unreleased
 
-**Landing motto.** User-authored tagline — "Run the room. Settle scores. Own the arcade." — rendered in the free band between the ARCAID wordmark and the ticker tiles (absolutely positioned at 64% of the logo box so it anchors proportionally at every viewport size; uppercase DM Sans, letter-spaced, cyan-tinged text-shadow for legibility over the triangle glow and tile tops).
+**Landing motto.** User-authored tagline — "Run the room. Settle the score. Own the arcade." — rendered in the free band between the ARCAID wordmark and the ticker tiles (absolutely positioned at 64% of the logo box so it anchors proportionally at every viewport size; uppercase DM Sans, letter-spaced, cyan-tinged text-shadow for legibility over the triangle glow and tile tops).
 
 ## [2.45.3] — unreleased
 

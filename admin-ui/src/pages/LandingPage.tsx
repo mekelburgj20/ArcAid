@@ -188,7 +188,7 @@ export default function LandingPage() {
             color: 'rgba(255,255,255,0.72)',
             textShadow: '0 0 12px rgba(91,200,245,0.35), 0 1px 6px rgba(0,0,0,0.9)',
           }}>
-            Run the room. Settle scores. Own the arcade.
+            Run the room. Settle the score. Own the arcade.
           </p>
         </div>
       </div>
