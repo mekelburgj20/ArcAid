@@ -6,6 +6,7 @@ import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from './Toast';
 import { getPortal, type Portal } from '../lib/portal';
+import { getTitleStyleClass } from './ScoreboardComponents';
 import { RoomContext } from '../contexts/RoomContext';
 import UserMenu from './UserMenu';
 import LoginButtons from './LoginButtons';
@@ -74,6 +75,29 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
 
   const roomName = portal?.name ?? gameRoomName ?? 'ARCAID';
   const resolvedRoomId = portal?.roomId ?? null;
+
+  // v2.45.5 — mobile nav brand row (second row, centered under the icons)
+  // reuses the room's Leaderboard Branding: SCOREBOARD_TITLE text in its
+  // configured Title Style + the branding logo, scaled down. Fetched from
+  // the public scoreboard-config endpoint once the room resolves;
+  // best-effort (falls back to plain roomName until/unless it loads).
+  const [navBrand, setNavBrand] = useState<{ title: string; style: string; logoUrl: string } | null>(null);
+  useEffect(() => {
+    if (!resolvedRoomId) return;
+    let cancelled = false;
+    fetch(`/api/rooms/${resolvedRoomId}/scoreboard-config`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(cfg => {
+        if (cancelled || !cfg) return;
+        setNavBrand({
+          title: cfg.SCOREBOARD_TITLE || '',
+          style: cfg.SCOREBOARD_TITLE_STYLE || 'default',
+          logoUrl: cfg.SCOREBOARD_LOGO_ENABLED === 'false' ? '' : (cfg.LOGO_URL || ''),
+        });
+      })
+      .catch(() => { /* brand row falls back to plain roomName */ });
+    return () => { cancelled = true; };
+  }, [resolvedRoomId]);
   // Stable identity across re-renders (lobby-dot/discordUser/pickAward state
   // changes) so RoomContext consumers don't re-render on every parent update.
   const roomCtx = useMemo(
@@ -167,10 +191,11 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             <Link to="/" className="no-underline flex-shrink-0" aria-label="All game rooms" title="All game rooms">
               <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-6 sm:h-9 w-auto flex-shrink-0" />
             </Link>
-            <Link to={`/${slug}`} className="no-underline block w-[84px] sm:w-auto sm:max-w-[220px]" title={roomName}>
-              <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate block">
-                {roomName.length > 12 ? `${roomName.slice(0, 11)}…` : roomName}
-              </span>
+            {/* Inline name is sm+ only — phones get the centered brand row
+                below the icons instead (user direction: the top-row name
+                looked terrible squeezed next to the nav). */}
+            <Link to={`/${slug}`} className="no-underline hidden sm:block sm:max-w-[220px]" title={roomName}>
+              <span className="font-pixel text-neon-cyan text-xs tracking-wider truncate block">{roomName}</span>
             </Link>
           </div>
           <div className="flex-1 min-w-0 flex items-center justify-start sm:justify-end gap-0.5 sm:gap-1 overflow-x-auto">
@@ -227,6 +252,22 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             )}
           </div>
         </div>
+        {/* Mobile brand row — centered under the nav icons: the room's
+            Leaderboard Branding logo (scaled down) + its SCOREBOARD_TITLE
+            in the configured Title Style. Links to the room home (same as
+            the sm+ inline name). */}
+        <Link
+          to={`/${slug}`}
+          className="sm:hidden flex items-center justify-center gap-2 px-4 pb-2 -mt-0.5 no-underline min-w-0"
+          title={roomName}
+        >
+          {navBrand?.logoUrl && (
+            <img src={navBrand.logoUrl} alt="" className="h-5 w-auto max-w-[80px] object-contain flex-shrink-0" />
+          )}
+          <span className={`font-display text-muted uppercase tracking-widest text-xs truncate ${getTitleStyleClass(navBrand?.style ?? 'default')}`}>
+            {navBrand?.title || roomName}
+          </span>
+        </Link>
       </nav>
 
       {/* Page Content */}

@@ -179,7 +179,7 @@ export default function LandingPage() {
             /* v2.45.5 — user restack: motto sits UNDER the delta (below the
                triangle tip ≈92% of the box), and the tiles slide under the
                motto (see the reduced pull-up at the promo call site). */
-            top: '87%',
+            top: '81.5%',
             margin: 0,
             textAlign: 'center',
             fontFamily: "'DM Sans', sans-serif",
