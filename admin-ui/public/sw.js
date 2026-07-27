@@ -166,7 +166,7 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title || 'ArcAid', {
       body: payload.body || '',
-      icon: '/arcaid-icon-192-v2.png',
+      icon: '/arcaid-icon-192-v3.png',
       tag: payload.tag || undefined,
       data: { url: payload.url || '/' },
     })

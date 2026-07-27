@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.45.5] — unreleased
+
+**Mobile polish round (user feedback with screenshots).**
+
+- **Hero restack** — motto moved to sit UNDER the delta (87% of the logo box after a spacing round: close under the triangle tip, clear of the tile tops) and the ticker tiles now slide under the MOTTO instead of under the triangle (pull-up reduced to `clamp(-18px, -2.5vw, -8px)`). Fixes the squished mobile stack where motto/wordmark/tiles crowded each other.
+- **PWA icons regenerated (`-v3`) with spec-correct safe-zone insets** — the v2 maskable icon's mark spanned 80% of the canvas, exceeding the maskable safe circle, so launchers with aggressive masks cropped the mark's edges (operator's launcher did; a friend's gentler launcher didn't — both are spec-legal). v3: mark at 62% width on the maskable, 70% on regular/apple variants. New filenames + `manifest.json?v=3` per the cache-bust rule; v2 icon files removed.
+- **Mobile nav brand fixes** — the room name previously had `min-w-0` + truncate with no floor, so flexbox crushed it to nothing (or 2 chars) on phones, jamming the logo against the first nav item; an intermediate min-width fix still let the name and nav labels crowd each other. Final structure: three hard-separated bar regions — fixed brand (h-6 logo + name at fixed 84px on phones / natural ≤220px on sm+, JS-capped 12 chars, full name in `title`), a scrollable middle nav region (left-aligned on phones so overflow stays reachable — flexbox can't scroll into start-side overflow under `justify-end`), and auth pinned right. Overlap is now impossible by construction; on narrow phones the tail nav items scroll instead of colliding.
+
 ## [2.45.4] — unreleased
 
 **Glitch rework.** The delta now glitches too — two chromatic split-copies (pink/cyan) of the double-triangle, invisible at rest, flash offset during burst windows. Both glitch systems moved off the old tidy 4s metronome onto irregular multi-jump burst clusters with in-burst opacity flicker (`arcaidGlitchText` 7.4s / `arcaidGlitchTri` 5.7s, staggered negative delays — the co-prime-ish periods drift so text and delta never sync). Reduced-motion freezes everything as before (delta copies simply never appear).

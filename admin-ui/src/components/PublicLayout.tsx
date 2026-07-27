@@ -6,6 +6,7 @@ import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from './Toast';
 import { getPortal, type Portal } from '../lib/portal';
+import { getTitleStyleClass } from './ScoreboardComponents';
 import { RoomContext } from '../contexts/RoomContext';
 import UserMenu from './UserMenu';
 import LoginButtons from './LoginButtons';
@@ -74,6 +75,29 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
 
   const roomName = portal?.name ?? gameRoomName ?? 'ARCAID';
   const resolvedRoomId = portal?.roomId ?? null;
+
+  // v2.45.5 — mobile nav brand row (second row, centered under the icons)
+  // reuses the room's Leaderboard Branding: SCOREBOARD_TITLE text in its
+  // configured Title Style + the branding logo, scaled down. Fetched from
+  // the public scoreboard-config endpoint once the room resolves;
+  // best-effort (falls back to plain roomName until/unless it loads).
+  const [navBrand, setNavBrand] = useState<{ title: string; style: string; logoUrl: string } | null>(null);
+  useEffect(() => {
+    if (!resolvedRoomId) return;
+    let cancelled = false;
+    fetch(`/api/rooms/${resolvedRoomId}/scoreboard-config`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(cfg => {
+        if (cancelled || !cfg) return;
+        setNavBrand({
+          title: cfg.SCOREBOARD_TITLE || '',
+          style: cfg.SCOREBOARD_TITLE_STYLE || 'default',
+          logoUrl: cfg.SCOREBOARD_LOGO_ENABLED === 'false' ? '' : (cfg.LOGO_URL || ''),
+        });
+      })
+      .catch(() => { /* brand row falls back to plain roomName */ });
+    return () => { cancelled = true; };
+  }, [resolvedRoomId]);
   // Stable identity across re-renders (lobby-dot/discordUser/pickAward state
   // changes) so RoomContext consumers don't re-render on every parent update.
   const roomCtx = useMemo(
@@ -151,18 +175,30 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             for the status-bar/notch safe area without shrinking below the
             existing py-3 baseline on non-notched devices. */}
         <div
-          className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between"
+          className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-2 sm:gap-3"
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
         >
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* v2.45.5 mobile nav layout: three hard-separated regions so the
+              room name and nav items can NEVER paint over each other —
+              (1) brand (logo + name) is fixed-width and never shrinks,
+              (2) nav items live in their own scrollable middle region
+              (left-aligned on phones so overflow stays reachable — flexbox
+              can't scroll into start-side overflow under justify-end),
+              (3) auth stays pinned at the right. Name: JS-capped at 12
+              chars, fixed 84px on phones (~8 chars always readable, full
+              name in title), natural width up to 220px on sm+. */}
+          <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
             <Link to="/" className="no-underline flex-shrink-0" aria-label="All game rooms" title="All game rooms">
-              <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-8 sm:h-9 w-auto flex-shrink-0" />
+              <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-6 sm:h-9 w-auto flex-shrink-0" />
             </Link>
-            <Link to={`/${slug}`} className="no-underline min-w-0">
-              <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate block">{roomName}</span>
+            {/* Inline name is sm+ only — phones get the centered brand row
+                below the icons instead (user direction: the top-row name
+                looked terrible squeezed next to the nav). */}
+            <Link to={`/${slug}`} className="no-underline hidden sm:block sm:max-w-[220px]" title={roomName}>
+              <span className="font-pixel text-neon-cyan text-xs tracking-wider truncate block">{roomName}</span>
             </Link>
           </div>
-          <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+          <div className="flex-1 min-w-0 flex items-center justify-start sm:justify-end gap-0.5 sm:gap-1 overflow-x-auto">
             {navItems.map(item => (
               <NavLink
                 key={item.path}
@@ -187,7 +223,8 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 <span className="text-[10px] sm:text-sm leading-none">{item.label}</span>
               </NavLink>
             ))}
-
+          </div>
+          <div className="flex items-center flex-shrink-0">
             {/* Discord login / user menu */}
             {discordUser ? (
               <UserMenu
@@ -215,6 +252,22 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             )}
           </div>
         </div>
+        {/* Mobile brand row — centered under the nav icons: the room's
+            Leaderboard Branding logo (scaled down) + its SCOREBOARD_TITLE
+            in the configured Title Style. Links to the room home (same as
+            the sm+ inline name). */}
+        <Link
+          to={`/${slug}`}
+          className="sm:hidden flex items-center justify-center gap-2 px-4 pb-2 -mt-0.5 no-underline min-w-0"
+          title={roomName}
+        >
+          {navBrand?.logoUrl && (
+            <img src={navBrand.logoUrl} alt="" className="h-5 w-auto max-w-[80px] object-contain flex-shrink-0" />
+          )}
+          <span className={`font-display text-muted uppercase tracking-widest text-xs truncate ${getTitleStyleClass(navBrand?.style ?? 'default')}`}>
+            {navBrand?.title || roomName}
+          </span>
+        </Link>
       </nav>
 
       {/* Page Content */}

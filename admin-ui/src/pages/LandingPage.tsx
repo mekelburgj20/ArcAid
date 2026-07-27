@@ -176,7 +176,10 @@ export default function LandingPage() {
             position: 'absolute',
             left: 0,
             right: 0,
-            top: '64%',
+            /* v2.45.5 — user restack: motto sits UNDER the delta (below the
+               triangle tip ≈92% of the box), and the tiles slide under the
+               motto (see the reduced pull-up at the promo call site). */
+            top: '81.5%',
             margin: 0,
             textAlign: 'center',
             fontFamily: "'DM Sans', sans-serif",
@@ -199,7 +202,7 @@ export default function LandingPage() {
           proportional on phones (hero height scales with viewport width)
           and fixed once the hero hits its 680px cap. */}
       {recentScores.length > 0 && (
-        <div style={{ marginTop: 'clamp(-120px, -19vw, -48px)', position: 'relative' }}>
+        <div style={{ marginTop: 'clamp(-18px, -2.5vw, -8px)', position: 'relative' }}>
           <ScoreboardPromo scores={recentScores} />
         </div>
       )}
