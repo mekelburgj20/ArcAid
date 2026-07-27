@@ -1,5 +1,5 @@
 import { getDatabase } from '../database/database.js';
-import { isGoogleUserId } from '../utils/identityProvider.js';
+import { isGoogleUserId, isDiscordUserId } from '../utils/identityProvider.js';
 import { containsBlockedTerm } from '../utils/contentBlocklist.js';
 
 /**
@@ -78,27 +78,89 @@ export class IdentityLinkService {
      * (`src/database/database.ts`) and `AccountDeletionService` (the closest
      * existing precedent for "every column that can hold this identity").
      * Deviations from the contract's D1 recon list are documented inline.
+     *
+     * v2.46.0 (mirror-link contract) — conflict guard, both link directions.
+     * Pre-v2.46.0 the `ON CONFLICT(provider_user_id) DO UPDATE` silently
+     * re-pointed a google id already linked to a DIFFERENT canonical, which
+     * becomes a steal-link vector once linking is bidirectional (an attacker
+     * who controls a Discord snowflake could re-link a victim's already-linked
+     * google id onto themselves just by completing the Google OAuth leg).
+     * Pre-flight check below closes it: same canonical is an idempotent
+     * no-op, different canonical throws a typed `LINK_CONFLICT` error that
+     * both OAuth callbacks map to 409.
+     *
+     * Adversarial-review fix round (mirror-link-fixes #4, #5, #7):
+     *   - Fix 7: canonical-shape doctrine ("canonical is always a Discord
+     *     snowflake") is now enforced here, not just conventional.
+     *   - Fix 4: a same-canonical relink FALLS THROUGH into the transaction
+     *     instead of early-returning — the rewrites are idempotent, and a
+     *     stale pre-link `google:*` JWT (24h lifetime) can still create new
+     *     attribution rows under the google id after the first link; relink
+     *     is the repair path for that, so it must re-run the sweep.
+     *   - Fix 5: the conflict guard is now atomic with the write. The
+     *     pre-flight SELECT below is a fast path only (avoids opening a
+     *     transaction for the common already-linked-elsewhere case); the
+     *     authoritative check is the `ON CONFLICT DO NOTHING` + re-read
+     *     inside the transaction, closing the race the old pre-flight-only
+     *     check (which then went straight to `ON CONFLICT DO UPDATE`, i.e.
+     *     last-write-wins) left open.
      */
     static async createLink(googleUserId: string, discordUserId: string): Promise<void> {
         if (!isGoogleUserId(googleUserId)) {
             throw new Error(`createLink: provider id must be a google:* identity, got "${googleUserId}"`);
         }
+        if (!isDiscordUserId(discordUserId)) {
+            throw new Error(`createLink: canonical id must be a Discord snowflake, got "${discordUserId}"`);
+        }
         const db = await getDatabase();
+
+        // Fast-path pre-flight (optional per Fix 5 — the authoritative check
+        // is inside the transaction below). Only short-circuits the clear
+        // conflict case; same-canonical falls through to re-run the
+        // idempotent rewrites (Fix 4).
+        const preflight = await db.get(
+            'SELECT canonical_user_id FROM user_identity_links WHERE provider_user_id = ?',
+            googleUserId,
+        );
+        if (preflight && preflight.canonical_user_id !== discordUserId) {
+            const err = new Error(
+                `createLink: "${googleUserId}" is already linked to a different canonical identity`,
+            );
+            (err as Error & { code?: string }).code = 'LINK_CONFLICT';
+            throw err;
+        }
+
         await db.exec('BEGIN');
         try {
-            // Pin the link row itself first. ON CONFLICT DO UPDATE allows a
-            // google id to be re-linked (e.g. unlink then link to a different
-            // Discord account) — re-running createLink for an id already
-            // linked to the SAME canonical is a harmless no-op for this row;
-            // re-linking to a DIFFERENT canonical after data was already
-            // rewritten under the old canonical is an out-of-scope edge case
-            // in v1 (the attribution UPDATEs below simply match zero rows,
-            // since the google id no longer appears in any score table).
-            await db.run(
+            // Fix 5 — atomic conflict guard. DO NOTHING (not DO UPDATE): a
+            // race between the pre-flight read above and this write must not
+            // silently re-point the link (last-write-wins was the exact
+            // steal-link vector this fix closes). If the row already existed
+            // (changes === 0), re-read it inside the transaction and decide:
+            // same canonical → fall through to the rewrites (Fix 4);
+            // different canonical → throw LINK_CONFLICT, caught below, which
+            // rolls back (no writes to undo yet, but keeps one exit path).
+            const insertResult = await db.run(
                 `INSERT INTO user_identity_links (provider_user_id, canonical_user_id) VALUES (?, ?)
-                 ON CONFLICT(provider_user_id) DO UPDATE SET canonical_user_id = excluded.canonical_user_id`,
+                 ON CONFLICT(provider_user_id) DO NOTHING`,
                 googleUserId, discordUserId,
             );
+            if ((insertResult.changes ?? 0) === 0) {
+                const row = await db.get(
+                    'SELECT canonical_user_id FROM user_identity_links WHERE provider_user_id = ?',
+                    googleUserId,
+                );
+                if (!row || row.canonical_user_id !== discordUserId) {
+                    const err = new Error(
+                        `createLink: "${googleUserId}" is already linked to a different canonical identity`,
+                    );
+                    (err as Error & { code?: string }).code = 'LINK_CONFLICT';
+                    throw err;
+                }
+                // Same canonical — the insert was a no-op against the
+                // existing row. Fall through: every rewrite below is
+                // idempotent and must re-run (Fix 4).
+            }
 
             // --- Score-attribution tables --------------------------------
             // DEVIATION from the contract's D1 list: the contract named
@@ -195,6 +257,18 @@ export class IdentityLinkService {
                     `SELECT display_name, avatar_url FROM user_profiles WHERE discord_user_id = ?`,
                     googleUserId,
                 );
+                // Fix 2 (adversarial review) — delete the google row BEFORE
+                // the COALESCE update below, not after. The old order ran the
+                // UPDATE first: if the snowflake's display_name was NULL and
+                // got COALESCEd to the SAME non-null value the google row
+                // still held (not yet deleted), the partial UNIQUE INDEX
+                // `idx_user_profiles_display_name` briefly saw two rows with
+                // that value mid-statement and rejected it — rolling back the
+                // ENTIRE link transaction. Fatal in practice: the link nonce
+                // is single-use and already consumed by this point, so the
+                // user had no way to retry. Deleting the google row first
+                // removes the collision before the UPDATE ever runs.
+                await db.run(`DELETE FROM user_profiles WHERE discord_user_id = ?`, googleUserId);
                 if (googleProfile) {
                     // m3 (S22 Phase 1 adversarial review) — the COALESCE below
                     // copies the google row's display_name onto the canonical
@@ -214,7 +288,6 @@ export class IdentityLinkService {
                         safeDisplayName, googleProfile.avatar_url, discordUserId,
                     );
                 }
-                await db.run(`DELETE FROM user_profiles WHERE discord_user_id = ?`, googleUserId);
             }
 
             await db.exec('COMMIT');

@@ -156,8 +156,13 @@ describe('POST /api/auth/discord/callback — link completion', () => {
         const nonce = LinkNonceStore.create(googleId);
         mockDiscordFetch({ id: discordId, username: 'discorduser', global_name: 'Discord User' });
 
+        // Fix 1b (adversarial review) — the link-callback POST must include
+        // the initiator's own bearer token (their still-logged-in google:*
+        // session) proving this browser started the flow.
+        const initiatorToken = signToken({ role: 'player', gameRoomIds: [], discordId: googleId, provider: 'google' });
         const res = await request(app)
             .post('/api/auth/discord/callback')
+            .set('Authorization', `Bearer ${initiatorToken}`)
             .send({ code: 'fake-code', redirectUri: 'https://arcaid.app/auth/discord/callback', linkNonce: nonce });
 
         expect(res.status).toBe(200);
@@ -221,8 +226,10 @@ describe('POST /api/auth/discord/callback — link completion', () => {
         const nonce = LinkNonceStore.create(googleId);
         mockDiscordFetch({ id: discordId, username: 'discorduser' });
 
+        const initiatorToken = signToken({ role: 'player', gameRoomIds: [], discordId: googleId, provider: 'google' });
         const first = await request(app)
             .post('/api/auth/discord/callback')
+            .set('Authorization', `Bearer ${initiatorToken}`)
             .send({ code: 'fake-code', redirectUri: 'https://arcaid.app/auth/discord/callback', linkNonce: nonce });
         expect(first.status).toBe(200);
 
@@ -255,8 +262,10 @@ describe('POST /api/auth/discord/callback — link completion', () => {
         const nonce = LinkNonceStore.create(googleId);
         mockDiscordFetch({ id: discordId, username: 'discorduser', global_name: 'Discord User' });
 
+        const initiatorToken = signToken({ role: 'player', gameRoomIds: [], discordId: googleId, provider: 'google' });
         const res = await request(app)
             .post('/api/auth/discord/callback')
+            .set('Authorization', `Bearer ${initiatorToken}`)
             .send({ code: 'fake-code', redirectUri: 'https://arcaid.app/auth/discord/callback', linkNonce: nonce });
 
         expect(res.status).toBe(403);
@@ -265,6 +274,76 @@ describe('POST /api/auth/discord/callback — link completion', () => {
         const db = await getDatabase();
         const linkRow = await db.get('SELECT * FROM user_identity_links WHERE provider_user_id = ?', googleId);
         expect(linkRow).toBeUndefined();
+        // Test additions (mirror-link-fixes.md) — a banned callback attempt
+        // must leave NO trace at all, not just no link row: no sessions row
+        // for the newly-authenticated Discord snowflake, no user_profiles
+        // row either (both would otherwise get written before the ban check
+        // if ordering ever regressed).
+        const sessionRow = await db.get('SELECT * FROM sessions WHERE discord_user_id = ?', discordId);
+        expect(sessionRow).toBeUndefined();
+        const profileRow = await db.get('SELECT * FROM user_profiles WHERE discord_user_id = ?', discordId);
+        expect(profileRow).toBeUndefined();
+    });
+
+    // Fix 1 (adversarial review) — server-side initiator assert. The bearer
+    // token proves the browser completing the link is the one that started
+    // it; without it (or with the wrong identity's token), the callback must
+    // 401 even though the nonce itself is valid.
+    describe('Fix 1 server-side initiator assert', () => {
+        it('valid nonce but NO Authorization header: 401, no link created', async () => {
+            const app = await createTestApp();
+            const googleId = 'google:sub-fix1-no-auth';
+            const discordId = '111100002222333366';
+            const nonce = LinkNonceStore.create(googleId);
+            mockDiscordFetch({ id: discordId, username: 'discorduser' });
+
+            const res = await request(app)
+                .post('/api/auth/discord/callback')
+                .send({ code: 'fake-code', redirectUri: 'https://arcaid.app/auth/discord/callback', linkNonce: nonce });
+
+            expect(res.status).toBe(401);
+            expect(res.body.token).toBeUndefined();
+            const db = await getDatabase();
+            const count = await db.get('SELECT COUNT(*) AS c FROM user_identity_links');
+            expect(count.c).toBe(0);
+        });
+
+        it('valid nonce but Authorization token for a DIFFERENT identity than the initiator: 401, no link created', async () => {
+            const app = await createTestApp();
+            const googleId = 'google:sub-fix1-wrong-user';
+            const discordId = '222211110000999977';
+            const nonce = LinkNonceStore.create(googleId);
+            mockDiscordFetch({ id: discordId, username: 'discorduser' });
+
+            const wrongToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'google:sub-not-the-initiator', provider: 'google' });
+            const res = await request(app)
+                .post('/api/auth/discord/callback')
+                .set('Authorization', `Bearer ${wrongToken}`)
+                .send({ code: 'fake-code', redirectUri: 'https://arcaid.app/auth/discord/callback', linkNonce: nonce });
+
+            expect(res.status).toBe(401);
+            expect(res.body.token).toBeUndefined();
+            const db = await getDatabase();
+            const count = await db.get('SELECT COUNT(*) AS c FROM user_identity_links');
+            expect(count.c).toBe(0);
+        });
+
+        it('valid nonce with a matching initiator token: 200, link created', async () => {
+            const app = await createTestApp();
+            const googleId = 'google:sub-fix1-happy';
+            const discordId = '333322221111000088';
+            const nonce = LinkNonceStore.create(googleId);
+            mockDiscordFetch({ id: discordId, username: 'discorduser', global_name: 'Discord User' });
+
+            const initiatorToken = signToken({ role: 'player', gameRoomIds: [], discordId: googleId, provider: 'google' });
+            const res = await request(app)
+                .post('/api/auth/discord/callback')
+                .set('Authorization', `Bearer ${initiatorToken}`)
+                .send({ code: 'fake-code', redirectUri: 'https://arcaid.app/auth/discord/callback', linkNonce: nonce });
+
+            expect(res.status).toBe(200);
+            expect(res.body.linked).toBe(true);
+        });
     });
 });
 
