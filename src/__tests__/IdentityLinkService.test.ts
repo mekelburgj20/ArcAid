@@ -276,6 +276,67 @@ describe('IdentityLinkService.createLink — conflict-resolution tables', () => 
         const row = await db.get('SELECT avatar_url FROM user_profiles WHERE discord_user_id = ?', DISCORD_ID);
         expect(row.avatar_url).toBe('https://example.com/discord-pic.jpg');
     });
+
+    // Fix 2 (adversarial review, mirror-link-fixes.md) — pre-fix, the
+    // COALESCE UPDATE ran BEFORE the google row's DELETE. When the
+    // snowflake's display_name was NULL and got COALESCEd to the exact
+    // value the (not-yet-deleted) google row still held, the partial UNIQUE
+    // INDEX `idx_user_profiles_display_name` briefly saw two rows sharing
+    // that value mid-statement and rejected it — rolling back the entire
+    // link transaction. Fatal in practice: the link nonce is single-use and
+    // already consumed, so retrying just replays the same collision.
+    it('Fix 2 regression: google side has a display_name, snowflake side is NULL — link succeeds, name carried over', async () => {
+        const db = await getDatabase();
+        await db.run(`INSERT INTO user_profiles (discord_user_id, avatar_url) VALUES (?, 'https://example.com/discord-pic.jpg')`, DISCORD_ID);
+        await db.run(`INSERT INTO user_profiles (discord_user_id, display_name) VALUES (?, 'GoogleChosenName')`, GOOGLE_ID);
+
+        await expect(IdentityLinkService.createLink(GOOGLE_ID, DISCORD_ID)).resolves.toBeUndefined();
+
+        const row = await db.get('SELECT display_name, avatar_url FROM user_profiles WHERE discord_user_id = ?', DISCORD_ID);
+        expect(row.display_name).toBe('GoogleChosenName');
+        expect(row.avatar_url).toBe('https://example.com/discord-pic.jpg'); // untouched
+        const goneRow = await db.get('SELECT 1 FROM user_profiles WHERE discord_user_id = ?', GOOGLE_ID);
+        expect(goneRow).toBeUndefined();
+    });
+});
+
+// Fix 4 (adversarial review) — a same-canonical relink must FALL THROUGH into
+// the transaction and re-run every rewrite, not early-return. A stale
+// pre-link `google:*` JWT (24h lifetime) can still create new attribution
+// rows under the google id after the first link completes; relink is the
+// repair path for that drift, so it has to actually sweep again.
+describe('IdentityLinkService.createLink — same-canonical relink re-runs the attribution sweep (Fix 4)', () => {
+    let roomId: string;
+
+    beforeEach(async () => {
+        await setupTestDb();
+        roomId = await createTestRoom();
+    });
+
+    it('a second createLink call for an already-linked pair re-sweeps rows written under the google id after the first link', async () => {
+        const db = await getDatabase();
+        await IdentityLinkService.createLink(GOOGLE_ID, DISCORD_ID);
+
+        // Simulate a stale pre-link google:* JWT still being used to submit a
+        // score AFTER the link already exists — this row lands under the
+        // google id despite the link being in place.
+        const { createTestTournament, createTestGame } = await import('./helpers.js');
+        const tournamentId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tournamentId);
+        await db.run(
+            `INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, timestamp, submitted_by_user_id)
+             VALUES ('sub-relink', ?, ?, 'ghandle-relink', 1500, datetime('now'), ?)`,
+            gameId, GOOGLE_ID, GOOGLE_ID,
+        );
+
+        // Relink (same canonical, idempotent per the doctrine) — pre-Fix-4
+        // this early-returned and never touched the new row.
+        await expect(IdentityLinkService.createLink(GOOGLE_ID, DISCORD_ID)).resolves.toBeUndefined();
+
+        const row = await db.get('SELECT discord_user_id, submitted_by_user_id FROM submissions WHERE id = ?', 'sub-relink');
+        expect(row.discord_user_id).toBe(DISCORD_ID);
+        expect(row.submitted_by_user_id).toBe(DISCORD_ID);
+    });
 });
 
 describe('IdentityLinkService — misc', () => {
@@ -290,6 +351,13 @@ describe('IdentityLinkService — misc', () => {
 
     it('createLink rejects a non-google provider id', async () => {
         await expect(IdentityLinkService.createLink(DISCORD_ID, DISCORD_ID)).rejects.toThrow();
+    });
+
+    // Fix 7 (adversarial review) — canonical-shape doctrine ("canonical is
+    // always a Discord snowflake") is now enforced, not just conventional.
+    it('createLink rejects a non-snowflake canonical id', async () => {
+        await expect(IdentityLinkService.createLink(GOOGLE_ID, 'google:not-a-snowflake')).rejects.toThrow();
+        await expect(IdentityLinkService.createLink(GOOGLE_ID, 'not-digits-either')).rejects.toThrow();
     });
 
     it('getLinkForCanonical lists every google identity linked to a canonical', async () => {

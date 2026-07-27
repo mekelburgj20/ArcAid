@@ -218,7 +218,7 @@ export default function GlobalSettings() {
                 <option key={id} value={id}>{label} — {description}</option>
               ))}
             </select>
-            <p className="text-xs text-muted mt-1">Theme for the Global Leaderboard, Catalogue, Game Detail pages, and the landing page. Applies to all visitors.</p>
+            <p className="text-xs text-muted mt-1">Theme for the Global Scoreboard, Catalogue, Game Detail pages, and the landing page. Applies to all visitors.</p>
           </div>
           <div>
             <label className="text-xs text-faint block mb-1">Admin Theme</label>

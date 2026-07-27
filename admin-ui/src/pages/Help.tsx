@@ -509,7 +509,7 @@ export default function Help() {
                 <tr><Td><strong>iScored Integration</strong></Td><Td>Enable/disable iScored sync + game management for this room</Td></tr>
                 <tr><Td><strong>Discord Integration</strong></Td><Td>Enable/disable the Discord bot for this room (announcements, commands, DMs)</Td></tr>
                 <tr><Td><strong>Discord @Mentions</strong></Td><Td>Whether announcements @-mention players</Td></tr>
-                <tr><Td><strong>Post Scores to Global Leaderboard</strong></Td><Td>Fan this room's scores out to the cross-room Global Scoreboard</Td></tr>
+                <tr><Td><strong>Post Scores to Global Scoreboard</strong></Td><Td>Fan this room's scores out to the cross-room Global Scoreboard</Td></tr>
                 <tr><Td><strong>Require Login for Score Submissions</strong></Td><Td>Force Discord login before anyone can submit a score</Td></tr>
                 <tr><Td><strong>Enable Game Pick Award</strong></Td><Td>Turn on the winner-picks-next-game flow (and the Mystery Award)</Td></tr>
                 <tr><Td><strong>Callouts</strong></Td><Td>Fun automated bot replies to trigger phrases</Td></tr>

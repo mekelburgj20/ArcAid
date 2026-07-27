@@ -91,6 +91,16 @@ Standardize prose/UI strings on "Arcaid" (logo wordmark is stylized all-caps ARC
 
 Spotlight-style intro tour on first login, player perspective: nav menu → posting scores via Scores → game cards + click-title-for-detail → account menu (settings, scoreboard display prefs, Friends). Most-used features only — do not overwhelm. Skippable from step 1 + "never show again" checkbox → persisted server-side in `user_preferences` (follows the account across devices). Candidate tech: lightweight in-house spotlight overlay (no dep) over the existing pages.
 
+### Player-selectable Global Scoreboard card style (user-asked 2026-07-27)
+
+Let players pick the card style they see on `/scoreboard`, like the per-viewer Display Preferences in game rooms. Assessment (Fable, 2026-07-27):
+
+- **Prefs plumbing already fits.** `/api/me/scoreboard-preferences` (`PreferencesService`) stores per-Discord-user + per-device keys with no room scoping — add `GLOBAL_SCOREBOARD_STYLE` / `GLOBAL_SCOREBOARD_THEME` keys, no schema work.
+- **The real work is rendering.** `GlobalScoreboard.tsx`'s card is a bespoke one-off (podium top-3 + 4th–10th list, star rating, room tags, per-card Submit) — it does NOT go through `CardRouter`/Banner/Showcase/Minimal. Needs an adapter mapping the global `TopGame` shape into the card system, plus a home (or accepted loss) for global-only chrome per style.
+- **Entry point:** gear button on `/scoreboard` opening a slimmed `ScoreboardPreferencesModal` (Card Style + Theme only — rankings position/QR/timer don't apply globally).
+- **Scope calls:** logged-in only for v1 (matches rooms; prefs endpoint requires Discord auth); current podium card stays the default style, Banner/Minimal as opt-in alternates.
+- Rough sizing: one focused implementation session (medium feature).
+
 ### Score comments + comment voting/flagging (idea captured 2026-07-11)
 
 Comment on a specific person's score from the room score surfaces, with optional Discord cross-post, upvotes, and a report/flag → mod-review loop. Natural companion to S22 moderation (which already owes the comment-moderation FE wiring S11 deferred) or Phase C social. Rough sizing: ~2–2.5 days total.

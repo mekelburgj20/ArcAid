@@ -10,7 +10,7 @@ import { getPlatformDisplay } from '../lib/platforms';
  * triggered by clicking a game card title on the public scoreboard. Replaces
  * direct navigation to GameDetail so users can peek without losing tab
  * context. Falls through to the full GameDetail page via "View full info →"
- * or to the global catalogue page via "Global Leaderboard →".
+ * or to the game's Global Scoreboard detail page via "Global Scoreboard →".
  *
  * Middle-click / ctrl-click / cmd-click on the card title still navigates
  * directly (the click handler that opens this modal preventDefaults only
@@ -25,7 +25,7 @@ interface GlobalGameMeta {
 interface Props {
   lb: GameLeaderboard;
   slug: string;
-  /** Tab the user came from. Threaded into "View full info" and "Global Leaderboard"
+  /** Tab the user came from. Threaded into "View full info" and "Global Scoreboard"
    *  links so GameDetail's back link returns to the correct tab. */
   fromTab?: string | null;
   onClose: () => void;
@@ -219,7 +219,7 @@ export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
               onClick={onClose}
               className="inline-flex items-center justify-between gap-1 px-3 py-2 rounded border border-neon-cyan/40 text-sm text-neon-cyan hover:bg-neon-cyan/10 no-underline transition-colors"
             >
-              <span>Global Leaderboard</span>
+              <span>Global Scoreboard</span>
               <ExternalLink size={14} />
             </Link>
           )}

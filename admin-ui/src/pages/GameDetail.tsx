@@ -660,7 +660,7 @@ export default function GameDetail() {
                   className="text-neon-cyan/70 hover:text-neon-cyan text-xs uppercase tracking-wider no-underline transition-colors"
                   title="Cross-room scores, wheel art, downloads, tutorials"
                 >
-                  Global Leaderboard →
+                  Global Scoreboard →
                 </Link>
               )}
             </div>

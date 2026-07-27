@@ -19,6 +19,12 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
   const [linkSuccess, setLinkSuccess] = useState(false);
   const exchanged = useRef(false);
 
+  // Read once per render so both the effect and the error-state JSX below
+  // agree on whether this is a link flow (Fix 9 needs it in render, outside
+  // the effect).
+  const state = searchParams.get('state'); // room slug, player:slug, __super__, or link:<nonce>
+  const isLinkFlow = state?.startsWith('link:') ?? false;
+
   useEffect(() => {
     // Prevent double-execution in React strict mode
     if (exchanged.current) return;
@@ -26,17 +32,38 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
 
     const code = searchParams.get('code');
     const errorParam = searchParams.get('error');
-    const state = searchParams.get('state'); // room slug, player:slug, __super__, or link:<nonce>
 
     // v2.36.0 — Google-account-link completion. The FE decodes its own
     // `state` (never trusting it server-side beyond that) and posts the
     // nonce explicitly alongside the code.
-    const isLinkFlow = state?.startsWith('link:') ?? false;
     const linkNonce = isLinkFlow ? state!.slice('link:'.length) : undefined;
+
+    // Fix 1a (adversarial review, mirror-link-fixes.md) — FE session
+    // binding. A link flow is only entered when this browser tab is the one
+    // that STARTED it: the nonce embedded in `state` must match what
+    // `startDiscordLink`/`startGoogleLink` stashed in sessionStorage before
+    // redirecting. An attacker can craft an authorize URL with
+    // `state=link:<nonce minted for the attacker's own account>`; if a
+    // victim clicks it, this browser's sessionStorage won't have that nonce
+    // (it never called /link/*/start), so the mismatch is caught HERE,
+    // before ever falling through to a normal login. Cleared after one read
+    // either way ("use" = read, not just success).
+    let linkAuthToken: string | null = null;
+    if (isLinkFlow) {
+      const storedNonce = sessionStorage.getItem('arcaid_link_nonce');
+      sessionStorage.removeItem('arcaid_link_nonce');
+      if (!storedNonce || storedNonce !== linkNonce) {
+        setError("This link request didn't start in this browser — please retry from Account Settings.");
+        return;
+      }
+      // The initiator's own player token — still held by the FE throughout
+      // this OAuth round-trip — proves to the server (Fix 1b) that the
+      // browser completing the link is the one that started it.
+      linkAuthToken = localStorage.getItem('arcaid_player_token');
+    }
 
     if (errorParam) {
       if (isLinkFlow) {
-        sessionStorage.removeItem('arcaid_link_nonce');
         setError(`Discord authorization denied: ${searchParams.get('error_description') || errorParam}`);
         return;
       }
@@ -74,10 +101,16 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
 
     const redirectUri = `${window.location.origin}/auth/discord/callback`;
 
-    // Use raw fetch to avoid api.ts 401-redirect behavior
+    // Use raw fetch to avoid api.ts 401-redirect behavior. Fix 1b: link
+    // flows attach the initiator's own bearer token so the server can assert
+    // this browser session started the link (see extractBearerToken in
+    // auth.ts). Absent for normal logins — unauthenticated by design.
     fetch('/api/auth/discord/callback', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(linkAuthToken ? { Authorization: `Bearer ${linkAuthToken}` } : {}),
+      },
       body: JSON.stringify({ code, redirectUri, ...(linkNonce ? { linkNonce } : {}) }),
     })
       .then(async res => {
@@ -86,14 +119,23 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
         return data;
       })
       .then(data => {
-        sessionStorage.removeItem('arcaid_link_nonce');
-
         // v2.36.0 — link-flow completion. The response is a fresh token for
         // the canonical (Discord) identity with `linked: true`. Store it like
         // a normal player login (the account IS the player's session from
         // here on, regardless of which button they clicked to log in), show
         // a brief success state, then bounce back to Account Settings.
+        //
+        // Fix 8 (adversarial review) — gate on the SERVER's `linked` flag,
+        // not the FE-derived `isLinkFlow`. With a malformed/empty `state`
+        // (`link:` with no nonce, or any other edge the FE's own parsing
+        // mis-detects), a request that still reaches this branch could get a
+        // NORMAL login response back (no `linked` field) — storing that
+        // token here would silently seat the wrong identity as "linked".
         if (isLinkFlow) {
+          if (data.linked !== true) {
+            setError('Something went wrong completing the link. Please retry from Account Settings.');
+            return;
+          }
           localStorage.setItem('arcaid_player_token', data.token);
           if (data.refreshToken) localStorage.setItem('arcaid_player_refresh_token', data.refreshToken);
           if (data.user) localStorage.setItem('arcaid_player_user', JSON.stringify(data.user));
@@ -179,14 +221,13 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
         window.location.href = '/admin/dashboard';
       })
       .catch(err => {
-        sessionStorage.removeItem('arcaid_link_nonce');
         setError(
           isLinkFlow
             ? `Failed to link your Discord account: ${err.message || 'please try again from Account Settings.'}`
             : (err.message || 'Discord login failed'),
         );
       });
-  }, [searchParams, onLogin]);
+  }, [searchParams, onLogin, isLinkFlow, state]);
 
   if (linkSuccess) {
     return (
@@ -208,7 +249,14 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
         <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm text-center">
           <img src="/arcaid-logo-v2.png" alt="ArcAid" className="w-16 h-16 mx-auto mb-4" />
           <p className="text-neon-magenta mb-4">{error}</p>
-          <a href="/login" className="text-neon-cyan hover:underline text-sm">Back to Login</a>
+          {/* Fix 9 (adversarial review) — applied symmetrically here too: a
+              link-flow failure leaves the user still logged in (whichever
+              identity they started as); "Back to Login" is the wrong CTA. */}
+          {isLinkFlow ? (
+            <a href="/account/settings" className="text-neon-cyan hover:underline text-sm">Back to Account Settings</a>
+          ) : (
+            <a href="/login" className="text-neon-cyan hover:underline text-sm">Back to Login</a>
+          )}
         </div>
       </div>
     );
