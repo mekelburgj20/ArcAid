@@ -130,44 +130,43 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
            delta 5.7s, with negative delays staggering every layer — the
            periods are co-prime enough that text and triangle bursts drift
            against each other and never lock into sync. */
+        /* v2.45.6 cadence tune (user: sporadic feel is right, but too
+           frequent). Cycles stretched 7.4s→18s and 5.7s→26s with TWO burst
+           clusters each (was 4 and 3) — plus each cluster's mirror from the
+           reversed color layer, that's a glitch moment roughly every 4-6s
+           per system at uneven offsets, with genuine multi-second quiet
+           stretches. Burst-internal character (rapid ~70-120ms multi-jumps
+           + opacity flicker) is unchanged. */
         @keyframes arcaidGlitchText {
-          0%, 8.8%, 11.4%, 32.6%, 34.9%, 36.6%, 37.9%, 57.4%, 61.2%, 83.6%, 87.2%, 100% { transform: translate(0, 0); opacity: .75; }
-          9.1% { transform: translate(5px, -2px); opacity: .95; }
-          9.8% { transform: translate(-6px, 3px); opacity: .5; }
-          10.6% { transform: translate(3px, 1px); opacity: .9; }
-          33% { transform: translate(-4px, -3px); opacity: .95; }
-          33.9% { transform: translate(7px, 2px); opacity: .45; }
-          36.9% { transform: translate(-3px, 2px); opacity: .85; }
-          57.8% { transform: translate(6px, -1px); opacity: .95; }
-          58.7% { transform: translate(-5px, -2px); opacity: .55; }
-          59.9% { transform: translate(2px, 3px); opacity: .9; }
-          84.1% { transform: translate(-7px, 1px); opacity: .95; }
-          85.2% { transform: translate(4px, -3px); opacity: .5; }
-          86.2% { transform: translate(-2px, 2px); opacity: .85; }
+          0%, 11.1%, 13.2%, 61.4%, 63.6%, 100% { transform: translate(0, 0); opacity: .75; }
+          11.4% { transform: translate(5px, -2px); opacity: .95; }
+          11.9% { transform: translate(-6px, 3px); opacity: .5; }
+          12.6% { transform: translate(3px, 1px); opacity: .9; }
+          61.7% { transform: translate(6px, -1px); opacity: .95; }
+          62.3% { transform: translate(-5px, -2px); opacity: .55; }
+          63.1% { transform: translate(2px, 3px); opacity: .9; }
         }
 
         @keyframes arcaidGlitchTri {
-          0%, 13.7%, 16.3%, 41.9%, 44.8%, 68.2%, 71.6%, 100% { transform: translate(0, 0); opacity: 0; }
-          14.1% { transform: translate(4px, -2px); opacity: .8; }
-          14.9% { transform: translate(-5px, 2px); opacity: .35; }
-          15.7% { transform: translate(2px, 1px); opacity: .7; }
-          42.3% { transform: translate(-4px, 3px); opacity: .8; }
-          43.5% { transform: translate(5px, -1px); opacity: .4; }
-          68.7% { transform: translate(3px, 2px); opacity: .75; }
-          69.9% { transform: translate(-3px, -2px); opacity: .45; }
-          70.8% { transform: translate(5px, 1px); opacity: .65; }
+          0%, 23.3%, 24.9%, 71.0%, 72.8%, 100% { transform: translate(0, 0); opacity: 0; }
+          23.6% { transform: translate(4px, -2px); opacity: .8; }
+          24.0% { transform: translate(-5px, 2px); opacity: .35; }
+          24.5% { transform: translate(2px, 1px); opacity: .7; }
+          71.3% { transform: translate(-4px, 3px); opacity: .8; }
+          71.9% { transform: translate(5px, -1px); opacity: .4; }
+          72.4% { transform: translate(3px, 2px); opacity: .65; }
         }
 
         .arcaid-logo-tri-p {
           opacity: 0;
-          animation: arcaidGlitchTri 5.7s steps(1) infinite;
-          animation-delay: -0.9s;
+          animation: arcaidGlitchTri 26s steps(1) infinite;
+          animation-delay: -3.1s;
         }
 
         .arcaid-logo-tri-c {
           opacity: 0;
-          animation: arcaidGlitchTri 5.7s steps(1) infinite reverse;
-          animation-delay: -2.3s;
+          animation: arcaidGlitchTri 26s steps(1) infinite reverse;
+          animation-delay: -12.4s;
         }
 
         .arcaid-logo-wrap {
@@ -210,7 +209,7 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           top: 2px;
           color: #FF2E63;
           opacity: .75;
-          animation: arcaidGlitchText 7.4s steps(1) infinite;
+          animation: arcaidGlitchText 18s steps(1) infinite;
         }
 
         .arcaid-logo-word .arcaid-logo-cyan {
@@ -219,8 +218,8 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           top: -2px;
           color: #5BC8F5;
           opacity: .75;
-          animation: arcaidGlitchText 7.4s steps(1) infinite reverse;
-          animation-delay: -3.1s;
+          animation: arcaidGlitchText 18s steps(1) infinite reverse;
+          animation-delay: -7.7s;
         }
 
         .arcaid-logo-word .arcaid-logo-ghost {
@@ -253,15 +252,15 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           background: #FF2E63;
           opacity: .75;
           transform: translate(-3px, 2px);
-          animation: arcaidGlitchText 7.4s steps(1) infinite;
+          animation: arcaidGlitchText 18s steps(1) infinite;
         }
 
         .arcaid-logo-word .arcaid-logo-ghost .arcaid-logo-ball .arcaid-logo-ball-c {
           background: #5BC8F5;
           opacity: .75;
           transform: translate(3px, -2px);
-          animation: arcaidGlitchText 7.4s steps(1) infinite reverse;
-          animation-delay: -3.1s;
+          animation: arcaidGlitchText 18s steps(1) infinite reverse;
+          animation-delay: -7.7s;
         }
 
         .arcaid-logo-word .arcaid-logo-ghost .arcaid-logo-ball .arcaid-logo-ball-s {

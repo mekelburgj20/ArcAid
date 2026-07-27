@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.45.6] — unreleased
+
+**Glitch cadence: infrequent, still sporadic (user judgment on the live page).** Cycles stretched 7.4s→18s (wordmark) and 5.7s→26s (delta) with two burst clusters each (was 4/3) at irregular offsets — a glitch moment lands roughly every 4-6s per system with genuine multi-second quiet stretches, instead of ~2/sec combined. Burst-internal character (rapid multi-jump + opacity flicker) unchanged; periods still non-syncing.
+
 ## [2.45.5] — unreleased
 
 **Mobile polish round (user feedback with screenshots).**
