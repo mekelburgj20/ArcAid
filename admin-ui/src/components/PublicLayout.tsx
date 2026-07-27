@@ -151,15 +151,24 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             for the status-bar/notch safe area without shrinking below the
             existing py-3 baseline on non-notched devices. */}
         <div
-          className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between"
+          className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3 overflow-x-auto"
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
         >
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* v2.45.5 mobile nav fixes: the room name previously had min-w-0 +
+              truncate with NO floor, so flexbox crushed it to nothing on
+              phones (user saw "Jo…" or no name at all, with the logo jammed
+              against the first nav item). Now: JS-capped at 12 chars, a
+              min-width floor so ~8 chars are ALWAYS readable, and the bar
+              itself scrolls horizontally as the safety valve on the very
+              narrowest screens instead of silently eating the name. */}
+          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
             <Link to="/" className="no-underline flex-shrink-0" aria-label="All game rooms" title="All game rooms">
-              <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-8 sm:h-9 w-auto flex-shrink-0" />
+              <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-6 sm:h-9 w-auto flex-shrink-0" />
             </Link>
-            <Link to={`/${slug}`} className="no-underline min-w-0">
-              <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate block">{roomName}</span>
+            <Link to={`/${slug}`} className="no-underline min-w-[76px]" title={roomName}>
+              <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate block">
+                {roomName.length > 12 ? `${roomName.slice(0, 11)}…` : roomName}
+              </span>
             </Link>
           </div>
           <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
