@@ -151,27 +151,29 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             for the status-bar/notch safe area without shrinking below the
             existing py-3 baseline on non-notched devices. */}
         <div
-          className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3 overflow-x-auto"
+          className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-2 sm:gap-3"
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
         >
-          {/* v2.45.5 mobile nav fixes: the room name previously had min-w-0 +
-              truncate with NO floor, so flexbox crushed it to nothing on
-              phones (user saw "Jo…" or no name at all, with the logo jammed
-              against the first nav item). Now: JS-capped at 12 chars, a
-              min-width floor so ~8 chars are ALWAYS readable, and the bar
-              itself scrolls horizontally as the safety valve on the very
-              narrowest screens instead of silently eating the name. */}
-          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+          {/* v2.45.5 mobile nav layout: three hard-separated regions so the
+              room name and nav items can NEVER paint over each other —
+              (1) brand (logo + name) is fixed-width and never shrinks,
+              (2) nav items live in their own scrollable middle region
+              (left-aligned on phones so overflow stays reachable — flexbox
+              can't scroll into start-side overflow under justify-end),
+              (3) auth stays pinned at the right. Name: JS-capped at 12
+              chars, fixed 84px on phones (~8 chars always readable, full
+              name in title), natural width up to 220px on sm+. */}
+          <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
             <Link to="/" className="no-underline flex-shrink-0" aria-label="All game rooms" title="All game rooms">
               <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-6 sm:h-9 w-auto flex-shrink-0" />
             </Link>
-            <Link to={`/${slug}`} className="no-underline min-w-[76px]" title={roomName}>
+            <Link to={`/${slug}`} className="no-underline block w-[84px] sm:w-auto sm:max-w-[220px]" title={roomName}>
               <span className="font-pixel text-neon-cyan text-[10px] sm:text-xs tracking-wider truncate block">
                 {roomName.length > 12 ? `${roomName.slice(0, 11)}…` : roomName}
               </span>
             </Link>
           </div>
-          <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+          <div className="flex-1 min-w-0 flex items-center justify-start sm:justify-end gap-0.5 sm:gap-1 overflow-x-auto">
             {navItems.map(item => (
               <NavLink
                 key={item.path}
@@ -196,7 +198,8 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 <span className="text-[10px] sm:text-sm leading-none">{item.label}</span>
               </NavLink>
             ))}
-
+          </div>
+          <div className="flex items-center flex-shrink-0">
             {/* Discord login / user menu */}
             {discordUser ? (
               <UserMenu
