@@ -202,8 +202,8 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     description: 'When enabled, the bot responds to trigger words defined in data/callouts.json.',
   },
   'GLOBAL_SCOREBOARD_ENABLED': {
-    label: 'Post Scores to Global Leaderboard',
-    description: 'When enabled, scores submitted in this room are also fanned out to the global ArcAid Leaderboard at arcaid.app/scoreboard. Players can still opt out per-score.',
+    label: 'Post Scores to Global Scoreboard',
+    description: 'When enabled, scores submitted in this room are also fanned out to the Global Scoreboard at arcaid.app/scoreboard. Players can still opt out per-score.',
     defaultOn: true,
   },
   'ENABLE_GAME_PICK_AWARD': {
