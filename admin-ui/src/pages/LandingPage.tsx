@@ -167,7 +167,30 @@ export default function LandingPage() {
         zIndex: 10,
         pointerEvents: 'none',
       }}>
-        <ArcaidLogoAnimated maxWidth={680} />
+        {/* Relative box matching the logo's bounds so the motto can anchor
+            proportionally inside the mark (the free band between the
+            wordmark's bottom and the ticker tiles, over the triangle tip). */}
+        <div style={{ position: 'relative', width: '100%', maxWidth: 680 }}>
+          <ArcaidLogoAnimated maxWidth={680} />
+          <p style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: '64%',
+            margin: 0,
+            textAlign: 'center',
+            fontFamily: "'DM Sans', sans-serif",
+            fontSize: 'clamp(10px, 2.1vw, 14px)',
+            fontWeight: 600,
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
+            color: 'rgba(255,255,255,0.72)',
+            textShadow: '0 0 12px rgba(91,200,245,0.35), 0 1px 6px rgba(0,0,0,0.9)',
+          }}>
+            Run the room. Settle the score. Own the arcade.
+          </p>
+        </div>
       </div>
 
       {/* Global Scoreboard Promo — pulled up so the scrolling tiles slide

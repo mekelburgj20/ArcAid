@@ -62,6 +62,24 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           fill="none"
           aria-hidden="true"
         >
+          {/* Glitch split-copies of the delta — invisible at rest, flash as
+              offset chromatic ghosts during their burst windows. Their
+              animation runs on a DIFFERENT period than the wordmark's
+              (5.7s vs 7.4s) so the two never sync. Outer <g> carries the
+              CSS animation; the inner rotate stays an attribute so the CSS
+              transform doesn't clobber it. */}
+          <g className="arcaid-logo-tri-p" stroke="#FF2E63" strokeWidth="3.5" strokeLinejoin="round">
+            <g transform="rotate(-15 110 95)">
+              <polygon points="14,40 206,40 110,150" />
+              <polygon points="32,48 188,48 110,138" />
+            </g>
+          </g>
+          <g className="arcaid-logo-tri-c" stroke="#5BC8F5" strokeWidth="3.5" strokeLinejoin="round">
+            <g transform="rotate(-15 110 95)">
+              <polygon points="14,40 206,40 110,150" />
+              <polygon points="32,48 188,48 110,138" />
+            </g>
+          </g>
           <g
             stroke="#FFA8BE"
             strokeWidth="3.5"
@@ -104,11 +122,52 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
         }
 
-        @keyframes arcaidLogoGlitchShift {
-          0%, 86%, 100% { transform: translate(0, 0); }
-          88% { transform: translate(4px, -2px); }
-          92% { transform: translate(-4px, 2px); }
-          96% { transform: translate(2px, 1px); }
+        /* v2.45.4 glitch rework (user: "more glitchy, not so syncopated").
+           The old single 4s cycle fired one tidy burst at the same point
+           every loop — a metronome. These keyframes cluster multiple rapid
+           jumps (steps(1) holds ≈ 60-110ms each) at IRREGULAR offsets, with
+           opacity flicker inside each burst. The wordmark runs 7.4s, the
+           delta 5.7s, with negative delays staggering every layer — the
+           periods are co-prime enough that text and triangle bursts drift
+           against each other and never lock into sync. */
+        @keyframes arcaidGlitchText {
+          0%, 8.8%, 11.4%, 32.6%, 34.9%, 36.6%, 37.9%, 57.4%, 61.2%, 83.6%, 87.2%, 100% { transform: translate(0, 0); opacity: .75; }
+          9.1% { transform: translate(5px, -2px); opacity: .95; }
+          9.8% { transform: translate(-6px, 3px); opacity: .5; }
+          10.6% { transform: translate(3px, 1px); opacity: .9; }
+          33% { transform: translate(-4px, -3px); opacity: .95; }
+          33.9% { transform: translate(7px, 2px); opacity: .45; }
+          36.9% { transform: translate(-3px, 2px); opacity: .85; }
+          57.8% { transform: translate(6px, -1px); opacity: .95; }
+          58.7% { transform: translate(-5px, -2px); opacity: .55; }
+          59.9% { transform: translate(2px, 3px); opacity: .9; }
+          84.1% { transform: translate(-7px, 1px); opacity: .95; }
+          85.2% { transform: translate(4px, -3px); opacity: .5; }
+          86.2% { transform: translate(-2px, 2px); opacity: .85; }
+        }
+
+        @keyframes arcaidGlitchTri {
+          0%, 13.7%, 16.3%, 41.9%, 44.8%, 68.2%, 71.6%, 100% { transform: translate(0, 0); opacity: 0; }
+          14.1% { transform: translate(4px, -2px); opacity: .8; }
+          14.9% { transform: translate(-5px, 2px); opacity: .35; }
+          15.7% { transform: translate(2px, 1px); opacity: .7; }
+          42.3% { transform: translate(-4px, 3px); opacity: .8; }
+          43.5% { transform: translate(5px, -1px); opacity: .4; }
+          68.7% { transform: translate(3px, 2px); opacity: .75; }
+          69.9% { transform: translate(-3px, -2px); opacity: .45; }
+          70.8% { transform: translate(5px, 1px); opacity: .65; }
+        }
+
+        .arcaid-logo-tri-p {
+          opacity: 0;
+          animation: arcaidGlitchTri 5.7s steps(1) infinite;
+          animation-delay: -0.9s;
+        }
+
+        .arcaid-logo-tri-c {
+          opacity: 0;
+          animation: arcaidGlitchTri 5.7s steps(1) infinite reverse;
+          animation-delay: -2.3s;
         }
 
         .arcaid-logo-wrap {
@@ -151,7 +210,7 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           top: 2px;
           color: #FF2E63;
           opacity: .75;
-          animation: arcaidLogoGlitchShift 4s steps(1) infinite;
+          animation: arcaidGlitchText 7.4s steps(1) infinite;
         }
 
         .arcaid-logo-word .arcaid-logo-cyan {
@@ -160,7 +219,8 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           top: -2px;
           color: #5BC8F5;
           opacity: .75;
-          animation: arcaidLogoGlitchShift 4s steps(1) infinite reverse;
+          animation: arcaidGlitchText 7.4s steps(1) infinite reverse;
+          animation-delay: -3.1s;
         }
 
         .arcaid-logo-word .arcaid-logo-ghost {
@@ -193,14 +253,15 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           background: #FF2E63;
           opacity: .75;
           transform: translate(-3px, 2px);
-          animation: arcaidLogoGlitchShift 4s steps(1) infinite;
+          animation: arcaidGlitchText 7.4s steps(1) infinite;
         }
 
         .arcaid-logo-word .arcaid-logo-ghost .arcaid-logo-ball .arcaid-logo-ball-c {
           background: #5BC8F5;
           opacity: .75;
           transform: translate(3px, -2px);
-          animation: arcaidLogoGlitchShift 4s steps(1) infinite reverse;
+          animation: arcaidGlitchText 7.4s steps(1) infinite reverse;
+          animation-delay: -3.1s;
         }
 
         .arcaid-logo-word .arcaid-logo-ghost .arcaid-logo-ball .arcaid-logo-ball-s {
@@ -231,9 +292,13 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           .arcaid-logo-word .arcaid-logo-pink,
           .arcaid-logo-word .arcaid-logo-cyan,
           .arcaid-logo-word .arcaid-logo-ghost .arcaid-logo-ball-p,
-          .arcaid-logo-word .arcaid-logo-ghost .arcaid-logo-ball-c {
+          .arcaid-logo-word .arcaid-logo-ghost .arcaid-logo-ball-c,
+          .arcaid-logo-tri-p,
+          .arcaid-logo-tri-c {
             animation: none;
           }
+          /* Delta split-copies rest at opacity 0 — under reduced motion they
+             simply never appear. */
         }
       `}</style>
     </div>
