@@ -215,7 +215,7 @@ export async function guildInteractionBlockReason(guildId: string): Promise<stri
     const anyEnabled = await Promise.all(roomIds.map(id => isDiscordEnabledForRoom(id)))
         .then(results => results.some(Boolean));
     if (!anyEnabled) {
-        return 'ArcAid is not connected to this Discord server.';
+        return 'Arcaid is not connected to this Discord server.';
     }
     return null;
 }

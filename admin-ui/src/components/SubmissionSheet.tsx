@@ -625,7 +625,7 @@ export default function SubmissionSheet({
                                 Links to the game's leaderboard page; OG meta makes the unfurl rich. */}
                             {(target.kind === 'global' ? !!target.globalGameId : !!roomSlug) && (
                                 <ShareButton
-                                    title={`${target.gameName} · ArcAid`}
+                                    title={`${target.gameName} · Arcaid`}
                                     text={
                                         submitRank?.rank === 1
                                             ? `I'm #1 on ${target.gameName}!`
@@ -994,7 +994,7 @@ export default function SubmissionSheet({
                                         onChange={e => setExcludeFromGlobal(e.target.checked)}
                                         className="rounded border-border"
                                     />
-                                    Don't post this score to the global ArcAid scoreboard
+                                    Don't post this score to the global Arcaid scoreboard
                                 </label>
                             ) : (
                                 /* v2.2.0: guest scores never reach global. Replace the
@@ -1015,7 +1015,7 @@ export default function SubmissionSheet({
                                         ) : (
                                             <span className="text-neon-cyan">Log in with Discord</span>
                                         )}{' '}
-                                        to also include it on the global ArcAid leaderboard.
+                                        to also include it on the global Arcaid leaderboard.
                                     </div>
                                 </div>
                             )}

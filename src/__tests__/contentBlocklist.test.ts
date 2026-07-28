@@ -134,6 +134,55 @@ describe('normalizeForBlocklist / containsBlockedTerm', () => {
         expect(containsBlockedTerm(`nig${wordJoiner}ger`)).toBe(true);
     });
 
+    // v2.47.0 (S22 follow-ups Workstream 3) — homoglyph confusables: cross-
+    // script (Cyrillic/Greek) lookalikes folded to their Latin visual twin.
+    it('folds Cyrillic confusable characters to their Latin twin', () => {
+        expect(normalizeForBlocklist('а')).toBe('a'); // а CYRILLIC A
+        expect(normalizeForBlocklist('е')).toBe('e'); // е CYRILLIC IE
+        expect(normalizeForBlocklist('о')).toBe('o'); // о CYRILLIC O
+        expect(normalizeForBlocklist('р')).toBe('p'); // р CYRILLIC ER
+        expect(normalizeForBlocklist('с')).toBe('c'); // с CYRILLIC ES
+        expect(normalizeForBlocklist('х')).toBe('x'); // х CYRILLIC HA
+        expect(normalizeForBlocklist('у')).toBe('y'); // у CYRILLIC U
+        expect(normalizeForBlocklist('к')).toBe('k'); // к CYRILLIC KA
+        expect(normalizeForBlocklist('і')).toBe('i'); // і CYRILLIC I
+    });
+
+    it('folds Greek confusable characters to their Latin twin', () => {
+        expect(normalizeForBlocklist('α')).toBe('a'); // α ALPHA
+        expect(normalizeForBlocklist('ο')).toBe('o'); // ο OMICRON
+        expect(normalizeForBlocklist('ν')).toBe('v'); // ν NU
+        expect(normalizeForBlocklist('ε')).toBe('e'); // ε EPSILON
+        expect(normalizeForBlocklist('ι')).toBe('i'); // ι IOTA
+        expect(normalizeForBlocklist('κ')).toBe('k'); // κ KAPPA
+        expect(normalizeForBlocklist('ρ')).toBe('p'); // ρ RHO
+        expect(normalizeForBlocklist('τ')).toBe('t'); // τ TAU
+        expect(normalizeForBlocklist('υ')).toBe('u'); // υ UPSILON
+        expect(normalizeForBlocklist('χ')).toBe('x'); // χ CHI
+    });
+
+    it('catches a mixed-script spelling of a blocked term', () => {
+        // "gооk" with both o's replaced by Cyrillic о (U+043E).
+        const mixedGook = `g${'о'}${'о'}k`;
+        expect(containsBlockedTerm(mixedGook)).toBe(true);
+        // "nіgger" with the i replaced by Cyrillic і (U+0456).
+        const mixedNigger = `n${'і'}gger`;
+        expect(containsBlockedTerm(mixedNigger)).toBe(true);
+        // "faggot" with the first 'a' replaced by Cyrillic а (U+0430) and the
+        // 'o' replaced by Greek ο (U+03BF) — both fold back to ASCII.
+        const mixedFaggot = `f${'а'}gg${'ο'}t`;
+        expect(containsBlockedTerm(mixedFaggot)).toBe(true);
+    });
+
+    it('passes legitimate non-colliding Cyrillic/Greek words', () => {
+        // "Привет" (Russian "hello") — none of its normalized letters spell a
+        // blocked term.
+        expect(containsBlockedTerm('Привет')).toBe(false);
+        // "Αθήνα" (Greek "Athens") — decomposes/folds to letters that don't
+        // spell a blocked term either.
+        expect(containsBlockedTerm('Αθήνα')).toBe(false);
+    });
+
     it('normalizeForBlocklist lowercases and l33t-folds without collapsing separators', () => {
         expect(normalizeForBlocklist('N1GG3R')).toBe('nigger'); // n-1(i)-g-g-3(e)-r
         // '2' has no l33t mapping, so it passes through unchanged; separators

@@ -164,7 +164,7 @@ self.addEventListener('push', (event) => {
     payload = { body: event.data ? event.data.text() : '' };
   }
   event.waitUntil(
-    self.registration.showNotification(payload.title || 'ArcAid', {
+    self.registration.showNotification(payload.title || 'Arcaid', {
       body: payload.body || '',
       icon: '/arcaid-icon-192-v3.png',
       tag: payload.tag || undefined,

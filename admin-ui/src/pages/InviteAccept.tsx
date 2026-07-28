@@ -74,7 +74,7 @@ export default function InviteAccept() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-deep">
         <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm text-center">
-          <img src="/arcaid-logo-v2.png" alt="ArcAid" className="w-16 h-16 mx-auto mb-4" />
+          <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-16 h-16 mx-auto mb-4" />
           <h2 className="font-display text-xl font-bold text-neon-green mb-2">Account Created</h2>
           <p className="text-muted text-sm mb-6">
             Your admin account has been set up. You can now log in.
@@ -94,7 +94,7 @@ export default function InviteAccept() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-deep">
         <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm text-center">
-          <img src="/arcaid-logo-v2.png" alt="ArcAid" className="w-16 h-16 mx-auto mb-4" />
+          <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-16 h-16 mx-auto mb-4" />
           <p className="text-neon-magenta mb-4">{error || 'Invalid or expired invite'}</p>
           <Link to="/" className="text-neon-cyan hover:underline text-sm no-underline">
             Back to Home
@@ -107,7 +107,7 @@ export default function InviteAccept() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-deep">
       <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm">
-        <img src="/arcaid-logo-v2.png" alt="ArcAid" className="w-16 h-16 mx-auto mb-2" />
+        <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-16 h-16 mx-auto mb-2" />
         <h2 className="font-display text-lg font-bold text-center text-primary mb-1">
           You're Invited
         </h2>

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { getDatabase } from '../database/database.js';
 import { GlobalScoreService } from './GlobalScoreService.js';
+import { BanService } from './BanService.js';
 import { logInfo } from '../utils/logger.js';
 
 export type ReportResolution = 'dismissed' | 'deleted' | 'banned';
@@ -215,6 +216,13 @@ export class ScoreReportService {
              VALUES (?, ?, ?, ?, ?)`,
             id, discordUserId, reason || null, bannedBy, expiresAt
         );
+        // v2.47.0 (S22 follow-ups Workstream 1; L2 hardening) — drop
+        // BanService's cache so per-submit enforcement takes effect
+        // immediately instead of waiting out the 10s TTL. Full clearCache()
+        // rather than invalidate(discordUserId) alone — a linked alias's
+        // cached "not banned" result is keyed separately and would otherwise
+        // stay stale for up to 10s (see BanService.clearCache doc comment).
+        BanService.clearCache();
         return (await db.get('SELECT * FROM user_bans WHERE id = ?', id)) as UserBan;
     }
 
@@ -224,13 +232,21 @@ export class ScoreReportService {
      */
     static async lift(banId: string, liftedBy: string): Promise<boolean> {
         const db = await getDatabase();
+        const ban = await db.get<{ discord_user_id: string }>(
+            'SELECT discord_user_id FROM user_bans WHERE id = ?', banId
+        );
         const result = await db.run(
             `UPDATE user_bans
              SET lifted_at = datetime('now'), lifted_by = ?
              WHERE id = ? AND lifted_at IS NULL`,
             liftedBy, banId
         );
-        return (result.changes ?? 0) > 0;
+        const changed = (result.changes ?? 0) > 0;
+        // v2.47.0 (S22 follow-ups Workstream 1; L2 hardening) — same
+        // cache-freshness rationale as `ban()`: an unban must also take
+        // effect immediately, across every linked-alias cache key.
+        if (changed && ban?.discord_user_id) BanService.clearCache();
+        return changed;
     }
 
     /**

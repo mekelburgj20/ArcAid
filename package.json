@@ -1,7 +1,7 @@
 {
   "name": "arcaid",
-  "version": "2.46.0",
-  "description": "**ArcAid** is a modern, platform-agnostic tournament management system, the successor to TableFlipper. Designed to be server-independent and highly customizable.",
+  "version": "2.47.0",
+  "description": "**Arcaid** is a modern, platform-agnostic tournament management system, the successor to TableFlipper. Designed to be server-independent and highly customizable.",
   "main": "dist/index.js",
   "type": "commonjs",
   "scripts": {

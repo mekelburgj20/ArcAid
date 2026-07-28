@@ -13,6 +13,7 @@ import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { checkCooldown } from '../../utils/cooldown.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { trackBackground } from '../../utils/backgroundTasks.js';
+import { BanService } from '../../services/BanService.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -89,7 +90,7 @@ export const submitscore: Command = {
         )
         .addBooleanOption(option =>
             option.setName('exclude_global')
-                .setDescription('Don\'t post this score to the global ArcAid scoreboard')
+                .setDescription('Don\'t post this score to the global Arcaid scoreboard')
                 .setRequired(false)
         ) as SlashCommandBuilder,
 
@@ -121,6 +122,14 @@ export const submitscore: Command = {
     },
 
     async execute(interaction: ChatInputCommandInteraction) {
+        // v2.47.0 (S22 follow-ups Workstream 1) — per-submit ban enforcement.
+        // Inline check (no Express middleware chain for Discord commands).
+        const banCheck = await BanService.isIdentityBanned(interaction.user.id);
+        if (banCheck.banned) {
+            await interaction.reply({ content: 'This account is banned.', ephemeral: true });
+            return;
+        }
+
         // Check cooldown (30 seconds)
         const remaining = checkCooldown(interaction.user.id, 'submit-score', 30);
         if (remaining > 0) {
@@ -404,6 +413,16 @@ async function sendRatingFollowUp(
     collector.on('collect', async (btnInteraction) => {
         const customId = btnInteraction.customId;
 
+        // v2.47.0 (S22 follow-ups Workstream 1) — this collector can fire up
+        // to 5 minutes after the score submission it followed, so re-check:
+        // a ban placed in that window must still block the rating/comment
+        // writes below.
+        const banCheck = await BanService.isIdentityBanned(interaction.user.id);
+        if (banCheck.banned) {
+            await btnInteraction.update({ content: 'This account is banned.', components: [] });
+            return;
+        }
+
         // Skip button — no rating, no modal
         if (customId.endsWith('_skip')) {
             await btnInteraction.update({
@@ -461,6 +480,16 @@ async function sendRatingFollowUp(
 
             const commentText = modalInteraction.fields.getTextInputValue('comment_body')?.trim();
             if (commentText) {
+                // v2.47.0 (S22 follow-ups L3) — the modal itself can be open
+                // for up to another 5 minutes after the star-rating ban check
+                // above, so re-check immediately before the write. Silent
+                // drop (ephemeral notice, no comment saved) matching the
+                // pattern at ~420-424.
+                const modalBanCheck = await BanService.isIdentityBanned(interaction.user.id);
+                if (modalBanCheck.banned) {
+                    await modalInteraction.reply({ content: 'This account is banned.', ephemeral: true });
+                    return;
+                }
                 // Save the comment
                 try {
                     const { CommentService } = await import('../../services/CommentService.js');

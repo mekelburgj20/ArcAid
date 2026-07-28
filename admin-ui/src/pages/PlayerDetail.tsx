@@ -215,8 +215,8 @@ export default function PlayerDetail() {
           {/* S16 — Web Share (clipboard fallback). Compare's muted treatment so
               Follow stays the row's single cyan primary action. */}
           <ShareButton
-            title={`${displayName} · ArcAid`}
-            text={`Check out ${displayName}'s scores and stats on ArcAid!`}
+            title={`${displayName} · Arcaid`}
+            text={`Check out ${displayName}'s scores and stats on Arcaid!`}
             path={`/${slug}/players/${encodeURIComponent(id || '')}`}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-xs font-medium text-muted hover:text-primary hover:border-neon-cyan/40 transition-colors cursor-pointer"
           />

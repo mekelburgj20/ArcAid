@@ -6,7 +6,7 @@ import { logInfo } from '../../utils/logger.js';
 export const setup: Command = {
     data: new SlashCommandBuilder()
         .setName('setup')
-        .setDescription('Configure ArcAid settings for this server.')
+        .setDescription('Configure Arcaid settings for this server.')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addSubcommand(sub =>
             sub.setName('announcement-channel')
@@ -29,7 +29,7 @@ export const setup: Command = {
         )
         .addSubcommand(sub =>
             sub.setName('view')
-                .setDescription('View current ArcAid configuration.')
+                .setDescription('View current Arcaid configuration.')
         ) as SlashCommandBuilder,
 
     async execute(interaction: ChatInputCommandInteraction) {
@@ -61,7 +61,7 @@ export const setup: Command = {
             const channelId = map.get('DISCORD_ANNOUNCEMENT_CHANNEL_ID') || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
             const roleId = map.get('DISCORD_ADMIN_ROLE_ID') || process.env.DISCORD_ADMIN_ROLE_ID;
 
-            let msg = '**ArcAid Configuration**\n\n';
+            let msg = '**Arcaid Configuration**\n\n';
             msg += `**Announcement Channel:** ${channelId ? `<#${channelId}>` : '*Not set*'}\n`;
             msg += `**Admin Role:** ${roleId ? `<@&${roleId}>` : '*Not set*'}\n`;
             msg += `\n*Pick windows and other settings are managed in the Admin UI → Settings.*\n`;

@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyToken, TokenPayload } from './auth.js';
 import { providerOfUserId } from '../utils/identityProvider.js';
 import { RoomAccessService } from '../services/RoomAccessService.js';
+import { BanService } from '../services/BanService.js';
+import { logError } from '../utils/logger.js';
 
 // Augment Express Request to include user
 declare global {
@@ -227,6 +229,38 @@ export async function roomVisibilityGate(req: Request, res: Response, next: Next
     if (!allowed) {
         res.status(403).json({ error: 'This room requires approval to join', code: 'APPROVAL_REQUIRED' });
         return;
+    }
+    next();
+}
+
+/**
+ * v2.47.0 (S22 follow-ups Workstream 1) — per-submit ban enforcement.
+ * No-op when `req.user?.discordId` is absent (anonymous writers aren't
+ * bannable — nothing to check). Otherwise consults `BanService.isIdentityBanned`
+ * (the ONE link-graph-aware ban predicate — see BanService's doc comment) and
+ * 403s with the exact string used at login (`auth.ts`'s ACCOUNT_BANNED path)
+ * when banned. Composes AFTER `requireDiscordUser` / `conditionalRequireDiscordUser`
+ * / `optionalDiscordUser`, same as `requireRoomAccess`.
+ */
+export async function requireNotBanned(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const discordId = req.user?.discordId;
+    if (!discordId) {
+        next();
+        return;
+    }
+    try {
+        const result = await BanService.isIdentityBanned(discordId);
+        if (result.banned) {
+            res.status(403).json({ error: 'This account is banned.' });
+            return;
+        }
+    } catch (err) {
+        // Fail-open on infra failure, not auth failure — matches
+        // conditionalRequireDiscordUser's fail-open-on-lookup-error contract.
+        // L1 hardening (S22 follow-ups) — fail-open must not be SILENT: a
+        // sustained DB outage here would otherwise let bans go unenforced
+        // with no signal in the logs.
+        logError('requireNotBanned: ban check failed open', err);
     }
     next();
 }

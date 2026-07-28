@@ -29,6 +29,19 @@ export interface BanCheckResult {
 }
 
 export class BanService {
+    // v2.47.0 (S22 follow-ups Workstream 1) — 10s in-memory TTL cache, same
+    // idiom as `PickAwardGate.cache` / `NotificationService.flagCache`. Every
+    // per-submit route now calls `isIdentityBanned` on the hot path (via
+    // `requireNotBanned`), so a raw per-request DB round-trip (plus two
+    // `IdentityLinkService` lookups) would meaningfully add load. Keyed on
+    // the raw `providerUserId` as presented — cache invalidation on ban/unban
+    // (`invalidate`) covers the "fresh ban must apply immediately" contract
+    // requirement without needing correctness across the canonical/linked-id
+    // expansion (a stale hit for a JUST-banned linked alias self-heals within
+    // the 10s TTL, same tolerance PickAwardGate accepts for its 5s window).
+    private static cache = new Map<string, { value: BanCheckResult; ts: number }>();
+    private static readonly TTL_MS = 10_000;
+
     /**
      * True (with reason/expiry) when `providerUserId` — or any identity
      * linked to it — has an active ban. Active = `lifted_at IS NULL AND
@@ -37,6 +50,42 @@ export class BanService {
     static async isIdentityBanned(providerUserId: string): Promise<BanCheckResult> {
         if (!providerUserId) return { banned: false };
 
+        const now = Date.now();
+        const hit = this.cache.get(providerUserId);
+        if (hit && now - hit.ts < this.TTL_MS) return hit.value;
+
+        const result = await this.computeIsIdentityBanned(providerUserId);
+        this.cache.set(providerUserId, { value: result, ts: now });
+        return result;
+    }
+
+    /** Drops the cached result for `providerUserId` only. Kept for callers that know
+     *  they're only affecting one exact key; production ban/unban writers use
+     *  `clearCache()` instead — see its doc comment for why. */
+    static invalidate(providerUserId: string): void {
+        this.cache.delete(providerUserId);
+    }
+
+    /**
+     * v2.47.0 (S22 follow-ups L2) — clears the WHOLE cache. `invalidate(id)`
+     * only drops the entry keyed on the exact id passed in, but a ban can be
+     * looked up under any of several linked-identity keys (the raw id, its
+     * canonical resolution, sibling aliases — see `computeIsIdentityBanned`),
+     * each cached under its OWN key. Invalidating only the banned/lifted id
+     * left every other linked alias's cached "not banned" result stale for up
+     * to the full 10s TTL. Bans are rare — a full clear is cheap and closes
+     * that gap. Call from every ban-create/unban write path.
+     */
+    static clearCache(): void {
+        this.cache.clear();
+    }
+
+    /** Test-only alias for `clearCache()` — kept for descriptive test call sites. */
+    static clearCacheForTests(): void {
+        this.clearCache();
+    }
+
+    private static async computeIsIdentityBanned(providerUserId: string): Promise<BanCheckResult> {
         const candidates = new Set<string>([providerUserId]);
 
         const canonical = await IdentityLinkService.resolveCanonical(providerUserId);

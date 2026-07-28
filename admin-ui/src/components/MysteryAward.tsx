@@ -733,7 +733,7 @@ export default function MysteryAward({
                 }}
                 aria-hidden="true"
               >
-                {roomName || 'ArcAid'}
+                {roomName || 'Arcaid'}
               </span>
             </div>
 

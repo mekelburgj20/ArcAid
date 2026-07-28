@@ -9,7 +9,7 @@ import { Scheduler } from './engine/Scheduler.js';
 import { ScoreSyncPoller } from './engine/ScoreSyncPoller.js';
 
 async function bootstrap() {
-    logInfo('Starting ArcAid...');
+    logInfo('Starting Arcaid...');
 
     try {
         // 1. Initialize Database

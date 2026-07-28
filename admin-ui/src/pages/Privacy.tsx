@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Home, ShieldCheck } from 'lucide-react';
 
 /**
- * Static privacy policy for ArcAid. Public, no auth, no data fetching.
+ * Static privacy policy for Arcaid. Public, no auth, no data fetching.
  * Mirrors the AccountSettings.tsx skeleton (own Back/Home nav + max-w-xl main).
  *
  * NOTE: This copy is a plain-language starting point and should be reviewed by
@@ -39,7 +39,7 @@ export default function Privacy() {
 
         <section className="mb-6">
           <p className="text-sm text-muted leading-relaxed">
-            ArcAid (arcaid.app) is a community platform for running tournaments and leaderboards for
+            Arcaid (arcaid.app) is a community platform for running tournaments and leaderboards for
             virtual pinball and retro arcade gaming. This policy explains, in plain language, what we
             collect, why, and how you can remove it.
           </p>
@@ -103,7 +103,7 @@ export default function Privacy() {
         <div className="mb-6 rounded border border-border bg-surface/50 px-4 py-3">
           <h2 className="text-sm font-medium mb-1.5">If you don't log in (guests)</h2>
           <p className="text-sm text-muted leading-relaxed">
-            You can use ArcAid without logging in with Discord. If you do, we do not store a Discord
+            You can use Arcaid without logging in with Discord. If you do, we do not store a Discord
             identity for you. All that remains is the random device id in your browser's localStorage and
             any scores you choose to submit under a guest name (plus any proof photo you attach to them).
             Clearing your browser storage removes the device id.
@@ -114,7 +114,7 @@ export default function Privacy() {
           <h2 className="text-sm font-medium mb-1.5">Who we share it with</h2>
           <p className="text-sm text-muted leading-relaxed">
             We do not sell your data or run advertising trackers. We share only what's needed with the
-            services that make ArcAid work: <strong className="font-medium text-primary">Discord</strong>{' '}
+            services that make Arcaid work: <strong className="font-medium text-primary">Discord</strong>{' '}
             (to sign you in and send notifications) and <strong className="font-medium text-primary">iScored</strong>{' '}
             (to sync scores in rooms that use it). Your display name, avatar, scores, and community
             activity are visible to other players by design.

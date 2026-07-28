@@ -129,7 +129,7 @@ export default function RoomAdminLayout() {
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer p-0">
             {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
-          <img src="/arcaid-logo-v2.png" alt="ArcAid" className="w-7 h-7" />
+          <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-7 h-7" />
           <span className="font-pixel text-neon-cyan text-xs truncate">{room.name}</span>
         </div>
 
@@ -146,7 +146,7 @@ export default function RoomAdminLayout() {
           md:translate-x-0
         `}>
           <div className="p-5 border-b border-border flex items-center gap-3">
-            <img src="/arcaid-logo-v2.png" alt="ArcAid" className="w-10 h-10" />
+            <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-10 h-10" />
             <div className="min-w-0">
               <h2 className="font-pixel text-neon-cyan text-xs truncate">{room.name}</h2>
               <span className="text-faint text-xs">Room Admin</span>

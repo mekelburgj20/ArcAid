@@ -263,7 +263,7 @@ export default function GlobalScoreboard() {
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="px-4 sm:px-6 lg:px-10 py-4 flex items-center justify-between gap-3">
           <Link to="/" className="flex items-center gap-3 no-underline">
-            <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-16 w-auto" />
+            <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-16 w-auto" />
           </Link>
           <div className="flex items-center gap-3">
             <Link to="/" className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
@@ -292,7 +292,7 @@ export default function GlobalScoreboard() {
           <h1 className="font-display text-3xl font-bold">Global Scoreboard</h1>
         </div>
         <p className="text-muted mb-8">
-          High scores from every ArcAid room, all in one place. Log in to submit your own scores!
+          High scores from every Arcaid room, all in one place. Log in to submit your own scores!
         </p>
 
         {/* Filters */}

@@ -260,7 +260,7 @@ export default function GoogleCallback({ onLogin }: { onLogin: () => void }) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-deep">
         <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm text-center">
-          <img src="/arcaid-logo-v2.png" alt="ArcAid" className="w-16 h-16 mx-auto mb-4" />
+          <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-16 h-16 mx-auto mb-4" />
           <p className="text-neon-magenta mb-4">{error}</p>
           {/* Fix 9 — a link-flow failure leaves the user still logged in
               (whichever identity they started as); "Back to Login" is the

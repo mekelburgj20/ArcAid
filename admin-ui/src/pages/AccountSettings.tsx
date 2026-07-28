@@ -542,7 +542,7 @@ export default function AccountSettings() {
       <main className="max-w-xl mx-auto px-4 sm:px-6 py-6">
         <h1 className="text-xl font-semibold mb-1">Account settings</h1>
         <p className="text-sm text-muted mb-6">
-          Your display name appears on every leaderboard, announcement, and notification across ArcAid.
+          Your display name appears on every leaderboard, announcement, and notification across Arcaid.
         </p>
 
         {loading ? (
@@ -808,7 +808,7 @@ export default function AccountSettings() {
                               <span className="block text-sm text-primary">Push notifications on this device</span>
                               <span className="block text-xs text-faint">
                                 Tournament Win and Rank Dethroned alerts as browser notifications, even when
-                                ArcAid isn't open. Uses the matching event toggles above.
+                                Arcaid isn't open. Uses the matching event toggles above.
                               </span>
                             </span>
                             <button
@@ -833,7 +833,7 @@ export default function AccountSettings() {
                         </>
                       ) : (
                         <p className="text-xs text-faint">
-                          Not supported in this browser. On iPhone/iPad, add ArcAid to your Home Screen
+                          Not supported in this browser. On iPhone/iPad, add Arcaid to your Home Screen
                           first, then enable push from the installed app.
                         </p>
                       )}

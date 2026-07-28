@@ -9,6 +9,7 @@ import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
 import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
 import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
+import { BanService } from '../../services/BanService.js';
 import { v4 as uuidv4 } from 'uuid';
 // TODO(§8): gate /mystery-award when that command is authored (Q6 — out of scope for Sprint 5).
 
@@ -115,6 +116,14 @@ export const pickgame: Command = {
     },
 
     async execute(interaction: ChatInputCommandInteraction) {
+        // v2.47.0 (S22 follow-ups Workstream 1) — per-submit ban enforcement.
+        // Inline check (no Express middleware chain for Discord commands).
+        const banCheck = await BanService.isIdentityBanned(interaction.user.id);
+        if (banCheck.banned) {
+            await interaction.reply({ content: 'This account is banned.', ephemeral: true });
+            return;
+        }
+
         const remaining = checkCooldown(interaction.user.id, 'pick-game', 10);
         if (remaining > 0) {
             await interaction.reply({ content: `Please wait ${remaining}s before picking again.`, ephemeral: true });

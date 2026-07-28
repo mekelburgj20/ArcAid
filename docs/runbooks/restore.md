@@ -1,6 +1,6 @@
 # Runbook: Restore from Backup (multi-tenant)
 
-This procedure restores ArcAid's SQLite database **and** the `data/` asset
+This procedure restores Arcaid's SQLite database **and** the `data/` asset
 subdirectories from a backup produced by `BackupManager` (S9 layout). It is
 multi-tenant-safe: it does **not** recreate iScored games or assume a single
 env-level iScored account. After restart, normal background reconciliation

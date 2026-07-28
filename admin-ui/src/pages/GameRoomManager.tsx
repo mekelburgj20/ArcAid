@@ -167,7 +167,7 @@ export default function GameRoomManager() {
           `6. Go to Tournaments and create your first tournament`,
         ];
     const message = [
-      `Welcome to ArcAid! Here's everything you need to get started with your game room "${room.name}".`,
+      `Welcome to Arcaid! Here's everything you need to get started with your game room "${room.name}".`,
       ``,
       `LOGIN`,
       `URL: ${origin}/${room.slug}/login`,

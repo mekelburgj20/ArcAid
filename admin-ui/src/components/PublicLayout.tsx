@@ -189,7 +189,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
               name in title), natural width up to 220px on sm+. */}
           <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
             <Link to="/" className="no-underline flex-shrink-0" aria-label="All game rooms" title="All game rooms">
-              <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-6 sm:h-9 w-auto flex-shrink-0" />
+              <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-6 sm:h-9 w-auto flex-shrink-0" />
             </Link>
             {/* Inline name is sm+ only — phones get the centered brand row
                 below the icons instead (user direction: the top-row name

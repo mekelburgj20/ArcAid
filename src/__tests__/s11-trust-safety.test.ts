@@ -285,6 +285,54 @@ describe('S11 (b) — comment-delete authorization tiers', () => {
         const db = await getDatabase();
         expect(await db.get('SELECT id FROM game_comments WHERE id = ?', commentId)).toBeUndefined();
     });
+
+    // v2.47.0 (S22 follow-ups M4) — pre-existing comments were stored under
+    // the anon x-user-id BEFORE the poster ever logged in. Once they log in,
+    // a request carries BOTH their Discord token AND the same anon
+    // x-user-id header (the FE now sends both). The server must match the
+    // comment as "own" via EITHER id, not just prefer req.user.discordId —
+    // otherwise a logged-in user loses the delete control (and the GET route
+    // starts showing a Flag button) on comments they posted anonymously
+    // before logging in.
+    it('a logged-in user can still delete a comment stored under their OLD anon x-user-id when both identities are present', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('s11-cd-historical', 'S11 CD Historical');
+        const anonId = `anon-${crypto.randomUUID()}`;
+        // Comment stored under the anon id — as it would be pre-login.
+        const commentId = await seedComment(roomId, gameName, anonId);
+
+        const discordId = `disc-historical-${crypto.randomUUID()}`;
+        const token = signToken({ role: 'player', gameRoomIds: [], discordId });
+
+        const res = await request(app)
+            .delete(`/api/rooms/${roomId}/games/${gameName}/comments/${commentId}`)
+            .set('X-Forwarded-For', freshIp())
+            .set('Authorization', `Bearer ${token}`)
+            .set('x-user-id', anonId);
+
+        expect(res.status).toBe(200);
+        const db = await getDatabase();
+        expect(await db.get('SELECT id FROM game_comments WHERE id = ?', commentId)).toBeUndefined();
+    });
+
+    it('GET comments masks user_id to the caller\'s OLD anon x-user-id even when a Discord token is also present', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('s11-cd-historical-get', 'S11 CD Historical GET');
+        const anonId = `anon-get-${crypto.randomUUID()}`;
+        await seedComment(roomId, gameName, anonId);
+
+        const discordId = `disc-historical-get-${crypto.randomUUID()}`;
+        const token = signToken({ role: 'player', gameRoomIds: [], discordId });
+
+        const res = await request(app)
+            .get(`/api/rooms/${roomId}/games/${gameName}/comments`)
+            .set('Authorization', `Bearer ${token}`)
+            .set('x-user-id', anonId);
+
+        expect(res.status).toBe(200);
+        expect(res.body.length).toBeGreaterThan(0);
+        expect(res.body[0].user_id).toBe(anonId); // survives the mask — caller owns this row via x-user-id
+    });
 });
 
 describe('S11 regression — comments stay open to guests in login-required rooms', () => {
