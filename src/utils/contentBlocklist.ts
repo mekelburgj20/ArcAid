@@ -51,6 +51,53 @@ const LEET_MAP: Record<string, string> = {
     '!': 'i',
 };
 
+// Homoglyph confusables (v2.47.0, S22 follow-ups Workstream 3) — cross-script
+// lookalikes that read as a Latin letter in lowercase UI text. Scope is
+// DELIBERATELY narrow: only characters that are visually indistinguishable
+// from their Latin twin at normal UI sizes. Doubled-letter and `*`/`+`
+// separator evasion are accepted-open gaps (out of scope — do not extend this
+// map to cover them). When in doubt a character is left OUT: a missed
+// confusable is a smaller cost than a false positive on a legitimate
+// Greek/Cyrillic name. Applied after NFKD-strip + lowercase (in
+// `normalizeForBlocklist`), same single-char-fold pattern as `LEET_MAP`.
+const CONFUSABLES_MAP: Record<string, string> = {
+    // Cyrillic lookalikes.
+    'а': 'a', // а CYRILLIC SMALL LETTER A
+    'е': 'e', // е CYRILLIC SMALL LETTER IE
+    'о': 'o', // о CYRILLIC SMALL LETTER O
+    'р': 'p', // р CYRILLIC SMALL LETTER ER
+    'с': 'c', // с CYRILLIC SMALL LETTER ES
+    'х': 'x', // х CYRILLIC SMALL LETTER HA
+    'у': 'y', // у CYRILLIC SMALL LETTER U
+    'к': 'k', // к CYRILLIC SMALL LETTER KA
+    'і': 'i', // і CYRILLIC SMALL LETTER BYELORUSSIAN-UKRAINIAN I
+    'ѕ': 's', // ѕ CYRILLIC SMALL LETTER DZE
+    'ԁ': 'd', // ԁ CYRILLIC SMALL LETTER KOMI DE
+    'һ': 'h', // һ CYRILLIC SMALL LETTER SHHA
+    'ѵ': 'v', // ѵ CYRILLIC SMALL LETTER IZHITSA
+    'ѡ': 'w', // ѡ CYRILLIC SMALL LETTER OMEGA
+    'ј': 'j', // ј CYRILLIC SMALL LETTER JE
+    'ԛ': 'q', // ԛ CYRILLIC SMALL LETTER QA
+    'ⲟ': 'o', // ⲟ COPTIC SMALL LETTER O (visually identical to о/o)
+    // Greek lookalikes.
+    'α': 'a', // α GREEK SMALL LETTER ALPHA
+    'ο': 'o', // ο GREEK SMALL LETTER OMICRON
+    'ν': 'v', // ν GREEK SMALL LETTER NU
+    'ε': 'e', // ε GREEK SMALL LETTER EPSILON
+    'ι': 'i', // ι GREEK SMALL LETTER IOTA
+    'κ': 'k', // κ GREEK SMALL LETTER KAPPA
+    'ρ': 'p', // ρ GREEK SMALL LETTER RHO
+    'τ': 't', // τ GREEK SMALL LETTER TAU
+    'υ': 'u', // υ GREEK SMALL LETTER UPSILON
+    'χ': 'x', // χ GREEK SMALL LETTER CHI
+};
+
+function confusablesFold(input: string): string {
+    let out = '';
+    for (const ch of input) out += CONFUSABLES_MAP[ch] ?? ch;
+    return out;
+}
+
 const SEPARATOR_RE = /[\s._-]+/g;
 // Same character class as SEPARATOR_RE but with a capturing group, so
 // String.split keeps the separator runs as elements — collapseSeparators
@@ -71,13 +118,14 @@ function leetFold(input: string): string {
 
 /**
  * Normalizes a string for blocklist matching: NFKD-decompose (strips
- * diacritics) → strip zero-width characters → lowercase → l33t-fold.
+ * diacritics) → strip zero-width characters → lowercase → fold homoglyph
+ * confusables (cross-script lookalikes) → l33t-fold.
  * Does NOT collapse separators — see `containsBlockedTerm`, which checks
  * both this view and a separator-collapsed view.
  */
 export function normalizeForBlocklist(input: string): string {
     const stripped = stripDiacritics(input).replace(ZERO_WIDTH_RE, '');
-    return leetFold(stripped.toLowerCase());
+    return leetFold(confusablesFold(stripped.toLowerCase()));
 }
 
 /**

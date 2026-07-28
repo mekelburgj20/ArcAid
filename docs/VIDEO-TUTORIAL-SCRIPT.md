@@ -1,4 +1,4 @@
-# ArcAid — Video Tutorial Scripts
+# Arcaid — Video Tutorial Scripts
 
 Two videos: a 3-minute **Quick Start** to get new room admins running immediately, and an 8-minute **Deep Dive** covering advanced features. Record separately and link the Deep Dive from the Quick Start's end card.
 
@@ -20,9 +20,9 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 ## INTRO (15 seconds)
 
-**[Show: ArcAid landing page]**
+**[Show: Arcaid landing page]**
 
-> "Welcome to ArcAid. In under three minutes, you'll have your game room configured and your first tournament running. Let's go."
+> "Welcome to Arcaid. In under three minutes, you'll have your game room configured and your first tournament running. Let's go."
 
 ---
 
@@ -30,7 +30,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Show: Room login page]**
 
-> "Navigate to your room's login page — your ArcAid admin will provide the URL and credentials."
+> "Navigate to your room's login page — your Arcaid admin will provide the URL and credentials."
 
 **[Type credentials, click Log In]**
 
@@ -54,7 +54,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Scroll to iScored section]**
 
-> "iScored — enter the username, password, and public URL for your room's iScored account. ArcAid uses these to automate game creation and score tracking."
+> "iScored — enter the username, password, and public URL for your room's iScored account. Arcaid uses these to automate game creation and score tracking."
 
 **[Scroll to Tournament Defaults]**
 
@@ -90,7 +90,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Click Create Tournament]**
 
-> "Click Create Tournament. It's live. ArcAid will automatically rotate games on your schedule, scrape scores, pick winners, and announce in Discord."
+> "Click Create Tournament. It's live. Arcaid will automatically rotate games on your schedule, scrape scores, pick winners, and announce in Discord."
 
 ---
 
@@ -122,7 +122,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Show: Dashboard with active tournaments]**
 
-> "Your room is set up — now let's explore what ArcAid can do. We'll cover the leaderboard, rankings, stats, Discord commands, and public pages."
+> "Your room is set up — now let's explore what Arcaid can do. We'll cover the leaderboard, rankings, stats, Discord commands, and public pages."
 
 ---
 
@@ -188,7 +188,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Switch to Discord]**
 
-> "Your players interact with ArcAid through Discord slash commands. Let's run through the key ones."
+> "Your players interact with Arcaid through Discord slash commands. Let's run through the key ones."
 
 **[Type /list-active]**
 
@@ -200,7 +200,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Type /submit-score, show form]**
 
-> "Slash submit-score is how players submit scores. They enter a number and attach a photo. On first use, ArcAid automatically links their Discord to their iScored username."
+> "Slash submit-score is how players submit scores. They enter a number and attach a photo. On first use, Arcaid automatically links their Discord to their iScored username."
 
 **[Type /my-stats]**
 
@@ -272,7 +272,7 @@ Two videos: a 3-minute **Quick Start** to get new room admins running immediatel
 
 **[Show: Dashboard]**
 
-> "That's ArcAid. Automated tournaments, live leaderboards, Discord integration, and public pages for your community. If you need help, check the Help page in your admin sidebar or reach out to your ArcAid administrator."
+> "That's Arcaid. Automated tournaments, live leaderboards, Discord integration, and public pages for your community. If you need help, check the Help page in your admin sidebar or reach out to your Arcaid administrator."
 
 ---
 
@@ -286,4 +286,4 @@ Capture these clips separately to cut in during editing:
 - Mobile view of the scoreboard (phone or responsive browser)
 - Theme switching (quick cut between Dark → Light)
 - The pinball random picker animation (full run, ball bouncing through pegs)
-- iScored website showing a game that ArcAid created automatically
+- iScored website showing a game that Arcaid created automatically

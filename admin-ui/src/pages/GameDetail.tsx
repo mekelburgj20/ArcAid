@@ -12,6 +12,7 @@ import { useRoom } from '../contexts/RoomContext';
 import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
+import ReportContentModal from '../components/ReportContentModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { useToast } from '../components/Toast';
 
@@ -259,6 +260,9 @@ export default function GameDetail() {
     return id;
   });
 
+  // v2.47.0 (S22 follow-ups Workstream 2) — Flag-a-comment modal target.
+  const [flagTarget, setFlagTarget] = useState<GameComment | null>(null);
+
   // Load game data once room is resolved
   useEffect(() => {
     if (!name || !roomId) return;
@@ -418,12 +422,27 @@ export default function GameDetail() {
       .catch(() => {});
   };
 
+  // v2.47.0 (S22 follow-ups Workstream 2) — comment ownership check that
+  // covers both the anon localStorage id AND a logged-in Discord identity
+  // (needed now that `loadComments` sends the player token: the server masks
+  // `user_id` to the CALLER's identity, which for a logged-in viewer is
+  // `viewerClaims.discordId`, not the anon `userId`).
+  const isOwnComment = useCallback((c: GameComment) => (
+    c.user_id === userId || (!!viewerClaims?.discordId && c.user_id === viewerClaims.discordId)
+  ), [userId, viewerClaims]);
+
   const loadComments = (rid: string, gameName: string) => {
-    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=tip`, { headers: { 'x-user-id': userId } })
+    // v2.47.0 (S22 follow-ups Workstream 2) — send the player token when
+    // available, in addition to the anon x-user-id, so a logged-in viewer's
+    // own-comment mask/authorization resolves off their Discord identity too
+    // (the server prefers req.user?.discordId over x-user-id).
+    const authHeaders: Record<string, string> = { 'x-user-id': userId };
+    if (playerToken) authHeaders.Authorization = `Bearer ${playerToken}`;
+    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=tip`, { headers: authHeaders })
       .then(r => r.ok ? r.json() : [])
       .then(setTips)
       .catch(() => {});
-    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=comment`, { headers: { 'x-user-id': userId } })
+    fetch(`/api/rooms/${rid}/games/${encodeURIComponent(gameName)}/comments?type=comment`, { headers: authHeaders })
       .then(r => r.ok ? r.json() : [])
       .then(setComments)
       .catch(() => {});
@@ -436,9 +455,11 @@ export default function GameDetail() {
     if (!trimmedName || !trimmedBody || !roomId || !name) return;
     setCommentSubmitting(true);
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', 'x-user-id': userId };
+      if (playerToken) headers.Authorization = `Bearer ${playerToken}`;
       const res = await fetch(`/api/rooms/${roomId}/games/${encodeURIComponent(name)}/comments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+        headers,
         body: JSON.stringify({ display_name: trimmedName, type: commentType, body: trimmedBody }),
       });
       if (res.ok) {
@@ -453,9 +474,11 @@ export default function GameDetail() {
   const handleDeleteComment = async (commentId: number) => {
     if (!roomId || !name) return;
     try {
+      const headers: Record<string, string> = { 'x-user-id': userId };
+      if (playerToken) headers.Authorization = `Bearer ${playerToken}`;
       await fetch(`/api/rooms/${roomId}/games/${encodeURIComponent(name)}/comments/${commentId}`, {
         method: 'DELETE',
-        headers: { 'x-user-id': userId },
+        headers,
       });
       loadComments(roomId, name);
     } catch {}
@@ -645,8 +668,8 @@ export default function GameDetail() {
             <h2 className="font-display text-2xl font-bold text-white min-w-0 break-words">{stats?.gameName || name}</h2>
             {/* S16 — Web Share (clipboard fallback) */}
             <ShareButton
-              title={`${stats?.gameName || name} · ArcAid`}
-              text={`Check out the leaderboard for ${stats?.gameName || name}${roomName ? ` at ${roomName}` : ''} on ArcAid!`}
+              title={`${stats?.gameName || name} · Arcaid`}
+              text={`Check out the leaderboard for ${stats?.gameName || name}${roomName ? ` at ${roomName}` : ''} on Arcaid!`}
               path={`/${slug}/games/${encodeURIComponent(name || '')}`}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-white/25 bg-white/10 text-white/80 hover:bg-white/20 text-xs font-medium transition-colors cursor-pointer shrink-0"
             />
@@ -1179,11 +1202,18 @@ export default function GameDetail() {
                           {tip.display_name} &middot; {new Date(tip.created_at).toLocaleDateString()}
                         </p>
                       </div>
-                      {tip.user_id === userId && (
-                        <button onClick={() => handleDeleteComment(tip.id)} className="text-faint hover:text-neon-coral transition-colors flex-shrink-0">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {isOwnComment(tip) && (
+                          <button onClick={() => handleDeleteComment(tip.id)} className="text-faint hover:text-neon-coral transition-colors">
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                        {!!viewerClaims?.discordId && !isOwnComment(tip) && (
+                          <button onClick={() => setFlagTarget(tip)} title="Report this tip" className="text-faint hover:text-neon-magenta transition-colors">
+                            <Flag size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1206,11 +1236,18 @@ export default function GameDetail() {
                         </div>
                         <p className="text-sm text-muted">{comment.body}</p>
                       </div>
-                      {comment.user_id === userId && (
-                        <button onClick={() => handleDeleteComment(comment.id)} className="text-faint hover:text-neon-coral transition-colors flex-shrink-0">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {isOwnComment(comment) && (
+                          <button onClick={() => handleDeleteComment(comment.id)} className="text-faint hover:text-neon-coral transition-colors">
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                        {!!viewerClaims?.discordId && !isOwnComment(comment) && (
+                          <button onClick={() => setFlagTarget(comment)} title="Report this comment" className="text-faint hover:text-neon-magenta transition-colors">
+                            <Flag size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1219,6 +1256,15 @@ export default function GameDetail() {
               )}
             </div>
           </>
+        )}
+
+        {flagTarget && (
+          <ReportContentModal
+            title={flagTarget.type === 'tip' ? 'Report this tip' : 'Report this comment'}
+            targetLabel={`"${flagTarget.body}" — ${flagTarget.display_name}`}
+            endpoint={`/global/comments/${flagTarget.id}/report`}
+            onClose={() => setFlagTarget(null)}
+          />
         )}
 
         {activeTab === 'player-stats' && (

@@ -1,6 +1,6 @@
-# ArcAid
+# Arcaid
 
-**ArcAid** is a multi-tenant tournament management platform for virtual pinball and retro gaming communities. Host multiple game rooms on a single instance, each with independent tournaments, admins, settings, and iScored integration. Discord bot + React Admin UI + automated score tracking.
+**Arcaid** is a multi-tenant tournament management platform for virtual pinball and retro gaming communities. Host multiple game rooms on a single instance, each with independent tournaments, admins, settings, and iScored integration. Discord bot + React Admin UI + automated score tracking.
 
 **Production:** [arcaid.app](https://arcaid.app)
 

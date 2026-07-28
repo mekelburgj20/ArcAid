@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Home, ScrollText } from 'lucide-react';
 
 /**
- * Static terms of service for ArcAid. Public, no auth, no data fetching.
+ * Static terms of service for Arcaid. Public, no auth, no data fetching.
  * Mirrors the AccountSettings.tsx skeleton (own Back/Home nav + max-w-xl main).
  *
  * NOTE: This copy is a plain-language starting point and should be reviewed by
@@ -40,15 +40,15 @@ export default function Terms() {
         <section className="mb-6">
           <h2 className="text-sm font-medium mb-1.5">1. Acceptance</h2>
           <p className="text-sm text-muted leading-relaxed">
-            By accessing or using ArcAid (arcaid.app), you agree to these terms. If you do not agree,
+            By accessing or using Arcaid (arcaid.app), you agree to these terms. If you do not agree,
             please do not use the service.
           </p>
         </section>
 
         <section className="mb-6">
-          <h2 className="text-sm font-medium mb-1.5">2. What ArcAid is</h2>
+          <h2 className="text-sm font-medium mb-1.5">2. What Arcaid is</h2>
           <p className="text-sm text-muted leading-relaxed">
-            ArcAid is a community platform for running tournaments and leaderboards for virtual pinball
+            Arcaid is a community platform for running tournaments and leaderboards for virtual pinball
             and retro arcade gaming. Individual "rooms" are operated by community organizers; a room's
             administrators set its rules and manage its tournaments.
           </p>
@@ -66,7 +66,7 @@ export default function Terms() {
         <section className="mb-6">
           <h2 className="text-sm font-medium mb-1.5">4. Fair play</h2>
           <p className="text-sm text-muted leading-relaxed">
-            ArcAid runs on trust in the scores people post. Do not submit false, manipulated, or
+            Arcaid runs on trust in the scores people post. Do not submit false, manipulated, or
             fraudulently obtained scores, and do not attempt to game the leaderboards or rankings. Room
             and site administrators may verify, adjust, hide, or remove scores, and may suspend or ban
             accounts that break the rules.
@@ -86,7 +86,7 @@ export default function Terms() {
           <h2 className="text-sm font-medium mb-1.5">6. Content you submit</h2>
           <p className="text-sm text-muted leading-relaxed">
             You keep ownership of what you submit — scores, proof photos, comments, tips, and ratings. By
-            submitting it, you grant ArcAid and the room you post in permission to store and display it as
+            submitting it, you grant Arcaid and the room you post in permission to store and display it as
             part of the service. You confirm you have the right to share anything you upload and that it
             does not violate anyone else's rights.
           </p>
@@ -104,7 +104,7 @@ export default function Terms() {
         <section className="mb-6">
           <h2 className="text-sm font-medium mb-1.5">8. Availability</h2>
           <p className="text-sm text-muted leading-relaxed">
-            ArcAid is provided "as is" and "as available." We do not guarantee that it will be
+            Arcaid is provided "as is" and "as available." We do not guarantee that it will be
             uninterrupted or error-free, or that data will never be lost, and features may change or be
             discontinued at any time.
           </p>
@@ -113,7 +113,7 @@ export default function Terms() {
         <section className="mb-6">
           <h2 className="text-sm font-medium mb-1.5">9. Disclaimer and liability</h2>
           <p className="text-sm text-muted leading-relaxed">
-            To the fullest extent permitted by law, ArcAid and its operators provide the service without
+            To the fullest extent permitted by law, Arcaid and its operators provide the service without
             warranties of any kind and are not liable for indirect, incidental, or consequential damages
             arising from your use of the service.
           </p>
@@ -122,7 +122,7 @@ export default function Terms() {
         <section className="mb-6">
           <h2 className="text-sm font-medium mb-1.5">10. Termination</h2>
           <p className="text-sm text-muted leading-relaxed">
-            You may stop using ArcAid and delete your account at any time from Account Settings. Operators
+            You may stop using Arcaid and delete your account at any time from Account Settings. Operators
             may suspend or terminate access for conduct that violates these terms.
           </p>
         </section>

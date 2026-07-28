@@ -1,6 +1,6 @@
-# ArcAid — Feature Inventory
+# Arcaid — Feature Inventory
 
-ArcAid is a multi-tenant tournament management platform for virtual pinball and retro
+Arcaid is a multi-tenant tournament management platform for virtual pinball and retro
 gaming communities. A single deployment ("one instance") hosts any number of independent
 **game rooms**, each with its own tournaments, leaderboards, admins, branding, and
 optional Discord bot / iScored integrations. Players submit scores via the web, Discord,
@@ -21,7 +21,7 @@ roadmap/future/deferred bucket — see `ROADMAP.md` for what's planned next. Aud
 
 ## 1. Multi-Tenant Game Rooms
 
-- **Independent game rooms** [Super Admin] — One ArcAid instance hosts unlimited rooms, each with its own tournaments, leaderboards, admins, settings, Discord guild, and iScored account. Rooms are addressed by URL slug (`arcaid.app/<slug>/`), matched case-insensitively.
+- **Independent game rooms** [Super Admin] — One Arcaid instance hosts unlimited rooms, each with its own tournaments, leaderboards, admins, settings, Discord guild, and iScored account. Rooms are addressed by URL slug (`arcaid.app/<slug>/`), matched case-insensitively.
 - **Per-room Discord / iScored configuration** [Room Admin] — Each room connects independently to its own Discord guild and iScored account (or disables either integration entirely) via settings stored per room; the bot token and Discord client ID/secret stay global.
 - **Three-tier auth** — Super-admin (server-wide password or Discord OAuth), room admin (per-room password, invite link, or Discord OAuth), and player (Discord-authenticated, non-admin) — plus guest access with no login at all on public pages.
 - **Admin invite system** [Room Admin] — One-time invite links (optionally delivered via Discord DM) for onboarding new room admins without sharing a password.
@@ -211,7 +211,7 @@ All six feed the same dedup/upsert path, so re-running any of them is safe and i
 - **Notification-gated polling** — Checks a lightweight per-account notification file before running an expensive full score fetch, cutting API traffic roughly 500,000:1 against actual score volume, with a configurable backstop interval.
 - **Per-account session serialization** — Concurrent tournament fires sharing one iScored account are serialized so they can't step on each other's browser session state (previously caused silent, undetected delete failures).
 - **Validate iScored Credentials** [Room Admin] — One-click test login that reports success or a specific, actionable failure reason (wrong credentials vs. timeout) instead of a raw stack trace.
-- **Per-score suppression tombstone** — When a score is deleted on the ArcAid side, a suppression record keeps the next iScored sync from silently re-importing it.
+- **Per-score suppression tombstone** — When a score is deleted on the Arcaid side, a suppression record keeps the next iScored sync from silently re-importing it.
 - **Score sync across every web path** — Tournament, freeplay, and community score submissions all sync to iScored through one shared code path, so no submission surface is ever missed.
 
 ## 12. Moderation & Data Safety

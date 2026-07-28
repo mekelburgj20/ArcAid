@@ -4,6 +4,7 @@ import path from 'path';
 import { getDatabase } from '../database/database.js';
 import { GlobalLeaderboardService } from './GlobalLeaderboardService.js';
 import { normalizeSubmitterUserId } from './SubmissionContextService.js';
+import { BanService } from './BanService.js';
 import { logInfo, logError } from '../utils/logger.js';
 
 export interface GlobalScoreInput {
@@ -65,22 +66,6 @@ function savePhoto(buffer: Buffer, mimeType: string): { url: string; absolutePat
 
 export class GlobalScoreService {
     /**
-     * Returns true if the Discord user has an active ban (no lifted_at, and
-     * either no expires_at or expires_at in the future).
-     */
-    static async isBanned(discordUserId: string): Promise<boolean> {
-        const db = await getDatabase();
-        const row = await db.get(`
-            SELECT id FROM user_bans
-            WHERE discord_user_id = ?
-              AND lifted_at IS NULL
-              AND (expires_at IS NULL OR expires_at > datetime('now'))
-            LIMIT 1
-        `, discordUserId);
-        return !!row;
-    }
-
-    /**
      * Submit a new global score. Writes the photo to disk, inserts the row,
      * and invalidates the cached leaderboard.
      *
@@ -92,9 +77,12 @@ export class GlobalScoreService {
 
         // Ban check — ignored for room fan-out (origin_type === 'game_room'),
         // since banned users still need their room submissions recorded.
+        // v2.47.0 (S22 follow-ups Workstream 1, decision 1) — delegates to
+        // BanService.isIdentityBanned, the ONE link-graph-aware ban predicate;
+        // this method's own raw `isBanned` query (no link resolution) is retired.
         if (input.originType !== 'game_room') {
-            const banned = await this.isBanned(input.playerId);
-            if (banned) {
+            const banCheck = await BanService.isIdentityBanned(input.playerId);
+            if (banCheck.banned) {
                 throw new Error('BANNED');
             }
         }

@@ -15,7 +15,7 @@ const PREF_LABELS: Record<NotificationType, string> = {
 export const notifications: Command = {
     data: new SlashCommandBuilder()
         .setName('arcaid-notifications')
-        .setDescription('Manage your ArcAid notification preferences.')
+        .setDescription('Manage your Arcaid notification preferences.')
         .addStringOption(opt =>
             opt.setName('action')
                 .setDescription('Show or toggle notifications')

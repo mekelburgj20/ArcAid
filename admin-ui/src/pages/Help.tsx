@@ -305,7 +305,7 @@ export default function Help() {
       <div ref={contentRef} className="flex-1 min-w-0">
         <h1 className="font-display text-2xl font-bold mb-2">Help &amp; Guide</h1>
         <p className="text-muted text-sm mb-6">
-          Everything you need to know about managing your game room in ArcAid.
+          Everything you need to know about managing your game room in Arcaid.
         </p>
 
         {/* Search — highlights every match in-page + match navigation + jump-to */}
@@ -374,7 +374,7 @@ export default function Help() {
         <SectionHeading id="getting-started">1. Getting Started</SectionHeading>
         <NeonCard className="mb-4">
           <p className="text-primary text-sm mb-4">
-            Navigate to the login URL provided by your ArcAid administrator. The URL follows the format:
+            Navigate to the login URL provided by your Arcaid administrator. The URL follows the format:
           </p>
           <div className="bg-raised border border-border rounded px-4 py-2 mb-4">
             <code className="font-mono text-sm text-neon-amber">https://arcaid.app/your_room_slug/login</code>
@@ -441,7 +441,7 @@ export default function Help() {
           Navigate to <strong className="text-primary">Settings</strong> in the sidebar to configure your game room.
           Settings are grouped into cards. As you edit, an <strong className="text-primary">"N unsaved changes"</strong> indicator
           appears and <strong className="text-primary">Save All Changes</strong> stays disabled until something actually changes;
-          ArcAid also warns you before you navigate away with unsaved edits. Access-affecting toggles (login required, iScored,
+          Arcaid also warns you before you navigate away with unsaved edits. Access-affecting toggles (login required, iScored,
           Discord, global scoreboard) ask for confirmation on save.
         </p>
 
@@ -493,7 +493,7 @@ export default function Help() {
             </table>
           </div>
           <p className="text-muted text-sm mt-3">
-            These credentials allow ArcAid to automate game creation, locking, and score retrieval on iScored.
+            These credentials allow Arcaid to automate game creation, locking, and score retrieval on iScored.
           </p>
         </NeonCard>
 
@@ -537,7 +537,7 @@ export default function Help() {
         {/* Theme */}
         <NeonCard title="Theme" className="mb-4">
           <p className="text-primary text-sm mb-3">
-            Choose from ArcAid's themes (17 and counting &mdash; Dark, Light, Retro, Cyberpunk, Ocean, Sunset, Backglass,
+            Choose from Arcaid's themes (17 and counting &mdash; Dark, Light, Retro, Cyberpunk, Ocean, Sunset, Backglass,
             CRT Green, Cabinet, Silverball, and more).
           </p>
           <p className="text-muted text-sm">
@@ -635,7 +635,7 @@ export default function Help() {
         <SectionHeading id="game-library">4. Game Library</SectionHeading>
         <NeonCard className="mb-4">
           <p className="text-primary text-sm mb-4">
-            Your Game Library is a view of ArcAid's <strong>shared global catalogue</strong> &mdash; the same catalogue every
+            Your Game Library is a view of Arcaid's <strong>shared global catalogue</strong> &mdash; the same catalogue every
             room draws from. Navigate to <strong>Game Library</strong> in the sidebar to search it, activate games, pin games,
             tag them for your room, and propose new titles.
           </p>
@@ -650,7 +650,7 @@ export default function Help() {
               <p className="text-sm font-medium text-neon-cyan mb-1">Add Game</p>
               <p className="text-muted text-sm">
                 Enter a <strong>Name</strong>, <strong>Mode</strong> (Pinball / Video Game), and <strong>Platforms</strong>, then click
-                <strong className="text-primary"> Check catalogue</strong>. ArcAid runs a duplicate check; if it's genuinely new you can
+                <strong className="text-primary"> Check catalogue</strong>. Arcaid runs a duplicate check; if it's genuinely new you can
                 <strong className="text-primary"> Submit to the global catalogue for review</strong>.
               </p>
             </div>
@@ -708,7 +708,7 @@ export default function Help() {
                 <tr><Td><strong>Schedule</strong></Td><Td>How often the tournament rotates (daily, weekly, monthly), with time + timezone</Td></tr>
                 <tr><Td><strong>Lineup Position</strong></Td><Td>Position in the scoreboard and announcement order (lower = first)</Td></tr>
                 <tr><Td><strong>Active Slots</strong></Td><Td>How many games run simultaneously in this tournament</Td></tr>
-                <tr><Td><strong>Game Rotation</strong></Td><Td>Whether the round winner picks the next game, or ArcAid auto-picks</Td></tr>
+                <tr><Td><strong>Game Rotation</strong></Td><Td>Whether the round winner picks the next game, or Arcaid auto-picks</Td></tr>
                 <tr><Td><strong>Cooldown Days</strong></Td><Td>After a game finishes, how long before it can be picked again</Td></tr>
                 <tr><Td><strong>Winner / Runner-up Window</strong></Td><Td>Minutes the winner (then runner-up) has to pick before auto-selection</Td></tr>
                 <tr><Td><strong>Cleanup Rule</strong></Td><Td>What happens to finished games on iScored (see below)</Td></tr>
@@ -774,8 +774,8 @@ export default function Help() {
             The game remains visible on iScored (locked) and in score history. Two options:
           </p>
           <ul className="list-disc list-inside text-sm text-primary space-y-1 mb-3">
-            <li><strong>Deactivate + Lock on iScored</strong> &mdash; Marks complete in ArcAid and locks the game on iScored</li>
-            <li><strong>DB Only</strong> &mdash; Only updates ArcAid's database (does not touch iScored)</li>
+            <li><strong>Deactivate + Lock on iScored</strong> &mdash; Marks complete in Arcaid and locks the game on iScored</li>
+            <li><strong>DB Only</strong> &mdash; Only updates Arcaid's database (does not touch iScored)</li>
           </ul>
           <p className="text-muted text-sm">
             A <strong className="text-primary">Retained Completed Games</strong> section lists finished games still shown on the public
@@ -811,7 +811,7 @@ export default function Help() {
 
           <SubHeading>Suppressed Scores</SubHeading>
           <p className="text-muted text-sm mb-3">
-            When you delete a score that also exists on iScored, ArcAid records a <em>suppression</em> so the next sync doesn't simply re-import it. The Manage Scores modal has a <strong>Suppressed scores</strong> section listing each suppressed player and value with a <strong>Remove suppression</strong> button &mdash; removing it lets that score re-import on the next sync. (The delete confirmation warns you whenever a suppression will be created.)
+            When you delete a score that also exists on iScored, Arcaid records a <em>suppression</em> so the next sync doesn't simply re-import it. The Manage Scores modal has a <strong>Suppressed scores</strong> section listing each suppressed player and value with a <strong>Remove suppression</strong> button &mdash; removing it lets that score re-import on the next sync. (The delete confirmation warns you whenever a suppression will be created.)
           </p>
 
           <SubHeading>Game Info Icon</SubHeading>
@@ -964,7 +964,7 @@ export default function Help() {
         {/* ------------------------------------------------------------------ */}
         <SectionHeading id="discord-commands">10. Discord Bot Commands</SectionHeading>
         <p className="text-muted text-sm mb-4">
-          Players interact with ArcAid primarily through Discord slash commands.
+          Players interact with Arcaid primarily through Discord slash commands.
         </p>
 
         {/* Player Commands */}
@@ -990,7 +990,7 @@ export default function Help() {
                 <tr><Td><Code>/pick-game</Code></Td><Td>When nominated as picker, choose the next game from eligible options</Td><Td className="text-muted">It is your turn to pick</Td></tr>
                 <tr><Td><Code>/map-user</Code></Td><Td>Link your Discord account to your iScored username</Td><Td className="text-muted">First-time setup or username change</Td></tr>
                 <tr><Td><Code>/create-backup</Code></Td><Td>Triggers a database backup</Td><Td className="text-muted">Before major changes</Td></tr>
-                <tr><Td><Code>/sync-state</Code></Td><Td>Reconciles ArcAid's database with live iScored data</Td><Td className="text-muted">If scores seem out of sync</Td></tr>
+                <tr><Td><Code>/sync-state</Code></Td><Td>Reconciles Arcaid's database with live iScored data</Td><Td className="text-muted">If scores seem out of sync</Td></tr>
                 <tr><Td><Code>/arcaid-notifications</Code></Td><Td>Manage your notification preferences &mdash; opt in/out of Discord DMs per type (tournament win, turn to pick, dethroned, etc.)</Td><Td className="text-muted">Turn DM alerts on or off</Td></tr>
                 <tr><Td><Code>/ping</Code></Td><Td>Replies with Pong! A quick connectivity test</Td><Td className="text-muted">Check the bot is online</Td></tr>
               </tbody>
@@ -1053,8 +1053,8 @@ export default function Help() {
                 <tr><Td><strong>Game Detail</strong></Td><Td><Code>/your_slug/games/GameName</Code></Td><Td>Game-specific stats, records, community rating</Td></tr>
                 <tr><Td><strong>Kiosk Leaderboard</strong></Td><Td><Code>/your_slug/kiosk</Code></Td><Td>Full-screen auto-scrolling leaderboard for TV displays</Td></tr>
                 <tr><Td><strong>Score Submit</strong></Td><Td><Code>/your_slug/submit/:gameId</Code></Td><Td>Standalone score submission page (linked from QR codes on cards)</Td></tr>
-                <tr><Td><strong>Global Scoreboard</strong></Td><Td><Code>/scoreboard</Code></Td><Td>Cross-room aggregate leaderboard spanning all ArcAid rooms (not room-specific)</Td></tr>
-                <tr><Td><strong>Friends</strong></Td><Td><Code>/friends</Code></Td><Td>Your ArcAid friends / social page (Discord login required)</Td></tr>
+                <tr><Td><strong>Global Scoreboard</strong></Td><Td><Code>/scoreboard</Code></Td><Td>Cross-room aggregate leaderboard spanning all Arcaid rooms (not room-specific)</Td></tr>
+                <tr><Td><strong>Friends</strong></Td><Td><Code>/friends</Code></Td><Td>Your Arcaid friends / social page (Discord login required)</Td></tr>
               </tbody>
             </table>
           </div>
@@ -1121,7 +1121,7 @@ export default function Help() {
             <li><strong>Force Status</strong> &mdash; One-click <strong>Force Active</strong> or <strong>Force Complete</strong> (game statuses are Active / Queued / Completed / Archived), with optional iScored sync</li>
             <li><strong>Clear Picker</strong> &mdash; Cancel a pending picker timeout assignment</li>
             <li><strong>iScored Sync</strong> &mdash; Granular iScored operations on a single game (Lock, Unlock, Hide, Create)</li>
-            <li><strong>Reconcile iScored</strong> &mdash; Diff the live iScored game list against ArcAid's records and clean up drift. Sorts entries into keep / orphaned (gone from ArcAid but still on iScored &mdash; pre-selected) / unmanaged, then bulk-deletes the ones you choose from iScored</li>
+            <li><strong>Reconcile iScored</strong> &mdash; Diff the live iScored game list against Arcaid's records and clean up drift. Sorts entries into keep / orphaned (gone from Arcaid but still on iScored &mdash; pre-selected) / unmanaged, then bulk-deletes the ones you choose from iScored</li>
             <li><strong>Force Maintenance</strong> &mdash; Trigger a full maintenance cycle for a specific tournament. Waits for the run and reports the real outcome (rotated / skipped / error)</li>
             <li><strong>Clean Phantoms</strong> &mdash; When placeholder or empty queued rows exist, a bulk button appears to remove them all at once</li>
             <li><strong>Delete</strong> &mdash; Remove a game entry entirely (for phantom/orphaned entries). Deleting a live <strong>ACTIVE</strong> game requires an extra force-confirm &mdash; for a normal end-of-round, use <strong>Deactivate</strong> on the Tournaments page instead</li>
@@ -1156,14 +1156,14 @@ export default function Help() {
 
         <div className="border-t border-border pt-4 pb-8 text-center space-y-1">
           <p className="text-faint text-xs">
-            For technical support, contact your ArcAid administrator.
+            For technical support, contact your Arcaid administrator.
           </p>
           {version && (
             <p
               className="text-faint text-xs font-mono"
               title={version.builtAt ? `Built ${new Date(version.builtAt).toLocaleString()}` : undefined}
             >
-              ArcAid v{version.version}{version.commit ? ` · ${version.commit.slice(0, 7)}` : ''}
+              Arcaid v{version.version}{version.commit ? ` · ${version.commit.slice(0, 7)}` : ''}
             </p>
           )}
         </div>

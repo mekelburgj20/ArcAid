@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
-import { requireAuth, requireDiscordUser, requireSuperAdmin } from '../middleware.js';
+import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned } from '../middleware.js';
 import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -155,7 +155,7 @@ router.get('/me/friends', requireDiscordUser, async (req, res) => {
     }
 });
 
-router.post('/me/friends', requireDiscordUser, async (req, res) => {
+router.post('/me/friends', requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const { discordUsername, friendUserId } = req.body;
         const { FriendsService } = await import('../../services/FriendsService.js');
@@ -208,7 +208,7 @@ router.get('/me/rooms', requireDiscordUser, async (req, res) => {
 // Explicit join/leave (v2.38.0 — join-leave contract). Both idempotent: joining
 // an already-member room or leaving a non-member room is a 200 no-op, not an
 // error. Leave never touches game_room_admins — see RoomMembershipService.removeMember.
-router.post('/me/rooms/:roomId', requireDiscordUser, async (req, res) => {
+router.post('/me/rooms/:roomId', requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const room = await GameRoomService.getById(roomId);
@@ -266,7 +266,7 @@ router.delete('/me/rooms/:roomId', requireDiscordUser, async (req, res) => {
 // Idempotent: already-member -> 200 {status:'member'}; existing pending
 // request -> 200 {status:'pending'} (the partial unique index backstops
 // races too). A prior denial does not block a fresh request.
-router.post('/me/rooms/:roomId/join-request', requireDiscordUser, async (req, res) => {
+router.post('/me/rooms/:roomId/join-request', requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const room = await GameRoomService.getById(roomId);
@@ -734,7 +734,7 @@ router.delete('/submission-drafts/:stateParam', writeLimiter, async (req, res) =
 // Called by SubmissionSheet on OAuth return. The draft's target drives dispatch:
 // tournament/freeplay go through CommunityScoreService + the usual fan-out +
 // submissions upsert; global goes through GlobalScoreService.submit.
-router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, async (req, res) => {
+router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const stateParam = req.params.stateParam as string;
         const { SubmissionDraftService } = await import('../../services/SubmissionDraftService.js');
@@ -1040,7 +1040,7 @@ router.get('/rooms', async (req, res) => {
  * the room is always created in 'standalone' mode (Discord/iScored off) —
  * mode is NOT accepted from the client payload.
  */
-router.post('/rooms', requireDiscordUser, roomCreateLimiter, async (req, res) => {
+router.post('/rooms', requireDiscordUser, requireNotBanned, roomCreateLimiter, async (req, res) => {
     try {
         const discordId = req.user?.discordId;
         if (!discordId) {
@@ -1048,14 +1048,9 @@ router.post('/rooms', requireDiscordUser, roomCreateLimiter, async (req, res) =>
             return;
         }
 
-        // S22 Phase 2 (v2.44.0) — ban enforcement on room creation, checked
-        // before the kill-switch/cap checks per contract.
-        const { BanService } = await import('../../services/BanService.js');
-        const banCheck = await BanService.isIdentityBanned(discordId);
-        if (banCheck.banned) {
-            res.status(403).json({ error: 'This account is banned.' });
-            return;
-        }
+        // S22 Phase 2 (v2.44.0) ban enforcement on room creation now lives in
+        // the shared `requireNotBanned` middleware above (v2.47.0, S22
+        // follow-ups Workstream 1 — aligned per contract instruction).
 
         const killSwitch = await SettingsService.get('PUBLIC_ROOM_CREATION_ENABLED');
         if (killSwitch === 'false') {
@@ -1445,7 +1440,7 @@ router.get('/submit/platforms', async (req, res) => {
  * through user_mappings → Discord username → discordId. When provided, it is
  * persisted to user_mappings so future submissions default to it.
  */
-router.post('/global/scores', requireDiscordUser, globalSubmitLimiter, globalScoreUpload.single('photo'), async (req, res) => {
+router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNotBanned, globalScoreUpload.single('photo'), async (req, res) => {
     try {
         const globalGameId = req.body.globalGameId;
         const scoreRaw = req.body.score;
@@ -1651,7 +1646,7 @@ router.delete('/me/global-scores/game/:globalGameId', requireDiscordUser, async 
  * POST /api/global/scores/:scoreId/report — flag a score.
  * Rate-limited via writeLimiter, requires Discord login.
  */
-router.post('/global/scores/:scoreId/report', writeLimiter, requireDiscordUser, async (req, res) => {
+router.post('/global/scores/:scoreId/report', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const scoreId = req.params.scoreId as string;
         const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 500) : null;
@@ -1692,7 +1687,7 @@ router.post('/global/scores/:scoreId/report', writeLimiter, requireDiscordUser, 
  * the disputed field's current value. Lands in the super-admin queue on
  * /admin/catalogue.
  */
-router.post('/global/games/:id/feedback', writeLimiter, requireDiscordUser, async (req, res) => {
+router.post('/global/games/:id/feedback', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const parsed = (await import('../schemas.js')).GameFeedbackSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -1732,7 +1727,7 @@ router.post('/global/games/:id/feedback', writeLimiter, requireDiscordUser, asyn
  * (requireDiscordUser passes for either — ids are namespaced through the
  * same claims), rate-limited.
  */
-router.post('/global/rooms/:roomId/report', writeLimiter, requireDiscordUser, async (req, res) => {
+router.post('/global/rooms/:roomId/report', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const parsed = (await import('../schemas.js')).RoomReportSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -1765,7 +1760,7 @@ router.post('/global/rooms/:roomId/report', writeLimiter, requireDiscordUser, as
  * surface). `targetUserId`, when known, keys dedup on identity; otherwise
  * keys on (room, name-as-typed).
  */
-router.post('/global/report-name', writeLimiter, requireDiscordUser, async (req, res) => {
+router.post('/global/report-name', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const parsed = (await import('../schemas.js')).NameReportSchema.safeParse(req.body);
         if (!parsed.success) {
@@ -1791,6 +1786,44 @@ router.post('/global/report-name', writeLimiter, requireDiscordUser, async (req,
             return res.status(429).json({ error: 'You have too many open reports. Please wait for an admin to review them.' });
         }
         logError('API Error (POST /api/global/report-name):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/global/comments/:id/report — flag a room-scoped game comment
+ * (`game_comments`, CommentService). v2.47.0 (S22 follow-ups Workstream 2).
+ * Deliberately in global.ts, NOT rooms.ts, same rationale as the room/name
+ * report routes above — the comment id alone disambiguates, no roomId
+ * needed on the path.
+ */
+router.post('/global/comments/:id/report', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const commentId = parseInt(req.params.id as string, 10);
+        if (!Number.isFinite(commentId)) return res.status(400).json({ error: 'Invalid comment id' });
+
+        const parsed = (await import('../schemas.js')).CommentReportSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid report' });
+        }
+        const { CommentReportService } = await import('../../services/CommentReportService.js');
+        const { id } = await CommentReportService.create({
+            commentId,
+            reporterDiscordId: req.user!.discordId!,
+            reason: parsed.data.reason,
+        });
+        logInfo(`Comment ${commentId} reported by ${req.user!.discordId}`);
+        res.status(200).json({ ok: true, id });
+    } catch (error) {
+        const code = (error as Error & { code?: string })?.code;
+        if (code === 'COMMENT_NOT_FOUND') return res.status(404).json({ error: 'Comment not found' });
+        if (code === 'DUPLICATE_REPORT') {
+            return res.status(409).json({ error: "You've already reported this comment." });
+        }
+        if (code === 'REPORT_LIMIT') {
+            return res.status(429).json({ error: 'You have too many open reports. Please wait for an admin to review them.' });
+        }
+        logError('API Error (POST /api/global/comments/:id/report):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -1824,7 +1857,7 @@ router.get('/global/games/:id/rating', async (req, res) => {
 /**
  * POST /api/global/games/:id/rating — set user's rating (1-5). Requires Discord login.
  */
-router.post('/global/games/:id/rating', writeLimiter, requireDiscordUser, async (req, res) => {
+router.post('/global/games/:id/rating', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const globalGameId = req.params.id as string;
         const rating = parseInt(req.body.rating, 10);
@@ -1884,7 +1917,7 @@ router.get('/global/games/:id/comments', async (req, res) => {
 /**
  * POST /api/global/games/:id/comments — add a comment or tip. Requires Discord login.
  */
-router.post('/global/games/:id/comments', requireDiscordUser, writeLimiter, async (req, res) => {
+router.post('/global/games/:id/comments', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const globalGameId = req.params.id as string;
         const { type, body, display_name } = req.body;
@@ -1910,7 +1943,7 @@ router.post('/global/games/:id/comments', requireDiscordUser, writeLimiter, asyn
 /**
  * DELETE /api/global/games/:id/comments/:commentId — delete own comment. Requires Discord login.
  */
-router.delete('/global/games/:id/comments/:commentId', requireDiscordUser, async (req, res) => {
+router.delete('/global/games/:id/comments/:commentId', requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const commentId = parseInt(req.params.commentId as string, 10);
         const comment = await GlobalCommentService.getCommentById(commentId);

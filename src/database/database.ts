@@ -1963,6 +1963,31 @@ export async function initDatabase(): Promise<Database> {
             ALTER TABLE game_rooms ADD COLUMN suspended_by TEXT;
             ALTER TABLE game_rooms ADD COLUMN suspended_reason TEXT;
         ` },
+        // v2.47.0 — S22 follow-ups Workstream 2: comment reports. Mirrors
+        // content_reports (migration 118) shape/dedup pattern: a partial
+        // UNIQUE index on the open-report window (not a literal
+        // `UNIQUE(comment_id, reporter_discord_id)`, which would permanently
+        // block a re-report after the first one resolves — a comment can
+        // misbehave again, or a first report can be dismissed in error).
+        // `comment_id` intentionally has no FK — mirrors score_reports.score_id
+        // (no enforced FK either): the report row must survive the "Remove"
+        // resolution, which deletes the underlying game_comments row while
+        // keeping the report as an audit record of what was reported/actioned.
+        { name: '120_comment_reports', sql: `
+            CREATE TABLE IF NOT EXISTS comment_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                comment_id INTEGER NOT NULL,
+                reporter_discord_id TEXT NOT NULL,
+                reason TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                resolved_at TEXT,
+                resolved_by TEXT,
+                resolution TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_comment_reports_open_dedup
+                ON comment_reports(comment_id, reporter_discord_id) WHERE resolved_at IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_comment_reports_unresolved ON comment_reports(resolved_at);
+        ` },
     ];
 
     for (const migration of migrations) {

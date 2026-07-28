@@ -377,6 +377,15 @@ export const NameReportSchema = z.object({
     reason: z.string().trim().max(500).optional(),
 });
 
+/**
+ * v2.47.0 (S22 follow-ups Workstream 2) — POST /global/comments/:id/report
+ * body. Comment id + reporter identity come from the route (param + verified
+ * token), not the body — same shape as RoomReportSchema.
+ */
+export const CommentReportSchema = z.object({
+    reason: z.string().trim().max(500).optional(),
+});
+
 /** POST /admin/reports/:id/resolve body. */
 export const ResolveContentReportSchema = z.object({
     resolution: z.string().trim().min(1).max(500),

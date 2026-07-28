@@ -1,6 +1,6 @@
-# ArcAid — Room Admin How-To Guide
+# Arcaid — Room Admin How-To Guide
 
-Welcome to ArcAid! This guide walks you through setting up and managing your game room from first login to running tournaments. You'll be provided a login URL and credentials by your ArcAid administrator.
+Welcome to Arcaid! This guide walks you through setting up and managing your game room from first login to running tournaments. You'll be provided a login URL and credentials by your Arcaid administrator.
 
 ---
 
@@ -32,7 +32,7 @@ https://arcaid.app/your_room_slug/login
 Enter the username and password provided during onboarding and click **Log In**.
 
 **Option B: Discord OAuth**
-Click **Login with Discord** to authenticate with your Discord account. This works if your Discord user has been added as a room admin by the ArcAid super-admin.
+Click **Login with Discord** to authenticate with your Discord account. This works if your Discord user has been added as a room admin by the Arcaid super-admin.
 
 {Image of room login page showing both login options}
 
@@ -94,7 +94,7 @@ To get a Channel ID or Role ID: Enable Developer Mode in Discord (User Settings 
 | **iScored Password** | Password for the iScored account (masked by default, click eye icon to reveal) |
 | **iScored Public URL** | The public leaderboard URL used for score scraping (e.g., `https://iscored.info/your_account`) |
 
-These credentials allow ArcAid to automate game creation, locking, and score retrieval on iScored.
+These credentials allow Arcaid to automate game creation, locking, and score retrieval on iScored.
 
 {Image of iScored settings section}
 
@@ -160,7 +160,7 @@ The Game Library is your catalog of all games available for tournaments. Navigat
 
 ### Importing Games
 
-ArcAid supports four import methods:
+Arcaid supports four import methods:
 
 **CSV Upload** — Upload a CSV file with columns: `name`, `aliases`, `style_id`, `mode`, `platforms`. Click **Download Template** for a pre-formatted example file.
 
@@ -260,8 +260,8 @@ The table below the creation form shows all your tournaments with their name, ta
 Below the tournament list, the **Active Games** section shows all currently running games with their tournament, start date, and iScored link status.
 
 - **Deactivate** — Stop an active game. Two options:
-  - **Deactivate + Lock on iScored** — Marks complete in ArcAid and locks the game on iScored
-  - **DB Only** — Only updates ArcAid's database (doesn't touch iScored)
+  - **Deactivate + Lock on iScored** — Marks complete in Arcaid and locks the game on iScored
+  - **DB Only** — Only updates Arcaid's database (doesn't touch iScored)
 
 {Image of Active Games section with the Deactivate modal}
 
@@ -363,7 +363,7 @@ Results are paginated at 20 per page.
 
 ## 10. Discord Bot Commands
 
-Your players interact with ArcAid primarily through Discord slash commands. Here's what each command does and when to use it.
+Your players interact with Arcaid primarily through Discord slash commands. Here's what each command does and when to use it.
 
 ### Player Commands
 
@@ -381,7 +381,7 @@ These commands are available to all members in your Discord server.
 | `/pick-game` | When nominated as picker, choose the next game from eligible options | It's your turn to pick! |
 | `/map-user` | Link your Discord account to your iScored username | First-time setup or username change |
 | `/create-backup` | Triggers a database backup | Before major changes |
-| `/sync-state` | Reconciles ArcAid's database with live iScored data | If scores seem out of sync |
+| `/sync-state` | Reconciles Arcaid's database with live iScored data | If scores seem out of sync |
 
 ### Admin Commands
 
@@ -439,4 +439,4 @@ Use this checklist when setting up a new room from scratch:
 
 ---
 
-*For technical support, contact your ArcAid administrator.*
+*For technical support, contact your Arcaid administrator.*

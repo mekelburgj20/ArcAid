@@ -1,4 +1,4 @@
-# ArcAid Moderator Playbook
+# Arcaid Moderator Playbook
 
 Quick reference for whatever comes up during a tournament week. Skim **Where the tools live** first, then jump to the scenario you're dealing with. Thanks for being here, by the way; the playbook is the long-form reference, but the day-to-day is in `MODERATOR_QUICKSTART.md`.
 
@@ -200,7 +200,7 @@ Not in the global catalogue either? Escalate to Justin — that's a catalogue im
 
 ## iScored sync
 
-### Score on iScored but not on ArcAid
+### Score on iScored but not on Arcaid
 
 Usually polling lag. Give it the poll interval + 30 seconds. Still missing?
 

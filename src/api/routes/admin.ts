@@ -34,6 +34,7 @@ import { IGDBImportService } from '../../services/IGDBImportService.js';
 import { SyncLogService } from '../../services/SyncLogService.js';
 import { ScoreReportService } from '../../services/ScoreReportService.js';
 import { ContentReportService } from '../../services/ContentReportService.js';
+import { CommentReportService } from '../../services/CommentReportService.js';
 import { GlobalScoreService } from '../../services/GlobalScoreService.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 
@@ -1420,6 +1421,52 @@ router.post('/reports/:id/resolve', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/reports/:id/resolve):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Comment Reports (v2.47.0 — S22 follow-ups Workstream 2) ---
+// Super-admin-only queue, matching the Content Moderation Reports section
+// above. Room-admin visibility is future work (contract decision 6).
+
+/** GET /api/admin/comment-reports?status=pending|resolved&limit&offset */
+router.get('/comment-reports', async (req, res) => {
+    try {
+        const status = req.query.status === 'resolved' ? 'resolved' : 'pending';
+        const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+        const offset = parseInt(req.query.offset as string) || 0;
+        const reports = await CommentReportService.list({ status, limit, offset });
+        res.json(reports);
+    } catch (error) {
+        logError('API Error (GET /api/admin/comment-reports):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/comment-reports/:id/dismiss — resolve only, no content action. */
+router.post('/comment-reports/:id/dismiss', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id as string, 10);
+        if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid report id' });
+        const ok = await CommentReportService.dismiss(id, (req.user!.discordId || req.user!.username || 'admin'));
+        if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/comment-reports/:id/dismiss):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** POST /api/admin/comment-reports/:id/remove — deletes the reported comment AND resolves the report. */
+router.post('/comment-reports/:id/remove', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id as string, 10);
+        if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid report id' });
+        const ok = await CommentReportService.remove(id, (req.user!.discordId || req.user!.username || 'admin'));
+        if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST /api/admin/comment-reports/:id/remove):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireDiscordUser } from '../middleware.js';
+import { requireAuth, requireDiscordUser, requireNotBanned } from '../middleware.js';
 import { UserProfileService } from '../../services/UserProfileService.js';
 import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { GlobalLeaderboardService } from '../../services/GlobalLeaderboardService.js';
@@ -39,7 +39,7 @@ router.get('/me/profile', requireAuth, requireDiscordUser, async (req, res) => {
  * `reason` (`too_short`, `too_long`, `taken_display`, `taken_alias`,
  * `invalid_chars`) so the FE can render targeted copy.
  */
-router.patch('/me/profile', requireAuth, requireDiscordUser, async (req, res) => {
+router.patch('/me/profile', requireAuth, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const discordId = req.user!.discordId!;
         const raw = req.body?.display_name;

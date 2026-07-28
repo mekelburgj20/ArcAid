@@ -22,9 +22,14 @@ import { useToast } from '../components/Toast';
  * add-ban form + lift, backed by the Phase-1 bans endpoints which had no UI
  * consumer yet), a "Suspend room" quick action on room-report rows, and
  * "Reset display name" / "Ban identity" quick actions on player-name rows.
+ *
+ * v2.47.0 (S22 follow-ups Workstream 2) adds a fifth Comments tab — flagged
+ * `game_comments` rows (CommentReportService), super-admin-only per contract
+ * decision 6 (room-admin visibility is future work). Actions: Dismiss (no
+ * content action) / Remove (deletes the comment, confirm dialog first).
  */
 
-type ReportTab = 'rooms' | 'names' | 'scores' | 'bans';
+type ReportTab = 'rooms' | 'names' | 'scores' | 'bans' | 'comments';
 
 interface ContentReportRow {
   id: number;
@@ -65,6 +70,26 @@ interface ScoreReportRow {
   origin_type: string | null;
   score_deleted_at: string | null;
   game_name: string | null;
+}
+
+/** v2.47.0 (S22 follow-ups Workstream 2) — mirrors CommentReportEnriched. */
+interface CommentReportRow {
+  id: number;
+  comment_id: number;
+  reporter_discord_id: string;
+  reason: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  resolution: string | null;
+  comment_body: string | null;
+  comment_type: 'comment' | 'tip' | null;
+  comment_display_name: string | null;
+  comment_user_id: string | null;
+  game_name: string | null;
+  game_room_id: string | null;
+  room_name: string | null;
+  room_slug: string | null;
 }
 
 /** S22 Phase 2 (v2.44.0) — mirrors ScoreReportService's UserBan shape. */
@@ -123,6 +148,7 @@ const TABS: Array<{ key: ReportTab; label: string }> = [
   { key: 'rooms', label: 'Rooms' },
   { key: 'names', label: 'Player Names' },
   { key: 'scores', label: 'Scores' },
+  { key: 'comments', label: 'Comments' },
   { key: 'bans', label: 'Bans' },
 ];
 
@@ -132,6 +158,7 @@ type ConfirmAction =
   | { kind: 'suspend-room'; report: ContentReportRow }
   | { kind: 'reset-name'; report: ContentReportRow }
   | { kind: 'ban-identity'; report: ContentReportRow }
+  | { kind: 'remove-comment'; report: CommentReportRow }
   | { kind: 'lift-ban'; ban: BanRow };
 
 export default function Reports() {
@@ -143,6 +170,8 @@ export default function Reports() {
   const [contentResolved, setContentResolved] = useState<ContentReportRow[]>([]);
   const [scorePending, setScorePending] = useState<ScoreReportRow[]>([]);
   const [scoreResolved, setScoreResolved] = useState<ScoreReportRow[]>([]);
+  const [commentPending, setCommentPending] = useState<CommentReportRow[]>([]);
+  const [commentResolved, setCommentResolved] = useState<CommentReportRow[]>([]);
   const [bans, setBans] = useState<BanRow[]>([]);
 
   const [loading, setLoading] = useState(true);
@@ -181,6 +210,13 @@ export default function Reports() {
       if (tab === 'bans') {
         const list = await api.get<BanRow[]>('/admin/bans');
         setBans(list || []);
+      } else if (tab === 'comments') {
+        const [pending, resolved] = await Promise.all([
+          api.get<CommentReportRow[]>('/admin/comment-reports?status=pending'),
+          api.get<CommentReportRow[]>('/admin/comment-reports?status=resolved'),
+        ]);
+        setCommentPending(pending || []);
+        setCommentResolved(resolved || []);
       } else if (contentType) {
         const [pending, resolved] = await Promise.all([
           api.get<ContentReportRow[]>(`/admin/reports?type=${contentType}&status=pending`),
@@ -338,6 +374,35 @@ export default function Reports() {
     setConfirmTarget({ kind: 'ban-identity', report });
   };
 
+  /** v2.47.0 (S22 follow-ups Workstream 2) — Comments tab: dismiss (no content action). */
+  const handleDismissComment = async (id: number) => {
+    setActingOn(id);
+    try {
+      await api.post(`/admin/comment-reports/${id}/dismiss`, {});
+      toast('Report dismissed', 'success');
+      await refresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to dismiss report', 'error');
+    } finally {
+      setActingOn(null);
+    }
+  };
+
+  /** v2.47.0 (S22 follow-ups Workstream 2) — Comments tab: remove (deletes the comment). */
+  const handleRemoveComment = async (report: CommentReportRow) => {
+    setActingOn(report.id);
+    try {
+      await api.post(`/admin/comment-reports/${report.id}/remove`, {});
+      toast('Comment removed', 'success');
+      await refresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to remove comment', 'error');
+    } finally {
+      setActingOn(null);
+      setConfirmTarget(null);
+    }
+  };
+
   /** S22 Phase 2 (v2.44.0) — Bans tab: lift an active ban. */
   const handleLiftBan = async (ban: BanRow) => {
     setActingOn(ban.id);
@@ -380,6 +445,7 @@ export default function Reports() {
 
   const contentRows = showResolved ? contentResolved : contentPending;
   const scoreRows = showResolved ? scoreResolved : scorePending;
+  const commentRows = showResolved ? commentResolved : commentPending;
 
   return (
     <div>
@@ -510,6 +576,83 @@ export default function Reports() {
             )}
           </NeonCard>
         </div>
+      ) : tab === 'comments' ? (
+        <NeonCard title={showResolved ? 'Resolved' : 'Pending'} glowColor={showResolved ? 'cyan' : 'amber'}>
+          {commentRows.length === 0 ? (
+            <p className="text-faint text-sm">{showResolved ? 'No resolved reports yet.' : 'No pending comment reports.'}</p>
+          ) : (
+            <div className="space-y-3">
+              {commentRows.map((r) => (
+                <div key={r.id} className="bg-raised border border-border rounded px-4 py-3">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-primary">
+                        {r.game_name || 'Unknown game'}
+                        {r.comment_type && (
+                          <span className="ml-2 text-xs px-2 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">
+                            {r.comment_type === 'tip' ? 'Tip' : 'Comment'}
+                          </span>
+                        )}
+                      </p>
+                      {r.room_name && (
+                        <p className="text-xs text-faint mt-0.5">
+                          in room: {r.room_name}
+                          {r.room_slug && (
+                            <Link
+                              to={`/${r.room_slug}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="ml-1 text-xs text-neon-cyan hover:underline inline-flex items-center gap-1"
+                            >
+                              /{r.room_slug} <ExternalLink size={11} />
+                            </Link>
+                          )}
+                        </p>
+                      )}
+                      <p className="text-xs text-faint mt-0.5">
+                        By {r.comment_display_name || r.comment_user_id || 'Unknown'} · reported by {r.reporter_discord_id} · {timeAgo(r.created_at)}
+                      </p>
+                      {r.comment_body ? (
+                        <p className="text-sm text-muted mt-1.5 bg-surface border border-border rounded px-2 py-1.5">"{r.comment_body}"</p>
+                      ) : (
+                        <p className="text-xs text-faint mt-1.5 italic">Comment no longer exists.</p>
+                      )}
+                      {r.reason && <p className="text-sm text-muted mt-1.5">Reason: "{r.reason}"</p>}
+                      {showResolved && (
+                        <p className="text-xs text-faint mt-1.5">
+                          Resolved by {r.resolved_by || 'admin'} ({r.resolution}) · {r.resolved_at && timeAgo(r.resolved_at)}
+                        </p>
+                      )}
+                    </div>
+                    {!showResolved && (
+                      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+                        <NeonButton
+                          variant="ghost"
+                          className="text-xs px-3 py-1.5"
+                          onClick={() => handleDismissComment(r.id)}
+                          disabled={actingOn === r.id}
+                        >
+                          Dismiss
+                        </NeonButton>
+                        {r.comment_body && (
+                          <NeonButton
+                            variant="danger"
+                            className="text-xs px-3 py-1.5"
+                            onClick={() => setConfirmTarget({ kind: 'remove-comment', report: r })}
+                            disabled={actingOn === r.id}
+                          >
+                            <Trash2 size={13} className="inline -mt-0.5 mr-1" />
+                            Remove
+                          </NeonButton>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </NeonCard>
       ) : contentType ? (
         <NeonCard title={showResolved ? 'Resolved' : 'Pending'} glowColor={showResolved ? 'cyan' : 'amber'}>
           {contentRows.length === 0 ? (
@@ -814,6 +957,16 @@ export default function Reports() {
           message="Clears their chosen display name. Renders fall back to their username/id until they set a new one."
           confirmLabel="Reset Name"
           onConfirm={() => handleResetDisplayName(confirmTarget.report)}
+          onCancel={() => setConfirmTarget(null)}
+        />
+      )}
+
+      {confirmTarget?.kind === 'remove-comment' && (
+        <ConfirmModal
+          title="Remove this comment?"
+          message="Permanently deletes the comment. This cannot be undone."
+          confirmLabel="Remove"
+          onConfirm={() => handleRemoveComment(confirmTarget.report)}
           onCancel={() => setConfirmTarget(null)}
         />
       )}

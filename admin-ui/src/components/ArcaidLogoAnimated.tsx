@@ -93,7 +93,7 @@ export default function ArcaidLogoAnimated({ maxWidth = 720, className = '' }: A
           </g>
         </svg>
 
-        <div className="arcaid-logo-word" role="img" aria-label="ArcAid">
+        <div className="arcaid-logo-word" role="img" aria-label="Arcaid">
           <div className="arcaid-logo-pink" aria-hidden="true">ARCAıD</div>
           <div className="arcaid-logo-cyan" aria-hidden="true">ARCAıD</div>
           <div className="arcaid-logo-chrome" aria-hidden="true">ARCAıD</div>

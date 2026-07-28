@@ -99,7 +99,7 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-deep">
       <div className="bg-surface border border-border rounded-lg p-8 w-full max-w-sm">
-        <img src="/arcaid-logo-v2.png" alt="ArcAid" className="w-24 h-24 mx-auto mb-2" />
+        <img src="/arcaid-logo-v2.png" alt="Arcaid" className="w-24 h-24 mx-auto mb-2" />
         <p className="text-muted text-center text-sm mb-8">Super Admin Login</p>
 
         {/* Discord OAuth Login */}

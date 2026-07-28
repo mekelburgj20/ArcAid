@@ -16,7 +16,7 @@ export function tabSubtitle(tab: 'tournaments' | 'room' | 'global', roomName: st
     case 'room':
       return `Every score set in ${roomName}`;
     case 'global':
-      return 'Top scores across every ArcAid room';
+      return 'Top scores across every Arcaid room';
   }
 }
 
@@ -39,7 +39,7 @@ export function roomScoresSearchEmpty(q: string): string {
   return `No games match "${q}".`;
 }
 
-export const GLOBAL_BANNER_TEXT = 'Global Scoreboard — top scores across every ArcAid room';
+export const GLOBAL_BANNER_TEXT = 'Global Scoreboard — top scores across every Arcaid room';
 
 export const GLOBAL_SEE_FULL_LABEL = 'See the full Global Scoreboard →';
 

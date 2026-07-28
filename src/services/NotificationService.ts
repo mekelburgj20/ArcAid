@@ -221,7 +221,7 @@ export class NotificationService {
             // before this change (see s15-web-push.test.ts's closed-DMs case).
             if (WEB_PUSH_TYPES.has(type) && webPushOptIn) {
                 const payload: WebPushPayload = {
-                    title: PUSH_TITLES[type] ?? 'ArcAid',
+                    title: PUSH_TITLES[type] ?? 'Arcaid',
                     body: toPushBody(message),
                     url: params.pushUrl || (process.env.PUBLIC_URL || 'https://arcaid.app'),
                     tag: `arcaid-${type}`,

@@ -132,7 +132,7 @@ export default function LandingPage() {
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm relative z-40">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/arcaid-logo-wide-v2.png" alt="ArcAid" className="h-16 w-auto" />
+            <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-16 w-auto" />
           </div>
           <div className="flex items-center gap-3">
             {/* Super-admin login is intentionally NOT linked here — it's reached

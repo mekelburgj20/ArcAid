@@ -25,7 +25,7 @@ export class OpsAlertService {
                 return;
             }
 
-            const ok = await sendDirectMessage(userId, `⚠️ ArcAid ops alert\n\n${text}`);
+            const ok = await sendDirectMessage(userId, `⚠️ Arcaid ops alert\n\n${text}`);
             if (ok) {
                 logInfo('OpsAlertService: operator alert DM sent.');
             } else {

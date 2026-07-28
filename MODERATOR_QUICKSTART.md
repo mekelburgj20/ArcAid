@@ -1,4 +1,4 @@
-# ArcAid Moderator Quickstart
+# Arcaid Moderator Quickstart
 
 Thanks for jumping on this. This is the short version of what you'll be doing. For the full reference, see `MODERATOR_PLAYBOOK.md`. For an overview of the admin portal itself, see `ADMIN_PORTAL_TOUR.md`.
 
@@ -14,7 +14,7 @@ That's it.
 
 ## What this test is really about
 
-ArcAid runs the tournament on its own. It rotates games, polls iScored, asks the winner to pick the next one, picks for them if they don't, and announces everything in Discord. None of that needs a human and most of the time it'll just work.
+Arcaid runs the tournament on its own. It rotates games, polls iScored, asks the winner to pick the next one, picks for them if they don't, and announces everything in Discord. None of that needs a human and most of the time it'll just work.
 
 Honestly, having you in here early is a real help. The feedback that comes from someone who actually runs pinball tournaments isn't something I can manufacture by clicking around myself, so anything you notice is gold. Use the tool the way you'd want it to work as a real mod and tell me what felt off, broke, surprised you, or made you want to throw your laptop. Even the small stuff.
 
@@ -38,12 +38,12 @@ Submitted as a guest, then later logged in with Discord, now their old scores ar
 
 - Go to **Identity**.
 - Find the anon entry under **Pending Claims**.
-- ArcAid usually suggests the matching Discord user. Click **Preview Merge**, then **Confirm**.
+- Arcaid usually suggests the matching Discord user. Click **Preview Merge**, then **Confirm**.
 - If no suggestion shows up, paste their Discord ID into the merge box and run it manually.
 
 ### 3. Winner is AFK and the pick prompt is hanging
 
-ArcAid hands the pick to the runner-up after a window, then auto-picks if that runs out too. So usually you wait. If a tournament looks genuinely stuck:
+Arcaid hands the pick to the runner-up after a window, then auto-picks if that runs out too. So usually you wait. If a tournament looks genuinely stuck:
 
 - Go to **Game States**.
 - Find the `[Pending Pick]` row.

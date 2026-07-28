@@ -1,4 +1,4 @@
-# ArcAid Admin Portal Tour
+# Arcaid Admin Portal Tour
 
 A walk through every section in the room admin sidebar so you know what's behind each link before you need it. None of this is a procedure to follow. It's a map.
 
@@ -46,7 +46,7 @@ The truth-table view of every game in the room across every status: ACTIVE, QUEU
 
 This is the rescue page. If a tournament looks stuck, the stuck row is here. **Clear Picker** cancels a hanging pick timeout. **Delete** removes a phantom `[Pending Pick]` row. **Force Maintenance** triggers the full maintenance cycle (lock, scrape, rotate) on demand and is interesting to watch even when nothing is wrong.
 
-The **Sync iScored** action is for repairing a mismatch between ArcAid's view and iScored's view. It exposes Lock, Unlock, Create, and Delete on the iScored side. Try them on a test game if you're curious. The iScored side is where unexpected things happen, so any weirdness is worth writing down.
+The **Sync iScored** action is for repairing a mismatch between Arcaid's view and iScored's view. It exposes Lock, Unlock, Create, and Delete on the iScored side. Try them on a test game if you're curious. The iScored side is where unexpected things happen, so any weirdness is worth writing down.
 
 ---
 
@@ -60,7 +60,7 @@ This is your primary tool for the "user typo'd a score" scenario. Click **Scores
 
 ### Rankings
 
-Cross-tournament standings. ArcAid lets you group tournaments together (for example, "all weekly tournaments combined") and produce an aggregate ranking. The page shows those groups and who's leading each.
+Cross-tournament standings. Arcaid lets you group tournaments together (for example, "all weekly tournaments combined") and produce an aggregate ranking. The page shows those groups and who's leading each.
 
 Mostly read-only. There's a **Recompute** button per group; it's a diagnostic escape hatch and shouldn't usually be needed, but pressing it won't hurt anything.
 
@@ -109,7 +109,7 @@ Everything here is editable. Two things are worth flagging:
 
 Where you handle merges between anonymous players and Discord accounts, and where you can reverse a merge if something went wrong. Two main sections:
 
-- **Pending Claims**: anonymous identities that have submitted scores in this room. ArcAid suggests a Discord match when it can; otherwise you can paste a Discord ID and merge manually. Every merge runs a preview first so you can see exactly what moves and what stays.
+- **Pending Claims**: anonymous identities that have submitted scores in this room. Arcaid suggests a Discord match when it can; otherwise you can paste a Discord ID and merge manually. Every merge runs a preview first so you can see exactly what moves and what stays.
 - **Audit Chain**: every merge that's been done, with a **Reverse** button if you need to undo one.
 
 There's also a **Rename Player** tool at the top for cases where a name needs to change.

@@ -40,7 +40,7 @@ export function validateEnvironment(): { canStartBot: boolean; canConnectIScored
     const canConnectIScored = !!(process.env.ISCORED_USERNAME && process.env.ISCORED_PASSWORD);
 
     if (missing.length > 0) {
-        logError(`ArcAid cannot start: Missing required configuration:\n${missing.join('\n')}`);
+        logError(`Arcaid cannot start: Missing required configuration:\n${missing.join('\n')}`);
     }
 
     if (!canStartBot) {

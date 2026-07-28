@@ -324,7 +324,7 @@ export default function GameStates() {
           )}
           <button
             onClick={openReconcile}
-            title="Find games on iScored that ArcAid no longer tracks and delete them"
+            title="Find games on iScored that Arcaid no longer tracks and delete them"
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-neon-purple/40 text-neon-purple bg-neon-purple/10 hover:bg-neon-purple/20 transition-colors cursor-pointer"
           >
             <Recycle size={14} />
@@ -569,7 +569,7 @@ function ReconcileModal({ state, onToggle, onRun, onCancel }: {
       <input type="checkbox" checked={selected.has(e.id)} onChange={() => onToggle(e.id)} className="accent-red-400" />
       <span className="text-primary flex-1 truncate">{e.name || `(id ${e.id})`}</span>
       {e.tags.length > 0 && <span className="text-[10px] text-muted shrink-0">{e.tags.join(', ')}</span>}
-      <span className="text-[10px] text-faint shrink-0">{kind === 'orphan' ? `local: ${e.localStatuses.join('/')}` : 'not in ArcAid'}</span>
+      <span className="text-[10px] text-faint shrink-0">{kind === 'orphan' ? `local: ${e.localStatuses.join('/')}` : 'not in Arcaid'}</span>
     </label>
   );
   return (
@@ -591,18 +591,18 @@ function ReconcileModal({ state, onToggle, onRun, onCancel }: {
             <div className="overflow-y-auto flex-1 -mx-2 px-2 space-y-3">
               {plan.orphans.length > 0 && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1">Orphans — archived in ArcAid, still on iScored</div>
+                  <div className="text-[10px] uppercase tracking-wider text-red-400 mb-1">Orphans — archived in Arcaid, still on iScored</div>
                   {plan.orphans.map(e => row(e, 'orphan'))}
                 </div>
               )}
               {plan.unmanaged.length > 0 && (
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-neon-amber mb-1">Unmanaged — not in ArcAid (check only if you're sure)</div>
+                  <div className="text-[10px] uppercase tracking-wider text-neon-amber mb-1">Unmanaged — not in Arcaid (check only if you're sure)</div>
                   {plan.unmanaged.map(e => row(e, 'unmanaged'))}
                 </div>
               )}
               {plan.orphans.length === 0 && plan.unmanaged.length === 0 && (
-                <p className="text-sm text-neon-green py-4">Nothing to clean up — iScored matches ArcAid. 🎉</p>
+                <p className="text-sm text-neon-green py-4">Nothing to clean up — iScored matches Arcaid. 🎉</p>
               )}
             </div>
             <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-border">

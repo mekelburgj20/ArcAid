@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import crypto from 'crypto';
-import { setupTestDb, createTestRoom } from './helpers.js';
+import { setupTestDb, createTestRoom, createTestTournament, createTestGame } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { createSession, refreshAccessToken, signToken } from '../api/auth.js';
 import { BanService } from '../services/BanService.js';
 import { ScoreReportService } from '../services/ScoreReportService.js';
+import { SubmissionDraftService } from '../services/SubmissionDraftService.js';
 
 /**
  * S22 Phase 2 (v2.44.0) — ban enforcement at token issuance (contract §3/§4).
@@ -364,5 +365,280 @@ describe('ban write-side sanity (regression guard, not new behavior)', () => {
         await ScoreReportService.ban('discord-writer-sanity-1', 'admin-x', null, 'sanity');
         const result = await BanService.isIdentityBanned('discord-writer-sanity-1');
         expect(result.banned).toBe(true);
+    });
+});
+
+// v2.47.0 (S22 follow-ups Workstream 1) — BanService's 10s in-memory TTL
+// cache (same idiom as PickAwardGate.cache / NotificationService.flagCache).
+describe('BanService cache — hit/expiry/invalidate', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+        BanService.clearCacheForTests();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        BanService.clearCacheForTests();
+    });
+
+    it('caches a result — a raw DB mutation after the first read is NOT reflected until invalidated or the TTL expires', async () => {
+        const id = 'discord-cache-hit-1';
+        const first = await BanService.isIdentityBanned(id);
+        expect(first.banned).toBe(false);
+
+        // Bypass BanService entirely (raw INSERT, no invalidate call) — mirrors
+        // any writer that forgets to invalidate.
+        await seedBan(id);
+
+        const second = await BanService.isIdentityBanned(id);
+        expect(second.banned).toBe(false); // still the cached "not banned" result
+    });
+
+    it('re-queries once the TTL expires', async () => {
+        vi.useFakeTimers();
+        try {
+            const id = 'discord-cache-expiry-1';
+            const first = await BanService.isIdentityBanned(id);
+            expect(first.banned).toBe(false);
+
+            await seedBan(id);
+
+            vi.advanceTimersByTime(10_001); // TTL_MS (10s) + 1ms
+            const second = await BanService.isIdentityBanned(id);
+            expect(second.banned).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('invalidate() drops the cached entry immediately, without waiting out the TTL', async () => {
+        const id = 'discord-cache-invalidate-1';
+        const first = await BanService.isIdentityBanned(id);
+        expect(first.banned).toBe(false);
+
+        await seedBan(id);
+        BanService.invalidate(id);
+
+        const second = await BanService.isIdentityBanned(id);
+        expect(second.banned).toBe(true);
+    });
+
+    it('ScoreReportService.ban invalidates the cache for the newly-banned id', async () => {
+        const id = 'discord-cache-ban-writer-1';
+        const first = await BanService.isIdentityBanned(id);
+        expect(first.banned).toBe(false);
+
+        await ScoreReportService.ban(id, 'admin-x', null, 'cache invalidation check');
+
+        const second = await BanService.isIdentityBanned(id);
+        expect(second.banned).toBe(true);
+    });
+
+    it('ScoreReportService.lift invalidates the cache for the unbanned id', async () => {
+        const id = 'discord-cache-lift-writer-1';
+        const ban = await ScoreReportService.ban(id, 'admin-x', null, 'to be lifted');
+        const first = await BanService.isIdentityBanned(id);
+        expect(first.banned).toBe(true);
+
+        await ScoreReportService.lift(ban.id, 'admin-x');
+
+        const second = await BanService.isIdentityBanned(id);
+        expect(second.banned).toBe(false);
+    });
+});
+
+// v2.47.0 (S22 follow-ups Workstream 1) — `requireNotBanned` middleware,
+// composed into the per-submit route chains. A representative sample per the
+// contract's test list: one rooms.ts submit path, one global.ts write, and
+// the room comments-create route, plus the anonymous-passthrough and
+// immediate-cache-invalidation-on-ban cases.
+describe('requireNotBanned middleware — per-submit route gating', () => {
+    async function createTestApp() {
+        await setupTestDb();
+        const app = express();
+        app.use(express.json());
+        const { default: globalRouter } = await import('../api/routes/global.js');
+        const { default: roomsRouter } = await import('../api/routes/rooms.js');
+        app.use('/api/rooms', roomsRouter);
+        app.use('/api', globalRouter);
+        return app;
+    }
+
+    function playerToken(discordId: string) {
+        return signToken({ role: 'player', gameRoomIds: [], discordId, username: 'Tester' });
+    }
+
+    it('rooms.ts submit path (POST /:roomId/community-scores/:gameName) 403s a banned identity before touching the game/room', async () => {
+        const app = await createTestApp();
+        const discordId = 'discord-mw-rooms-submit-banned';
+        await seedBan(discordId);
+        const res = await request(app)
+            .post('/api/rooms/nonexistent-room-id/community-scores/SomeGame')
+            .set('Authorization', `Bearer ${playerToken(discordId)}`)
+            .send({ username: 'Tester', score: 100 });
+        expect(res.status).toBe(403);
+        expect(res.body.error).toBe('This account is banned.');
+    });
+
+    it('global.ts write (POST /global/rooms/:roomId/report) 403s a banned identity before touching the room', async () => {
+        const app = await createTestApp();
+        const discordId = 'discord-mw-global-write-banned';
+        await seedBan(discordId);
+        const res = await request(app)
+            .post('/api/global/rooms/nonexistent-room-id/report')
+            .set('Authorization', `Bearer ${playerToken(discordId)}`)
+            .send({ reason: 'test' });
+        expect(res.status).toBe(403);
+        expect(res.body.error).toBe('This account is banned.');
+    });
+
+    it('comments create (POST /:roomId/games/:gameName/comments) 403s a banned identity', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('mw-comments-banned-room');
+        const discordId = 'discord-mw-comments-banned';
+        await seedBan(discordId);
+        const res = await request(app)
+            .post(`/api/rooms/${roomId}/games/${encodeURIComponent('Some Game')}/comments`)
+            .set('Authorization', `Bearer ${playerToken(discordId)}`)
+            .send({ display_name: 'Tester', type: 'comment', body: 'hello' });
+        expect(res.status).toBe(403);
+        expect(res.body.error).toBe('This account is banned.');
+    });
+
+    it('anonymous (no Authorization header) request passes through the ban gate — comment is created', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('mw-comments-anon-room');
+        const res = await request(app)
+            .post(`/api/rooms/${roomId}/games/${encodeURIComponent('Some Game')}/comments`)
+            .send({ display_name: 'Guest', type: 'comment', body: 'hello from a guest' });
+        expect(res.status).toBe(201);
+    });
+
+    it('a non-banned logged-in user passes through the ban gate (control)', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('mw-comments-clean-room');
+        const discordId = 'discord-mw-comments-clean';
+        const res = await request(app)
+            .post(`/api/rooms/${roomId}/games/${encodeURIComponent('Some Game')}/comments`)
+            .set('Authorization', `Bearer ${playerToken(discordId)}`)
+            .send({ display_name: 'Tester', type: 'comment', body: 'hello' });
+        expect(res.status).toBe(201);
+    });
+
+    it('cache invalidation on ban: a freshly-banned identity is rejected immediately, without waiting out the 10s TTL', async () => {
+        const app = await createTestApp();
+        const discordId = 'discord-mw-fresh-ban';
+
+        // First request populates BanService's cache with "not banned".
+        const before = await request(app)
+            .post('/api/global/rooms/nonexistent-room-id/report')
+            .set('Authorization', `Bearer ${playerToken(discordId)}`)
+            .send({ reason: 'test' });
+        expect(before.status).not.toBe(403);
+
+        // Ban through the real writer (ScoreReportService.ban), which invalidates the cache.
+        await ScoreReportService.ban(discordId, 'admin-x', null, 'fresh ban');
+
+        // Immediately re-request — must be rejected NOW, not after the TTL.
+        const after = await request(app)
+            .post('/api/global/rooms/nonexistent-room-id/report')
+            .set('Authorization', `Bearer ${playerToken(discordId)}`)
+            .send({ reason: 'test' });
+        expect(after.status).toBe(403);
+        expect(after.body.error).toBe('This account is banned.');
+    });
+});
+
+// v2.47.0 (S22 follow-ups adversarial review) — fix-round blockers H1, M1, M2,
+// M3: additional gate coverage for routes the first pass missed.
+describe('requireNotBanned — fix-round gate coverage (H1/M1/M2/M3)', () => {
+    async function createTestApp() {
+        await setupTestDb();
+        const app = express();
+        app.use(express.json());
+        const { default: globalRouter } = await import('../api/routes/global.js');
+        const { default: roomsRouter } = await import('../api/routes/rooms.js');
+        const { default: usersRouter } = await import('../api/routes/users.js');
+        app.use('/api/rooms', roomsRouter);
+        app.use('/api/users', usersRouter);
+        app.use('/api', globalRouter);
+        return app;
+    }
+
+    function playerToken(discordId: string) {
+        return signToken({ role: 'player', gameRoomIds: [], discordId, username: 'Tester' });
+    }
+
+    it('H1: POST /submission-drafts/:stateParam/commit 403s a banned identity and writes no submissions row', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('h1-draft-room');
+        const tournamentId = await createTestTournament(roomId);
+        await createTestGame(tournamentId, { name: 'Draft Target Game' });
+        const discordId = 'discord-h1-draft-banned';
+        await seedBan(discordId);
+
+        const stateParam = 'h1-draft-state-1';
+        await SubmissionDraftService.create(
+            stateParam,
+            { kind: 'tournament', roomId, gameName: 'Draft Target Game' },
+            { playerName: 'BannedDrafter', score: 999999 },
+        );
+
+        const res = await request(app)
+            .post(`/api/submission-drafts/${stateParam}/commit`)
+            .set('Authorization', `Bearer ${playerToken(discordId)}`)
+            .send({});
+        expect(res.status).toBe(403);
+
+        const db = await getDatabase();
+        const row = await db.get(
+            `SELECT id FROM submissions WHERE iscored_username = 'BannedDrafter'`,
+        );
+        expect(row).toBeUndefined();
+    });
+
+    it('M1: PATCH /api/users/me/profile 403s a banned identity', async () => {
+        const app = await createTestApp();
+        const discordId = 'discord-m1-profile-banned';
+        await seedBan(discordId);
+        const res = await request(app)
+            .patch('/api/users/me/profile')
+            .set('Authorization', `Bearer ${playerToken(discordId)}`)
+            .send({ display_name: 'NewName' });
+        expect(res.status).toBe(403);
+        expect(res.body.error).toBe('This account is banned.');
+    });
+
+    it('M2: POST /:roomId/lobby/announcements 403s a banned room admin (representative sample)', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('m2-announce-room');
+        const discordId = 'discord-m2-announce-banned';
+        await seedBan(discordId);
+        const token = signToken({ role: 'room_admin', gameRoomIds: [roomId], discordId, username: 'RoomAdmin' });
+        const res = await request(app)
+            .post(`/api/rooms/${roomId}/lobby/announcements`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ title: 'Banned admin announcement' });
+        expect(res.status).toBe(403);
+        expect(res.body.error).toBe('This account is banned.');
+    });
+
+    it('M3: POST /me/rooms/:roomId (open self-join) 403s a banned identity', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('m3-join-room');
+        const discordId = 'discord-m3-join-banned';
+        await seedBan(discordId);
+        const res = await request(app)
+            .post(`/api/me/rooms/${roomId}`)
+            .set('Authorization', `Bearer ${playerToken(discordId)}`)
+            .send({});
+        expect(res.status).toBe(403);
+        expect(res.body.error).toBe('This account is banned.');
+
+        const db = await getDatabase();
+        const membership = await db.get(
+            'SELECT 1 FROM room_members WHERE user_id = ? AND room_id = ?',
+            discordId, roomId,
+        );
+        expect(membership).toBeUndefined();
     });
 });

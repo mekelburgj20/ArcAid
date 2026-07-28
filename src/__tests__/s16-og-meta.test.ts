@@ -25,7 +25,7 @@ const SHELL = `<!doctype html>
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <title>ArcAid</title>
+    <title>Arcaid</title>
   </head>
   <body><div id="root"></div></body>
 </html>
@@ -108,6 +108,29 @@ describe('injectOgTags', () => {
         expect(injectOgTags('<html><body></body></html>', {
             title: 't', description: 'd', url: 'u', image: null,
         })).toBeNull();
+    });
+
+    // v2.47.0 (S22 follow-ups N1) — every other test in this file feeds
+    // `injectOgTags`/`maybeBuildOgShell` a hand-authored SHELL fixture, so a
+    // future edit to the REAL admin-ui/index.html (e.g. a title tag rewrite,
+    // or a `</head>` typo) could silently break OG injection in production
+    // while this suite stays green. Bind directly to the shipped file on
+    // disk so that class of regression fails the build.
+    it('produces a non-null injection against the real admin-ui/index.html shell', () => {
+        const realShellPath = path.join(process.cwd(), 'admin-ui', 'index.html');
+        const realShell = fs.readFileSync(realShellPath, 'utf8');
+        const injected = injectOgTags(realShell, {
+            title: 'Medieval Madness · Share Test Room',
+            description: 'd',
+            url: 'https://arcaid.app/sharetest/games/Medieval%20Madness',
+            image: null,
+        });
+        expect(injected).not.toBeNull();
+        expect(injected).toContain('og:title');
+        expect(injected).toContain('Medieval Madness · Share Test Room');
+        // The real shell's own <title> must survive the splice alongside the
+        // injected tags — a broken </head> match would silently drop content.
+        expect(injected).toContain('<div id="root">');
     });
 });
 
@@ -222,7 +245,7 @@ describe('OG shell serving', () => {
         expect(res.status).toBe(200);
         // `$'` in a replacement STRING splices the rest of the document into
         // <title>; the replacer-function form must render the literal name.
-        expect(res.text).toContain('<title>Cash $&#39; Grab · Share Test Room · ArcAid</title>');
+        expect(res.text).toContain('<title>Cash $&#39; Grab · Share Test Room · Arcaid</title>');
         expect(res.text.match(/<\/html>/g)?.length).toBe(1);
     });
 

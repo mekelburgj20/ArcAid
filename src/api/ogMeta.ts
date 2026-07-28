@@ -12,7 +12,7 @@ import { logWarn } from '../utils/logger.js';
  * When a link-preview crawler (Discord, Slack, Twitter, …) requests a shareable
  * SPA route (`/:slug/games/:name` or `/:slug/players/:id`), we serve the built
  * `index.html` shell with `og:*` / `twitter:*` tags injected into `<head>` so
- * the unfurl shows the game/player instead of a bare "ArcAid".
+ * the unfurl shows the game/player instead of a bare "Arcaid".
  *
  * Safety contract (a bug here must never break the app for humans):
  *   - Only fires for UAs matching the curated bot list — humans always get the
@@ -109,7 +109,7 @@ export function injectOgTags(shell: string, meta: OgMeta): string | null {
     const u = escapeHtml(meta.url);
     const lines = [
         '<meta property="og:type" content="website" />',
-        '<meta property="og:site_name" content="ArcAid" />',
+        '<meta property="og:site_name" content="Arcaid" />',
         `<meta property="og:title" content="${t}" />`,
         `<meta property="og:description" content="${d}" />`,
         `<meta property="og:url" content="${u}" />`,
@@ -130,7 +130,7 @@ export function injectOgTags(shell: string, meta: OgMeta): string | null {
     // <title> (and any plain fetcher) see the page name too. Replacer FUNCTION,
     // not string — a name containing `$'`/`$&` would otherwise trigger
     // String.replace's special replacement patterns and corrupt the document.
-    html = html.replace('<title>ArcAid</title>', () => `<title>${t} · ArcAid</title>`);
+    html = html.replace('<title>Arcaid</title>', () => `<title>${t} · Arcaid</title>`);
     return html;
 }
 
@@ -208,7 +208,7 @@ export async function maybeBuildOgShell(req: Request, frontendPath: string): Pro
                 route.name,
             );
             title = `${gameName} · ${room.name}`;
-            description = `Leaderboard and top scores for ${gameName} at ${room.name} on ArcAid.`;
+            description = `Leaderboard and top scores for ${gameName} at ${room.name} on Arcaid.`;
             image = normalizeImageUrl(art?.local_image_path || art?.image_url);
         } else {
             // Display resolution rule: display_name ?? iscored_username.
@@ -220,7 +220,7 @@ export async function maybeBuildOgShell(req: Request, frontendPath: string): Pro
             );
             const playerName = profile?.display_name || route.name;
             title = `${playerName} · ${room.name}`;
-            description = `Scores, stats and trophies for ${playerName} at ${room.name} on ArcAid.`;
+            description = `Scores, stats and trophies for ${playerName} at ${room.name} on Arcaid.`;
         }
 
         if (!image) image = normalizeImageUrl(room.logo_url) || '/arcaid-logo-v2.png';

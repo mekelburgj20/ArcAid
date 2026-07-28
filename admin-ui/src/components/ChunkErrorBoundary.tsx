@@ -39,7 +39,7 @@ export default class ChunkErrorBoundary extends Component<{ children: ReactNode 
         if (this.state.failed) {
             return (
                 <div className="flex flex-col items-center justify-center py-24 gap-4 text-center px-4">
-                    <p className="text-primary font-display">A new version of ArcAid is available.</p>
+                    <p className="text-primary font-display">A new version of Arcaid is available.</p>
                     <p className="text-muted text-sm">Reload to pick it up.</p>
                     <button
                         onClick={() => {

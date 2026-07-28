@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
-import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser, optionalDiscordUser, roomVisibilityGate } from '../middleware.js';
+import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser, optionalDiscordUser, roomVisibilityGate, requireNotBanned } from '../middleware.js';
 import { validate } from '../validate.js';
 import { isProviderUserId } from '../../utils/identityProvider.js';
 import {
@@ -664,7 +664,7 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
 });
 
 // Pick/queue a game — requires Discord login
-router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, res) => {
+router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(PickGameSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -823,7 +823,7 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, async (req, r
 });
 
 // Delete a queued game — requires Discord login + ownership
-router.delete('/:roomId/queue/:gameId', requireDiscordUser, async (req, res) => {
+router.delete('/:roomId/queue/:gameId', requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const db = await getDatabase();
         const roomId = req.params.roomId as string;
@@ -850,7 +850,7 @@ router.delete('/:roomId/queue/:gameId', requireDiscordUser, async (req, res) => 
 });
 
 // Reorder queued games — requires Discord login + ownership
-router.put('/:roomId/queue/reorder', requireDiscordUser, async (req, res) => {
+router.put('/:roomId/queue/reorder', requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(ReorderQueueSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -1362,7 +1362,7 @@ router.get('/:roomId/community-scores/:gameName/leaders', async (req, res) => {
     }
 });
 
-router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequireDiscordUser('roomId'), async (req, res) => {
+router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequireDiscordUser('roomId'), requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(CommunityScoreSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -1483,7 +1483,7 @@ router.post('/:roomId/submit/name-check', async (req, res) => {
 
 // Score submission with photo upload (public, rate-limited)
 // Discord login conditionally enforced via REQUIRE_DISCORD_LOGIN room setting.
-router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireDiscordUser('roomId'), roomAssetUpload.single('photo'), async (req, res) => {
+router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireDiscordUser('roomId'), requireNotBanned, roomAssetUpload.single('photo'), async (req, res) => {
     try {
         const validationResult = validate(ScoreSubmissionSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -1605,7 +1605,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
  * Saves to community_scores + score_history (room-scoped views) and fans out
  * to global_scores (subject to room GLOBAL_SCOREBOARD_ENABLED and user exclude_global).
  */
-router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUser('roomId'), roomAssetUpload.single('photo'), async (req, res) => {
+router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUser('roomId'), requireNotBanned, roomAssetUpload.single('photo'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         // v2.5.0: switched from inline checks to FreeplayScoreSchema so all
@@ -1887,7 +1887,7 @@ router.get('/:roomId/lobby/announcements/all', requireAuth, requireRoomAccess('r
 });
 
 // Admin: create announcement
-router.post('/:roomId/lobby/announcements', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+router.post('/:roomId/lobby/announcements', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
     try {
         const { title, body, image_url, cta_url, cta_label, type, event_datetime, display_from, display_until, sort_order } = req.body;
         if (!title) return res.status(400).json({ error: 'title is required' });
@@ -1903,7 +1903,7 @@ router.post('/:roomId/lobby/announcements', requireAuth, requireRoomAccess('room
 });
 
 // Admin: update announcement
-router.put('/:roomId/lobby/announcements/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+router.put('/:roomId/lobby/announcements/:id', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
     try {
         const { AnnouncementService } = await import('../../services/AnnouncementService.js');
         const updated = await AnnouncementService.update(req.params.id as string, req.body);
@@ -2018,7 +2018,7 @@ router.get('/:roomId/lobby/config', async (req, res) => {
 });
 
 // Admin: save lobby config
-router.put('/:roomId/lobby/config', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+router.put('/:roomId/lobby/config', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
     try {
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
         const roomId = req.params.roomId as string;
@@ -2055,10 +2055,17 @@ router.get('/:roomId/games/:gameName/comments', optionalDiscordUser, async (req,
         // let a stranger read an id and replay it to delete that comment. Mask each
         // row to the caller: their own id survives (so the FE can show its delete
         // control), everyone else's becomes null.
-        const callerId = req.user?.discordId || (req.headers['x-user-id'] as string) || '';
+        // M4 fix (S22 follow-ups adversarial review) — every pre-existing comment
+        // was stored under the anon x-user-id, so a logged-in author's own row
+        // won't match their discordId. Build a candidate identity set (both ids,
+        // filtered of empty/'anon') and treat a match against EITHER as "own" —
+        // otherwise logged-in users lose the delete control on their own old
+        // comments and see a Flag button on themselves instead.
+        const callerIds = [req.user?.discordId, req.headers['x-user-id'] as string | undefined]
+            .filter((id): id is string => !!id && id !== 'anon');
         const masked = (comments as any[]).map(c => ({
             ...c,
-            user_id: (callerId && callerId !== 'anon' && c.user_id === callerId) ? c.user_id : null,
+            user_id: callerIds.includes(c.user_id) ? c.user_id : null,
         }));
         res.json(masked);
     } catch (error) {
@@ -2067,7 +2074,7 @@ router.get('/:roomId/games/:gameName/comments', optionalDiscordUser, async (req,
     }
 });
 
-router.post('/:roomId/games/:gameName/comments', guestContentLimiter, optionalDiscordUser, async (req, res) => {
+router.post('/:roomId/games/:gameName/comments', guestContentLimiter, optionalDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(GameCommentSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -2107,11 +2114,16 @@ router.delete('/:roomId/games/:gameName/comments/:id', guestContentLimiter, opti
         //   undefined and can only match as author via their anon x-user-id.
         const isSuper = req.user?.role === 'super_admin';
         const isRoomAdmin = req.user?.role === 'room_admin' && req.user.gameRoomIds.includes(roomId);
-        const callerId = req.user?.discordId || (req.headers['x-user-id'] as string) || '';
+        // M4 fix (S22 follow-ups adversarial review) — match against EITHER the
+        // logged-in discordId or the anon x-user-id (candidate set), same as the
+        // GET masking above: pre-existing comments were stored under the anon id,
+        // so a logged-in author must still be able to delete their own old rows.
         // Never let the 'anon' sentinel (or an empty identity) authorize a delete —
         // otherwise anyone sending `x-user-id: anon` could wipe every header-less
         // comment. A real author always has a non-empty, non-sentinel id.
-        const isAuthor = !!callerId && callerId !== 'anon' && comment.user_id === callerId;
+        const callerIds = [req.user?.discordId, req.headers['x-user-id'] as string | undefined]
+            .filter((id): id is string => !!id && id !== 'anon');
+        const isAuthor = callerIds.includes(comment.user_id);
         if (!isSuper && !isRoomAdmin && !isAuthor) {
             return res.status(403).json({ error: 'Not authorized' });
         }
@@ -2324,7 +2336,7 @@ router.post('/:roomId/games/bulk-untag', requireAuth, requireRoomAccess('roomId'
  * Returns { exact: GlobalGame|null, possible: GlobalGame[] } so the FE can
  * render an "is this it?" / "did you mean one of these?" UI.
  */
-router.post('/:roomId/game_library/proposals', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+router.post('/:roomId/game_library/proposals', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(GameProposalSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -2345,7 +2357,7 @@ router.post('/:roomId/game_library/proposals', requireAuth, requireRoomAccess('r
  * Returns 409 when an exact catalogue match exists — the proposal preview
  * should have caught this, but we re-check server-side as defense in depth.
  */
-router.post('/:roomId/game_library/submit_to_global', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+router.post('/:roomId/game_library/submit_to_global', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(GameProposalSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -2658,7 +2670,7 @@ router.get('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), async 
     }
 });
 
-router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(SettingsSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -2688,7 +2700,7 @@ router.get('/:roomId/tournaments', async (req, res) => {
     }
 });
 
-router.post('/:roomId/tournaments', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+router.post('/:roomId/tournaments', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(CreateTournamentSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -3714,7 +3726,7 @@ router.post('/:roomId/admins/invites', requireAuth, requireRoomAccess('roomId'),
             const { sendDirectMessage } = await import('../../utils/discord.js');
             dmSent = await sendDirectMessage(
                 resolvedDiscordId,
-                `You've been invited to join **${roomName}** on ArcAid as an admin!\n\nClick the link below to set up your account:\n${inviteUrl}\n\nThis invite expires in 48 hours.`
+                `You've been invited to join **${roomName}** on Arcaid as an admin!\n\nClick the link below to set up your account:\n${inviteUrl}\n\nThis invite expires in 48 hours.`
             );
         }
 
@@ -3984,7 +3996,7 @@ router.get('/:roomId/admin/games-for-picker', requireAuth, requireRoomAccess('ro
 });
 
 // Upload a custom style to the global catalogue (room admins can contribute)
-router.post('/:roomId/admin/styles/upload', requireAuth, requireRoomAccess('roomId'), roomAssetUpload.fields([
+router.post('/:roomId/admin/styles/upload', requireAuth, requireRoomAccess('roomId'), requireNotBanned, roomAssetUpload.fields([
     { name: 'background', maxCount: 1 },
     { name: 'header', maxCount: 1 },
 ]), async (req, res) => {

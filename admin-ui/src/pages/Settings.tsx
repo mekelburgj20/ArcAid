@@ -138,7 +138,7 @@ const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; d
   },
   'SCOREBOARD_TITLE_HIDDEN': {
     label: 'Hide Game Room Title',
-    description: 'When enabled, the game room name/heading (e.g., "ArcAid_Demo") is hidden on the public leaderboard.',
+    description: 'When enabled, the game room name/heading (e.g., "Arcaid_Demo") is hidden on the public leaderboard.',
   },
   'SCOREBOARD_GAME_TITLE_ENHANCE': {
     label: 'Enhance Game Title Visibility',

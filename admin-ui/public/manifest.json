@@ -1,6 +1,6 @@
 {
-  "name": "ArcAid",
-  "short_name": "ArcAid",
+  "name": "Arcaid",
+  "short_name": "Arcaid",
   "description": "Tournament management for virtual pinball & retro gaming",
   "start_url": "/",
   "display": "standalone",

@@ -352,13 +352,13 @@ export default function Tournaments() {
         ? ` Orphaned ${orphaned.submissions}/${orphaned.scoreHistory}/${orphaned.globalScores} score rows (sub/hist/global) — player history preserved.`
         : '';
       if (result.iscoredStatus === 'deleted') {
-        toast(`${name} deleted from ArcAid and iScored${capturedSuffix}.${orphanSuffix}`, 'success');
+        toast(`${name} deleted from Arcaid and iScored${capturedSuffix}.${orphanSuffix}`, 'success');
       } else if (result.iscoredStatus === 'shared') {
-        toast(`${name} deleted from ArcAid (iScored game still active in another tournament — left in place).${orphanSuffix}`, 'success');
+        toast(`${name} deleted from Arcaid (iScored game still active in another tournament — left in place).${orphanSuffix}`, 'success');
       } else if (result.iscoredStatus === 'failed') {
-        toast(`${name} deleted from ArcAid — iScored delete failed (${result.iscoredError ?? 'unknown'}). Remove it manually on iScored.`, 'error');
+        toast(`${name} deleted from Arcaid — iScored delete failed (${result.iscoredError ?? 'unknown'}). Remove it manually on iScored.`, 'error');
       } else {
-        toast(`${name} deleted from ArcAid (iScored not configured).${orphanSuffix}`, 'success');
+        toast(`${name} deleted from Arcaid (iScored not configured).${orphanSuffix}`, 'success');
       }
       setDeleteGameTarget(null);
       setDeleteGameConfirm('');
@@ -695,9 +695,9 @@ export default function Tournaments() {
               Permanently remove <span className="text-primary font-medium">"{deleteGameTarget.name}"</span> from <span className="text-primary font-medium">{deleteGameTarget.tournament_name}</span>?
             </p>
             <ul className="text-xs text-muted list-disc ml-5 mb-4 space-y-1">
-              <li>Late iScored scores (if any) are pulled into ArcAid first.</li>
+              <li>Late iScored scores (if any) are pulled into Arcaid first.</li>
               <li>The game is removed from iScored (unless another active tournament shares it).</li>
-              <li>The games row is deleted from ArcAid; player score rows are orphaned (kept for personal history).</li>
+              <li>The games row is deleted from Arcaid; player score rows are orphaned (kept for personal history).</li>
             </ul>
             <p className="text-xs text-muted mb-2">Use this only when the game was activated in the wrong tournament. For a normal end-of-round, use Deactivate.</p>
             <p className="text-xs mb-1">Type <span className="font-mono text-red-300">{deleteGameTarget.name}</span> to confirm:</p>
