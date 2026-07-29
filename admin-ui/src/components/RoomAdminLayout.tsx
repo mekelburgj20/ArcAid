@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity, Wrench, Palette, MessageSquare, Users, UserCheck } from 'lucide-react';
+import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity, Wrench, Palette, MessageSquare, Users, UserCheck, UsersRound } from 'lucide-react';
 import { api, isAuthenticated, setToken } from '../lib/api';
 import { getPortal } from '../lib/portal';
 import { RoomContext } from '../contexts/RoomContext';
@@ -113,6 +113,9 @@ export default function RoomAdminLayout() {
     { path: `${basePath}/settings`, label: 'Room Settings', icon: <SettingsIcon size={18} /> },
     'separator',
     { path: `${basePath}/identity`, label: 'Identity', icon: <Users size={18} /> },
+    // v2.49.1 — room-admin Members page (roster + ban management, moved off
+    // the public /:slug/members page).
+    { path: `${basePath}/members`, label: 'Members', icon: <UsersRound size={18} /> },
     // v2.39.0 — only shown for approval-policy rooms; badge = pending count.
     ...(room.join_policy === 'approval'
       ? [{ path: `${basePath}/join-requests`, label: 'Join Requests', icon: <UserCheck size={18} />, badge: pendingJoinRequests }]
