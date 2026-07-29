@@ -46,6 +46,33 @@ export class PreferencesService {
     }
 
     /**
+     * First-login player tutorial (v2.48.0) — dedicated nullable column, same
+     * pattern as ui_theme (NOT the notification_prefs shared-JSON-blob
+     * pattern). Nullable ISO timestamp rather than a boolean so a future
+     * "reset tutorial" admin action can re-show it by clearing the column.
+     */
+    static async getTutorialSeenAt(discordUserId: string): Promise<string | null> {
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT tutorial_seen_at FROM user_preferences WHERE discord_user_id = ?',
+            discordUserId
+        );
+        return row?.tutorial_seen_at ?? null;
+    }
+
+    /** Sets tutorial_seen_at to now. Idempotent — safe to call repeatedly. */
+    static async markTutorialSeen(discordUserId: string): Promise<string> {
+        const db = await getDatabase();
+        const now = new Date().toISOString();
+        await db.run(
+            `INSERT INTO user_preferences (discord_user_id, tutorial_seen_at) VALUES (?, ?)
+             ON CONFLICT(discord_user_id) DO UPDATE SET tutorial_seen_at = excluded.tutorial_seen_at`,
+            discordUserId, now
+        );
+        return now;
+    }
+
+    /**
      * Parse the stored JSON into device-keyed format.
      * Handles migration from old flat format → nested { desktop, mobile }.
      */

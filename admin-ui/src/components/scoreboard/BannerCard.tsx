@@ -166,6 +166,7 @@ export default function BannerCard({
             <Link
               to={titleLinkTo}
               onClick={titleLinkOnClick}
+              data-tour="game-card-title"
               className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center no-underline text-primary hover:text-neon-cyan transition-colors ${getTitleStyleClass(gameTitleStyle)}`}
               style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}
             >

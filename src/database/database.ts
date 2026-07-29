@@ -1988,6 +1988,12 @@ export async function initDatabase(): Promise<Database> {
                 ON comment_reports(comment_id, reporter_discord_id) WHERE resolved_at IS NULL;
             CREATE INDEX IF NOT EXISTS idx_comment_reports_unresolved ON comment_reports(resolved_at);
         ` },
+        // v2.48.0 — first-login player tutorial (tmp/first-login-tutorial-contract.md).
+        // Nullable ISO timestamp (not boolean) so a future "reset tutorial" admin
+        // action can re-show it just by clearing the column. Same ALTER-add
+        // idempotency convention as migration 040 (scoreboard_prefs) — duplicate
+        // column errors are swallowed by the migration loop's try/catch below.
+        { name: '121_user_preferences_tutorial_seen', sql: `ALTER TABLE user_preferences ADD COLUMN tutorial_seen_at TEXT` },
     ];
 
     for (const migration of migrations) {

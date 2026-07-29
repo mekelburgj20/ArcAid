@@ -142,6 +142,30 @@ router.post('/me/scoreboard-preferences', requireDiscordUser, async (req, res) =
     }
 });
 
+// Tutorial status (first-login player tour, v2.48.0 — tmp/first-login-tutorial-contract.md).
+// Dedicated nullable timestamp column via PreferencesService, not a JSON blob.
+router.get('/me/tutorial-status', requireDiscordUser, async (req, res) => {
+    try {
+        const { PreferencesService } = await import('../../services/PreferencesService.js');
+        const seenAt = await PreferencesService.getTutorialSeenAt(req.user!.discordId!);
+        res.json({ seenAt });
+    } catch (error) {
+        logError('API Error (GET /api/me/tutorial-status):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/me/tutorial-status', requireDiscordUser, async (req, res) => {
+    try {
+        const { PreferencesService } = await import('../../services/PreferencesService.js');
+        const seenAt = await PreferencesService.markTutorialSeen(req.user!.discordId!);
+        res.json({ seenAt });
+    } catch (error) {
+        logError('API Error (POST /api/me/tutorial-status):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // --- Friends ---
 
 router.get('/me/friends', requireDiscordUser, async (req, res) => {

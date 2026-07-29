@@ -16,6 +16,7 @@ import LoadingState from './LoadingState';
 import RoomJoinGate from './RoomJoinGate';
 import { PlayerQuickViewProvider } from '../contexts/PlayerQuickViewContext';
 import ReportContentModal from './ReportContentModal';
+import TourController from './TourController';
 
 interface PublicLayoutProps {
   gameRoomName?: string;
@@ -149,10 +150,10 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   // v2.39.0 — while gated, every room-scoped tab leads to a page that would
   // just 403 (each fetches its own gated endpoints) — only "Global" survives,
   // since /scoreboard isn't room-scoped.
-  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; end?: boolean }> = [];
+  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; end?: boolean; tour?: string }> = [];
   if (!isGated && !isSuspended) {
     navItems.push({ path: `/${slug}/lobby`, label: 'Lobby', icon: <MessageSquare size={16} /> });
-    navItems.push({ path: `/${slug}`, label: 'Scores', icon: <Monitor size={16} />, end: true });
+    navItems.push({ path: `/${slug}`, label: 'Scores', icon: <Monitor size={16} />, end: true, tour: 'nav-scores' });
     if (!pickAwardLoading && pickAwardEnabled) {
       navItems.push({ path: `/${slug}/picks`, label: 'Picks', icon: <Gamepad2 size={16} /> });
     }
@@ -198,13 +199,14 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
               <span className="font-pixel text-neon-cyan text-xs tracking-wider truncate block">{roomName}</span>
             </Link>
           </div>
-          <div className="flex-1 min-w-0 flex items-center justify-start sm:justify-end gap-0.5 sm:gap-1 overflow-x-auto">
+          <div className="flex-1 min-w-0 flex items-center justify-start sm:justify-end gap-0.5 sm:gap-1 overflow-x-auto" data-tour="nav">
             {navItems.map(item => (
               <NavLink
                 key={item.path}
                 to={item.path}
                 end={item.end}
                 aria-label={item.label}
+                data-tour={item.tour}
                 className={({ isActive }) =>
                   `flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 min-h-11 min-w-11 px-1.5 sm:px-3 py-1 sm:py-2 rounded transition-colors no-underline ${
                     isActive ? 'text-neon-cyan bg-neon-cyan/10' : 'text-muted hover:text-neon-cyan'
@@ -308,6 +310,10 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
               S18 — RoomContext is provided here (outside PlayerQuickViewProvider)
               so every page under the Outlet gets slug→room resolution for free. */
           <RoomContext.Provider value={roomCtx}>
+            {/* v2.48.0 — first-login player tutorial. Mounted only once the
+                RoomJoinGate has resolved, so a gated/suspended/loading room
+                never shows it. See tmp/first-login-tutorial-contract.md. */}
+            <TourController />
             <PlayerQuickViewProvider>
               <Outlet />
             </PlayerQuickViewProvider>
