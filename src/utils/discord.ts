@@ -146,6 +146,49 @@ export async function fetchAvatarHash(discordUserId: string): Promise<string | n
     }
 }
 
+export interface DiscordUserInfo {
+    username: string;
+    globalName: string | null;
+}
+
+/** In-memory cache for `fetchDiscordUserInfo` — 1h TTL, same idiom as
+ *  BanService's TTL cache. Caches misses too (null), at the same TTL, so a
+ *  bad/unknown id or a sustained Discord outage can't be re-fetched on every
+ *  render of an admin-facing list. */
+const discordUserInfoCache = new Map<string, { info: DiscordUserInfo | null; ts: number }>();
+const DISCORD_USER_INFO_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Best-effort fetch of a Discord user's current username + global (display)
+ * name — v2.49.0, name-resolution follow-up (tmp/room-bans-contract.md
+ * Workstream 2). Used as the last-resort fallback when a raw provider id has
+ * no `user_profiles` row yet (the admin/user never logged into Arcaid), so an
+ * admin-facing list can still show a human name instead of a bare snowflake.
+ * Returns null on any failure or for non-Discord ids (e.g. `google:<sub>` —
+ * those have no Discord user to fetch and render as a truncated raw id
+ * client-side instead).
+ */
+export async function fetchDiscordUserInfo(discordUserId: string): Promise<DiscordUserInfo | null> {
+    if (!isDiscordUserId(discordUserId)) return null;
+
+    const cached = discordUserInfoCache.get(discordUserId);
+    if (cached && Date.now() - cached.ts < DISCORD_USER_INFO_TTL_MS) return cached.info;
+
+    const token = process.env.DISCORD_BOT_TOKEN;
+    if (!token) return null;
+    try {
+        const rest = new REST({ version: '10' }).setToken(token);
+        const user = await rest.get(Routes.user(discordUserId)) as { username?: string; global_name?: string | null };
+        const info: DiscordUserInfo | null = user.username ? { username: user.username, globalName: user.global_name ?? null } : null;
+        discordUserInfoCache.set(discordUserId, { info, ts: Date.now() });
+        return info;
+    } catch (err) {
+        logError(`fetchDiscordUserInfo: failed to fetch user ${discordUserId}:`, err);
+        discordUserInfoCache.set(discordUserId, { info: null, ts: Date.now() });
+        return null;
+    }
+}
+
 /**
  * Returns a Discord mention `<@userId>` if mentions are enabled for the room,
  * otherwise returns the fallback display name (plain text, no ping).

@@ -169,6 +169,18 @@ export const submitscore: Command = {
             }
             const game = resolved.game;
 
+            // v2.49.0 (room-tier bans) — the initial ban check above (before
+            // the game/room was known) can only see GLOBAL bans. Now that the
+            // game's room is resolved, re-check room-aware so a room-scoped
+            // ban also blocks this submission.
+            if (game.game_room_id) {
+                const roomBanCheck = await BanService.isIdentityBanned(interaction.user.id, game.game_room_id);
+                if (roomBanCheck.banned) {
+                    await interaction.editReply('This account is banned.');
+                    return;
+                }
+            }
+
             // v2.5.0: resolve submittable platforms for this game in this room.
             // If the game has 1 submittable platform, auto-fill. If 2+ and the
             // user didn't pass `platform`, reply ephemerally with valid choices
@@ -353,7 +365,7 @@ export const submitscore: Command = {
                 await interaction.editReply(`Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!${webTip}`);
 
                 // Send rating follow-up (fire-and-forget, don't block the score confirmation)
-                sendRatingFollowUp(interaction, gameName, username!).catch(err => {
+                sendRatingFollowUp(interaction, gameName, username!, game.game_room_id).catch(err => {
                     logError('Error in rating follow-up:', err);
                 });
             } finally {
@@ -377,6 +389,7 @@ async function sendRatingFollowUp(
     interaction: ChatInputCommandInteraction,
     gameName: string,
     username: string,
+    gameRoomId: string | null,
 ) {
     const uniqueId = uuidv4().slice(0, 8);
 
@@ -416,8 +429,9 @@ async function sendRatingFollowUp(
         // v2.47.0 (S22 follow-ups Workstream 1) — this collector can fire up
         // to 5 minutes after the score submission it followed, so re-check:
         // a ban placed in that window must still block the rating/comment
-        // writes below.
-        const banCheck = await BanService.isIdentityBanned(interaction.user.id);
+        // writes below. v2.49.0: room-aware, using the room the score was
+        // actually submitted to.
+        const banCheck = await BanService.isIdentityBanned(interaction.user.id, gameRoomId);
         if (banCheck.banned) {
             await btnInteraction.update({ content: 'This account is banned.', components: [] });
             return;
@@ -484,8 +498,8 @@ async function sendRatingFollowUp(
                 // for up to another 5 minutes after the star-rating ban check
                 // above, so re-check immediately before the write. Silent
                 // drop (ephemeral notice, no comment saved) matching the
-                // pattern at ~420-424.
-                const modalBanCheck = await BanService.isIdentityBanned(interaction.user.id);
+                // pattern at ~420-424. v2.49.0: room-aware.
+                const modalBanCheck = await BanService.isIdentityBanned(interaction.user.id, gameRoomId);
                 if (modalBanCheck.banned) {
                     await modalInteraction.reply({ content: 'This account is banned.', ephemeral: true });
                     return;

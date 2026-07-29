@@ -70,6 +70,9 @@ interface ScoreReportRow {
   origin_type: string | null;
   score_deleted_at: string | null;
   game_name: string | null;
+  /** v2.49.0 — resolved via user_profiles. */
+  reporter_display_name: string | null;
+  reporter_username: string | null;
 }
 
 /** v2.47.0 (S22 follow-ups Workstream 2) — mirrors CommentReportEnriched. */
@@ -90,9 +93,13 @@ interface CommentReportRow {
   game_room_id: string | null;
   room_name: string | null;
   room_slug: string | null;
+  /** v2.49.0 — resolved via user_profiles. */
+  reporter_display_name: string | null;
+  reporter_username: string | null;
 }
 
-/** S22 Phase 2 (v2.44.0) — mirrors ScoreReportService's UserBan shape. */
+/** S22 Phase 2 (v2.44.0) — mirrors ScoreReportService's UserBan shape.
+ *  v2.49.0: game_room_id + resolved display fields (UserBanEnriched). */
 interface BanRow {
   id: string;
   discord_user_id: string;
@@ -102,6 +109,14 @@ interface BanRow {
   expires_at: string | null;
   lifted_at: string | null;
   lifted_by: string | null;
+  game_room_id: string | null;
+  room_name: string | null;
+  discord_user_display_name: string | null;
+  discord_user_username: string | null;
+  banned_by_display_name: string | null;
+  banned_by_username: string | null;
+  lifted_by_display_name: string | null;
+  lifted_by_username: string | null;
 }
 
 function timeAgo(iso: string): string {
@@ -142,6 +157,19 @@ function banStatus(b: BanRow): 'active' | 'expired' | 'lifted' {
   if (b.lifted_at) return 'lifted';
   if (b.expires_at && new Date(b.expires_at).getTime() <= Date.now()) return 'expired';
   return 'active';
+}
+
+/** v2.49.0 — resolved-name-or-raw-id fallback, mirrored across the Scores,
+ *  Comments, and Bans tabs (each ships its own reporter/actor id + resolved
+ *  display_name/username fields; the raw id is never the primary label,
+ *  only a `title` tooltip / secondary line). */
+function nameOrId(displayName: string | null | undefined, username: string | null | undefined, id: string): string {
+  return displayName || username || id;
+}
+
+/** v2.49.0 — Bans tab scope column: "Global" or the owning room's name. */
+function banScopeLabel(b: BanRow): string {
+  return b.game_room_id ? (b.room_name || 'Unknown room') : 'Global';
 }
 
 const TABS: Array<{ key: ReportTab; label: string }> = [
@@ -535,14 +563,19 @@ export default function Reports() {
                   return (
                     <div key={b.id} className="bg-raised border border-border rounded px-4 py-3 flex items-start justify-between gap-4 flex-wrap">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-primary">{b.discord_user_id}</p>
+                        <p className="text-sm font-medium text-primary" title={b.discord_user_id}>
+                          {nameOrId(b.discord_user_display_name, b.discord_user_username, b.discord_user_id)}
+                        </p>
                         <p className="text-xs text-faint mt-0.5">
-                          Banned by {b.banned_by} · {timeAgo(b.banned_at)}
+                          <span className="px-1.5 py-0.5 rounded bg-surface border border-border mr-1.5">{banScopeLabel(b)}</span>
+                          Banned by {nameOrId(b.banned_by_display_name, b.banned_by_username, b.banned_by)} · {timeAgo(b.banned_at)}
                           {b.expires_at ? ` · expires ${new Date(b.expires_at).toLocaleDateString()}` : ' · permanent'}
                         </p>
                         {b.reason && <p className="text-sm text-muted mt-1">"{b.reason}"</p>}
                         {status === 'lifted' && (
-                          <p className="text-xs text-faint mt-1">Lifted by {b.lifted_by || 'admin'}</p>
+                          <p className="text-xs text-faint mt-1">
+                            Lifted by {nameOrId(b.lifted_by_display_name, b.lifted_by_username, b.lifted_by || 'admin')}
+                          </p>
                         )}
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
@@ -610,7 +643,9 @@ export default function Reports() {
                         </p>
                       )}
                       <p className="text-xs text-faint mt-0.5">
-                        By {r.comment_display_name || r.comment_user_id || 'Unknown'} · reported by {r.reporter_discord_id} · {timeAgo(r.created_at)}
+                        By {r.comment_display_name || r.comment_user_id || 'Unknown'} · reported by{' '}
+                        <span title={r.reporter_discord_id}>{nameOrId(r.reporter_display_name, r.reporter_username, r.reporter_discord_id)}</span>
+                        {' '}· {timeAgo(r.created_at)}
                       </p>
                       {r.comment_body ? (
                         <p className="text-sm text-muted mt-1.5 bg-surface border border-border rounded px-2 py-1.5">"{r.comment_body}"</p>
@@ -801,7 +836,7 @@ export default function Reports() {
                         {typeof r.score === 'number' && <span className="text-faint"> · {r.score.toLocaleString()}</span>}
                       </p>
                       <p className="text-xs text-faint mt-0.5">
-                        Reported by {r.reporter_discord_id} · {timeAgo(r.created_at)}
+                        Reported by <span title={r.reporter_discord_id}>{nameOrId(r.reporter_display_name, r.reporter_username, r.reporter_discord_id)}</span> · {timeAgo(r.created_at)}
                         {r.score_deleted_at && <span className="text-neon-magenta"> · score already deleted</span>}
                       </p>
                       {r.reason && <p className="text-sm text-muted mt-1.5">"{r.reason}"</p>}

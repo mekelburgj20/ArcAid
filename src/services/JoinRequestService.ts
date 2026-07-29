@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
 import { RoomMembershipService } from './RoomMembershipService.js';
+import { BanService } from './BanService.js';
 
 export type JoinRequestStatus = 'pending' | 'approved' | 'denied';
 
@@ -88,7 +89,15 @@ export class JoinRequestService {
 
     /** Marks the request approved and grants membership (source='self_join' —
      * approval is still a self-initiated join, just gated). Returns false if
-     * the request doesn't exist, isn't pending, or isn't in this room. */
+     * the request doesn't exist, isn't pending, or isn't in this room.
+     *
+     * v2.49.0 fix-round (tmp/room-bans-fixes.md #4) — throws a typed
+     * `USER_BANNED` error (not a plain `false`) when the requester is
+     * currently banned from this room. The room-ban route already denies any
+     * pending request for the banned candidate set at ban-time (belt), but a
+     * ban placed through some other path, or a request filed in the narrow
+     * window around that sweep, must not be silently approvable (braces).
+     */
     static async approve(roomId: string, id: number, resolvedBy: string): Promise<boolean> {
         const db = await getDatabase();
         const row = await db.get<JoinRequestRow>(
@@ -96,6 +105,13 @@ export class JoinRequestService {
             id, roomId,
         );
         if (!row) return false;
+
+        const banCheck = await BanService.isIdentityBanned(row.user_id, roomId);
+        if (banCheck.banned) {
+            const err = new Error('This user is banned from this room and cannot be approved.');
+            (err as Error & { code?: string }).code = 'USER_BANNED';
+            throw err;
+        }
 
         await db.run(
             `UPDATE join_requests SET status = 'approved', resolved_at = datetime('now'), resolved_by = ? WHERE id = ?`,

@@ -1994,6 +1994,28 @@ export async function initDatabase(): Promise<Database> {
         // idempotency convention as migration 040 (scoreboard_prefs) — duplicate
         // column errors are swallowed by the migration loop's try/catch below.
         { name: '121_user_preferences_tutorial_seen', sql: `ALTER TABLE user_preferences ADD COLUMN tutorial_seen_at TEXT` },
+        // v2.49.0 — room-tier bans (tmp/room-bans-contract.md). Nullable
+        // `game_room_id` on the EXISTING `user_bans` table (NOT a separate
+        // table) — NULL keeps meaning "global ban" (every pre-existing row
+        // and every global-ban write path is unaffected), a populated value
+        // scopes the ban to one room. `BanService.isIdentityBanned` treats a
+        // room ban as `(game_room_id IS NULL OR game_room_id = ?)` so global
+        // bans still bite inside rooms, but a room ban never leaks to other
+        // rooms or global surfaces (decision 5).
+        //
+        // v2.49.0 fix-round (tmp/room-bans-fixes.md #11) — split into two
+        // migration entries. The original single-entry form ran the ALTER
+        // and the CREATE INDEX in one `exec`: on a DB where the column
+        // already exists but the `schema_migrations` row for this name
+        // doesn't (a legitimate state — see the ALTER-add idempotency
+        // convention noted at migration 121), the ALTER throws, the
+        // migration loop's swallowing catch (below) skips the CREATE INDEX
+        // that was bundled in the SAME string, and the migration is still
+        // marked applied — permanently missing the index with no retry path.
+        // Splitting means the ALTER's swallowed failure no longer takes the
+        // index down with it.
+        { name: '122_user_bans_room_scope', sql: `ALTER TABLE user_bans ADD COLUMN game_room_id TEXT` },
+        { name: '123_user_bans_room_index', sql: `CREATE INDEX IF NOT EXISTS idx_user_bans_user_room ON user_bans(discord_user_id, game_room_id)` },
     ];
 
     for (const migration of migrations) {

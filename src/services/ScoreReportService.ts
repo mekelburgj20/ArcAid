@@ -29,6 +29,9 @@ export interface ScoreReportWithContext extends ScoreReport {
     submitted_at: string | null;
     score_deleted_at: string | null;
     game_name: string | null;
+    /** v2.49.0 (room-bans contract, Workstream 2) — resolved via user_profiles. */
+    reporter_display_name: string | null;
+    reporter_username: string | null;
 }
 
 export interface UserBan {
@@ -40,6 +43,22 @@ export interface UserBan {
     expires_at: string | null;
     lifted_at: string | null;
     lifted_by: string | null;
+    /** v2.49.0 — room-tier bans. NULL = global ban (pre-v2.49 shape). */
+    game_room_id: string | null;
+}
+
+/** v2.49.0 (room-bans contract, Workstream 2) — `UserBan` plus resolved
+ *  display names for the three identity columns, and the owning room's name
+ *  (null for a global ban). Powers the Reports "Bans" tab scope column and
+ *  the room-admin bans list — both render names instead of bare snowflakes. */
+export interface UserBanEnriched extends UserBan {
+    room_name: string | null;
+    discord_user_display_name: string | null;
+    discord_user_username: string | null;
+    banned_by_display_name: string | null;
+    banned_by_username: string | null;
+    lifted_by_display_name: string | null;
+    lifted_by_username: string | null;
 }
 
 /**
@@ -63,10 +82,12 @@ export class ScoreReportService {
                 s.global_game_id, s.player_id, s.iscored_username, s.score,
                 s.photo_url, s.origin_type, s.origin_game_room_id, s.submitted_at,
                 s.deleted_at as score_deleted_at,
-                gg.name as game_name
+                gg.name as game_name,
+                up.display_name as reporter_display_name, up.username as reporter_username
              FROM score_reports r
              LEFT JOIN global_scores s ON s.id = r.score_id
              LEFT JOIN global_games gg ON gg.id = s.global_game_id
+             LEFT JOIN user_profiles up ON up.discord_user_id = r.reporter_discord_id
              WHERE r.resolved_at IS NULL
              ORDER BY r.created_at ASC
              LIMIT ? OFFSET ?`,
@@ -86,10 +107,12 @@ export class ScoreReportService {
                 s.global_game_id, s.player_id, s.iscored_username, s.score,
                 s.photo_url, s.origin_type, s.origin_game_room_id, s.submitted_at,
                 s.deleted_at as score_deleted_at,
-                gg.name as game_name
+                gg.name as game_name,
+                up.display_name as reporter_display_name, up.username as reporter_username
              FROM score_reports r
              LEFT JOIN global_scores s ON s.id = r.score_id
              LEFT JOIN global_games gg ON gg.id = s.global_game_id
+             LEFT JOIN user_profiles up ON up.discord_user_id = r.reporter_discord_id
              WHERE r.resolved_at IS NOT NULL
              ORDER BY r.resolved_at DESC
              LIMIT ? OFFSET ?`,
@@ -198,12 +221,16 @@ export class ScoreReportService {
 
     /**
      * Ban a user. `durationDays` = null → permanent, otherwise expires_at is set.
+     * `gameRoomId` omitted/null → global ban (pre-v2.49 shape, unaffected).
+     * Passed → a room-tier ban (v2.49.0, room-bans contract) that only bites
+     * inside that room — see `BanService.isIdentityBanned`'s doc comment.
      */
     static async ban(
         discordUserId: string,
         bannedBy: string,
         durationDays: number | null,
-        reason?: string
+        reason?: string,
+        gameRoomId?: string | null,
     ): Promise<UserBan> {
         const db = await getDatabase();
         const id = crypto.randomUUID();
@@ -212,9 +239,9 @@ export class ScoreReportService {
             ? new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000).toISOString()
             : null;
         await db.run(
-            `INSERT INTO user_bans (id, discord_user_id, reason, banned_by, expires_at)
-             VALUES (?, ?, ?, ?, ?)`,
-            id, discordUserId, reason || null, bannedBy, expiresAt
+            `INSERT INTO user_bans (id, discord_user_id, reason, banned_by, expires_at, game_room_id)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            id, discordUserId, reason || null, bannedBy, expiresAt, gameRoomId ?? null
         );
         // v2.47.0 (S22 follow-ups Workstream 1; L2 hardening) — drop
         // BanService's cache so per-submit enforcement takes effect
@@ -263,12 +290,51 @@ export class ScoreReportService {
      * there first, ported here — see that file's comment for the empirical
      * confirmation).
      */
-    static async listBans(activeOnly = false): Promise<UserBan[]> {
+    /**
+     * `gameRoomId` filter (v2.49.0, room-bans contract): `undefined` (the
+     * pre-v2.49 default) returns every ban regardless of scope — the
+     * super-admin Reports "Bans" tab, which shows both global AND room bans
+     * with a scope column. A room-admin caller (rooms.ts) passes their own
+     * roomId to see ONLY that room's bans. `null` would mean "global bans
+     * only" but no caller needs that today (kept as a valid value for
+     * symmetry with `BanService`/`ban()`).
+     *
+     * Rows are enriched with resolved display names (LEFT JOIN
+     * `user_profiles`, same pattern as `RoomRosterService`) so neither the
+     * Reports page nor the room-admin bans list has to render bare
+     * snowflakes.
+     */
+    static async listBans(activeOnly = false, gameRoomId?: string | null): Promise<UserBanEnriched[]> {
         const db = await getDatabase();
-        const filter = activeOnly
-            ? `WHERE lifted_at IS NULL AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))`
-            : '';
-        return db.all(`SELECT * FROM user_bans ${filter} ORDER BY banned_at DESC`);
+        const clauses: string[] = [];
+        const params: unknown[] = [];
+        if (activeOnly) {
+            clauses.push(`b.lifted_at IS NULL AND (b.expires_at IS NULL OR datetime(b.expires_at) > datetime('now'))`);
+        }
+        if (gameRoomId !== undefined) {
+            if (gameRoomId === null) {
+                clauses.push('b.game_room_id IS NULL');
+            } else {
+                clauses.push('b.game_room_id = ?');
+                params.push(gameRoomId);
+            }
+        }
+        const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+        return db.all<UserBanEnriched[]>(
+            `SELECT b.*,
+                    gr.name AS room_name,
+                    up.display_name AS discord_user_display_name, up.username AS discord_user_username,
+                    bp.display_name AS banned_by_display_name, bp.username AS banned_by_username,
+                    lp.display_name AS lifted_by_display_name, lp.username AS lifted_by_username
+               FROM user_bans b
+               LEFT JOIN game_rooms gr ON gr.id = b.game_room_id
+               LEFT JOIN user_profiles up ON up.discord_user_id = b.discord_user_id
+               LEFT JOIN user_profiles bp ON bp.discord_user_id = b.banned_by
+               LEFT JOIN user_profiles lp ON lp.discord_user_id = b.lifted_by
+               ${where}
+               ORDER BY b.banned_at DESC`,
+            ...params,
+        );
     }
 
     static async getBanById(banId: string): Promise<UserBan | undefined> {

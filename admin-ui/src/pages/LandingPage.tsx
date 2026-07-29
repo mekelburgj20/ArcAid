@@ -140,6 +140,9 @@ export default function LandingPage() {
                 non-admins to OAuth in with __super__ intent and land on the
                 (data-less, 403-gated) Super Admin shell — confusing, and needless
                 attack surface. SuperAdminLayout also role-guards now. */}
+            <Link to="/scoreboard" className="text-xs text-muted hover:text-neon-cyan no-underline">
+              Global
+            </Link>
             {discordUser ? (
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
             ) : (
@@ -190,8 +193,15 @@ export default function LandingPage() {
             whiteSpace: 'nowrap',
             color: 'rgba(255,255,255,0.72)',
             textShadow: '0 0 12px rgba(91,200,245,0.35), 0 1px 6px rgba(0,0,0,0.9)',
+            /* v2.49.0 — user: center the motto under the WORDMARK, which sits
+               a touch left of the logo box's center (the chrome ball on the
+               "i" pads the right edge). Nudge + wider sentence gaps (nbsp +
+               space so nowrap doesn't collapse them). */
+            /* -2.5% of the box = -17px at the 680px cap — measured: wordmark
+               center 703 vs box center 720 at 1440w (harness measurement). */
+            transform: 'translateX(-2.5%)',
           }}>
-            Run the room. Settle the score. Own the arcade.
+            {'Run the room.  Settle the score.  Own the arcade.'}
           </p>
         </div>
       </div>

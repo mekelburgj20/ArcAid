@@ -21,6 +21,13 @@ import { IdentityLinkService } from './IdentityLinkService.js';
  * the raw id AND its canonical, since the raw id might already BE a
  * different canonical than itself resolves to) handles "banned id is a
  * sibling alias" direction.
+ *
+ * v2.49.0 (room-tier bans, tmp/room-bans-contract.md) — `isIdentityBanned`
+ * takes an optional `gameRoomId`. Omitted/null preserves every pre-existing
+ * call site's behavior exactly: global bans only (`game_room_id IS NULL`).
+ * Passed: `(game_room_id IS NULL OR game_room_id = ?)` — a global ban still
+ * bites inside every room, and a room ban only bites in ITS room (decision
+ * 5 — a room ban must never block global surfaces or other rooms).
  */
 export interface BanCheckResult {
     banned: boolean;
@@ -42,28 +49,41 @@ export class BanService {
     private static cache = new Map<string, { value: BanCheckResult; ts: number }>();
     private static readonly TTL_MS = 10_000;
 
+    /** Composite cache key — room-scoped and global checks for the same id
+     *  cache independently (a room ban must not be masked by a cached
+     *  global-only "not banned" result, or vice versa). */
+    private static cacheKey(providerUserId: string, gameRoomId: string | null): string {
+        return `${providerUserId}::${gameRoomId ?? ''}`;
+    }
+
     /**
      * True (with reason/expiry) when `providerUserId` — or any identity
      * linked to it — has an active ban. Active = `lifted_at IS NULL AND
      * (expires_at IS NULL OR expires_at > now)`.
+     *
+     * `gameRoomId` omitted/null → global bans only (matches every pre-v2.49
+     * call site). Passed → also matches a ban scoped to that room.
      */
-    static async isIdentityBanned(providerUserId: string): Promise<BanCheckResult> {
+    static async isIdentityBanned(providerUserId: string, gameRoomId?: string | null): Promise<BanCheckResult> {
         if (!providerUserId) return { banned: false };
 
+        const roomId = gameRoomId ?? null;
+        const key = this.cacheKey(providerUserId, roomId);
         const now = Date.now();
-        const hit = this.cache.get(providerUserId);
+        const hit = this.cache.get(key);
         if (hit && now - hit.ts < this.TTL_MS) return hit.value;
 
-        const result = await this.computeIsIdentityBanned(providerUserId);
-        this.cache.set(providerUserId, { value: result, ts: now });
+        const result = await this.computeIsIdentityBanned(providerUserId, roomId);
+        this.cache.set(key, { value: result, ts: now });
         return result;
     }
 
-    /** Drops the cached result for `providerUserId` only. Kept for callers that know
-     *  they're only affecting one exact key; production ban/unban writers use
-     *  `clearCache()` instead — see its doc comment for why. */
+    /** Drops the cached GLOBAL-scope result for `providerUserId` only. Kept for
+     *  callers that know they're only affecting one exact key; production
+     *  ban/unban writers use `clearCache()` instead — see its doc comment for
+     *  why (a room-scoped cache entry for the same id would otherwise survive). */
     static invalidate(providerUserId: string): void {
-        this.cache.delete(providerUserId);
+        this.cache.delete(this.cacheKey(providerUserId, null));
     }
 
     /**
@@ -85,7 +105,19 @@ export class BanService {
         this.clearCache();
     }
 
-    private static async computeIsIdentityBanned(providerUserId: string): Promise<BanCheckResult> {
+    /**
+     * v2.49.0 fix-round (tmp/room-bans-fixes.md #3) — the full link-graph
+     * expansion for `providerUserId`, extracted out of `computeIsIdentityBanned`
+     * so it's the ONE source of truth for "every identity this could be."
+     * `computeIsIdentityBanned` uses it internally; callers that need to
+     * check something OTHER than an active ban against the full identity
+     * graph (e.g. the room-admin ban route's super-admin/room-admin target
+     * guards, which previously only checked `IN (raw, canonical)` and missed
+     * a super-admin or room-admin grant held on a linked sibling id) should
+     * call this directly rather than re-deriving their own narrower
+     * candidate set.
+     */
+    static async expandIdentityCandidates(providerUserId: string): Promise<string[]> {
         const candidates = new Set<string>([providerUserId]);
 
         const canonical = await IdentityLinkService.resolveCanonical(providerUserId);
@@ -104,9 +136,20 @@ export class BanService {
             for (const link of linkedToCanonical) candidates.add(link.provider_user_id);
         }
 
-        const ids = Array.from(candidates);
+        return Array.from(candidates);
+    }
+
+    private static async computeIsIdentityBanned(providerUserId: string, gameRoomId: string | null): Promise<BanCheckResult> {
+        const ids = await this.expandIdentityCandidates(providerUserId);
         const db = await getDatabase();
         const placeholders = ids.map(() => '?').join(', ');
+        // v2.49.0 — room-tier bans (decision 5): a room ban only bites in ITS
+        // room, but a global ban (game_room_id IS NULL) always bites, room or
+        // not. `gameRoomId === null` (the pre-v2.49 shape) stays global-only.
+        const roomClause = gameRoomId
+            ? 'AND (game_room_id IS NULL OR game_room_id = ?)'
+            : 'AND game_room_id IS NULL';
+        const params = gameRoomId ? [...ids, gameRoomId] : ids;
         const row = await db.get<{ reason: string | null; expires_at: string | null }>(
             // n-fix (S22 Phase 2 adversarial-review-anticipation) — comparing
             // the raw ISO 8601 string (`...T...Z`, what ScoreReportService.ban
@@ -123,9 +166,10 @@ export class BanService {
             `SELECT reason, expires_at FROM user_bans
              WHERE discord_user_id IN (${placeholders})
                AND lifted_at IS NULL
+               ${roomClause}
                AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))
              ORDER BY banned_at DESC LIMIT 1`,
-            ...ids,
+            ...params,
         );
         if (!row) return { banned: false };
         return { banned: true, reason: row.reason ?? undefined, expiresAt: row.expires_at ?? undefined };
