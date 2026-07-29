@@ -142,6 +142,7 @@ export default function MinimalCard({
           <Link
             to={titleLinkTo}
             onClick={titleLinkOnClick}
+            data-tour="game-card-title"
             className={`font-display font-bold leading-tight flex items-center gap-1 no-underline text-primary hover:text-neon-cyan transition-colors ${getTitleStyleClass(gameTitleStyle)}`}
             style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}
           >

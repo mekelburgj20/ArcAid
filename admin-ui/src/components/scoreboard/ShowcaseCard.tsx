@@ -200,6 +200,7 @@ export default function ShowcaseCard({
               <Link
                 to={titleLinkTo}
                 onClick={titleLinkOnClick}
+                data-tour="game-card-title"
                 className={getTitleStyleClass(gameTitleStyle)}
                 style={{
                   fontSize: titleFontSize || 18,
