@@ -45,6 +45,7 @@ const ActivityLog = lazy(() => import('./pages/ActivityLog'));
 const GameStates = lazy(() => import('./pages/GameStates'));
 const Identity = lazy(() => import('./pages/Identity'));
 const JoinRequests = lazy(() => import('./pages/JoinRequests'));
+const RoomAdminMembers = lazy(() => import('./pages/RoomAdminMembers'));
 const LobbyAdmin = lazy(() => import('./pages/LobbyAdmin'));
 
 // Pages — Public
@@ -179,6 +180,7 @@ function App() {
           <Route path="lobby" element={<LobbyAdmin />} />
           <Route path="styles" element={<StyleCatalogue />} />
           <Route path="identity" element={<Identity />} />
+          <Route path="members" element={<RoomAdminMembers />} />
           <Route path="join-requests" element={<JoinRequests />} />
           <Route path="activity" element={<ActivityLog />} />
           <Route path="settings" element={<Settings />} />

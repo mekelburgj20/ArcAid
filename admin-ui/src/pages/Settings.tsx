@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
@@ -847,8 +847,14 @@ export default function Settings() {
   // (rendered after Discord and Game Room respectively) to match desired section order.
   const usersCard = (
     <NeonCard title="Users" className="mb-4">
-      <p className="text-muted text-sm mb-4">
+      <p className="text-muted text-sm mb-1">
         Manage admin accounts for this game room.
+      </p>
+      {/* v2.49.1 — pointer only; ban management lives on the dedicated Members
+          page now (tmp/members-admin-move-contract.md), not here. */}
+      <p className="text-muted text-sm mb-4">
+        Managing players (including bans)? See{' '}
+        <Link to={`/${room.roomSlug}/admin/members`} className="text-neon-cyan hover:underline">Members</Link>.
       </p>
 
       {/* Discord Admins */}

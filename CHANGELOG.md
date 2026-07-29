@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.49.1] — unreleased
+
+**Room-ban UI relocated to the room-admin area.** UI-only move, no API changes. See `tmp/members-admin-move-contract.md`.
+
+- v2.49.0 put Ban/Unban controls on the PUBLIC `/:slug/members` page behind a cosmetic client-side admin check (`resolveViewerClaims` decoding the player/admin JWT). The bans endpoints (`GET/POST /api/rooms/:roomId/admin/bans`, `POST .../admin/bans/:banId/lift`) were and remain properly gated server-side (`requireAuth + requireRoomAccess`), so no data was ever exposed — but admin controls belong in the admin area, not a public page, and the user went looking for them in room-admin settings and couldn't find them.
+- New room-admin page **Members** (`admin-ui/src/pages/RoomAdminMembers.tsx`, route `/:slug/admin/members`, nav entry in `RoomAdminLayout.tsx` next to Identity/Join Requests) hosts the roster + Ban/Unban UI moved wholesale from the public page. It renders only inside `RoomAdminLayout`, so the client-side `resolveViewerClaims` admin-detection dance is gone entirely — admin auth is established by the layout, and every read/write is still independently gated server-side.
+- `admin-ui/src/pages/RoomMembers.tsx` (the public `/:slug/members` page) is back to a plain public roster — the ban button, ban/unban modals, "Banned" section, and all admin-token decoding logic were removed; it matches its pre-v2.49.0 shape.
+- Settings page's "Users" card (admin-accounts management) gains a one-line pointer to the new Members page for discoverability — no ban UI duplicated there.
+- No migration. Backend suite unchanged (798/798, no API changes). admin-ui suite unchanged at 146/146 — `RoomMembers.test.tsx` already only covered public-roster behavior (never gained ban-specific tests in v2.49.0), so it stays green unmodified against the reverted component; no test existed to update for the moved admin behavior, and none was added for the new admin page (no test precedent among sibling room-admin pages — Identity.tsx/JoinRequests.tsx are both untested).
+
 ## [2.49.0] — unreleased
 
 **Room-tier bans, raw-provider-id name resolution, and landing-page polish.** See `tmp/room-bans-contract.md` for the full design contract.
