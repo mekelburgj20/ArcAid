@@ -128,6 +128,9 @@ interface GameFeedbackItem {
   ipdb_url: string | null;
   opdb_id: string | null;
   vps_id: string | null;
+  /** v2.49.0 — resolved via user_profiles. */
+  reporter_display_name: string | null;
+  reporter_username: string | null;
 }
 
 const FEEDBACK_FIELD_LABELS: Record<string, string> = {
@@ -730,7 +733,9 @@ export default function GlobalCatalogue() {
                       </div>
                       {item.note && <p className="text-sm text-muted mt-1 whitespace-pre-wrap">{item.note}</p>}
                       <div className="text-xs text-faint mt-1.5 flex items-center gap-3 flex-wrap">
-                        <span>Reporter: {item.reporter_discord_id}</span>
+                        <span title={item.reporter_discord_id}>
+                          Reporter: {item.reporter_display_name || item.reporter_username || item.reporter_discord_id}
+                        </span>
                         <span>{new Date(item.created_at.replace(' ', 'T') + 'Z').toLocaleString()}</span>
                         {item.ipdb_url && (
                           <a href={item.ipdb_url} target="_blank" rel="noopener noreferrer" className="text-neon-cyan hover:underline inline-flex items-center gap-1">

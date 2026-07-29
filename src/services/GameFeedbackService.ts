@@ -45,6 +45,9 @@ export interface GameFeedbackRow {
     opdb_id: string | null;
     vps_id: string | null;
     igdb_id: number | null;
+    /** v2.49.0 (room-bans contract, Workstream 2) — resolved via user_profiles. */
+    reporter_display_name: string | null;
+    reporter_username: string | null;
 }
 
 export class GameFeedbackService {
@@ -140,9 +143,11 @@ export class GameFeedbackService {
         return db.all<GameFeedbackRow[]>(
             `SELECT f.*,
                     g.name AS live_name, g.manufacturer, g.year, g.field_sources,
-                    g.ipdb_url, g.opdb_id, g.vps_id, g.igdb_id
+                    g.ipdb_url, g.opdb_id, g.vps_id, g.igdb_id,
+                    up.display_name AS reporter_display_name, up.username AS reporter_username
                FROM game_feedback f
                LEFT JOIN global_games g ON g.id = f.global_game_id
+               LEFT JOIN user_profiles up ON up.discord_user_id = f.reporter_discord_id
               WHERE f.resolved_at IS ${opts.resolved ? 'NOT NULL' : 'NULL'}
               ORDER BY f.created_at ${opts.resolved ? 'DESC' : 'ASC'}
               LIMIT ?`,

@@ -61,7 +61,34 @@ export class RoomRosterService {
         const members = mode === 'approval'
             ? await this.getApprovalRoster(roomId)
             : await this.getOpenRoster(roomId);
-        return { mode, members };
+
+        // v2.49.0 fix-round (tmp/room-bans-fixes.md #7) — an active room ban
+        // strips the target's `room_members` row, so 'approval' rooms
+        // already drop them from the roster as a side effect. 'open' rooms
+        // derive their roster from `score_history`, which a room-membership
+        // strip never touches — without this filter a banned player stayed
+        // visible in the Players list right alongside the Banned section,
+        // contradicting the FE confirm dialog's own "removes them from the
+        // room" copy. Filtered here (server-side, both paths) rather than
+        // relying on the FE's optimistic post-ban removal, which doesn't
+        // survive a reload. A GLOBAL ban also hides someone from every room's
+        // roster — consistent with `BanService.isIdentityBanned`'s "a global
+        // ban bites everywhere" semantics.
+        const bannedIds = await this.getActiveBanIds(roomId);
+        if (bannedIds.size === 0) return { mode, members };
+        return { mode, members: members.filter(m => !bannedIds.has(m.userId)) };
+    }
+
+    private static async getActiveBanIds(roomId: string): Promise<Set<string>> {
+        const db = await getDatabase();
+        const rows = await db.all<Array<{ discord_user_id: string }>>(
+            `SELECT discord_user_id FROM user_bans
+              WHERE (game_room_id IS NULL OR game_room_id = ?)
+                AND lifted_at IS NULL
+                AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))`,
+            roomId,
+        );
+        return new Set(rows.map(r => r.discord_user_id));
     }
 
     private static async getApprovalRoster(roomId: string): Promise<RoomRosterEntry[]> {

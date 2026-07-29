@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
-import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned } from '../middleware.js';
+import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal } from '../middleware.js';
 import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -769,6 +769,20 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
         if (!discordId) return res.status(401).json({ error: 'authentication required' });
         if (draft.score === null || draft.score === undefined) return res.status(400).json({ error: 'draft missing score' });
         if (!draft.playerName) return res.status(400).json({ error: 'draft missing player name' });
+
+        // v2.49.0 (room-tier bans) — the room id for a tournament/freeplay
+        // draft lives in `draft.target.roomId`, not `req.params`, so the
+        // `requireNotBanned` middleware above only caught the GLOBAL-ban
+        // case. Re-check room-aware once the draft (and its target room) is
+        // known, before any write happens. Global-target drafts have no room
+        // to check against — the middleware's global check already covers them.
+        if (draft.target.kind === 'tournament' || draft.target.kind === 'freeplay') {
+            const { BanService } = await import('../../services/BanService.js');
+            const roomBanCheck = await BanService.isIdentityBanned(discordId, draft.target.roomId);
+            if (roomBanCheck.banned) {
+                return res.status(403).json({ error: 'This account is banned.' });
+            }
+        }
 
         const fs = await import('fs');
         const path = await import('path');
@@ -1750,8 +1764,20 @@ router.post('/global/games/:id/feedback', writeLimiter, requireDiscordUser, requ
  * POST /api/global/rooms/:roomId/report — flag a room. Discord/Google-authed
  * (requireDiscordUser passes for either — ids are namespaced through the
  * same claims), rate-limited.
+ *
+ * v2.49.0 fix-round (#1) — uses `requireNotBannedGlobal`, NOT `requireNotBanned`.
+ * `:roomId` here is the room being REPORTED, not an acting context — a
+ * `requireNotBanned` mount would let a room admin ban a user to block them
+ * from ever escalating that room to super-admins, which the room-bans
+ * contract's decision 5 explicitly forbids (a room ban must never block
+ * moderation escalation). A GLOBAL ban still blocks reporting (an actually
+ * banned identity shouldn't get to file reports at all); a ban scoped to
+ * THIS room does not. Audited the other `requireNotBanned` mounts in this
+ * file and rooms.ts — every other `:roomId` param names the room the request
+ * ACTS in (join, submit, comment, admin-write), so this is the only route
+ * with this shape.
  */
-router.post('/global/rooms/:roomId/report', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
+router.post('/global/rooms/:roomId/report', writeLimiter, requireDiscordUser, requireNotBannedGlobal, async (req, res) => {
     try {
         const parsed = (await import('../schemas.js')).RoomReportSchema.safeParse(req.body);
         if (!parsed.success) {

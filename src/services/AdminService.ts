@@ -3,6 +3,16 @@ import bcrypt from 'bcryptjs';
 import { getDatabase } from '../database/database.js';
 import type { LocalAdmin, GameRoomAdmin, SuperAdmin } from '../types/index.js';
 
+/** v2.49.0 — `GameRoomAdmin` plus resolved display fields (see
+ *  `getRoomDiscordAdmins`'s doc comment). `display_name`/`username` are
+ *  `null` when no `user_profiles` row exists AND the Discord REST fallback
+ *  also came up empty (bot not configured, user left Discord, etc.) — the FE
+ *  renders the raw `discord_user_id` in that case. */
+export interface GameRoomAdminEnriched extends GameRoomAdmin {
+    display_name: string | null;
+    username: string | null;
+}
+
 export class AdminService {
     // --- Super Admins ---
 
@@ -33,12 +43,36 @@ export class AdminService {
 
     // --- Game Room Admins (Discord) ---
 
-    static async getRoomDiscordAdmins(gameRoomId: string): Promise<GameRoomAdmin[]> {
+    /**
+     * v2.49.0 (room-bans contract, Workstream 2) — resolves each admin's
+     * display name so `Settings.tsx`'s Discord Admins card doesn't render a
+     * bare snowflake. LEFT JOIN `user_profiles` first (the fast, common
+     * path); for rows with no profile row at all (the admin was granted
+     * access but has never logged into Arcaid) falls back to a best-effort
+     * Discord REST lookup via `fetchDiscordUserInfo` (1h in-memory cache —
+     * cheap even for a room with several never-logged-in admins). A
+     * `google:*` id with no profile has no Discord user to look up and stays
+     * `null` — the FE renders the truncated raw id in that case.
+     */
+    static async getRoomDiscordAdmins(gameRoomId: string): Promise<GameRoomAdminEnriched[]> {
         const db = await getDatabase();
-        return db.all(
-            'SELECT * FROM game_room_admins WHERE game_room_id = ? ORDER BY role DESC',
+        const rows = await db.all<GameRoomAdminEnriched[]>(
+            `SELECT gra.game_room_id, gra.discord_user_id, gra.role,
+                    up.display_name AS display_name, up.username AS username
+               FROM game_room_admins gra
+               LEFT JOIN user_profiles up ON up.discord_user_id = gra.discord_user_id
+              WHERE gra.game_room_id = ?
+              ORDER BY gra.role DESC`,
             gameRoomId
         );
+
+        const { fetchDiscordUserInfo } = await import('../utils/discord.js');
+        return Promise.all(rows.map(async (r) => {
+            if (r.display_name || r.username) return r;
+            const info = await fetchDiscordUserInfo(r.discord_user_id);
+            if (!info) return r;
+            return { ...r, username: info.username, display_name: info.globalName ?? info.username };
+        }));
     }
 
     static async getRoomsForDiscordUser(discordUserId: string): Promise<string[]> {

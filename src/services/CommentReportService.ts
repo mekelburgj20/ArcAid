@@ -39,6 +39,11 @@ export interface CommentReportEnriched extends CommentReportRow {
     game_room_id: string | null;
     room_name: string | null;
     room_slug: string | null;
+    /** v2.49.0 (room-bans contract, Workstream 2) — resolved via user_profiles.
+     *  The comment AUTHOR already has `comment_display_name`; this is the
+     *  REPORTER's resolved name. */
+    reporter_display_name: string | null;
+    reporter_username: string | null;
 }
 
 function codedError(message: string, code: string): Error & { code: string } {
@@ -110,10 +115,13 @@ export class CommentReportService {
                     c.game_name AS game_name,
                     c.game_room_id AS game_room_id,
                     gr.name AS room_name,
-                    gr.slug AS room_slug
+                    gr.slug AS room_slug,
+                    up.display_name AS reporter_display_name,
+                    up.username AS reporter_username
                FROM comment_reports r
                LEFT JOIN game_comments c ON c.id = r.comment_id
                LEFT JOIN game_rooms gr ON gr.id = c.game_room_id
+               LEFT JOIN user_profiles up ON up.discord_user_id = r.reporter_discord_id
               WHERE ${statusClause}
               ORDER BY ${order}
               LIMIT ? OFFSET ?`,

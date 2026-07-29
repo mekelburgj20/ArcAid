@@ -152,6 +152,15 @@ export const pickgame: Command = {
                     await interaction.editReply('This room has been suspended pending review. Game picking is disabled.');
                     return;
                 }
+
+                // v2.49.0 (room-tier bans) — the initial ban check above (before
+                // the tournament's room was known) can only see GLOBAL bans.
+                // Re-check room-aware now that the room is resolved.
+                const roomBanCheck = await BanService.isIdentityBanned(interaction.user.id, tournament.game_room_id);
+                if (roomBanCheck.banned) {
+                    await interaction.editReply('This account is banned.');
+                    return;
+                }
             }
 
             // Pick-award gate (plan §8) — short-circuit with exact reply string.

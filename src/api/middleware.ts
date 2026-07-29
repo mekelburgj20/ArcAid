@@ -241,8 +241,58 @@ export async function roomVisibilityGate(req: Request, res: Response, next: Next
  * 403s with the exact string used at login (`auth.ts`'s ACCOUNT_BANNED path)
  * when banned. Composes AFTER `requireDiscordUser` / `conditionalRequireDiscordUser`
  * / `optionalDiscordUser`, same as `requireRoomAccess`.
+ *
+ * v2.49.0 (room-tier bans) — auto-reads `req.params.roomId` (absent on
+ * pure-global routes) and passes it through, so every room-shaped route
+ * mounted behind this middleware becomes room-ban-aware for free, with zero
+ * per-route changes. `BanService.isIdentityBanned` still checks global bans
+ * too when a room id is present (decision: a global ban bites everywhere).
  */
 export async function requireNotBanned(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const discordId = req.user?.discordId;
+    if (!discordId) {
+        next();
+        return;
+    }
+    try {
+        const roomId = req.params.roomId as string | undefined;
+        const result = await BanService.isIdentityBanned(discordId, roomId ?? null);
+        if (result.banned) {
+            res.status(403).json({ error: 'This account is banned.' });
+            return;
+        }
+    } catch (err) {
+        // Fail-open on infra failure, not auth failure — matches
+        // conditionalRequireDiscordUser's fail-open-on-lookup-error contract.
+        // L1 hardening (S22 follow-ups) — fail-open must not be SILENT: a
+        // sustained DB outage here would otherwise let bans go unenforced
+        // with no signal in the logs.
+        logError('requireNotBanned: ban check failed open', err);
+    }
+    next();
+}
+
+/**
+ * v2.49.0 fix-round (tmp/room-bans-fixes.md #1) — GLOBAL-only ban gate,
+ * deliberately ignoring `req.params.roomId` even when present.
+ *
+ * `requireNotBanned` auto-reads `req.params.roomId` so every room-shaped
+ * route becomes room-ban-aware "for free". That's the right default for
+ * routes where `:roomId` is the room the request ACTS in — but it's the
+ * wrong default for a route where `:roomId` merely NAMES something (e.g. the
+ * room being reported), because then a room admin could ban the reporter to
+ * suppress escalation of their own room to super-admins, which violates the
+ * settled contract decision that a room ban must never block global surfaces
+ * (Global Scoreboard, friends, or moderation escalation about ANY room,
+ * including the one that issued the ban).
+ *
+ * Use this on any route whose `:roomId` param is a report/flag TARGET rather
+ * than an acting context. Do not "fix" this by having such a route omit its
+ * `:roomId` param name or rename it — the next room-shaped global route
+ * would just rediscover the same trap by using `requireNotBanned` naively.
+ * Reach for this middleware by name instead.
+ */
+export async function requireNotBannedGlobal(req: Request, res: Response, next: NextFunction): Promise<void> {
     const discordId = req.user?.discordId;
     if (!discordId) {
         next();
@@ -255,12 +305,7 @@ export async function requireNotBanned(req: Request, res: Response, next: NextFu
             return;
         }
     } catch (err) {
-        // Fail-open on infra failure, not auth failure — matches
-        // conditionalRequireDiscordUser's fail-open-on-lookup-error contract.
-        // L1 hardening (S22 follow-ups) — fail-open must not be SILENT: a
-        // sustained DB outage here would otherwise let bans go unenforced
-        // with no signal in the logs.
-        logError('requireNotBanned: ban check failed open', err);
+        logError('requireNotBannedGlobal: ban check failed open', err);
     }
     next();
 }

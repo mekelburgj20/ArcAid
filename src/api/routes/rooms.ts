@@ -29,6 +29,7 @@ import {
     DeleteGameStateSchema,
     SyncIScoredActionSchema,
     RoomScoresQuerySchema,
+    CreateBanSchema,
 } from '../schemas.js';
 import { writeLimiter, pickLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -47,6 +48,7 @@ import { AdminService } from '../../services/AdminService.js';
 import { getDashboardData } from '../../services/DashboardService.js';
 import { RatingService } from '../../services/RatingService.js';
 import { RoomScoresService } from '../../services/RoomScoresService.js';
+import { AuditService } from '../../services/AuditService.js';
 
 const router = Router({ mergeParams: true });
 
@@ -3825,6 +3827,13 @@ router.post('/:roomId/admin/join-requests/:id/approve', requireAuth, requireRoom
         // in a future release if this is field-requested.
         res.json({ success: true });
     } catch (error) {
+        // v2.49.0 fix-round (#4) — JoinRequestService.approve's defensive
+        // ban re-check throws a typed USER_BANNED error rather than a plain
+        // false, so it can be distinguished from "not found" (404).
+        const code = (error as Error & { code?: string })?.code;
+        if (code === 'USER_BANNED') {
+            return res.status(403).json({ error: (error as Error).message });
+        }
         logError('API Error (POST rooms/:roomId/admin/join-requests/:id/approve):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
@@ -3842,6 +3851,206 @@ router.post('/:roomId/admin/join-requests/:id/deny', requireAuth, requireRoomAcc
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admin/join-requests/:id/deny):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Room-tier bans (v2.49.0, tmp/room-bans-contract.md) ---
+// v2.49.0 fix-round (#2) — NOT auto-audited. The app-level auditLog
+// middleware (server.ts `app.use('/api/', auditLog)`) is mounted BEFORE the
+// routers, so it runs before `requireAuth` has set `req.user` and early-
+// returns without ever wrapping `res.json` — this is already documented at
+// global.ts ~449-451 for the same reason. Every write below calls
+// `AuditService.log` explicitly (mirrors global.ts's `account.delete`
+// pattern). See ROADMAP.md ("Player Self-Service + Moderation") for the note
+// that this is a repo-wide gap, not something this PR is scoped to fix
+// wholesale.
+
+// Active + lifted bans scoped to THIS room only (not global bans — those
+// stay on the super-admin Reports "Bans" tab). Enriched with resolved
+// display names (ScoreReportService.listBans' LEFT JOIN user_profiles). GET,
+// so no requireNotBanned — matches the sibling GET .../admin/join-requests
+// and GET .../admins, neither of which gates reads on the actor's own ban
+// status.
+router.get('/:roomId/admin/bans', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const { ScoreReportService } = await import('../../services/ScoreReportService.js');
+        const bans = await ScoreReportService.listBans(false, roomId);
+        res.json(bans);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/admin/bans):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Ban a Discord/Google identity out of THIS room. Decision 1 (contract):
+// banning strips the room_members row and blocks re-join/join-request while
+// active (requireNotBanned, now room-aware, enforces the latter for free).
+// Decision 2: Arcaid-side only — no Discord guild kick.
+//
+// v2.49.0 fix-round (#8) — gated with requireNotBanned (a globally-banned
+// room admin must not be able to issue room bans, same as every other
+// per-submit/content-write route in this router).
+router.post('/:roomId/admin/bans', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
+    try {
+        const validationResult = validate(CreateBanSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { discordUserId, durationDays, reason } = validationResult.data;
+        const roomId = req.params.roomId as string;
+
+        // Same guard as the global ban routes (admin.ts) — an iscored:*
+        // synthetic id has no login identity behind it, so a ban row naming
+        // one can never match a real session.
+        if (discordUserId.startsWith('iscored:')) {
+            return res.status(400).json({
+                error: "Cannot ban an iScored-synced name — it has no login identity to ban.",
+            });
+        }
+
+        // v2.49.0 fix-round (#3) — target-guard checks now use the FULL
+        // link-graph expansion (`BanService.expandIdentityCandidates`), not
+        // just `IN (raw, canonical)`. Ban enforcement (`BanService.isIdentityBanned`)
+        // already checks the whole graph, so a super admin or room admin
+        // holding a grant on a linked `google:*` alias (reachable via
+        // POST /:roomId/admins/discord, which accepts a pasted google id —
+        // `IdentityLinkService.createLink` never normalizes `super_admins`)
+        // was bannable out of a room the narrower check missed.
+        const { BanService } = await import('../../services/BanService.js');
+        const targetCandidates = await BanService.expandIdentityCandidates(discordUserId);
+
+        // Self-ban guard — candidate-set overlap covers "actor and target
+        // resolve to the same identity via any linked alias", not just an
+        // exact raw/canonical match.
+        const actorId = req.user!.discordId;
+        if (actorId) {
+            const actorCandidates = await BanService.expandIdentityCandidates(actorId);
+            if (actorId === discordUserId || actorCandidates.some(c => targetCandidates.includes(c))) {
+                return res.status(400).json({ error: 'You cannot ban your own account.' });
+            }
+        }
+
+        // Cannot ban a super admin — that's a super-admin matter, not a room one.
+        let isSuper = false;
+        for (const candidate of targetCandidates) {
+            if (await AdminService.isSuperAdmin(candidate)) { isSuper = true; break; }
+        }
+        if (isSuper) {
+            return res.status(403).json({ error: 'Cannot ban a super admin. Escalate to a super admin instead.' });
+        }
+
+        // Cannot ban a room admin of THIS room — admin misbehavior is a
+        // super-admin matter, not something a fellow room admin can act on.
+        const db = await getDatabase();
+        const candidatePlaceholders = targetCandidates.map(() => '?').join(', ');
+        const isRoomAdminOfThisRoom = await db.get(
+            `SELECT 1 FROM game_room_admins WHERE game_room_id = ? AND discord_user_id IN (${candidatePlaceholders})`,
+            roomId, ...targetCandidates,
+        );
+        if (isRoomAdminOfThisRoom) {
+            return res.status(403).json({ error: 'Cannot ban a room admin of this room. Remove their admin role first, or escalate to a super admin.' });
+        }
+
+        const { ScoreReportService } = await import('../../services/ScoreReportService.js');
+        const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
+        const actorLabel = req.user!.discordId || req.user!.username || 'admin';
+
+        // v2.49.0 fix-round (#5, #6) — pre-flight dup-ban check + ban insert +
+        // membership strip + pending-join-request denial (#4) all share one
+        // transaction: two sequential awaits with no shared transaction meant
+        // a `removeMember` throw left a committed ban behind a 500, and a
+        // retry of that 500 could then write a SECOND active ban row for the
+        // same (identity, room) — the pre-flight closes that race by running
+        // inside the same transaction as the insert, not just before it.
+        await db.exec('BEGIN TRANSACTION');
+        let ban;
+        try {
+            const dupCheck = await db.get(
+                `SELECT 1 FROM user_bans
+                  WHERE discord_user_id IN (${candidatePlaceholders}) AND game_room_id = ?
+                    AND lifted_at IS NULL
+                    AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))
+                  LIMIT 1`,
+                ...targetCandidates, roomId,
+            );
+            if (dupCheck) {
+                await db.exec('ROLLBACK');
+                return res.status(409).json({ error: 'That player is already banned from this room.' });
+            }
+
+            ban = await ScoreReportService.ban(discordUserId, actorLabel, durationDays ?? null, reason, roomId);
+
+            // Decision 1 — banning strips membership immediately (they're no
+            // longer a member; lifting the ban does NOT auto-restore it, they
+            // can re-join).
+            await RoomMembershipService.removeMember(discordUserId, roomId);
+
+            // v2.49.0 fix-round (#4) — a pending join request must not survive
+            // the ban and later get approved into re-admitting a banned user.
+            // Denied across the full candidate set, since enforcement treats
+            // every linked alias as equally banned in this room.
+            await db.run(
+                `UPDATE join_requests SET status = 'denied', resolved_at = datetime('now'), resolved_by = ?
+                  WHERE game_room_id = ? AND status = 'pending' AND user_id IN (${candidatePlaceholders})`,
+                actorLabel, roomId, ...targetCandidates,
+            );
+
+            await db.exec('COMMIT');
+        } catch (err) {
+            await db.exec('ROLLBACK').catch(() => {});
+            throw err;
+        }
+
+        // v2.49.0 fix-round (#2) — explicit audit call, see header comment.
+        await AuditService.log({
+            actor: actorLabel,
+            action: 'room.ban',
+            target_type: 'user',
+            target_id: discordUserId,
+            details: JSON.stringify({ roomId, durationDays: durationDays ?? null, reason: reason ?? null }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        res.status(201).json(ban);
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/bans):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Lift a room ban — must belong to THIS room (404 otherwise; a room admin
+// can't lift a ban scoped to a different room, or a global ban).
+//
+// v2.49.0 fix-round (#8) — gated with requireNotBanned, same rationale as
+// the ban route above.
+router.post('/:roomId/admin/bans/:banId/lift', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const banId = req.params.banId as string;
+        const { ScoreReportService } = await import('../../services/ScoreReportService.js');
+        const ban = await ScoreReportService.getBanById(banId);
+        if (!ban || ban.game_room_id !== roomId) {
+            return res.status(404).json({ error: 'Ban not found in this room' });
+        }
+        const actorLabel = req.user!.discordId || req.user!.username || 'admin';
+        const ok = await ScoreReportService.lift(banId, actorLabel);
+        if (!ok) return res.status(404).json({ error: 'Ban not found or already lifted' });
+
+        // v2.49.0 fix-round (#2) — explicit audit call, see header comment.
+        await AuditService.log({
+            actor: actorLabel,
+            action: 'room.unban',
+            target_type: 'user',
+            target_id: ban.discord_user_id,
+            details: JSON.stringify({ roomId, banId }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/admin/bans/:banId/lift):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
