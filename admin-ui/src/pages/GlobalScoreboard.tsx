@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Trophy, Upload, Filter, Medal } from 'lucide-react';
+import { Trophy, Upload, Filter, Medal } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar, playerName } from '../components/ScoreboardComponents';
@@ -11,6 +11,7 @@ import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
 import GlobalThemeToggle from '../components/GlobalThemeToggle';
 import BrandWordmark from '../components/BrandWordmark';
+import GlobalSearchPalette, { type PaletteGame } from '../components/GlobalSearchPalette';
 import { formatScore } from '../lib/format';
 import { catalogueImageFor } from '../lib/catalogueImage';
 import { PLATFORM_GROUPS, getPlatformShortLabel } from '../lib/platforms';
@@ -109,6 +110,8 @@ export default function GlobalScoreboard() {
   /** Subhead "Log in" reveals the provider buttons inline. Provider-agnostic
    *  on purpose — Google is a full IdP, so the copy never says "Discord". */
   const [showSubheadLogin, setShowSubheadLogin] = useState(false);
+  /** A3 — ⌘K palette. Open state lives here because the grid behind dims. */
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   // Debounce search input (300ms) so we don't hammer the backend on every keystroke
   useEffect(() => {
@@ -225,6 +228,24 @@ export default function GlobalScoreboard() {
     loginWithGoogle('__global__', '/scoreboard');
   };
 
+  /**
+   * A3 — the palette's Submit / ↵ path. Unlike the card path (which redirects
+   * straight into OAuth), a logged-out palette user is bounced to the page's
+   * own provider-agnostic login affordance: Google is a full IdP, so the
+   * palette must never imply Discord is the only way in.
+   */
+  const handlePaletteSubmit = (game: PaletteGame) => {
+    if (!playerToken) {
+      setShowSubheadLogin(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    const full = games.find(g => g.global_game_id === game.global_game_id);
+    // The palette result carries everything SubmissionSheet needs, so a game
+    // that isn't on the current page of the grid still submits fine.
+    setSubmitGame(full ?? ({ ...game, top_scores: game.top_scores ?? [] } as TopGame));
+  };
+
   const handleSubmitClick = (game: TopGame) => {
     if (!playerToken) {
       // Unchanged from pre-v2.50.0: submitting while logged out kicks straight
@@ -297,18 +318,21 @@ export default function GlobalScoreboard() {
         )}
         {!showSubheadLogin && <div className="mb-6" />}
 
-        {/* Search + room scope */}
+        {/* Search + room scope. The field itself is owned by the ⌘K palette
+            (A3) — one input that gains a focused treatment when the palette is
+            open, rather than a second, competing search box. */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <div className="flex-1 relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input
-              type="text"
-              placeholder="Search games..."
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
-              className="w-full pl-10 pr-3 py-2 rounded-lg border border-border bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan"
-            />
-          </div>
+          <GlobalSearchPalette
+            open={paletteOpen}
+            onOpenChange={setPaletteOpen}
+            value={searchInput}
+            onValueChange={setSearchInput}
+            debouncedQuery={search}
+            scope={scope}
+            platformGroup={platformGroup}
+            loggedIn={Boolean(playerToken)}
+            onSubmitGame={handlePaletteSubmit}
+          />
           <select
             value={scope}
             onChange={e => {
@@ -322,6 +346,12 @@ export default function GlobalScoreboard() {
           </select>
         </div>
 
+        {/* A3 — while the palette is open the page behind recedes: 25% opacity
+            and inert, so the only live thing on screen is the palette. */}
+        <div
+          className={`transition-opacity duration-150 ${paletteOpen ? 'pointer-events-none opacity-25' : ''}`}
+          aria-hidden={paletteOpen || undefined}
+        >
         {/* Platform group chips (left) + sort pills (right) */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6">
           <div className="flex items-center gap-2 flex-wrap">
@@ -403,6 +433,7 @@ export default function GlobalScoreboard() {
             )}
           </>
         )}
+        </div>
       </div>
 
       {/* Score toast */}
