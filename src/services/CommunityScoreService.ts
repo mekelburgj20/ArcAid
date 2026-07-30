@@ -7,6 +7,7 @@ import { RoomNameClaimService } from './RoomNameClaimService.js';
 import { ScoreRankService, type SubmitRankResult } from './ScoreRankService.js';
 import { emitScoreNewGlobal } from '../api/websocket.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
+import { UNKNOWN } from '../utils/scoreProvenance.js';
 
 export class CommunityScoreService {
     /**
@@ -26,9 +27,18 @@ export class CommunityScoreService {
         score: number,
         discordUserId?: string,
         photoUrl?: string,
-        options?: { excludeFromGlobal?: boolean; anonToken?: string | null; platform?: string | null }
+        options?: {
+            excludeFromGlobal?: boolean;
+            anonToken?: string | null;
+            platform?: string | null;
+            /** v2.53.0 (ADR 0016) — split provenance; defaults to 'unknown', never NULL. */
+            engine?: string | null;
+            device?: string | null;
+        }
     ) {
         const db = await getDatabase();
+        const engine = options?.engine || UNKNOWN;
+        const device = options?.device || UNKNOWN;
 
         // First-claim-wins: resolve a per-room display name. Same claimant gets
         // the same name back; new arrivals collide → auto-suffix.
@@ -59,10 +69,12 @@ export class CommunityScoreService {
             `INSERT INTO community_scores (
                 game_name, game_room_id, iscored_username, discord_user_id, score, photo_url,
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?)`,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                engine, device
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?)`,
             gameName, gameRoomId, effectiveUsername, discordUserId || 'ANON', score, photoUrl || null,
             gameRoomId, submittedByUserId, submittedByAnonymousName, options?.platform ?? null,
+            engine, device,
         );
 
         // Also log to unified score history
@@ -71,6 +83,7 @@ export class CommunityScoreService {
             discordUserId, score, photoUrl,
             source: 'community',
             platform: options?.platform ?? null,
+            engine, device,
         });
 
         // Fire-and-forget lobby feed event (tracked so tests can drain it —
@@ -97,6 +110,7 @@ export class CommunityScoreService {
             photoUrl,
             excludeFromGlobal: options?.excludeFromGlobal,
             platform: options?.platform ?? null,
+            engine, device,
         });
 
         if (fanOut && !options?.excludeFromGlobal) {

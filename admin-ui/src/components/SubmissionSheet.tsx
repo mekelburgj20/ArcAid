@@ -5,7 +5,12 @@ import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
 import ShareButton from './ShareButton';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
-import { getPlatformDisplay } from '../lib/platforms';
+import {
+    devicesForEngineAndPlatforms,
+    enginesFromLegacyPlatforms,
+    getDeviceDisplay,
+    getEngineDisplay,
+} from '../lib/scoreProvenance';
 import type { SubmitRank } from '../lib/api';
 import { formatScore } from '../lib/format';
 
@@ -128,6 +133,15 @@ export const PENDING_SUBMISSION_STORAGE_KEY = 'arcaid_pending_submission';
 const GUEST_CTA_EVERY_N = 3;
 const GUEST_SUBMIT_COUNT_KEY = 'arcaid_guest_submit_count';
 
+/**
+ * v2.53.0 (ADR 0016) — the player's last device choice, remembered across
+ * submissions and pre-selected whenever it's compatible with the chosen engine.
+ * The launch community is AtGames-first: without this they'd re-pick "AtGames
+ * Cabinet" on every single score, which is exactly the "twice the work" failure
+ * mode the two-question form has to avoid.
+ */
+const LAST_DEVICE_KEY = 'arcaid_last_device';
+
 export default function SubmissionSheet({
     target,
     onClose,
@@ -161,7 +175,16 @@ export default function SubmissionSheet({
      * tournament" (game has many, tournament rules narrowed to one).
      */
     const [fullGamePlatforms, setFullGamePlatforms] = useState<string[]>([]);
-    const [platform, setPlatform] = useState<string>('');
+    /**
+     * v2.53.0 (ADR 0016) — provenance is two answers now. The resolver endpoint
+     * still speaks legacy platform ids; the engine/device option sets are
+     * derived from them client-side via `lib/scoreProvenance`, which is a
+     * parity-tested mirror of the backend module the submit handlers validate
+     * against. Same input, same derivation, so the picker can never offer
+     * something the server will reject.
+     */
+    const [engine, setEngine] = useState<string>('');
+    const [device, setDevice] = useState<string>('');
     const [phase, setPhase] = useState<Phase>(() => {
         if (commitDraftState) return 'committingDraft';
         // v2.0.1: pre-form login gate when room requires auth and viewer isn't authenticated.
@@ -221,14 +244,37 @@ export default function SubmissionSheet({
                 const fullList: string[] = Array.isArray(data?.platforms) ? data.platforms : [];
                 setSubmittablePlatforms(list);
                 setFullGamePlatforms(fullList);
-                // Auto-fill when the picker has only one option.
-                if (list.length === 1) setPlatform(list[0]);
+                // Engine auto-locks when the game only supports one.
+                const engines = enginesFromLegacyPlatforms(list);
+                if (engines.length === 1) setEngine(engines[0]);
             } catch {
                 if (!cancelled) setSubmittablePlatforms([]);
             }
         })();
         return () => { cancelled = true; };
     }, [target, commitDraftState]);
+
+    const engineOptions = submittablePlatforms ? enginesFromLegacyPlatforms(submittablePlatforms) : [];
+    const deviceOptions = engine ? devicesForEngineAndPlatforms(engine, submittablePlatforms ?? []) : [];
+
+    /**
+     * Device selection follows the engine: keep a still-valid choice, lock when
+     * only one device can run the engine, otherwise fall back to the player's
+     * remembered device — and clear the field when the new engine makes the old
+     * device impossible.
+     */
+    useEffect(() => {
+        if (!engine) return;
+        const options = devicesForEngineAndPlatforms(engine, submittablePlatforms ?? []);
+        if (options.length === 0) return;
+        setDevice(prev => {
+            if (prev && options.includes(prev)) return prev;
+            if (options.length === 1) return options[0];
+            const remembered = localStorage.getItem(LAST_DEVICE_KEY);
+            if (remembered && options.includes(remembered)) return remembered;
+            return '';
+        });
+    }, [engine, submittablePlatforms]);
 
     // Sprint 10 OAuth-return flow: commit a server-stored draft and close.
     useEffect(() => {
@@ -299,14 +345,17 @@ export default function SubmissionSheet({
         const scoreNum = parseInt(score, 10);
         if (!trimmedName || isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
-        if (!platform) return; // v2.5.0: picker hasn't been resolved yet — guard against stray click.
+        // v2.53.0: both provenance axes must be resolved — guard against a stray
+        // click before the picker has settled.
+        if (!engine || !device) return;
 
         setPhase('submitting');
         setMessage(null);
         try {
             const formData = new FormData();
             formData.append('score', String(scoreNum));
-            formData.append('platform', platform);
+            formData.append('engine', engine);
+            formData.append('device', device);
             if (photoFile) formData.append('photo', photoFile);
 
             let url = '';
@@ -343,6 +392,8 @@ export default function SubmissionSheet({
             const resolvedName = responseData?.displayName || trimmedName;
             localStorage.setItem('arcaid-player-name', resolvedName);
             setPlayerName(resolvedName);
+            // Remember the device so the next submission pre-selects it.
+            localStorage.setItem(LAST_DEVICE_KEY, device);
             // S5: capture the submit-moment rank (best-effort; null when the BE
             // couldn't compute it — the card falls back to a plain success line).
             setSubmitRank(responseData?.rank ?? null);
@@ -463,9 +514,12 @@ export default function SubmissionSheet({
             formData.append('score', String(scoreNum));
             if (photoFile) formData.append('photo', photoFile);
             if (excludeFromGlobal) formData.append('excludeFromGlobal', 'true');
-            // v2.5.0: stash the chosen platform so the post-OAuth commit handler
-            // can replay it through the same submit endpoint that now requires it.
-            if (platform) formData.append('platform', platform);
+            // v2.53.0: stash the chosen engine/device so the post-OAuth commit
+            // can replay them. Both commit endpoints re-validate the pair, so a
+            // draft that goes stale while the user is at Discord can't write an
+            // incoherent combination.
+            if (engine) formData.append('engine', engine);
+            if (device) formData.append('device', device);
             const res = await fetch(`/api/submission-drafts/${encodeURIComponent(stateParam)}`, {
                 method: 'POST',
                 body: formData,
@@ -518,11 +572,11 @@ export default function SubmissionSheet({
     const needsPhoto = photoRequired(target);
     const cooldown = isCooldownLocked(target);
     const submitting = phase === 'submitting' || phase === 'checkingCollision' || phase === 'committingDraft';
-    // v2.5.0: picker must be resolved AND platform chosen before we allow submit.
+    // v2.53.0: picker must be resolved AND both provenance axes chosen.
     const platformsResolved = submittablePlatforms !== null;
-    const platformChosen = platform.trim() !== '';
+    const provenanceChosen = engine.trim() !== '' && device.trim() !== '';
     const canSubmit = playerName.trim() && score && !isNaN(parseInt(score, 10)) && parseInt(score, 10) >= 0
-        && (!needsPhoto || !!photoFile) && platformsResolved && platformChosen && !submitting;
+        && (!needsPhoto || !!photoFile) && platformsResolved && provenanceChosen && !submitting;
     const nameLabel = target.kind === 'global' ? 'Display Name' : 'Player Name';
 
     return (
@@ -898,45 +952,78 @@ export default function SubmissionSheet({
                                 </div>
                             </div>
 
-                            {/* v2.5.0: per-score platform picker. Renders in three states:
-                                - resolving: shimmer text while /api/submit/platforms loads
-                                - 1 platform: read-only chip (auto-filled, locked)
-                                - 2+ platforms: required dropdown
-                                If the resolver returned []  show an error — game has no platforms. */}
+                            {/* v2.53.0 (ADR 0016): two questions, but never twice
+                                the work. Engine first (what produced the score —
+                                the only thing that decides comparability), then
+                                device filtered by what can actually run it. Either
+                                field auto-locks to a read-only chip when only one
+                                option fits, and the device pre-selects the player's
+                                last choice, so the common case is still zero taps. */}
                             <div>
-                                <label className="text-xs text-faint block mb-1">Platform</label>
+                                <label className="text-xs text-faint block mb-1">Played on</label>
                                 {submittablePlatforms === null ? (
                                     <div className="px-3 py-2 bg-raised border border-border rounded text-faint text-sm italic">
-                                        Loading platforms…
+                                        Loading…
                                     </div>
-                                ) : submittablePlatforms.length === 0 ? (
+                                ) : engineOptions.length === 0 ? (
                                     <div className="px-3 py-2 bg-neon-amber/10 border border-neon-amber/30 rounded text-neon-amber text-xs">
-                                        No platforms configured for this game. Submission is blocked — ask an admin.
+                                        Nothing is configured for this game yet. Submission is blocked — ask an admin.
                                     </div>
-                                ) : submittablePlatforms.length === 1 ? (
+                                ) : engineOptions.length === 1 ? (
                                     <div className="px-3 py-2 bg-raised border border-border/60 rounded text-primary text-sm flex items-center gap-2">
                                         <span className="px-2 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan text-xs font-display">
-                                            {getPlatformDisplay(submittablePlatforms[0])}
+                                            {getEngineDisplay(engineOptions[0])}
                                         </span>
                                         <span className="text-faint text-xs">
-                                            {fullGamePlatforms.length > 1
-                                                ? '(only platform allowed by this tournament)'
-                                                : '(only platform for this game)'}
+                                            {enginesFromLegacyPlatforms(fullGamePlatforms).length > 1
+                                                ? '(the only one this tournament allows)'
+                                                : '(the only one for this game)'}
                                         </span>
                                     </div>
                                 ) : (
                                     <select
-                                        value={platform}
-                                        onChange={e => setPlatform(e.target.value)}
+                                        value={engine}
+                                        onChange={e => setEngine(e.target.value)}
                                         className="w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors"
                                     >
-                                        <option value="" disabled>Choose the platform you played on…</option>
-                                        {submittablePlatforms.map(p => (
-                                            <option key={p} value={p}>{getPlatformDisplay(p)}</option>
+                                        <option value="" disabled>Choose what you played…</option>
+                                        {engineOptions.map(id => (
+                                            <option key={id} value={id}>{getEngineDisplay(id)}</option>
                                         ))}
                                     </select>
                                 )}
                             </div>
+
+                            {submittablePlatforms !== null && engineOptions.length > 0 && (
+                                <div>
+                                    <label className="text-xs text-faint block mb-1">Device</label>
+                                    {!engine ? (
+                                        <div className="px-3 py-2 bg-raised border border-border rounded text-faint text-sm italic">
+                                            Pick what you played first.
+                                        </div>
+                                    ) : deviceOptions.length === 1 ? (
+                                        <div className="px-3 py-2 bg-raised border border-border/60 rounded text-primary text-sm flex items-center gap-2">
+                                            <span className="px-2 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan text-xs font-display">
+                                                {getDeviceDisplay(deviceOptions[0])}
+                                            </span>
+                                            <span className="text-faint text-xs">
+                                                (the only device that runs it)
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <select
+                                            value={device}
+                                            onChange={e => setDevice(e.target.value)}
+                                            className="w-full px-3 py-2 bg-raised border border-border rounded text-primary text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+                                        >
+                                            <option value="" disabled>Choose the device you played on…</option>
+                                            {deviceOptions.map(id => (
+                                                <option key={id} value={id}>{getDeviceDisplay(id)}</option>
+                                            ))}
+                                        </select>
+                                    )}
+                                </div>
+                            )}
 
                             <div>
                                 <label className="text-xs text-faint block mb-1">

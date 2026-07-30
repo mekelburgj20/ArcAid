@@ -2048,6 +2048,16 @@ export async function initDatabase(): Promise<Database> {
             CREATE INDEX IF NOT EXISTS idx_pins_user ON global_game_pins(discord_user_id);
             CREATE INDEX IF NOT EXISTS idx_pins_game ON global_game_pins(global_game_id);
         ` },
+        // --- v2.53.0 (ADR 0016): engine + device score provenance ---
+        // Additive. `platform` is NOT dropped — every read path still consumes
+        // it through P1/P2. Handler (not raw SQL) because the DDL is followed by
+        // a value-mapping backfill that must not be silently swallowed: a failed
+        // backfill would leave NULLs in columns the write paths guarantee are
+        // never NULL. See src/database/migrations/engineDeviceProvenance.ts.
+        { name: '125_engine_device_score_provenance', handler: async (db) => {
+            const { addEngineDeviceProvenance } = await import('./migrations/engineDeviceProvenance.js');
+            await addEngineDeviceProvenance(db);
+        } },
     ];
 
     for (const migration of migrations) {

@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { normalizeSubmitterUserId } from './SubmissionContextService.js';
 import { RoomMembershipService } from './RoomMembershipService.js';
+import { UNKNOWN } from '../utils/scoreProvenance.js';
 
 export class ScoreHistoryService {
     /**
@@ -24,6 +25,14 @@ export class ScoreHistoryService {
          * legacy callers pre-v2.5.0 don't pass it.
          */
         platform?: string | null;
+        /**
+         * v2.53.0 (ADR 0016): split provenance. `engine` decides comparability,
+         * `device` is provenance only. Both default to `'unknown'` — a
+         * first-class value, NEVER NULL — so sync/legacy callers that can't
+         * supply them still write a coherent row.
+         */
+        engine?: string | null;
+        device?: string | null;
     }) {
         const db = await getDatabase();
 
@@ -66,13 +75,15 @@ export class ScoreHistoryService {
             `INSERT INTO score_history (
                 game_name, game_room_id, game_id, iscored_username, discord_user_id, score, photo_url, source,
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                engine, device
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
             params.gameName, params.gameRoomId, params.gameId || null,
             params.username, params.discordUserId || 'SYSTEM',
             params.score, params.photoUrl || null, params.source,
             params.gameRoomId, submittedTournamentId, submittedByUserId, submittedByAnonymousName,
             params.platform ?? null,
+            params.engine || UNKNOWN, params.device || UNKNOWN,
         );
 
         // Sprint 6.5: any Discord-authenticated score establishes room membership.

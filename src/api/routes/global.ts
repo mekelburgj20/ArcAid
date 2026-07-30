@@ -5,7 +5,7 @@ import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, r
 import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
-import { UpdatePreferencesSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema } from '../schemas.js';
+import { UpdatePreferencesSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
@@ -696,6 +696,12 @@ router.post('/submission-drafts/:stateParam', writeLimiter, globalScoreUpload.si
         }
         const excludeFromGlobal = req.body?.excludeFromGlobal === 'true' || req.body?.excludeFromGlobal === true;
         const platform = typeof req.body?.platform === 'string' && req.body.platform.trim() ? req.body.platform.trim() : null;
+        // v2.53.0 (ADR 0016) — the picker selection is now a pair. Staged
+        // verbatim; the commit paths below re-validate it against the game's
+        // scope before any write, so a stale draft can't smuggle an incoherent
+        // pair past the same checks the direct submit routes run.
+        const engine = typeof req.body?.engine === 'string' && req.body.engine.trim() ? req.body.engine.trim() : null;
+        const device = typeof req.body?.device === 'string' && req.body.device.trim() ? req.body.device.trim() : null;
 
         if (req.file && !isAllowedImage(req.file.buffer)) {
             return res.status(400).json({ error: 'Invalid image file' });
@@ -716,6 +722,8 @@ router.post('/submission-drafts/:stateParam', writeLimiter, globalScoreUpload.si
             photoExt,
             excludeFromGlobal,
             platform,
+            engine,
+            device,
         });
         res.status(201).json({ ok: true });
     } catch (error) {
@@ -785,6 +793,18 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
             }
         }
 
+        // v2.53.0 (ADR 0016) — BOTH draft-commit paths previously skipped
+        // validation entirely: whatever the stage endpoint stored went straight
+        // to the DB, so a stale or hand-crafted draft could write a platform the
+        // game never had. Re-validate here, against the same scope the direct
+        // submit routes use, before anything is written.
+        const { ScoreProvenanceService } = await import('../../services/ScoreProvenanceService.js');
+        const provenance = draft.target.kind === 'global'
+            ? await ScoreProvenanceService.validateForGlobalGame(draft.target.globalGameId, draft.engine, draft.device)
+            : await ScoreProvenanceService.validateForRoomGame(draft.target.roomId, draft.target.gameName, draft.engine, draft.device);
+        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        const { engine, device, platform } = provenance;
+
         const fs = await import('fs');
         const path = await import('path');
         const photoBuffer = draft.photoPath && fs.existsSync(draft.photoPath) ? fs.readFileSync(draft.photoPath) : null;
@@ -813,7 +833,7 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
                 draft.score,
                 discordId,
                 photoUrl ?? undefined,
-                { excludeFromGlobal: draft.excludeFromGlobal, platform: draft.platform },
+                { excludeFromGlobal: draft.excludeFromGlobal, platform, engine, device },
             );
 
             // Mirror submit-score route: upsert into submissions if an active/completed tournament game matches.
@@ -833,11 +853,12 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
                         `INSERT OR REPLACE INTO submissions (
                             id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                             submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                            submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
-                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
+                            submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                            engine, device
+                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
                         submissionId, activeGame.id, discordId, draft.playerName, draft.score, photoUrl || null, new Date().toISOString(),
                         roomId, activeGame.tournament_id || null, discordId,
-                        draft.platform,
+                        platform, engine, device,
                     );
                     const { LeaderboardService } = await import('../../services/LeaderboardService.js');
                     await LeaderboardService.invalidate(activeGame.id);
@@ -862,7 +883,9 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
                 photoMimeType,
                 originType: 'global',
                 excludeFromGlobal: draft.excludeFromGlobal,
-                platform: draft.platform,
+                platform,
+                engine,
+                device,
             } as Parameters<typeof GlobalScoreService.submit>[0]);
         }
 
@@ -941,6 +964,15 @@ router.post('/submission-drafts/:stateParam/commit-as-guest', writeLimiter, asyn
         if (!draft.playerName) return res.status(400).json({ error: 'draft missing player name' });
         if (draft.target.kind === 'global') return res.status(400).json({ error: 'global submissions require Discord login' });
 
+        // v2.53.0 (ADR 0016) — same re-validation as the authenticated commit
+        // path above; this route previously wrote the staged values unchecked.
+        const { ScoreProvenanceService } = await import('../../services/ScoreProvenanceService.js');
+        const provenance = await ScoreProvenanceService.validateForRoomGame(
+            draft.target.roomId, draft.target.gameName, draft.engine, draft.device,
+        );
+        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        const { engine, device, platform } = provenance;
+
         const fs = await import('fs');
         const path = await import('path');
         const photoBuffer = draft.photoPath && fs.existsSync(draft.photoPath) ? fs.readFileSync(draft.photoPath) : null;
@@ -967,7 +999,7 @@ router.post('/submission-drafts/:stateParam/commit-as-guest', writeLimiter, asyn
             draft.score,
             undefined, // guest submission — no Discord user id
             photoUrl ?? undefined,
-            { excludeFromGlobal: draft.excludeFromGlobal, platform: draft.platform },
+            { excludeFromGlobal: draft.excludeFromGlobal, platform, engine, device },
         );
 
         await SubmissionDraftService.consume(stateParam);
@@ -1586,30 +1618,19 @@ router.get('/submit/platforms', async (req, res) => {
  */
 router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNotBanned, globalScoreUpload.single('photo'), async (req, res) => {
     try {
-        const globalGameId = req.body.globalGameId;
-        const scoreRaw = req.body.score;
-        const excludeFromGlobal = req.body.excludeFromGlobal === 'true' || req.body.excludeFromGlobal === true;
-        const displayNameRaw = typeof req.body.displayName === 'string' ? req.body.displayName.trim() : '';
-        const platform = typeof req.body.platform === 'string' ? req.body.platform.trim() : '';
+        // v2.53.0: promoted from hand-rolled inline parsing to the shared Zod
+        // schema, so the global path validates the same shape as the three
+        // room-scoped submit routes.
+        const validationResult = validate(GlobalScoreSubmissionSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { globalGameId, score, excludeFromGlobal } = validationResult.data;
+        const displayNameRaw = (validationResult.data.displayName ?? '').trim();
 
-        if (!globalGameId || typeof globalGameId !== 'string') {
-            return res.status(400).json({ error: 'globalGameId is required' });
-        }
-        const score = parseInt(scoreRaw, 10);
-        if (!Number.isFinite(score) || score < 0 || score > MAX_SCORE) {
-            return res.status(400).json({ error: 'A valid non-negative score is required' });
-        }
         if (!req.file) {
             return res.status(400).json({ error: 'A photo is required with global score submissions.' });
         }
         if (!isAllowedImage(req.file.buffer)) {
             return res.status(400).json({ error: 'Invalid image file' });
-        }
-        if (displayNameRaw.length > 50) {
-            return res.status(400).json({ error: 'Display name must be 50 characters or fewer.' });
-        }
-        if (!platform) {
-            return res.status(400).json({ error: 'platform is required' });
         }
 
         const game = await GlobalGameService.getById(globalGameId);
@@ -1617,14 +1638,14 @@ router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNo
             return res.status(404).json({ error: 'Game not found' });
         }
 
-        // v2.5.0: validate platform is one of the game's catalogued platforms.
-        const { parsePlatformsList } = await import('../../utils/platformRules.js');
-        const gamePlatforms = parsePlatformsList(game.platforms || '[]');
-        if (!gamePlatforms.some(p => p.toUpperCase() === platform.toUpperCase())) {
-            return res.status(400).json({
-                error: `Platform "${platform}" is not catalogued for this game. Allowed: ${gamePlatforms.join(', ') || '(none)'}`,
-            });
-        }
+        // v2.53.0: validate the engine/device pair against the game's catalogue
+        // scope and derive the legacy platform the read paths still consume.
+        const { ScoreProvenanceService } = await import('../../services/ScoreProvenanceService.js');
+        const provenance = await ScoreProvenanceService.validateForGlobalGame(
+            globalGameId, validationResult.data.engine, validationResult.data.device,
+        );
+        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        const { engine, device, platform } = provenance;
 
         // Resolve the iscored username / display name for the logged-in Discord user.
         // Precedence: explicit form field > existing user_mappings row > Discord
@@ -1675,6 +1696,8 @@ router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNo
                 originType: 'global',
                 excludeFromGlobal,
                 platform,
+                engine,
+                device,
             });
 
             emitScoreNewGlobal({

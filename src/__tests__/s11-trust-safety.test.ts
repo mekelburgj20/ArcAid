@@ -98,7 +98,7 @@ describe('S11 (d) — image upload magic-byte validation', () => {
             .set('X-Forwarded-For', freshIp())
             .field('username', 'Tester')
             .field('score', '5000')
-            .field('platform', 'real')
+            .field('engine', 'real').field('device', 'real_cabinet')
             // multer's fileFilter trusts the (spoofable) mimetype, so this text
             // buffer sails past it — the magic-byte check must reject it.
             .attach('photo', Buffer.from('this is text, not a real image'), { filename: 'evil.png', contentType: 'image/png' });
@@ -112,7 +112,7 @@ describe('S11 (c) — score value bounds (MAX_SCORE = 1e15)', () => {
     const MAX = 1_000_000_000_000_000; // 1e15 — mirrors schemas.ts MAX_SCORE
 
     it('CommunityScoreSchema caps score at MAX_SCORE but allows normal large scores', () => {
-        const base = { username: 'Player', platform: 'real' };
+        const base = { username: 'Player', platform: 'real', engine: 'real', device: 'real_cabinet' };
         expect(CommunityScoreSchema.safeParse({ ...base, score: 5_000_000_000 }).success).toBe(true);
         expect(CommunityScoreSchema.safeParse({ ...base, score: MAX }).success).toBe(true); // boundary: inclusive
         expect(CommunityScoreSchema.safeParse({ ...base, score: MAX + 1 }).success).toBe(false);
@@ -122,7 +122,7 @@ describe('S11 (c) — score value bounds (MAX_SCORE = 1e15)', () => {
     });
 
     it('ScoreSubmissionSchema caps score with preprocess intact (string input)', () => {
-        const base = { username: 'Player', platform: 'real' };
+        const base = { username: 'Player', platform: 'real', engine: 'real', device: 'real_cabinet' };
         expect(ScoreSubmissionSchema.safeParse({ ...base, score: '5000000000' }).success).toBe(true);
         expect(ScoreSubmissionSchema.safeParse({ ...base, score: String(MAX) }).success).toBe(true);
         expect(ScoreSubmissionSchema.safeParse({ ...base, score: String(MAX + 1) }).success).toBe(false);
@@ -130,7 +130,7 @@ describe('S11 (c) — score value bounds (MAX_SCORE = 1e15)', () => {
     });
 
     it('FreeplayScoreSchema caps score with preprocess intact (string input)', () => {
-        const base = { globalGameId: 'gg-1', username: 'Player', platform: 'real' };
+        const base = { globalGameId: 'gg-1', username: 'Player', platform: 'real', engine: 'real', device: 'real_cabinet' };
         expect(FreeplayScoreSchema.safeParse({ ...base, score: '5000000000' }).success).toBe(true);
         expect(FreeplayScoreSchema.safeParse({ ...base, score: String(MAX) }).success).toBe(true);
         expect(FreeplayScoreSchema.safeParse({ ...base, score: String(MAX + 1) }).success).toBe(false);
@@ -143,7 +143,7 @@ describe('S11 (c) — score value bounds (MAX_SCORE = 1e15)', () => {
         const res = await request(app)
             .post(`/api/rooms/${roomId}/community-scores/game`)
             .set('X-Forwarded-For', freshIp())
-            .send({ username: 'Cheater', score: 9_000_000_000_000_000, platform: 'real' });
+            .send({ username: 'Cheater', score: 9_000_000_000_000_000, platform: 'real', engine: 'real', device: 'real_cabinet' });
 
         expect(res.status).toBe(400);
         expect(res.body.error).toBeTruthy();
@@ -377,7 +377,7 @@ describe('S11 regression — comments stay open to guests in login-required room
             .post(`/api/rooms/${roomId}/community-scores/game`)
             .set('X-Forwarded-For', freshIp())
             .set('x-user-id', `guest-${crypto.randomUUID()}`)
-            .send({ username: 'Guest', score: 1000, platform: 'real' });
+            .send({ username: 'Guest', score: 1000, platform: 'real', engine: 'real', device: 'real_cabinet' });
         expect(res.status).toBe(401);
     });
 });

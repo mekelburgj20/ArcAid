@@ -5,6 +5,7 @@ import { getDatabase } from '../database/database.js';
 import { normalizeSubmitterUserId } from '../services/SubmissionContextService.js';
 import { OpsAlertService } from '../services/OpsAlertService.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
+import { UNKNOWN } from '../utils/scoreProvenance.js';
 
 // Tick cadence for the notification-file gate. The actual `getAllScores` call
 // is gated inside `IScoredNotificationGate.shouldSync` so most ticks are a
@@ -326,7 +327,10 @@ export class ScoreSyncPoller {
         if (roomIds.length === 0) return undefined;
         const placeholders = roomIds.map(() => '?').join(', ');
         return db.get(
-            `SELECT g.id, g.tournament_id, g.name, t.game_room_id, t.iscored_default_platform AS platform
+            `SELECT g.id, g.tournament_id, g.name, t.game_room_id,
+                    t.iscored_default_platform AS platform,
+                    t.iscored_default_engine AS engine,
+                    t.iscored_default_device AS device
              FROM games g
              JOIN tournaments t ON t.id = g.tournament_id
              WHERE g.iscored_id = ? AND t.game_room_id IN (${placeholders})
@@ -411,21 +415,38 @@ export class ScoreSyncPoller {
                         discordUserId.startsWith('iscored:') ? null : discordUserId,
                     );
                     const submittedByAnonymousName = submittedByUserId ? null : resolvedName;
+                    // v2.53.0 (ADR 0016): iScored exposes no per-score
+                    // provenance. Fall back to the tournament's configured
+                    // defaults when set (no admin UI today, so NULL in
+                    // practice), else the explicit 'unknown' sentinel — never
+                    // NULL.
+                    const syncEngine = localGame.engine || UNKNOWN;
+                    const syncDevice = localGame.device || UNKNOWN;
                     await db.run(`
                         INSERT INTO submissions (
                             id, game_id, iscored_username, score, timestamp, discord_user_id,
                             submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                            submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
+                            submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                            engine, device
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
                         ON CONFLICT(id) DO UPDATE SET
                             score = excluded.score,
                             discord_user_id = excluded.discord_user_id,
                             iscored_username = excluded.iscored_username,
-                            platform = COALESCE(excluded.platform, submissions.platform)
+                            platform = COALESCE(excluded.platform, submissions.platform),
+                            -- v2.53.0: COALESCE-preserve on both new columns, so a
+                            -- re-sync never blanks provenance a player supplied.
+                            -- NULLIF strips the sync path's 'unknown' placeholder
+                            -- first (COALESCE alone would treat it as a real value
+                            -- and clobber a concrete engine); the trailing literal
+                            -- keeps the column non-NULL when nothing is known.
+                            engine = COALESCE(NULLIF(excluded.engine, 'unknown'), submissions.engine, 'unknown'),
+                            device = COALESCE(NULLIF(excluded.device, 'unknown'), submissions.device, 'unknown')
                     `, syncId, localGame.id, resolvedName, scoreValue, new Date().toISOString(), discordUserId,
                         localGame.game_room_id || null, localGame.tournament_id || null,
-                        submittedByUserId, submittedByAnonymousName, localGame.platform ?? null);
+                        submittedByUserId, submittedByAnonymousName, localGame.platform ?? null,
+                        syncEngine, syncDevice);
 
                     changedGameIds.add(localGame.id);
                     logDebug(`ScoreSyncPoller[${creds.gameroomName}]: ${existing ? 'updated' : 'new'} score for ${resolvedName}${resolvedName !== score.name ? ` (alias of ${score.name})` : ''} on "${gameData.gameName}": ${scoreValue.toLocaleString()}`);
@@ -444,6 +465,8 @@ export class ScoreSyncPoller {
                                 tournamentId: localGame.tournament_id,
                                 anonymousName: submittedByAnonymousName,
                                 platform: localGame.platform ?? null,
+                                engine: syncEngine,
+                                device: syncDevice,
                             });
 
                             trackBackground(
@@ -467,6 +490,8 @@ export class ScoreSyncPoller {
                                 tournamentId: localGame.tournament_id,
                                 submittedByAnonymousName: submittedByAnonymousName ?? undefined,
                                 platform: localGame.platform ?? null,
+                                engine: syncEngine,
+                                device: syncDevice,
                             });
                             if (fanOut) {
                                 const { emitScoreNewGlobal } = await import('../api/websocket.js');

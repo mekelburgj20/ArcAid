@@ -36,7 +36,7 @@ import { isAllowedImage } from '../uploadValidation.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
 // sessions via the registry, never directly.
-import { passesplatformRules, parsePlatformsList, resolveSubmittablePlatforms } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
@@ -48,6 +48,7 @@ import { AdminService } from '../../services/AdminService.js';
 import { getDashboardData } from '../../services/DashboardService.js';
 import { RatingService } from '../../services/RatingService.js';
 import { RoomScoresService } from '../../services/RoomScoresService.js';
+import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
 
 const router = Router({ mergeParams: true });
@@ -65,57 +66,26 @@ const roomAssetUpload = multer({
 });
 
 /**
- * v2.5.0: server-side re-validation of the per-score `platform` field. Mirrors
- * the picker resolution in `GET /api/submit/platforms` so a malicious client
- * can't bypass the dropdown.
+ * v2.53.0 (ADR 0016): server-side re-validation of a submission's `engine` +
+ * `device` pair, and derivation of the legacy `platform` value the read paths
+ * still consume.
  *
- * Returns null when the platform is acceptable, or a user-facing error string
- * when it isn't (handler should respond 400 with that message).
+ * Replaces `ensurePlatformAllowed`, which returned `null` for "allowed" — a
+ * shape in which a partially-validated result is indistinguishable from
+ * success. `ScoreProvenanceService.validate` returns a discriminated union
+ * instead, so an unvalidated axis cannot fall through: callers can only reach
+ * the resolved values through `ok: true`, and every early return is an
+ * explicit `ok: false` with a user-facing message.
  */
-async function ensurePlatformAllowed(opts: {
+async function ensureProvenanceAllowed(opts: {
     roomId: string;
     gameName: string;
-    platform: string;
-}): Promise<string | null> {
-    const db = await getDatabase();
-
-    // Resolve the game's effective platforms = catalogue platforms ∪ room tags.
-    const gg = await db.get(
-        'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
-        opts.gameName, 'approved',
+    engine: string;
+    device: string;
+}) {
+    return ScoreProvenanceService.validateForRoomGame(
+        opts.roomId, opts.gameName, opts.engine, opts.device,
     );
-    const cataloguePlatforms = gg ? parsePlatformsList(gg.platforms || '[]') : [];
-    const roomTags = await RoomGameTagsService.getTagsForGameName(opts.roomId, opts.gameName);
-    const effective: string[] = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
-    if (effective.length === 0) {
-        return 'No platforms are configured for this game.';
-    }
-
-    // Active tournament narrows the picker via platform_rules.
-    const activeGame = await db.get(`
-        SELECT t.platform_rules FROM games g
-        JOIN tournaments t ON t.id = g.tournament_id
-        WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ? AND g.status = 'ACTIVE'
-        LIMIT 1
-    `, opts.gameName, opts.roomId) as { platform_rules: string | null } | undefined;
-
-    let rules: { required: string[]; excluded: string[] } | null = null;
-    if (activeGame?.platform_rules) {
-        try {
-            const parsed = JSON.parse(activeGame.platform_rules);
-            rules = {
-                required: Array.isArray(parsed.required) ? parsed.required : [],
-                excluded: Array.isArray(parsed.excluded) ? parsed.excluded : [],
-            };
-        } catch { /* keep rules = null */ }
-    }
-
-    const submittable = resolveSubmittablePlatforms(effective, rules);
-    const want = opts.platform.toUpperCase();
-    if (!submittable.some(p => p.toUpperCase() === want)) {
-        return `Platform "${opts.platform}" is not allowed for this game/tournament. Allowed: ${submittable.join(', ') || '(none)'}`;
-    }
-    return null;
 }
 
 // --- Public endpoints (no auth) ---
@@ -1371,12 +1341,18 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequ
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const gameName = decodeURIComponent(req.params.gameName as string);
         const roomId = req.params.roomId as string;
-        const { username, score, photo_url, platform } = validationResult.data;
+        const { username, score, photo_url } = validationResult.data;
 
-        // v2.5.0: re-validate platform server-side against the game's resolved
-        // submittable set (effective platforms ∩ active tournament rules).
-        const platformError = await ensurePlatformAllowed({ roomId, gameName, platform });
-        if (platformError) return res.status(400).json({ error: platformError });
+        // v2.53.0: re-validate the engine/device pair server-side against the
+        // game's resolved scope, and DERIVE the legacy platform from it (any
+        // client-supplied `platform` is ignored — the pair is authoritative).
+        const provenance = await ensureProvenanceAllowed({
+            roomId, gameName,
+            engine: validationResult.data.engine,
+            device: validationResult.data.device,
+        });
+        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        const { engine, device, platform } = provenance;
 
         // v2.2.0: anon-token plumbed for first-claim-wins.
         const rawAnonHeader = req.headers['x-user-id'];
@@ -1388,7 +1364,7 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequ
         // conditionalRequireDiscordUser populates req.user when a valid player
         // Bearer token is present; anonymous requests leave it undefined —
         // matches the idiom used by the freeplay-score handler below.
-        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, req.user?.discordId, photo_url, { anonToken, platform });
+        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, req.user?.discordId, photo_url, { anonToken, platform, engine, device });
 
         // v2.2.2: sync to iScored when this matches an ACTIVE tournament game.
         // photo_url is a pre-existing URL (not an upload), so no persistentPhotoPath
@@ -1491,12 +1467,18 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const roomId = req.params.roomId as string;
         const gameName = decodeURIComponent(req.params.gameName as string);
-        const { username, score, platform } = validationResult.data;
+        const { username, score } = validationResult.data;
         const excludeFromGlobal = req.body.excludeGlobal === 'true' || req.body.excludeGlobal === true;
 
-        // v2.5.0: re-validate platform against the resolved submittable set.
-        const platformError = await ensurePlatformAllowed({ roomId, gameName, platform });
-        if (platformError) return res.status(400).json({ error: platformError });
+        // v2.53.0: engine/device validated + legacy platform derived (see the
+        // community-scores handler above).
+        const provenance = await ensureProvenanceAllowed({
+            roomId, gameName,
+            engine: validationResult.data.engine,
+            device: validationResult.data.device,
+        });
+        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        const { engine, device, platform } = provenance;
 
         // Check if photo is required
         const requirePhoto = await GameRoomSettingsService.get(roomId, 'REQUIRE_SCORE_PHOTO');
@@ -1537,7 +1519,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
         // the resolved displayName (possibly suffixed e.g. "Bob_2").
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const result = await CommunityScoreService.submitScore(
-            roomId, gameName, username, score, req.user?.discordId, photoUrl, { excludeFromGlobal, anonToken, platform }
+            roomId, gameName, username, score, req.user?.discordId, photoUrl, { excludeFromGlobal, anonToken, platform, engine, device }
         );
         const effectiveUsername = result.displayName;
 
@@ -1566,10 +1548,12 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
                     `INSERT OR REPLACE INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                        submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
-                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                        engine, device
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
                     submissionId, activeGame.id, 'COMMUNITY', effectiveUsername, score, photoUrl || null, new Date().toISOString(),
                     roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName, platform,
+                    engine, device,
                 );
                 const { LeaderboardService } = await import('../../services/LeaderboardService.js');
                 await LeaderboardService.invalidate(activeGame.id);
@@ -1615,7 +1599,7 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         // `platform` field).
         const validationResult = validate(FreeplayScoreSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-        const { globalGameId, username, score, excludeGlobal: excludeFromGlobal, platform } = validationResult.data;
+        const { globalGameId, username, score, excludeGlobal: excludeFromGlobal } = validationResult.data;
 
         // Photo is required for freeplay (no tournament cross-check, so evidence matters)
         if (!req.file) {
@@ -1638,11 +1622,17 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             return res.status(404).json({ error: 'Game not found in the global catalogue' });
         }
 
-        // v2.5.0: re-validate platform against the resolved submittable set for
-        // this game in this room (uses the canonical name, since freeplay
-        // catalogue lookups go by name not id from here on).
-        const platformError = await ensurePlatformAllowed({ roomId, gameName: globalGame.name, platform });
-        if (platformError) return res.status(400).json({ error: platformError });
+        // v2.53.0: validate engine/device + derive the legacy platform for this
+        // game in this room (uses the canonical name, since freeplay catalogue
+        // lookups go by name not id from here on).
+        const provenance = await ensureProvenanceAllowed({
+            roomId,
+            gameName: globalGame.name,
+            engine: validationResult.data.engine,
+            device: validationResult.data.device,
+        });
+        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
+        const { engine, device, platform } = provenance;
 
         // Persist photo
         const ext = (req.file.mimetype === 'image/png' || req.file.mimetype === 'image/apng') ? 'png' : req.file.mimetype === 'image/webp' ? 'webp' : 'jpg';
@@ -1669,7 +1659,7 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             score,
             req.user?.discordId,
             photoUrl,
-            { excludeFromGlobal, anonToken, platform }
+            { excludeFromGlobal, anonToken, platform, engine, device }
         );
 
         // v2.2.0: use the resolved displayName (possibly suffixed) for activity
@@ -1709,10 +1699,12 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
                     `INSERT OR REPLACE INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                        submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
-                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                        engine, device
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
                     submissionId, activeGame.id, 'COMMUNITY', effectiveUsername, score, photoUrl, new Date().toISOString(),
                     roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName, platform,
+                    engine, device,
                 );
                 const { LeaderboardService } = await import('../../services/LeaderboardService.js');
                 await LeaderboardService.invalidate(activeGame.id);
