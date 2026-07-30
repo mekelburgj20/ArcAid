@@ -57,8 +57,11 @@
   --sb-art-meta: rgba(255, 255, 255, 0.62);
   --sb-title-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
   --sb-card-hover-border: color-mix(in oklab, var(--color-neon-cyan) 60%, transparent);
-  --sb-pill-bg: rgba(255, 255, 255, 0.06);
-  --sb-pill-border: color-mix(in oklab, var(--color-neon-cyan) 20%, transparent);
+  /* Semi-opaque, not a tint: this pill sits on arbitrary game art, and a 6%
+     white wash vanished over bright/busy backglasses. Dark fill + cyan text
+     stays legible on anything. */
+  --sb-pill-bg: rgba(0, 0, 0, 0.58);
+  --sb-pill-border: color-mix(in oklab, var(--color-neon-cyan) 34%, transparent);
   --sb-row-gold-bg: color-mix(in oklab, var(--color-neon-amber) 12%, transparent);
   --sb-row-gold-border: color-mix(in oklab, var(--color-neon-amber) 35%, transparent);
   --sb-row-silver-bg: color-mix(in oklab, var(--color-medal-silver) 10%, transparent);
@@ -78,6 +81,18 @@
   --sb-palette-strip-bg: rgba(0, 0, 0, 0.25);
   --sb-kbd-bg: rgba(255, 255, 255, 0.08);
   --sb-kbd-border: rgba(255, 255, 255, 0.15);
+
+  /* Pins (A4, v2.52.0) — the "My Pins" rail and the per-card pin hotspot.
+     Same rule as above: PinnedRail.tsx and the hotspot ship zero literal
+     rgba(), so both stay legible under either polarity. */
+  --sb-rail-bg: linear-gradient(180deg, color-mix(in oklab, var(--color-neon-amber) 6%, transparent) 0%, transparent 100%);
+  --sb-rail-border: color-mix(in oklab, var(--color-neon-amber) 19%, transparent);
+  /* Controls that sit ON TOP of card art (pin hotspot, rank-delta badge). The
+     art is a photo, not a themed surface, so these are alpha washes that must
+     flip base colour with polarity — a 55%-black chip is invisible against the
+     light scrim's near-white bottom. */
+  --sb-art-btn-bg: rgba(0, 0, 0, 0.55);
+  --sb-art-btn-border: rgba(255, 255, 255, 0.15);
 
   /* Fonts */
   --font-display: "Orbitron", sans-serif;
@@ -255,7 +270,7 @@
   --sb-art-title: var(--color-primary);
   --sb-art-meta: var(--color-muted);
   --sb-title-shadow: 0 1px 3px rgba(255, 255, 255, 0.9);
-  --sb-pill-bg: rgba(255, 255, 255, 0.7);
+  --sb-pill-bg: rgba(255, 255, 255, 0.88);
 
   /* Washes need more alpha to register against a light surface. */
   --sb-row-gold-bg: color-mix(in oklab, var(--color-neon-amber) 18%, transparent);
@@ -277,6 +292,13 @@
   --sb-palette-strip-bg: rgba(0, 0, 0, 0.04);
   --sb-kbd-bg: rgba(0, 0, 0, 0.06);
   --sb-kbd-border: rgba(0, 0, 0, 0.14);
+
+  /* Pins: the amber rail wash needs more alpha to register on a light surface,
+     and the on-art controls invert to a light chip with a dark hairline. */
+  --sb-rail-bg: linear-gradient(180deg, color-mix(in oklab, var(--color-neon-amber) 14%, transparent) 0%, transparent 100%);
+  --sb-rail-border: color-mix(in oklab, var(--color-neon-amber) 42%, transparent);
+  --sb-art-btn-bg: rgba(255, 255, 255, 0.78);
+  --sb-art-btn-border: rgba(0, 0, 0, 0.16);
 }
 
 /* Minimal theme (monochrome + single cyan accent) */

@@ -6,6 +6,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.52.0] — unreleased
+
+**Global Scoreboard pins + per-viewer rank context (phase A4).** Players can pin games, see a My Pins
+rail with their standing on each, and see their own row on any card where they've scored. See
+`tmp/global-scoreboard-a4-contract.md`.
+
+- **Migration 124** `global_game_pins`. The design handoff's DDL referenced `global_games(global_game_id)`,
+  a column that does not exist — the primary key is `id`. Because foreign keys are enforced and SQLite
+  only reports a bad FK at INSERT time, that would have migrated cleanly and failed on the first
+  production pin; the test inserts a real row rather than trusting the migration to run.
+- `GET /api/global/pins`, `POST`/`DELETE /api/global/games/:id/pin` (idempotent, rate-limited). Pins are
+  unlimited.
+- `/api/global/scoreboard` gained `optionalDiscordUser` — it was a fully public route, so the obvious
+  auth middleware would have broken anonymous browsing. Authenticated requests get `is_pinned`,
+  `my_rank`, `my_score` and `neighbors`; **anonymous responses are byte-identical to before**, asserted
+  by test. `pinned_at` is omitted from the SQL entirely when anonymous rather than selected as NULL.
+- Pin lookup is a correlated subquery, not a LEFT JOIN — the query groups by game, so a join would have
+  inflated `score_count`/`popularity` on pinned rows. Guarded by test.
+- `neighbors` is only computed for games the viewer has actually scored on; doing it for every row would
+  recalculate every cold leaderboard cache on a single authenticated page load.
+- `sort=pinned` (default when authenticated) degrades to `popular` for anonymous requests.
+- **Rank-delta sign:** the handoff states both `last_known_rank - my_rank` *and* "negative = improved",
+  which are mutually exclusive. Implemented as `my_rank - last_known_rank`, keeping the stated
+  semantic the UI consumes.
+
+**Two Global Scoreboard fixes (user-reported):**
+- Platform pills on card art now use a semi-opaque fill instead of a 6% white tint, which vanished over
+  bright or busy backglass art.
+- Room badges sit immediately after the username instead of being pushed to the far right edge — the
+  name span carried `flex-1`, which visually detached the badge from the player it belongs to.
+
+Tests: backend 804 → 817, admin-ui 168 → 184.
+
 ## [2.51.0] — unreleased
 
 **Global Scoreboard search palette (phase A3).** ⌘K / Ctrl+K anywhere on `/scoreboard` opens a

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Trophy, Upload, Filter, Medal } from 'lucide-react';
+import { Trophy, Upload, Filter, Medal, Pin } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { PlayerAvatar, playerName } from '../components/ScoreboardComponents';
@@ -12,6 +12,7 @@ import LoginButtons from '../components/LoginButtons';
 import GlobalThemeToggle from '../components/GlobalThemeToggle';
 import BrandWordmark from '../components/BrandWordmark';
 import GlobalSearchPalette, { type PaletteGame } from '../components/GlobalSearchPalette';
+import PinnedRail, { type PinnedGameChip } from '../components/PinnedRail';
 import { formatScore } from '../lib/format';
 import { catalogueImageFor } from '../lib/catalogueImage';
 import { PLATFORM_GROUPS, getPlatformShortLabel } from '../lib/platforms';
@@ -27,6 +28,9 @@ interface TopScoreEntry {
   origin_room_logo_url: string | null;
   /** Sprint 13 — admin-set short label; falls back to slug-derived when null. */
   origin_room_short_tag: string | null;
+  /** v2.52.0 (A4): present on `neighbors` entries only — the card's own rows
+   *  derive rank from their index, but a neighbour row can start at any rank. */
+  rank?: number;
 }
 
 interface TopGame {
@@ -48,6 +52,15 @@ interface TopGame {
   avg_rating: number;
   rating_count: number;
   top_scores: TopScoreEntry[];
+  /** v2.52.0 (A4) — per-viewer context. Present ONLY on authenticated
+   *  responses; an anonymous payload omits these keys entirely, so every
+   *  consumer must treat `undefined` as "logged out", not as "no rank". */
+  is_pinned?: boolean;
+  my_rank?: number | null;
+  my_score?: number | null;
+  /** Ranks my_rank-1 … my_rank+1. Shipped now for A5's density toggle; this
+   *  release reads only the entry at `my_rank` (the "YOU" row). */
+  neighbors?: TopScoreEntry[];
 }
 
 interface Room {
@@ -57,7 +70,7 @@ interface Room {
   is_public: boolean;
 }
 
-type SortMode = 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc';
+type SortMode = 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc' | 'pinned';
 
 const PAGE_SIZE = 30;
 
@@ -67,7 +80,9 @@ const PAGE_SIZE = 30;
 const CARD_ROWS = 6;
 
 /** Sort pills replace the old <select>. Order and labels follow the design
- *  handoff; `pinned` is deliberately absent — pins are not built yet. */
+ *  handoff. `Pinned first` leads the list but only exists for authenticated
+ *  viewers — the server degrades `sort=pinned` to `popular` anonymously, so a
+ *  pill that did nothing would be worse than no pill. */
 const SORT_PILLS: Array<[SortMode, string]> = [
   ['popular', 'Popular'],
   ['most_recent', 'Recent activity'],
@@ -75,6 +90,7 @@ const SORT_PILLS: Array<[SortMode, string]> = [
   ['most_scores', 'Most scores'],
   ['name_asc', 'A–Z'],
 ];
+const PINNED_PILL: [SortMode, string] = ['pinned', 'Pinned first'];
 
 // S17: platform groups + short labels now come from lib/platforms.ts — this
 // page's local copies were the app's THIRD divergent taxonomy, stale since
@@ -97,7 +113,12 @@ export default function GlobalScoreboard() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [sort, setSort] = useState<SortMode>('popular');
+  /** A4: authenticated viewers land on `Pinned first`; anonymous stay on
+   *  `popular`. `playerToken` is hydrated synchronously from localStorage by
+   *  ViewerAuthProvider, so this lazy initialiser sees the real value on the
+   *  first render and the page never fetches `popular` then immediately
+   *  re-fetches `pinned`. */
+  const [sort, setSort] = useState<SortMode>(() => (playerToken ? 'pinned' : 'popular'));
   const [scope, setScope] = useState<string>('global'); // 'global' or a roomId
   const [platformGroup, setPlatformGroup] = useState<string>('all');
   const [searchInput, setSearchInput] = useState('');
@@ -112,6 +133,11 @@ export default function GlobalScoreboard() {
   const [showSubheadLogin, setShowSubheadLogin] = useState(false);
   /** A3 — ⌘K palette. Open state lives here because the grid behind dims. */
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** A4 — the My Pins rail. Empty for anonymous viewers (never fetched). */
+  const [pins, setPins] = useState<PinnedGameChip[]>([]);
+  /** A4 — a failed pin toggle surfaces here after the optimistic revert. */
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+  const errorTimerRef = useRef<number | null>(null);
 
   // Debounce search input (300ms) so we don't hammer the backend on every keystroke
   useEffect(() => {
@@ -153,6 +179,18 @@ export default function GlobalScoreboard() {
     setScopeFromSlug(room.slug);
   };
 
+  /**
+   * A4: the scoreboard request now carries the player token when there is one,
+   * which is what makes `is_pinned`/`my_rank`/`my_score`/`neighbors` appear.
+   * Built from the raw token string via useMemo rather than `usePlayerHeaders()`
+   * — that hook returns a NEW object every render, and depending on it from a
+   * fetch effect is the exact shape of the v2.18.1 infinite-fetch-loop bug.
+   */
+  const authHeaders = useMemo<Record<string, string>>(
+    () => (playerToken ? { Authorization: `Bearer ${playerToken}` } : {} as Record<string, string>),
+    [playerToken],
+  );
+
   const buildQuery = useCallback((offset: number): string => {
     const params = new URLSearchParams({
       sort,
@@ -173,7 +211,7 @@ export default function GlobalScoreboard() {
   // Load first page whenever filters change
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/global/scoreboard?${buildQuery(0)}`)
+    fetch(`/api/global/scoreboard?${buildQuery(0)}`, { headers: authHeaders })
       .then(r => r.ok ? r.json() : { data: [], total: 0, hasMore: false })
       .then(payload => {
         setGames(payload.data || []);
@@ -186,12 +224,12 @@ export default function GlobalScoreboard() {
         setHasMore(false);
       })
       .finally(() => setLoading(false));
-  }, [buildQuery]);
+  }, [buildQuery, authHeaders]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    fetch(`/api/global/scoreboard?${buildQuery(games.length)}`)
+    fetch(`/api/global/scoreboard?${buildQuery(games.length)}`, { headers: authHeaders })
       .then(r => r.ok ? r.json() : { data: [], hasMore: false })
       .then(payload => {
         setGames(prev => [...prev, ...(payload.data || [])]);
@@ -199,7 +237,49 @@ export default function GlobalScoreboard() {
       })
       .catch(() => {})
       .finally(() => setLoadingMore(false));
-  }, [buildQuery, games.length, hasMore, loadingMore]);
+  }, [buildQuery, authHeaders, games.length, hasMore, loadingMore]);
+
+  // A4 — the rail's data. Only fetched for logged-in viewers; logging out
+  // clears it so a stale rail can't outlive the session.
+  const refreshPins = useCallback(() => {
+    if (!playerToken) { setPins([]); return; }
+    fetch('/api/global/pins', { headers: authHeaders })
+      .then(r => r.ok ? r.json() : { pins: [] })
+      .then(payload => setPins(payload.pins || []))
+      .catch(() => {});
+  }, [playerToken, authHeaders]);
+
+  useEffect(() => { refreshPins(); }, [refreshPins]);
+
+  const showError = useCallback((message: string) => {
+    setErrorToast(message);
+    if (errorTimerRef.current) window.clearTimeout(errorTimerRef.current);
+    errorTimerRef.current = window.setTimeout(() => setErrorToast(null), 4000);
+  }, []);
+
+  /**
+   * A4 — optimistic pin toggle. The card flips immediately, the request goes
+   * out, and a failure reverts the card AND toasts. Reverting silently would
+   * read as "the button doesn't work"; not reverting would leave the UI lying
+   * about server state until the next fetch.
+   */
+  const togglePin = useCallback(async (game: TopGame) => {
+    if (!playerToken) return;
+    const nextPinned = !game.is_pinned;
+    const gameId = game.global_game_id;
+    setGames(prev => prev.map(g => g.global_game_id === gameId ? { ...g, is_pinned: nextPinned } : g));
+    try {
+      const res = await fetch(`/api/global/games/${encodeURIComponent(gameId)}/pin`, {
+        method: nextPinned ? 'POST' : 'DELETE',
+        headers: authHeaders,
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      refreshPins();
+    } catch {
+      setGames(prev => prev.map(g => g.global_game_id === gameId ? { ...g, is_pinned: !nextPinned } : g));
+      showError(nextPinned ? 'Could not pin that game.' : 'Could not unpin that game.');
+    }
+  }, [playerToken, authHeaders, refreshPins, showError]);
 
   // WebSocket — show a toast and bump the matching card's stats optimistically
   useEffect(() => {
@@ -217,6 +297,7 @@ export default function GlobalScoreboard() {
     return () => {
       socket.off('score:new:global', handler);
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      if (errorTimerRef.current) window.clearTimeout(errorTimerRef.current);
     };
   }, []);
 
@@ -318,6 +399,22 @@ export default function GlobalScoreboard() {
         )}
         {!showSubheadLogin && <div className="mb-6" />}
 
+        {/* A4 — My Pins rail. Between the title block and the search field,
+            logged-in only, and self-hiding when the viewer has no pins. */}
+        <PinnedRail
+          pins={pins}
+          onSubmit={pin => setSubmitGame({
+            ...pin,
+            type: 'pinball',
+            platforms: '[]',
+            last_submitted_at: null,
+            avg_rating: 0,
+            rating_count: 0,
+            top_scores: [],
+          } as unknown as TopGame)}
+          onAdd={() => setPaletteOpen(true)}
+        />
+
         {/* Search + room scope. The field itself is owned by the ⌘K palette
             (A3) — one input that gains a focused treatment when the palette is
             open, rather than a second, competing search box. */}
@@ -376,7 +473,7 @@ export default function GlobalScoreboard() {
               and turned one control into a four-line block (handoff: "Sort pills
               become a horizontally scrollable row on narrow screens"). */}
           <div className="flex items-center gap-1 self-start lg:self-auto rounded-md border border-border bg-surface p-[3px] max-w-full overflow-x-auto scrollbar-thin">
-            {SORT_PILLS.map(([value, label]) => (
+            {(playerToken ? [PINNED_PILL, ...SORT_PILLS] : SORT_PILLS).map(([value, label]) => (
               <button
                 key={value}
                 onClick={() => setSort(value)}
@@ -417,6 +514,7 @@ export default function GlobalScoreboard() {
                   key={game.global_game_id}
                   game={game}
                   onSubmit={() => handleSubmitClick(game)}
+                  onTogglePin={playerToken ? () => togglePin(game) : undefined}
                 />
               ))}
             </div>
@@ -447,6 +545,17 @@ export default function GlobalScoreboard() {
             {' on '}
             <span className="font-semibold">{toast.game}</span>
           </div>
+        </div>
+      )}
+
+      {/* A4 — pin-toggle failure. The card has already reverted by the time
+          this shows; the toast explains why it snapped back. */}
+      {errorToast && (
+        <div
+          role="status"
+          className="fixed top-20 left-1/2 z-30 -translate-x-1/2 rounded border border-neon-coral bg-surface px-5 py-3 text-sm shadow-lg animate-slide-down"
+        >
+          {errorToast}
         </div>
       )}
 
@@ -485,15 +594,19 @@ const RANK_TINTS: Record<number, { bg: string; border: string; medal: string; la
   3: { bg: 'var(--sb-row-bronze-bg)', border: 'var(--sb-row-bronze-border)', medal: 'text-medal-bronze', label: '3rd place' },
 };
 
-function LeaderboardRow({ entry, rank }: { entry: TopScoreEntry; rank: number }) {
+function LeaderboardRow({ entry, rank, isYou = false }: { entry: TopScoreEntry; rank: number; isYou?: boolean }) {
   const tint = RANK_TINTS[rank];
   const name = playerName(entry);
   const abbreviated = formatScore(entry.score);
+  // A4: the viewer's own row wins the tint even at rank 1-3 — "this is me" is
+  // the more useful signal on a card the viewer opened to find themselves on.
+  const bg = isYou ? 'var(--sb-row-you-bg)' : (tint?.bg ?? 'transparent');
+  const border = isYou ? 'var(--sb-row-you-border)' : (tint?.border ?? 'transparent');
 
   return (
     <div
       className="flex items-center gap-2 rounded-[5px] border px-2 py-[5px]"
-      style={{ background: tint?.bg ?? 'transparent', borderColor: tint?.border ?? 'transparent' }}
+      style={{ background: bg, borderColor: border }}
     >
       <span className="flex w-5 shrink-0 items-center justify-center">
         {tint ? (
@@ -508,16 +621,31 @@ function LeaderboardRow({ entry, rank }: { entry: TopScoreEntry; rank: number })
         avatarHash={entry.avatar_hash}
         size={18}
       />
-      <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{name}</span>
-      {entry.origin_room_slug && (
-        <RoomTag
-          shortTag={entry.origin_room_short_tag || entry.origin_room_slug}
-          size={16}
-          logoUrl={entry.origin_room_logo_url}
-          href={`/scoreboard?room=${encodeURIComponent(entry.origin_room_slug)}`}
-          title={`Filter to ${entry.origin_room_short_tag || entry.origin_room_slug}`}
-        />
-      )}
+      {/* Name and room badge travel together, hard left. Previously the name
+          span carried `flex-1`, which pushed the badge to the far right edge
+          and visually detached it from the player it belongs to. The group
+          takes the slack instead, so the badge sits immediately after the
+          username and the score still right-aligns. */}
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className={`min-w-0 truncate text-[11px] ${isYou ? 'font-bold' : 'font-medium'}`}>
+          {name}
+          {isYou && (
+            <span className="ml-1.5 rounded-[2px] px-1 py-px align-middle text-[8px] font-bold uppercase tracking-[0.5px] text-neon-cyan"
+              style={{ background: 'var(--sb-row-you-bg)' }}>
+              You
+            </span>
+          )}
+        </span>
+        {entry.origin_room_slug && (
+          <RoomTag
+            shortTag={entry.origin_room_short_tag || entry.origin_room_slug}
+            size={16}
+            logoUrl={entry.origin_room_logo_url}
+            href={`/scoreboard?room=${encodeURIComponent(entry.origin_room_slug)}`}
+            title={`Filter to ${entry.origin_room_short_tag || entry.origin_room_slug}`}
+          />
+        )}
+      </span>
       <span
         className={`shrink-0 font-mono text-[11px] font-bold ${rank === 1 ? 'text-neon-amber' : 'text-primary'}`}
         title={abbreviated.endsWith('T') ? entry.score.toLocaleString() : undefined}
@@ -533,15 +661,63 @@ function LeaderboardRow({ entry, rank }: { entry: TopScoreEntry; rank: number })
  * on a scrim, then ranks 1-6, then a footer with the score count and a solid
  * Submit. No podium, no placeholder rows, no star row.
  */
-function GameCard({ game, onSubmit }: { game: TopGame; onSubmit: () => void }) {
+function GameCard({ game, onSubmit, onTogglePin }: {
+  game: TopGame;
+  onSubmit: () => void;
+  /** Undefined for anonymous viewers — the hotspot is not rendered at all. */
+  onTogglePin?: () => void;
+}) {
   const img = catalogueImageFor(game);
   const displayName = game.display_name || game.name;
   const rows = (game.top_scores || []).slice(0, CARD_ROWS);
   const platforms = parsePlatforms(game.platforms);
   const primaryPlatform = platforms[0];
 
+  /**
+   * A4 — the "YOU" row. Appended only when the viewer has a rank AND that rank
+   * falls outside the rows already rendered; inside the top 6 they are already
+   * on the card and a duplicate row would be worse than none.
+   *
+   * The row itself comes from `neighbors` (which carries the full entry shape
+   * including avatar and origin room), not from a synthesised stub.
+   */
+  const myRank = game.my_rank ?? null;
+  const youEntry = (myRank != null && myRank > rows.length)
+    ? (game.neighbors || []).find(n => n.rank === myRank) ?? null
+    : null;
+
   return (
     <div className="group relative flex h-full flex-col overflow-hidden rounded-[10px] border border-border bg-surface transition-colors duration-150 hover:border-[var(--sb-card-hover-border)]">
+      {/* A4 — pin hotspot. A SIBLING of the art <Link>, not a child: a button
+          nested inside an anchor is invalid and swallows the anchor's
+          activation on some browsers.
+
+          The button is a transparent 44×44 hit target anchored at the card's
+          top-left corner, with the 22px visual chip inset 6px inside it. That
+          is how the design's 22px control gets a ≥44px touch target WITHOUT a
+          negative-inset wrapper, which the card's `overflow-hidden` would clip
+          away exactly where the extra area was needed. */}
+      {onTogglePin && (
+        <button
+          type="button"
+          onClick={onTogglePin}
+          aria-pressed={Boolean(game.is_pinned)}
+          aria-label={game.is_pinned ? `Unpin ${displayName}` : `Pin ${displayName}`}
+          title={game.is_pinned ? 'Unpin this game' : 'Pin this game'}
+          className="absolute left-0 top-0 z-10 h-11 w-11"
+        >
+          <span
+            className="absolute left-1.5 top-1.5 flex h-[22px] w-[22px] items-center justify-center rounded border transition-colors"
+            style={{ background: 'var(--sb-art-btn-bg)', borderColor: 'var(--sb-art-btn-border)' }}
+          >
+            <Pin
+              className={`h-[11px] w-[11px] ${game.is_pinned ? 'fill-current text-neon-amber' : 'text-primary'}`}
+              aria-hidden="true"
+            />
+          </span>
+        </button>
+      )}
+
       {/* 1. Art block — the whole thing links to the game detail page. */}
       <Link
         to={`/games/${game.global_game_id}`}
@@ -596,6 +772,13 @@ function GameCard({ game, onSubmit }: { game: TopGame; onSubmit: () => void }) {
                 rank={i + 1}
               />
             ))}
+            {/* A4 — the viewer's own row, appended when they rank below the
+                rows above. No break line / neighbour block: that's A5's
+                density toggle, and `neighbors` is already on the payload for
+                it. */}
+            {youEntry && (
+              <LeaderboardRow entry={youEntry} rank={myRank as number} isYou />
+            )}
           </div>
         ) : (
           <button

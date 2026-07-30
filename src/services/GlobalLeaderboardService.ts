@@ -244,12 +244,19 @@ export class GlobalLeaderboardService {
      */
     static async getTopGames(options: {
         scope?: string;
-        sort?: 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc';
+        sort?: 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc' | 'pinned';
         limit?: number;
         offset?: number;
         search?: string;
         type?: string;
         platforms?: string[];
+        /**
+         * v2.52.0 (A4) — the viewer whose pins `sort=pinned` orders by. Also
+         * populates `pinned_at` on every row, which the route turns into
+         * `is_pinned`. Absent (anonymous) → `sort=pinned` degrades to
+         * `popular` rather than erroring; that fallback is the caller's job.
+         */
+        pinnedUserId?: string;
         /**
          * scores-page-redesign (B3): when true (and scope is global), bound the
          * global catalogue view to games WITH at least one live global score —
@@ -276,6 +283,8 @@ export class GlobalLeaderboardService {
             popularity: number;
             avg_rating: number;
             rating_count: number;
+            /** v2.52.0: ISO pin timestamp for `pinnedUserId`, else null/absent. */
+            pinned_at?: string | null;
         }>;
         total: number;
         hasMore: boolean;
@@ -331,7 +340,34 @@ export class GlobalLeaderboardService {
         const popularityExpr =
             `COALESCE(SUM(1.0 / (1.0 + (julianday('now') - julianday(gs.submitted_at)) / 14.0)), 0)`;
 
+        // v2.52.0 (A4) — the viewer's pin timestamp per row.
+        //
+        // A correlated scalar subquery, deliberately NOT a LEFT JOIN: this
+        // query GROUPs BY gg.id and a join would put `global_game_pins` inside
+        // the aggregate, quietly multiplying `score_count`/`popularity` for
+        // pinned rows.
+        //
+        // The column is OMITTED ENTIRELY when there is no viewer rather than
+        // selected as a literal NULL — an anonymous `/api/global/scoreboard`
+        // response must keep exactly the key set it had before A4, and a
+        // `pinned_at: null` on every row would break that. Its bind parameter
+        // is the first in the statement, hence its own params array ahead of
+        // joinParams.
+        const selectParams: any[] = [];
+        let pinnedAtSelect = '';
+        if (options.pinnedUserId) {
+            pinnedAtSelect = `,
+                (SELECT p.created_at FROM global_game_pins p
+                 WHERE p.global_game_id = gg.id AND p.discord_user_id = ?) as pinned_at`;
+            selectParams.push(options.pinnedUserId);
+        }
+
         const orderBy =
+            // Pinned first, most-recently-pinned leading, then the standard
+            // `popular` ordering for everything else. `pinned_at IS NULL` sorts
+            // 0 (pinned) before 1 (not), so it is the primary key of the sort.
+            options.sort === 'pinned' && options.pinnedUserId
+                ? 'pinned_at IS NULL ASC, pinned_at DESC, popularity DESC, gg.name COLLATE NOCASE ASC' :
             options.sort === 'most_scores' ? 'score_count DESC, gg.name COLLATE NOCASE ASC' :
             options.sort === 'most_recent' ? 'last_submitted_at DESC NULLS LAST, gg.name COLLATE NOCASE ASC' :
             options.sort === 'highest_rated' ? 'avg_rating DESC, rating_count DESC, gg.name COLLATE NOCASE ASC' :
@@ -386,7 +422,7 @@ export class GlobalLeaderboardService {
                 MAX(gs.submitted_at) as last_submitted_at,
                 ${popularityExpr} as popularity,
                 COALESCE(gr.avg_rating, 0) as avg_rating,
-                COALESCE(gr.rating_count, 0) as rating_count
+                COALESCE(gr.rating_count, 0) as rating_count${pinnedAtSelect}
             FROM global_games gg
             LEFT JOIN global_scores gs ON ${joinClause}
             LEFT JOIN (
@@ -401,10 +437,98 @@ export class GlobalLeaderboardService {
             ${havingClause}
             ORDER BY ${orderBy}
             LIMIT ? OFFSET ?`,
-            ...joinParams, ...whereParams, limit, offset
+            ...selectParams, ...joinParams, ...whereParams, limit, offset
         );
 
         return { data, total, hasMore: offset + data.length < total };
+    }
+
+    /**
+     * v2.52.0 (A4) — the viewer's own rank + score across a batch of games, in
+     * ONE query.
+     *
+     * Why not just call `getForGame` per game: a logged-in page load carries up
+     * to 200 games, and `getForGame` recalculates whenever the per-game cache
+     * is cold. That would turn one authenticated request into 200 full
+     * leaderboard recomputes. This resolves rank arithmetically instead, and
+     * the caller only falls back to `getForGame` for the handful of games the
+     * viewer actually has a score on (to build `neighbors`).
+     *
+     * The ranking must agree with `recalculate` exactly or the card would show
+     * a rank that isn't the one rendered, so both halves are mirrored here:
+     *   1. best-per-player collapse using the SAME partition expression
+     *      (`submitted_by_user_id`, else the `iscored:<lowername>` synthetic),
+     *   2. the same resolved owner id
+     *      (`COALESCE(submitted_by_user_id, user_mappings.discord_user_id, player_id)`)
+     *      so a viewer's iScored-synced aliases count as theirs,
+     *   3. the same tie-break (`score DESC, submitted_at ASC`).
+     *
+     * The `user_mappings` lookup is a scalar subquery rather than the LEFT JOIN
+     * `recalculate` uses: a join under a window function could fan out a row
+     * and shift every rank below it. `iscored_username` is UNIQUE COLLATE
+     * NOCASE so the two forms select the same value.
+     */
+    static async getViewerRanks(
+        gameIds: string[],
+        viewerUserId: string,
+        scope: string = 'global',
+    ): Promise<Record<string, { rank: number; score: number }>> {
+        if (gameIds.length === 0 || !viewerUserId) return {};
+        const db = await getDatabase();
+        const isGlobal = scope === 'global';
+        const excludeFilter = isGlobal ? 'AND gs.exclude_from_global = 0' : '';
+        const roomFilter = isGlobal ? '' : 'AND gs.origin_game_room_id = ?';
+        const roomParams = isGlobal ? [] : [scope];
+        const placeholders = gameIds.map(() => '?').join(',');
+
+        const rows = await db.all(`
+            SELECT resolved.global_game_id, resolved.rank, resolved.score
+            FROM (
+                SELECT
+                    best.global_game_id,
+                    best.score,
+                    COALESCE(
+                        best.submitted_by_user_id,
+                        CASE WHEN best.player_id LIKE 'iscored:%' THEN (
+                            SELECT um.discord_user_id FROM user_mappings um
+                            WHERE LOWER(um.iscored_username) = LOWER(best.iscored_username)
+                            LIMIT 1
+                        ) END,
+                        best.player_id
+                    ) AS owner_id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY best.global_game_id
+                        ORDER BY best.score DESC, best.submitted_at ASC
+                    ) AS rank
+                FROM (
+                    SELECT
+                        gs.global_game_id,
+                        gs.player_id,
+                        gs.submitted_by_user_id,
+                        gs.iscored_username,
+                        gs.score,
+                        gs.submitted_at,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY gs.global_game_id, COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.player_id)))
+                            ORDER BY gs.score DESC, gs.submitted_at ASC
+                        ) AS player_rn
+                    FROM global_scores gs
+                    WHERE gs.global_game_id IN (${placeholders})
+                      AND gs.deleted_at IS NULL
+                      AND gs.orphaned_at IS NULL
+                      ${excludeFilter}
+                      ${roomFilter}
+                ) best
+                WHERE best.player_rn = 1
+            ) resolved
+            WHERE resolved.owner_id = ?
+        `, ...gameIds, ...roomParams, viewerUserId);
+
+        const out: Record<string, { rank: number; score: number }> = {};
+        for (const row of rows) {
+            out[row.global_game_id] = { rank: row.rank, score: row.score };
+        }
+        return out;
     }
 
     /**
@@ -418,6 +542,13 @@ export class GlobalLeaderboardService {
         scope: string = 'global'
     ): Promise<Record<string, Array<{
         iscored_username: string;
+        /**
+         * v2.52.0: the implementation has always populated this (it is the
+         * `display_name ?? iscored_username` render rule's input); the declared
+         * signature simply omitted it, so callers outside this file couldn't
+         * see it. Declared now that GlobalPinService reads it.
+         */
+        display_name: string | null;
         score: number;
         avatar_hash: string | null;
         discord_user_id: string;

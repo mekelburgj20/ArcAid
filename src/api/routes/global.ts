@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
-import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal } from '../middleware.js';
+import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal, optionalDiscordUser } from '../middleware.js';
 import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter } from '../rateLimit.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -11,6 +11,7 @@ import { GameRoomService } from '../../services/GameRoomService.js';
 import { GlobalGameService } from '../../services/GlobalGameService.js';
 import { GlobalScoreService } from '../../services/GlobalScoreService.js';
 import { GlobalLeaderboardService } from '../../services/GlobalLeaderboardService.js';
+import { GlobalPinService } from '../../services/GlobalPinService.js';
 import { GlobalRatingService } from '../../services/GlobalRatingService.js';
 import { GlobalCommentService } from '../../services/GlobalCommentService.js';
 import { ScoreRankService, type SubmitRankResult } from '../../services/ScoreRankService.js';
@@ -1259,7 +1260,7 @@ router.get('/global/recent-scores', async (req, res) => {
  * GET /api/global/scoreboard — paginated catalogue + per-game score aggregates.
  * All catalogue games appear, even with zero scores. Default sort is `popular`
  * (recency-weighted score count). Query params:
- *   ?sort=popular|most_scores|highest_rated|most_recent|name_asc
+ *   ?sort=popular|most_scores|highest_rated|most_recent|name_asc|pinned
  *   &scope=global|<roomId>
  *   &limit=30&offset=0
  *   &search=&type=&platforms=vpx,real,...
@@ -1267,10 +1268,27 @@ router.get('/global/recent-scores', async (req, res) => {
  *     WITH at least one live score — room Scoreboard's "Global" tab lens.
  *     Omitted/false leaves the standalone /scoreboard catalogue browse
  *     unchanged, including zero-score games.)
+ *
+ * v2.52.0 (A4) — `optionalDiscordUser`, NOT `requireAuth`/`requireDiscordUser`.
+ * This route is the public /scoreboard page's only data source and must keep
+ * answering token-less requests; the middleware decodes a Bearer token when one
+ * is sent and is a pure no-op otherwise.
+ *
+ * WITH a valid token, each row additionally carries `is_pinned`, `my_rank`,
+ * `my_score` and `neighbors`. WITHOUT one, the response is byte-identical to
+ * the pre-A4 shape — no new keys, no nulls leaking in. That is a tested
+ * invariant, because a key that only appears for some viewers is exactly the
+ * kind of thing that silently changes a cache key or a client's `Object.keys`
+ * assumptions.
  */
-router.get('/global/scoreboard', async (req, res) => {
+router.get('/global/scoreboard', optionalDiscordUser, async (req, res) => {
     try {
-        const sort = (req.query.sort as 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc') || 'popular';
+        const viewerId = req.user?.discordId ?? null;
+        const requestedSort = (req.query.sort as 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc' | 'pinned') || 'popular';
+        // `pinned` needs a viewer to mean anything. Anonymous requests degrade
+        // to `popular` rather than 400ing — a shared `?sort=pinned` link opened
+        // logged-out should render a scoreboard, not an error.
+        const sort = (requestedSort === 'pinned' && !viewerId) ? 'popular' : requestedSort;
         const scope = (req.query.scope as string) || 'global';
         const limit = Math.min(parseInt(req.query.limit as string) || 30, 200);
         const offset = parseInt(req.query.offset as string) || 0;
@@ -1286,6 +1304,7 @@ router.get('/global/scoreboard', async (req, res) => {
 
         const result = await GlobalLeaderboardService.getTopGames({
             sort, scope, limit, offset, search, type, platforms, hasScores,
+            ...(viewerId ? { pinnedUserId: viewerId } : {}),
         });
 
         // Enrich each game with top 10 leaderboard entries for card previews
@@ -1296,9 +1315,96 @@ router.get('/global/scoreboard', async (req, res) => {
             top_scores: topScores[g.global_game_id] || [],
         }));
 
-        res.json({ ...result, data: enriched });
+        if (!viewerId) {
+            res.json({ ...result, data: enriched });
+            return;
+        }
+
+        // --- Per-viewer context (authenticated only) ---
+        const myRanks = await GlobalLeaderboardService.getViewerRanks(gameIds, viewerId, scope);
+
+        // `neighbors` = ranks my_rank-1 … my_rank+1, each carrying an explicit
+        // `rank`. It exists so A5's density toggle flips client-side with no
+        // refetch; it is shipped now because it is the same query and splitting
+        // it would mean touching this path twice.
+        //
+        // The full ranked list is only pulled for games the viewer actually has
+        // a score on — normally a handful per page. Pulling it for all 30 would
+        // recalculate every cold leaderboard cache on one page load.
+        const neighborsByGame: Record<string, any[]> = {};
+        await Promise.all(Object.entries(myRanks).map(async ([gameId, mine]) => {
+            const rank = mine.rank;
+            const full = await GlobalLeaderboardService.getForGame(gameId, scope);
+            neighborsByGame[gameId] = full.filter(e => e.rank >= rank - 1 && e.rank <= rank + 1);
+        }));
+
+        const pinned = await GlobalPinService.pinnedIdsAmong(viewerId, gameIds);
+
+        res.json({
+            ...result,
+            data: enriched.map((g: any) => {
+                const mine = myRanks[g.global_game_id];
+                return {
+                    ...g,
+                    is_pinned: pinned.has(g.global_game_id),
+                    my_rank: mine?.rank ?? null,
+                    my_score: mine?.score ?? null,
+                    neighbors: neighborsByGame[g.global_game_id] ?? [],
+                };
+            }),
+        });
     } catch (error) {
         logError('API Error (GET /api/global/scoreboard):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * GET /api/global/pins — the viewer's pinned games (v2.52.0, A4).
+ *
+ * Returns everything the "My Pins" rail chip renders, so opening /scoreboard
+ * logged in costs one extra request, not one-per-pin. Ordered newest pin first.
+ */
+router.get('/global/pins', requireDiscordUser, async (req, res) => {
+    try {
+        const pins = await GlobalPinService.list(req.user!.discordId!);
+        res.json({ pins });
+    } catch (error) {
+        logError('API Error (GET /api/global/pins):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /api/global/games/:globalGameId/pin — pin a game (v2.52.0, A4).
+ *
+ * Idempotent: re-pinning is a 200 no-op. Seeds `last_known_rank` with the
+ * viewer's current rank on the game (NULL when they have no score yet).
+ * Pins are unlimited — there is deliberately no cap here.
+ */
+router.post('/global/games/:globalGameId/pin', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const globalGameId = req.params.globalGameId as string;
+        const result = await GlobalPinService.pin(req.user!.discordId!, globalGameId);
+        if (!result) return res.status(404).json({ error: 'Game not found' });
+        res.json(result);
+    } catch (error) {
+        logError('API Error (POST /api/global/games/:globalGameId/pin):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * DELETE /api/global/games/:globalGameId/pin — unpin (v2.52.0, A4).
+ * Idempotent; unpinning something that was never pinned is a 200 no-op.
+ */
+router.delete('/global/games/:globalGameId/pin', writeLimiter, requireDiscordUser, async (req, res) => {
+    try {
+        const globalGameId = req.params.globalGameId as string;
+        const result = await GlobalPinService.unpin(req.user!.discordId!, globalGameId);
+        res.json(result);
+    } catch (error) {
+        logError('API Error (DELETE /api/global/games/:globalGameId/pin):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

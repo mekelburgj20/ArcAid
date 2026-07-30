@@ -2016,6 +2016,38 @@ export async function initDatabase(): Promise<Database> {
         // index down with it.
         { name: '122_user_bans_room_scope', sql: `ALTER TABLE user_bans ADD COLUMN game_room_id TEXT` },
         { name: '123_user_bans_room_index', sql: `CREATE INDEX IF NOT EXISTS idx_user_bans_user_room ON user_bans(discord_user_id, game_room_id)` },
+        // v2.52.0 — Global Scoreboard pins (Track A, phase A4;
+        // tmp/global-scoreboard-a4-contract.md).
+        //
+        // FK TARGET IS `global_games(id)`. The design handoff specified
+        // `REFERENCES global_games(global_game_id)` — that column does not
+        // exist (the catalogue PK is `id`, declared at the top of this file).
+        // `PRAGMA foreign_keys = ON` is enabled after this loop, and SQLite
+        // only reports a malformed FK at DML time, so the handoff's version
+        // would have created cleanly and then thrown
+        // `foreign key mismatch` on the very first pin INSERT in production.
+        // The suite asserts an actual insert, not just that the migration ran.
+        //
+        // `discord_user_id` is the generic identity column name used
+        // everywhere in this schema — it holds any provider id, including the
+        // namespaced `google:*` form (ADR 0015). No provider column.
+        //
+        // `last_known_rank` / `last_seen_at` are seeded/read by pins today
+        // (they drive the rail's rank-delta badge); A5's rank-change alerting
+        // is the other consumer and ships separately.
+        { name: '124_global_game_pins', sql: `
+            CREATE TABLE IF NOT EXISTS global_game_pins (
+                discord_user_id TEXT NOT NULL,
+                global_game_id TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_known_rank INTEGER,
+                last_seen_at TEXT,
+                PRIMARY KEY (discord_user_id, global_game_id),
+                FOREIGN KEY (global_game_id) REFERENCES global_games (id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_pins_user ON global_game_pins(discord_user_id);
+            CREATE INDEX IF NOT EXISTS idx_pins_game ON global_game_pins(global_game_id);
+        ` },
     ];
 
     for (const migration of migrations) {
