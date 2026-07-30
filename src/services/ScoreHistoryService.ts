@@ -97,12 +97,16 @@ export class ScoreHistoryService {
         const db = await getDatabase();
         return db.all(`
             SELECT sh.id, sh.score, sh.source, sh.photo_url, sh.created_at, sh.game_id,
+                   sh.iscored_username,
+                   up.display_name,
                    sh.submitted_by_user_id,
                    sh.submitted_during_tournament_id as tournament_id,
                    t.name as tournament_name,
                    CASE WHEN t.is_active = 1 THEN 1 ELSE 0 END as tournament_active
             FROM score_history sh
             LEFT JOIN tournaments t ON t.id = sh.submitted_during_tournament_id
+            LEFT JOIN user_mappings um ON LOWER(um.iscored_username) = LOWER(sh.iscored_username)
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(sh.submitted_by_user_id, um.discord_user_id)
             WHERE sh.game_room_id = ?
             AND LOWER(sh.game_name) = LOWER(?)
             AND LOWER(sh.iscored_username) = LOWER(?)
@@ -122,12 +126,14 @@ export class ScoreHistoryService {
     ) {
         const db = await getDatabase();
         return db.all(`
-            SELECT id, iscored_username, score, source, created_at
-            FROM score_history
-            WHERE game_room_id = ?
-            AND LOWER(game_name) = LOWER(?)
-            AND orphaned_at IS NULL
-            ORDER BY created_at DESC
+            SELECT sh.id, sh.iscored_username, up.display_name, sh.score, sh.source, sh.created_at
+            FROM score_history sh
+            LEFT JOIN user_mappings um ON LOWER(um.iscored_username) = LOWER(sh.iscored_username)
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(sh.submitted_by_user_id, um.discord_user_id)
+            WHERE sh.game_room_id = ?
+            AND LOWER(sh.game_name) = LOWER(?)
+            AND sh.orphaned_at IS NULL
+            ORDER BY sh.created_at DESC
             LIMIT ?
         `, gameRoomId, gameName, limit);
     }
@@ -139,11 +145,13 @@ export class ScoreHistoryService {
     static async getGameSubmissions(gameRoomId: string, gameId: string) {
         const db = await getDatabase();
         return db.all(`
-            SELECT id, iscored_username, score, source, photo_url, created_at
-            FROM score_history
-            WHERE game_room_id = ? AND game_id = ?
-            AND orphaned_at IS NULL
-            ORDER BY score DESC, created_at ASC
+            SELECT sh.id, sh.iscored_username, up.display_name, sh.score, sh.source, sh.photo_url, sh.created_at
+            FROM score_history sh
+            LEFT JOIN user_mappings um ON LOWER(um.iscored_username) = LOWER(sh.iscored_username)
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(sh.submitted_by_user_id, um.discord_user_id)
+            WHERE sh.game_room_id = ? AND sh.game_id = ?
+            AND sh.orphaned_at IS NULL
+            ORDER BY sh.score DESC, sh.created_at ASC
         `, gameRoomId, gameId);
     }
 

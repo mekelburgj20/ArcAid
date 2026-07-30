@@ -220,7 +220,12 @@ export const StyleUploadSchema = z.object({
 export const MAX_SCORE = 1_000_000_000_000_000;
 
 export const CommunityScoreSchema = z.object({
-    username: z.string().min(1).max(100),
+    // Username lock: optional at the schema layer because an AUTHENTICATED
+    // submitter's name is resolved server-side (see `resolveSubmitUsername` in
+    // rooms.ts) and this field is ignored for them. Guests still need one —
+    // the handler 400s when a guest omits it. Length/emptiness rules for the
+    // guest path are unchanged.
+    username: z.string().min(1).max(100).optional(),
     score: z.number().int().min(0).max(MAX_SCORE),
     // discord_user_id intentionally NOT accepted here — attribution is derived
     // server-side from the verified Bearer token (req.user.discordId), never
@@ -232,7 +237,8 @@ export const CommunityScoreSchema = z.object({
 });
 
 export const ScoreSubmissionSchema = z.object({
-    username: z.string().min(1).max(100),
+    // Optional for authenticated submitters — see CommunityScoreSchema.
+    username: z.string().min(1).max(100).optional(),
     score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
     platform: z.string().min(1),
 });
@@ -245,7 +251,8 @@ export const ScoreSubmissionSchema = z.object({
  */
 export const FreeplayScoreSchema = z.object({
     globalGameId: z.string().min(1),
-    username: z.string().min(1).max(100),
+    // Optional for authenticated submitters — see CommunityScoreSchema.
+    username: z.string().min(1).max(100).optional(),
     score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
     excludeGlobal: z.preprocess(
         v => v === 'true' || v === true,

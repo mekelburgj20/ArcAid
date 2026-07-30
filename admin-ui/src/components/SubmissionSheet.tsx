@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserX, Trophy } from 'lucide-react';
+import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserX, UserCheck, Trophy } from 'lucide-react';
 import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
 import ShareButton from './ShareButton';
@@ -140,8 +140,20 @@ export default function SubmissionSheet({
     discordEnabled,
 }: SubmissionSheetProps) {
     const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
+    /**
+     * Username lock — a logged-in viewer (Discord OR Google; both land in
+     * `discordUser`/`playerToken`, the Google ids just carry a `google:` prefix)
+     * submits under their canonical account name. The editable name field is
+     * replaced with a read-only "Playing as …" chip, and the server ignores any
+     * name the client posts anyway. Guests keep the free-text field —
+     * first-claim-wins per room is deliberate for them.
+     */
+    const isAuthedViewer = !!playerToken;
     const [playerName, setPlayerName] = useState(
-        initialPlayerName ??
+        // Authed: always start from the account name, never a stale
+        // localStorage/`initialPlayerName` value.
+        (isAuthedViewer ? discordUser?.username : undefined) ??
+            initialPlayerName ??
             discordUser?.username ??
             localStorage.getItem('arcaid-player-name') ??
             (target.kind === 'global' ? target.presetDisplayName ?? '' : ''),
@@ -409,12 +421,13 @@ export default function SubmissionSheet({
         if (!trimmedName || isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
 
-        // Authenticated users and global submissions bypass the Discord-guild
-        // claim prompt. They still run through runNameCheckThenSubmit so
-        // a Discord user re-submitting under a name owned by someone else in
-        // this room also gets the pre-submit collision prompt (v2.2.5).
-        if (playerToken || !canHaveAnonymousFlow(target)) {
-            return runNameCheckThenSubmit(trimmedName);
+        // Username lock: an authenticated viewer can no longer choose a name, so
+        // the pre-submit name-check/collision prompt (v2.2.5) is skipped — the
+        // server resolves their canonical name and any suffixing itself, and the
+        // success card reports the final name. Global submissions are always
+        // authenticated and never had the anonymous claim prompt either.
+        if (isAuthedViewer || !canHaveAnonymousFlow(target)) {
+            return submitScoreNow(trimmedName);
         }
 
         // Anonymous room submit: first check for a Discord-guild member matching
@@ -828,6 +841,34 @@ export default function SubmissionSheet({
 
                             <div>
                                 <label className="text-xs text-faint block mb-1">{nameLabel}</label>
+                                {isAuthedViewer ? (
+                                    /* Username lock — read-only identity chip. The name is
+                                       fixed to the account; renames happen in Account
+                                       Settings, which is also the only place the global
+                                       display name is editable. The server may still
+                                       resolve a slightly different name (e.g. an existing
+                                       suffixed room claim) — the submit response carries
+                                       the final `displayName` and the success card shows it. */
+                                    <>
+                                        <div className="px-3 py-2 bg-raised border border-border/60 rounded text-sm flex items-center gap-2">
+                                            <UserCheck size={14} className="text-neon-cyan flex-shrink-0" />
+                                            <span className="text-muted">Playing as</span>
+                                            <span className="text-primary font-display font-bold truncate">
+                                                {playerName || discordUser?.username || 'you'}
+                                            </span>
+                                        </div>
+                                        <p className="text-[11px] text-faint mt-1">
+                                            Not you?{' '}
+                                            <Link
+                                                to="/account/settings"
+                                                className="text-neon-cyan hover:underline"
+                                            >
+                                                Change your display name in settings
+                                            </Link>
+                                            .
+                                        </p>
+                                    </>
+                                ) : (
                                 <div className="flex gap-1">
                                     {/* On touch devices the in-app OnScreenKeyboard drives
                                         input; inputMode='none' keeps the field focusable
@@ -859,6 +900,7 @@ export default function SubmissionSheet({
                                         </button>
                                     )}
                                 </div>
+                                )}
                             </div>
 
                             <div>

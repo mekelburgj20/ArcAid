@@ -65,6 +65,38 @@ const roomAssetUpload = multer({
 });
 
 /**
+ * Username lock — shared by the three web submit handlers
+ * (`/submit-score`, `/freeplay-score`, `/community-scores`).
+ *
+ * Authenticated submitter (`req.user.discordId`, which covers Google logins via
+ * the namespaced `google:*` ids): the client-supplied name is DISCARDED and
+ * `UserProfileService.resolveSubmitName` returns their canonical room name
+ * (`room_members.display_name` → `user_profiles.display_name` → JWT `username`
+ * claim → id). Renames go through Account Settings, not the score modal.
+ *
+ * Guest submitter: returned unchanged — free-text names plus first-claim-wins
+ * per room are deliberate for guests. Returns `null` when a guest sent no
+ * usable name, so the caller can 400.
+ */
+async function resolveSubmitUsername(
+    req: { user?: { discordId?: string; username?: string } },
+    roomId: string,
+    postedUsername: string | undefined,
+): Promise<string | null> {
+    const discordUserId = req.user?.discordId;
+    if (discordUserId) {
+        const { UserProfileService } = await import('../../services/UserProfileService.js');
+        return UserProfileService.resolveSubmitName({
+            discordUserId,
+            roomId,
+            jwtUsername: req.user?.username ?? null,
+        });
+    }
+    const trimmed = typeof postedUsername === 'string' ? postedUsername.trim() : '';
+    return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
  * v2.5.0: server-side re-validation of the per-score `platform` field. Mirrors
  * the picker resolution in `GET /api/submit/platforms` so a malicious client
  * can't bypass the dropdown.
@@ -1373,6 +1405,13 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequ
         const roomId = req.params.roomId as string;
         const { username, score, photo_url, platform } = validationResult.data;
 
+        // Username lock — an authenticated submitter's name is resolved
+        // server-side and the client-supplied `username` is ignored entirely.
+        // Guests keep free-text names (first-claim-wins per room is by design),
+        // so they must still supply one.
+        const effectiveUsernameInput = await resolveSubmitUsername(req, roomId, username);
+        if (!effectiveUsernameInput) return res.status(400).json({ error: 'username is required' });
+
         // v2.5.0: re-validate platform server-side against the game's resolved
         // submittable set (effective platforms ∩ active tournament rules).
         const platformError = await ensurePlatformAllowed({ roomId, gameName, platform });
@@ -1388,7 +1427,7 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequ
         // conditionalRequireDiscordUser populates req.user when a valid player
         // Bearer token is present; anonymous requests leave it undefined —
         // matches the idiom used by the freeplay-score handler below.
-        const result = await CommunityScoreService.submitScore(roomId, gameName, username, score, req.user?.discordId, photo_url, { anonToken, platform });
+        const result = await CommunityScoreService.submitScore(roomId, gameName, effectiveUsernameInput, score, req.user?.discordId, photo_url, { anonToken, platform });
 
         // v2.2.2: sync to iScored when this matches an ACTIVE tournament game.
         // photo_url is a pre-existing URL (not an upload), so no persistentPhotoPath
@@ -1494,6 +1533,11 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
         const { username, score, platform } = validationResult.data;
         const excludeFromGlobal = req.body.excludeGlobal === 'true' || req.body.excludeGlobal === true;
 
+        // Username lock — see the community-scores handler above. Authenticated
+        // submitters get their canonical name; the posted `username` is ignored.
+        const effectiveUsernameInput = await resolveSubmitUsername(req, roomId, username);
+        if (!effectiveUsernameInput) return res.status(400).json({ error: 'username is required' });
+
         // v2.5.0: re-validate platform against the resolved submittable set.
         const platformError = await ensurePlatformAllowed({ roomId, gameName, platform });
         if (platformError) return res.status(400).json({ error: platformError });
@@ -1537,7 +1581,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
         // the resolved displayName (possibly suffixed e.g. "Bob_2").
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const result = await CommunityScoreService.submitScore(
-            roomId, gameName, username, score, req.user?.discordId, photoUrl, { excludeFromGlobal, anonToken, platform }
+            roomId, gameName, effectiveUsernameInput, score, req.user?.discordId, photoUrl, { excludeFromGlobal, anonToken, platform }
         );
         const effectiveUsername = result.displayName;
 
@@ -1617,6 +1661,11 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const { globalGameId, username, score, excludeGlobal: excludeFromGlobal, platform } = validationResult.data;
 
+        // Username lock — see the community-scores handler above. Authenticated
+        // submitters get their canonical name; the posted `username` is ignored.
+        const effectiveUsernameInput = await resolveSubmitUsername(req, roomId, username);
+        if (!effectiveUsernameInput) return res.status(400).json({ error: 'username is required' });
+
         // Photo is required for freeplay (no tournament cross-check, so evidence matters)
         if (!req.file) {
             return res.status(400).json({ error: 'A photo is required for freeplay score submissions.' });
@@ -1665,7 +1714,7 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         const result = await CommunityScoreService.submitScore(
             roomId,
             globalGame.name,
-            username,
+            effectiveUsernameInput,
             score,
             req.user?.discordId,
             photoUrl,

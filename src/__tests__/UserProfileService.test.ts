@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { UserProfileService } from '../services/UserProfileService.js';
 import { getDatabase } from '../database/database.js';
-import { setupTestDb } from './helpers.js';
+import { setupTestDb, createTestRoom } from './helpers.js';
 
 /**
  * Coverage for the user-chosen display name layer (Part B):
@@ -128,5 +128,79 @@ describe('UserProfileService.getDisplayNameMap — batch lookup', () => {
         expect(map.get('user-2')).toBe('Beta');
         expect(map.has('user-3')).toBe(false);
         expect(map.has('user-4')).toBe(false);
+    });
+});
+
+/**
+ * Username lock — `resolveSubmitName` is the single source of truth for what
+ * name an AUTHENTICATED submitter's score is stored under. The web submit
+ * handlers ignore the client-supplied name and call this instead.
+ */
+describe('UserProfileService.resolveSubmitName — canonical submit name', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+    });
+
+    async function seedRoomMember(roomId: string, userId: string, displayName: string) {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO room_members (user_id, room_id, joined_at, source, display_name)
+             VALUES (?, ?, datetime('now'), 'submission', ?)`,
+            userId, roomId, displayName,
+        );
+    }
+
+    it('room scope: an existing room_members claim wins over everything else', async () => {
+        const roomId = await createTestRoom('rsn-room-claim', 'RSN Room Claim');
+        await seedRoomMember(roomId, 'user-1', 'RoomBob');
+        await UserProfileService.setDisplayName('user-1', 'GlobalBob');
+
+        const name = await UserProfileService.resolveSubmitName({
+            discordUserId: 'user-1', roomId, jwtUsername: 'JwtBob',
+        });
+        expect(name).toBe('RoomBob');
+    });
+
+    it('room scope: falls back to user_profiles.display_name, then the JWT claim', async () => {
+        const roomId = await createTestRoom('rsn-room-fallback', 'RSN Room Fallback');
+        await UserProfileService.setDisplayName('user-2', 'GlobalBob');
+        expect(await UserProfileService.resolveSubmitName({
+            discordUserId: 'user-2', roomId, jwtUsername: 'JwtBob',
+        })).toBe('GlobalBob');
+
+        expect(await UserProfileService.resolveSubmitName({
+            discordUserId: 'user-3', roomId, jwtUsername: 'JwtBob',
+        })).toBe('JwtBob');
+
+        // Nothing at all → the raw id, never an empty string.
+        expect(await UserProfileService.resolveSubmitName({
+            discordUserId: 'user-4', roomId, jwtUsername: '  ',
+        })).toBe('user-4');
+    });
+
+    it('global scope: an existing user_mappings alias wins, then display_name, then the JWT claim', async () => {
+        await seedAlias('user-5', 'AliasBob');
+        await UserProfileService.setDisplayName('user-5', 'GlobalBob');
+        expect(await UserProfileService.resolveSubmitName({
+            discordUserId: 'user-5', jwtUsername: 'JwtBob',
+        })).toBe('AliasBob');
+
+        await UserProfileService.setDisplayName('user-6', 'GlobalSue');
+        expect(await UserProfileService.resolveSubmitName({
+            discordUserId: 'user-6', jwtUsername: 'JwtSue',
+        })).toBe('GlobalSue');
+
+        expect(await UserProfileService.resolveSubmitName({
+            discordUserId: 'user-7', jwtUsername: 'JwtSue',
+        })).toBe('JwtSue');
+    });
+
+    it('room scope ignores the global alias (room_members / user_profiles only)', async () => {
+        const roomId = await createTestRoom('rsn-room-noalias', 'RSN Room No Alias');
+        await seedAlias('user-8', 'AliasOnly');
+        const name = await UserProfileService.resolveSubmitName({
+            discordUserId: 'user-8', roomId, jwtUsername: 'JwtOnly',
+        });
+        expect(name).toBe('JwtOnly');
     });
 });
