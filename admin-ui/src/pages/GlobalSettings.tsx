@@ -208,7 +208,7 @@ export default function GlobalSettings() {
       <NeonCard title="Theme" className="mb-4">
         <div className="space-y-4">
           <div>
-            <label className="text-xs text-faint block mb-1">Global Pages Theme</label>
+            <label className="text-xs text-faint block mb-1">Global Pages Theme (deprecated)</label>
             <select
               value={settings.GLOBAL_PAGE_THEME || 'dark'}
               onChange={e => handleChange('GLOBAL_PAGE_THEME', e.target.value)}
@@ -218,7 +218,12 @@ export default function GlobalSettings() {
                 <option key={id} value={id}>{label} — {description}</option>
               ))}
             </select>
-            <p className="text-xs text-muted mt-1">Theme for the Global Scoreboard, Catalogue, Game Detail pages, and the landing page. Applies to all visitors.</p>
+            <p className="text-xs text-muted mt-1">
+              <span className="text-neon-amber">No longer applied</span> — as of v2.50.0 the global pages
+              (Global Scoreboard, Catalogue, Game Detail, landing page) follow each visitor&rsquo;s own
+              light/dark preference, set with the sun/moon toggle in those page headers. This setting will
+              be removed in a future release.
+            </p>
           </div>
           <div>
             <label className="text-xs text-faint block mb-1">Admin Theme</label>

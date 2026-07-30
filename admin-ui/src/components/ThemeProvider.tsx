@@ -25,6 +25,9 @@ export const THEMES: Record<ThemeId, { label: string; description: string }> = {
   marquee: { label: 'Marquee', description: 'Illuminated arcade marquee with bright glow' },
 };
 
+/** v2.50.0 (A1) — global pages are light/dark only, never a named theme. */
+export type GlobalPagePolarity = 'light' | 'dark';
+
 interface ThemeContextType {
   theme: ThemeId;
   setTheme: (theme: ThemeId) => void;
@@ -34,6 +37,10 @@ interface ThemeContextType {
   setPublicTheme: (theme: ThemeId) => void;
   adminTheme: ThemeId;
   setAdminTheme: (theme: ThemeId) => void;
+  /** Resolved light/dark for global pages (visitor choice -> OS -> dark). */
+  globalPageTheme: GlobalPagePolarity;
+  /** Records an explicit visitor choice; stops the OS-preference listener. */
+  setGlobalPageTheme: (polarity: GlobalPagePolarity) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -41,7 +48,31 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_GLOBAL_KEY = 'arcaid-theme-global';
 const STORAGE_PUBLIC_KEY = 'arcaid-theme-public';
 const STORAGE_ADMIN_KEY = 'arcaid-theme-admin';
+/** v2.50.0 (A1) — the visitor's explicit light/dark choice for global pages. */
+export const STORAGE_GLOBAL_PAGE_KEY = 'arcaid-global-theme';
 const publicSlugKey = (slug: string) => `arcaid-theme-public-${slug}`;
+
+/** Explicit visitor choice, or null when they've never picked one. */
+function readGlobalPageChoice(): GlobalPagePolarity | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_GLOBAL_PAGE_KEY);
+    return raw === 'light' || raw === 'dark' ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+const PREFERS_LIGHT = '(prefers-color-scheme: light)';
+
+/** OS preference, defaulting to dark when matchMedia is unavailable (jsdom). */
+function readOsPolarity(): GlobalPagePolarity {
+  try {
+    if (typeof window.matchMedia !== 'function') return 'dark';
+    return window.matchMedia(PREFERS_LIGHT).matches ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
 
 function isAdminPath(pathname: string): boolean {
   // /admin/* = super admin, /:slug/admin/* = room admin
@@ -92,12 +123,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const pathname = location.pathname;
   const adminRoute = isAdminPath(pathname);
   const roomSlug = getRoomSlug(pathname);
+  const globalPage = !adminRoute && isGlobalPath(pathname);
+
+  // v2.50.0 (A1) — global pages (/, /scoreboard, /catalogue, /games/*) follow
+  // the VISITOR, not the admin-set GLOBAL_PAGE_THEME (that setting is now
+  // deprecated; the server field still exists but nothing reads it here).
+  // Precedence: explicit localStorage choice -> prefers-color-scheme -> dark.
+  const [globalPageChoice, setGlobalPageChoice] = useState<GlobalPagePolarity | null>(readGlobalPageChoice);
+  const [osPolarity, setOsPolarity] = useState<GlobalPagePolarity>(readOsPolarity);
+  const globalPageTheme: GlobalPagePolarity = globalPageChoice ?? osPolarity;
 
   // Initialize from localStorage for instant rendering (no flash). Per-slug
   // key takes priority over the legacy un-suffixed key when the initial URL
   // is already a room's public route.
   const [publicThemeState, setPublicThemeState] = useState<ThemeId>(() => {
-    const initialSlug = getRoomSlug(window.location.pathname);
+    const initialPath = window.location.pathname;
+    if (!isAdminPath(initialPath) && isGlobalPath(initialPath)) {
+      return readGlobalPageChoice() ?? readOsPolarity();
+    }
+    const initialSlug = getRoomSlug(initialPath);
     const stored = (initialSlug && localStorage.getItem(publicSlugKey(initialSlug)))
       || localStorage.getItem(STORAGE_PUBLIC_KEY)
       || localStorage.getItem(STORAGE_GLOBAL_KEY);
@@ -117,6 +161,29 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     applyThemeClass(theme);
   }, [theme]);
+
+  // v2.50.0 (A1) — track the OS preference while mounted, but ONLY while the
+  // visitor has made no explicit choice. Once they've toggled, their choice is
+  // sticky and an OS flip must not override it. Deps on `globalPageChoice` so
+  // toggling detaches (and clearing the key would re-attach) the listener.
+  useEffect(() => {
+    if (globalPageChoice !== null) return;
+    if (typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(PREFERS_LIGHT);
+    const onChange = (e: MediaQueryListEvent) => setOsPolarity(e.matches ? 'light' : 'dark');
+    mq.addEventListener('change', onChange);
+    // Re-sync on (re)attach in case the preference moved while detached.
+    setOsPolarity(mq.matches ? 'light' : 'dark');
+    return () => mq.removeEventListener('change', onChange);
+  }, [globalPageChoice]);
+
+  // v2.50.0 (A1) — drive the applied theme from the resolved polarity whenever
+  // we're on a global page. Separate from the room effect below, which
+  // early-returns on global paths (getRoomSlug returns null for them).
+  useEffect(() => {
+    if (!globalPage) return;
+    setPublicThemeState(globalPageTheme);
+  }, [globalPage, globalPageTheme]);
 
   // Re-resolve the per-slug local theme immediately on entering a different
   // room's public route (room A -> room B must not keep A's theme). Runs
@@ -141,18 +208,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const hydrate = async () => {
       try {
-        // Global pages (/, /scoreboard, /catalogue, /games/*) use global page theme
+        // v2.50.0 (A1): global pages no longer hydrate a theme from
+        // /api/global/config. The admin-set GLOBAL_PAGE_THEME is deprecated —
+        // global pages follow each visitor's light/dark preference, resolved
+        // in the effects above. The server field and the (deprecated) admin
+        // control both survive this release; nothing reads them here.
         if (isGlobalPath(pathname)) {
-          try {
-            const configRes = await fetch('/api/global/config');
-            if (configRes.ok) {
-              const config = await configRes.json();
-              if (config.theme) {
-                setPublicThemeState(config.theme);
-                localStorage.setItem(STORAGE_PUBLIC_KEY, config.theme);
-              }
-            }
-          } catch { /* fall through to room theme */ }
+          /* no-op */
         } else if (roomSlug) {
           // Room pages use room-specific theme
           const portal = await getPortal(roomSlug).catch(() => null);
@@ -218,8 +280,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setGlobalTheme(newTheme);
   };
 
+  // v2.50.0 (A1) — persist the visitor's explicit global-page choice. Writing
+  // the key is what detaches the prefers-color-scheme listener.
+  const setGlobalPageTheme = (polarity: GlobalPagePolarity) => {
+    setGlobalPageChoice(polarity);
+    try {
+      localStorage.setItem(STORAGE_GLOBAL_PAGE_KEY, polarity);
+    } catch { /* private mode — the choice still applies for this session */ }
+  };
+
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, globalTheme, setGlobalTheme, publicTheme: publicThemeState, setPublicTheme, adminTheme: adminThemeState, setAdminTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, globalTheme, setGlobalTheme, publicTheme: publicThemeState, setPublicTheme, adminTheme: adminThemeState, setAdminTheme, globalPageTheme, setGlobalPageTheme }}>
       {children}
     </ThemeContext.Provider>
   );

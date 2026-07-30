@@ -9,6 +9,8 @@ import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from '../components/Toast';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
+import GlobalThemeToggle from '../components/GlobalThemeToggle';
+import BrandWordmark from '../components/BrandWordmark';
 import ArcaidLogoAnimated from '../components/ArcaidLogoAnimated';
 import { splitLandingRooms, type PublicRoom, type RoomCardData } from '../lib/landingRooms';
 
@@ -132,7 +134,7 @@ export default function LandingPage() {
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm relative z-40">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-16 w-auto" />
+            <BrandWordmark />
           </div>
           <div className="flex items-center gap-3">
             {/* Super-admin login is intentionally NOT linked here — it's reached
@@ -143,6 +145,9 @@ export default function LandingPage() {
             <Link to="/scoreboard" className="text-xs text-muted hover:text-neon-cyan no-underline">
               Global
             </Link>
+            {/* v2.50.0 (A1): the landing page is a global page, so it gets the
+                same per-visitor light/dark toggle as /scoreboard. */}
+            <GlobalThemeToggle />
             {discordUser ? (
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
             ) : (

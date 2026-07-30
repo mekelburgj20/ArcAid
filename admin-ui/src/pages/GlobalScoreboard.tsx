@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Trophy, Upload, Filter } from 'lucide-react';
+import { Search, Trophy, Upload, Filter, Medal } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
-import { PlayerAvatar } from '../components/ScoreboardComponents';
+import { PlayerAvatar, playerName } from '../components/ScoreboardComponents';
 import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
-import StarRating from '../components/StarRating';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
+import GlobalThemeToggle from '../components/GlobalThemeToggle';
+import BrandWordmark from '../components/BrandWordmark';
 import { formatScore } from '../lib/format';
+import { catalogueImageFor } from '../lib/catalogueImage';
 import { PLATFORM_GROUPS, getPlatformShortLabel } from '../lib/platforms';
 
 interface TopScoreEntry {
@@ -40,6 +42,8 @@ interface TopGame {
   score_count: number;
   top_score: number | null;
   last_submitted_at: string | null;
+  /** Retained: still drives the "Top rated" sort. No longer rendered on cards
+   *  (v2.50.0 removed the StarRating row); GlobalGameDetail still shows stars. */
   avg_rating: number;
   rating_count: number;
   top_scores: TopScoreEntry[];
@@ -56,6 +60,21 @@ type SortMode = 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'n
 
 const PAGE_SIZE = 30;
 
+/** v2.50.0 (A2): cards render the top 6 only. The API still returns 10 per
+ *  game — deliberately left alone this release, so the extra rows are simply
+ *  not rendered rather than the payload being narrowed. */
+const CARD_ROWS = 6;
+
+/** Sort pills replace the old <select>. Order and labels follow the design
+ *  handoff; `pinned` is deliberately absent — pins are not built yet. */
+const SORT_PILLS: Array<[SortMode, string]> = [
+  ['popular', 'Popular'],
+  ['most_recent', 'Recent activity'],
+  ['highest_rated', 'Top rated'],
+  ['most_scores', 'Most scores'],
+  ['name_asc', 'A–Z'],
+];
+
 // S17: platform groups + short labels now come from lib/platforms.ts — this
 // page's local copies were the app's THIRD divergent taxonomy, stale since
 // the FX-family split (its filter sent retired tokens like 'pinball_fx3'/'vr'
@@ -68,23 +87,6 @@ function parsePlatforms(raw: string): string[] {
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : [];
   } catch { return []; }
-}
-
-function toCatalogueUrl(path: string): string {
-  // Absolute URLs pass through unchanged
-  if (/^https?:\/\//i.test(path)) return path;
-  // DB stores filesystem paths like "data/catalogue-images/opdb/foo.jpg".
-  // The server mounts the catalogue-images directory at /api/catalogue-images/.
-  const m = path.match(/^\/?data\/catalogue-images\/(.+)$/);
-  if (m) return `/api/catalogue-images/${m[1]}`;
-  return path.startsWith('/') ? path : `/${path}`;
-}
-
-function imageFor(game: TopGame): string | null {
-  if (game.local_image_path) return toCatalogueUrl(game.local_image_path);
-  if (game.wheel_image_path) return toCatalogueUrl(game.wheel_image_path);
-  if (game.image_url) return game.image_url;
-  return null;
 }
 
 export default function GlobalScoreboard() {
@@ -104,7 +106,9 @@ export default function GlobalScoreboard() {
   const [submitGame, setSubmitGame] = useState<TopGame | null>(null);
   const [toast, setToast] = useState<{ player: string; game: string; score: number } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
-  const [userRatings, setUserRatings] = useState<Record<string, number>>({});
+  /** Subhead "Log in" reveals the provider buttons inline. Provider-agnostic
+   *  on purpose — Google is a full IdP, so the copy never says "Discord". */
+  const [showSubheadLogin, setShowSubheadLogin] = useState(false);
 
   // Debounce search input (300ms) so we don't hammer the backend on every keystroke
   useEffect(() => {
@@ -112,7 +116,7 @@ export default function GlobalScoreboard() {
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
-  // Load rooms for the scope filter, and bulk user ratings
+  // Load rooms for the scope filter
   useEffect(() => {
     fetch('/api/rooms')
       .then(r => r.ok ? r.json() : [])
@@ -146,36 +150,6 @@ export default function GlobalScoreboard() {
     setScopeFromSlug(room.slug);
   };
 
-  // Fetch user's own ratings (needs token)
-  useEffect(() => {
-    const headers: HeadersInit = {};
-    if (playerToken) headers['Authorization'] = `Bearer ${playerToken}`;
-    fetch('/api/global/ratings', { headers })
-      .then(r => r.ok ? r.json() : { userRatings: {} })
-      .then(data => setUserRatings(data.userRatings || {}))
-      .catch(() => {});
-  }, [playerToken]);
-
-  const handleRate = async (gameId: string, rating: number) => {
-    if (!playerToken) return;
-    try {
-      const res = await fetch(`/api/global/games/${gameId}/rating`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
-        body: JSON.stringify({ rating }),
-      });
-      if (res.ok) {
-        const info = await res.json();
-        setUserRatings(prev => ({ ...prev, [gameId]: rating }));
-        setGames(prev => prev.map(g =>
-          g.global_game_id === gameId
-            ? { ...g, avg_rating: info.avg_rating, rating_count: info.rating_count }
-            : g
-        ));
-      }
-    } catch { /* silent */ }
-  };
-
   const buildQuery = useCallback((offset: number): string => {
     const params = new URLSearchParams({
       sort,
@@ -185,6 +159,8 @@ export default function GlobalScoreboard() {
     });
     if (search) params.set('search', search);
     if (platformGroup !== 'all') {
+      // A0 #9: PLATFORM_GROUPS is keyed by id (physical/vpin/video); the chip
+      // state stores the KEY, never the human label.
       const plats = PLATFORM_GROUPS[platformGroup]?.platforms || [];
       if (plats.length > 0) params.set('platforms', plats.join(','));
     }
@@ -251,6 +227,9 @@ export default function GlobalScoreboard() {
 
   const handleSubmitClick = (game: TopGame) => {
     if (!playerToken) {
+      // Unchanged from pre-v2.50.0: submitting while logged out kicks straight
+      // into the OAuth redirect rather than revealing the (off-screen) subhead
+      // buttons. Provider choice for this path is a separate concern.
       handleLogin();
       return;
     }
@@ -263,7 +242,7 @@ export default function GlobalScoreboard() {
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20">
         <div className="px-4 sm:px-6 lg:px-10 py-4 flex items-center justify-between gap-3">
           <Link to="/" className="flex items-center gap-3 no-underline">
-            <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-16 w-auto" />
+            <BrandWordmark />
           </Link>
           <div className="flex items-center gap-3">
             <Link to="/" className="text-xs text-muted hover:text-neon-cyan no-underline hidden sm:inline">
@@ -274,6 +253,8 @@ export default function GlobalScoreboard() {
                 Admin
               </Link>
             )}
+            {/* v2.50.0 (A1): per-visitor light/dark, left of the login/user area. */}
+            <GlobalThemeToggle />
             {discordUser ? (
               /* v2.2.6: shared UserMenu so My Rooms / Friends are reachable here too. */
               <UserMenu user={discordUser} onLogout={logoutPlayer} />
@@ -291,12 +272,33 @@ export default function GlobalScoreboard() {
           <Trophy className="w-6 h-6 text-neon-cyan" />
           <h1 className="font-display text-3xl font-bold">Global Scoreboard</h1>
         </div>
-        <p className="text-muted mb-8">
-          High scores from every Arcaid room, all in one place. Log in to submit your own scores!
+        {/* A0 #2/#3: provider-agnostic copy, "Arcaid" casing. */}
+        <p className="text-muted mb-2 text-[12.5px]">
+          High scores from every Arcaid room.{' '}
+          {playerToken ? null : (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowSubheadLogin(v => !v)}
+                className="text-neon-cyan underline underline-offset-2 hover:brightness-110"
+              >
+                Log in
+              </button>
+              {' to submit your own scores.'}
+            </>
+          )}
         </p>
+        {showSubheadLogin && !playerToken && (
+          <LoginButtons
+            className="mb-6"
+            onDiscordLogin={handleLogin}
+            onGoogleLogin={handleGoogleLogin}
+          />
+        )}
+        {!showSubheadLogin && <div className="mb-6" />}
 
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        {/* Search + room scope */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <div className="flex-1 relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
@@ -304,20 +306,9 @@ export default function GlobalScoreboard() {
               placeholder="Search games..."
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
-              className="w-full pl-10 pr-3 py-2 rounded border border-border bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan"
+              className="w-full pl-10 pr-3 py-2 rounded-lg border border-border bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan"
             />
           </div>
-          <select
-            value={sort}
-            onChange={e => setSort(e.target.value as SortMode)}
-            className="px-3 py-2 rounded border border-border bg-surface text-primary text-sm"
-          >
-            <option value="popular">Popular</option>
-            <option value="most_scores">Most scores</option>
-            <option value="highest_rated">Highest rated</option>
-            <option value="most_recent">Most recent</option>
-            <option value="name_asc">Name (A–Z)</option>
-          </select>
           <select
             value={scope}
             onChange={e => {
@@ -331,22 +322,45 @@ export default function GlobalScoreboard() {
           </select>
         </div>
 
-        {/* Platform group chips */}
-        <div className="flex items-center gap-2 mb-6 flex-wrap">
-          <Filter className="w-4 h-4 text-muted" />
-          {[['all', 'All platforms'], ...Object.entries(PLATFORM_GROUPS).map(([k, v]) => [k, v.label])].map(([k, label]) => (
-            <button
-              key={k}
-              onClick={() => setPlatformGroup(k)}
-              className={`px-3 py-1 text-xs rounded-full border ${
-                platformGroup === k
-                  ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
-                  : 'border-border text-muted hover:text-primary'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        {/* Platform group chips (left) + sort pills (right) */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Filter className="w-4 h-4 text-muted" />
+            {[['all', 'All platforms'], ...Object.entries(PLATFORM_GROUPS).map(([k, v]) => [k, v.label])].map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setPlatformGroup(k)}
+                aria-pressed={platformGroup === k}
+                className={`px-3 py-1 text-[10px] rounded-full border ${
+                  platformGroup === k
+                    ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
+                    : 'border-border text-muted hover:text-primary'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {/* Narrow screens scroll this row horizontally rather than wrapping —
+              wrapping put "Recent activity"/"Most scores" onto two lines each
+              and turned one control into a four-line block (handoff: "Sort pills
+              become a horizontally scrollable row on narrow screens"). */}
+          <div className="flex items-center gap-1 self-start lg:self-auto rounded-md border border-border bg-surface p-[3px] max-w-full overflow-x-auto scrollbar-thin">
+            {SORT_PILLS.map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setSort(value)}
+                aria-pressed={sort === value}
+                className={`shrink-0 whitespace-nowrap px-2.5 py-[5px] text-[11px] rounded-[3px] transition-colors ${
+                  sort === value
+                    ? 'bg-neon-cyan/20 text-neon-cyan font-semibold'
+                    : 'text-muted font-medium hover:text-primary'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Results summary */}
@@ -365,14 +379,13 @@ export default function GlobalScoreboard() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+            {/* A0 #12: no grid-auto-rows — row height is content-driven and
+                cards stretch to match the tallest in their row. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 items-stretch">
               {games.map(game => (
                 <GameCard
                   key={game.global_game_id}
                   game={game}
-                  userRating={userRatings[game.global_game_id] || 0}
-                  loggedIn={!!playerToken}
-                  onRate={(r) => handleRate(game.global_game_id, r)}
                   onSubmit={() => handleSubmitClick(game)}
                 />
               ))}
@@ -406,8 +419,8 @@ export default function GlobalScoreboard() {
         </div>
       )}
 
-      {/* Sprint 10 — SubmissionSheet handles the global submit flow. Discord auth
-          already required upstream (handleSubmitClick short-circuits to login). */}
+      {/* Sprint 10 — SubmissionSheet handles the global submit flow. Login
+          already required upstream (handleSubmitClick reveals the providers). */}
       {submitGame && playerToken && (
         <SubmissionSheet
           target={{
@@ -430,167 +443,149 @@ export default function GlobalScoreboard() {
   );
 }
 
-/* ── Podium rank colors (Tailwind classes) ── */
-const RANK_STYLES: Record<number, { bg: string; border: string; rank: string; score: string; label: string }> = {
-  1: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', rank: 'text-yellow-400', score: 'text-yellow-300', label: '1st' },
-  2: { bg: 'bg-gray-300/10', border: 'border-gray-400/30', rank: 'text-gray-300', score: 'text-gray-200', label: '2nd' },
-  3: { bg: 'bg-amber-700/10', border: 'border-amber-600/30', rank: 'text-amber-500', score: 'text-amber-400', label: '3rd' },
+/**
+ * Per-rank row tint/border + medal color. Every value is an A1 `--sb-*` /
+ * `--color-medal-*` token so the card works under both polarities — never a
+ * literal rgba(). Ranks 4+ have no entry (transparent row, `#n` rank cell).
+ */
+const RANK_TINTS: Record<number, { bg: string; border: string; medal: string; label: string }> = {
+  1: { bg: 'var(--sb-row-gold-bg)', border: 'var(--sb-row-gold-border)', medal: 'text-neon-amber', label: '1st place' },
+  2: { bg: 'var(--sb-row-silver-bg)', border: 'var(--sb-row-silver-border)', medal: 'text-medal-silver', label: '2nd place' },
+  3: { bg: 'var(--sb-row-bronze-bg)', border: 'var(--sb-row-bronze-border)', medal: 'text-medal-bronze', label: '3rd place' },
 };
 
-function PodiumSlot({ entry, rank, large }: { entry?: TopScoreEntry; rank: number; large?: boolean }) {
-  const s = RANK_STYLES[rank] || RANK_STYLES[3];
-  const avatarSize = large ? 26 : 20;
+function LeaderboardRow({ entry, rank }: { entry: TopScoreEntry; rank: number }) {
+  const tint = RANK_TINTS[rank];
+  const name = playerName(entry);
+  const abbreviated = formatScore(entry.score);
+
   return (
-    <div className={`flex-1 min-w-0 rounded-lg border ${s.border} ${s.bg} flex flex-col items-center justify-center gap-0.5 ${large ? 'py-2.5 px-1.5' : 'py-1.5 px-1'}`}>
-      <span className={`text-[10px] font-bold ${s.rank}`}>{s.label}</span>
-      {entry ? (
-        <>
-          <div className="flex items-center gap-1 max-w-full">
-            <PlayerAvatar
-              username={entry.display_name || entry.iscored_username}
-              discordUserId={entry.discord_user_id}
-              avatarHash={entry.avatar_hash}
-              size={avatarSize}
-            />
-            <span className={`font-semibold truncate ${large ? 'text-xs' : 'text-[11px]'}`}>
-              {entry.display_name || entry.iscored_username}
-            </span>
-            {entry.origin_room_slug && (
-              <RoomTag
-                shortTag={entry.origin_room_short_tag || entry.origin_room_slug}
-                size={16}
-                logoUrl={entry.origin_room_logo_url}
-                href={`/scoreboard?room=${encodeURIComponent(entry.origin_room_slug)}`}
-                title={`Filter to ${entry.origin_room_short_tag || entry.origin_room_slug}`}
-              />
-            )}
-          </div>
-          <span
-            className={`font-mono font-bold ${s.score} ${large ? 'text-xs' : 'text-[11px]'}`}
-            title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
-          >
-            {formatScore(entry.score)}
-          </span>
-        </>
-      ) : (
-        <span className="text-[11px] text-muted/30 italic">—</span>
+    <div
+      className="flex items-center gap-2 rounded-[5px] border px-2 py-[5px]"
+      style={{ background: tint?.bg ?? 'transparent', borderColor: tint?.border ?? 'transparent' }}
+    >
+      <span className="flex w-5 shrink-0 items-center justify-center">
+        {tint ? (
+          <Medal className={`w-3 h-3 ${tint.medal}`} aria-label={tint.label} />
+        ) : (
+          <span className="font-mono text-[10px] font-bold text-muted">#{rank}</span>
+        )}
+      </span>
+      <PlayerAvatar
+        username={name}
+        discordUserId={entry.discord_user_id}
+        avatarHash={entry.avatar_hash}
+        size={18}
+      />
+      <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{name}</span>
+      {entry.origin_room_slug && (
+        <RoomTag
+          shortTag={entry.origin_room_short_tag || entry.origin_room_slug}
+          size={16}
+          logoUrl={entry.origin_room_logo_url}
+          href={`/scoreboard?room=${encodeURIComponent(entry.origin_room_slug)}`}
+          title={`Filter to ${entry.origin_room_short_tag || entry.origin_room_slug}`}
+        />
       )}
+      <span
+        className={`shrink-0 font-mono text-[11px] font-bold ${rank === 1 ? 'text-neon-amber' : 'text-primary'}`}
+        title={abbreviated.endsWith('T') ? entry.score.toLocaleString() : undefined}
+      >
+        {abbreviated}
+      </span>
     </div>
   );
 }
 
-function GameCard({ game, userRating, loggedIn, onRate, onSubmit }: {
-  game: TopGame;
-  userRating: number;
-  loggedIn: boolean;
-  onRate: (rating: number) => void;
-  onSubmit: () => void;
-}) {
-  const img = imageFor(game);
+/**
+ * v2.50.0 (A2) — art-first card. Structure: art block (110px) with the title
+ * on a scrim, then ranks 1-6, then a footer with the score count and a solid
+ * Submit. No podium, no placeholder rows, no star row.
+ */
+function GameCard({ game, onSubmit }: { game: TopGame; onSubmit: () => void }) {
+  const img = catalogueImageFor(game);
   const displayName = game.display_name || game.name;
-  const scores = game.top_scores || [];
-  const podium = [scores[0], scores[1], scores[2]]; // always 3 slots
-  const list = scores.slice(3, 10); // 4th–10th
+  const rows = (game.top_scores || []).slice(0, CARD_ROWS);
+  const platforms = parsePlatforms(game.platforms);
+  const primaryPlatform = platforms[0];
 
   return (
-    <div className="group relative rounded-xl border border-border bg-surface overflow-hidden hover:border-neon-cyan/60 transition-colors flex flex-col">
-      {/* Game title — top of card, centered */}
-      <Link to={`/games/${game.global_game_id}`} className="block no-underline">
-        <div className="px-3 pt-3 pb-1 text-center">
-          <h3 className="font-display font-bold text-xl leading-tight text-primary line-clamp-2">{displayName}</h3>
-          <div className="text-sm text-muted/80 mt-0.5">
-            {game.manufacturer || 'Unknown'}
-            {game.year ? ` · ${game.year}` : ''}
-            {game.score_count > 0 && ` · ${game.score_count} score${game.score_count !== 1 ? 's' : ''}`}
+    <div className="group relative flex h-full flex-col overflow-hidden rounded-[10px] border border-border bg-surface transition-colors duration-150 hover:border-[var(--sb-card-hover-border)]">
+      {/* 1. Art block — the whole thing links to the game detail page. */}
+      <Link
+        to={`/games/${game.global_game_id}`}
+        className="relative block h-[110px] shrink-0 no-underline"
+      >
+        {img ? (
+          <img
+            src={img}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-deep text-[11px] text-muted">
+            No image
+          </div>
+        )}
+        <div className="absolute inset-0" style={{ background: 'var(--sb-art-scrim)' }} />
+        {primaryPlatform && (
+          /* One pill only (design: the full list lives on the detail page). */
+          <span
+            className="absolute right-1.5 top-1.5 rounded-[3px] border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.4px] text-neon-cyan"
+            style={{ background: 'var(--sb-pill-bg)', borderColor: 'var(--sb-pill-border)' }}
+            title={platforms.map(getPlatformShortLabel).join(' · ')}
+          >
+            {getPlatformShortLabel(primaryPlatform)}
+          </span>
+        )}
+        <div className="absolute inset-x-2.5 bottom-1.5">
+          <h3
+            className="font-display text-[13px] font-bold leading-[1.15] [text-wrap:pretty]"
+            style={{ color: 'var(--sb-art-title)', textShadow: 'var(--sb-title-shadow)' }}
+          >
+            {displayName}
+          </h3>
+          <div className="mt-px text-[9.5px]" style={{ color: 'var(--sb-art-meta)' }}>
+            {game.manufacturer || 'Unknown'}{game.year ? ` · ${game.year}` : ''}
           </div>
         </div>
       </Link>
 
-      {/* Game image */}
-      <Link to={`/games/${game.global_game_id}`} className="block no-underline">
-        <div className="relative h-28 bg-deep mx-3 rounded-lg overflow-hidden">
-          {img ? (
-            <img src={img} alt={displayName} loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover opacity-70" />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-muted text-xs">No image</div>
-          )}
-          <div className="absolute inset-0 bg-gradient-to-t from-surface/40 to-transparent" />
-        </div>
-      </Link>
-
-      {/* Podium — always shows all 3 slots */}
-      <div className="px-3 pt-2 pb-1">
-        <div className="flex justify-center mb-1.5">
-          <div className="w-[60%] min-w-[100px]">
-            <PodiumSlot entry={podium[0]} rank={1} large />
-          </div>
-        </div>
-        <div className="flex gap-1.5">
-          <PodiumSlot entry={podium[1]} rank={2} />
-          <PodiumSlot entry={podium[2]} rank={3} />
-        </div>
-      </div>
-
-      {/* 4th–10th in a list */}
-      <div className="px-3 pt-1 pb-1 flex-1">
-        {list.length > 0 ? (
-          <div className="border-t border-border/40 pt-1.5 space-y-0.5">
-            {list.map((e, i) => (
-              <div key={e.discord_user_id + e.iscored_username} className="flex items-center gap-1.5 text-[11px]">
-                <span className="text-muted w-4 text-right font-mono">{i + 4}.</span>
-                <PlayerAvatar
-                  username={e.display_name || e.iscored_username}
-                  discordUserId={e.discord_user_id}
-                  avatarHash={e.avatar_hash}
-                  size={16}
-                />
-                <span className="truncate flex-1">{e.display_name || e.iscored_username}</span>
-                {e.origin_room_slug && (
-                  <RoomTag
-                    shortTag={e.origin_room_short_tag || e.origin_room_slug}
-                    size={16}
-                    logoUrl={e.origin_room_logo_url}
-                    href={`/scoreboard?room=${encodeURIComponent(e.origin_room_slug)}`}
-                    title={`Filter to ${e.origin_room_short_tag || e.origin_room_slug}`}
-                  />
-                )}
-                <span className="font-mono text-muted">{formatScore(e.score)}</span>
-              </div>
+      {/* 2. Leaderboard — exactly as many rows as there are scores, max 6.
+             3. Empty state — dashed "Claim 1st" CTA, no placeholder podium. */}
+      <div className="flex-1 px-3 py-2.5">
+        {rows.length > 0 ? (
+          <div className="space-y-0.5">
+            {rows.map((entry, i) => (
+              <LeaderboardRow
+                key={`${entry.discord_user_id}-${entry.iscored_username}`}
+                entry={entry}
+                rank={i + 1}
+              />
             ))}
           </div>
         ) : (
-          !podium[0] && (
-            <div className="text-center py-2 text-muted text-[11px] italic">
-              No scores yet
-            </div>
-          )
+          <button
+            type="button"
+            onClick={onSubmit}
+            className="w-full rounded-md border border-dashed border-neon-cyan/35 px-1 py-2 text-[11px] text-neon-cyan hover:bg-neon-cyan/10 transition-colors"
+          >
+            Claim 1st →
+          </button>
         )}
       </div>
 
-      {/* Footer: rating (left) + platforms (center) + submit (right) — pinned to bottom */}
-      <div className="px-3 pb-2.5 pt-1.5 flex items-center justify-between gap-2 border-t border-border/30 mt-auto">
-        <div className="flex items-center gap-1.5 shrink-0">
-          <StarRating
-            rating={userRating || Math.round(game.avg_rating)}
-            onRate={loggedIn ? onRate : undefined}
-            size="sm"
-          />
-          {game.rating_count > 0 && (
-            <span className="text-[10px] text-muted">
-              {game.avg_rating.toFixed(1)}
-            </span>
-          )}
-        </div>
-        <div className="flex flex-wrap justify-center gap-1 min-w-0">
-          {parsePlatforms(game.platforms).map(p => (
-            <span key={p} className="px-1.5 py-0.5 text-[9px] rounded bg-border/30 text-muted/80">
-              {getPlatformShortLabel(p)}
-            </span>
-          ))}
-        </div>
+      {/* 4. Footer */}
+      <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/50 px-3 py-[7px]">
+        <span className="text-[10px] text-muted">
+          {game.score_count.toLocaleString()} {game.score_count === 1 ? 'score' : 'scores'}
+        </span>
         <button
-          onClick={(e) => { e.preventDefault(); onSubmit(); }}
-          className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-lg border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 transition-colors shrink-0"
+          type="button"
+          onClick={onSubmit}
+          className="inline-flex shrink-0 items-center gap-1 rounded bg-neon-cyan px-2.5 py-1 text-[10px] font-bold text-deep transition hover:brightness-110"
           title="Submit your score"
         >
           <Upload className="w-3 h-3" />
