@@ -204,7 +204,10 @@ describe('GlobalScoreboard card (v2.50.0 A2)', () => {
     const card = await findCard('Submittable Game');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
-    fireEvent.click(within(card).getByRole('button', { name: /Submit/ }));
+    // Exact name, not /Submit/: A4's pin hotspot is labelled "Pin {game}",
+    // and this fixture's game is called "Submittable Game" — the loose regex
+    // matched both buttons.
+    fireEvent.click(within(card).getByRole('button', { name: 'Submit' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Submittable Game')).toBeInTheDocument();
