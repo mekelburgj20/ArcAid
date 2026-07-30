@@ -6,6 +6,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.50.0] — unreleased
+
+**Global Scoreboard redesign, phase A1 + A2** — token foundation and the rebuilt card. First phase of
+the Scoreboard Appearance Overhaul; implements the Claude Design handoff with the corrections recorded
+in the approved plan (the handoff's Discord-only copy, "ArcAid" casing, platform-group labels-vs-keys,
+and its dark-only assumption were all wrong for this codebase). See `tmp/global-scoreboard-a1a2-contract.md`.
+
+**A1 — token foundation**
+- Theme-aware `--color-medal-silver` / `--color-medal-bronze` with light-polarity overrides (flat hex
+  silver fails contrast on white), plus a set of `--sb-*` surface tokens (art/hero scrims, hover border,
+  title shadow, per-rank row tint + border). No literal `rgba(0,0,0,…)` in the new components — this is
+  what makes light mode a side-effect rather than a retrofit.
+- **Global pages now follow the visitor, not an admin setting.** `/scoreboard`, `/catalogue`, `/games/*`
+  and the landing page resolve light/dark as: explicit visitor choice → `prefers-color-scheme` → dark,
+  with a sun/moon toggle in both global headers and an OS-change listener that detaches once the visitor
+  chooses. `GLOBAL_PAGE_THEME` is **deprecated, not deleted** — the control remains with a note for one
+  release.
+- `BrandWordmark` swaps the logo by polarity. The light asset is still pending, so light mode currently
+  shows the dark wordmark; the swap is a one-line change once the artwork lands (spec is in the component).
+
+**A2 — card rebuild**
+- Art-first card: artwork block with the title overlaid on a scrim, one platform pill, rows 1–6 with
+  Medal icons for the top three, room-origin badges retained, and a solid Submit button in the footer.
+- **No podium and no placeholder rows** — a game with one score renders exactly one row; a game with none
+  renders a dashed `Claim 1st →` prompt instead of empty medal slots.
+- Sort pills replace the sort `<select>` (horizontally scrollable on narrow screens); `StarRating` comes
+  off the cards and remains on `GlobalGameDetail`.
+- Shared `lib/catalogueImage.ts` replaces the `imageFor`/`toCatalogueUrl` helper that was duplicated
+  across three files.
+
+Out of scope this release (later phases): pins and the pinned rail, the hero card, ⌘K search palette,
+density toggles, and rank-change alerts.
+
+Tests: admin-ui 146 → 158.
+
 ## [2.49.1] — unreleased
 
 **Room-ban UI relocated to the room-admin area.** UI-only move, no API changes. See `tmp/members-admin-move-contract.md`.

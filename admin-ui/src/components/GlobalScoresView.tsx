@@ -6,6 +6,7 @@ import GameQuickView from './GameQuickView';
 import SubmissionSheet from './SubmissionSheet';
 import type { GameLeaderboard } from './ScoreboardComponents';
 import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
+import { catalogueImageFor } from '../lib/catalogueImage';
 import {
   GLOBAL_BANNER_TEXT,
   GLOBAL_SEE_FULL_LABEL,
@@ -49,21 +50,10 @@ interface GlobalScoresViewProps {
 
 const PAGE_SIZE = 30;
 
-// Mirrors the local image-path resolution duplicated in GamesTabView.tsx /
-// GlobalScoreboard.tsx — no shared export exists for this today.
-function toCatalogueUrl(path: string): string {
-  if (/^https?:\/\//i.test(path)) return path;
-  const m = path.match(/^\/?data\/catalogue-images\/(.+)$/);
-  if (m) return `/api/catalogue-images/${m[1]}`;
-  return path.startsWith('/') ? path : `/${path}`;
-}
-
-function imageFor(g: GlobalTopGame): string | null {
-  if (g.local_image_path) return toCatalogueUrl(g.local_image_path);
-  if (g.wheel_image_path) return toCatalogueUrl(g.wheel_image_path);
-  if (g.image_url) return g.image_url;
-  return null;
-}
+// v2.50.0 (A2): the local image-path resolution that used to be copied here
+// now lives in lib/catalogueImage.ts, shared with GlobalScoreboard.tsx and
+// GlobalGameDetail.tsx.
+const imageFor = catalogueImageFor;
 
 /** Map a Global Scoreboard row onto the shared GameLeaderboard shape so
  *  ScoreCardGrid renders it identically to Tournaments / Room Scores cards. */

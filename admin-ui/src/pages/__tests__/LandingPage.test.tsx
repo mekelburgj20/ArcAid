@@ -3,6 +3,7 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import LandingPage from '../LandingPage';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import { ThemeProvider } from '../../components/ThemeProvider';
 
 // D1/D2 (v2.37.0) — landing page login + "My Game Rooms". Regression coverage:
 // the logged-out layout is unchanged (no My Game Rooms section, LoginButtons
@@ -68,12 +69,17 @@ function mockFetch(opts: { rooms?: unknown[]; meRooms?: unknown[]; joinRequestSt
   return fetchMock;
 }
 
+// v2.50.0 (A1): the header now renders GlobalThemeToggle, which calls
+// useTheme() — that throws outside a provider, blanking the whole page. App.tsx
+// wraps everything in ThemeProvider in production, so the harness needs it too.
 function renderLanding() {
   return render(
     <MemoryRouter initialEntries={['/']}>
-      <ViewerAuthProvider>
-        <LandingPage />
-      </ViewerAuthProvider>
+      <ThemeProvider>
+        <ViewerAuthProvider>
+          <LandingPage />
+        </ViewerAuthProvider>
+      </ThemeProvider>
     </MemoryRouter>,
   );
 }

@@ -15,6 +15,7 @@ import { getPlatformDisplay } from '../lib/platforms';
 import { formatScore } from '../lib/format';
 import { getPortal } from '../lib/portal';
 import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
+import { toCatalogueUrl } from '../lib/catalogueImage';
 
 interface GlobalGame {
   id: string;
@@ -91,15 +92,10 @@ function formatDate(iso: string): string {
   }
 }
 
-function toCatalogueUrl(path: string): string {
-  if (/^https?:\/\//i.test(path)) return path;
-  // DB stores filesystem paths like "data/catalogue-images/opdb/foo.jpg".
-  // The server mounts the catalogue-images directory at /api/catalogue-images/.
-  const m = path.match(/^\/?data\/catalogue-images\/(.+)$/);
-  if (m) return `/api/catalogue-images/${m[1]}`;
-  return path.startsWith('/') ? path : `/${path}`;
-}
-
+// v2.50.0 (A2): toCatalogueUrl now comes from lib/catalogueImage.ts (shared
+// with GlobalScoreboard.tsx / GlobalScoresView.tsx). This page keeps its own
+// two resolvers because it treats box art and wheel art as separate slots
+// rather than falling back from one to the other.
 function resolveImage(game: GlobalGame): string | null {
   if (game.local_image_path) return toCatalogueUrl(game.local_image_path);
   if (game.image_url) return game.image_url;
