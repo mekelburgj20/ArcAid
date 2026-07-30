@@ -68,6 +68,17 @@
   --sb-row-you-bg: color-mix(in oklab, var(--color-neon-cyan) 12%, transparent);
   --sb-row-you-border: color-mix(in oklab, var(--color-neon-cyan) 33%, transparent);
 
+  /* Search palette (A3, v2.51.0) — the ⌘K command palette on /scoreboard.
+     Same rule as the card tokens above: the component ships zero literal
+     rgba(), so the palette is legible under both polarities. */
+  --sb-palette-field-bg: rgba(0, 0, 0, 0.55);
+  --sb-palette-glow: 0 0 30px color-mix(in oklab, var(--color-neon-cyan) 27%, transparent);
+  --sb-palette-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --sb-palette-row-sel: color-mix(in oklab, var(--color-neon-cyan) 10%, transparent);
+  --sb-palette-strip-bg: rgba(0, 0, 0, 0.25);
+  --sb-kbd-bg: rgba(255, 255, 255, 0.08);
+  --sb-kbd-border: rgba(255, 255, 255, 0.15);
+
   /* Fonts */
   --font-display: "Orbitron", sans-serif;
   --font-pixel: "Press Start 2P", cursive;
@@ -255,6 +266,17 @@
   --sb-row-bronze-border: color-mix(in oklab, var(--color-medal-bronze) 42%, transparent);
   --sb-row-you-bg: color-mix(in oklab, var(--color-neon-cyan) 16%, transparent);
   --sb-row-you-border: color-mix(in oklab, var(--color-neon-cyan) 42%, transparent);
+
+  /* Palette: a black-on-black field and a 50%-black drop shadow both vanish on
+     a light page, so the field sinks to the raised surface and the shadow
+     becomes a soft neutral. Strip/kbd washes invert from white-alpha to
+     black-alpha for the same reason. */
+  --sb-palette-field-bg: var(--color-raised);
+  --sb-palette-shadow: 0 20px 60px rgba(15, 20, 30, 0.18);
+  --sb-palette-row-sel: color-mix(in oklab, var(--color-neon-cyan) 14%, transparent);
+  --sb-palette-strip-bg: rgba(0, 0, 0, 0.04);
+  --sb-kbd-bg: rgba(0, 0, 0, 0.06);
+  --sb-kbd-border: rgba(0, 0, 0, 0.14);
 }
 
 /* Minimal theme (monochrome + single cyan accent) */

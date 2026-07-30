@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.51.0] — unreleased
+
+**Global Scoreboard search palette (phase A3).** ⌘K / Ctrl+K anywhere on `/scoreboard` opens a
+command palette over the full catalogue — the critical path for "I just played this, post my score"
+across 2,400+ games. See `tmp/global-scoreboard-a3-contract.md`.
+
+- **Palette** (`admin-ui/src/components/GlobalSearchPalette.tsx`) owns the page's existing search
+  field rather than adding a second input. `↑`/`↓` navigate with wrap, `↵` opens the submission sheet
+  for the selected game, `⌘↵` opens its detail page, `Esc` closes and returns focus to the field. The
+  grid behind dims and goes inert. Selection tracking writes `scrollTop` directly — never
+  `scrollIntoView`, which would scroll the page.
+- **Search understands years and multiple terms.** `"stern 1995"` now ANDs a manufacturer match with
+  a year match; single-token queries are byte-for-byte unchanged. A 4-digit token only counts as a
+  year inside 1900–2099, and a year token *widens* rather than narrows — so *Pinball 2000* (a 1999
+  title) and *1942* still match on name. One parameterized statement; no interpolation of user input.
+  Manufacturer matching already existed — the design handoff was wrong that it needed building.
+- Palette respects the active platform filter and room scope; reuses the page's 300ms debounce
+  (5 keystrokes → 1 request); logged-out `↵` reveals both login providers rather than assuming one.
+- 7 new palette tokens with light-theme overrides — zero literal rgba in the component, so the
+  palette works in light mode. Caret blink is disabled under `prefers-reduced-motion`.
+- Accessibility: `role="combobox"`/`listbox`/`option` with `aria-expanded`/`controls`/
+  `activedescendant`/`selected`. `⌘K` is ignored while focus is in another text input.
+
+Tests: backend 798 → 804, admin-ui 158 → 168.
+
 ## [2.50.0] — unreleased
 
 **Global Scoreboard redesign, phase A1 + A2** — token foundation and the rebuilt card. First phase of

@@ -175,6 +175,66 @@ export class GlobalLeaderboardService {
     }
 
     /**
+     * Catalogue search matching (v2.51.0, A3 — the ⌘K palette's server half).
+     *
+     * Single-token queries keep the pre-A3 behavior byte-for-byte: one `%needle%`
+     * matched against name / display_name / manufacturer. That path is what the
+     * page's plain search field has always done, and `"haunt"` → Haunted House
+     * must not regress.
+     *
+     * Multi-token queries now AND across whitespace-separated tokens, so
+     * `"stern 1995"` means "Stern AND 1995" rather than one literal substring
+     * (which matched nothing, since no row contains the string "stern 1995").
+     * A token that looks like a calendar year (1900-2099) additionally matches
+     * `gg.year`. The year comparison is OR'd with the same text match rather
+     * than replacing it, so titles that legitimately contain a number —
+     * "Pinball 2000", "NBA Fastbreak 1997" — stay findable; a query token only
+     * ever *widens* what it can match, never narrows it.
+     *
+     * Every value is bound as a parameter; user input is never interpolated
+     * into the SQL string.
+     *
+     * Returns null for an all-whitespace query (caller adds no clause).
+     */
+    private static buildSearchFilter(search: string): { clause: string; params: any[] } | null {
+        const trimmed = search.trim();
+        if (!trimmed) return null;
+
+        const textMatch = `(LOWER(gg.name) LIKE ? OR LOWER(COALESCE(gg.display_name, '')) LIKE ? OR LOWER(COALESCE(gg.manufacturer, '')) LIKE ?)`;
+
+        const tokens = trimmed.split(/\s+/).filter(Boolean);
+        if (tokens.length <= 1) {
+            const needle = `%${trimmed.toLowerCase()}%`;
+            return { clause: textMatch, params: [needle, needle, needle] };
+        }
+
+        const clauses: string[] = [];
+        const params: any[] = [];
+        for (const token of tokens) {
+            const needle = `%${token.toLowerCase()}%`;
+            if (GlobalLeaderboardService.isYearToken(token)) {
+                clauses.push(`(gg.year = ? OR ${textMatch})`);
+                params.push(Number(token), needle, needle, needle);
+            } else {
+                clauses.push(textMatch);
+                params.push(needle, needle, needle);
+            }
+        }
+        return { clause: `(${clauses.join(' AND ')})`, params };
+    }
+
+    /**
+     * A bare 4-digit token inside the plausible release-year window. "1000" and
+     * "3000" are deliberately NOT years — they are far more likely to be part of
+     * a title ("Pinball 3000") than a manufacture date.
+     */
+    private static isYearToken(token: string): boolean {
+        if (!/^\d{4}$/.test(token)) return false;
+        const n = Number(token);
+        return n >= 1900 && n <= 2099;
+    }
+
+    /**
      * Paginated catalogue view with per-game score aggregates. All catalogue games
      * appear (LEFT JOIN), including ones with zero scores. Sort defaults to `popular`
      * — a recency-weighted score count that emphasizes games with recent activity.
@@ -249,11 +309,11 @@ export class GlobalLeaderboardService {
             whereParams.push(options.type);
         }
         if (options.search && options.search.trim()) {
-            const needle = `%${options.search.trim().toLowerCase()}%`;
-            whereConditions.push(
-                `(LOWER(gg.name) LIKE ? OR LOWER(COALESCE(gg.display_name, '')) LIKE ? OR LOWER(COALESCE(gg.manufacturer, '')) LIKE ?)`
-            );
-            whereParams.push(needle, needle, needle);
+            const search = GlobalLeaderboardService.buildSearchFilter(options.search);
+            if (search) {
+                whereConditions.push(search.clause);
+                whereParams.push(...search.params);
+            }
         }
         if (options.platforms && options.platforms.length > 0) {
             const clauses = options.platforms.map(() => `gg.platforms LIKE ?`);
