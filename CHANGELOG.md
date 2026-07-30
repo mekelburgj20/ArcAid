@@ -6,6 +6,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.53.0] — unreleased
+
+**Engine + device score provenance, phase 1 (ADR 0016).** One `platform` field was answering two
+different questions — *what produced this score* (which decides comparability) and *what it ran on*
+(provenance). AtGames made that untenable: one cabinet runs VPX, Zen FX, Zaccaria and AtGames-native
+tables, so `atgames` says nothing about whether two scores are comparable. Phase 1 splits the axes,
+migrates the data, and makes every write path record both. **Read paths are deliberately untouched and
+still use `platform`** — the only thing players see is the submission form asking two questions instead
+of one. See `docs/decisions/0016-engine-device-score-provenance.md` and
+`tmp/engine-device-p1-contract.md`.
+
+- **New taxonomy** `src/utils/scoreProvenance.ts`: `CANONICAL_ENGINES` (with fidelity category),
+  `CANONICAL_DEVICES`, `ENGINE_DEVICE_COMPAT`, and `LEGACY_PLATFORM_MAP` covering every old platform id
+  plus the alias and uppercase spellings present in prod. `vpxs`/`vpxs_manual` collapse into the `vpx`
+  engine, `bam` into `fp`, and every `*_vr` id decomposes into engine + `vr_headset`. `'unknown'` is a
+  first-class value on both axes and is **never** stored as NULL.
+- **The FE mirror now has a parity test that fails on drift** (`scoreProvenance-parity.test.ts`), which
+  deep-compares ids, labels, the compat map, the legacy map and the derived function behaviour. The
+  previous mirror pair (`platformMapping.ts` ↔ `platforms.ts`) had no such test and had silently rotted
+  to 22 of 53 aliases.
+- **Migration 125** adds `engine`/`device` to `submissions`, `score_history`, `community_scores`,
+  `global_scores` and `submission_drafts` (plus `tournaments.iscored_default_engine`/`_device`), with
+  indexes mirroring the existing `(game, platform)` shape, and backfills through the legacy map with a
+  case-normalised lookup. `platform` is **not** dropped. Post-condition asserts zero NULLs.
+- **Every write path records both**, including the four that previously dropped provenance entirely
+  (`syncstate.ts` ×2, the `admin.ts` global-backfill ×2 — the latter now carries the source row's
+  provenance across instead of writing nothing).
+- **Both submission-draft commit paths now validate.** Previously neither re-checked anything, so a
+  stale draft could write a combination the direct submit routes would have rejected.
+- **`ensurePlatformAllowed` is retired.** It returned `null` to mean "allowed", so a partially-validated
+  result was indistinguishable from success. Replaced by `ScoreProvenanceService.validate`, which
+  returns a discriminated union — an unvalidated axis cannot fall through as `ok: true`.
+- **One upsert rule.** The sync writers COALESCE-preserved `platform` while `/submit-score` overwrote
+  it. Both new columns (and `platform` in the Discord path) now use COALESCE-preserve everywhere, with
+  `NULLIF(excluded.engine, 'unknown')` so a re-sync's placeholder can't clobber provenance a player
+  supplied.
+- **Submission UX:** engine first, device filtered by `ENGINE_DEVICE_COMPAT` and auto-locked when only
+  one fits, and the player's **last device is remembered in localStorage** and pre-selected when
+  compatible — the launch community is AtGames-first and must not re-pick "AtGames" every time. Copy is
+  "Played on" / "Device"; the word "platform" is gone from the new UI.
+- **Discord `/submit-score`** gains `engine` and `device` options **with autocomplete** (`platform` had
+  none, so users had to type raw canonical ids and the command mostly rejected and asked for a re-run),
+  each auto-filled when only one option is valid. It also now unions the room's game tags when resolving
+  what's submittable — previously a room-tagged platform worked on web and was rejected in Discord.
+- `POST /api/global/scores` moved from hand-rolled inline parsing to a Zod schema.
+
+Tests: backend 817 → 843, admin-ui 184 → 193.
+
+---
+
 ## [2.52.0] — unreleased
 
 **Global Scoreboard pins + per-viewer rank context (phase A4).** Players can pin games, see a My Pins

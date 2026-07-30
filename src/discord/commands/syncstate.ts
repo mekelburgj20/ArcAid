@@ -7,6 +7,7 @@ import { getDatabase } from '../../database/database.js';
 import { TOURNAMENT_TAG_KEYS, MANAGED_TAGS } from '../../utils/config.js';
 import { v4 as uuidv4 } from 'uuid';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
+import { UNKNOWN } from '../../utils/scoreProvenance.js';
 
 export const syncstate: Command = {
     data: new SlashCommandBuilder()
@@ -166,14 +167,24 @@ async function syncScoresViaApi(db: any, allIscoredGames: any[]): Promise<number
                 INSERT INTO submissions (
                     id, game_id, iscored_username, score, timestamp, discord_user_id,
                     submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                    submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                    submitted_by_anonymous_name, merged_from_anonymous_identity_id,
+                    engine, device
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET score = excluded.score,
-                    discord_user_id = excluded.discord_user_id, iscored_username = excluded.iscored_username
+                    discord_user_id = excluded.discord_user_id, iscored_username = excluded.iscored_username,
+                    -- v2.53.0: COALESCE-preserve (see ScoreSyncPoller). NULLIF drops
+                    -- this path's 'unknown' so a reconcile can't blank real provenance.
+                    engine = COALESCE(NULLIF(excluded.engine, 'unknown'), submissions.engine, 'unknown'),
+                    device = COALESCE(NULLIF(excluded.device, 'unknown'), submissions.device, 'unknown')
             `,
                 syncId, localGame.id, score.name, scoreValue, new Date().toISOString(), discordUserId,
-                gameRoomIdForGame, localGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
+                gameRoomIdForGame, localGame.tournament_id || null, submittedByUserId, submittedByAnonymousName,
+                // v2.53.0 (ADR 0016): this writer has never set `platform` and
+                // still doesn't (it has no source for one) — but engine/device
+                // are written EXPLICITLY as 'unknown' rather than left absent,
+                // so no row can end up NULL on either provenance axis.
+                UNKNOWN, UNKNOWN
             );
 
             if (isNewOrHigher && localGame.tournament_id && gameRoomIdForGame) {
@@ -273,15 +284,22 @@ async function syncScoresViaPlaywright(db: any, allIscoredGames: any[]): Promise
                     INSERT INTO submissions (
                         id, game_id, iscored_username, score, photo_url, timestamp, discord_user_id,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                        submitted_by_anonymous_name, merged_from_anonymous_identity_id
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id,
+                        engine, device
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET score = excluded.score, photo_url = excluded.photo_url,
-                        discord_user_id = excluded.discord_user_id, iscored_username = excluded.iscored_username
+                        discord_user_id = excluded.discord_user_id, iscored_username = excluded.iscored_username,
+                        -- v2.53.0: COALESCE-preserve (see ScoreSyncPoller).
+                        engine = COALESCE(NULLIF(excluded.engine, 'unknown'), submissions.engine, 'unknown'),
+                        device = COALESCE(NULLIF(excluded.device, 'unknown'), submissions.device, 'unknown')
                 `,
                     syncId, localGame.id, score.name, scoreValue, score.photoUrl,
                     new Date().toISOString(), discordUserId,
-                    gameRoomIdForGame, localGame.tournament_id || null, submittedByUserId, submittedByAnonymousName
+                    gameRoomIdForGame, localGame.tournament_id || null, submittedByUserId, submittedByAnonymousName,
+                    // v2.53.0 (ADR 0016): explicit 'unknown', never absent — see
+                    // the API-path writer above.
+                    UNKNOWN, UNKNOWN
                 );
 
                 if (isNewOrHigher && localGame.tournament_id && gameRoomIdForGame) {

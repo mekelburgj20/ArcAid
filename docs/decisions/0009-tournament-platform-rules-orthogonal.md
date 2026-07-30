@@ -1,10 +1,18 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-04-26
 deciders: mekelburgj
 supersedes:
-superseded-by:
+superseded-by: 0016-engine-device-score-provenance.md
 ---
+
+> **Partially superseded by [ADR 0016](0016-engine-device-score-provenance.md) (2026-07-30).** The
+> orthogonality principle below — `required` gates game eligibility, `excluded` gates submissions,
+> neither helper reads the other's field — **still holds and is extended** across two axes. What 0016
+> replaces is the single flat id namespace: `required`/`excluded` become
+> `requiredEngines`/`excludedEngines` + `requiredDevices`/`excludedDevices`, because "FX titles on
+> AtGames devices only" cannot be expressed when `pinball_fx` and `atgames` are peers in one list.
+> The extension point this ADR anticipated (line ~71) is the one 0016 takes.
 
 # Tournament platform rules are two orthogonal axes (game-level vs submission-level)
 

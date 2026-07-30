@@ -37,6 +37,7 @@ import { ContentReportService } from '../../services/ContentReportService.js';
 import { CommentReportService } from '../../services/CommentReportService.js';
 import { GlobalScoreService } from '../../services/GlobalScoreService.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
+import { mapLegacyPlatform } from '../../utils/scoreProvenance.js';
 
 const router = Router();
 
@@ -1686,6 +1687,7 @@ router.post('/global-backfill', requireAuth, requireSuperAdmin, async (_req, res
         // Step 3: Backfill submissions → global_scores
         const submissions = await dbConn.all(`
             SELECT s.id, s.iscored_username, s.score, s.photo_url, s.timestamp,
+                   s.platform, s.engine, s.device,
                    g.global_game_id, g.name as game_name, t.game_room_id,
                    COALESCE(um.discord_user_id, 'SYSTEM') as discord_user_id
             FROM submissions s
@@ -1713,12 +1715,21 @@ router.post('/global-backfill', requireAuth, requireSuperAdmin, async (_req, res
                     photo_url, origin_type, origin_game_room_id,
                     exclude_from_global, submitted_at,
                     submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                    submitted_by_anonymous_name, merged_from_anonymous_identity_id
-                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?, ?, NULL, ?, ?, NULL)`,
+                    submitted_by_anonymous_name, merged_from_anonymous_identity_id,
+                    platform, engine, device
+                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?, ?, NULL, ?, ?, NULL, ?, ?, ?)`,
                 id, s.global_game_id, s.discord_user_id, s.iscored_username,
                 s.score, s.photo_url || null, s.game_room_id,
                 s.timestamp || new Date().toISOString(),
-                s.game_room_id, submittedBy, submittedBy ? null : s.iscored_username
+                s.game_room_id, submittedBy, submittedBy ? null : s.iscored_username,
+                // v2.53.0 (ADR 0016): this backfill previously dropped provenance
+                // entirely, so every row it created was NULL on all three columns.
+                // Carry the source row's values across; where the source has none,
+                // fall back to the source's legacy platform, then to the explicit
+                // 'unknown' sentinel — never NULL.
+                s.platform ?? null,
+                s.engine || mapLegacyPlatform(s.platform).engine,
+                s.device || mapLegacyPlatform(s.platform).device
             );
             stats.submissionsBackfilled++;
         }
@@ -1726,7 +1737,8 @@ router.post('/global-backfill', requireAuth, requireSuperAdmin, async (_req, res
         // Step 4: Backfill community_scores → global_scores
         const communityScores = await dbConn.all(`
             SELECT cs.id, cs.game_name, cs.game_room_id, cs.iscored_username,
-                   cs.discord_user_id, cs.score, cs.photo_url, cs.created_at
+                   cs.discord_user_id, cs.score, cs.photo_url, cs.created_at,
+                   cs.platform, cs.engine, cs.device
             FROM community_scores cs
         `);
 
@@ -1752,12 +1764,18 @@ router.post('/global-backfill', requireAuth, requireSuperAdmin, async (_req, res
                     photo_url, origin_type, origin_game_room_id,
                     exclude_from_global, submitted_at,
                     submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                    submitted_by_anonymous_name, merged_from_anonymous_identity_id
-                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?, ?, NULL, ?, ?, NULL)`,
+                    submitted_by_anonymous_name, merged_from_anonymous_identity_id,
+                    platform, engine, device
+                ) VALUES (?, ?, ?, ?, ?, ?, 'game_room', ?, 0, ?, ?, NULL, ?, ?, NULL, ?, ?, ?)`,
                 id, globalGameId, cs.discord_user_id || 'COMMUNITY',
                 cs.iscored_username, cs.score, cs.photo_url || null,
                 cs.game_room_id, cs.created_at || new Date().toISOString(),
-                cs.game_room_id, submittedBy, submittedBy ? null : cs.iscored_username
+                cs.game_room_id, submittedBy, submittedBy ? null : cs.iscored_username,
+                // v2.53.0 (ADR 0016): see the submissions pass above — provenance
+                // is carried across instead of being dropped.
+                cs.platform ?? null,
+                cs.engine || mapLegacyPlatform(cs.platform).engine,
+                cs.device || mapLegacyPlatform(cs.platform).device
             );
             stats.communityBackfilled++;
         }

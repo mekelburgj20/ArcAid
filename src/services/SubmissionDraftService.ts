@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
+import { UNKNOWN } from '../utils/scoreProvenance.js';
 
 /**
  * Server-side draft storage for cross-device OAuth handoff (plan §15, Sprint 10).
@@ -32,6 +33,14 @@ export interface SubmissionDraft {
     excludeFromGlobal: boolean;
     /** v2.5.0: per-score platform replayed on commit. NULL on legacy drafts. */
     platform: string | null;
+    /**
+     * v2.53.0 (ADR 0016): split provenance replayed on commit. `'unknown'` for
+     * legacy drafts staged before this release — never NULL going forward. Both
+     * commit paths re-validate the pair before writing (pre-v2.53.0 neither
+     * commit path validated anything).
+     */
+    engine: string;
+    device: string;
     createdAt: string;
     expiresAt: string;
 }
@@ -47,7 +56,16 @@ export class SubmissionDraftService {
     static async create(
         stateParam: string,
         target: SubmissionDraftTarget,
-        fields: { playerName?: string | null; score?: number | null; photoBuffer?: Buffer | null; photoExt?: string; excludeFromGlobal?: boolean; platform?: string | null },
+        fields: {
+            playerName?: string | null;
+            score?: number | null;
+            photoBuffer?: Buffer | null;
+            photoExt?: string;
+            excludeFromGlobal?: boolean;
+            platform?: string | null;
+            engine?: string | null;
+            device?: string | null;
+        },
     ): Promise<void> {
         const db = await getDatabase();
         const expiresAt = new Date(Date.now() + DRAFT_TTL_MS).toISOString();
@@ -63,8 +81,8 @@ export class SubmissionDraftService {
 
         await db.run(
             `INSERT OR REPLACE INTO submission_drafts
-                (state_param, target_json, player_name, score, photo_path, exclude_from_global, platform, created_at, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+                (state_param, target_json, player_name, score, photo_path, exclude_from_global, platform, engine, device, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
             stateParam,
             JSON.stringify(target),
             fields.playerName ?? null,
@@ -72,6 +90,8 @@ export class SubmissionDraftService {
             photoPath,
             fields.excludeFromGlobal ? 1 : 0,
             fields.platform ?? null,
+            fields.engine || UNKNOWN,
+            fields.device || UNKNOWN,
             expiresAt,
         );
     }
@@ -80,7 +100,7 @@ export class SubmissionDraftService {
     static async get(stateParam: string): Promise<SubmissionDraft | null> {
         const db = await getDatabase();
         const row = await db.get(
-            `SELECT state_param, target_json, player_name, score, photo_path, exclude_from_global, platform, created_at, expires_at
+            `SELECT state_param, target_json, player_name, score, photo_path, exclude_from_global, platform, engine, device, created_at, expires_at
              FROM submission_drafts
              WHERE state_param = ? AND expires_at > datetime('now')`,
             stateParam,
@@ -101,6 +121,8 @@ export class SubmissionDraftService {
             photoPath: row.photo_path,
             excludeFromGlobal: !!row.exclude_from_global,
             platform: row.platform ?? null,
+            engine: row.engine || UNKNOWN,
+            device: row.device || UNKNOWN,
             createdAt: row.created_at,
             expiresAt: row.expires_at,
         };

@@ -1,10 +1,16 @@
 ---
-status: accepted
+status: superseded
 date: 2026-04-26
 deciders: mekelburgj
 supersedes:
-superseded-by:
+superseded-by: 0016-engine-device-score-provenance.md
 ---
+
+> **Superseded by [ADR 0016](0016-engine-device-score-provenance.md) (2026-07-30).** The single
+> `platform` field described here conflates *engine* (what produced a score — determines
+> comparability) with *device* (what it ran on). AtGames hardware runs four different engines, so one
+> field cannot express comparability. 0016 splits the axes. Retained for history — the stratification
+> principle survives; the single-field implementation does not.
 
 # Every score record carries a required `platform`; leaderboards stratify by it
 

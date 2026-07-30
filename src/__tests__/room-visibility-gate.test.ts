@@ -260,7 +260,7 @@ describe('roomVisibilityGate — approval room, submit endpoints are member-gate
                 .post(`/api/rooms/${roomId}/submit-score/${encodeURIComponent(gameName)}`)
                 .field('username', 'Guesty')
                 .field('score', '1000')
-                .field('platform', 'real');
+                .field('engine', 'real').field('device', 'real_cabinet');
             expect(res.status).toBe(403);
             expect(res.body.code).toBe('APPROVAL_REQUIRED');
         });
@@ -277,7 +277,7 @@ describe('roomVisibilityGate — approval room, submit endpoints are member-gate
                 .set('Authorization', `Bearer ${token}`)
                 .field('username', 'NonMember')
                 .field('score', '1000')
-                .field('platform', 'real');
+                .field('engine', 'real').field('device', 'real_cabinet');
             expect(res.status).toBe(403);
             expect(res.body.code).toBe('APPROVAL_REQUIRED');
         });
@@ -296,7 +296,7 @@ describe('roomVisibilityGate — approval room, submit endpoints are member-gate
                 .set('Authorization', `Bearer ${token}`)
                 .field('username', 'Member')
                 .field('score', '1000')
-                .field('platform', 'real');
+                .field('engine', 'real').field('device', 'real_cabinet');
             expect(res.status).toBe(201);
         });
     });
@@ -314,7 +314,7 @@ describe('roomVisibilityGate — approval room, submit endpoints are member-gate
                 .field('globalGameId', gg.id)
                 .field('username', 'Guesty')
                 .field('score', '1000')
-                .field('platform', 'real')
+                .field('engine', 'real').field('device', 'real_cabinet')
                 .attach('photo', VALID_PNG, { filename: 'score.png', contentType: 'image/png' });
             expect(res.status).toBe(403);
             expect(res.body.code).toBe('APPROVAL_REQUIRED');
@@ -334,7 +334,7 @@ describe('roomVisibilityGate — approval room, submit endpoints are member-gate
                 .field('globalGameId', gg.id)
                 .field('username', 'NonMember')
                 .field('score', '1000')
-                .field('platform', 'real')
+                .field('engine', 'real').field('device', 'real_cabinet')
                 .attach('photo', VALID_PNG, { filename: 'score.png', contentType: 'image/png' });
             expect(res.status).toBe(403);
             expect(res.body.code).toBe('APPROVAL_REQUIRED');
@@ -356,7 +356,7 @@ describe('roomVisibilityGate — approval room, submit endpoints are member-gate
                 .field('globalGameId', gg.id)
                 .field('username', 'Member')
                 .field('score', '1000')
-                .field('platform', 'real')
+                .field('engine', 'real').field('device', 'real_cabinet')
                 .attach('photo', VALID_PNG, { filename: 'score.png', contentType: 'image/png' });
             expect(res.status).toBe(201);
         });

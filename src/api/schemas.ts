@@ -219,6 +219,21 @@ export const StyleUploadSchema = z.object({
  */
 export const MAX_SCORE = 1_000_000_000_000_000;
 
+/**
+ * v2.53.0 (ADR 0016) — engine + device score provenance, required on every web
+ * submission path. Spread into all four submit schemas so the shape can never
+ * diverge between them.
+ *
+ * Both are REQUIRED, and `'unknown'` is a legal value on either axis (never
+ * NULL, never absent) — a client that genuinely can't determine one says so
+ * explicitly. The values are re-validated against the game's resolved scope by
+ * `ScoreProvenanceService.validate`; Zod only guarantees presence and shape.
+ */
+export const scoreProvenanceFields = {
+    engine: z.string().min(1).max(50),
+    device: z.string().min(1).max(50),
+} as const;
+
 export const CommunityScoreSchema = z.object({
     username: z.string().min(1).max(100),
     score: z.number().int().min(0).max(MAX_SCORE),
@@ -226,15 +241,19 @@ export const CommunityScoreSchema = z.object({
     // server-side from the verified Bearer token (req.user.discordId), never
     // trusted from the request body (see rooms.ts POST handler).
     photo_url: z.string().url().optional(),
-    // v2.5.0: required per-score platform tag. Picker-resolved on the client
-    // (auto-fill when game has 1 platform; required choice when 2+).
-    platform: z.string().min(1),
+    // v2.5.0: per-score platform tag. v2.53.0 (ADR 0016): superseded by
+    // engine+device below and now OPTIONAL — the server DERIVES the legacy
+    // platform value from the pair so the read paths that still consume the
+    // `platform` column keep working. Any client-supplied value is ignored.
+    platform: z.string().min(1).optional(),
+    ...scoreProvenanceFields,
 });
 
 export const ScoreSubmissionSchema = z.object({
     username: z.string().min(1).max(100),
     score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
-    platform: z.string().min(1),
+    platform: z.string().min(1).optional(),
+    ...scoreProvenanceFields,
 });
 
 /**
@@ -251,7 +270,23 @@ export const FreeplayScoreSchema = z.object({
         v => v === 'true' || v === true,
         z.boolean(),
     ).default(false),
-    platform: z.string().min(1),
+    platform: z.string().min(1).optional(),
+    ...scoreProvenanceFields,
+});
+
+/**
+ * v2.53.0 — text fields of `POST /api/global/scores` (multipart, so everything
+ * arrives as a string). Previously hand-parsed inline in `global.ts`; promoted
+ * to a schema so the global path validates the same shape as the three
+ * room-scoped ones.
+ */
+export const GlobalScoreSubmissionSchema = z.object({
+    globalGameId: z.string().min(1),
+    score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
+    displayName: z.string().max(50).optional(),
+    excludeFromGlobal: z.preprocess(v => v === 'true' || v === true, z.boolean()).default(false),
+    platform: z.string().min(1).optional(),
+    ...scoreProvenanceFields,
 });
 
 export const PickGameSchema = z.object({

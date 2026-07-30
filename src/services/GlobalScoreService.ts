@@ -6,6 +6,7 @@ import { GlobalLeaderboardService } from './GlobalLeaderboardService.js';
 import { normalizeSubmitterUserId } from './SubmissionContextService.js';
 import { BanService } from './BanService.js';
 import { logInfo, logError } from '../utils/logger.js';
+import { UNKNOWN } from '../utils/scoreProvenance.js';
 
 export interface GlobalScoreInput {
     globalGameId: string;
@@ -28,6 +29,13 @@ export interface GlobalScoreInput {
      * API boundary via Zod.
      */
     platform?: string | null;
+    /**
+     * v2.53.0 (ADR 0016): split provenance. Both default to `'unknown'` — a
+     * first-class value, never NULL — so legacy/sync callers still write a
+     * coherent row.
+     */
+    engine?: string | null;
+    device?: string | null;
 }
 
 export interface GlobalScore {
@@ -111,8 +119,9 @@ export class GlobalScoreService {
                 photo_url, origin_type, origin_game_room_id, origin_game_id,
                 exclude_from_global, submitted_at,
                 submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+                submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                engine, device
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
             id,
             input.globalGameId,
             input.playerId,
@@ -129,6 +138,8 @@ export class GlobalScoreService {
             submittedByUserId,
             submittedByAnonymousName,
             input.platform ?? null,
+            input.engine || UNKNOWN,
+            input.device || UNKNOWN,
         );
 
         // Invalidate cached leaderboards for this game (global + all room scopes).
@@ -285,6 +296,9 @@ export class GlobalScoreService {
         submittedByAnonymousName?: string | null;
         /** v2.5.0: per-score platform; NULL when source has no platform (sync). */
         platform?: string | null;
+        /** v2.53.0 (ADR 0016): split provenance; 'unknown' when the source has none. */
+        engine?: string | null;
+        device?: string | null;
     }): Promise<{ globalScoreId: string; globalGameId: string; gameName: string } | null> {
         try {
             // v2.2.0: guest submissions never reach global. The Global Leaderboard's
@@ -392,6 +406,8 @@ export class GlobalScoreService {
                 submittedDuringTournamentId: opts.tournamentId ?? null,
                 submittedByAnonymousName: opts.submittedByAnonymousName ?? undefined,
                 platform: opts.platform ?? null,
+                engine: opts.engine ?? UNKNOWN,
+                device: opts.device ?? UNKNOWN,
             });
 
             // Patch in the photo_url from the room's storage (submit() only handles buffer uploads)

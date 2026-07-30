@@ -49,7 +49,7 @@ describe('POST /api/rooms/:roomId/community-scores/:gameName — attribution sec
 
         const res = await request(app)
             .post(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(gameName)}`)
-            .send({ username: 'Guesty', score: 1000, platform: 'real', discord_user_id: 'someone-elses-id' });
+            .send({ username: 'Guesty', score: 1000, platform: 'real', engine: 'real', device: 'real_cabinet', discord_user_id: 'someone-elses-id' });
 
         expect(res.status).toBe(201);
 
@@ -83,7 +83,7 @@ describe('POST /api/rooms/:roomId/community-scores/:gameName — attribution sec
         const res = await request(app)
             .post(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(gameName)}`)
             .set('Authorization', `Bearer ${token}`)
-            .send({ username: 'RealPlayer', score: 2000, platform: 'real', discord_user_id: 'DATTACKER' });
+            .send({ username: 'RealPlayer', score: 2000, platform: 'real', engine: 'real', device: 'real_cabinet', discord_user_id: 'DATTACKER' });
 
         expect(res.status).toBe(201);
 
@@ -110,7 +110,7 @@ describe('POST /api/rooms/:roomId/community-scores/:gameName — attribution sec
         const res = await request(app)
             .post(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(gameName)}`)
             .set('Authorization', `Bearer ${token}`)
-            .send({ username: 'RealPlayer2', score: 3000, platform: 'real' });
+            .send({ username: 'RealPlayer2', score: 3000, platform: 'real', engine: 'real', device: 'real_cabinet' });
 
         expect(res.status).toBe(201);
 

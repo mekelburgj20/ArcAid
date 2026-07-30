@@ -15,6 +15,7 @@ import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { parsePlatformsList } from '../utils/platformRules.js';
+import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
 import { AchievementService } from '../services/AchievementService.js';
 import { isProviderUserId } from '../utils/identityProvider.js';
@@ -210,7 +211,7 @@ export class TournamentEngine {
 
         const row = await db.get(
             `SELECT g.*, t.name as tournament_name, t.type as tournament_type, t.game_room_id,
-                    t.iscored_default_platform
+                    t.iscored_default_platform, t.iscored_default_engine, t.iscored_default_device
              FROM games g JOIN tournaments t ON g.tournament_id = t.id
              WHERE g.id = ?`,
             gameId
@@ -308,7 +309,8 @@ export class TournamentEngine {
         const db = await getDatabase();
 
         const row = await db.get(
-            `SELECT g.*, t.name as tournament_name, t.game_room_id, t.iscored_default_platform
+            `SELECT g.*, t.name as tournament_name, t.game_room_id,
+                    t.iscored_default_platform, t.iscored_default_engine, t.iscored_default_device
              FROM games g LEFT JOIN tournaments t ON g.tournament_id = t.id
              WHERE g.id = ?`,
             gameId,
@@ -417,6 +419,8 @@ export class TournamentEngine {
         tournament_id: string;
         game_room_id: string | null;
         iscored_default_platform?: string | null;
+        iscored_default_engine?: string | null;
+        iscored_default_device?: string | null;
     }): Promise<number> {
         if (!row.iscored_id || !row.game_room_id) return 0;
         const db = await getDatabase();
@@ -453,6 +457,11 @@ export class TournamentEngine {
         for (const r of existingRows) existingMap.set(r.id as string, r.score as number);
 
         const platform = row.iscored_default_platform ?? null;
+        // v2.53.0 (ADR 0016): iScored carries no per-score provenance. Use the
+        // tournament defaults when configured, else the explicit 'unknown'
+        // sentinel — never NULL.
+        const engine = row.iscored_default_engine || UNKNOWN;
+        const device = row.iscored_default_device || UNKNOWN;
         const { ScoreHistoryService } = await import('../services/ScoreHistoryService.js');
         const { normalizeSubmitterUserId } = await import('../services/SubmissionContextService.js');
 
@@ -478,16 +487,23 @@ export class TournamentEngine {
                 INSERT INTO submissions (
                     id, game_id, iscored_username, score, timestamp, discord_user_id,
                     submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                    submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                    submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                    engine, device
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     score = excluded.score,
                     discord_user_id = excluded.discord_user_id,
                     iscored_username = excluded.iscored_username,
-                    platform = COALESCE(excluded.platform, submissions.platform)
+                    platform = COALESCE(excluded.platform, submissions.platform),
+                    -- v2.53.0: COALESCE-preserve, same rule as ScoreSyncPoller.
+                    -- NULLIF drops the 'unknown' placeholder so a final sync can
+                    -- never blank provenance the player supplied; the trailing
+                    -- literal keeps the column non-NULL.
+                    engine = COALESCE(NULLIF(excluded.engine, 'unknown'), submissions.engine, 'unknown'),
+                    device = COALESCE(NULLIF(excluded.device, 'unknown'), submissions.device, 'unknown')
             `, submissionId, row.id, resolvedName, scoreValue, new Date().toISOString(), discordUserId,
                 row.game_room_id, row.tournament_id, submittedByUserId,
-                submittedByAnonymousName, platform,
+                submittedByAnonymousName, platform, engine, device,
             );
 
             try {
@@ -502,6 +518,8 @@ export class TournamentEngine {
                     tournamentId: row.tournament_id,
                     anonymousName: submittedByAnonymousName,
                     platform,
+                    engine,
+                    device,
                 });
             } catch (err) {
                 logWarn(`finalSyncScoresForGame(${row.name}): score_history log failed — ${err instanceof Error ? err.message : String(err)}`);
@@ -927,6 +945,8 @@ export class TournamentEngine {
                     tournament_id: activeGame.tournamentId,
                     game_room_id: tournamentRow.game_room_id ?? null,
                     iscored_default_platform: tournamentRow.iscored_default_platform ?? null,
+                    iscored_default_engine: tournamentRow.iscored_default_engine ?? null,
+                    iscored_default_device: tournamentRow.iscored_default_device ?? null,
                 });
                 if (captured > 0) {
                     logInfo(`   -> Final-synced ${captured} score(s) from iScored before lock`);

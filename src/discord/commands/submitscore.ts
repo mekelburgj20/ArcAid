@@ -14,6 +14,8 @@ import { checkCooldown } from '../../utils/cooldown.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { trackBackground } from '../../utils/backgroundTasks.js';
 import { BanService } from '../../services/BanService.js';
+import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
+import { getEngineDisplay, getDeviceDisplay, UNKNOWN } from '../../utils/scoreProvenance.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -83,10 +85,20 @@ export const submitscore: Command = {
                 .setDescription('Your iScored username (if different from mapping)')
                 .setRequired(false)
         )
+        // v2.53.0 (ADR 0016) — provenance is two questions now. BOTH carry
+        // autocomplete: `platform` never did, so users had to type raw canonical
+        // ids and the command mostly rejected and asked for a re-run.
         .addStringOption(option =>
-            option.setName('platform')
-                .setDescription('Platform you played on (auto-filled when the game has only one)')
+            option.setName('engine')
+                .setDescription('What you played on — VPX, Pinball FX, a real machine… (auto-filled when only one fits)')
                 .setRequired(false)
+                .setAutocomplete(true)
+        )
+        .addStringOption(option =>
+            option.setName('device')
+                .setDescription('Hardware you played it on — PC, AtGames cabinet, VR headset… (auto-filled when only one fits)')
+                .setRequired(false)
+                .setAutocomplete(true)
         )
         .addBooleanOption(option =>
             option.setName('exclude_global')
@@ -118,6 +130,47 @@ export const submitscore: Command = {
                     value: r.name,
                 }))
             );
+            return;
+        }
+
+        // v2.53.0 — engine/device autocomplete, resolved against the game
+        // already selected in the `game` option. Uses the SAME resolver the web
+        // picker's scope comes from (ScoreProvenanceService), so both surfaces
+        // offer the same set — including room tags, which the old Discord path
+        // never unioned.
+        if (focusedOption.name === 'engine' || focusedOption.name === 'device') {
+            const gameName = interaction.options.getString('game');
+            if (!gameName) {
+                await interaction.respond([]);
+                return;
+            }
+            const resolved = await resolveActiveSubmitGame(gameName);
+            if (!resolved.ok) {
+                await interaction.respond([]);
+                return;
+            }
+            const scope = await ScoreProvenanceService.resolveForTournamentGame(
+                resolved.game.tournament_id, gameName,
+            );
+            const typed = focusedOption.value.toLowerCase();
+
+            if (focusedOption.name === 'engine') {
+                const options = ScoreProvenanceService.enginesFor(scope)
+                    .map(id => ({ name: getEngineDisplay(id), value: id }))
+                    .filter(o => o.name.toLowerCase().includes(typed) || o.value.includes(typed))
+                    .slice(0, 25);
+                await interaction.respond(options);
+                return;
+            }
+
+            // Device list narrows to what the already-chosen engine can run.
+            const chosenEngine = interaction.options.getString('engine')
+                || (ScoreProvenanceService.enginesFor(scope)[0] ?? UNKNOWN);
+            const options = ScoreProvenanceService.devicesFor(scope, chosenEngine)
+                .map(id => ({ name: getDeviceDisplay(id), value: id }))
+                .filter(o => o.name.toLowerCase().includes(typed) || o.value.includes(typed))
+                .slice(0, 25);
+            await interaction.respond(options);
         }
     },
 
@@ -144,7 +197,8 @@ export const submitscore: Command = {
         const score = interaction.options.getInteger('score', true);
         const photo = interaction.options.getAttachment('photo', true);
         let username = interaction.options.getString('username');
-        let platform = interaction.options.getString('platform') || undefined;
+        let engine = interaction.options.getString('engine') || undefined;
+        let device = interaction.options.getString('device') || undefined;
         const excludeGlobal = interaction.options.getBoolean('exclude_global') || false;
 
         // Validate score is a positive integer
@@ -181,55 +235,51 @@ export const submitscore: Command = {
                 }
             }
 
-            // v2.5.0: resolve submittable platforms for this game in this room.
-            // If the game has 1 submittable platform, auto-fill. If 2+ and the
-            // user didn't pass `platform`, reply ephemerally with valid choices
-            // so they can re-run. If `platform` was passed, validate it.
-            const { parsePlatformsList, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
-            const gg = await db.get(
-                'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
-                gameName, 'approved',
-            );
-            const effectivePlatforms: string[] = gg ? parsePlatformsList(gg.platforms || '[]') : [];
-            let platformRules: { required: string[]; excluded: string[] } | null = null;
-            const tournamentRow = await db.get(
-                'SELECT platform_rules FROM tournaments WHERE id = ?',
-                game.tournament_id,
-            );
-            if (tournamentRow?.platform_rules) {
-                try {
-                    const parsed = JSON.parse(tournamentRow.platform_rules);
-                    platformRules = {
-                        required: Array.isArray(parsed.required) ? parsed.required : [],
-                        excluded: Array.isArray(parsed.excluded) ? parsed.excluded : [],
-                    };
-                } catch { /* ignore */ }
-            }
-            const submittablePlatforms = resolveSubmittablePlatforms(effectivePlatforms, platformRules);
-            if (submittablePlatforms.length === 0) {
+            // v2.53.0 (ADR 0016): resolve the engine + device scope for this
+            // game. `resolveForTournamentGame` unions the room's game tags —
+            // pre-v2.53.0 this command read `global_games.platforms` alone while
+            // the web path unioned tags, so a room-tagged platform was
+            // submittable on web and rejected here. Both surfaces now resolve
+            // the same set.
+            const scope = await ScoreProvenanceService.resolveForTournamentGame(game.tournament_id, gameName);
+            if (scope.submittable.length === 0) {
                 await interaction.editReply(`No platforms are configured for **${gameName}**. Ask an admin to set them up.`);
                 return;
             }
-            if (!platform) {
-                if (submittablePlatforms.length === 1) {
-                    platform = submittablePlatforms[0];
+
+            // Auto-fill each axis when only one option is valid, so the common
+            // single-engine / single-device case stays a one-shot command.
+            const engineOptions = ScoreProvenanceService.enginesFor(scope);
+            if (!engine) {
+                if (engineOptions.length === 1) {
+                    engine = engineOptions[0];
                 } else {
                     await interaction.editReply(
-                        `**${gameName}** can be played on multiple platforms. Re-run /submit-score with \`platform:\` set to one of: ${submittablePlatforms.join(', ')}.`,
+                        `**${gameName}** is playable on more than one engine. Re-run /submit-score with \`engine:\` set to one of: ${engineOptions.map(getEngineDisplay).join(', ')}.`,
                     );
                     return;
                 }
-            } else {
-                const want = platform.toUpperCase();
-                const matched = submittablePlatforms.find(p => p.toUpperCase() === want);
-                if (!matched) {
-                    await interaction.editReply(
-                        `Platform "${platform}" is not allowed for **${gameName}**. Allowed: ${submittablePlatforms.join(', ')}.`,
-                    );
-                    return;
-                }
-                platform = matched; // normalize casing
             }
+            const deviceOptions = ScoreProvenanceService.devicesFor(scope, engine!);
+            if (!device) {
+                if (deviceOptions.length === 1) {
+                    device = deviceOptions[0];
+                } else {
+                    await interaction.editReply(
+                        `Which device did you play **${gameName}** on? Re-run /submit-score with \`device:\` set to one of: ${deviceOptions.map(getDeviceDisplay).join(', ')}.`,
+                    );
+                    return;
+                }
+            }
+
+            const provenance = ScoreProvenanceService.validate(scope, engine, device);
+            if (!provenance.ok) {
+                await interaction.editReply(provenance.error);
+                return;
+            }
+            engine = provenance.engine;
+            device = provenance.device;
+            const platform = provenance.platform;
 
             // Resolve username: explicit param > saved mapping > auto-map from Discord display name
             if (!username) {
@@ -280,12 +330,22 @@ export const submitscore: Command = {
                     `INSERT INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
-                        submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform
+                        submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                        engine, device
                      )
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
-                     ON CONFLICT(id) DO UPDATE SET score = MAX(score, excluded.score), discord_user_id = excluded.discord_user_id, photo_url = excluded.photo_url, platform = excluded.platform`,
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET score = MAX(score, excluded.score), discord_user_id = excluded.discord_user_id, photo_url = excluded.photo_url,
+                        -- v2.53.0: the two upsert families disagreed (this one
+                        -- overwrote, the sync paths COALESCE-preserved). One rule
+                        -- now: COALESCE-preserve everywhere. Behaviour here is
+                        -- unchanged, since an interactive submit always supplies a
+                        -- concrete value — it just can't blank anything any more.
+                        platform = COALESCE(excluded.platform, submissions.platform),
+                        engine = COALESCE(NULLIF(excluded.engine, 'unknown'), submissions.engine, 'unknown'),
+                        device = COALESCE(NULLIF(excluded.device, 'unknown'), submissions.device, 'unknown')`,
                     `${game.id}-${username!.toLowerCase()}`, game.id, interaction.user.id, username, score, photo.url, new Date().toISOString(),
                     game.game_room_id || null, game.tournament_id || null, submittedByUserId, submittedByAnonymousName, platform,
+                    engine, device,
                 );
 
                 // Log to score history
@@ -297,6 +357,8 @@ export const submitscore: Command = {
                     tournamentId: game.tournament_id,
                     anonymousName: submittedByAnonymousName,
                     platform,
+                    engine,
+                    device,
                 });
 
                 // Invalidate leaderboard cache
@@ -332,6 +394,8 @@ export const submitscore: Command = {
                         tournamentId: game.tournament_id,
                         submittedByAnonymousName: submittedByAnonymousName ?? undefined,
                         platform,
+                        engine,
+                        device,
                     });
                     if (fanOut && !excludeGlobal) {
                         const { emitScoreNewGlobal } = await import('../../api/websocket.js');
