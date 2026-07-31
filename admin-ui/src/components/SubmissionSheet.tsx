@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserX, Trophy } from 'lucide-react';
+import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserX, UserCheck, Trophy } from 'lucide-react';
 import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
 import ShareButton from './ShareButton';
@@ -154,8 +154,20 @@ export default function SubmissionSheet({
     discordEnabled,
 }: SubmissionSheetProps) {
     const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
+    /**
+     * v2.54.0 username lock — a logged-in viewer (Discord OR Google; both land
+     * in `discordUser`/`playerToken`, the Google ids just carry a `google:`
+     * prefix) submits under their canonical account name. The editable name
+     * field is replaced with a read-only "Playing as …" chip, the client stops
+     * posting a name at all, and the server resolves it. Guests keep the
+     * free-text field — first-claim-wins per room is deliberate for them.
+     */
+    const isAuthedViewer = !!playerToken;
     const [playerName, setPlayerName] = useState(
-        initialPlayerName ??
+        // Authed: always start from the account name, never a stale
+        // localStorage/`initialPlayerName` value.
+        (isAuthedViewer ? discordUser?.username : undefined) ??
+            initialPlayerName ??
             discordUser?.username ??
             localStorage.getItem('arcaid-player-name') ??
             (target.kind === 'global' ? target.presetDisplayName ?? '' : ''),
@@ -343,7 +355,9 @@ export default function SubmissionSheet({
     const submitScoreNow = async (overrideName?: string) => {
         const trimmedName = (overrideName ?? playerName).trim();
         const scoreNum = parseInt(score, 10);
-        if (!trimmedName || isNaN(scoreNum) || scoreNum < 0) return;
+        // v2.54.0: only a guest has a name to supply — an authed viewer's name
+        // comes from the server, so an empty local value must not block them.
+        if ((!trimmedName && !isAuthedViewer) || isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
         // v2.53.0: both provenance axes must be resolved — guard against a stray
         // click before the picker has settled.
@@ -363,17 +377,21 @@ export default function SubmissionSheet({
             headers['x-user-id'] = ensureAnonId();
             if (playerToken) headers.Authorization = `Bearer ${playerToken}`;
 
+            // v2.54.0 username lock: the name is only ever sent for a GUEST.
+            // An authed submitter's name is resolved server-side, so the client
+            // omits the field entirely rather than posting one the server will
+            // discard (the room submit schemas make `username` optional for
+            // exactly this, and the global schema no longer declares a name).
             if (target.kind === 'tournament') {
-                formData.append('username', trimmedName);
+                if (!isAuthedViewer) formData.append('username', trimmedName);
                 if (excludeFromGlobal) formData.append('excludeGlobal', 'true');
                 url = `/api/rooms/${target.roomId}/submit-score/${encodeURIComponent(target.gameName)}`;
             } else if (target.kind === 'freeplay') {
-                formData.append('username', trimmedName);
+                if (!isAuthedViewer) formData.append('username', trimmedName);
                 formData.append('globalGameId', target.globalGameId);
                 if (excludeFromGlobal) formData.append('excludeGlobal', 'true');
                 url = `/api/rooms/${target.roomId}/freeplay-score`;
             } else {
-                formData.append('displayName', trimmedName);
                 formData.append('globalGameId', target.globalGameId);
                 formData.append('excludeFromGlobal', excludeFromGlobal ? 'true' : 'false');
                 url = '/api/global/scores';
@@ -457,15 +475,17 @@ export default function SubmissionSheet({
     const handleSubmitClick = async () => {
         const trimmedName = playerName.trim();
         const scoreNum = parseInt(score, 10);
-        if (!trimmedName || isNaN(scoreNum) || scoreNum < 0) return;
+        if ((!trimmedName && !isAuthedViewer) || isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
 
-        // Authenticated users and global submissions bypass the Discord-guild
-        // claim prompt. They still run through runNameCheckThenSubmit so
-        // a Discord user re-submitting under a name owned by someone else in
-        // this room also gets the pre-submit collision prompt (v2.2.5).
-        if (playerToken || !canHaveAnonymousFlow(target)) {
-            return runNameCheckThenSubmit(trimmedName);
+        // v2.54.0 username lock: an authenticated viewer can no longer choose a
+        // name, so the pre-submit name-check/collision prompt (v2.2.5) is
+        // skipped — the server resolves their canonical name and any suffixing
+        // itself, and the success card reports the final name. Global
+        // submissions are always authenticated and never had the anonymous
+        // claim prompt either.
+        if (isAuthedViewer || !canHaveAnonymousFlow(target)) {
+            return submitScoreNow(trimmedName);
         }
 
         // Anonymous room submit: first check for a Discord-guild member matching
@@ -575,7 +595,9 @@ export default function SubmissionSheet({
     // v2.53.0: picker must be resolved AND both provenance axes chosen.
     const platformsResolved = submittablePlatforms !== null;
     const provenanceChosen = engine.trim() !== '' && device.trim() !== '';
-    const canSubmit = playerName.trim() && score && !isNaN(parseInt(score, 10)) && parseInt(score, 10) >= 0
+    // v2.54.0: the name gate applies to guests only — an authed viewer has no
+    // name field to fill in, and the server supplies the name regardless.
+    const canSubmit = (isAuthedViewer || !!playerName.trim()) && score && !isNaN(parseInt(score, 10)) && parseInt(score, 10) >= 0
         && (!needsPhoto || !!photoFile) && platformsResolved && provenanceChosen && !submitting;
     const nameLabel = target.kind === 'global' ? 'Display Name' : 'Player Name';
 
@@ -882,6 +904,34 @@ export default function SubmissionSheet({
 
                             <div>
                                 <label className="text-xs text-faint block mb-1">{nameLabel}</label>
+                                {isAuthedViewer ? (
+                                    /* v2.54.0 username lock — read-only identity chip. The
+                                       name is fixed to the account; renames happen in Account
+                                       Settings, which is also the only place the global
+                                       display name is editable. The server may still resolve
+                                       a slightly different name (e.g. an existing suffixed
+                                       room claim) — the submit response carries the final
+                                       `displayName` and the success card shows it. */
+                                    <>
+                                        <div className="px-3 py-2 bg-raised border border-border/60 rounded text-sm flex items-center gap-2">
+                                            <UserCheck size={14} className="text-neon-cyan flex-shrink-0" />
+                                            <span className="text-muted">Playing as</span>
+                                            <span className="text-primary font-display font-bold truncate">
+                                                {playerName || discordUser?.username || 'you'}
+                                            </span>
+                                        </div>
+                                        <p className="text-[11px] text-faint mt-1">
+                                            Not you?{' '}
+                                            <Link
+                                                to="/account/settings"
+                                                className="text-neon-cyan hover:underline"
+                                            >
+                                                Change your display name in settings
+                                            </Link>
+                                            .
+                                        </p>
+                                    </>
+                                ) : (
                                 <div className="flex gap-1">
                                     {/* On touch devices the in-app OnScreenKeyboard drives
                                         input; inputMode='none' keeps the field focusable
@@ -913,6 +963,7 @@ export default function SubmissionSheet({
                                         </button>
                                     )}
                                 </div>
+                                )}
                             </div>
 
                             <div>

@@ -1610,11 +1610,17 @@ router.get('/submit/platforms', async (req, res) => {
 /**
  * POST /api/global/scores — direct global score submission.
  * Requires Discord login, photo, and a valid approved global_game_id.
- * Body: multipart/form-data with { globalGameId, score, displayName, excludeFromGlobal?, photo }
+ * Body: multipart/form-data with { globalGameId, score, excludeFromGlobal?, photo }
  *
- * `displayName` is the name shown on the scoreboard. If omitted, falls back
- * through user_mappings → Discord username → discordId. When provided, it is
- * persisted to user_mappings so future submissions default to it.
+ * v2.54.0 username lock: the request's `displayName` field is IGNORED (older
+ * clients still post it; `GlobalScoreSubmissionSchema` no longer declares it, so
+ * Zod strips it rather than rejecting). This route is `requireDiscordUser`, so
+ * the submitter is always authenticated and their name is resolved server-side
+ * via `UserProfileService.resolveSubmitName` (user_mappings alias →
+ * user_profiles.display_name → JWT username claim → id). Pre-lock, an arbitrary
+ * typed name became the scoreboard name AND was registered as a permanent
+ * `user_mappings` alias for the account. Renames now go through Account
+ * Settings (`PATCH /api/users/me/profile`).
  */
 router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNotBanned, globalScoreUpload.single('photo'), async (req, res) => {
     try {
@@ -1624,7 +1630,6 @@ router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNo
         const validationResult = validate(GlobalScoreSubmissionSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const { globalGameId, score, excludeFromGlobal } = validationResult.data;
-        const displayNameRaw = (validationResult.data.displayName ?? '').trim();
 
         if (!req.file) {
             return res.status(400).json({ error: 'A photo is required with global score submissions.' });
@@ -1647,42 +1652,43 @@ router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNo
         if (!provenance.ok) return res.status(400).json({ error: provenance.error });
         const { engine, device, platform } = provenance;
 
-        // Resolve the iscored username / display name for the logged-in Discord user.
-        // Precedence: explicit form field > existing user_mappings row > Discord
-        // username from the JWT > raw discordId (legacy fallback).
+        // v2.54.0 username lock — resolve the submitter's canonical name
+        // server-side. Precedence (see UserProfileService.resolveSubmitName):
+        // existing user_mappings alias > user_profiles.display_name > JWT
+        // username claim > raw id. The request body has no say.
         const db = await getDatabase();
-        let iscoredUsername = displayNameRaw;
-        if (!iscoredUsername) {
-            const mapping = await db.get(
-                'SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?',
-                req.user!.discordId
-            );
-            iscoredUsername = mapping?.iscored_username || req.user!.username || req.user!.discordId || 'Unknown';
-        }
+        const { UserProfileService } = await import('../../services/UserProfileService.js');
+        const iscoredUsername = await UserProfileService.resolveSubmitName({
+            discordUserId: req.user!.discordId!,
+            jwtUsername: req.user!.username ?? null,
+        });
 
-        // Persist the display name so future submissions pre-fill with it.
-        // `user_mappings.iscored_username` has a UNIQUE index — if this name is
-        // already taken by a different Discord user, reject before the INSERT
-        // would fail, returning a clear 409 instead of a cryptic DB error.
-        if (displayNameRaw && req.user!.discordId) {
+        // Register the resolved name as this account's alias so the global
+        // leaderboard's `iscored:*` display joins resolve it. Only a canonical
+        // name can reach this now — the old path claimed whatever the user typed.
+        // No-ops when they already hold the alias (that's branch 1 of the
+        // resolver). If the name happens to be owned by a DIFFERENT account
+        // (only reachable via the JWT-username fallback, i.e. a user with
+        // neither an alias nor a chosen display name), we skip the write rather
+        // than 409 — the user can no longer pick a different name in the modal,
+        // so failing the submit would be a dead end. `ON CONFLICT DO NOTHING`
+        // makes the skip automatic; the pre-check exists only for the log line.
+        if (req.user!.discordId) {
             const clash = await db.get<{ discord_user_id: string }>(
                 `SELECT discord_user_id FROM user_mappings
                  WHERE LOWER(iscored_username) = LOWER(?) AND discord_user_id != ?`,
-                displayNameRaw, req.user!.discordId
+                iscoredUsername, req.user!.discordId
             );
             if (clash) {
-                return res.status(409).json({ error: 'That display name is already taken. Pick another.' });
+                logInfo(`global submit: alias '${iscoredUsername}' already held by ${clash.discord_user_id}; skipping claim for ${req.user!.discordId}`);
+            } else {
+                await db.run(
+                    `INSERT INTO user_mappings (discord_user_id, iscored_username)
+                     VALUES (?, ?)
+                     ON CONFLICT(iscored_username) DO NOTHING`,
+                    req.user!.discordId, iscoredUsername
+                );
             }
-            // user_mappings is now many-to-one. The pre-check above already rejected
-            // the case where this name is owned by a different Discord user, so a
-            // conflict here only fires when this same user has already claimed the
-            // alias — DO NOTHING is a clean no-op.
-            await db.run(
-                `INSERT INTO user_mappings (discord_user_id, iscored_username)
-                 VALUES (?, ?)
-                 ON CONFLICT(iscored_username) DO NOTHING`,
-                req.user!.discordId, displayNameRaw
-            );
         }
 
         try {

@@ -174,6 +174,78 @@ export class UserProfileService {
     }
 
     /**
+     * Canonical submit-name resolver for an AUTHENTICATED submitter.
+     *
+     * Product rule (username lock): a logged-in user submits under their own
+     * canonical name only — the per-submit name field is gone from the UI and
+     * the client-supplied name is ignored by every web submit handler. Renames
+     * happen through `setDisplayName` (Account Settings), not by typing a
+     * different name into the score modal. Pre-lock, typing "Chode_Farmer" here
+     * wrote that string to `submissions.iscored_username`, claimed it as the
+     * user's `room_members.display_name`, and — on the global path — registered
+     * it as a permanent `user_mappings` alias.
+     *
+     * Resolution order (first non-empty wins):
+     *   1. The name this user has ALREADY claimed in the submit scope:
+     *        • room scope (`roomId` given) → `room_members.display_name`
+     *        • global scope (no `roomId`)  → their first `user_mappings` alias
+     *      Their established name in that scope always wins, so an existing
+     *      player's rows keep grouping under the same name.
+     *   2. `user_profiles.display_name` — the user-chosen global name.
+     *   3. `jwtUsername` — the token's `username` claim (provider display name
+     *      at login; `display_name || username || id` after a refresh).
+     *   4. `discordUserId` — last-ditch, matches the pre-existing fallback in
+     *      the global submit handler.
+     *
+     * Downstream is unchanged: the room paths still route this through
+     * `RoomNameClaimService.resolveAndClaim`, so a first-time claimant whose
+     * canonical name is already taken in that room still gets the `_N` suffix.
+     */
+    static async resolveSubmitName(opts: {
+        discordUserId: string;
+        /** Room scope for room submits; omit/null for the global scoreboard path. */
+        roomId?: string | null;
+        /** `req.user.username` — the JWT display claim. */
+        jwtUsername?: string | null;
+    }): Promise<string> {
+        const { discordUserId, roomId, jwtUsername } = opts;
+        const db = await getDatabase();
+        const clean = (v: unknown): string | null => {
+            const s = typeof v === 'string' ? v.trim() : '';
+            return s.length > 0 ? s : null;
+        };
+
+        // 1. Already-claimed name in this scope.
+        if (roomId) {
+            const member = await db.get<{ display_name: string | null }>(
+                `SELECT display_name FROM room_members WHERE user_id = ? AND room_id = ?`,
+                discordUserId, roomId,
+            );
+            const claimed = clean(member?.display_name);
+            if (claimed) return claimed;
+        } else {
+            const alias = await db.get<{ iscored_username: string }>(
+                `SELECT iscored_username FROM user_mappings WHERE discord_user_id = ?
+                 ORDER BY created_at, rowid LIMIT 1`,
+                discordUserId,
+            );
+            const claimed = clean(alias?.iscored_username);
+            if (claimed) return claimed;
+        }
+
+        // 2. Global user-chosen display name.
+        const profile = await db.get<{ display_name: string | null }>(
+            `SELECT display_name FROM user_profiles WHERE discord_user_id = ?`,
+            discordUserId,
+        );
+        const display = clean(profile?.display_name);
+        if (display) return display;
+
+        // 3/4. JWT username claim, then the raw id.
+        return clean(jwtUsername) ?? discordUserId;
+    }
+
+    /**
      * Returns the user's iScored aliases (`user_mappings` rows for this Discord
      * user). Used by the account-settings page so users can see which names
      * they own.

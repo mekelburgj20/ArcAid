@@ -158,22 +158,57 @@ export class CommunityScoreService {
 
     /**
      * Get community leaderboard for a game (best score per player).
+     *
+     * Collapses multi-alias players to one row via the standard identity key
+     * (`COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))` —
+     * see LeaderboardService.recalculate). Pre-this-fix the GROUP BY was on
+     * LOWER(iscored_username) alone, so a logged-in Discord user submitting
+     * under two typed names held two separate ranks on the same board.
+     * `iscored_username` on the collapsed row is the alias from that player's
+     * single best-scoring submission (ROW_NUMBER, not a MAX() string pick).
      */
     static async getGameLeaderboard(gameRoomId: string, gameName: string) {
         const db = await getDatabase();
         return db.all(`
             SELECT
-                LOWER(iscored_username) as player_key,
-                iscored_username,
-                MAX(score) as best_score,
-                COUNT(*) as times_played,
-                MAX(created_at) as last_played
-            FROM community_scores
-            WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
-              AND orphaned_at IS NULL
-            GROUP BY LOWER(iscored_username)
-            ORDER BY best_score DESC
-        `, gameRoomId, gameName);
+                best.player_key,
+                best.iscored_username,
+                best.best_score,
+                agg.times_played,
+                agg.last_played,
+                up.display_name
+            FROM (
+                SELECT
+                    COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) as player_key,
+                    iscored_username,
+                    submitted_by_user_id,
+                    score as best_score,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
+                        ORDER BY score DESC, created_at ASC
+                    ) as rn
+                FROM community_scores
+                WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
+                  AND orphaned_at IS NULL
+            ) best
+            JOIN (
+                SELECT
+                    COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username)) as player_key,
+                    COUNT(*) as times_played,
+                    MAX(created_at) as last_played
+                FROM community_scores
+                WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
+                  AND orphaned_at IS NULL
+                GROUP BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
+            ) agg ON agg.player_key = best.player_key
+            LEFT JOIN user_mappings um ON (
+                best.player_key LIKE 'iscored:%'
+                AND LOWER(um.iscored_username) = LOWER(best.iscored_username)
+            )
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(best.submitted_by_user_id, um.discord_user_id)
+            WHERE best.rn = 1
+            ORDER BY best.best_score DESC
+        `, gameRoomId, gameName, gameRoomId, gameName);
     }
 
     /**
@@ -183,11 +218,13 @@ export class CommunityScoreService {
         const db = await getDatabase();
         const offset = (page - 1) * limit;
         return db.all(`
-            SELECT id, iscored_username, score, photo_url, created_at
-            FROM community_scores
-            WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
-              AND orphaned_at IS NULL
-            ORDER BY created_at DESC
+            SELECT cs.id, cs.iscored_username, up.display_name, cs.score, cs.photo_url, cs.created_at
+            FROM community_scores cs
+            LEFT JOIN user_mappings um ON LOWER(um.iscored_username) = LOWER(cs.iscored_username)
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(cs.submitted_by_user_id, um.discord_user_id)
+            WHERE cs.game_room_id = ? AND LOWER(cs.game_name) = LOWER(?)
+              AND cs.orphaned_at IS NULL
+            ORDER BY cs.created_at DESC
             LIMIT ? OFFSET ?
         `, gameRoomId, gameName, limit, offset);
     }
@@ -198,11 +235,13 @@ export class CommunityScoreService {
     static async getRecentActivity(gameRoomId: string, limit = 20) {
         const db = await getDatabase();
         return db.all(`
-            SELECT id, game_name, iscored_username, score, created_at
-            FROM community_scores
-            WHERE game_room_id = ?
-              AND orphaned_at IS NULL
-            ORDER BY created_at DESC
+            SELECT cs.id, cs.game_name, cs.iscored_username, up.display_name, cs.score, cs.created_at
+            FROM community_scores cs
+            LEFT JOIN user_mappings um ON LOWER(um.iscored_username) = LOWER(cs.iscored_username)
+            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(cs.submitted_by_user_id, um.discord_user_id)
+            WHERE cs.game_room_id = ?
+              AND cs.orphaned_at IS NULL
+            ORDER BY cs.created_at DESC
             LIMIT ?
         `, gameRoomId, limit);
     }

@@ -91,6 +91,8 @@ interface PlayerGameStats {
 }
 
 interface CommunityLeaderboardEntry {
+  /** Identity-collapse key: `submitted_by_user_id` or `iscored:<name>` fallback. */
+  player_key?: string;
   iscored_username: string;
   /** v2.8.0: user-chosen global display name. */
   display_name?: string | null;
@@ -1089,7 +1091,7 @@ export default function GameDetail() {
                   </div>
                   {communityBoard.map((entry, i) => (
                     <div
-                      key={entry.iscored_username}
+                      key={entry.player_key ?? entry.iscored_username}
                       className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
                         i === 0 ? 'bg-neon-amber/8' : ''
                       }`}
