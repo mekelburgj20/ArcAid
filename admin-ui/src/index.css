@@ -46,6 +46,13 @@
   --color-medal-silver: #c0c0c0;
   --color-medal-bronze: #cd7f32;
 
+  /* Brand delta pink (v2.55.0) — the exact neon of the Arcaid logo's triangle,
+     for UI that should read as "the same pink as the mark". Deliberately NOT
+     --color-neon-magenta (hue 354) or --color-neon-coral (hue 13): the logo
+     sits between them, so either is visibly off next to the actual artwork.
+     Light polarity darkens it below for contrast on a pale surface. */
+  --color-brand-delta: #ff2e63;
+
   /* Scoreboard surfaces (A1, v2.50.0) — `--sb-` rather than `--color-` because
      these are composited overlays (scrims, tints, shadows), not palette
      entries, and their alpha/base flip with polarity. Light overrides live in
@@ -83,7 +90,7 @@
   --sb-kbd-border: rgba(255, 255, 255, 0.15);
 
   /* Pins (A4, v2.52.0) — the "My Pins" rail and the per-card pin hotspot.
-     Same rule as above: PinnedRail.tsx and the hotspot ship zero literal
+     Same rule as above: PinnedCarousel.tsx and the hotspot ship zero literal
      rgba(), so both stay legible under either polarity. */
   --sb-rail-bg: linear-gradient(180deg, color-mix(in oklab, var(--color-neon-amber) 6%, transparent) 0%, transparent 100%);
   --sb-rail-border: color-mix(in oklab, var(--color-neon-amber) 19%, transparent);
@@ -113,9 +120,17 @@
 /* Light theme (daisyUI-inspired clean light) */
 .theme-light {
   color-scheme: light;
-  --color-deep: oklch(95% 0 0);
+  /* v2.55.0 — #E8EAF0 is the exact canvas the light logo artwork was designed
+     and verified against (its spec warns off anything darker than ~#D0D4DE,
+     where the mark's backdrop plate stops separating). Was a neutral
+     oklch(95% 0 0); this is slightly darker and cooler, which also gives the
+     white `--color-surface` cards something to sit above. */
+  --color-deep: #e8eaf0;
   --color-surface: oklch(100% 0 0);
   --color-raised: oklch(98% 0 0);
+  /* The logo pink at full chroma is ~3.1:1 on a pale surface — darkened here
+     so the trophy and any brand-pink UI stay legible. */
+  --color-brand-delta: #d10f47;
   --color-border: oklch(85% 0.005 260);
   --color-border-glow: oklch(45% 0.24 277.023);
   --color-neon-cyan: oklch(50% 0.16 232.661);
@@ -228,6 +243,8 @@
 /* Coffee theme (warm cream/brown light theme, daisyUI retro-inspired) */
 .theme-coffee {
   color-scheme: light;
+  /* Light polarity — same contrast reasoning as `.theme-light`. */
+  --color-brand-delta: #d10f47;
   --color-deep: oklch(91.6% 0.034 90.5);
   --color-surface: oklch(88.3% 0.049 91.8);
   --color-raised: oklch(84.1% 0.065 90.9);

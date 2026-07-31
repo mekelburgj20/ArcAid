@@ -167,7 +167,7 @@ describe('pin endpoints', () => {
         expect(list.body.pins[0].global_game_id).toBe(gameId);
     });
 
-    it('(f) GET /pins carries champion + my rank, newest first, and seeds last_known_rank', async () => {
+    it('(f) GET /pins carries the card rows + my rank, newest first, and seeds last_known_rank', async () => {
         const app = await createTestApp();
         const db = await getDatabase();
         const g1 = await makeGame('Theatre of Magic');
@@ -197,7 +197,10 @@ describe('pin endpoints', () => {
         expect(res.body.pins.map((p: any) => p.global_game_id)).toEqual([g2, g1]);
 
         const withScores = res.body.pins.find((p: any) => p.global_game_id === g1);
-        expect(withScores.top_player.iscored_username).toBe('Champ');
+        // v2.55.0: rows, not a lone champion — the rail renders the grid's card.
+        expect(withScores.top_scores.map((s: any) => s.iscored_username)).toEqual(['Champ', 'Me']);
+        expect(withScores.top_scores[0].score).toBe(9000);
+        expect('top_player' in withScores).toBe(false);
         expect(withScores.top_score).toBe(9000);
         expect(withScores.score_count).toBe(2);
         expect(withScores.my_rank).toBe(2);
@@ -205,9 +208,59 @@ describe('pin endpoints', () => {
         expect(withScores.rank_delta).toBe(0); // seeded == current
 
         const empty = res.body.pins.find((p: any) => p.global_game_id === g2);
-        expect(empty.top_player).toBeNull();
+        expect(empty.top_scores).toEqual([]);
+        expect(empty.neighbors).toEqual([]);
         expect(empty.my_rank).toBeNull();
         expect(empty.rank_delta).toBeNull();
+    });
+
+    // ── v2.55.0 — the payload the full card needs ───────────────────────────
+    it('(f2) top_scores is capped at the 6 rows the card renders, best first', async () => {
+        const app = await createTestApp();
+        const gameId = await makeGame('Six Row Cap');
+        await addFillerScores(gameId, 9, 90_000);
+        const auth = { Authorization: `Bearer ${playerToken('disc-me')}` };
+        await request(app).post(`/api/global/games/${gameId}/pin`).set(auth);
+
+        const res = await request(app).get('/api/global/pins').set(auth);
+        const row = res.body.pins[0];
+        expect(row.top_scores).toHaveLength(6);
+        expect(row.top_scores.map((s: any) => s.score)).toEqual([90_000, 89_000, 88_000, 87_000, 86_000, 85_000]);
+        // Same entry shape the grid card's rows use, badge fields included.
+        expect(Object.keys(row.top_scores[0]).sort()).toEqual([
+            'avatar_hash', 'discord_user_id', 'display_name', 'iscored_username',
+            'origin_room_logo_url', 'origin_room_short_tag', 'origin_room_slug', 'score',
+        ]);
+    });
+
+    it('(f3) neighbors ship only when the viewer ranks BELOW the six rendered rows', async () => {
+        const app = await createTestApp();
+        const auth = { Authorization: `Bearer ${playerToken('disc-me')}` };
+
+        // Rank 9 of 9 — outside the card's six rows, so the "YOU" row needs data.
+        const deep = await makeGame('Deep Board');
+        await addFillerScores(deep, 8, 100_000);
+        await addScore(deep, { username: 'Me', score: 55_000, submittedBy: 'disc-me' });
+
+        // Rank 2 — already on the card; a neighbours read here would be wasted.
+        const shallow = await makeGame('Shallow Board');
+        await addScore(shallow, { username: 'F', score: 900, submittedBy: 'f-1' });
+        await addScore(shallow, { username: 'Me', score: 800, submittedBy: 'disc-me' });
+
+        await request(app).post(`/api/global/games/${deep}/pin`).set(auth);
+        await request(app).post(`/api/global/games/${shallow}/pin`).set(auth);
+
+        const res = await request(app).get('/api/global/pins').set(auth);
+        const byId = Object.fromEntries(res.body.pins.map((p: any) => [p.global_game_id, p]));
+
+        expect(byId[deep].my_rank).toBe(9);
+        expect(byId[deep].neighbors.map((n: any) => n.rank)).toEqual([8, 9]);
+        const you = byId[deep].neighbors.find((n: any) => n.rank === 9);
+        expect(you.iscored_username).toBe('Me');
+        expect(you.score).toBe(55_000);
+
+        expect(byId[shallow].my_rank).toBe(2);
+        expect(byId[shallow].neighbors).toEqual([]);
     });
 
     // The A4 contract and the handoff both write `last_known_rank - my_rank`

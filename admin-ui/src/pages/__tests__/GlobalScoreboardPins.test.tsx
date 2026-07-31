@@ -81,6 +81,34 @@ function game(over: Partial<MockGame> = {}): MockRow {
     };
 }
 
+/**
+ * One row of `GET /api/global/pins`, v2.55.0 shape: the rail renders the grid's
+ * card, so the payload carries `top_scores` (ranks 1-6) — not the old
+ * champion-only `top_player`.
+ */
+function pinRow(over: Record<string, unknown> = {}) {
+    return {
+        global_game_id: 'g-9',
+        name: 'Twilight Zone',
+        display_name: null,
+        manufacturer: 'Bally',
+        year: 1993,
+        image_url: null,
+        local_image_path: null,
+        wheel_image_path: null,
+        platforms: '["vpx"]',
+        score_count: 0,
+        top_score: null,
+        top_scores: [],
+        neighbors: [],
+        my_rank: null,
+        my_score: null,
+        rank_delta: null,
+        pinned_at: '2026-07-28T12:00:00.000Z',
+        ...over,
+    };
+}
+
 /** Registers a fetch stub. `pinResponse` controls the pin write's outcome. */
 function mockFetch(games: MockRow[], opts: { pins?: Record<string, unknown>[]; pinOk?: boolean } = {}) {
     const calls: Array<{ url: string; method: string }> = [];
@@ -262,27 +290,56 @@ describe('GlobalScoreboard — sort pills + rail visibility', () => {
     });
 
     it('shows the rail once pins come back', async () => {
-        mockFetch([game({ top_scores: [] })], {
-            pins: [{
-                global_game_id: 'g-9',
-                name: 'Twilight Zone',
-                display_name: null,
-                manufacturer: 'Bally',
-                year: 1993,
-                image_url: null,
-                local_image_path: null,
-                wheel_image_path: null,
-                score_count: 0,
-                top_score: null,
-                top_player: null,
-                my_rank: null,
-                my_score: null,
-                rank_delta: null,
-                pinned_at: '2026-07-28T12:00:00.000Z',
-            }],
-        });
+        mockFetch([game({ top_scores: [] })], { pins: [pinRow()] });
         renderPage('tok');
         expect(await screen.findByText('MY PINS')).toBeInTheDocument();
+        expect(screen.getByText('Twilight Zone')).toBeInTheDocument();
+    });
+
+    /**
+     * v2.55.0 — the rail renders the SAME card as the grid, so the pins payload
+     * has to carry the leaderboard rows (it shipped only a champion pre-v2.55).
+     */
+    it('renders the pinned game as a full card, with rows from top_scores', async () => {
+        mockFetch([game({ top_scores: [] })], {
+            pins: [pinRow({
+                score_count: 2,
+                top_scores: [entry('Champ', 900), entry('Runner', 800)],
+            })],
+        });
+        renderPage('tok');
+        await screen.findByText('MY PINS');
+        expect(screen.getByText('Champ')).toBeInTheDocument();
+        expect(screen.getByText('Runner')).toBeInTheDocument();
+        expect(screen.getByText('2 scores')).toBeInTheDocument();
+    });
+
+    it('unpinning from the rail drops the card immediately and does not refetch the list', async () => {
+        const calls = mockFetch([game({ top_scores: [] })], { pins: [pinRow()] });
+        renderPage('tok');
+        await screen.findByText('MY PINS');
+
+        fireEvent.click(screen.getByLabelText('Unpin Twilight Zone'));
+        // Optimistic: gone before the request settles, and with it the section.
+        expect(screen.queryByText('Twilight Zone')).not.toBeInTheDocument();
+        expect(screen.queryByText('MY PINS')).not.toBeInTheDocument();
+
+        await waitFor(() => {
+            expect(calls.some(c => c.method === 'DELETE' && c.url.endsWith('/pin'))).toBe(true);
+        });
+        // Exactly one pins fetch — the mount one. No refetch on success.
+        expect(calls.filter(c => c.url.startsWith('/api/global/pins')).length).toBe(1);
+    });
+
+    it('puts the card back and toasts when the unpin request fails', async () => {
+        mockFetch([game({ top_scores: [] })], { pins: [pinRow()], pinOk: false });
+        renderPage('tok');
+        await screen.findByText('MY PINS');
+
+        fireEvent.click(screen.getByLabelText('Unpin Twilight Zone'));
+        expect(screen.queryByText('Twilight Zone')).not.toBeInTheDocument();
+
+        expect(await screen.findByText('Could not unpin that game.')).toBeInTheDocument();
         expect(screen.getByText('Twilight Zone')).toBeInTheDocument();
     });
 });
