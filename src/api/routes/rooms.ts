@@ -37,6 +37,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
 // sessions via the registry, never directly.
 import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
+import { equivalentLegacyPlatforms } from '../../utils/scoreProvenance.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
@@ -362,17 +363,29 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
     try {
         const { LeaderboardService } = await import('../../services/LeaderboardService.js');
         const gameId = req.params.gameId as string;
-        // v2.5.0: optional ?platform=<id> filter — bypasses the cache when set.
-        const platformFilter = typeof req.query.platform === 'string' && req.query.platform.trim()
-            ? req.query.platform.trim()
-            : null;
+        const qs = (key: string): string | null => {
+            const v = req.query[key];
+            return typeof v === 'string' && v.trim() ? v.trim() : null;
+        };
+        // v2.58.0 (ADR 0016): `?engine=` / `?device=` are authoritative.
+        const engineFilter = qs('engine');
+        const deviceFilter = qs('device');
+        // v2.5.0 `?platform=` survives as a deprecated alias — bookmarks, OG
+        // links and older Discord messages carry it. It resolves through
+        // LEGACY_PLATFORM_MAP to the same two axes, so it can no longer disagree
+        // with what the tab strip offers. Ignored when either new param is given.
+        const platformFilter = (engineFilter || deviceFilter) ? null : qs('platform');
 
-        const rankings = platformFilter
-            ? await LeaderboardService.getForGameByPlatform(gameId, platformFilter)
-            : await LeaderboardService.getForGame(gameId);
+        const rankings = (engineFilter || deviceFilter)
+            ? await LeaderboardService.getForGameByProvenance(gameId, { engine: engineFilter, device: deviceFilter })
+            : platformFilter
+                ? await LeaderboardService.getForGameByPlatform(gameId, platformFilter)
+                : await LeaderboardService.getForGame(gameId);
 
-        // Distinct platforms always returned so the FE can render its tab strip
+        // Distinct provenance always returned so the FE can render its tab strip
         // regardless of which view the user is currently looking at.
+        const { engines: distinctEngines, devices: distinctDevices } =
+            await LeaderboardService.getDistinctProvenance(gameId);
         const distinctPlatforms = await LeaderboardService.getDistinctPlatforms(gameId);
 
         const db = await getDatabase();
@@ -391,6 +404,19 @@ router.get('/:roomId/leaderboard/:gameId', async (req, res) => {
             tournamentName: game?.tournament_name || 'Untracked',
             imageUrl: game?.image_url || null,
             rankings,
+            /**
+             * v2.58.0 (ADR 0016): `engine` + `device` (and `distinctEngines` /
+             * `distinctDevices`) are the AUTHORITATIVE provenance fields.
+             * `platform` / `distinctPlatforms` are deprecated aliases derived
+             * from them — they exist so bookmarked `?platform=` links and any
+             * unmigrated client keep working, and are removed once tournament
+             * rules stop reading the legacy column.
+             */
+            provenanceAuthority: 'engine_device',
+            engine: engineFilter,
+            device: deviceFilter,
+            distinctEngines,
+            distinctDevices,
             platform: platformFilter,
             distinctPlatforms,
         });
@@ -494,17 +520,41 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             const rules = JSON.parse(tournament.platform_rules || '{}');
             const required: string[] = rules.required || [];
             const excluded: string[] = rules.excluded || [];
+            // v2.58.0 (ADR 0016) — exact JSON membership instead of `LIKE '%p%'`.
+            //
+            // `gg.platforms` is a JSON array, and raw substring matching read it
+            // as one opaque string: `'%vpx%'` also matched `vpxs`/`vpxs_manual`,
+            // and — the damaging one — `'%pinball_fx%'` swept in
+            // `pinball_fx_classic`, `pinball_fx_midnight` and
+            // `pinball_fx_classic_vr`, so an "FX only" tournament silently
+            // offered FX Classic titles. `NOT LIKE` had the mirror-image defect,
+            // over-excluding.
+            //
+            // `json_each` compares elements exactly. Each rule token is expanded
+            // to its engine-equivalent id set first, so the genuine matches the
+            // old pattern caught by luck (`vpx` ↔ `vpxs` — the same engine per
+            // ADR 0016) are kept deliberately and NO game that qualifies today
+            // stops qualifying. The rule blob's shape and parsing are untouched;
+            // this is only how a token is compared against the catalogue.
+            const membership = (tokens: string[]) => `EXISTS (
+                SELECT 1 FROM json_each(gg.platforms) je
+                WHERE LOWER(je.value) IN (${tokens.map(() => '?').join(',')})
+            )`;
             if (required.length > 0) {
-                platformFilter += ` AND (${required.map(() => `gg.platforms LIKE ?`).join(' OR ')})`;
+                const clauses: string[] = [];
                 for (const p of required) {
-                    platformParams.push(`%${p}%`);
+                    const tokens = equivalentLegacyPlatforms(p);
+                    if (tokens.length === 0) continue;
+                    clauses.push(membership(tokens));
+                    platformParams.push(...tokens);
                 }
+                if (clauses.length > 0) platformFilter += ` AND (${clauses.join(' OR ')})`;
             }
-            if (excluded.length > 0) {
-                for (const p of excluded) {
-                    platformFilter += ` AND gg.platforms NOT LIKE ?`;
-                    platformParams.push(`%${p}%`);
-                }
+            for (const p of excluded) {
+                const tokens = equivalentLegacyPlatforms(p);
+                if (tokens.length === 0) continue;
+                platformFilter += ` AND NOT ${membership(tokens)}`;
+                platformParams.push(...tokens);
             }
         } catch { /* no platform filtering */ }
 

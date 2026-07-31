@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo } from '../utils/logger.js';
+import { UNKNOWN, equivalentLegacyPlatforms } from '../utils/scoreProvenance.js';
 
 export interface GlobalRankedEntry {
     rank: number;
@@ -24,8 +25,19 @@ export interface GlobalRankedEntry {
      * v2.5.1: per-row platform stamp shown on the Global Scoreboard's per-game
      * leaderboard. `null` for legacy rows (multi-platform games where a
      * specific platform couldn't be inferred at backfill time).
+     *
+     * @deprecated v2.58.0 (ADR 0016) — kept because tournament `platform_rules`
+     * still read the legacy column, but display is derived from engine/device.
      */
     platform: string | null;
+    /**
+     * v2.58.0 (ADR 0016): what produced the score — the authoritative field for
+     * comparability and the fidelity category. `'unknown'` where nobody recorded
+     * it (never null: migration 125 backfilled, every writer stamps it).
+     */
+    engine: string;
+    /** v2.58.0 (ADR 0016): what it ran on. Provenance only. */
+    device: string;
 }
 
 /**
@@ -119,6 +131,8 @@ export class GlobalLeaderboardService {
                 best.origin_type,
                 best.origin_game_room_id,
                 best.platform,
+                best.engine,
+                best.device,
                 gr.name as origin_room_name,
                 gr.slug as origin_room_slug,
                 gr.logo_url as origin_room_logo_url,
@@ -137,6 +151,8 @@ export class GlobalLeaderboardService {
                     gs.origin_type,
                     gs.origin_game_room_id,
                     gs.platform,
+                    gs.engine,
+                    gs.device,
                     ROW_NUMBER() OVER (
                         PARTITION BY COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.discord_user_id)))
                         ORDER BY gs.score DESC, gs.submitted_at ASC
@@ -152,7 +168,9 @@ export class GlobalLeaderboardService {
                         submitted_at,
                         origin_type,
                         origin_game_room_id,
-                        platform
+                        platform,
+                        engine,
+                        device
                     FROM global_scores
                     WHERE global_game_id = ?
                       AND deleted_at IS NULL
@@ -189,6 +207,8 @@ export class GlobalLeaderboardService {
             avatar_hash: e.avatar_hash || null,
             score_id: e.score_id,
             platform: e.platform || null,
+            engine: e.engine || UNKNOWN,
+            device: e.device || UNKNOWN,
         }));
 
         await db.run(
@@ -336,10 +356,27 @@ export class GlobalLeaderboardService {
             }
         }
         if (options.platforms && options.platforms.length > 0) {
-            const clauses = options.platforms.map(() => `gg.platforms LIKE ?`);
-            whereConditions.push(`(${clauses.join(' OR ')})`);
+            // v2.58.0 (ADR 0016) — exact JSON membership, engine-equivalent.
+            //
+            // `gg.platforms` is a JSON array of legacy platform ids, and the
+            // old `LIKE '%"vpx"%'` treated it as an opaque string. Quoting kept
+            // `vpx` from matching `vpxs` by accident, but ADR 0016 says those
+            // ARE the same engine, so the "safe" pattern was quietly excluding
+            // VPX-Standalone titles from a VPX filter. `json_each` gives an
+            // exact per-element compare, and `equivalentLegacyPlatforms`
+            // supplies the engine's full id set — so the filter now over- and
+            // under-matches on neither axis.
+            const tokens = new Set<string>();
             for (const p of options.platforms) {
-                whereParams.push(`%"${p}"%`);
+                for (const t of equivalentLegacyPlatforms(p)) tokens.add(t);
+            }
+            const list = [...tokens];
+            if (list.length > 0) {
+                whereConditions.push(`EXISTS (
+                    SELECT 1 FROM json_each(gg.platforms) je
+                    WHERE LOWER(je.value) IN (${list.map(() => '?').join(',')})
+                )`);
+                whereParams.push(...list);
             }
         }
 

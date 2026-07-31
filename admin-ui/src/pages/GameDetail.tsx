@@ -6,7 +6,8 @@ import SubmissionSheet from '../components/SubmissionSheet';
 import ShareButton from '../components/ShareButton';
 import { api } from '../lib/api';
 import PlayerNameLink from '../components/PlayerNameLink';
-import { getPlatformDisplay } from '../lib/platforms';
+import ProvenanceTags from '../components/ProvenanceTags';
+import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
@@ -50,8 +51,18 @@ interface RankedEntry {
    * v2.5.0: per-row platform stamp. `null` for legacy rows the backfill
    * couldn't disambiguate (multi-platform games). `undefined` if a stale
    * cache returned a row without the field — treated the same as `null`.
+   *
+   * @deprecated v2.58.0 (ADR 0016) — display comes from engine/device.
    */
   platform?: string | null;
+  /**
+   * v2.58.0 (ADR 0016): what produced the score. `'unknown'` when nobody
+   * recorded it. `undefined` only from a pre-P3 cached blob (migration 127
+   * flushes those), in which case `ProvenanceTags` renders nothing.
+   */
+  engine?: string | null;
+  /** v2.58.0 (ADR 0016): what it ran on. */
+  device?: string | null;
 }
 
 interface GameLeaderboard {
@@ -211,11 +222,19 @@ export default function GameDetail() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [scoreCounts, setScoreCounts] = useState<Record<string, number>>({});
 
-  // v2.5.0: per-platform leaderboard tabs.
-  // - selectedPlatform === null  → "All" view (uses leaderboard.rankings as-is, with NULL-platform rows demoted to a tail section)
-  // - selectedPlatform === 'X'   → filtered view, fetched from /leaderboard/:gameId?platform=X
-  const [distinctPlatforms, setDistinctPlatforms] = useState<string[]>([]);
-  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
+  // v2.58.0 (ADR 0016): per-ENGINE leaderboard tabs, replacing the v2.5.0
+  // per-platform ones. Engine is what determines comparability, so it is the
+  // only axis a leaderboard may be split on — a device tab would separate
+  // scores that are genuinely comparable (PC-VPX vs AtGames-VPX).
+  //
+  // - selectedEngine === null → "All" view (leaderboard.rankings as-is)
+  // - selectedEngine === 'X'  → filtered, fetched from ?engine=X
+  //
+  // The tab list and the filter now read the SAME column, which is what closes
+  // the pre-P3 bug where tabs were labelled from alias-folded values and then
+  // queried raw, so a tab could match zero rows.
+  const [distinctEngines, setDistinctEngines] = useState<string[]>([]);
+  const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
   const [filteredRankings, setFilteredRankings] = useState<RankedEntry[] | null>(null);
 
   // "About this game" — catalogue metadata (Table Authors, Downloads,
@@ -290,14 +309,14 @@ export default function GameDetail() {
             .then(r => r.ok ? r.json() : {})
             .then(setScoreCounts)
             .catch(() => {});
-          // v2.5.0: pull distinct platforms separately so the "All" view can
+          // v2.58.0: pull the distinct engines separately so the "All" view can
           // render the segmented tab strip. Bulk leaderboard list endpoint
           // doesn't include this; the per-game endpoint does.
           fetch(`/api/rooms/${roomId}/leaderboard/${match.gameId}`)
             .then(r => r.ok ? r.json() : null)
-            .then((data: { distinctPlatforms?: string[]; rankings?: RankedEntry[] } | null) => {
+            .then((data: { distinctEngines?: string[]; rankings?: RankedEntry[] } | null) => {
               if (!data) return;
-              if (Array.isArray(data.distinctPlatforms)) setDistinctPlatforms(data.distinctPlatforms);
+              if (Array.isArray(data.distinctEngines)) setDistinctEngines(data.distinctEngines);
               // The per-game endpoint also returns a fresher rankings array
               // that's been recomputed post-cache-flush, so prefer it.
               if (Array.isArray(data.rankings) && data.rankings.length > 0) {
@@ -369,15 +388,15 @@ export default function GameDetail() {
     setActiveTab(stats ? 'leaderboard' : 'community');
   }, [loading, stats]);
 
-  // v2.5.0: fetch platform-filtered rankings whenever the user picks a
+  // v2.58.0: fetch engine-filtered rankings whenever the user picks a
   // non-"All" tab. "All" uses the unfiltered rankings already in `leaderboard`.
   useEffect(() => {
-    if (!roomId || !leaderboard?.gameId || !selectedPlatform) {
+    if (!roomId || !leaderboard?.gameId || !selectedEngine) {
       setFilteredRankings(null);
       return;
     }
     let cancelled = false;
-    fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?platform=${encodeURIComponent(selectedPlatform)}`)
+    fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?engine=${encodeURIComponent(selectedEngine)}`)
       .then(r => r.ok ? r.json() : null)
       .then((data: { rankings?: RankedEntry[] } | null) => {
         if (cancelled) return;
@@ -387,7 +406,7 @@ export default function GameDetail() {
         if (!cancelled) setFilteredRankings([]);
       });
     return () => { cancelled = true; };
-  }, [roomId, leaderboard?.gameId, selectedPlatform]);
+  }, [roomId, leaderboard?.gameId, selectedEngine]);
 
   // "About this game" — pull the full catalogue entity once the game's
   // globalGameId resolves. Public endpoint; failures are silent (section
@@ -529,10 +548,10 @@ export default function GameDetail() {
           .then(r => r.ok ? r.json() : {})
           .then(setScoreCounts)
           .catch(() => {});
-        // Platform-filtered view is fetched separately and isn't refreshed
+        // Engine-filtered view is fetched separately and isn't refreshed
         // by setting `leaderboard.rankings`; nudge the effect to re-run.
-        if (selectedPlatform) {
-          fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?platform=${encodeURIComponent(selectedPlatform)}`)
+        if (selectedEngine) {
+          fetch(`/api/rooms/${roomId}/leaderboard/${leaderboard.gameId}?engine=${encodeURIComponent(selectedEngine)}`)
             .then(r => r.ok ? r.json() : null)
             .then((data: { rankings?: RankedEntry[] } | null) => {
               setFilteredRankings(Array.isArray(data?.rankings) ? data!.rankings! : []);
@@ -734,16 +753,19 @@ export default function GameDetail() {
           <>
             {/* Active Leaderboard */}
             {leaderboard && leaderboard.rankings.length > 0 && (() => {
-              // v2.5.0: pick the rendered ranking set based on the active platform tab.
-              // "All" splits NULL-platform rows into a tail section (re-numbered locally
-              // so ranks are visually contiguous within each subsection).
-              const baseRankings = selectedPlatform ? (filteredRankings ?? []) : leaderboard.rankings;
-              const tagged = selectedPlatform
-                ? baseRankings
-                : baseRankings.filter(e => e.platform);
-              const untagged = selectedPlatform
-                ? []
-                : baseRankings.filter(e => !e.platform);
+              // v2.58.0 (ADR 0016): pick the rendered ranking set from the
+              // active ENGINE tab.
+              //
+              // The v2.5.0 "Platform unknown" tail section is gone. Every row
+              // now carries an engine — `'unknown'` when nobody recorded it —
+              // and on production that is the MAJORITY of rows (the AtGames
+              // ambiguity). Demoting them below a handful of tagged rows would
+              // bury most of the leaderboard under a second heading and
+              // renumber it, for a distinction the "Unspecified" tab already
+              // makes on demand. One list, one rank sequence.
+              const baseRankings = selectedEngine ? (filteredRankings ?? []) : leaderboard.rankings;
+              const tagged = baseRankings;
+              const untagged: RankedEntry[] = [];
               const renderRow = (entry: RankedEntry, displayRank: number) => {
                 const hasMultiple = scoreCounts[entry.iscored_username.toLowerCase()] > 1;
                 const isHighlighted = !!highlightName && entry.iscored_username.toLowerCase() === highlightName;
@@ -791,14 +813,13 @@ export default function GameDetail() {
                             onClick={e => e.stopPropagation()}
                             className="font-medium truncate no-underline text-primary hover:text-neon-cyan transition-colors"
                           />
-                          {/* v2.5.0: per-row platform badge in the "All" view; in
-                              per-platform views every row would show the same
-                              chip, so we omit it. */}
-                          {!selectedPlatform && entry.platform && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan font-display tracking-wide flex-shrink-0">
-                              {getPlatformDisplay(entry.platform)}
-                            </span>
-                          )}
+                          {/* v2.58.0 (ADR 0016): engine + device tags. Shown in
+                              the "All" view; inside an engine tab every row
+                              shares the engine, so only the DEVICE half still
+                              distinguishes rows — ProvenanceTags is given just
+                              that half there rather than repeating the engine
+                              on every line. */}
+                          <ProvenanceTags entry={entry} omitEngine={!!selectedEngine} />
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`font-display font-bold flex-shrink-0 ${
@@ -898,45 +919,59 @@ export default function GameDetail() {
                   <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">
                     {leaderboard?.gameStatus === 'ROOM' ? 'All-Time Leaderboard' : 'Current Leaderboard'}
                   </h2>
-                  {/* v2.5.0: platform-stratified tabs. Hidden when the game has
-                      ≤1 distinct platform across submitted scores — degrades
-                      cleanly to the legacy single-table view. */}
-                  {distinctPlatforms.length > 0 && (
+                  {/* v2.58.0 (ADR 0016): engine-stratified tabs. Hidden when the
+                      game has ≤1 distinct engine across submitted scores —
+                      degrades cleanly to the single-table view.
+
+                      Built from `distinctEngines`, the SAME field the `?engine=`
+                      filter queries, so a tab can no longer be labelled from
+                      one column and then match zero rows in another. */}
+                  {distinctEngines.length > 1 && (
                     <div className="flex flex-wrap gap-1.5 mb-3">
                       {/* s20: outer button carries the ≥44px hit area; inner span keeps the
                           original compact pill visual (same outer/inner split as the
                           Scoreboard.tsx submit button). */}
                       <button
                         type="button"
-                        onClick={() => setSelectedPlatform(null)}
-                        aria-pressed={selectedPlatform === null}
+                        onClick={() => setSelectedEngine(null)}
+                        aria-pressed={selectedEngine === null}
                         className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
                       >
                         <span className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                          selectedPlatform === null
+                          selectedEngine === null
                             ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
                             : 'border-border text-muted hover:text-primary hover:border-border/80'
                         }`}>
                           All
                         </span>
                       </button>
-                      {distinctPlatforms.map(p => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setSelectedPlatform(p)}
-                          aria-pressed={selectedPlatform === p}
-                          className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
-                        >
-                          <span className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                            selectedPlatform === p
-                              ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
-                              : 'border-border text-muted hover:text-primary hover:border-border/80'
-                          }`}>
-                            {getPlatformDisplay(p)}
-                          </span>
-                        </button>
-                      ))}
+                      {distinctEngines.map(e => {
+                        const category = getEngineCategoryLabel(e);
+                        return (
+                          <button
+                            key={e}
+                            type="button"
+                            onClick={() => setSelectedEngine(e)}
+                            aria-pressed={selectedEngine === e}
+                            /* The unspecified bucket is a real tab, not a
+                               footnote — it is the majority of production
+                               scores — but its title says why it has no
+                               fidelity category rather than implying one. */
+                            title={category
+                              ? `${getEngineDisplay(e)} — ${category}`
+                              : 'Provenance was never recorded for these scores'}
+                            className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
+                          >
+                            <span className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                              selectedEngine === e
+                                ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
+                                : 'border-border text-muted hover:text-primary hover:border-border/80'
+                            }`}>
+                              {getEngineDisplay(e)}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                   <div className="bg-surface border border-border rounded-lg overflow-hidden">
@@ -949,20 +984,12 @@ export default function GameDetail() {
                     </div>
                     {tagged.length === 0 && untagged.length === 0 ? (
                       <p className="text-muted text-sm text-center py-6">
-                        {selectedPlatform ? `No scores yet on ${selectedPlatform}.` : 'No scores yet.'}
+                        {/* Was interpolating the raw id — "No scores yet on
+                            pinball_fx_classic." Uses the human label now. */}
+                        {selectedEngine ? `No scores yet on ${getEngineDisplay(selectedEngine)}.` : 'No scores yet.'}
                       </p>
                     ) : (
-                      <>
-                        {tagged.map((entry, i) => renderRow(entry, i + 1))}
-                        {untagged.length > 0 && (
-                          <>
-                            <div className="bg-deep/30 px-5 py-2 border-t border-border/30 text-[10px] text-faint uppercase tracking-wider">
-                              Platform unknown
-                            </div>
-                            {untagged.map((entry, i) => renderRow(entry, tagged.length + i + 1))}
-                          </>
-                        )}
-                      </>
+                      <>{tagged.map((entry, i) => renderRow(entry, i + 1))}</>
                     )}
                   </div>
                 </div>

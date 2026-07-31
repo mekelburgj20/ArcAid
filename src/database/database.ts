@@ -2069,6 +2069,17 @@ export async function initDatabase(): Promise<Database> {
             const { dropEnableGamePickAward } = await import('./migrations/dropEnableGamePickAward.js');
             await dropEnableGamePickAward(db);
         } },
+        // --- v2.58.0 (ADR 0016 P3): engine + device on cached ranking rows ---
+        { name: '127_cache_bust_for_engine_device_rankings', sql: `
+            -- RankedEntry and GlobalRankedEntry now carry engine + device, and
+            -- both leaderboards are served from serialized JSON blobs. Blobs
+            -- written before this release have neither key, so every cached row
+            -- would render with no provenance tag at all until natural
+            -- invalidation happened to fire — which for a quiet game is never.
+            -- Same reasoning, and the same two tables, as migrations 086/088.
+            DELETE FROM leaderboard_cache;
+            DELETE FROM global_leaderboard_cache;
+        ` },
     ];
 
     for (const migration of migrations) {

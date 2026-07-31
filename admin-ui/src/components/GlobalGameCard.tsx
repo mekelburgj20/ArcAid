@@ -5,7 +5,10 @@ import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import RoomTag from './RoomTag';
 import { formatScore } from '../lib/format';
 import { catalogueImageFor } from '../lib/catalogueImage';
-import { getPlatformShortLabel } from '../lib/platforms';
+// v2.58.0 (ADR 0016): the catalogue still stores legacy platform ids, but the
+// UI speaks engine/device everywhere else — `getLegacyPlatformLabel` folds one
+// to the other so `vpxs` reads "VPX" here exactly as it does on a score row.
+import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
 import { planRows, type Density } from '../lib/scoreboardDensity';
 
 /**
@@ -282,9 +285,9 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
               <span
                 className="rounded-[3px] border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.4px] text-neon-cyan"
                 style={{ background: 'var(--sb-pill-bg)', borderColor: 'var(--sb-pill-border)' }}
-                title={platforms.map(getPlatformShortLabel).join(' · ')}
+                title={[...new Set(platforms.map(p => getLegacyPlatformLabel(p, false)))].join(' · ')}
               >
-                {getPlatformShortLabel(primaryPlatform)}
+                {getLegacyPlatformLabel(primaryPlatform)}
               </span>
             )}
           </div>

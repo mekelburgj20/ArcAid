@@ -11,7 +11,9 @@ import ConfirmModal from '../components/ConfirmModal';
 import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
-import { getPlatformDisplay } from '../lib/platforms';
+import ProvenanceTags from '../components/ProvenanceTags';
+import { resolveProvenance } from '../lib/provenanceDisplay';
+import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
 import { formatScore } from '../lib/format';
 import { getPortal } from '../lib/portal';
 import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
@@ -63,8 +65,15 @@ interface RankingEntry {
   origin_room_short_tag: string | null;
   avatar_hash: string | null;
   score_id: string;
-  /** v2.5.1 — per-row platform stamp; null for legacy multi-platform rows. */
+  /**
+   * v2.5.1 — per-row platform stamp; null for legacy multi-platform rows.
+   * @deprecated v2.58.0 (ADR 0016) — display comes from engine/device.
+   */
   platform: string | null;
+  /** v2.58.0 (ADR 0016): what produced the score; `'unknown'` when unrecorded. */
+  engine?: string | null;
+  /** v2.58.0 (ADR 0016): what it ran on. */
+  device?: string | null;
 }
 
 interface Room {
@@ -528,9 +537,14 @@ export default function GlobalGameDetail() {
               )}
               {game.platforms.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {game.platforms.map(p => (
-                    <span key={p} className="px-2 py-0.5 text-xs rounded bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan">
-                      {p}
+                  {/* Was printing the RAW catalogue id ("pinball_fx_classic").
+                      Labelled in engine/device vocabulary now, so this page
+                      agrees with every other surface — and deduped on the
+                      LABEL, since a game listed on both `vpx` and `vpxs` is one
+                      engine and rendered "Visual Pinball X" twice before. */}
+                  {[...new Set(game.platforms.map(p => getLegacyPlatformLabel(p, false)))].map(label => (
+                    <span key={label} className="px-2 py-0.5 text-xs rounded bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan">
+                      {label}
                     </span>
                   ))}
                 </div>
@@ -596,7 +610,9 @@ export default function GlobalGameDetail() {
                     <th className="px-3 py-2 w-12">#</th>
                     <th className="px-3 py-2">Player</th>
                     <th className="px-3 py-2 text-right">Score</th>
-                    <th className="px-3 py-2 hidden sm:table-cell">Platform</th>
+                    {/* v2.58.0 (ADR 0016): one column, two facts — the engine
+                        that produced the score and the device it ran on. */}
+                    <th className="px-3 py-2 hidden sm:table-cell">Engine / Device</th>
                     <th className="px-3 py-2 hidden sm:table-cell">Room</th>
                     <th className="px-3 py-2 hidden md:table-cell">Date</th>
                     <th className="px-3 py-2 w-10"></th>
@@ -621,13 +637,13 @@ export default function GlobalGameDetail() {
                         {formatScore(entry.score)}
                       </td>
                       <td className="px-3 py-2 text-xs hidden sm:table-cell">
-                        {entry.platform ? (
-                          <span className="px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan font-display tracking-wide whitespace-nowrap">
-                            {getPlatformDisplay(entry.platform)}
-                          </span>
-                        ) : (
-                          <span className="text-faint">—</span>
-                        )}
+                        {/* The em-dash fallback only fires for a payload with
+                            no provenance keys at all (a pre-P3 cached blob).
+                            A recorded-but-unknown engine renders "Unspecified"
+                            — that is a fact about the score, not a blank. */}
+                        {resolveProvenance(entry)
+                          ? <ProvenanceTags entry={entry} />
+                          : <span className="text-faint">—</span>}
                       </td>
                       <td className="px-3 py-2 text-xs text-muted hidden sm:table-cell">
                         {entry.origin_type === 'global' ? (

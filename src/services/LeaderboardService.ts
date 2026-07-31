@@ -1,6 +1,12 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { getNextRunTime } from '../utils/cronUtils.js';
+import {
+    UNKNOWN,
+    deriveLegacyPlatform,
+    mapLegacyPlatform,
+    normalizeProvenanceToken,
+} from '../utils/scoreProvenance.js';
 
 /**
  * v2.0.3: translate stored catalogue paths (`data/catalogue-images/…`) to the
@@ -30,8 +36,21 @@ export interface RankedEntry {
      * v2.5.0: per-score platform stratification. `null` for legacy rows that
      * couldn't be backfilled (multi-platform games where the platform a player
      * actually used is unknowable retroactively).
+     *
+     * @deprecated v2.58.0 (ADR 0016) — `engine` + `device` are authoritative.
+     * Retained because tournament `platform_rules` still read the legacy column
+     * until the rules phase lands; do NOT derive display from it.
      */
     platform?: string | null;
+    /**
+     * v2.58.0 (ADR 0016): what produced the score. Determines comparability and
+     * the fidelity category. Never null and never NULL in the DB — migration
+     * 125 backfilled every row and every writer stamps it — but `'unknown'` is
+     * a first-class value meaning "nobody recorded it".
+     */
+    engine?: string | null;
+    /** v2.58.0 (ADR 0016): what it ran on. Provenance only, never a boundary. */
+    device?: string | null;
 }
 
 export class LeaderboardService {
@@ -80,6 +99,8 @@ export class LeaderboardService {
                 best.iscored_username,
                 best.score,
                 best.platform,
+                best.engine,
+                best.device,
                 up.display_name,
                 up.avatar_hash
             FROM (
@@ -89,6 +110,8 @@ export class LeaderboardService {
                     submitted_by_user_id,
                     score,
                     platform,
+                    engine,
+                    device,
                     ROW_NUMBER() OVER (
                         PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
                         ORDER BY score DESC, created_at ASC
@@ -118,6 +141,8 @@ export class LeaderboardService {
             score: e.score,
             avatar_hash: e.avatar_hash || null,
             platform: e.platform || null,
+            engine: e.engine || UNKNOWN,
+            device: e.device || UNKNOWN,
         }));
 
         // Cache the result
@@ -145,16 +170,37 @@ export class LeaderboardService {
     }
 
     /**
-     * v2.5.0: same shape as getForGame but filtered to a specific platform.
-     * Bypasses the cache because the cache stores the unfiltered "All" view —
-     * a player's all-time best may be on a different platform than the one
-     * being queried, so post-cache JS filtering would mis-rank.
+     * v2.58.0 (ADR 0016): same shape as getForGame, filtered by engine and/or
+     * device. Bypasses the cache because the cache stores the unfiltered "All"
+     * view — a player's best may be on a different engine than the one being
+     * queried, so post-cache JS filtering would mis-rank.
      *
-     * Best-score-per-player is recomputed from `score_history` with an extra
-     * `WHERE platform = ?` clause inside the partitioned scan. Platform
-     * comparison is case-insensitive to tolerate mixed-case legacy data.
+     * ## Why this replaced the platform filter
+     *
+     * The v2.5.0 predecessor filtered `UPPER(platform) = UPPER(?)` — a raw
+     * string compare with NO alias folding — while `getDistinctPlatforms` DID
+     * fold via `normalizePlatform`. A tab could therefore be labelled `vpx`
+     * from rows stored as `VPX`, and then query a value matching nothing. The
+     * two halves are now built from the same columns, so the class of bug is
+     * gone by construction, not by keeping two normalisers in step.
+     *
+     * `engine = 'unknown'` is a legitimate filter value, not an escape hatch:
+     * it selects exactly the rows whose provenance was never recorded, which is
+     * what the "Unspecified" tab shows. Any OTHER engine excludes them, per
+     * ADR 0016 — an unknown-engine score is not evidence of a VPX score.
+     *
+     * ## Why there is no legacy `platform` fallback
+     *
+     * Migration 125 backfilled `engine`/`device` on every pre-existing row and
+     * asserts a zero-NULL post-condition; every writer since v2.53.0 stamps
+     * both. So no row is reachable through `platform` that is not reachable
+     * through `engine`, and a fallback could only ever re-introduce the
+     * unfolded-compare bug.
      */
-    static async getForGameByPlatform(gameId: string, platform: string): Promise<RankedEntry[]> {
+    static async getForGameByProvenance(
+        gameId: string,
+        filter: { engine?: string | null; device?: string | null },
+    ): Promise<RankedEntry[]> {
         const db = await getDatabase();
         const gameMeta = await db.get(`
             SELECT g.id, g.name, g.tournament_id, t.game_room_id
@@ -164,12 +210,28 @@ export class LeaderboardService {
         `, gameId);
         if (!gameMeta) return [];
 
+        const engine = normalizeProvenanceToken(filter.engine);
+        const device = normalizeProvenanceToken(filter.device);
+        const clauses: string[] = [];
+        const params: any[] = [];
+        if (engine) {
+            clauses.push('AND LOWER(COALESCE(engine, ?)) = ?');
+            params.push(UNKNOWN, engine);
+        }
+        if (device) {
+            clauses.push('AND LOWER(COALESCE(device, ?)) = ?');
+            params.push(UNKNOWN, device);
+        }
+        if (clauses.length === 0) return this.getForGame(gameId);
+
         const entries = await db.all(`
             SELECT
                 COALESCE(best.submitted_by_user_id, um.discord_user_id, best.discord_user_id) as discord_user_id,
                 best.iscored_username,
                 best.score,
                 best.platform,
+                best.engine,
+                best.device,
                 up.display_name,
                 up.avatar_hash
             FROM (
@@ -179,6 +241,8 @@ export class LeaderboardService {
                     submitted_by_user_id,
                     score,
                     platform,
+                    engine,
+                    device,
                     ROW_NUMBER() OVER (
                         PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
                         ORDER BY score DESC, created_at ASC
@@ -188,7 +252,7 @@ export class LeaderboardService {
                   AND submitted_during_tournament_id = ?
                   AND LOWER(game_name) = LOWER(?)
                   AND orphaned_at IS NULL
-                  AND UPPER(platform) = UPPER(?)
+                  ${clauses.join('\n                  ')}
             ) best
             LEFT JOIN user_mappings um ON (
                 best.discord_user_id LIKE 'iscored:%'
@@ -197,7 +261,7 @@ export class LeaderboardService {
             LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(best.submitted_by_user_id, um.discord_user_id)
             WHERE best.rn = 1
             ORDER BY best.score DESC
-        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name, platform);
+        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name, ...params);
 
         return entries.map((e: any, i: number) => ({
             rank: i + 1,
@@ -207,19 +271,44 @@ export class LeaderboardService {
             score: e.score,
             avatar_hash: e.avatar_hash || null,
             platform: e.platform || null,
+            engine: e.engine || UNKNOWN,
+            device: e.device || UNKNOWN,
         }));
     }
 
     /**
-     * v2.5.0: returns the distinct set of platforms present on this game's
-     * leaderboard (within the active tournament window). Used by the FE to
-     * decide which platform tabs to render on the GameDetail leaderboard.
+     * Deprecated `?platform=` entry point, kept working for bookmarks and the
+     * Discord/OG links that already carry one. Maps the legacy token through
+     * `LEGACY_PLATFORM_MAP` and filters on the axes it implies — so `?platform=vpxs`
+     * now correctly resolves to engine `vpx` on device `atgames`.
      *
-     * v2.5.1: normalizes raw stored values via PLATFORM_ALIASES + dedupes,
-     * so legacy mixed-case data (`VPX` / `vpx`, `FX3` / `pinball_fx_classic`)
-     * collapses to a single canonical id per real platform.
+     * @deprecated v2.58.0 — use `getForGameByProvenance`.
      */
-    static async getDistinctPlatforms(gameId: string): Promise<string[]> {
+    static async getForGameByPlatform(gameId: string, platform: string): Promise<RankedEntry[]> {
+        const { engine, device } = mapLegacyPlatform(platform);
+        return this.getForGameByProvenance(gameId, {
+            engine: engine === UNKNOWN ? null : engine,
+            device: device === UNKNOWN ? null : device,
+        });
+    }
+
+    /**
+     * v2.58.0 (ADR 0016): the distinct engines and devices present on this
+     * game's leaderboard (within the active tournament window). Drives the
+     * GameDetail tab strip.
+     *
+     * Read off the SAME columns `getForGameByProvenance` filters on, which is
+     * the point: every value returned here is guaranteed to match rows when fed
+     * back through the filter. The predecessor returned alias-folded values from
+     * a column the filter compared raw, so a tab could match zero rows.
+     *
+     * `'unknown'` IS included when present — it is a real, and on production the
+     * most common, provenance state (63 of ~120 rows). Hiding it would leave a
+     * majority of scores unreachable from the tab strip; the FE renders it as
+     * "Unspecified". Devices are reported separately and are never a
+     * comparability boundary — the FE uses them for secondary filtering only.
+     */
+    static async getDistinctProvenance(gameId: string): Promise<{ engines: string[]; devices: string[] }> {
         const db = await getDatabase();
         const gameMeta = await db.get(`
             SELECT g.name, g.tournament_id, t.game_room_id
@@ -227,27 +316,48 @@ export class LeaderboardService {
             LEFT JOIN tournaments t ON t.id = g.tournament_id
             WHERE g.id = ?
         `, gameId);
-        if (!gameMeta) return [];
+        if (!gameMeta) return { engines: [], devices: [] };
 
         const rows = await db.all(`
-            SELECT DISTINCT platform
+            SELECT DISTINCT
+                LOWER(COALESCE(engine, ?)) as engine,
+                LOWER(COALESCE(device, ?)) as device
             FROM score_history
             WHERE game_room_id = ?
               AND submitted_during_tournament_id = ?
               AND LOWER(game_name) = LOWER(?)
               AND orphaned_at IS NULL
-              AND platform IS NOT NULL
-            ORDER BY platform ASC
-        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name);
+        `, UNKNOWN, UNKNOWN, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name);
 
-        const { normalizePlatform } = await import('../utils/platformMapping.js');
-        const seen = new Set<string>();
+        const engines: string[] = [];
+        const devices: string[] = [];
+        for (const r of rows as Array<{ engine: string; device: string }>) {
+            if (r.engine && !engines.includes(r.engine)) engines.push(r.engine);
+            if (r.device && r.device !== UNKNOWN && !devices.includes(r.device)) devices.push(r.device);
+        }
+        // Known engines first (alphabetical), 'unknown' last — an "Unspecified"
+        // tab reads as a residual bucket, not a peer of the real engines.
+        engines.sort((a, b) => (a === UNKNOWN ? 1 : b === UNKNOWN ? -1 : a.localeCompare(b)));
+        devices.sort();
+        return { engines, devices };
+    }
+
+    /**
+     * Legacy platform ids for the deprecated `distinctPlatforms` response field.
+     *
+     * DERIVED from `getDistinctProvenance` rather than queried independently, so
+     * it cannot disagree with the engines the tab strip and the filter use —
+     * which is exactly how the old label/query mismatch arose.
+     *
+     * @deprecated v2.58.0 — use `getDistinctProvenance`.
+     */
+    static async getDistinctPlatforms(gameId: string): Promise<string[]> {
+        const { engines, devices } = await this.getDistinctProvenance(gameId);
         const out: string[] = [];
-        for (const r of rows) {
-            const id = normalizePlatform((r as { platform: string }).platform);
-            if (!id || seen.has(id)) continue;
-            seen.add(id);
-            out.push(id);
+        for (const engine of engines) {
+            if (engine === UNKNOWN) continue;
+            const legacy = deriveLegacyPlatform(engine, (devices.length === 1 ? devices[0] : UNKNOWN) ?? UNKNOWN);
+            if (legacy && !out.includes(legacy)) out.push(legacy);
         }
         return out;
     }
