@@ -17,6 +17,27 @@ import * as fe from '../../admin-ui/src/lib/scoreProvenance';
  * typo or a compat-list edit on one side alone fails here.
  */
 describe('score provenance — BE/FE taxonomy parity', () => {
+    /**
+     * The other assertions in this file each name a specific export, which
+     * means a NEW export added to one side only slips through every one of
+     * them. That happened during P3: `equivalentLegacyPlatforms` was added to
+     * the backend after the mirror was copied, the suite stayed green, and the
+     * FE silently lacked the function — the exact failure mode this file
+     * exists to prevent, reproduced by the file itself.
+     *
+     * Comparing the export NAME SETS closes it: any new export must land on
+     * both sides to pass, without anyone remembering to add an assertion.
+     */
+    it('exports exactly the same set of names', () => {
+        expect(Object.keys(fe).sort()).toEqual(Object.keys(be).sort());
+    });
+
+    it('exports the same kind of thing under each name', () => {
+        for (const key of Object.keys(be) as Array<keyof typeof be>) {
+            expect(typeof fe[key as keyof typeof fe], key as string).toBe(typeof be[key]);
+        }
+    });
+
     it('exports the same engine ids, labels and categories', () => {
         expect(Object.keys(fe.CANONICAL_ENGINES).sort()).toEqual(Object.keys(be.CANONICAL_ENGINES).sort());
         expect(fe.CANONICAL_ENGINES).toEqual(be.CANONICAL_ENGINES);
@@ -63,7 +84,49 @@ describe('score provenance — BE/FE taxonomy parity', () => {
         }
         for (const device of Object.keys(be.CANONICAL_DEVICES)) {
             expect(fe.getDeviceDisplay(device)).toBe(be.getDeviceDisplay(device));
+            expect(fe.getDeviceShortLabel(device)).toBe(be.getDeviceShortLabel(device));
         }
+    });
+
+    it('agrees on the P3 additions: categories, short labels and engine equivalence', () => {
+        for (const engine of [...Object.keys(be.CANONICAL_ENGINES), be.UNKNOWN, 'nonsense']) {
+            expect(fe.getEngineCategory(engine), engine).toBe(be.getEngineCategory(engine));
+            expect(fe.getEngineCategoryLabel(engine), engine).toBe(be.getEngineCategoryLabel(engine));
+            expect(fe.getEngineShortLabel(engine), engine).toBe(be.getEngineShortLabel(engine));
+        }
+        expect(fe.ENGINE_CATEGORY_LABELS).toEqual(be.ENGINE_CATEGORY_LABELS);
+        expect(fe.UNSPECIFIED_LABEL).toBe(be.UNSPECIFIED_LABEL);
+
+        for (const token of [...Object.keys(be.LEGACY_PLATFORM_MAP), '', 'nonsense']) {
+            expect(fe.equivalentLegacyPlatforms(token), token).toEqual(be.equivalentLegacyPlatforms(token));
+            expect(fe.getLegacyPlatformLabel(token), token).toBe(be.getLegacyPlatformLabel(token));
+            expect(fe.getLegacyPlatformLabel(token, false), token).toBe(be.getLegacyPlatformLabel(token, false));
+        }
+        for (const engine of [...Object.keys(be.CANONICAL_ENGINES), be.UNKNOWN]) {
+            for (const device of [...Object.keys(be.CANONICAL_DEVICES), be.UNKNOWN]) {
+                expect(fe.isDeviceInformative(engine, device), `${engine}/${device}`)
+                    .toBe(be.isDeviceInformative(engine, device));
+            }
+        }
+    });
+
+    it('keeps every engine short label non-empty and distinct from its id', () => {
+        // A missing `shortLabel` would fall back to the uppercased id at render
+        // time and read as a raw token ("ATGAMES_NATIVE") on a card pill.
+        for (const [id, info] of Object.entries(be.CANONICAL_ENGINES)) {
+            expect(info.shortLabel, id).toBeTruthy();
+            expect(info.shortLabel.length, id).toBeLessThanOrEqual(info.displayName.length);
+        }
+        for (const [id, info] of Object.entries(be.CANONICAL_DEVICES)) {
+            expect(info.shortLabel, id).toBeTruthy();
+        }
+    });
+
+    it('gives every engine a category, and the unknown sentinel none', () => {
+        for (const id of Object.keys(be.CANONICAL_ENGINES)) {
+            expect(be.getEngineCategoryLabel(id), id).not.toBeNull();
+        }
+        expect(be.getEngineCategoryLabel(be.UNKNOWN)).toBeNull();
     });
 
     it('every engine in the compat map is a canonical engine, and vice versa', () => {

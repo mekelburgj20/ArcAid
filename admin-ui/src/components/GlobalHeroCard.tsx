@@ -3,7 +3,7 @@ import { ArrowUp, Crown, Flame, Pin } from 'lucide-react';
 import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { formatScore } from '../lib/format';
 import { catalogueImageFor } from '../lib/catalogueImage';
-import { getPlatformShortLabel } from '../lib/platforms';
+import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
 import type { GlobalGameCardGame } from './GlobalGameCard';
 
 /**
@@ -47,7 +47,12 @@ export default function GlobalHeroCard({ game, onSubmit, onTogglePin, className 
 }) {
   const img = catalogueImageFor(game);
   const displayName = game.display_name || game.name;
-  const platforms = parsePlatforms(game.platforms).slice(0, 2);
+  // v2.58.0 (ADR 0016): label in engine/device vocabulary, then dedupe — a game
+  // listed on both `vpx` and `vpxs` is one engine and must not render the same
+  // pill twice. Dedupe BEFORE the slice, or the cap spends a slot on a repeat.
+  const platforms = [...new Set(
+    parsePlatforms(game.platforms).map(p => getLegacyPlatformLabel(p)),
+  )].slice(0, 2);
   const rows = game.top_scores || [];
   const champion = rows[0] ?? null;
   const runnerUp = rows[1] ?? null;
@@ -107,7 +112,7 @@ export default function GlobalHeroCard({ game, onSubmit, onTogglePin, className 
               className="rounded-[3px] border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.4px] text-neon-cyan"
               style={{ background: 'var(--sb-pill-bg)', borderColor: 'var(--sb-pill-border)' }}
             >
-              {getPlatformShortLabel(p)}
+              {p}
             </span>
           ))}
         </div>

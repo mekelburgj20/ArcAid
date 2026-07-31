@@ -24,6 +24,11 @@ export type EngineCategory = 'real' | 'simulation' | 'arcade_style' | 'video';
 export interface EngineInfo {
     id: string;
     displayName: string;
+    /**
+     * Dense-UI label (card pills, leaderboard row tags). `displayName` is the
+     * prose form; this is what fits in a 9px uppercase chip.
+     */
+    shortLabel: string;
     category: EngineCategory;
 }
 
@@ -38,45 +43,66 @@ export interface EngineInfo {
  */
 export const CANONICAL_ENGINES: Record<string, EngineInfo> = {
     // Physical
-    real:           { id: 'real',           displayName: 'Real Machine',        category: 'real' },
+    real:           { id: 'real',           displayName: 'Real Machine',        shortLabel: 'Real',           category: 'real' },
 
     // Simulation
-    vpx:            { id: 'vpx',            displayName: 'Visual Pinball X',    category: 'simulation' },
-    vp9:            { id: 'vp9',            displayName: 'Visual Pinball 9',    category: 'simulation' },
-    fp:             { id: 'fp',             displayName: 'Future Pinball',      category: 'simulation' },
+    vpx:            { id: 'vpx',            displayName: 'Visual Pinball X',    shortLabel: 'VPX',            category: 'simulation' },
+    vp9:            { id: 'vp9',            displayName: 'Visual Pinball 9',    shortLabel: 'VP9',            category: 'simulation' },
+    fp:             { id: 'fp',             displayName: 'Future Pinball',      shortLabel: 'Future Pinball', category: 'simulation' },
 
     // Arcade-style
-    fx:             { id: 'fx',             displayName: 'Pinball FX',          category: 'arcade_style' },
-    fx_classic:     { id: 'fx_classic',     displayName: 'Pinball FX Classic',  category: 'arcade_style' },
-    fx_midnight:    { id: 'fx_midnight',    displayName: 'Pinball M',           category: 'arcade_style' },
-    zaccaria:       { id: 'zaccaria',       displayName: 'Zaccaria',            category: 'arcade_style' },
-    star_wars:      { id: 'star_wars',      displayName: 'Star Wars Pinball',   category: 'arcade_style' },
-    atgames_native: { id: 'atgames_native', displayName: 'AtGames Native',      category: 'arcade_style' },
+    fx:             { id: 'fx',             displayName: 'Pinball FX',          shortLabel: 'FX',             category: 'arcade_style' },
+    fx_classic:     { id: 'fx_classic',     displayName: 'Pinball FX Classic',  shortLabel: 'FX Classic',     category: 'arcade_style' },
+    fx_midnight:    { id: 'fx_midnight',    displayName: 'Pinball M',           shortLabel: 'Pinball M',      category: 'arcade_style' },
+    zaccaria:       { id: 'zaccaria',       displayName: 'Zaccaria',            shortLabel: 'Zaccaria',       category: 'arcade_style' },
+    star_wars:      { id: 'star_wars',      displayName: 'Star Wars Pinball',   shortLabel: 'SW Pinball',     category: 'arcade_style' },
+    atgames_native: { id: 'atgames_native', displayName: 'AtGames Native',      shortLabel: 'AtGames Native', category: 'arcade_style' },
 
     // Video games — unchanged from the legacy platform ids (ADR 0016).
-    arcade:      { id: 'arcade',      displayName: 'Arcade',             category: 'video' },
-    nes:         { id: 'nes',         displayName: 'NES',                category: 'video' },
-    snes:        { id: 'snes',        displayName: 'SNES',               category: 'video' },
-    genesis:     { id: 'genesis',     displayName: 'Sega Genesis',       category: 'video' },
-    saturn:      { id: 'saturn',      displayName: 'Sega Saturn',        category: 'video' },
-    n64:         { id: 'n64',         displayName: 'Nintendo 64',        category: 'video' },
-    ps1:         { id: 'ps1',         displayName: 'PlayStation',        category: 'video' },
-    ps2:         { id: 'ps2',         displayName: 'PlayStation 2',      category: 'video' },
-    dreamcast:   { id: 'dreamcast',   displayName: 'Dreamcast',          category: 'video' },
-    gba:         { id: 'gba',         displayName: 'Game Boy Advance',   category: 'video' },
-    gb:          { id: 'gb',          displayName: 'Game Boy',           category: 'video' },
-    gbc:         { id: 'gbc',         displayName: 'Game Boy Color',     category: 'video' },
-    sms:         { id: 'sms',         displayName: 'Sega Master System', category: 'video' },
-    sega_cd:     { id: 'sega_cd',     displayName: 'Sega CD',            category: 'video' },
-    game_gear:   { id: 'game_gear',   displayName: 'Sega Game Gear',     category: 'video' },
-    tg16:        { id: 'tg16',        displayName: 'TurboGrafx-16',      category: 'video' },
-    atari_2600:  { id: 'atari_2600',  displayName: 'Atari 2600',         category: 'video' },
-    atari_7800:  { id: 'atari_7800',  displayName: 'Atari 7800',         category: 'video' },
-    jaguar:      { id: 'jaguar',      displayName: 'Atari Jaguar',       category: 'video' },
-    '3do':       { id: '3do',         displayName: '3DO',                category: 'video' },
-    switch:      { id: 'switch',      displayName: 'Nintendo Switch',    category: 'video' },
-    wii:         { id: 'wii',         displayName: 'Wii',                category: 'video' },
-    pc:          { id: 'pc',          displayName: 'PC',                 category: 'video' },
+    arcade:      { id: 'arcade',      displayName: 'Arcade',             shortLabel: 'Arcade',      category: 'video' },
+    nes:         { id: 'nes',         displayName: 'NES',                shortLabel: 'NES',         category: 'video' },
+    snes:        { id: 'snes',        displayName: 'SNES',               shortLabel: 'SNES',        category: 'video' },
+    genesis:     { id: 'genesis',     displayName: 'Sega Genesis',       shortLabel: 'Genesis',     category: 'video' },
+    saturn:      { id: 'saturn',      displayName: 'Sega Saturn',        shortLabel: 'Saturn',      category: 'video' },
+    n64:         { id: 'n64',         displayName: 'Nintendo 64',        shortLabel: 'N64',         category: 'video' },
+    ps1:         { id: 'ps1',         displayName: 'PlayStation',        shortLabel: 'PS1',         category: 'video' },
+    ps2:         { id: 'ps2',         displayName: 'PlayStation 2',      shortLabel: 'PS2',         category: 'video' },
+    dreamcast:   { id: 'dreamcast',   displayName: 'Dreamcast',          shortLabel: 'Dreamcast',   category: 'video' },
+    gba:         { id: 'gba',         displayName: 'Game Boy Advance',   shortLabel: 'GBA',         category: 'video' },
+    gb:          { id: 'gb',          displayName: 'Game Boy',           shortLabel: 'Game Boy',    category: 'video' },
+    gbc:         { id: 'gbc',         displayName: 'Game Boy Color',     shortLabel: 'GBC',         category: 'video' },
+    sms:         { id: 'sms',         displayName: 'Sega Master System', shortLabel: 'SMS',         category: 'video' },
+    sega_cd:     { id: 'sega_cd',     displayName: 'Sega CD',            shortLabel: 'Sega CD',     category: 'video' },
+    game_gear:   { id: 'game_gear',   displayName: 'Sega Game Gear',     shortLabel: 'Game Gear',   category: 'video' },
+    tg16:        { id: 'tg16',        displayName: 'TurboGrafx-16',      shortLabel: 'TG-16',       category: 'video' },
+    atari_2600:  { id: 'atari_2600',  displayName: 'Atari 2600',         shortLabel: 'Atari 2600',  category: 'video' },
+    atari_7800:  { id: 'atari_7800',  displayName: 'Atari 7800',         shortLabel: 'Atari 7800',  category: 'video' },
+    jaguar:      { id: 'jaguar',      displayName: 'Atari Jaguar',       shortLabel: 'Jaguar',      category: 'video' },
+    '3do':       { id: '3do',         displayName: '3DO',                shortLabel: '3DO',         category: 'video' },
+    switch:      { id: 'switch',      displayName: 'Nintendo Switch',    shortLabel: 'Switch',      category: 'video' },
+    wii:         { id: 'wii',         displayName: 'Wii',                shortLabel: 'Wii',         category: 'video' },
+    pc:          { id: 'pc',          displayName: 'PC',                 shortLabel: 'PC',          category: 'video' },
+};
+
+/**
+ * Human labels for the fidelity categories (ADR 0016 §"Fidelity categories
+ * derive from engine only").
+ *
+ * "Arcade-Style" and "Video Games" are settled naming, not placeholders: the
+ * pinball band could not be called "Arcade" because `arcade` is a live engine
+ * id for arcade video cabinets, and the old platform group label "Arcade &
+ * Video" collided with it for the same reason.
+ *
+ * There is deliberately NO entry for the unknown engine. `unknown` yields no
+ * category at all (`getEngineCategory` → null), because 63 of ~120 production
+ * score rows are the irreducible AtGames ambiguity and filing them under
+ * Simulation or Arcade-Style would assert something the data cannot support.
+ */
+export const ENGINE_CATEGORY_LABELS: Record<EngineCategory, string> = {
+    real:         'Real',
+    simulation:   'Simulation',
+    arcade_style: 'Arcade-Style',
+    video:        'Video Games',
 };
 
 // ─── Devices ────────────────────────────────────────────────────────────────
@@ -84,6 +110,8 @@ export const CANONICAL_ENGINES: Record<string, EngineInfo> = {
 export interface DeviceInfo {
     id: string;
     displayName: string;
+    /** Dense-UI label — the secondary tag next to a score's engine. */
+    shortLabel: string;
 }
 
 /**
@@ -91,13 +119,13 @@ export interface DeviceInfo {
  * `vr_headset`: FX-on-Quest is `engine=fx, device=vr_headset`.
  */
 export const CANONICAL_DEVICES: Record<string, DeviceInfo> = {
-    pc:               { id: 'pc',               displayName: 'PC' },
-    atgames:          { id: 'atgames',          displayName: 'AtGames Cabinet' },
-    vr_headset:       { id: 'vr_headset',       displayName: 'VR Headset' },
-    real_cabinet:     { id: 'real_cabinet',     displayName: 'Real Cabinet' },
-    standalone_other: { id: 'standalone_other', displayName: 'Other Standalone' },
-    console:          { id: 'console',          displayName: 'Console' },
-    arcade_cabinet:   { id: 'arcade_cabinet',   displayName: 'Arcade Cabinet' },
+    pc:               { id: 'pc',               displayName: 'PC',               shortLabel: 'PC' },
+    atgames:          { id: 'atgames',          displayName: 'AtGames Cabinet',  shortLabel: 'AtGames' },
+    vr_headset:       { id: 'vr_headset',       displayName: 'VR Headset',       shortLabel: 'VR' },
+    real_cabinet:     { id: 'real_cabinet',     displayName: 'Real Cabinet',     shortLabel: 'Cabinet' },
+    standalone_other: { id: 'standalone_other', displayName: 'Other Standalone', shortLabel: 'Standalone' },
+    console:          { id: 'console',          displayName: 'Console',          shortLabel: 'Console' },
+    arcade_cabinet:   { id: 'arcade_cabinet',   displayName: 'Arcade Cabinet',   shortLabel: 'Arcade Cab' },
 };
 
 /**
@@ -357,18 +385,42 @@ export function isCanonicalDevice(id: string | null | undefined): boolean {
     return !!key && Object.prototype.hasOwnProperty.call(CANONICAL_DEVICES, key);
 }
 
-/** Display label for an engine id; `'unknown'` renders as "Unknown". */
+/**
+ * What an `'unknown'` value on either axis renders as.
+ *
+ * "Unspecified", not "Unknown" and never blank: 63 of ~120 production score
+ * rows carry `engine='unknown'` (the AtGames rows whose engine is genuinely
+ * unknowable — ADR 0016 §"No backfill"). A blank tag would read as a rendering
+ * bug; "Unspecified" says truthfully that nobody recorded it.
+ */
+export const UNSPECIFIED_LABEL = 'Unspecified';
+
+/** Display label for an engine id; `'unknown'` renders as "Unspecified". */
 export function getEngineDisplay(id: string | null | undefined): string {
     const key = normalizeProvenanceToken(id);
-    if (!key || key === UNKNOWN) return 'Unknown';
+    if (!key || key === UNKNOWN) return UNSPECIFIED_LABEL;
     return CANONICAL_ENGINES[key]?.displayName ?? key.toUpperCase();
 }
 
-/** Display label for a device id; `'unknown'` renders as "Unknown". */
+/** Display label for a device id; `'unknown'` renders as "Unspecified". */
 export function getDeviceDisplay(id: string | null | undefined): string {
     const key = normalizeProvenanceToken(id);
-    if (!key || key === UNKNOWN) return 'Unknown';
+    if (!key || key === UNKNOWN) return UNSPECIFIED_LABEL;
     return CANONICAL_DEVICES[key]?.displayName ?? key.toUpperCase();
+}
+
+/** Dense-UI label for an engine id; `'unknown'` renders as "Unspecified". */
+export function getEngineShortLabel(id: string | null | undefined): string {
+    const key = normalizeProvenanceToken(id);
+    if (!key || key === UNKNOWN) return UNSPECIFIED_LABEL;
+    return CANONICAL_ENGINES[key]?.shortLabel ?? key.toUpperCase();
+}
+
+/** Dense-UI label for a device id; `'unknown'` renders as "Unspecified". */
+export function getDeviceShortLabel(id: string | null | undefined): string {
+    const key = normalizeProvenanceToken(id);
+    if (!key || key === UNKNOWN) return UNSPECIFIED_LABEL;
+    return CANONICAL_DEVICES[key]?.shortLabel ?? key.toUpperCase();
 }
 
 /** Fidelity category for an engine id, or null for unknown/unrecognised. */
@@ -376,6 +428,69 @@ export function getEngineCategory(id: string | null | undefined): EngineCategory
     const key = normalizeProvenanceToken(id);
     if (!key || key === UNKNOWN) return null;
     return CANONICAL_ENGINES[key]?.category ?? null;
+}
+
+/**
+ * Human fidelity-band label for an engine id — "Real" / "Simulation" /
+ * "Arcade-Style" / "Video Games" — or **null** when the engine is `'unknown'`
+ * or unrecognised.
+ *
+ * Null is the whole point of this helper existing rather than call sites
+ * re-deriving: a nullable return forces every caller to decide what an
+ * uncategorised score looks like, instead of quietly defaulting one into a
+ * band it does not belong to. Device is never consulted — an AtGames cabinet
+ * running a VPX table is a Simulation score (ADR 0016).
+ */
+export function getEngineCategoryLabel(id: string | null | undefined): string | null {
+    const category = getEngineCategory(id);
+    return category ? ENGINE_CATEGORY_LABELS[category] : null;
+}
+
+/**
+ * Does naming this device tell a reader anything they couldn't infer?
+ *
+ * False when the engine runs on exactly one device (`real` → `real_cabinet`,
+ * `star_wars` → `vr_headset`, `atgames_native` → `atgames`, …) or when the
+ * device is unknown. Display surfaces use this to drop a secondary tag that
+ * would be pure noise — "Real · Cabinet" says nothing "Real" didn't — while
+ * keeping the informative pairs that ADR 0016 exists for ("VPX · AtGames").
+ */
+export function isDeviceInformative(
+    engine: string | null | undefined,
+    device: string | null | undefined,
+): boolean {
+    const d = normalizeProvenanceToken(device);
+    if (!d || d === UNKNOWN) return false;
+    const e = normalizeProvenanceToken(engine);
+    if (!e || e === UNKNOWN) return true;
+    const compat = ENGINE_DEVICE_COMPAT[e];
+    return !compat || compat.length > 1;
+}
+
+/**
+ * Label a LEGACY catalogue platform id in engine/device vocabulary.
+ *
+ * `global_games.platforms` is still a legacy id list (ADR 0016 turns it into an
+ * engine list, but that is a catalogue migration, not this phase). This folds
+ * one id to the name the rest of the UI now uses: its engine where it has one
+ * (`vpxs` → "VPX", `pinball_fx_vr` → "FX"), else its device (`atgames` →
+ * "AtGames", `vr` → "VR"), else the raw token uppercased.
+ *
+ * Deliberately never returns "Unspecified": a catalogue entry that maps to
+ * neither axis is a taxonomy gap to surface, not a score with missing
+ * provenance.
+ */
+export function getLegacyPlatformLabel(raw: string | null | undefined, short = true): string {
+    const key = normalizeProvenanceToken(raw);
+    if (!key) return '';
+    const { engine, device } = mapLegacyPlatform(key);
+    if (engine !== UNKNOWN) {
+        return short ? getEngineShortLabel(engine) : getEngineDisplay(engine);
+    }
+    if (device !== UNKNOWN) {
+        return short ? getDeviceShortLabel(device) : getDeviceDisplay(device);
+    }
+    return key.toUpperCase();
 }
 
 /**
@@ -387,6 +502,35 @@ export function mapLegacyPlatform(raw: string | null | undefined): Provenance {
     const key = normalizeProvenanceToken(raw);
     if (!key) return { engine: UNKNOWN, device: UNKNOWN };
     return LEGACY_PLATFORM_MAP[key] ?? { engine: UNKNOWN, device: UNKNOWN };
+}
+
+/**
+ * Every legacy platform token that denotes the SAME engine as `raw`.
+ *
+ * `vpx` → `['vpx', 'visual pinball x', 'vpxs', 'vpx standalone', 'vpxs_manual', …]`
+ * because ADR 0016 rules those the same engine: VPX Standalone tables are ports
+ * with graphical concessions, and identical physics means comparable scores.
+ *
+ * Used by the catalogue availability filter, which previously matched
+ * `gg.platforms LIKE '%vpx%'` — raw substring matching against a JSON array, so
+ * `'%pinball_fx%'` silently swept in `pinball_fx_classic`, `pinball_fx_midnight`
+ * and `pinball_fx_classic_vr`. Exact membership over this set removes those
+ * accidental hits while KEEPING every genuinely engine-equivalent one, so no
+ * game that qualifies today stops qualifying.
+ *
+ * A token with no engine (`atgames`, `vr` — device-only) returns just itself:
+ * expanding it along the device axis would WIDEN the filter, and widening is a
+ * rule-semantics decision that belongs to the tournament-rules phase, not here.
+ */
+export function equivalentLegacyPlatforms(raw: string | null | undefined): string[] {
+    const key = normalizeProvenanceToken(raw);
+    if (!key) return [];
+    const { engine } = mapLegacyPlatform(key);
+    if (engine === UNKNOWN) return [key];
+    const out = Object.entries(LEGACY_PLATFORM_MAP)
+        .filter(([, prov]) => prov.engine === engine)
+        .map(([token]) => token);
+    return out.includes(key) ? out : [key, ...out];
 }
 
 /** Devices that can run `engine`. `'unknown'` engine → every canonical device. */

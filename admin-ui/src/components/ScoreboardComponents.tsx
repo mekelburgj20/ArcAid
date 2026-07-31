@@ -22,6 +22,17 @@ export interface RankedEntry {
   display_name?: string | null;
   score: number;
   avatar_hash?: string | null;
+  /**
+   * v2.58.0 (ADR 0016) — per-score provenance. `engine` is what produced the
+   * score (and the only thing that determines comparability); `device` is what
+   * it ran on. Both are `'unknown'` rather than null when unrecorded. Optional
+   * on this shared type because several endpoints ship ranking rows without
+   * them; render via `ProvenanceTags`, which handles the absent case.
+   */
+  engine?: string | null;
+  device?: string | null;
+  /** @deprecated v2.58.0 — superseded by `engine` + `device`. */
+  platform?: string | null;
 }
 
 /**

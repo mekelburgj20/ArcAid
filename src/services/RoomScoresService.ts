@@ -1,5 +1,6 @@
 import { getDatabase } from '../database/database.js';
 import { normalizeImageUrl, RankedEntry } from './LeaderboardService.js';
+import { UNKNOWN } from '../utils/scoreProvenance.js';
 
 /**
  * scores-page-redesign (B1/B2): "Room Scores" = every score ever set in this
@@ -188,6 +189,9 @@ export class RoomScoresService {
                 COALESCE(best.submitted_by_user_id, um.discord_user_id, best.discord_user_id) as discord_user_id,
                 best.iscored_username,
                 best.score,
+                best.platform,
+                best.engine,
+                best.device,
                 up.display_name,
                 up.avatar_hash
             FROM (
@@ -197,6 +201,8 @@ export class RoomScoresService {
                     submitted_by_user_id,
                     score,
                     platform,
+                    engine,
+                    device,
                     ROW_NUMBER() OVER (
                         PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
                         ORDER BY score DESC, created_at ASC
@@ -225,6 +231,13 @@ export class RoomScoresService {
             display_name: e.display_name || null,
             score: e.score,
             avatar_hash: e.avatar_hash || null,
+            // v2.58.0 (ADR 0016): the CTE has always selected `platform` and
+            // then dropped it on the floor — the outer SELECT never projected
+            // it, so room-card previews showed no provenance at all while every
+            // other surface did. Projected properly now, on both new axes.
+            platform: e.platform || null,
+            engine: e.engine || UNKNOWN,
+            device: e.device || UNKNOWN,
         }));
     }
 

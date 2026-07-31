@@ -216,7 +216,10 @@ export const PLATFORM_GROUPS = [
         platforms: ['pinball_fx_vr', 'pinball_fx_classic_vr', 'star_wars_pinball_vr', 'zaccaria_vr'],
     },
     {
-        label: 'Arcade & Video Games',
+        // v2.58.0 (ADR 0016): renamed from "Arcade & Video Games" to match the
+        // FE label, which had already drifted to "Arcade & Video". `arcade` is
+        // a live platform id, so the word could not stay in the group name.
+        label: 'Video Games',
         platforms: [
             'arcade', 'nes', 'snes', 'genesis', 'saturn', 'n64',
             'ps1', 'ps2', 'dreamcast', 'gba', 'gb', 'gbc',

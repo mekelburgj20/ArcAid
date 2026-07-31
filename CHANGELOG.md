@@ -6,6 +6,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.58.0] — unreleased
+
+**Score reads move onto engine + device, and fidelity categories arrive (ADR 0016, phase 3).**
+Phase 1 (v2.53.0) shipped the taxonomy and every write path; reads still went through the legacy
+`platform` column that writers maintained in parallel. That half-migrated state is now closed.
+See `tmp/engine-device-p3-contract.md`.
+
+- **Fidelity categories** derive from **engine alone**, never device: Real · Simulation ·
+  Arcade-Style, with video-game engines outside the axis. **`unknown` engine yields no category and
+  renders as "Unspecified"** — 63 of ~120 production score rows are the irreducible AtGames
+  ambiguity, and filing those into a band would assert something the data cannot support.
+- **Scores now display engine primarily and device secondarily** on the surfaces that actually carry
+  per-score provenance (`GameDetail`, `GlobalGameDetail`). A score reads "VPX · AtGames", which is the
+  distinction the whole ADR exists to make. Where a device adds nothing (`real` on `real_cabinet`) it
+  is suppressed rather than shown as noise.
+- The card/quick-view chips were **not** given per-score tags: those render the *game's* catalogue
+  platform list, not a score's provenance, and adding tags to dense rows would have been a layout
+  change. They moved onto the engine/device vocabulary instead, so `vpxs` reads "Visual Pinball X"
+  once rather than appearing twice.
+- `?engine=` and `?device=` added to the leaderboard route; **`?platform=` kept as a deprecated
+  alias** so existing bookmarks and link previews keep working.
+- **The legacy `platform` fallback was removed deliberately**, not kept "just in case": migration 125
+  backfilled every pre-existing row and asserts a zero-NULL post-condition, so no row is reachable
+  via `platform` that isn't reachable via `engine` — a fallback could only reintroduce the unfolded
+  compare below. The column itself stays; tournament rules still read it until phase 2.
+- Migration 127 busts both leaderboard caches, which embed provenance in serialized JSON.
+
+**Three live bugs fixed in passing**
+- The platform tab strip alias-folded its labels while the filter did a raw `UPPER()` compare, so a
+  tab could be offered and then match zero rows. Both now read the same columns, which removes the
+  class of bug rather than the instance.
+- `gg.platforms LIKE '%vpx%'` also matched `vpxs`, and `'%pinball_fx%'` silently swept in FX Classic,
+  Midnight and VR. Now exact `json_each` membership, expanded to engine-equivalent tokens first so
+  nothing that qualifies today stops qualifying.
+- `RoomScoresService` selected `platform` and never projected it, so room-card previews showed none.
+
+**Also:** the BE↔FE taxonomy parity test had a hole — every assertion named specific exports, so a
+new one-sided export passed unnoticed. It now asserts the full export-name set, closing exactly the
+failure the test exists to prevent.
+
 ## [2.57.0] — unreleased
 
 **The Global Scoreboard gets a hero card, a Top 6 / My Score density toggle and a live indicator.** Track A phase A5a; see `tmp/global-scoreboard-a5a-contract.md`. The Grid/Compact table layout and pinned-game rank alerts are deliberately NOT here — they are A5b and stay isolated.

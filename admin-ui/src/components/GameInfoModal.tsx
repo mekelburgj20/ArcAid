@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { X, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
 import LoadingState from './LoadingState';
-import { getPlatformDisplay } from '../lib/platforms';
+import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
 
 interface GlobalGame {
   id: string;
@@ -131,11 +131,14 @@ export default function GameInfoModal({ gameId, seedName, seedManufacturer, seed
                   </Field>
 
                   {game.platforms.length > 0 && (
-                    <Field label="Platforms">
+                    /* v2.58.0 (ADR 0016): "Engines" — a game is authored FOR an
+                       engine; which device runs it is a property of the score,
+                       not the game. Labels folded + deduped accordingly. */
+                    <Field label="Engines">
                       <div className="flex flex-wrap gap-1">
-                        {game.platforms.map(p => (
-                          <span key={p} className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">
-                            {getPlatformDisplay(p)}
+                        {[...new Set(game.platforms.map(p => getLegacyPlatformLabel(p, false)))].map(label => (
+                          <span key={label} className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">
+                            {label}
                           </span>
                         ))}
                       </div>

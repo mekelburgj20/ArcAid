@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { X, ExternalLink } from 'lucide-react';
 import type { GameLeaderboard } from './ScoreboardComponents';
 import { PlayerAvatar, playerName } from './ScoreboardComponents';
-import { getPlatformDisplay } from '../lib/platforms';
+import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
 
 /**
  * v2.13.12 — lightweight popup preview of a game's top scores + metadata,
@@ -111,7 +111,11 @@ export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
   if (meta?.manufacturer) subtitleParts.push(meta.manufacturer);
   if (meta?.year) subtitleParts.push(String(meta.year));
   if (meta?.platforms?.length) {
-    subtitleParts.push(meta.platforms.map(getPlatformDisplay).join(', '));
+    // v2.58.0 (ADR 0016): engine/device vocabulary + dedupe, so a game on both
+    // `vpx` and `vpxs` reads "Visual Pinball X" once, not twice.
+    subtitleParts.push(
+      [...new Set(meta.platforms.map(p => getLegacyPlatformLabel(p, false)))].join(', '),
+    );
   }
 
   return (

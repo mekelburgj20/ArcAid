@@ -157,7 +157,10 @@ export const PLATFORM_GROUPS: Record<string, { label: string; platforms: string[
         ],
     },
     video: {
-        label: 'Arcade & Video',
+        // v2.58.0 (ADR 0016): was "Arcade & Video". `arcade` is a live platform
+        // id for arcade video cabinets AND the fidelity band next to it is now
+        // called "Arcade-Style", so the old label collided on both sides.
+        label: 'Video Games',
         platforms: [
             'arcade', 'nes', 'snes', 'genesis', 'saturn', 'n64', 'ps1', 'ps2',
             'dreamcast', 'gba', 'gb', 'gbc', 'sms', 'sega_cd', 'game_gear',
