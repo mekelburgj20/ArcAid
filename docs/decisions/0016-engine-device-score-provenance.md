@@ -105,6 +105,36 @@ an engine→device compatibility map, rather than per game.
 VPX-on-PC". Explicit engine/device pairs would allow it at a substantial cost in config UI complexity.
 Deferred until a real need appears.
 
+### iScored-synced scores never reach the Global Scoreboard
+
+*(Added 2026-07-31, when P4's per-category cards made the consequence visible.)*
+
+iScored returns a name and a number and nothing else, so a synced score carries no provenance of its
+own. Left alone this fragments a game's leaderboard for a reason that isn't real — an Unspecified card
+sitting beside a real one, holding the same players on the same table. At the time of the decision 5
+of 37 games with global scores were already split this way, and continuous sync would have made it
+the normal state rather than the exception.
+
+Three rules, decided with the product owner:
+
+1. **Sync applies to tournament games only.** Already structurally true —
+   `ScoreSyncPoller.findLocalGameForIscoredId` INNER JOINs `tournaments`, so pinned rows
+   (`tournament_id IS NULL`) are unreachable. Locked by test rather than rebuilt.
+2. **Classify where the data supports it, `unknown` otherwise.** Preference order: derive from the
+   tournament's own engine rules where they permit exactly one engine (integrity comes from an
+   enforced constraint, not a recollection); else an admin-declared per-tournament default
+   (`tournaments.iscored_default_engine` / `_device`); else `unknown`. A declaration contradicting
+   single-engine rules is rejected at save time — it is an error, not an override.
+3. **Synced scores are excluded from `global_scores` unconditionally** — including those successfully
+   classified under (2). Classification serves tournament rules and room-level display; it is not a
+   route to the global board. Enforced inside `GlobalScoreService.fanOutFromRoomSubmission` (which
+   rejects `source: 'sync'`) rather than only by removing the caller, so it cannot be undone by
+   accident.
+
+**Accepted cost:** rooms that run entirely through iScored contribute nothing to the Global
+Scoreboard. This is consistent with iScored being the legacy/optional path and does push rooms toward
+submitting through Arcaid directly, but it is a real product effect, not a side effect.
+
 ### No backfill — clean break
 
 Deriving the split from existing data is **impossible for exactly the cases that motivate it**:

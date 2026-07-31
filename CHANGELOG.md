@@ -8,47 +8,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ## [2.59.0] — unreleased
 
-**One Global Scoreboard card per fidelity category (ADR 0016, phase 4).**
-This is the request that started the arc: a game with scores from different kinds of platform now
-gets a **card per category** — Real · Simulation · Arcade-Style · Video Games · Unspecified — with
-each score already tagged by the exact engine and device it came from (P3). Comparing a VPX score
-against an FX score was never meaningful; the page no longer does it.
-See `tmp/engine-device-p4-contract.md`.
-
-- **Every score keeps a home.** 38 of 67 production global scores carry `engine='unknown'`, and P3
-  established that `unknown` has no fidelity category — so grouping only by the three known bands
-  would have dropped the MAJORITY of the site's scores off the page with no error anywhere. They get
-  a visibly-neutral **Unspecified** bucket instead: reachable, filterable, and never presented as a
-  fidelity band (its chip is muted, and its tooltip says the scores can't be compared). A test
-  asserts the union of a game's cards contains every one of its scores, exactly once.
-- **`GROUP BY gg.id` became `GROUP BY gg.id, <category>`**, and the category expression is
-  **derived from the TypeScript taxonomy at query-build time** (`utils/engineCategorySql.ts`) rather
-  than hand-written SQL — a hardcoded copy would have been a fourth place the taxonomy could drift,
-  and invisible to the BE/FE parity test that has already caught one real drift.
-- `score_count`, `top_score`, `last_submitted_at` and `popularity` are now **per-category** figures;
-  a Simulation card never reports the game's total. `top_scores`, `my_rank`, `my_score` and
-  `neighbors` scope inside the card's category too, so a viewer ranked 3rd on Simulation and 9th on
-  Arcade-Style sees each correctly. The best-per-player collapse happens *within* a category, so a
-  player's FX score is ranked on the FX board even when their VPX score is higher.
-- **The filter chips changed taxonomy**: the platform groups (Physical · Virtual Pinball · Video
-  Games) filtered *games by catalogue availability*, which is a different question from the one the
-  cards now answer. They are replaced by category chips matching the card model. The ⌘K palette
-  still searches **games** (new `groupBy=game`): a game matches if any of its cards would.
-- **Pins stay keyed on the game.** Pinning any category card pins the game and every one of its
-  cards shows pinned; the My Pins rail keeps one entry per pinned game, rendered as its
-  highest-scoring category. **The hero stays game-level** — its count and `HOT` threshold are the
-  game's, untouched from A5a — but it names and renders its highest-scoring category so the champion
-  line can't silently mix engines.
-- `total` and pagination count **cards**, and the copy says so ("Showing N of M leaderboards").
-  Every sort now ends in a `(gg.id, category)` tiebreak: without a total order, ties could be
-  returned differently per statement and a card could be duplicated or skipped across a page
-  boundary.
-- A zero-score game still renders **one** uncategorised card with the `Claim 1st →` CTA. That falls
-  out of the existing LEFT JOIN producing a NULL category — not a special branch, and deliberately
-  not "Unspecified", which would claim scores of unrecorded provenance that don't exist.
-
-## [2.59.0] — unreleased
-
 **Per-category cards on the Global Scoreboard (ADR 0016, phase 4).** The request that started this
 arc: a game with scores from different kinds of platform now gets **one card per category**, each
 with its own leaderboard, and every score already tagged with its exact engine and device (P3).
@@ -65,21 +24,29 @@ gets two.
   of its scores exactly once, that no score lands on two cards, and that the per-card counts sum to
   the game's total. Unspecified is styled as visibly *not* a peer of the real bands — it makes no
   comparability claim.
-- The category `CASE` expression is **generated from `CANONICAL_ENGINES` at query-build time**, so SQL
-  never becomes a fourth copy of the taxonomy (the parity test has already caught one real drift).
-  Engine ids are interpolated behind a token guard; caller-supplied categories stay bound.
-- `score_count`, `top_score`, `popularity`, `top_scores`, `my_rank` and `neighbors` are all
-  **per-category** — a viewer can be 3rd on Simulation and 9th on Arcade-Style and sees each
-  correctly. `total` and the "Showing N of M" copy now count **leaderboards**, not games.
+- The category `CASE` expression is **generated from `CANONICAL_ENGINES` at query-build time**
+  (`utils/engineCategorySql.ts`), so SQL never becomes a fourth copy of the taxonomy (the parity test
+  has already caught one real drift). Engine ids are interpolated behind a token guard;
+  caller-supplied categories stay bound.
+- `score_count`, `top_score`, `last_submitted_at`, `popularity`, `top_scores`, `my_rank`, `my_score`
+  and `neighbors` are all **per-category** — a viewer can be 3rd on Simulation and 9th on
+  Arcade-Style and sees each correctly. The best-per-player collapse happens *within* a category, so
+  a player's FX score is ranked on the FX board even when their VPX score is higher. `total` and the
+  "Showing N of M" copy now count **leaderboards**, not games.
 - **Pagination needed a real fix, not a rename.** `gg.name` was never a unique sort key and is now
   doubly non-unique (one game, several rows), so pages could duplicate and skip cards at boundaries.
   Every sort now ends in `gg.id, category`, and `total` lost its fast path to count the same grouped
   subquery the data query walks. Tested by paging across a mid-game boundary and again under a sort
   where every key is tied.
 - Platform-group chips are replaced by **category chips** — the groups were the taxonomy this
-  supersedes. Pins and the hero stay **game-level**: pinning any card pins the game, the rail shows
-  one entry per game, and the hero keeps A5a's threshold logic untouched (though its rows are scoped
-  to one category, because a champion line mixing engines is precisely the claim the ADR forbids).
+  supersedes. The ⌘K palette still searches **games** (new `groupBy=game`): a game matches if any of
+  its cards would. Pins and the hero stay **game-level**: pinning any card pins the game, the rail
+  shows one entry per game, and the hero keeps A5a's threshold logic untouched (though its rows are
+  scoped to one category, because a champion line mixing engines is precisely the claim the ADR
+  forbids).
+- A zero-score game still renders **one** uncategorised card with the `Claim 1st →` CTA. That falls
+  out of the existing LEFT JOIN producing a NULL category — not a special branch, and deliberately
+  not "Unspecified", which would claim scores of unrecorded provenance that don't exist.
 
 Known, recorded rather than fixed: `score:new:global` carries no engine, so the optimistic client-side
 bump increments every card of a game. Correct before P4, visibly wrong now; self-heals on next fetch.
