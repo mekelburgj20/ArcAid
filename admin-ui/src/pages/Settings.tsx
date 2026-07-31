@@ -211,10 +211,11 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     description: 'When enabled, scores submitted in this room are also fanned out to the Global Scoreboard at arcaid.app/scoreboard. Players can still opt out per-score.',
     defaultOn: true,
   },
-  'ENABLE_GAME_PICK_AWARD': {
-    label: 'Enable Game Pick Award',
-    description: 'When enabled, tournament winners earn the right to pick the next game (Picks tab, /pick-game command, Mystery Award spinner, and turn-to-pick DMs are all active). When disabled, the whole pick-award flow is suppressed room-wide and a moderator queues games manually. Per-tournament winner-picks settings can further disable this but cannot override a room-level off switch.',
-  },
+  // v2.56.0 — 'ENABLE_GAME_PICK_AWARD' was removed. It ANDed with each
+  // tournament's "Winner picks next game" setting but was absent (→ off) for
+  // most rooms and never referenced by TournamentForm, so the tournament form
+  // showed live-looking pick controls that this switch silently disabled.
+  // Winner-picks is now per-tournament only; do not reintroduce it here.
 };
 
 // REQUIRE_DISCORD_LOGIN — v2.35.0: gained a third value ('discord') alongside
@@ -840,6 +841,11 @@ export default function Settings() {
     'SCOREBOARD_STYLE', 'SCOREBOARD_THEME', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_SHOW_TIMER',
     // Legacy/removed — no longer surfaced
     'SCOREBOARD_CARDS_PER_ROW',
+    // v2.56.0 — the room-level pick-award gate was removed (winner-picks is a
+    // per-tournament setting now). Migration 126 deletes the rows, but a room
+    // whose settings were cached/read before that must not surface the dead key
+    // as a raw text input in the "Other" card.
+    'ENABLE_GAME_PICK_AWARD',
   ]);
   const uncategorizedKeys = Object.keys(settings).filter(k => !managedKeys.has(k));
 

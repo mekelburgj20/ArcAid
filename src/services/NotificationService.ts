@@ -170,8 +170,9 @@ export class NotificationService {
             // 0b. Pick-award gate defense-in-depth (plan §5) — callers passing roomId
             // for `turnToPick` get suppressed here too, even if the upstream gate was
             // missed. Callers without roomId fall through to prefs check (legacy).
-            // This is a feature-level gate (the whole pick-award flow is off room-wide),
-            // unlike 0a above, so it suppresses BOTH delivery channels.
+            // This is a feature-level gate (the whole pick-award flow is off for the
+            // tournament — v2.56.0, was room-wide), unlike 0a above, so it suppresses
+            // BOTH delivery channels.
             if (type === 'turnToPick' && roomId) {
                 const pickEnabled = await PickAwardGate.isEnabled(roomId, tournamentId);
                 if (!pickEnabled) {

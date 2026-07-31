@@ -16,7 +16,8 @@ import { getPortal } from '../lib/portal';
  * once so available-games list is populated. Logged-in players can add the
  * picked game to their queue; anonymous viewers get a Log-in CTA.
  *
- * When ENABLE_GAME_PICK_AWARD is OFF for the room, redirects to the scoreboard.
+ * When no tournament in the room has winner-picks on (v2.56.0 — was the
+ * room-level ENABLE_GAME_PICK_AWARD setting), redirects to the scoreboard.
  */
 
 interface GameAvailabilityEntry {

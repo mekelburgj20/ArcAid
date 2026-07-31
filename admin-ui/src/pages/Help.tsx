@@ -511,13 +511,12 @@ export default function Help() {
                 <tr><Td><strong>Discord @Mentions</strong></Td><Td>Whether announcements @-mention players</Td></tr>
                 <tr><Td><strong>Post Scores to Global Scoreboard</strong></Td><Td>Fan this room's scores out to the cross-room Global Scoreboard</Td></tr>
                 <tr><Td><strong>Require Login for Score Submissions</strong></Td><Td>Force Discord login before anyone can submit a score</Td></tr>
-                <tr><Td><strong>Enable Game Pick Award</strong></Td><Td>Turn on the winner-picks-next-game flow (and the Mystery Award)</Td></tr>
                 <tr><Td><strong>Callouts</strong></Td><Td>Fun automated bot replies to trigger phrases</Td></tr>
               </tbody>
             </table>
           </div>
           <Tip>
-            Cooldown, pick windows, timezone, and platform rules are configured <strong>per tournament</strong> on the Tournaments page &mdash; not here.
+            Winner picks next game, cooldown, pick windows, timezone, and platform rules are configured <strong>per tournament</strong> on the Tournaments page &mdash; not here.
           </Tip>
         </NeonCard>
 

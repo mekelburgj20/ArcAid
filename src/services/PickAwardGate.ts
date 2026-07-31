@@ -1,10 +1,4 @@
 import { getDatabase } from '../database/database.js';
-import { GameRoomSettingsService } from './GameRoomSettingsService.js';
-
-/**
- * Per-room setting key. Default "false" (opt-in per plan §17).
- */
-export const ENABLE_GAME_PICK_AWARD = 'ENABLE_GAME_PICK_AWARD';
 
 /**
  * Gate for the game-pick-award flow (winner-picks, picker timeouts, Mystery Award,
@@ -16,9 +10,21 @@ export const ENABLE_GAME_PICK_AWARD = 'ENABLE_GAME_PICK_AWARD';
  *   • Admin UI surfaces render in disabled states (tooltip-backed).
  *   • Mystery Award is suppressed entirely.
  *
- * Override semantics (plan Q5 → AND): both room and per-tournament `winner_picks`
- * must be truthy for the gate to be "on". Either side set to off disables the flow.
- * A room-level "off" cannot be re-enabled by a per-tournament override.
+ * Resolution (v2.56.0): **per-tournament only** — `tournaments.winner_picks`.
+ *
+ * There used to be a second, room-level leg (`ENABLE_GAME_PICK_AWARD` in
+ * `game_room_settings`, ANDed with the tournament flag). It was removed because
+ * it was a silent trap: the key defaulted to absent → `false`, `TournamentForm`
+ * never referenced it, and so a tournament configured with "Winner picks next
+ * game" ✓ plus winner/runner-up windows would auto-pick immediately with no
+ * indication anywhere in the UI that a room switch had disabled it. Migration
+ * 126 deletes the orphaned rows. Do not reintroduce a room-level override
+ * without also surfacing it on the tournament form.
+ *
+ * Room-scoped callers (no tournament id — the Picks tab, Mystery Award, admin
+ * disabled states) ask "is this flow live for this room at all?". That resolves
+ * to "any tournament in this room has winner-picks on", NOT a blanket true: a
+ * room whose every tournament has winner-picks off still renders disabled.
  */
 export class PickAwardGate {
     private static cache = new Map<string, { value: boolean; ts: number }>();
@@ -29,8 +35,9 @@ export class PickAwardGate {
      * (optionally) a specific tournament.
      *
      * @param roomId        The game_rooms.id (required). When falsy, returns false.
-     * @param tournamentId  Optional tournament scope. When supplied, the gate
-     *                      evaluates `room ∧ tournament.winner_picks`.
+     * @param tournamentId  Optional tournament scope. When supplied, the gate is
+     *                      exactly `tournament.winner_picks`. When omitted, it is
+     *                      "any tournament in this room has winner-picks on".
      */
     static async isEnabled(roomId: string | null | undefined, tournamentId?: string | null): Promise<boolean> {
         if (!roomId) return false;
@@ -40,19 +47,12 @@ export class PickAwardGate {
         const hit = this.cache.get(cacheKey);
         if (hit && now - hit.ts < this.TTL_MS) return hit.value;
 
-        const roomEnabled = await this.isRoomEnabled(roomId);
-        let value = roomEnabled;
-        if (value && tournamentId) {
-            value = await this.isTournamentEnabled(tournamentId);
-        }
+        const value = tournamentId
+            ? await this.isTournamentEnabled(tournamentId)
+            : await this.isAnyTournamentEnabled(roomId);
 
         this.cache.set(cacheKey, { value, ts: now });
         return value;
-    }
-
-    private static async isRoomEnabled(roomId: string): Promise<boolean> {
-        const raw = await GameRoomSettingsService.get(roomId, ENABLE_GAME_PICK_AWARD);
-        return raw === 'true';
     }
 
     private static async isTournamentEnabled(tournamentId: string): Promise<boolean> {
@@ -63,7 +63,23 @@ export class PickAwardGate {
         return row.winner_picks === null || row.winner_picks === undefined || row.winner_picks !== 0;
     }
 
-    /** Invalidate cache — call on setting change or tournament edit. */
+    /**
+     * Room-scoped resolution: true when at least one tournament in the room has
+     * winner-picks on. NULL is enabled here for the same legacy-default reason
+     * as {@link isTournamentEnabled}.
+     */
+    private static async isAnyTournamentEnabled(roomId: string): Promise<boolean> {
+        const db = await getDatabase();
+        const row = await db.get(
+            `SELECT 1 AS hit FROM tournaments
+             WHERE game_room_id = ? AND (winner_picks IS NULL OR winner_picks != 0)
+             LIMIT 1`,
+            roomId
+        );
+        return !!row;
+    }
+
+    /** Invalidate cache — call on tournament create/update/delete. */
     static invalidate(roomId?: string | null): void {
         if (!roomId) {
             this.cache.clear();
@@ -77,5 +93,10 @@ export class PickAwardGate {
 
 /**
  * Exact reply string used by Discord command short-circuits (plan §8).
+ *
+ * v2.56.0 — reworded from "…in this game room" now that the gate is
+ * per-tournament: the room no longer has a switch, so naming the room sent
+ * admins hunting through room settings for a toggle that doesn't exist.
  */
-export const PICK_AWARD_DISABLED_REPLY = '/pick-game is not available in this game room';
+export const PICK_AWARD_DISABLED_REPLY =
+    '/pick-game is not available — winner picks is turned off for this tournament';

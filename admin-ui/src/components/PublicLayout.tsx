@@ -145,8 +145,9 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   };
 
   // Sprint 7 nav: Lobby | Scores | Picks* | Stats | Global
-  // Picks is suppressed when ENABLE_GAME_PICK_AWARD is off. Keep it hidden
-  // during the initial fetch to avoid a flash of mismatched nav.
+  // Picks is suppressed when no tournament in this room has winner-picks on
+  // (v2.56.0 — was the room-level ENABLE_GAME_PICK_AWARD setting). Keep it
+  // hidden during the initial fetch to avoid a flash of mismatched nav.
   // v2.39.0 — while gated, every room-scoped tab leads to a page that would
   // just 403 (each fetches its own gated endpoints) — only "Global" survives,
   // since /scoreboard isn't room-scoped.
