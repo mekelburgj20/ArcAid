@@ -54,6 +54,10 @@ export class TournamentService {
             data.winner_pick_window_min ?? 60,
             data.runnerup_pick_window_min ?? 30
         );
+        // v2.56.0: the room-scoped gate is now "any tournament in this room has
+        // winner-picks on", so CREATE can flip it (a room's first winner-picks
+        // tournament). Bust the room's cached entries the same way update() does.
+        if (data.game_room_id) PickAwardGate.invalidate(data.game_room_id);
     }
 
     /**

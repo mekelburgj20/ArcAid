@@ -2058,6 +2058,17 @@ export async function initDatabase(): Promise<Database> {
             const { addEngineDeviceProvenance } = await import('./migrations/engineDeviceProvenance.js');
             await addEngineDeviceProvenance(db);
         } },
+        // --- v2.56.0: drop the room-level pick-award gate ---
+        // `ENABLE_GAME_PICK_AWARD` ANDed with each tournament's `winner_picks`.
+        // It defaulted to absent (→ off) and was never surfaced on the
+        // tournament form, so correctly-configured winner-picks tournaments
+        // silently auto-picked. Winner-picks is per-tournament only now (see
+        // PickAwardGate). Handler rather than raw sql so the row count is
+        // logged and the delete is unit-testable on its own.
+        { name: '126_drop_enable_game_pick_award', handler: async (db) => {
+            const { dropEnableGamePickAward } = await import('./migrations/dropEnableGamePickAward.js');
+            await dropEnableGamePickAward(db);
+        } },
     ];
 
     for (const migration of migrations) {

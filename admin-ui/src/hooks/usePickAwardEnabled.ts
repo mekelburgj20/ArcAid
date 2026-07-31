@@ -6,8 +6,10 @@ type State = { loading: boolean; enabled: boolean };
 const cache = new Map<string, boolean>();
 
 /**
- * Reads the ENABLE_GAME_PICK_AWARD flag for a room via the shared portal
- * cache (S18 — was its own private fetch of /api/portal?slug=...).
+ * Reads the room-scoped pick-award flag via the shared portal cache (S18 — was
+ * its own private fetch of /api/portal?slug=...). v2.56.0: the backing value is
+ * "any tournament in this room has winner-picks on"; the room-level
+ * ENABLE_GAME_PICK_AWARD setting it used to read no longer exists.
  *
  * Returns `{ loading, enabled }`. Treat `loading` as "unknown" — callers that
  * conditionally render a nav item should render nothing until loading resolves

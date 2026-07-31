@@ -664,7 +664,8 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
             roomId
         );
 
-        // Pick-award gate state (plan §5) — room-level, controls UI enablement.
+        // Pick-award gate state (plan §5) — room-scoped, controls UI enablement.
+        // v2.56.0: resolves as "any tournament in this room has winner-picks on".
         const { PickAwardGate } = await import('../../services/PickAwardGate.js');
         const pickAwardEnabled = await PickAwardGate.isEnabled(roomId);
 
@@ -695,9 +696,11 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
 
         // 1a. Pick-award gate (plan §5 / §8). Mirrors the Discord-command gate so the web
         //     pick path can't re-enable a flow that admins have opted out of.
+        //     v2.56.0 — per-tournament only (tournaments.winner_picks); the
+        //     room-level ENABLE_GAME_PICK_AWARD switch is gone.
         const { PickAwardGate } = await import('../../services/PickAwardGate.js');
         const pickEnabled = await PickAwardGate.isEnabled(tournament.game_room_id, tournament.id);
-        if (!pickEnabled) return res.status(403).json({ error: 'Game picks are disabled in this room' });
+        if (!pickEnabled) return res.status(403).json({ error: 'Winner picks is turned off for this tournament' });
 
         // 2. Look up game in catalogue.
         const gameLibEntry = await db.get(

@@ -1,6 +1,5 @@
 import { getDatabase } from '../database/database.js';
 import { OrphanService } from './OrphanService.js';
-import { PickAwardGate, ENABLE_GAME_PICK_AWARD } from './PickAwardGate.js';
 import {
     decryptSecret,
     encryptSecret,
@@ -95,10 +94,10 @@ export class GameRoomSettingsService {
             await OrphanService.handleRequireLoginFlip(gameRoomId, prev, value);
             await invalidateLeaderboardCaches(gameRoomId);
         }
-        if (key === ENABLE_GAME_PICK_AWARD) {
-            // Sprint 13: close the 5s staleness window after admin toggles.
-            PickAwardGate.invalidate(gameRoomId);
-        }
+        // v2.56.0 — the ENABLE_GAME_PICK_AWARD branch that used to bust the
+        // PickAwardGate cache here is gone with the room-level gate. The gate
+        // now resolves off `tournaments.winner_picks` alone, and
+        // TournamentService already invalidates on create/update/delete.
     }
 
     static async saveMany(gameRoomId: string, settings: Record<string, string>): Promise<void> {
@@ -133,9 +132,6 @@ export class GameRoomSettingsService {
             await OrphanService.handleRequireLoginFlip(gameRoomId, prevRequireLogin, settings[REQUIRE_LOGIN_KEY]!);
             await invalidateLeaderboardCaches(gameRoomId);
         }
-        if (ENABLE_GAME_PICK_AWARD in settings) {
-            PickAwardGate.invalidate(gameRoomId);
-        }
     }
 
     static async delete(gameRoomId: string, key: string): Promise<void> {
@@ -151,9 +147,6 @@ export class GameRoomSettingsService {
             // Deleting REQUIRE_DISCORD_LOGIN is equivalent to turning it off.
             await OrphanService.handleRequireLoginFlip(gameRoomId, prev, 'false');
             await invalidateLeaderboardCaches(gameRoomId);
-        }
-        if (key === ENABLE_GAME_PICK_AWARD) {
-            PickAwardGate.invalidate(gameRoomId);
         }
     }
 }

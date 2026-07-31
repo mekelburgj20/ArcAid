@@ -1285,9 +1285,12 @@ export class TournamentEngine {
                 newGame: queuedRow.name,
             });
         } else {
-            // No queued game — behavior depends on winner_picks and auto_pick settings
-            // Pick-award gate (plan §5, Q5: AND semantics) — when off, winner-picks
-            // is treated as disabled regardless of tournament setting.
+            // No queued game — behavior depends on winner_picks and auto_pick settings.
+            // Pick-award gate (v2.56.0): per-tournament only — this resolves to
+            // `tournaments.winner_picks` for THIS tournament. The room-level
+            // ENABLE_GAME_PICK_AWARD leg is gone; the redundant `&& winner_picks`
+            // below is kept because it reads off the already-loaded row and
+            // documents the intent at the branch site.
             const pickAwardEnabled = await PickAwardGate.isEnabled(tournamentRow.game_room_id, tournamentId);
             const winnerPicks = pickAwardEnabled && tournamentRow.winner_picks !== 0;
             const autoPick = tournamentRow.auto_pick !== 0;

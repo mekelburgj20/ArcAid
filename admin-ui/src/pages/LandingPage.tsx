@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Users, Gamepad2, ChevronRight, Plus, Building2, BookmarkPlus, BookmarkCheck, Clock } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import { formatCompactNumber } from '../lib/format';
-import { resolveAvatarUrl } from '../lib/avatar';
+import { PlayerAvatar } from '../components/ScoreboardComponents';
+import { useTheme } from '../components/ThemeProvider';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from '../components/Toast';
@@ -50,6 +51,29 @@ function imageForScore(s: RecentScore): string | null {
   return null;
 }
 
+/* ─── Hero artwork (B2, v2.56.0) ───
+ *
+ * `ArcaidLogoAnimated` is a CSS/SVG recreation whose glow + drop-shadow layers
+ * assume a near-black backdrop (#0C0C13) — on `.theme-light`'s #E8EAF0 canvas
+ * the chrome fill and the neon halos both wash out. Light polarity therefore
+ * renders the light artwork PNG instead (the same file `BrandWordmark` swaps
+ * to). Its 180px minimum display width is satisfied everywhere the hero
+ * renders: the narrowest case is a 390px viewport minus the hero's 16px side
+ * padding = 358px.
+ *
+ * ACCEPTED LOSS: light mode has no glitch animation. The logo package shipped
+ * no animated light source, and re-authoring the animation against the light
+ * plate is a rebuild of the whole component, not a re-tint.
+ *
+ * The light hero is boxed to the SAME aspect ratio the animated wrap reserves
+ * (620 x 380 after its crop) and top-aligned inside it, so the page below the
+ * hero lays out identically in both polarities and the motto's proportional
+ * anchor keeps landing in the free band under the mark.
+ */
+const LIGHT_HERO_SRC = '/arcaid-logo-light-v1.png';
+const HERO_BOX_W = 620;
+const HERO_BOX_H = 380;
+
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -64,6 +88,9 @@ function timeAgo(iso: string): string {
 
 export default function LandingPage() {
   const { discordUser, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
+  // B2 (v2.56.0) — the hero mark swaps with polarity (see LIGHT_HERO_SRC).
+  const { globalPageTheme } = useTheme();
+  const isLight = globalPageTheme === 'light';
   const [rooms, setRooms] = useState<Room[]>([]);
   const [recentScores, setRecentScores] = useState<RecentScore[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,9 +187,9 @@ export default function LandingPage() {
       {/* Hero — Delta House Chrome wordmark. Prominent, first thing you see.
           v2.45.1 fix: no dedicated backdrop section — it renders directly on
           the page's own bg-deep (the same background the room grid below
-          sits on) so there's no visible seam between hero and content. Under
-          a light theme this reads flatter (the glow assumes a near-black
-          stage) — a known, accepted tradeoff, not fixed here. */}
+          sits on) so there's no visible seam between hero and content.
+          v2.56.0 (B2): light polarity swaps the animated mark for the light
+          artwork — the animation assumes a near-black stage. */}
       <div style={{
         padding: '8px 16px 0',
         display: 'flex',
@@ -179,8 +206,23 @@ export default function LandingPage() {
             proportionally inside the mark (the free band between the
             wordmark's bottom and the ticker tiles, over the triangle tip). */}
         <div style={{ position: 'relative', width: '100%', maxWidth: 680 }}>
-          <ArcaidLogoAnimated maxWidth={680} />
-          <p style={{
+          {isLight ? (
+            <img
+              src={LIGHT_HERO_SRC}
+              alt="Arcaid"
+              data-testid="landing-hero-light"
+              style={{
+                display: 'block',
+                width: '100%',
+                aspectRatio: `${HERO_BOX_W} / ${HERO_BOX_H}`,
+                objectFit: 'contain',
+                objectPosition: 'top center',
+              }}
+            />
+          ) : (
+            <ArcaidLogoAnimated maxWidth={680} />
+          )}
+          <p data-testid="landing-motto" style={{
             position: 'absolute',
             left: 0,
             right: 0,
@@ -196,8 +238,11 @@ export default function LandingPage() {
             letterSpacing: '0.14em',
             textTransform: 'uppercase',
             whiteSpace: 'nowrap',
-            color: 'rgba(255,255,255,0.72)',
-            textShadow: '0 0 12px rgba(91,200,245,0.35), 0 1px 6px rgba(0,0,0,0.9)',
+            /* B3 (v2.56.0) — polarity-driven. Dark keeps the exact
+               white-at-72% + cyan glow it had; light becomes the logo plate's
+               purple with the glow dropped (see --sb-motto-* in index.css). */
+            color: 'var(--sb-motto-fg)',
+            textShadow: 'var(--sb-motto-shadow)',
             /* v2.49.0 — user: center the motto under the WORDMARK, which sits
                a touch left of the logo box's center (the chrome ball on the
                "i" pads the right edge). Nudge + wider sentence gaps (nbsp +
@@ -290,14 +335,15 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
   const doubled = useMemo(() => [...scores, ...scores], [scores]);
 
   return (
-    <div style={{
+    <div data-testid="landing-ticker-band" style={{
       position: 'relative',
       overflow: 'hidden',
-      borderBottom: '1px solid rgba(255,255,255,0.06)',
+      borderBottom: '1px solid var(--sb-ticker-edge)',
       /* v2.45.3 — fade the tint IN from transparent so the section has no
          visible top edge (the old 0.08-at-0% start painted a hard seam
-         where the band met the page background above it). */
-      background: 'linear-gradient(180deg, transparent 0%, rgba(139,92,246,0.07) 30%, rgba(139,92,246,0.04) 70%, transparent 100%)',
+         where the band met the page background above it).
+         v2.56.0 (B1) — token-driven so it follows polarity. */
+      background: 'var(--sb-ticker-band)',
     }}>
       {/* Scrolling ticker — its top row slides up behind the logo
           (see the negative-margin wrapper at the call site). */}
@@ -335,9 +381,9 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
             gap: 6,
             padding: '8px 20px',
             borderRadius: 10,
-            background: 'linear-gradient(135deg, rgba(139,92,246,0.5), rgba(236,72,153,0.5))',
-            border: '1px solid rgba(139,92,246,0.4)',
-            color: '#ffffff',
+            background: 'var(--sb-ticker-cta-bg)',
+            border: '1px solid var(--sb-ticker-cta-border)',
+            color: 'var(--sb-ticker-cta-fg)',
             fontSize: 13,
             fontWeight: 600,
             textDecoration: 'none',
@@ -346,11 +392,11 @@ function ScoreboardPromo({ scores }: { scores: RecentScore[] }) {
             fontFamily: "'DM Sans', sans-serif",
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.7), rgba(236,72,153,0.7))';
+            e.currentTarget.style.background = 'var(--sb-ticker-cta-bg-hover)';
             e.currentTarget.style.transform = 'translateY(-1px)';
           }}
           onMouseLeave={e => {
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(139,92,246,0.5), rgba(236,72,153,0.5))';
+            e.currentTarget.style.background = 'var(--sb-ticker-cta-bg)';
             e.currentTarget.style.transform = 'translateY(0)';
           }}
         >
@@ -382,26 +428,25 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
   const img = imageForScore(score);
   const gameName = score.display_name || score.game_name;
   const [imgError, setImgError] = useState(false);
-  const [avatarError, setAvatarError] = useState(false);
-  const resolvedAvatarSrc = resolveAvatarUrl(score.discord_user_id, score.avatar_url ?? score.avatar_hash);
-  const hasAvatar = !!resolvedAvatarSrc && !avatarError;
 
-  // Initials fallback (v2.8.2: prefer chosen display_name).
+  // v2.8.2: prefer the chosen display_name.
   const playerLabel = score.player_display_name || score.iscored_username || '?';
-  const initial = playerLabel[0].toUpperCase();
+  // Per-player hue for the no-artwork tile. Saturation + the two gradient
+  // stops' lightness come from tokens (B1) so the tile flips with polarity
+  // while keeping its variety.
   const hue = playerLabel
     ? playerLabel.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % 360
     : 200;
 
   return (
-    <div style={{
+    <div data-testid="landing-ticker-card" style={{
       flexShrink: 0,
       width: 220,
       borderRadius: 14,
       overflow: 'hidden',
-      background: 'rgba(18,18,24,0.95)',
-      border: '1px solid rgba(255,255,255,0.06)',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+      background: 'var(--sb-ticker-card-bg)',
+      border: '1px solid var(--sb-ticker-card-border)',
+      boxShadow: 'var(--sb-ticker-card-shadow)',
       cursor: 'pointer',
       transition: 'transform 0.2s, box-shadow 0.2s',
       fontFamily: "'DM Sans', sans-serif",
@@ -415,17 +460,17 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
       }}
       onMouseEnter={e => {
         e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.boxShadow = '0 6px 24px rgba(139,92,246,0.2)';
+        e.currentTarget.style.boxShadow = 'var(--sb-ticker-card-shadow-hover)';
       }}
       onMouseLeave={e => {
         e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.3)';
+        e.currentTarget.style.boxShadow = 'var(--sb-ticker-card-shadow)';
       }}
     >
       {/* Game image */}
       <div style={{
         height: 80,
-        background: 'rgba(255,255,255,0.03)',
+        background: 'var(--sb-ticker-art-bg)',
         position: 'relative',
         overflow: 'hidden',
       }}>
@@ -448,9 +493,9 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: `linear-gradient(135deg, hsl(${hue}, 30%, 12%), hsl(${hue}, 30%, 8%))`,
+            background: `linear-gradient(135deg, hsl(${hue} var(--sb-ticker-art-sat) var(--sb-ticker-art-l1)), hsl(${hue} var(--sb-ticker-art-sat) var(--sb-ticker-art-l2)))`,
           }}>
-            <Gamepad2 size={28} style={{ color: 'rgba(255,255,255,0.15)' }} />
+            <Gamepad2 size={28} style={{ color: 'var(--sb-ticker-art-icon)' }} />
           </div>
         )}
         {/* Score overlay */}
@@ -458,13 +503,15 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
           position: 'absolute',
           bottom: 6,
           right: 8,
-          background: 'rgba(0,0,0,0.7)',
+          /* Reuses the Global Scoreboard's on-art pill token — this chip sits
+             on arbitrary game artwork and has the same legibility problem. */
+          background: 'var(--sb-pill-bg)',
           backdropFilter: 'blur(8px)',
           borderRadius: 6,
           padding: '2px 8px',
           fontSize: 13,
           fontWeight: 700,
-          color: '#fbbf24',
+          color: 'var(--sb-ticker-score-fg)',
           fontFamily: "'DM Mono', monospace",
         }}>
           {formatCompactNumber(score.score)}
@@ -476,7 +523,7 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
         <div style={{
           fontSize: 12,
           fontWeight: 600,
-          color: '#ffffff',
+          color: 'var(--color-primary)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -490,35 +537,19 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
           justifyContent: 'space-between',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
-            {hasAvatar ? (
-              <img
-                src={resolvedAvatarSrc!}
-                alt=""
-                width={18}
-                height={18}
-                style={{ borderRadius: '50%', flexShrink: 0 }}
-                onError={() => setAvatarError(true)}
-              />
-            ) : (
-              <div style={{
-                width: 18,
-                height: 18,
-                borderRadius: '50%',
-                flexShrink: 0,
-                background: `hsl(${hue}, 50%, 35%)`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 10,
-                fontWeight: 700,
-                color: '#fff',
-              }}>
-                {initial}
-              </div>
-            )}
+            {/* B1 (v2.56.0) — the local initials/hue-hash duplicate is gone;
+                this is the same avatar the scoreboards render, so anonymous
+                rows get the themed silhouette instead of a coloured letter. */}
+            <PlayerAvatar
+              username={playerLabel}
+              discordUserId={score.discord_user_id}
+              avatarHash={score.avatar_hash}
+              avatarUrl={score.avatar_url}
+              size={18}
+            />
             <span style={{
               fontSize: 11,
-              color: 'rgba(255,255,255,0.6)',
+              color: 'var(--color-muted)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -528,7 +559,7 @@ function ScoreTickerCard({ score }: { score: RecentScore }) {
           </div>
           <span style={{
             fontSize: 10,
-            color: 'rgba(255,255,255,0.3)',
+            color: 'var(--color-faint)',
             flexShrink: 0,
             marginLeft: 6,
           }}>

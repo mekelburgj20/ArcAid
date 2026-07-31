@@ -101,6 +101,34 @@
   --sb-art-btn-bg: rgba(0, 0, 0, 0.55);
   --sb-art-btn-border: rgba(255, 255, 255, 0.15);
 
+  /* Landing page: hero motto + rotating score ticker (B, v2.56.0). The landing
+     page predates A1's polarity work and its promo/ticker were entirely
+     inline-styled dark, which is exactly why they stayed dark under
+     `.theme-light`. Same rule as the blocks above: LandingPage.tsx's
+     ScoreboardPromo/ScoreTickerCard ship zero literal rgba(). The values here
+     reproduce the pre-v2.56.0 dark look byte-for-byte — dark must not change. */
+  --sb-motto-fg: rgba(255, 255, 255, 0.72);
+  --sb-motto-shadow: 0 0 12px rgba(91, 200, 245, 0.35), 0 1px 6px rgba(0, 0, 0, 0.9);
+  --sb-ticker-band: linear-gradient(180deg, transparent 0%, rgba(139, 92, 246, 0.07) 30%, rgba(139, 92, 246, 0.04) 70%, transparent 100%);
+  --sb-ticker-edge: rgba(255, 255, 255, 0.06);
+  --sb-ticker-card-bg: rgba(18, 18, 24, 0.95);
+  --sb-ticker-card-border: rgba(255, 255, 255, 0.06);
+  --sb-ticker-card-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --sb-ticker-card-shadow-hover: 0 6px 24px rgba(139, 92, 246, 0.2);
+  --sb-ticker-art-bg: rgba(255, 255, 255, 0.03);
+  --sb-ticker-art-icon: rgba(255, 255, 255, 0.15);
+  /* The no-artwork tile keeps its per-player hue rotation; only the saturation
+     and the two gradient stops' lightness flip with polarity, so the hue stays
+     a JS-computed number and the palette stays token-driven. */
+  --sb-ticker-art-sat: 30%;
+  --sb-ticker-art-l1: 12%;
+  --sb-ticker-art-l2: 8%;
+  --sb-ticker-score-fg: #fbbf24;
+  --sb-ticker-cta-bg: linear-gradient(135deg, rgba(139, 92, 246, 0.5), rgba(236, 72, 153, 0.5));
+  --sb-ticker-cta-bg-hover: linear-gradient(135deg, rgba(139, 92, 246, 0.7), rgba(236, 72, 153, 0.7));
+  --sb-ticker-cta-border: rgba(139, 92, 246, 0.4);
+  --sb-ticker-cta-fg: #ffffff;
+
   /* Fonts */
   --font-display: "Orbitron", sans-serif;
   --font-pixel: "Press Start 2P", cursive;
@@ -316,6 +344,41 @@
   --sb-rail-border: color-mix(in oklab, var(--color-neon-amber) 42%, transparent);
   --sb-art-btn-bg: rgba(255, 255, 255, 0.78);
   --sb-art-btn-border: rgba(0, 0, 0, 0.16);
+
+  /* Landing page (B, v2.56.0).
+   *
+   * Motto: #6427AF is the logo backdrop plate's own hue/saturation
+   * (HSL 267, 63.5% — measured off the plate's lightest stop #4A1D82) lifted
+   * from 31% to 42% lightness, so it reads as brand purple rather than the
+   * near-black the raw plate stops are. Measured 7.12:1 on `--color-deep`
+   * (#E8EAF0), well clear of the 4.5:1 bar — the raw stops score 9.8-15.5:1
+   * but are too dark to read as a colour at all. The cyan glow is dropped
+   * outright in light: cyan haze under purple text on a pale page reads as a
+   * misregistered print, not a neon sign.
+   *
+   * Ticker: card sinks to the white surface with a neutral shadow; the CTA
+   * goes from a translucent violet/pink wash (invisible on pale) to a solid
+   * gradient carrying white text at 8.6:1 / 6.1:1 across its two stops. */
+  --sb-motto-fg: #6427af;
+  --sb-motto-shadow: none;
+  --sb-ticker-band: linear-gradient(180deg, transparent 0%, rgba(100, 39, 175, 0.1) 30%, rgba(100, 39, 175, 0.06) 70%, transparent 100%);
+  --sb-ticker-edge: rgba(0, 0, 0, 0.1);
+  --sb-ticker-card-bg: var(--color-surface);
+  --sb-ticker-card-border: rgba(0, 0, 0, 0.1);
+  --sb-ticker-card-shadow: 0 4px 20px rgba(15, 20, 30, 0.12);
+  --sb-ticker-card-shadow-hover: 0 6px 24px rgba(100, 39, 175, 0.22);
+  --sb-ticker-art-bg: rgba(0, 0, 0, 0.04);
+  --sb-ticker-art-icon: rgba(0, 0, 0, 0.2);
+  --sb-ticker-art-sat: 45%;
+  --sb-ticker-art-l1: 88%;
+  --sb-ticker-art-l2: 80%;
+  /* Amber at its light-polarity `--color-neon-amber` value is only ~3.1:1 on
+     the near-white pill this sits in, so the score gets its own darker amber. */
+  --sb-ticker-score-fg: oklch(46% 0.13 62);
+  --sb-ticker-cta-bg: linear-gradient(135deg, #6427af, #b02a73);
+  --sb-ticker-cta-bg-hover: linear-gradient(135deg, #54208f, #94225f);
+  --sb-ticker-cta-border: rgba(100, 39, 175, 0.45);
+  --sb-ticker-cta-fg: #ffffff;
 }
 
 /* Minimal theme (monochrome + single cyan accent) */
