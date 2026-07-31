@@ -29,6 +29,59 @@ export interface GlobalRankedEntry {
 }
 
 /**
+ * v2.57.0 (A5a) — the minimum number of scores a game must have collected in
+ * the trailing 7 days before the hero card is allowed to call it HOT.
+ *
+ * The design handoff selects the hero as "most scores submitted in the trailing
+ * 7 days", unconditionally, and stamps it with a `HOT` badge plus
+ * `+{n} scores this week`. Checked against production: in a representative
+ * trailing week ONE game had 5 scores and three others had exactly 1. Applied
+ * literally, a quiet week crowns a game with a *single* score and calls it hot —
+ * the badge stops meaning anything and the acceptance criterion ("a genuinely
+ * trending game, not just the first row") is false.
+ *
+ * So the weekly winner only becomes the hero when it clears this floor.
+ * Below it, the hero falls back to the highest `score_count` game in the same
+ * filtered result set and renders neutrally: no HOT badge, no weekly delta. A
+ * hero card is good page structure either way; it just must not claim heat it
+ * doesn't have.
+ *
+ * 3 is deliberately a floor ("more than a couple of people played it this
+ * week"), not a tuned constant — raise it as the community grows.
+ */
+export const HERO_MIN_WEEKLY_SCORES = 3;
+
+/** Trailing window the hero's "this week" count is measured over. */
+export const HERO_WINDOW_DAYS = 7;
+
+/**
+ * v2.57.0 (A5a) — the hero card's game. Every field `getTopGames` returns for a
+ * grid card, plus the two the hero adds.
+ */
+export interface HeroGameRow {
+    global_game_id: string;
+    name: string;
+    display_name: string | null;
+    manufacturer: string | null;
+    year: number | null;
+    type: string;
+    image_url: string | null;
+    local_image_path: string | null;
+    wheel_image_path: string | null;
+    platforms: string;
+    score_count: number;
+    top_score: number | null;
+    last_submitted_at: string | null;
+    popularity: number;
+    avg_rating: number;
+    rating_count: number;
+    /** Scores submitted in the trailing 7 days. */
+    weekly_score_count: number;
+    /** True only when `weekly_score_count >= HERO_MIN_WEEKLY_SCORES`. */
+    is_hot: boolean;
+}
+
+/**
  * Leaderboard for a global game. Scope is either 'global' (all rooms combined)
  * or a specific game_room_id (filter to scores that originated in that room).
  *
@@ -235,6 +288,159 @@ export class GlobalLeaderboardService {
     }
 
     /**
+     * The catalogue-view filter set, in one place (v2.57.0).
+     *
+     * Extracted from `getTopGames` so `getHeroGame` is filtered by CONSTRUCTION
+     * rather than by a second copy that has to be kept in step. The hero has to
+     * respect the same platform group / room scope / search the grid does — a
+     * globally-hottest hero above a Physical-only grid is incoherent — and the
+     * only durable way to guarantee that is for both to build their SQL here.
+     *
+     * Score-level predicates belong in the LEFT JOIN (so zero-score games still
+     * appear); game-level predicates belong in WHERE (so non-matching games
+     * vanish entirely).
+     */
+    private static buildCatalogueFilters(options: {
+        scope?: string;
+        search?: string;
+        type?: string;
+        platforms?: string[];
+    }): { joinClause: string; joinParams: any[]; whereClause: string; whereParams: any[] } {
+        const scope = options.scope || 'global';
+        const isGlobal = scope === 'global';
+
+        const joinConditions: string[] = ['gs.global_game_id = gg.id', 'gs.deleted_at IS NULL'];
+        const joinParams: any[] = [];
+        if (isGlobal) {
+            joinConditions.push('gs.exclude_from_global = 0');
+        } else {
+            joinConditions.push('gs.origin_game_room_id = ?');
+            joinParams.push(scope);
+        }
+
+        const whereConditions: string[] = [
+            `gg.status = 'approved'`,
+            `gg.global_leaderboard = 1`,
+        ];
+        const whereParams: any[] = [];
+
+        if (options.type) {
+            whereConditions.push('gg.type = ?');
+            whereParams.push(options.type);
+        }
+        if (options.search && options.search.trim()) {
+            const search = GlobalLeaderboardService.buildSearchFilter(options.search);
+            if (search) {
+                whereConditions.push(search.clause);
+                whereParams.push(...search.params);
+            }
+        }
+        if (options.platforms && options.platforms.length > 0) {
+            const clauses = options.platforms.map(() => `gg.platforms LIKE ?`);
+            whereConditions.push(`(${clauses.join(' OR ')})`);
+            for (const p of options.platforms) {
+                whereParams.push(`%"${p}"%`);
+            }
+        }
+
+        return {
+            joinClause: joinConditions.join(' AND '),
+            joinParams,
+            whereClause: whereConditions.join(' AND '),
+            whereParams,
+        };
+    }
+
+    /**
+     * v2.57.0 (A5a) — the hero card's game for a given filtered view.
+     *
+     * Two-branch selection, per `HERO_MIN_WEEKLY_SCORES`:
+     *   1. the game with the most scores in the trailing 7 days, IF that count
+     *      clears the floor → `is_hot: true` + the weekly delta to render;
+     *   2. otherwise the highest `score_count` game in the same view →
+     *      `is_hot: false`, weekly count still reported but never rendered as a
+     *      "+n this week" claim.
+     *
+     * Returns null when no game in the view has a single score. A hero card
+     * exists to showcase a champion; with nothing to show, the page is better
+     * off as a plain grid (this also covers the empty-result-set case).
+     *
+     * Cost note: the weekly count is one extra conditional SUM over the SAME
+     * LEFT JOIN `getTopGames` already performs, ordered + LIMIT 1. No new index
+     * is required — `idx_global_scores_submitted` on `submitted_at` predates
+     * this — and the timestamp column is `global_scores.submitted_at`; there is
+     * no `created_at` on that table.
+     */
+    static async getHeroGame(options: {
+        scope?: string;
+        search?: string;
+        type?: string;
+        platforms?: string[];
+    } = {}): Promise<HeroGameRow | null> {
+        const db = await getDatabase();
+        const { joinClause, joinParams, whereClause, whereParams } =
+            GlobalLeaderboardService.buildCatalogueFilters(options);
+
+        const since = new Date(Date.now() - HERO_WINDOW_DAYS * 86_400_000).toISOString();
+        const popularityExpr =
+            `COALESCE(SUM(1.0 / (1.0 + (julianday('now') - julianday(gs.submitted_at)) / 14.0)), 0)`;
+
+        const select = (orderBy: string) => `
+            SELECT
+                gg.id as global_game_id,
+                gg.name,
+                gg.display_name,
+                gg.manufacturer,
+                gg.year,
+                gg.type,
+                gg.image_url,
+                gg.local_image_path,
+                gg.wheel_image_path,
+                gg.platforms,
+                COUNT(gs.id) as score_count,
+                MAX(gs.score) as top_score,
+                MAX(gs.submitted_at) as last_submitted_at,
+                ${popularityExpr} as popularity,
+                COALESCE(gr.avg_rating, 0) as avg_rating,
+                COALESCE(gr.rating_count, 0) as rating_count,
+                COALESCE(SUM(CASE WHEN gs.submitted_at >= ? THEN 1 ELSE 0 END), 0) as weekly_score_count
+            FROM global_games gg
+            LEFT JOIN global_scores gs ON ${joinClause}
+            LEFT JOIN (
+                SELECT global_game_id,
+                       AVG(rating) as avg_rating,
+                       COUNT(*) as rating_count
+                FROM global_game_ratings
+                GROUP BY global_game_id
+            ) gr ON gr.global_game_id = gg.id
+            WHERE ${whereClause}
+            GROUP BY gg.id
+            HAVING COUNT(gs.id) > 0
+            ORDER BY ${orderBy}
+            LIMIT 1`;
+
+        // `since` binds in the SELECT list, so it leads the parameter order.
+        const hot = await db.get(
+            select('weekly_score_count DESC, score_count DESC, gg.name COLLATE NOCASE ASC'),
+            since, ...joinParams, ...whereParams,
+        );
+        if (hot && hot.weekly_score_count >= HERO_MIN_WEEKLY_SCORES) {
+            return { ...hot, is_hot: true } as HeroGameRow;
+        }
+
+        // Nothing in this view has any score at all — the hot query already
+        // proved it (it only filters on HAVING COUNT > 0), so skip the second
+        // round-trip.
+        if (!hot) return null;
+
+        const neutral = await db.get(
+            select('score_count DESC, popularity DESC, gg.name COLLATE NOCASE ASC'),
+            since, ...joinParams, ...whereParams,
+        );
+        return neutral ? ({ ...neutral, is_hot: false } as HeroGameRow) : null;
+    }
+
+    /**
      * Paginated catalogue view with per-game score aggregates. All catalogue games
      * appear (LEFT JOIN), including ones with zero scores. Sort defaults to `popular`
      * — a recency-weighted score count that emphasizes games with recent activity.
@@ -295,45 +501,8 @@ export class GlobalLeaderboardService {
         const scope = options.scope || 'global';
         const isGlobal = scope === 'global';
 
-        // Score-level filters go in the LEFT JOIN predicate so games with zero
-        // matching scores still appear with score_count = 0.
-        const joinConditions: string[] = ['gs.global_game_id = gg.id', 'gs.deleted_at IS NULL'];
-        const joinParams: any[] = [];
-        if (isGlobal) {
-            joinConditions.push('gs.exclude_from_global = 0');
-        } else {
-            joinConditions.push('gs.origin_game_room_id = ?');
-            joinParams.push(scope);
-        }
-
-        // Game-level filters go in WHERE so non-matching games are excluded entirely.
-        const whereConditions: string[] = [
-            `gg.status = 'approved'`,
-            `gg.global_leaderboard = 1`,
-        ];
-        const whereParams: any[] = [];
-
-        if (options.type) {
-            whereConditions.push('gg.type = ?');
-            whereParams.push(options.type);
-        }
-        if (options.search && options.search.trim()) {
-            const search = GlobalLeaderboardService.buildSearchFilter(options.search);
-            if (search) {
-                whereConditions.push(search.clause);
-                whereParams.push(...search.params);
-            }
-        }
-        if (options.platforms && options.platforms.length > 0) {
-            const clauses = options.platforms.map(() => `gg.platforms LIKE ?`);
-            whereConditions.push(`(${clauses.join(' OR ')})`);
-            for (const p of options.platforms) {
-                whereParams.push(`%"${p}"%`);
-            }
-        }
-
-        const whereClause = whereConditions.join(' AND ');
-        const joinClause = joinConditions.join(' AND ');
+        const { joinClause, joinParams, whereClause, whereParams } =
+            GlobalLeaderboardService.buildCatalogueFilters(options);
 
         // Popularity: recency-weighted score count, 14-day half-life.
         // julianday('now') - julianday(submitted_at) = age in days.

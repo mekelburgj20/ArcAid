@@ -6,6 +6,7 @@ import RoomTag from './RoomTag';
 import { formatScore } from '../lib/format';
 import { catalogueImageFor } from '../lib/catalogueImage';
 import { getPlatformShortLabel } from '../lib/platforms';
+import { planRows, type Density } from '../lib/scoreboardDensity';
 
 /**
  * The Global Scoreboard game card — v2.50.0 (A2)'s art-first card, extracted
@@ -65,8 +66,21 @@ export interface GlobalGameCardGame {
   neighbors?: TopScoreEntry[];
 }
 
-/** v2.50.0 (A2): cards render the top 6 only. */
-export const CARD_ROWS = 6;
+/**
+ * Density planning lives in `lib/scoreboardDensity.ts` — it is a pure function
+ * over the payload, and a component module that also exports helpers breaks
+ * Fast Refresh. Re-exported here because callers reach for it through the card.
+ */
+export type { Density, PlannedRow, RowPlan } from '../lib/scoreboardDensity';
+
+/** Dashed rule with a centred ellipsis — the "…and then, you" separator. */
+function BreakLine() {
+  return (
+    <div className="mx-2 mt-1 border-t border-dashed border-border pt-1 text-center text-[8px] leading-none text-faint">
+      · · ·
+    </div>
+  );
+}
 
 function parsePlatforms(raw: string): string[] {
   try {
@@ -86,14 +100,27 @@ const RANK_TINTS: Record<number, { bg: string; border: string; medal: string; la
   3: { bg: 'var(--sb-row-bronze-bg)', border: 'var(--sb-row-bronze-border)', medal: 'text-medal-bronze', label: '3rd place' },
 };
 
-export function LeaderboardRow({ entry, rank, isYou = false }: { entry: TopScoreEntry; rank: number; isYou?: boolean }) {
+export function LeaderboardRow({ entry, rank, isYou = false, isNext = false }: {
+  entry: TopScoreEntry;
+  rank: number;
+  isYou?: boolean;
+  /** v2.57.0 (A5a) — the player exactly one rank above the viewer, in `mine`
+   *  density. Gets the amber "next to beat" treatment. */
+  isNext?: boolean;
+}) {
   const tint = RANK_TINTS[rank];
   const name = playerName(entry);
   const abbreviated = formatScore(entry.score);
   // A4: the viewer's own row wins the tint even at rank 1-3 — "this is me" is
   // the more useful signal on a card the viewer opened to find themselves on.
-  const bg = isYou ? 'var(--sb-row-you-bg)' : (tint?.bg ?? 'transparent');
-  const border = isYou ? 'var(--sb-row-you-border)' : (tint?.border ?? 'transparent');
+  // A5a: "next to beat" outranks the medal tint for the same reason, and only
+  // ever applies in `mine` density (the caller sets the flag).
+  const bg = isYou ? 'var(--sb-row-you-bg)'
+    : isNext ? 'var(--sb-row-next-bg)'
+    : (tint?.bg ?? 'transparent');
+  const border = isYou ? 'var(--sb-row-you-border)'
+    : isNext ? 'var(--sb-row-next-border)'
+    : (tint?.border ?? 'transparent');
 
   return (
     <div
@@ -127,6 +154,12 @@ export function LeaderboardRow({ entry, rank, isYou = false }: { entry: TopScore
               You
             </span>
           )}
+          {isNext && !isYou && (
+            <span className="ml-1.5 rounded-[2px] px-1 py-px align-middle text-[8px] font-bold uppercase tracking-[0.5px] text-neon-amber"
+              style={{ background: 'var(--sb-row-next-bg)' }}>
+              Next
+            </span>
+          )}
         </span>
         {entry.origin_room_slug && (
           <RoomTag
@@ -153,7 +186,7 @@ export function LeaderboardRow({ entry, rank, isYou = false }: { entry: TopScore
  * on a scrim, then ranks 1-6, then a footer with the score count and a solid
  * Submit. No podium, no placeholder rows, no star row.
  */
-export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge }: {
+export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, density = 'top6' }: {
   game: GlobalGameCardGame;
   onSubmit: () => void;
   /** Undefined for anonymous viewers — the hotspot is not rendered at all. */
@@ -161,10 +194,13 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge }: {
   /** v2.55.0 — optional pill rendered left of the platform chip. The pins
    *  carousel passes its rank-delta badge; the grid passes nothing. */
   badge?: ReactNode;
+  /** v2.57.0 (A5a) — page-level density. Defaults to the pre-A5a behaviour, so
+   *  callers that don't offer the toggle (the pins carousel) are unchanged. */
+  density?: Density;
 }) {
   const img = catalogueImageFor(game);
   const displayName = game.display_name || game.name;
-  const rows = (game.top_scores || []).slice(0, CARD_ROWS);
+  const { rows: planned, prompt } = planRows(game, density);
   const platforms = parsePlatforms(game.platforms);
   const primaryPlatform = platforms[0];
 
@@ -175,9 +211,12 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge }: {
    *
    * The row itself comes from `neighbors` (which carries the full entry shape
    * including avatar and origin room), not from a synthesised stub.
+   *
+   * A5a: `mine` density already plans the viewer's neighbourhood into the row
+   * list, so this appendix is a `top6`-only affordance.
    */
   const myRank = game.my_rank ?? null;
-  const youEntry = (myRank != null && myRank > rows.length)
+  const youEntry = (density === 'top6' && myRank != null && myRank > planned.length)
     ? (game.neighbors || []).find(n => n.rank === myRank) ?? null
     : null;
 
@@ -266,19 +305,35 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge }: {
       {/* 2. Leaderboard — exactly as many rows as there are scores, max 6.
              3. Empty state — dashed "Claim 1st" CTA, no placeholder podium. */}
       <div className="flex-1 px-3 py-2.5">
-        {rows.length > 0 ? (
+        {planned.length > 0 ? (
           <div className="space-y-0.5">
-            {rows.map((entry, i) => (
-              <LeaderboardRow
-                key={`${entry.discord_user_id}-${entry.iscored_username}`}
-                entry={entry}
-                rank={i + 1}
-              />
+            {planned.map(row => (
+              <div key={`${row.rank}-${row.entry.discord_user_id}-${row.entry.iscored_username}`}>
+                {/* A5a — the break line only appears where the plan actually
+                    skips ranks, so ranks 1-4 (contiguous) never draw one. */}
+                {row.gapBefore && <BreakLine />}
+                <LeaderboardRow
+                  entry={row.entry}
+                  rank={row.rank}
+                  isYou={row.isYou}
+                  isNext={row.isNext}
+                />
+              </div>
             ))}
+            {/* A5a — `mine` density with no score of your own: what it takes to
+                get on the board, rather than a list you're absent from. */}
+            {prompt && (
+              <div className="mt-1 rounded-md border border-dashed border-neon-cyan/35 px-2 py-1.5 text-center">
+                <div className="text-[10px] font-bold uppercase tracking-[0.5px] text-neon-cyan">
+                  No score yet
+                </div>
+                <div className="text-[10px] text-muted">
+                  #{prompt.rank} needs {formatScore(prompt.score)} to qualify
+                </div>
+              </div>
+            )}
             {/* A4 — the viewer's own row, appended when they rank below the
-                rows above. No break line / neighbour block: that's A5's
-                density toggle, and `neighbors` is already on the payload for
-                it. */}
+                rows above (Top 6 density only). */}
             {youEntry && (
               <LeaderboardRow entry={youEntry} rank={myRank as number} isYou />
             )}

@@ -78,6 +78,15 @@
   --sb-row-you-bg: color-mix(in oklab, var(--color-neon-cyan) 12%, transparent);
   --sb-row-you-border: color-mix(in oklab, var(--color-neon-cyan) 33%, transparent);
 
+  /* Hero card + "next to beat" row (A5a, v2.57.0). The NEXT tint is a weaker
+     amber than the gold medal row on purpose: it must read as "the player you
+     are chasing", not as a second first-place. */
+  --sb-row-next-bg: color-mix(in oklab, var(--color-neon-amber) 8%, transparent);
+  --sb-row-next-border: color-mix(in oklab, var(--color-neon-amber) 27%, transparent);
+  --sb-hero-border: color-mix(in oklab, var(--color-neon-cyan) 40%, transparent);
+  --sb-hero-glow: 0 0 40px color-mix(in oklab, var(--color-neon-cyan) 13%, transparent);
+  --sb-hero-score-glow: 0 0 10px color-mix(in oklab, var(--color-neon-amber) 33%, transparent);
+
   /* Search palette (A3, v2.51.0) — the ⌘K command palette on /scoreboard.
      Same rule as the card tokens above: the component ships zero literal
      rgba(), so the palette is legible under both polarities. */
@@ -326,6 +335,15 @@
   --sb-row-bronze-border: color-mix(in oklab, var(--color-medal-bronze) 42%, transparent);
   --sb-row-you-bg: color-mix(in oklab, var(--color-neon-cyan) 16%, transparent);
   --sb-row-you-border: color-mix(in oklab, var(--color-neon-cyan) 42%, transparent);
+
+  /* Hero + "next to beat" (A5a): same +4-6pt alpha lift the rows above take on
+     a pale surface, and the hero's cyan glow drops to a neutral elevation
+     shadow — a cyan bloom on white reads as a rendering artefact, not depth. */
+  --sb-row-next-bg: color-mix(in oklab, var(--color-neon-amber) 14%, transparent);
+  --sb-row-next-border: color-mix(in oklab, var(--color-neon-amber) 38%, transparent);
+  --sb-hero-border: color-mix(in oklab, var(--color-neon-cyan) 52%, transparent);
+  --sb-hero-glow: 0 8px 32px rgba(15, 20, 30, 0.14);
+  --sb-hero-score-glow: none;
 
   /* Palette: a black-on-black field and a 50%-black drop shadow both vanish on
      a light page, so the field sinks to the raised surface and the shadow
