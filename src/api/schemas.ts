@@ -235,7 +235,12 @@ export const scoreProvenanceFields = {
 } as const;
 
 export const CommunityScoreSchema = z.object({
-    username: z.string().min(1).max(100),
+    // v2.54.0 username lock: optional at the schema layer because an
+    // AUTHENTICATED submitter's name is resolved server-side (see
+    // `resolveSubmitUsername` in rooms.ts) and this field is ignored for them.
+    // Guests still need one — the handler 400s when a guest omits it.
+    // Length/emptiness rules for the guest path are unchanged.
+    username: z.string().min(1).max(100).optional(),
     score: z.number().int().min(0).max(MAX_SCORE),
     // discord_user_id intentionally NOT accepted here — attribution is derived
     // server-side from the verified Bearer token (req.user.discordId), never
@@ -250,7 +255,8 @@ export const CommunityScoreSchema = z.object({
 });
 
 export const ScoreSubmissionSchema = z.object({
-    username: z.string().min(1).max(100),
+    // Optional for authenticated submitters — see CommunityScoreSchema.
+    username: z.string().min(1).max(100).optional(),
     score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
     platform: z.string().min(1).optional(),
     ...scoreProvenanceFields,
@@ -264,7 +270,8 @@ export const ScoreSubmissionSchema = z.object({
  */
 export const FreeplayScoreSchema = z.object({
     globalGameId: z.string().min(1),
-    username: z.string().min(1).max(100),
+    // Optional for authenticated submitters — see CommunityScoreSchema.
+    username: z.string().min(1).max(100).optional(),
     score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
     excludeGlobal: z.preprocess(
         v => v === 'true' || v === true,
@@ -283,7 +290,13 @@ export const FreeplayScoreSchema = z.object({
 export const GlobalScoreSubmissionSchema = z.object({
     globalGameId: z.string().min(1),
     score: z.preprocess(v => typeof v === 'string' ? parseInt(v as string, 10) : v, z.number().int().min(0).max(MAX_SCORE)),
-    displayName: z.string().max(50).optional(),
+    // v2.54.0 username lock: `displayName` is deliberately ABSENT. This route is
+    // `requireDiscordUser`, so the name is always resolved server-side via
+    // `UserProfileService.resolveSubmitName` and the body has no say. The field
+    // is omitted rather than declared-and-ignored so that an older client still
+    // posting one has it silently stripped (z.object strips unknown keys) — the
+    // same "ignored, not rejected" behaviour as before, including for values
+    // that would have failed the old 50-char cap.
     excludeFromGlobal: z.preprocess(v => v === 'true' || v === true, z.boolean()).default(false),
     platform: z.string().min(1).optional(),
     ...scoreProvenanceFields,
