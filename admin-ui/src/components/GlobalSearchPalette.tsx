@@ -4,7 +4,6 @@ import { Search, Medal, Loader2 } from 'lucide-react';
 import { catalogueImageFor } from '../lib/catalogueImage';
 import { playerName } from './ScoreboardComponents';
 import { formatScore } from '../lib/format';
-import { PLATFORM_GROUPS } from '../lib/platforms';
 
 /**
  * v2.51.0 (A3) — the ⌘K / Ctrl+K command palette on /scoreboard.
@@ -58,8 +57,8 @@ interface Props {
     debouncedQuery: string;
     /** Active room scope — the palette respects the page's filters. */
     scope: string;
-    /** Active platform-group key (`all` | a PLATFORM_GROUPS key). */
-    platformGroup: string;
+    /** Active fidelity-category chip (`all` | a `CARD_CATEGORY_ORDER` id). */
+    category: string;
     /** Drives the logged-out footer hint; submission gating lives on the page. */
     loggedIn: boolean;
     onSubmitGame: (game: PaletteGame) => void;
@@ -75,7 +74,7 @@ export default function GlobalSearchPalette({
     onValueChange,
     debouncedQuery,
     scope,
-    platformGroup,
+    category,
     loggedIn,
     onSubmitGame,
 }: Props) {
@@ -128,13 +127,19 @@ export default function GlobalSearchPalette({
             limit: String(PALETTE_LIMIT),
             offset: '0',
             search: query,
+            // v2.59.0 (P4) — the grid lists per-category CARDS; the palette
+            // lists GAMES. `groupBy=game` collapses the rows server-side, so a
+            // game with three category boards is one result, its `score_count`
+            // is the game's real total, and the `total` in the footer counts
+            // games rather than boards. Deduping client-side instead would
+            // have made both of those numbers lie.
+            groupBy: 'game',
         });
-        if (platformGroup !== 'all') {
-            const plats = PLATFORM_GROUPS[platformGroup]?.platforms || [];
-            if (plats.length > 0) params.set('platforms', plats.join(','));
-        }
+        // A game still qualifies through the active chip: with a category set,
+        // the endpoint keeps only games that have at least one score in it.
+        if (category !== 'all') params.set('category', category);
         return `/api/global/scoreboard?${params.toString()}`;
-    }, [scope, platformGroup]);
+    }, [scope, category]);
 
     const query = debouncedQuery.trim();
     // "Has something to search for". Stale rows are gated out at render time

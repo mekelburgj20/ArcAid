@@ -115,6 +115,31 @@ export const ENGINE_CATEGORY_LABELS: Record<EngineCategory, string> = {
     video:        'Video Games',
 };
 
+/**
+ * The bucket that holds scores whose engine yields NO fidelity category
+ * (`'unknown'`, or a token nothing recognises) — v2.59.0, ADR 0016 P4.
+ *
+ * It is deliberately NOT a member of `EngineCategory`: it makes no claim about
+ * comparability and must never be presented as a peer of the three real bands.
+ * It exists because 38 of 67 production global scores carry `engine='unknown'`,
+ * and a card model that only builds cards for the known bands would drop the
+ * MAJORITY of the site's scores off the page. A visibly-neutral bucket that
+ * says "nobody recorded this" is the only honest way to keep them reachable.
+ */
+export const UNSPECIFIED_CATEGORY = 'unspecified';
+
+/**
+ * Every category a scoreboard card can carry, in display order — the three
+ * fidelity bands, the video-game axis, then the no-claim bucket last.
+ *
+ * `null` is a FOURTH state and is deliberately absent from this list: it means
+ * "this card has no scores at all", which is a property of the game, not a
+ * category a player can filter on.
+ */
+export const CARD_CATEGORY_ORDER: string[] = [
+    'real', 'simulation', 'arcade_style', 'video', UNSPECIFIED_CATEGORY,
+];
+
 // ─── Devices ────────────────────────────────────────────────────────────────
 
 export interface DeviceInfo {
@@ -454,6 +479,33 @@ export function getEngineCategory(id: string | null | undefined): EngineCategory
 export function getEngineCategoryLabel(id: string | null | undefined): string | null {
     const category = getEngineCategory(id);
     return category ? ENGINE_CATEGORY_LABELS[category] : null;
+}
+
+/**
+ * The card bucket an engine belongs to — like `getEngineCategory`, except an
+ * engine with no fidelity band lands in `UNSPECIFIED_CATEGORY` instead of null
+ * (v2.59.0, ADR 0016 P4).
+ *
+ * The two helpers coexist on purpose. `getEngineCategory` returning null is
+ * what stops a display surface from ASSERTING a band it can't support;
+ * `engineCardCategory` never returns null because a card model must put every
+ * score somewhere or it silently loses it. Same taxonomy, two different duties.
+ */
+export function engineCardCategory(id: string | null | undefined): string {
+    return getEngineCategory(id) ?? UNSPECIFIED_CATEGORY;
+}
+
+/**
+ * Human label for a CARD category id, including the `unspecified` bucket.
+ *
+ * Returns null for `null` — the zero-score card, which carries no category at
+ * all and must render no chip rather than a misleading "Unspecified" (that
+ * would claim the game has scores of unrecorded provenance when it has none).
+ */
+export function getCardCategoryLabel(id: string | null | undefined): string | null {
+    if (id == null || id === '') return null;
+    if (id === UNSPECIFIED_CATEGORY) return UNSPECIFIED_LABEL;
+    return ENGINE_CATEGORY_LABELS[id as EngineCategory] ?? null;
 }
 
 /**

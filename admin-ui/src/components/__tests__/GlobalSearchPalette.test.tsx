@@ -286,12 +286,15 @@ describe('GlobalSearchPalette (v2.51.0 A3)', () => {
     expect(paletteRequests()[0]).toContain('search=haunt');
   });
 
-  it('respects the active platform filter', async () => {
+  // v2.59.0 (ADR 0016 P4): the page's platform-group chips became fidelity
+  // CATEGORY chips, so this is the same guarantee against the new taxonomy —
+  // the palette must inherit whatever the page is filtered to.
+  it('respects the active category filter', async () => {
     mockFetch();
     renderScoreboard();
     await settle();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Virtual Pinball' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Simulation' }));
     await settle();
 
     openPalette();
@@ -299,8 +302,23 @@ describe('GlobalSearchPalette (v2.51.0 A3)', () => {
     await typeQuery('haunt');
 
     expect(paletteRequests()).toHaveLength(1);
-    expect(paletteRequests()[0]).toContain('platforms=');
-    expect(decodeURIComponent(paletteRequests()[0])).toContain('vpx');
+    expect(paletteRequests()[0]).toContain('category=simulation');
+  });
+
+  // The grid lists per-category boards; the palette lists GAMES. Without
+  // `groupBy=game` a game with three category cards would appear three times
+  // in the dropdown under one React key, and the "N more games matched" count
+  // would be counting boards.
+  it('asks for game-grouped rows, not per-category cards', async () => {
+    mockFetch();
+    renderScoreboard();
+    await settle();
+
+    openPalette();
+    requested = [];
+    await typeQuery('haunt');
+
+    expect(paletteRequests()[0]).toContain('groupBy=game');
   });
 
   it('reports the full match count and the overflow hint', async () => {

@@ -23,6 +23,7 @@ import { AccountDeletionService, LastSuperAdminError } from '../../services/Acco
 import { WebPushService } from '../../services/WebPushService.js';
 import { NotificationService } from '../../services/NotificationService.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
+import { CARD_CATEGORY_ORDER } from '../../utils/scoreProvenance.js';
 
 const router = Router();
 
@@ -1289,13 +1290,24 @@ router.get('/global/recent-scores', async (req, res) => {
 });
 
 /**
- * GET /api/global/scoreboard — paginated catalogue + per-game score aggregates.
- * All catalogue games appear, even with zero scores. Default sort is `popular`
- * (recency-weighted score count). Query params:
+ * GET /api/global/scoreboard — paginated CARD list + per-card score aggregates.
+ *
+ * v2.59.0 (ADR 0016 P4): a row is a `(game, fidelity category)` card, not a
+ * game. `total` and pagination count cards; `top_scores`, `my_rank`,
+ * `my_score` and `neighbors` are all scoped inside the card's category. Pins
+ * stay keyed on the GAME, so every card of a pinned game reports `is_pinned`.
+ * All catalogue games still appear, even with zero scores (one uncategorised
+ * card each). Default sort is `popular` (recency-weighted score count).
+ *
+ * Query params:
  *   ?sort=popular|most_scores|highest_rated|most_recent|name_asc|pinned
  *   &scope=global|<roomId>
  *   &limit=30&offset=0
  *   &search=&type=&platforms=vpx,real,...
+ *   &category=real|simulation|arcade_style|video|unspecified (P4 — the chip;
+ *     omitted/`all` returns every card)
+ *   &groupBy=game (P4 — collapse back to one row per game. The ⌘K palette
+ *     searches GAMES: a game matches if any of its cards would.)
  *   &hasScores=1|true (scores-page-redesign: bound global scope to games
  *     WITH at least one live score — room Scoreboard's "Global" tab lens.
  *     Omitted/false leaves the standalone /scoreboard catalogue browse
@@ -1336,9 +1348,14 @@ router.get('/global/scoreboard', optionalDiscordUser, async (req, res) => {
         // B3: room Scoreboard's "Global" tab bounds the catalogue to games WITH
         // scores. Standalone /scoreboard never sends this — behavior unchanged.
         const hasScores = req.query.hasScores === '1' || req.query.hasScores === 'true';
+        // P4 — the category chip. Unknown values are dropped rather than 400ing:
+        // a stale bookmark should render the full board, not an error page.
+        const rawCategory = (req.query.category as string) || '';
+        const category = CARD_CATEGORY_ORDER.includes(rawCategory) ? rawCategory : undefined;
+        const groupBy = req.query.groupBy === 'game' ? 'game' as const : 'card' as const;
 
         const result = await GlobalLeaderboardService.getTopGames({
-            sort, scope, limit, offset, search, type, platforms, hasScores,
+            sort, scope, limit, offset, search, type, platforms, hasScores, category, groupBy,
             ...(viewerId ? { pinnedUserId: viewerId } : {}),
         });
 
@@ -1350,21 +1367,25 @@ router.get('/global/scoreboard', optionalDiscordUser, async (req, res) => {
         // Same filters as the grid by construction — `getHeroGame` builds its
         // WHERE/JOIN through the shared `buildCatalogueFilters`.
         const hero = offset === 0
-            ? await GlobalLeaderboardService.getHeroGame({ scope, search, type, platforms })
+            ? await GlobalLeaderboardService.getHeroGame({ scope, search, type, platforms, category })
             : null;
         const heroId = hero?.global_game_id ?? null;
 
-        // Enrich each game with top 10 leaderboard entries for card previews.
-        // The hero rides along in the id list even when it isn't on this page,
-        // so its rows / rank / pin state cost no extra round-trips.
-        const gameIds = result.data.map((g: any) => g.global_game_id);
+        // Enrich each card with top 10 leaderboard entries for previews. The
+        // hero rides along in the id list even when it isn't on this page, so
+        // its rows / rank / pin state cost no extra round-trips.
+        //
+        // P4 — the lookup key is `card_id`, so two cards of the same game get
+        // their own category's rows. The QUERY still takes game ids (it returns
+        // every category in one pass), hence the de-duplicated id list.
+        const gameIds = [...new Set(result.data.map((g: any) => g.global_game_id as string))];
         const contextIds = (heroId && !gameIds.includes(heroId)) ? [...gameIds, heroId] : gameIds;
-        const topScores = await GlobalLeaderboardService.getTopScoresForGames(contextIds, 10, scope);
+        const topScores = await GlobalLeaderboardService.getTopScoresForCards(contextIds, 10, scope);
         const enriched = result.data.map((g: any) => ({
             ...g,
-            top_scores: topScores[g.global_game_id] || [],
+            top_scores: topScores[g.card_id] || [],
         }));
-        const heroBase = hero ? { ...hero, top_scores: topScores[heroId as string] || [] } : null;
+        const heroBase = hero ? { ...hero, top_scores: topScores[hero.card_id] || [] } : null;
         /** `hero` appears only on page 1; there it may legitimately be null. */
         const heroKey = (value: any) => (offset === 0 ? { hero: value } : {});
 
@@ -1374,34 +1395,49 @@ router.get('/global/scoreboard', optionalDiscordUser, async (req, res) => {
         }
 
         // --- Per-viewer context (authenticated only) ---
-        const myRanks = await GlobalLeaderboardService.getViewerRanks(contextIds, viewerId, scope);
+        // P4 — keyed by `card_id`: a viewer can be 3rd on one category card of
+        // a game and 9th on another, and each card must show its own number.
+        const myRanks = await GlobalLeaderboardService.getViewerCardRanks(contextIds, viewerId, scope);
 
         // `neighbors` = ranks my_rank-1 … my_rank+1, each carrying an explicit
         // `rank`. It exists so A5's density toggle flips client-side with no
         // refetch; it is shipped now because it is the same query and splitting
         // it would mean touching this path twice.
         //
-        // The full ranked list is only pulled for games the viewer actually has
-        // a score on — normally a handful per page. Pulling it for all 30 would
-        // recalculate every cold leaderboard cache on one page load.
-        const neighborsByGame: Record<string, any[]> = {};
-        await Promise.all(Object.entries(myRanks).map(async ([gameId, mine]) => {
-            const rank = mine.rank;
-            const full = await GlobalLeaderboardService.getForGame(gameId, scope);
-            neighborsByGame[gameId] = full.filter(e => e.rank >= rank - 1 && e.rank <= rank + 1);
-        }));
+        // The full ranked list is only pulled for cards ON THIS PAGE that the
+        // viewer actually has a score on — normally a handful. `myRanks` covers
+        // every category of every context game, so intersecting with the
+        // rendered cards is what keeps that bounded.
+        const pageCards = new Map<string, { gameId: string; category: string | null }>();
+        for (const g of result.data as any[]) {
+            pageCards.set(g.card_id, { gameId: g.global_game_id, category: g.category });
+        }
+        if (hero) pageCards.set(hero.card_id, { gameId: hero.global_game_id, category: hero.category });
+
+        const neighborsByCard: Record<string, any[]> = {};
+        await Promise.all([...pageCards.entries()]
+            .filter(([key]) => myRanks[key])
+            .map(async ([key, card]) => {
+                const rank = myRanks[key]!.rank;
+                const full = await GlobalLeaderboardService.getForCard(card.gameId, card.category, scope);
+                neighborsByCard[key] = full.filter(e => e.rank >= rank - 1 && e.rank <= rank + 1);
+            }));
 
         const pinned = await GlobalPinService.pinnedIdsAmong(viewerId, contextIds);
 
-        /** The four per-viewer keys, identical for a grid row and for the hero. */
+        /**
+         * The four per-viewer keys, identical for a grid row and for the hero.
+         * `is_pinned` is looked up by GAME (pinning is a property of the game,
+         * so all its cards agree); the rest are looked up by CARD.
+         */
         const withViewerContext = (g: any) => {
-            const mine = myRanks[g.global_game_id];
+            const mine = myRanks[g.card_id];
             return {
                 ...g,
                 is_pinned: pinned.has(g.global_game_id),
                 my_rank: mine?.rank ?? null,
                 my_score: mine?.score ?? null,
-                neighbors: neighborsByGame[g.global_game_id] ?? [],
+                neighbors: neighborsByCard[g.card_id] ?? [],
             };
         };
 
