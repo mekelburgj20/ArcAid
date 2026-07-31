@@ -313,7 +313,9 @@ describe('GET /api/global/scoreboard — per-viewer context', () => {
 
         const res = await request(app).get('/api/global/scoreboard');
         expect(res.status).toBe(200);
-        expect(Object.keys(res.body).sort()).toEqual(['data', 'hasMore', 'total']);
+        // v2.57.0 (A5a) added exactly ONE top-level key, `hero` (page 1 only).
+        // The per-game row shape below is what must stay frozen.
+        expect(Object.keys(res.body).sort()).toEqual(['data', 'hasMore', 'hero', 'total']);
 
         const row = res.body.data[0];
         expect(Object.keys(row).sort()).toEqual(PRE_A4_KEYS);

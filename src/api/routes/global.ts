@@ -1312,6 +1312,9 @@ router.get('/global/recent-scores', async (req, res) => {
  * invariant, because a key that only appears for some viewers is exactly the
  * kind of thing that silently changes a cache key or a client's `Object.keys`
  * assumptions.
+ *
+ * v2.57.0 (A5a) — the response gains ONE additive top-level key, `hero`, on
+ * `offset === 0` only (see below). Per-game row shapes are untouched.
  */
 router.get('/global/scoreboard', optionalDiscordUser, async (req, res) => {
     try {
@@ -1339,21 +1342,39 @@ router.get('/global/scoreboard', optionalDiscordUser, async (req, res) => {
             ...(viewerId ? { pinnedUserId: viewerId } : {}),
         });
 
-        // Enrich each game with top 10 leaderboard entries for card previews
+        // v2.57.0 (A5a) — the hero card. Page-1 content only: it is one card at
+        // grid position 1, so computing it for every "Load more" page would be
+        // work nobody renders. `offset > 0` omits the key ENTIRELY (not `null`),
+        // which is what lets the client treat "key present" as "this is page 1".
+        //
+        // Same filters as the grid by construction — `getHeroGame` builds its
+        // WHERE/JOIN through the shared `buildCatalogueFilters`.
+        const hero = offset === 0
+            ? await GlobalLeaderboardService.getHeroGame({ scope, search, type, platforms })
+            : null;
+        const heroId = hero?.global_game_id ?? null;
+
+        // Enrich each game with top 10 leaderboard entries for card previews.
+        // The hero rides along in the id list even when it isn't on this page,
+        // so its rows / rank / pin state cost no extra round-trips.
         const gameIds = result.data.map((g: any) => g.global_game_id);
-        const topScores = await GlobalLeaderboardService.getTopScoresForGames(gameIds, 10, scope);
+        const contextIds = (heroId && !gameIds.includes(heroId)) ? [...gameIds, heroId] : gameIds;
+        const topScores = await GlobalLeaderboardService.getTopScoresForGames(contextIds, 10, scope);
         const enriched = result.data.map((g: any) => ({
             ...g,
             top_scores: topScores[g.global_game_id] || [],
         }));
+        const heroBase = hero ? { ...hero, top_scores: topScores[heroId as string] || [] } : null;
+        /** `hero` appears only on page 1; there it may legitimately be null. */
+        const heroKey = (value: any) => (offset === 0 ? { hero: value } : {});
 
         if (!viewerId) {
-            res.json({ ...result, data: enriched });
+            res.json({ ...result, data: enriched, ...heroKey(heroBase) });
             return;
         }
 
         // --- Per-viewer context (authenticated only) ---
-        const myRanks = await GlobalLeaderboardService.getViewerRanks(gameIds, viewerId, scope);
+        const myRanks = await GlobalLeaderboardService.getViewerRanks(contextIds, viewerId, scope);
 
         // `neighbors` = ranks my_rank-1 … my_rank+1, each carrying an explicit
         // `rank`. It exists so A5's density toggle flips client-side with no
@@ -1370,20 +1391,24 @@ router.get('/global/scoreboard', optionalDiscordUser, async (req, res) => {
             neighborsByGame[gameId] = full.filter(e => e.rank >= rank - 1 && e.rank <= rank + 1);
         }));
 
-        const pinned = await GlobalPinService.pinnedIdsAmong(viewerId, gameIds);
+        const pinned = await GlobalPinService.pinnedIdsAmong(viewerId, contextIds);
+
+        /** The four per-viewer keys, identical for a grid row and for the hero. */
+        const withViewerContext = (g: any) => {
+            const mine = myRanks[g.global_game_id];
+            return {
+                ...g,
+                is_pinned: pinned.has(g.global_game_id),
+                my_rank: mine?.rank ?? null,
+                my_score: mine?.score ?? null,
+                neighbors: neighborsByGame[g.global_game_id] ?? [],
+            };
+        };
 
         res.json({
             ...result,
-            data: enriched.map((g: any) => {
-                const mine = myRanks[g.global_game_id];
-                return {
-                    ...g,
-                    is_pinned: pinned.has(g.global_game_id),
-                    my_rank: mine?.rank ?? null,
-                    my_score: mine?.score ?? null,
-                    neighbors: neighborsByGame[g.global_game_id] ?? [],
-                };
-            }),
+            data: enriched.map(withViewerContext),
+            ...heroKey(heroBase ? withViewerContext(heroBase) : null),
         });
     } catch (error) {
         logError('API Error (GET /api/global/scoreboard):', error);

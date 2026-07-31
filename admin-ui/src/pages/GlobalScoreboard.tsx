@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Trophy, Filter } from 'lucide-react';
+import { Trophy, Filter, Circle, MapPin } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import LoadingState from '../components/LoadingState';
@@ -11,7 +11,8 @@ import GlobalThemeToggle from '../components/GlobalThemeToggle';
 import BrandWordmark from '../components/BrandWordmark';
 import GlobalSearchPalette, { type PaletteGame } from '../components/GlobalSearchPalette';
 import PinnedCarousel, { type PinnedGame } from '../components/PinnedCarousel';
-import GlobalGameCard, { type GlobalGameCardGame } from '../components/GlobalGameCard';
+import GlobalGameCard, { type GlobalGameCardGame, type Density } from '../components/GlobalGameCard';
+import GlobalHeroCard from '../components/GlobalHeroCard';
 import { GRID_CLASS } from '../lib/globalGrid';
 import { formatScore } from '../lib/format';
 import { PLATFORM_GROUPS } from '../lib/platforms';
@@ -29,6 +30,15 @@ interface TopGame extends GlobalGameCardGame {
    *  (v2.50.0 removed the StarRating row); GlobalGameDetail still shows stars. */
   avg_rating: number;
   rating_count: number;
+}
+
+/**
+ * v2.57.0 (A5a) — the hero card's game. Same row shape as any other, plus the
+ * two fields the hero adds. `hero` rides on the page-1 payload only.
+ */
+interface HeroGame extends TopGame {
+  is_hot: boolean;
+  weekly_score_count: number;
 }
 
 interface Room {
@@ -54,6 +64,33 @@ const SORT_PILLS: Array<[SortMode, string]> = [
   ['name_asc', 'A–Z'],
 ];
 const PINNED_PILL: [SortMode, string] = ['pinned', 'Pinned first'];
+
+/**
+ * v2.57.0 (A5a) — where the density choice lives.
+ *
+ * `localStorage` paints instantly on the next visit; the server preference is
+ * the source of truth across devices, and reconciles on mount. Same two-tier
+ * pattern `ThemeProvider` uses.
+ *
+ * The server half MUST be `/api/me/scoreboard-preferences` with a NAMESPACED
+ * key — `/api/me/preferences` is theme-only, admin-scoped, and rejects extra
+ * keys with a 400.
+ */
+const DENSITY_STORAGE_KEY = 'arcaid-scoreboard-density';
+const DENSITY_PREF_KEY = 'global_density';
+
+function readStoredDensity(): Density {
+  try {
+    return localStorage.getItem(DENSITY_STORAGE_KEY) === 'mine' ? 'mine' : 'top6';
+  } catch { return 'top6'; }
+}
+
+/** `LIVE · updated {n} ago` — seconds while it still reads as "just now". */
+function formatAgo(seconds: number): string {
+  if (seconds < 60) return `${Math.max(0, seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
+}
 
 // S17: platform groups + short labels now come from lib/platforms.ts — this
 // page's local copies were the app's THIRD divergent taxonomy, stale since
@@ -94,6 +131,16 @@ export default function GlobalScoreboard() {
   /** A4 — a failed pin toggle surfaces here after the optimistic revert. */
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const errorTimerRef = useRef<number | null>(null);
+  /** A5a — the hero card. Page-1 content: `loadMore` never touches it. */
+  const [hero, setHero] = useState<HeroGame | null>(null);
+  /** A5a — Top 6 / My Score. Seeded from localStorage so the first paint is
+   *  already the viewer's choice; the server preference reconciles on mount. */
+  const [density, setDensity] = useState<Density>(readStoredDensity);
+  /** A5a — the live indicator. `lastUpdate` is the timestamp of the newest
+   *  thing we know about (a `score:new:global` event, else the last fetch);
+   *  `nowTs` ticks once a second purely so the rendered age advances. */
+  const [lastUpdate, setLastUpdate] = useState(() => Date.now());
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
   // Debounce search input (300ms) so we don't hammer the backend on every keystroke
   useEffect(() => {
@@ -173,11 +220,16 @@ export default function GlobalScoreboard() {
         setGames(payload.data || []);
         setTotal(payload.total || 0);
         setHasMore(Boolean(payload.hasMore));
+        // A5a: `hero` is page-1-only and may legitimately be null (nothing in
+        // this filtered view has a score yet).
+        setHero((payload.hero as HeroGame | null) ?? null);
+        setLastUpdate(Date.now());
       })
       .catch(() => {
         setGames([]);
         setTotal(0);
         setHasMore(false);
+        setHero(null);
       })
       .finally(() => setLoading(false));
   }, [buildQuery, authHeaders]);
@@ -219,11 +271,21 @@ export default function GlobalScoreboard() {
    * read as "the button doesn't work"; not reverting would leave the UI lying
    * about server state until the next fetch.
    */
+  /**
+   * A5a — the hero is the same game as one of the grid rows (or a game that
+   * fell off the page entirely), so a pin flip has to land on both surfaces or
+   * the two disagree on screen.
+   */
+  const applyPinned = useCallback((gameId: string, value: boolean) => {
+    setGames(prev => prev.map(g => g.global_game_id === gameId ? { ...g, is_pinned: value } : g));
+    setHero(prev => (prev && prev.global_game_id === gameId ? { ...prev, is_pinned: value } : prev));
+  }, []);
+
   const togglePin = useCallback(async (game: TopGame) => {
     if (!playerToken) return;
     const nextPinned = !game.is_pinned;
     const gameId = game.global_game_id;
-    setGames(prev => prev.map(g => g.global_game_id === gameId ? { ...g, is_pinned: nextPinned } : g));
+    applyPinned(gameId, nextPinned);
     try {
       const res = await fetch(`/api/global/games/${encodeURIComponent(gameId)}/pin`, {
         method: nextPinned ? 'POST' : 'DELETE',
@@ -232,10 +294,10 @@ export default function GlobalScoreboard() {
       if (!res.ok) throw new Error(String(res.status));
       refreshPins();
     } catch {
-      setGames(prev => prev.map(g => g.global_game_id === gameId ? { ...g, is_pinned: !nextPinned } : g));
+      applyPinned(gameId, !nextPinned);
       showError(nextPinned ? 'Could not pin that game.' : 'Could not unpin that game.');
     }
-  }, [playerToken, authHeaders, refreshPins, showError]);
+  }, [playerToken, authHeaders, refreshPins, showError, applyPinned]);
 
   /**
    * v2.55.0 — unpinning from INSIDE the carousel. The card leaves the rail
@@ -246,7 +308,7 @@ export default function GlobalScoreboard() {
     if (!playerToken) return;
     const gameId = pin.global_game_id;
     setPins(prev => prev.filter(p => p.global_game_id !== gameId));
-    setGames(prev => prev.map(g => g.global_game_id === gameId ? { ...g, is_pinned: false } : g));
+    applyPinned(gameId, false);
     try {
       const res = await fetch(`/api/global/games/${encodeURIComponent(gameId)}/pin`, {
         method: 'DELETE',
@@ -257,10 +319,10 @@ export default function GlobalScoreboard() {
       // Restore in place: pins are ordered `pinned_at DESC`, so re-inserting by
       // that key puts the card back exactly where it was rather than on the end.
       setPins(prev => [...prev, pin].sort((a, b) => b.pinned_at.localeCompare(a.pinned_at)));
-      setGames(prev => prev.map(g => g.global_game_id === gameId ? { ...g, is_pinned: true } : g));
+      applyPinned(gameId, true);
       showError('Could not unpin that game.');
     }
-  }, [playerToken, authHeaders, showError]);
+  }, [playerToken, authHeaders, showError, applyPinned]);
 
   // WebSocket — show a toast and bump the matching card's stats optimistically
   useEffect(() => {
@@ -273,6 +335,10 @@ export default function GlobalScoreboard() {
       setGames(prev => prev.map(g => g.global_game_id === data.globalGameId
         ? { ...g, score_count: g.score_count + 1, top_score: Math.max(g.top_score || 0, data.score), last_submitted_at: new Date().toISOString() }
         : g));
+      // A5a — this is what the live indicator counts from. A score landing
+      // anywhere on the global board resets the clock, which is the honest
+      // reading of "updated Ns ago" for a page that shows every room.
+      setLastUpdate(Date.now());
     };
     socket.on('score:new:global', handler);
     return () => {
@@ -281,6 +347,52 @@ export default function GlobalScoreboard() {
       if (errorTimerRef.current) window.clearTimeout(errorTimerRef.current);
     };
   }, []);
+
+  /**
+   * A5a — the live indicator's clock. One interval for the whole page; the
+   * rendered value is derived, so this never triggers a fetch.
+   */
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  /**
+   * A5a — reconcile the density choice with the server preference on mount.
+   * localStorage already painted; this only corrects it when another device
+   * disagrees. Anonymous viewers never see the toggle, so they never fetch.
+   */
+  useEffect(() => {
+    if (!playerToken) return;
+    let cancelled = false;
+    fetch('/api/me/scoreboard-preferences', { headers: authHeaders })
+      .then(r => r.ok ? r.json() : null)
+      .then(prefs => {
+        if (cancelled || !prefs) return;
+        const stored = prefs[DENSITY_PREF_KEY];
+        if (stored === 'mine' || stored === 'top6') setDensity(stored);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [playerToken, authHeaders]);
+
+  /**
+   * A5a — flipping density is PURE CLIENT STATE. `neighbors` already shipped
+   * with the page's data (A4), so nothing is refetched: the cards re-plan their
+   * rows from what they already hold. The only request this makes is the
+   * fire-and-forget preference write, and it is deliberately not awaited — the
+   * UI must not wait on the network to change what it draws.
+   */
+  const changeDensity = useCallback((next: Density) => {
+    setDensity(next);
+    try { localStorage.setItem(DENSITY_STORAGE_KEY, next); } catch { /* private mode */ }
+    if (!playerToken) return;
+    fetch('/api/me/scoreboard-preferences', {
+      method: 'POST',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [DENSITY_PREF_KEY]: next }),
+    }).catch(() => {});
+  }, [playerToken, authHeaders]);
 
   const handleLogin = () => {
     loginWithDiscord('__global__', '/scoreboard');
@@ -361,7 +473,23 @@ export default function GlobalScoreboard() {
               a 390px phone and swallows the first screen, so mobile keeps the
               original 24px/30px pairing. */}
           <Trophy className="w-6 h-6 sm:w-9 sm:h-9 shrink-0" style={{ color: 'var(--color-brand-delta)' }} />
+          {/* A5a — the live dot. `.pulse` is already nulled under
+              prefers-reduced-motion by index.css's global guard, so no extra
+              media query is needed here. */}
+          <Circle
+            className="pulse h-2 w-2 shrink-0 fill-current text-neon-magenta"
+            strokeWidth={0}
+            aria-hidden="true"
+            data-testid="live-dot"
+          />
           <h1 className="font-display text-3xl sm:text-[2.8125rem] leading-tight font-bold">Global Scoreboard</h1>
+        </div>
+        {/* A5a — the live line. Driven off the last `score:new:global` event,
+            falling back to the last fetch. Deliberately NOT accompanied by the
+            design's "{total} games · {n} players" line: there is no
+            player-count API and inventing one is out of scope. */}
+        <div className="mb-1 font-mono text-[10px] text-muted sm:text-center" role="status">
+          LIVE · updated {formatAgo(Math.floor((nowTs - lastUpdate) / 1000))} ago
         </div>
         {/* A0 #2/#3: provider-agnostic copy, "Arcaid" casing. */}
         <p className="text-muted mb-2 text-[12.5px] sm:text-center">
@@ -457,6 +585,35 @@ export default function GlobalScoreboard() {
               </button>
             ))}
           </div>
+          <div className="flex flex-wrap items-center gap-2 self-start lg:ml-auto lg:self-auto">
+            {/* A5a — Top 6 / My Score. Hidden entirely when logged out: there is
+                no "my score" for an anonymous visitor, and a control that can
+                only ever mean one thing is worse than no control. Flips with no
+                refetch — every card already holds its `neighbors`. */}
+            {playerToken && (
+              <div
+                className="flex items-center gap-1 rounded-[5px] border border-border bg-surface p-[2px]"
+                role="group"
+                aria-label="Leaderboard density"
+              >
+                {([['top6', 'Top 6', Trophy], ['mine', 'My Score', MapPin]] as const).map(([value, label, Icon]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => changeDensity(value)}
+                    aria-pressed={density === value}
+                    className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[3px] px-3.5 py-1.5 text-[11px] font-bold transition-colors ${
+                      density === value
+                        ? 'bg-neon-cyan/20 text-neon-cyan'
+                        : 'text-muted hover:text-primary'
+                    }`}
+                  >
+                    <Icon className="h-3 w-3" aria-hidden="true" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           {/* Narrow screens scroll this row horizontally rather than wrapping —
               wrapping put "Recent activity"/"Most scores" onto two lines each
               and turned one control into a four-line block (handoff: "Sort pills
@@ -476,6 +633,7 @@ export default function GlobalScoreboard() {
                 {label}
               </button>
             ))}
+          </div>
           </div>
         </div>
 
@@ -498,14 +656,30 @@ export default function GlobalScoreboard() {
             {/* A0 #12: no grid-auto-rows — row height is content-driven and
                 cards stretch to match the tallest in their row. */}
             <div className={GRID_CLASS}>
-              {games.map(game => (
-                <GlobalGameCard
-                  key={game.global_game_id}
-                  game={game}
-                  onSubmit={() => handleSubmitClick(game)}
-                  onTogglePin={playerToken ? () => togglePin(game) : undefined}
+              {/* A5a — the hero occupies grid position 1, spanning 2x2 from
+                  `md` up (full width, single row, below that). Its game is
+                  filtered out of the rest of the grid: the same card twice on
+                  one screen reads as a bug, not as emphasis. */}
+              {hero && (
+                <GlobalHeroCard
+                  key={`hero-${hero.global_game_id}`}
+                  game={hero}
+                  className="sm:col-span-2 md:row-span-2"
+                  onSubmit={() => handleSubmitClick(hero)}
+                  onTogglePin={playerToken ? () => togglePin(hero) : undefined}
                 />
-              ))}
+              )}
+              {games
+                .filter(game => game.global_game_id !== hero?.global_game_id)
+                .map(game => (
+                  <GlobalGameCard
+                    key={game.global_game_id}
+                    game={game}
+                    density={density}
+                    onSubmit={() => handleSubmitClick(game)}
+                    onTogglePin={playerToken ? () => togglePin(game) : undefined}
+                  />
+                ))}
             </div>
             {hasMore && (
               <div className="mt-6 flex justify-center">
