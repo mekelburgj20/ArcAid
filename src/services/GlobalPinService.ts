@@ -20,7 +20,31 @@ import { GlobalLeaderboardService } from './GlobalLeaderboardService.js';
  * notifications are the other consumer of that column and are NOT built here.
  */
 
-/** One row of `GET /api/global/pins` — everything the rail chip renders. */
+/**
+ * Rows the scoreboard card renders (`CARD_ROWS` in
+ * `admin-ui/src/components/GlobalGameCard.tsx`). The pins payload ships exactly
+ * this many so the rail's card has neither missing rows nor dead weight.
+ */
+const CARD_ROWS = 6;
+
+/**
+ * One entry of a pin's `top_scores` — identical in shape to the scoreboard
+ * card's rows, because it comes from the same batched helper.
+ */
+export interface PinnedTopScore {
+    iscored_username: string;
+    display_name: string | null;
+    discord_user_id: string;
+    avatar_hash: string | null;
+    score: number;
+    origin_room_slug: string | null;
+    origin_room_logo_url: string | null;
+    origin_room_short_tag: string | null;
+    /** Present on `neighbors` entries only (the card derives its own rows' rank from index). */
+    rank?: number;
+}
+
+/** One row of `GET /api/global/pins` — everything the rail's CARD renders. */
 export interface PinnedGame {
     global_game_id: string;
     name: string;
@@ -34,14 +58,19 @@ export interface PinnedGame {
     platforms: string;
     score_count: number;
     top_score: number | null;
-    /** Same entry shape the cards' `top_scores` use; null when nobody has scored. */
-    top_player: {
-        iscored_username: string;
-        display_name: string | null;
-        discord_user_id: string;
-        avatar_hash: string | null;
-        score: number;
-    } | null;
+    /**
+     * v2.55.0: ranks 1-6, the same rows the grid card renders. Replaces the
+     * v2.52.0 `top_player` champion-only field — the rail now renders the FULL
+     * card, and shipping both would be two representations of one dataset.
+     */
+    top_scores: PinnedTopScore[];
+    /**
+     * v2.55.0: ranks my_rank-1 … my_rank+1, populated ONLY when the viewer
+     * ranks below the six rows above (the sole case where the card appends its
+     * "YOU" row). Anywhere else it is `[]` — computing it would cost a
+     * leaderboard read per pin for a row that never renders.
+     */
+    neighbors: PinnedTopScore[];
     my_rank: number | null;
     my_score: number | null;
     /**
@@ -125,12 +154,13 @@ export class GlobalPinService {
     }
 
     /**
-     * The viewer's pins, newest first, with enough per-chip data that the rail
+     * The viewer's pins, newest first, with enough per-card data that the rail
      * renders in one round trip.
      *
-     * The champion (`top_player`) comes from the existing batched
-     * `getTopScoresForGames` helper rather than a bespoke query, so the rail's
-     * "#1" is literally the same row the card's rank-1 line shows.
+     * The rows come from the existing batched `getTopScoresForGames` helper
+     * rather than a bespoke query, so the rail's leaderboard is literally the
+     * same data the grid card shows — the two must not be able to disagree
+     * (v2.55.0 makes them the same React component too).
      */
     static async list(discordUserId: string): Promise<PinnedGame[]> {
         const db = await getDatabase();
@@ -183,13 +213,36 @@ export class GlobalPinService {
         if (rows.length === 0) return [];
 
         const gameIds = rows.map(r => r.global_game_id);
-        const [champions, myRanks] = await Promise.all([
-            GlobalLeaderboardService.getTopScoresForGames(gameIds, 1, 'global'),
+        const [topScores, myRanks] = await Promise.all([
+            GlobalLeaderboardService.getTopScoresForGames(gameIds, CARD_ROWS, 'global'),
             GlobalLeaderboardService.getViewerRanks(gameIds, discordUserId, 'global'),
         ]);
 
+        // Neighbour rows for the card's "YOU" line, fetched ONLY for pins where
+        // the viewer ranks below the six rendered rows. Inside the top 6 they
+        // are already on the card, so the extra leaderboard read would buy a
+        // row that is never drawn.
+        const neighborsByGame: Record<string, PinnedTopScore[]> = {};
+        await Promise.all(Object.entries(myRanks)
+            .filter(([, mine]) => mine.rank > CARD_ROWS)
+            .map(async ([gameId, mine]) => {
+                const full = await GlobalLeaderboardService.getForGame(gameId, 'global');
+                neighborsByGame[gameId] = full
+                    .filter(e => e.rank >= mine.rank - 1 && e.rank <= mine.rank + 1)
+                    .map(e => ({
+                        iscored_username: e.iscored_username,
+                        display_name: e.display_name ?? null,
+                        discord_user_id: e.discord_user_id,
+                        avatar_hash: e.avatar_hash,
+                        score: e.score,
+                        origin_room_slug: e.origin_room_slug,
+                        origin_room_logo_url: e.origin_room_logo_url,
+                        origin_room_short_tag: e.origin_room_short_tag,
+                        rank: e.rank,
+                    }));
+            }));
+
         return rows.map(r => {
-            const champ = champions[r.global_game_id]?.[0];
             const mine = myRanks[r.global_game_id];
             const myRank = mine?.rank ?? null;
             return {
@@ -205,15 +258,17 @@ export class GlobalPinService {
                 platforms: r.platforms,
                 score_count: r.score_count ?? 0,
                 top_score: r.top_score ?? null,
-                top_player: champ
-                    ? {
-                        iscored_username: champ.iscored_username,
-                        display_name: champ.display_name ?? null,
-                        discord_user_id: champ.discord_user_id,
-                        avatar_hash: champ.avatar_hash,
-                        score: champ.score,
-                    }
-                    : null,
+                top_scores: (topScores[r.global_game_id] ?? []).map(s => ({
+                    iscored_username: s.iscored_username,
+                    display_name: s.display_name ?? null,
+                    discord_user_id: s.discord_user_id,
+                    avatar_hash: s.avatar_hash,
+                    score: s.score,
+                    origin_room_slug: s.origin_room_slug,
+                    origin_room_logo_url: s.origin_room_logo_url,
+                    origin_room_short_tag: s.origin_room_short_tag,
+                })),
+                neighbors: neighborsByGame[r.global_game_id] ?? [],
                 my_rank: myRank,
                 my_score: mine?.score ?? null,
                 // Negative = improved (see the interface note on the docs'

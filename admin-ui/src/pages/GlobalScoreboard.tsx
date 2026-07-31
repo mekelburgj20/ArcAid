@@ -1,66 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Trophy, Upload, Filter, Medal, Pin } from 'lucide-react';
+import { Trophy, Filter } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
-import { PlayerAvatar, playerName } from '../components/ScoreboardComponents';
 import LoadingState from '../components/LoadingState';
 import SubmissionSheet from '../components/SubmissionSheet';
-import RoomTag from '../components/RoomTag';
 import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
 import GlobalThemeToggle from '../components/GlobalThemeToggle';
 import BrandWordmark from '../components/BrandWordmark';
 import GlobalSearchPalette, { type PaletteGame } from '../components/GlobalSearchPalette';
-import PinnedRail, { type PinnedGameChip } from '../components/PinnedRail';
+import PinnedCarousel, { type PinnedGame } from '../components/PinnedCarousel';
+import GlobalGameCard, { type GlobalGameCardGame } from '../components/GlobalGameCard';
+import { GRID_CLASS } from '../lib/globalGrid';
 import { formatScore } from '../lib/format';
-import { catalogueImageFor } from '../lib/catalogueImage';
-import { PLATFORM_GROUPS, getPlatformShortLabel } from '../lib/platforms';
+import { PLATFORM_GROUPS } from '../lib/platforms';
 
-interface TopScoreEntry {
-  iscored_username: string;
-  /** v2.8.0: user-chosen global display name. Renders in place of iscored_username when set. */
-  display_name?: string | null;
-  score: number;
-  avatar_hash: string | null;
-  discord_user_id: string;
-  origin_room_slug: string | null;
-  origin_room_logo_url: string | null;
-  /** Sprint 13 — admin-set short label; falls back to slug-derived when null. */
-  origin_room_short_tag: string | null;
-  /** v2.52.0 (A4): present on `neighbors` entries only — the card's own rows
-   *  derive rank from their index, but a neighbour row can start at any rank. */
-  rank?: number;
-}
-
-interface TopGame {
-  global_game_id: string;
-  name: string;
-  display_name: string | null;
-  manufacturer: string | null;
-  year: number | null;
+/**
+ * v2.55.0: the card itself — and the row/score shapes it reads — now live in
+ * `components/GlobalGameCard.tsx`, because the My Pins carousel renders the
+ * very same component. This page adds only the fields IT needs on top.
+ */
+interface TopGame extends GlobalGameCardGame {
   type: string;
-  image_url: string | null;
-  local_image_path: string | null;
-  wheel_image_path: string | null;
-  platforms: string; // JSON string
-  score_count: number;
   top_score: number | null;
   last_submitted_at: string | null;
   /** Retained: still drives the "Top rated" sort. No longer rendered on cards
    *  (v2.50.0 removed the StarRating row); GlobalGameDetail still shows stars. */
   avg_rating: number;
   rating_count: number;
-  top_scores: TopScoreEntry[];
-  /** v2.52.0 (A4) — per-viewer context. Present ONLY on authenticated
-   *  responses; an anonymous payload omits these keys entirely, so every
-   *  consumer must treat `undefined` as "logged out", not as "no rank". */
-  is_pinned?: boolean;
-  my_rank?: number | null;
-  my_score?: number | null;
-  /** Ranks my_rank-1 … my_rank+1. Shipped now for A5's density toggle; this
-   *  release reads only the entry at `my_rank` (the "YOU" row). */
-  neighbors?: TopScoreEntry[];
 }
 
 interface Room {
@@ -73,11 +41,6 @@ interface Room {
 type SortMode = 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc' | 'pinned';
 
 const PAGE_SIZE = 30;
-
-/** v2.50.0 (A2): cards render the top 6 only. The API still returns 10 per
- *  game — deliberately left alone this release, so the extra rows are simply
- *  not rendered rather than the payload being narrowed. */
-const CARD_ROWS = 6;
 
 /** Sort pills replace the old <select>. Order and labels follow the design
  *  handoff. `Pinned first` leads the list but only exists for authenticated
@@ -98,13 +61,6 @@ const PINNED_PILL: [SortMode, string] = ['pinned', 'Pinned first'];
 // that match no post-migration-094 catalogue row, so FX games silently
 // dropped out of the Virtual Pinball chip). Note one deliberate correction:
 // 'atgames' now lives in the Physical group, matching the backend taxonomy.
-
-function parsePlatforms(raw: string): string[] {
-  try {
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch { return []; }
-}
 
 export default function GlobalScoreboard() {
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
@@ -134,7 +90,7 @@ export default function GlobalScoreboard() {
   /** A3 — ⌘K palette. Open state lives here because the grid behind dims. */
   const [paletteOpen, setPaletteOpen] = useState(false);
   /** A4 — the My Pins rail. Empty for anonymous viewers (never fetched). */
-  const [pins, setPins] = useState<PinnedGameChip[]>([]);
+  const [pins, setPins] = useState<PinnedGame[]>([]);
   /** A4 — a failed pin toggle surfaces here after the optimistic revert. */
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const errorTimerRef = useRef<number | null>(null);
@@ -281,6 +237,31 @@ export default function GlobalScoreboard() {
     }
   }, [playerToken, authHeaders, refreshPins, showError]);
 
+  /**
+   * v2.55.0 — unpinning from INSIDE the carousel. The card leaves the rail
+   * immediately (a full refetch would make the row jump twice and re-measure
+   * the marquee mid-animation); a failed request puts it back and toasts.
+   */
+  const unpinFromRail = useCallback(async (pin: PinnedGame) => {
+    if (!playerToken) return;
+    const gameId = pin.global_game_id;
+    setPins(prev => prev.filter(p => p.global_game_id !== gameId));
+    setGames(prev => prev.map(g => g.global_game_id === gameId ? { ...g, is_pinned: false } : g));
+    try {
+      const res = await fetch(`/api/global/games/${encodeURIComponent(gameId)}/pin`, {
+        method: 'DELETE',
+        headers: authHeaders,
+      });
+      if (!res.ok) throw new Error(String(res.status));
+    } catch {
+      // Restore in place: pins are ordered `pinned_at DESC`, so re-inserting by
+      // that key puts the card back exactly where it was rather than on the end.
+      setPins(prev => [...prev, pin].sort((a, b) => b.pinned_at.localeCompare(a.pinned_at)));
+      setGames(prev => prev.map(g => g.global_game_id === gameId ? { ...g, is_pinned: true } : g));
+      showError('Could not unpin that game.');
+    }
+  }, [playerToken, authHeaders, showError]);
+
   // WebSocket — show a toast and bump the matching card's stats optimistically
   useEffect(() => {
     const socket = getSocket();
@@ -370,12 +351,20 @@ export default function GlobalScoreboard() {
 
       {/* Content */}
       <div className="px-4 sm:px-6 lg:px-10 py-10">
-        <div className="flex items-center gap-3 mb-2">
-          <Trophy className="w-6 h-6 text-neon-cyan" />
-          <h1 className="font-display text-3xl font-bold">Global Scoreboard</h1>
+        {/* v2.55.0 — heading centred on desktop only; a centred heading on a
+            narrow phone reads worse than left-aligned, so `sm:` gates it.
+            Trophy + title both scaled 1.5x (24px→36px, text-3xl→text-[2.8125rem]
+            = 30px→45px). The trophy takes the logo's own delta pink via
+            --color-brand-delta rather than an approximate palette token. */}
+        <div className="flex items-center gap-3 mb-2 sm:justify-center">
+          {/* 1.5x applies from `sm:` up. At 45px the title wraps to two lines on
+              a 390px phone and swallows the first screen, so mobile keeps the
+              original 24px/30px pairing. */}
+          <Trophy className="w-6 h-6 sm:w-9 sm:h-9 shrink-0" style={{ color: 'var(--color-brand-delta)' }} />
+          <h1 className="font-display text-3xl sm:text-[2.8125rem] leading-tight font-bold">Global Scoreboard</h1>
         </div>
         {/* A0 #2/#3: provider-agnostic copy, "Arcaid" casing. */}
-        <p className="text-muted mb-2 text-[12.5px]">
+        <p className="text-muted mb-2 text-[12.5px] sm:text-center">
           High scores from every Arcaid room.{' '}
           {playerToken ? null : (
             <>
@@ -399,20 +388,20 @@ export default function GlobalScoreboard() {
         )}
         {!showSubheadLogin && <div className="mb-6" />}
 
-        {/* A4 — My Pins rail. Between the title block and the search field,
-            logged-in only, and self-hiding when the viewer has no pins. */}
-        <PinnedRail
+        {/* A4 — My Pins. Between the title block and the search field,
+            logged-in only, and self-hiding when the viewer has no pins.
+            v2.55.0: full grid cards in a carousel, not 220px chips. */}
+        <PinnedCarousel
           pins={pins}
           onSubmit={pin => setSubmitGame({
             ...pin,
             type: 'pinball',
-            platforms: '[]',
             last_submitted_at: null,
             avg_rating: 0,
             rating_count: 0,
-            top_scores: [],
           } as unknown as TopGame)}
           onAdd={() => setPaletteOpen(true)}
+          onTogglePin={playerToken ? unpinFromRail : undefined}
         />
 
         {/* Search + room scope. The field itself is owned by the ⌘K palette
@@ -508,9 +497,9 @@ export default function GlobalScoreboard() {
           <>
             {/* A0 #12: no grid-auto-rows — row height is content-driven and
                 cards stretch to match the tallest in their row. */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 items-stretch">
+            <div className={GRID_CLASS}>
               {games.map(game => (
-                <GameCard
+                <GlobalGameCard
                   key={game.global_game_id}
                   game={game}
                   onSubmit={() => handleSubmitClick(game)}
@@ -579,233 +568,6 @@ export default function GlobalScoreboard() {
           }}
         />
       )}
-    </div>
-  );
-}
-
-/**
- * Per-rank row tint/border + medal color. Every value is an A1 `--sb-*` /
- * `--color-medal-*` token so the card works under both polarities — never a
- * literal rgba(). Ranks 4+ have no entry (transparent row, `#n` rank cell).
- */
-const RANK_TINTS: Record<number, { bg: string; border: string; medal: string; label: string }> = {
-  1: { bg: 'var(--sb-row-gold-bg)', border: 'var(--sb-row-gold-border)', medal: 'text-neon-amber', label: '1st place' },
-  2: { bg: 'var(--sb-row-silver-bg)', border: 'var(--sb-row-silver-border)', medal: 'text-medal-silver', label: '2nd place' },
-  3: { bg: 'var(--sb-row-bronze-bg)', border: 'var(--sb-row-bronze-border)', medal: 'text-medal-bronze', label: '3rd place' },
-};
-
-function LeaderboardRow({ entry, rank, isYou = false }: { entry: TopScoreEntry; rank: number; isYou?: boolean }) {
-  const tint = RANK_TINTS[rank];
-  const name = playerName(entry);
-  const abbreviated = formatScore(entry.score);
-  // A4: the viewer's own row wins the tint even at rank 1-3 — "this is me" is
-  // the more useful signal on a card the viewer opened to find themselves on.
-  const bg = isYou ? 'var(--sb-row-you-bg)' : (tint?.bg ?? 'transparent');
-  const border = isYou ? 'var(--sb-row-you-border)' : (tint?.border ?? 'transparent');
-
-  return (
-    <div
-      className="flex items-center gap-2 rounded-[5px] border px-2 py-[5px]"
-      style={{ background: bg, borderColor: border }}
-    >
-      <span className="flex w-5 shrink-0 items-center justify-center">
-        {tint ? (
-          <Medal className={`w-3 h-3 ${tint.medal}`} aria-label={tint.label} />
-        ) : (
-          <span className="font-mono text-[10px] font-bold text-muted">#{rank}</span>
-        )}
-      </span>
-      <PlayerAvatar
-        username={name}
-        discordUserId={entry.discord_user_id}
-        avatarHash={entry.avatar_hash}
-        size={18}
-      />
-      {/* Name and room badge travel together, hard left. Previously the name
-          span carried `flex-1`, which pushed the badge to the far right edge
-          and visually detached it from the player it belongs to. The group
-          takes the slack instead, so the badge sits immediately after the
-          username and the score still right-aligns. */}
-      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-        <span className={`min-w-0 truncate text-[11px] ${isYou ? 'font-bold' : 'font-medium'}`}>
-          {name}
-          {isYou && (
-            <span className="ml-1.5 rounded-[2px] px-1 py-px align-middle text-[8px] font-bold uppercase tracking-[0.5px] text-neon-cyan"
-              style={{ background: 'var(--sb-row-you-bg)' }}>
-              You
-            </span>
-          )}
-        </span>
-        {entry.origin_room_slug && (
-          <RoomTag
-            shortTag={entry.origin_room_short_tag || entry.origin_room_slug}
-            size={16}
-            logoUrl={entry.origin_room_logo_url}
-            href={`/scoreboard?room=${encodeURIComponent(entry.origin_room_slug)}`}
-            title={`Filter to ${entry.origin_room_short_tag || entry.origin_room_slug}`}
-          />
-        )}
-      </span>
-      <span
-        className={`shrink-0 font-mono text-[11px] font-bold ${rank === 1 ? 'text-neon-amber' : 'text-primary'}`}
-        title={abbreviated.endsWith('T') ? entry.score.toLocaleString() : undefined}
-      >
-        {abbreviated}
-      </span>
-    </div>
-  );
-}
-
-/**
- * v2.50.0 (A2) — art-first card. Structure: art block (110px) with the title
- * on a scrim, then ranks 1-6, then a footer with the score count and a solid
- * Submit. No podium, no placeholder rows, no star row.
- */
-function GameCard({ game, onSubmit, onTogglePin }: {
-  game: TopGame;
-  onSubmit: () => void;
-  /** Undefined for anonymous viewers — the hotspot is not rendered at all. */
-  onTogglePin?: () => void;
-}) {
-  const img = catalogueImageFor(game);
-  const displayName = game.display_name || game.name;
-  const rows = (game.top_scores || []).slice(0, CARD_ROWS);
-  const platforms = parsePlatforms(game.platforms);
-  const primaryPlatform = platforms[0];
-
-  /**
-   * A4 — the "YOU" row. Appended only when the viewer has a rank AND that rank
-   * falls outside the rows already rendered; inside the top 6 they are already
-   * on the card and a duplicate row would be worse than none.
-   *
-   * The row itself comes from `neighbors` (which carries the full entry shape
-   * including avatar and origin room), not from a synthesised stub.
-   */
-  const myRank = game.my_rank ?? null;
-  const youEntry = (myRank != null && myRank > rows.length)
-    ? (game.neighbors || []).find(n => n.rank === myRank) ?? null
-    : null;
-
-  return (
-    <div className="group relative flex h-full flex-col overflow-hidden rounded-[10px] border border-border bg-surface transition-colors duration-150 hover:border-[var(--sb-card-hover-border)]">
-      {/* A4 — pin hotspot. A SIBLING of the art <Link>, not a child: a button
-          nested inside an anchor is invalid and swallows the anchor's
-          activation on some browsers.
-
-          The button is a transparent 44×44 hit target anchored at the card's
-          top-left corner, with the 22px visual chip inset 6px inside it. That
-          is how the design's 22px control gets a ≥44px touch target WITHOUT a
-          negative-inset wrapper, which the card's `overflow-hidden` would clip
-          away exactly where the extra area was needed. */}
-      {onTogglePin && (
-        <button
-          type="button"
-          onClick={onTogglePin}
-          aria-pressed={Boolean(game.is_pinned)}
-          aria-label={game.is_pinned ? `Unpin ${displayName}` : `Pin ${displayName}`}
-          title={game.is_pinned ? 'Unpin this game' : 'Pin this game'}
-          className="absolute left-0 top-0 z-10 h-11 w-11"
-        >
-          <span
-            className="absolute left-1.5 top-1.5 flex h-[22px] w-[22px] items-center justify-center rounded border transition-colors"
-            style={{ background: 'var(--sb-art-btn-bg)', borderColor: 'var(--sb-art-btn-border)' }}
-          >
-            <Pin
-              className={`h-[11px] w-[11px] ${game.is_pinned ? 'fill-current text-neon-amber' : 'text-primary'}`}
-              aria-hidden="true"
-            />
-          </span>
-        </button>
-      )}
-
-      {/* 1. Art block — the whole thing links to the game detail page. */}
-      <Link
-        to={`/games/${game.global_game_id}`}
-        className="relative block h-[110px] shrink-0 no-underline"
-      >
-        {img ? (
-          <img
-            src={img}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-deep text-[11px] text-muted">
-            No image
-          </div>
-        )}
-        <div className="absolute inset-0" style={{ background: 'var(--sb-art-scrim)' }} />
-        {primaryPlatform && (
-          /* One pill only (design: the full list lives on the detail page). */
-          <span
-            className="absolute right-1.5 top-1.5 rounded-[3px] border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.4px] text-neon-cyan"
-            style={{ background: 'var(--sb-pill-bg)', borderColor: 'var(--sb-pill-border)' }}
-            title={platforms.map(getPlatformShortLabel).join(' · ')}
-          >
-            {getPlatformShortLabel(primaryPlatform)}
-          </span>
-        )}
-        <div className="absolute inset-x-2.5 bottom-1.5">
-          <h3
-            className="font-display text-[13px] font-bold leading-[1.15] [text-wrap:pretty]"
-            style={{ color: 'var(--sb-art-title)', textShadow: 'var(--sb-title-shadow)' }}
-          >
-            {displayName}
-          </h3>
-          <div className="mt-px text-[9.5px]" style={{ color: 'var(--sb-art-meta)' }}>
-            {game.manufacturer || 'Unknown'}{game.year ? ` · ${game.year}` : ''}
-          </div>
-        </div>
-      </Link>
-
-      {/* 2. Leaderboard — exactly as many rows as there are scores, max 6.
-             3. Empty state — dashed "Claim 1st" CTA, no placeholder podium. */}
-      <div className="flex-1 px-3 py-2.5">
-        {rows.length > 0 ? (
-          <div className="space-y-0.5">
-            {rows.map((entry, i) => (
-              <LeaderboardRow
-                key={`${entry.discord_user_id}-${entry.iscored_username}`}
-                entry={entry}
-                rank={i + 1}
-              />
-            ))}
-            {/* A4 — the viewer's own row, appended when they rank below the
-                rows above. No break line / neighbour block: that's A5's
-                density toggle, and `neighbors` is already on the payload for
-                it. */}
-            {youEntry && (
-              <LeaderboardRow entry={youEntry} rank={myRank as number} isYou />
-            )}
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={onSubmit}
-            className="w-full rounded-md border border-dashed border-neon-cyan/35 px-1 py-2 text-[11px] text-neon-cyan hover:bg-neon-cyan/10 transition-colors"
-          >
-            Claim 1st →
-          </button>
-        )}
-      </div>
-
-      {/* 4. Footer */}
-      <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/50 px-3 py-[7px]">
-        <span className="text-[10px] text-muted">
-          {game.score_count.toLocaleString()} {game.score_count === 1 ? 'score' : 'scores'}
-        </span>
-        <button
-          type="button"
-          onClick={onSubmit}
-          className="inline-flex shrink-0 items-center gap-1 rounded bg-neon-cyan px-2.5 py-1 text-[10px] font-bold text-deep transition hover:brightness-110"
-          title="Submit your score"
-        >
-          <Upload className="w-3 h-3" />
-          Submit
-        </button>
-      </div>
     </div>
   );
 }

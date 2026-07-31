@@ -25,10 +25,27 @@ import { useTheme } from './ThemeProvider';
  */
 
 const DARK_SRC = '/arcaid-logo-wide-v2.png';
-// TODO(light-asset): point at '/arcaid-logo-wide-light-v1.png' once it exists.
-const LIGHT_SRC = DARK_SRC;
+/**
+ * v2.55.0 — the light asset landed ("Delta x House Chrome, purple backdrop
+ * plate"). Its plate is part of the artwork, so it sits on any light surface;
+ * it was designed against #E8EAF0, which is exactly what `.theme-light`'s
+ * `--color-deep` now is.
+ *
+ * The 1x file (700x330, 202KB) is used deliberately over the package's
+ * recommended 2x (1400x660, 586KB): at the ~187px display width below, 1x is
+ * still ~3.7x density — ample for retina — and saves ~380KB on first paint.
+ */
+const LIGHT_SRC = '/arcaid-logo-light-v1.png';
 
-export default function BrandWordmark({ className = 'h-16 w-auto' }: { className?: string }) {
+/**
+ * Default height is 88px, not the old 64px: the light artwork's spec sets a
+ * 180px minimum display width (below it the delta stops reading, and the
+ * package ships no wordmark-only fallback). Its 2.12 aspect ratio puts 64px
+ * tall at only 136px wide — 44px under. 88px yields ~187px. The dark mark
+ * (1.60 ratio) grows from a rather small 103px to 141px wide, which it wanted
+ * anyway. The two ratios differ, so the marks share a height, not a width.
+ */
+export default function BrandWordmark({ className = 'h-[88px] w-auto' }: { className?: string }) {
     const { globalPageTheme } = useTheme();
     return (
         <img
