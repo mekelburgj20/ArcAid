@@ -1,6 +1,33 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo } from '../utils/logger.js';
 import { UNKNOWN, equivalentLegacyPlatforms } from '../utils/scoreProvenance.js';
+import { buildEngineCategoryExpr } from '../utils/engineCategorySql.js';
+
+/**
+ * The card category expression, for queries that alias `global_scores` as `gs`.
+ * Generated from the TypeScript taxonomy — see `utils/engineCategorySql.ts` for
+ * why this is derived rather than hand-written SQL.
+ */
+const CARD_CATEGORY_EXPR = buildEngineCategoryExpr('gs.engine', 'gs.id');
+
+/** Same expression for queries that select from `global_scores` unaliased. */
+const CARD_CATEGORY_EXPR_BARE = buildEngineCategoryExpr('engine', 'id');
+
+/**
+ * Stable identity for one scoreboard card — v2.59.0 (ADR 0016 P4).
+ *
+ * A card is a `(game, category)` pair, so the game id alone is no longer
+ * unique on the page: one game can render a Simulation card AND an
+ * Arcade-Style card. This is the React key, the `top_scores` lookup key and
+ * the per-viewer rank key. `null` (the zero-score card, which has no category)
+ * folds to the literal `none` so it never collides with a real category id.
+ *
+ * Pins are deliberately NOT keyed on this — a pin belongs to the game, so
+ * every one of its cards shows the same pin state (see the P4 contract).
+ */
+export function cardId(globalGameId: string, category: string | null): string {
+    return `${globalGameId}::${category ?? 'none'}`;
+}
 
 export interface GlobalRankedEntry {
     rank: number;
@@ -91,6 +118,20 @@ export interface HeroGameRow {
     weekly_score_count: number;
     /** True only when `weekly_score_count >= HERO_MIN_WEEKLY_SCORES`. */
     is_hot: boolean;
+    /**
+     * v2.59.0 (P4) — the game's HIGHEST-SCORING fidelity category, or null when
+     * it has no scores.
+     *
+     * The hero is chosen at GAME level and stays that way: `score_count`,
+     * `weekly_score_count` and `is_hot` are still the game's totals, and A5a's
+     * threshold logic is untouched. But a card has to show *a* board, and a
+     * board that silently mixed engines would be the exact claim ADR 0016
+     * forbids — so the rows it renders (and the chip naming them) come from
+     * this one category.
+     */
+    category: string | null;
+    /** v2.59.0 (P4) — card identity for `top_scores` / rank lookups. */
+    card_id: string;
 }
 
 /**
@@ -108,6 +149,35 @@ export class GlobalLeaderboardService {
      * only scores that originated in that room are included (origin_game_room_id).
      */
     static async recalculate(globalGameId: string, scope: string = 'global'): Promise<GlobalRankedEntry[]> {
+        const rankings = await GlobalLeaderboardService.rankedRows(globalGameId, scope);
+
+        const db = await getDatabase();
+        await db.run(
+            `INSERT OR REPLACE INTO global_leaderboard_cache (global_game_id, scope, rankings, generated_at) VALUES (?, ?, ?, ?)`,
+            globalGameId, scope, JSON.stringify(rankings), new Date().toISOString()
+        );
+
+        logInfo(`Global leaderboard recalculated for ${globalGameId} (${scope}): ${rankings.length} entries`);
+        return rankings;
+    }
+
+    /**
+     * The ranked-rows query behind `recalculate`, with an optional card-category
+     * scope (v2.59.0, ADR 0016 P4).
+     *
+     * Extracted so a per-CATEGORY board is the same query with one extra
+     * predicate rather than a second copy that can drift. The predicate sits in
+     * the INNERMOST subquery, i.e. before the best-per-player collapse — that
+     * ordering is load-bearing. A player with a 900 on `vpx` and a 700 on `fx`
+     * must appear on the Arcade-Style card with their 700; collapsing first and
+     * filtering after would silently drop them from every board but their best
+     * one.
+     */
+    private static async rankedRows(
+        globalGameId: string,
+        scope: string = 'global',
+        category?: string | null,
+    ): Promise<GlobalRankedEntry[]> {
         const db = await getDatabase();
 
         const isGlobal = scope === 'global';
@@ -116,6 +186,8 @@ export class GlobalLeaderboardService {
         const excludeFilter = isGlobal ? 'AND exclude_from_global = 0' : '';
         const roomFilter = isGlobal ? '' : 'AND origin_game_room_id = ?';
         const roomParams = isGlobal ? [] : [scope];
+        const categoryFilter = category ? `AND ${CARD_CATEGORY_EXPR_BARE} = ?` : '';
+        const categoryParams = category ? [category] : [];
 
         // Pull all non-deleted scores for the game, pick best per player, enrich with avatar + room name.
         // Partition collapses by submitted_by_user_id when set (Discord-linked aliases combine
@@ -177,6 +249,7 @@ export class GlobalLeaderboardService {
                       AND orphaned_at IS NULL
                       ${excludeFilter}
                       ${roomFilter}
+                      ${categoryFilter}
                 ) gs
             ) best
             LEFT JOIN game_rooms gr ON gr.id = best.origin_game_room_id
@@ -188,7 +261,7 @@ export class GlobalLeaderboardService {
             WHERE best.rn = 1
             GROUP BY best.score_id
             ORDER BY best.score DESC, best.submitted_at ASC
-        `, globalGameId, ...roomParams);
+        `, globalGameId, ...roomParams, ...categoryParams);
 
         const rankings: GlobalRankedEntry[] = rows.map((e: any, i: number) => ({
             rank: i + 1,
@@ -211,12 +284,6 @@ export class GlobalLeaderboardService {
             device: e.device || UNKNOWN,
         }));
 
-        await db.run(
-            `INSERT OR REPLACE INTO global_leaderboard_cache (global_game_id, scope, rankings, generated_at) VALUES (?, ?, ?, ?)`,
-            globalGameId, scope, JSON.stringify(rankings), new Date().toISOString()
-        );
-
-        logInfo(`Global leaderboard recalculated for ${globalGameId} (${scope}): ${rankings.length} entries`);
         return rankings;
     }
 
@@ -231,6 +298,28 @@ export class GlobalLeaderboardService {
         );
         if (cached) return JSON.parse(cached.rankings);
         return this.recalculate(globalGameId, scope);
+    }
+
+    /**
+     * The ranked board for ONE card — a `(game, category)` pair (v2.59.0, P4).
+     *
+     * Deliberately UNCACHED, unlike `getForGame`. It is only ever called for
+     * the handful of cards a viewer actually holds a score on (to build the
+     * three-row `neighbors` window), so caching would add a cache row per
+     * category per scope to save a query that runs a few times per page load.
+     * `global_leaderboard_cache` is keyed `(global_game_id, scope)` and its
+     * invalidation sweeps by game, so a composite scope string WOULD be
+     * correct — it just isn't worth the extra state.
+     *
+     * A null category is the zero-score card: no scores, so no board.
+     */
+    static async getForCard(
+        globalGameId: string,
+        category: string | null,
+        scope: string = 'global',
+    ): Promise<GlobalRankedEntry[]> {
+        if (!category) return [];
+        return GlobalLeaderboardService.rankedRows(globalGameId, scope, category);
     }
 
     /**
@@ -325,6 +414,7 @@ export class GlobalLeaderboardService {
         search?: string;
         type?: string;
         platforms?: string[];
+        category?: string;
     }): { joinClause: string; joinParams: any[]; whereClause: string; whereParams: any[] } {
         const scope = options.scope || 'global';
         const isGlobal = scope === 'global';
@@ -380,6 +470,23 @@ export class GlobalLeaderboardService {
             }
         }
 
+        // v2.59.0 (ADR 0016 P4) — the category chip.
+        //
+        // WHERE, not HAVING, and not the LEFT JOIN. In WHERE it discards score
+        // rows outside the chosen band BEFORE grouping, so a mixed game yields
+        // exactly the one card that was asked for with the right count. In the
+        // JOIN it would instead keep every game and show them all with a count
+        // of zero. And because a game with no scores at all produces a NULL
+        // category, `NULL = 'simulation'` is NULL and it drops out — which is
+        // right: an empty game has no Simulation board to show.
+        //
+        // The category id is a caller-supplied value, so unlike the engine ids
+        // baked into the expression it is BOUND, not interpolated.
+        if (options.category) {
+            whereConditions.push(`${CARD_CATEGORY_EXPR} = ?`);
+            whereParams.push(options.category);
+        }
+
         return {
             joinClause: joinConditions.join(' AND '),
             joinParams,
@@ -413,6 +520,7 @@ export class GlobalLeaderboardService {
         search?: string;
         type?: string;
         platforms?: string[];
+        category?: string;
     } = {}): Promise<HeroGameRow | null> {
         const db = await getDatabase();
         const { joinClause, joinParams, whereClause, whereParams } =
@@ -456,13 +564,36 @@ export class GlobalLeaderboardService {
             ORDER BY ${orderBy}
             LIMIT 1`;
 
+        /**
+         * P4 — attach the game's dominant category. One extra query, page-1
+         * only, bounded to a single game id. A correlated subquery inside
+         * `select()` would have been threaded through three clause builders
+         * for no measurable gain.
+         *
+         * `category` is scoped by the SAME room/category filters the hero was
+         * chosen under, so a room-scoped hero names the category it leads in
+         * *that room*.
+         */
+        const withCategory = async (row: any, isHot: boolean): Promise<HeroGameRow> => {
+            const cards = await GlobalLeaderboardService.getDominantCards(
+                [row.global_game_id], options.scope || 'global', options.category,
+            );
+            const category = cards[row.global_game_id]?.category ?? null;
+            return {
+                ...row,
+                is_hot: isHot,
+                category,
+                card_id: cardId(row.global_game_id, category),
+            } as HeroGameRow;
+        };
+
         // `since` binds in the SELECT list, so it leads the parameter order.
         const hot = await db.get(
             select('weekly_score_count DESC, score_count DESC, gg.name COLLATE NOCASE ASC'),
             since, ...joinParams, ...whereParams,
         );
         if (hot && hot.weekly_score_count >= HERO_MIN_WEEKLY_SCORES) {
-            return { ...hot, is_hot: true } as HeroGameRow;
+            return withCategory(hot, true);
         }
 
         // Nothing in this view has any score at all — the hot query already
@@ -474,13 +605,98 @@ export class GlobalLeaderboardService {
             select('score_count DESC, popularity DESC, gg.name COLLATE NOCASE ASC'),
             since, ...joinParams, ...whereParams,
         );
-        return neutral ? ({ ...neutral, is_hot: false } as HeroGameRow) : null;
+        return neutral ? withCategory(neutral, false) : null;
     }
 
     /**
-     * Paginated catalogue view with per-game score aggregates. All catalogue games
-     * appear (LEFT JOIN), including ones with zero scores. Sort defaults to `popular`
-     * — a recency-weighted score count that emphasizes games with recent activity.
+     * The dominant CARD of each game — its biggest fidelity category, plus
+     * that category's score count and top score (v2.59.0, ADR 0016 P4).
+     *
+     * Two surfaces need exactly one card for a game that may have several:
+     * the hero (game-level by design) and the My Pins rail (one entry per
+     * pinned game — pins are keyed on the game, so multiplying rail entries
+     * per category would be a regression, not a feature). "Biggest" means most
+     * scores, tie-broken by top score then category id so the choice is
+     * deterministic across page loads.
+     *
+     * Games with no qualifying scores are ABSENT from the result; callers read
+     * that as `category: null`, the uncategorised card.
+     */
+    static async getDominantCards(
+        gameIds: string[],
+        scope: string = 'global',
+        category?: string,
+    ): Promise<Record<string, { category: string; score_count: number; top_score: number | null }>> {
+        if (gameIds.length === 0) return {};
+        const db = await getDatabase();
+        const isGlobal = scope === 'global';
+        const excludeFilter = isGlobal ? 'AND gs.exclude_from_global = 0' : '';
+        const roomFilter = isGlobal ? '' : 'AND gs.origin_game_room_id = ?';
+        const roomParams = isGlobal ? [] : [scope];
+        const categoryFilter = category ? `AND ${CARD_CATEGORY_EXPR} = ?` : '';
+        const categoryParams = category ? [category] : [];
+        const placeholders = gameIds.map(() => '?').join(',');
+
+        const rows = await db.all(`
+            SELECT
+                gs.global_game_id,
+                ${CARD_CATEGORY_EXPR} as category,
+                COUNT(*) as score_count,
+                MAX(gs.score) as top_score
+            FROM global_scores gs
+            WHERE gs.global_game_id IN (${placeholders})
+              AND gs.deleted_at IS NULL
+              AND gs.orphaned_at IS NULL
+              ${excludeFilter}
+              ${roomFilter}
+              ${categoryFilter}
+            GROUP BY gs.global_game_id, category
+            ORDER BY gs.global_game_id ASC, score_count DESC, top_score DESC, category ASC
+        `, ...gameIds, ...roomParams, ...categoryParams);
+
+        const out: Record<string, { category: string; score_count: number; top_score: number | null }> = {};
+        for (const row of rows) {
+            // ORDER BY already put each game's winner first, so first-wins.
+            if (out[row.global_game_id]) continue;
+            out[row.global_game_id] = {
+                category: row.category,
+                score_count: row.score_count ?? 0,
+                top_score: row.top_score ?? null,
+            };
+        }
+        return out;
+    }
+
+    /**
+     * Paginated catalogue view — ONE ROW PER CARD, where a card is a
+     * `(game, fidelity category)` pair (v2.59.0, ADR 0016 P4).
+     *
+     * Before P4 this was one row per game and every score on the game shared a
+     * board, which is exactly the comparability problem ADR 0016 exists to fix:
+     * a VPX score and an FX score are not the same contest. `GROUP BY gg.id`
+     * became `GROUP BY gg.id, <category>`, so a game with scores on both
+     * engines now yields two cards and each aggregate — `score_count`,
+     * `top_score`, `last_submitted_at`, `popularity` — is that CATEGORY's
+     * figure, never the game's total.
+     *
+     * Three consequences worth stating outright:
+     *
+     *   • **Nothing is dropped.** `unspecified` is a category like any other
+     *     here, so the 38-of-67 production rows with `engine='unknown'` get a
+     *     card instead of falling through the grouping. The union of a game's
+     *     cards is exactly its score set.
+     *   • **`total` counts CARDS, not games**, and so does pagination.
+     *   • **Ordering is a TOTAL order.** Every sort ends in
+     *     `gg.id, category`, which is unique per row. Without that tiebreak,
+     *     ties (identical popularity, or two categories of the same game with
+     *     the same name) could be returned in a different order for `offset=0`
+     *     and `offset=30`, silently dropping or duplicating a card across the
+     *     page boundary.
+     *
+     * All catalogue games still appear (LEFT JOIN), including ones with zero
+     * scores: those produce a NULL category — a single uncategorised card that
+     * keeps discovery and the `Claim 1st →` CTA. That falls out of the join
+     * rather than a special branch.
      *
      * Popularity formula: SUM(1 / (1 + age_in_days / 14)). 14-day half-life means a
      * score today is worth ~1, 14 days ago ~0.5, 90 days ago ~0.135.
@@ -493,6 +709,20 @@ export class GlobalLeaderboardService {
         search?: string;
         type?: string;
         platforms?: string[];
+        /**
+         * v2.59.0 (P4) — the category chip. One of `CARD_CATEGORY_ORDER`;
+         * absent means "All". Filters which CARDS appear, and (in `game`
+         * grouping) which games qualify.
+         */
+        category?: string;
+        /**
+         * v2.59.0 (P4) — `card` (default) returns one row per
+         * `(game, category)`. `game` collapses back to one row per game and is
+         * used by the ⌘K palette, which searches GAMES: a game matches if any
+         * of its cards would. Those rows carry `category: null` because they
+         * represent no single board.
+         */
+        groupBy?: 'card' | 'game';
         /**
          * v2.52.0 (A4) — the viewer whose pins `sort=pinned` orders by. Also
          * populates `pinned_at` on every row, which the route turns into
@@ -526,6 +756,13 @@ export class GlobalLeaderboardService {
             popularity: number;
             avg_rating: number;
             rating_count: number;
+            /**
+             * v2.59.0 (P4) — the card's fidelity category, or null when the
+             * game has no scores at all (the single uncategorised card).
+             */
+            category: string | null;
+            /** v2.59.0 (P4) — `${global_game_id}::${category ?? 'none'}`. */
+            card_id: string;
             /** v2.52.0: ISO pin timestamp for `pinnedUserId`, else null/absent. */
             pinned_at?: string | null;
         }>;
@@ -568,7 +805,24 @@ export class GlobalLeaderboardService {
             selectParams.push(options.pinnedUserId);
         }
 
-        const orderBy =
+        // v2.59.0 (P4) — the grouping key. `card` splits a game per fidelity
+        // category; `game` collapses back for the ⌘K palette, which searches
+        // games. `groupKey` is what both GROUP BY and the count subquery use,
+        // so the two can never disagree about what a "row" is.
+        const byCard = options.groupBy !== 'game';
+        const categorySelect = byCard ? `${CARD_CATEGORY_EXPR} as category` : 'NULL as category';
+        const groupKey = byCard ? 'gg.id, category' : 'gg.id';
+
+        /**
+         * Every sort ends in `gg.id, category` — a UNIQUE key per row, which is
+         * what makes LIMIT/OFFSET pagination stable. `gg.name` was never unique
+         * (two games can share a title) and is now doubly non-unique, since one
+         * game contributes several rows under the same name. A non-total order
+         * lets SQLite return tied rows in any order per statement, so page 2
+         * could repeat or skip a card that page 1 already showed.
+         */
+        const stableTail = byCard ? 'gg.id ASC, category ASC' : 'gg.id ASC';
+        const orderBy = (
             // Pinned first, most-recently-pinned leading, then the standard
             // `popular` ordering for everything else. `pinned_at IS NULL` sorts
             // 0 (pinned) before 1 (not), so it is the primary key of the sort.
@@ -578,7 +832,8 @@ export class GlobalLeaderboardService {
             options.sort === 'most_recent' ? 'last_submitted_at DESC NULLS LAST, gg.name COLLATE NOCASE ASC' :
             options.sort === 'highest_rated' ? 'avg_rating DESC, rating_count DESC, gg.name COLLATE NOCASE ASC' :
             options.sort === 'name_asc' ? 'gg.name COLLATE NOCASE ASC' :
-            'popularity DESC, gg.name COLLATE NOCASE ASC'; // default: popular
+            'popularity DESC, gg.name COLLATE NOCASE ASC' // default: popular
+        ) + `, ${stableTail}`;
 
         // When scoped to a room, only show games that have scores from that room.
         // B3: hasScores=true applies the same bound to the global scope (the
@@ -587,29 +842,23 @@ export class GlobalLeaderboardService {
         const requireScores = options.hasScores === true;
         const havingClause = (!isGlobal || requireScores) ? 'HAVING COUNT(gs.id) > 0' : '';
 
-        // Count query: for global scope, count all catalogue games; for room scope
-        // (or global+hasScores), only count games with at least one qualifying score.
-        let total: number;
-        if (isGlobal && !requireScores) {
-            const countRow = await db.get(
-                `SELECT COUNT(*) as c FROM global_games gg WHERE ${whereClause}`,
-                ...whereParams
-            );
-            total = countRow?.c ?? 0;
-        } else {
-            const countRow = await db.get(
-                `SELECT COUNT(*) as c FROM (
-                    SELECT gg.id
-                    FROM global_games gg
-                    JOIN global_scores gs ON ${joinClause}
-                    WHERE ${whereClause}
-                    GROUP BY gg.id
-                    HAVING COUNT(gs.id) > 0
-                )`,
-                ...joinParams, ...whereParams
-            );
-            total = countRow?.c ?? 0;
-        }
+        // Count query. Pre-P4 the global, unfiltered case had a fast path
+        // (`COUNT(*) FROM global_games`) because rows and games were the same
+        // thing; a row is now a CARD, so the count has to do the same grouping
+        // the data query does or `total` would disagree with what pagination
+        // walks. One shared shape covers every scope/filter combination.
+        const countRow = await db.get(
+            `SELECT COUNT(*) as c FROM (
+                SELECT gg.id, ${categorySelect}
+                FROM global_games gg
+                LEFT JOIN global_scores gs ON ${joinClause}
+                WHERE ${whereClause}
+                GROUP BY ${groupKey}
+                ${havingClause}
+            )`,
+            ...joinParams, ...whereParams
+        );
+        const total: number = countRow?.c ?? 0;
 
         const data = await db.all(
             `SELECT
@@ -628,7 +877,8 @@ export class GlobalLeaderboardService {
                 MAX(gs.submitted_at) as last_submitted_at,
                 ${popularityExpr} as popularity,
                 COALESCE(gr.avg_rating, 0) as avg_rating,
-                COALESCE(gr.rating_count, 0) as rating_count${pinnedAtSelect}
+                COALESCE(gr.rating_count, 0) as rating_count,
+                ${categorySelect}${pinnedAtSelect}
             FROM global_games gg
             LEFT JOIN global_scores gs ON ${joinClause}
             LEFT JOIN (
@@ -639,14 +889,22 @@ export class GlobalLeaderboardService {
                 GROUP BY global_game_id
             ) gr ON gr.global_game_id = gg.id
             WHERE ${whereClause}
-            GROUP BY gg.id
+            GROUP BY ${groupKey}
             ${havingClause}
             ORDER BY ${orderBy}
             LIMIT ? OFFSET ?`,
             ...selectParams, ...joinParams, ...whereParams, limit, offset
         );
 
-        return { data, total, hasMore: offset + data.length < total };
+        return {
+            data: data.map((row: any) => ({
+                ...row,
+                category: row.category ?? null,
+                card_id: cardId(row.global_game_id, row.category ?? null),
+            })),
+            total,
+            hasMore: offset + data.length < total,
+        };
     }
 
     /**
@@ -673,8 +931,19 @@ export class GlobalLeaderboardService {
      * `recalculate` uses: a join under a window function could fan out a row
      * and shift every rank below it. `iscored_username` is UNIQUE COLLATE
      * NOCASE so the two forms select the same value.
+     *
+     * v2.59.0 (P4): ranks are now scoped WITHIN a card's category and the
+     * result is keyed by `cardId(...)`, not by game id. A viewer can be 3rd on
+     * Simulation and 9th on Arcade-Style for one game, and both are true — a
+     * single game-level number would be neither. The category partition also
+     * rides on the inner best-per-player collapse, so someone's FX score is
+     * ranked on the FX board even when their VPX score is higher.
+     *
+     * One call still covers a whole page: it returns EVERY card the viewer
+     * scored on across `gameIds`, so the caller looks up by `card_id` and
+     * ignores the rest.
      */
-    static async getViewerRanks(
+    static async getViewerCardRanks(
         gameIds: string[],
         viewerUserId: string,
         scope: string = 'global',
@@ -688,10 +957,11 @@ export class GlobalLeaderboardService {
         const placeholders = gameIds.map(() => '?').join(',');
 
         const rows = await db.all(`
-            SELECT resolved.global_game_id, resolved.rank, resolved.score
+            SELECT resolved.global_game_id, resolved.category, resolved.rank, resolved.score
             FROM (
                 SELECT
                     best.global_game_id,
+                    best.category,
                     best.score,
                     COALESCE(
                         best.submitted_by_user_id,
@@ -703,19 +973,20 @@ export class GlobalLeaderboardService {
                         best.player_id
                     ) AS owner_id,
                     ROW_NUMBER() OVER (
-                        PARTITION BY best.global_game_id
+                        PARTITION BY best.global_game_id, best.category
                         ORDER BY best.score DESC, best.submitted_at ASC
                     ) AS rank
                 FROM (
                     SELECT
                         gs.global_game_id,
+                        ${CARD_CATEGORY_EXPR} as category,
                         gs.player_id,
                         gs.submitted_by_user_id,
                         gs.iscored_username,
                         gs.score,
                         gs.submitted_at,
                         ROW_NUMBER() OVER (
-                            PARTITION BY gs.global_game_id, COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.player_id)))
+                            PARTITION BY gs.global_game_id, ${CARD_CATEGORY_EXPR}, COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.player_id)))
                             ORDER BY gs.score DESC, gs.submitted_at ASC
                         ) AS player_rn
                     FROM global_scores gs
@@ -732,17 +1003,23 @@ export class GlobalLeaderboardService {
 
         const out: Record<string, { rank: number; score: number }> = {};
         for (const row of rows) {
-            out[row.global_game_id] = { rank: row.rank, score: row.score };
+            out[cardId(row.global_game_id, row.category ?? null)] = { rank: row.rank, score: row.score };
         }
         return out;
     }
 
     /**
-     * Fetch top N leaderboard entries for a batch of global game IDs.
-     * Returns a map of globalGameId → ranked entries (best per player, top N).
-     * Used to enrich catalogue cards with inline score previews.
+     * Fetch top N leaderboard entries for a batch of global game IDs, split by
+     * fidelity category. Used to enrich catalogue cards with inline previews.
+     *
+     * v2.59.0 (P4): returns a map of **`card_id`** → ranked entries, not game
+     * id. Each card gets its own top N, and the best-per-player collapse
+     * happens WITHIN the category — a player whose VPX score outranks their FX
+     * score still appears on the Arcade-Style card with the FX one. Callers
+     * pass game ids and look results up by `card_id`; every category of every
+     * requested game comes back in the one query.
      */
-    static async getTopScoresForGames(
+    static async getTopScoresForCards(
         gameIds: string[],
         topN: number = 5,
         scope: string = 'global'
@@ -776,6 +1053,7 @@ export class GlobalLeaderboardService {
         const rows = await db.all(`
             SELECT
                 ranked.global_game_id,
+                ranked.category,
                 ranked.discord_user_id,
                 ranked.iscored_username,
                 ranked.score,
@@ -788,13 +1066,14 @@ export class GlobalLeaderboardService {
             FROM (
                 SELECT
                     gs.global_game_id,
+                    ${CARD_CATEGORY_EXPR} as category,
                     gs.player_id as discord_user_id,
                     gs.submitted_by_user_id,
                     gs.iscored_username,
                     gs.score,
                     gs.origin_game_room_id,
                     ROW_NUMBER() OVER (
-                        PARTITION BY gs.global_game_id, COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.player_id)))
+                        PARTITION BY gs.global_game_id, ${CARD_CATEGORY_EXPR}, COALESCE(gs.submitted_by_user_id, 'iscored:' || LOWER(COALESCE(gs.iscored_username, gs.player_id)))
                         ORDER BY gs.score DESC
                     ) as player_rn
                 FROM global_scores gs
@@ -811,10 +1090,10 @@ export class GlobalLeaderboardService {
             )
             LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(ranked.submitted_by_user_id, um.discord_user_id)
             WHERE ranked.player_rn = 1
-            ORDER BY ranked.global_game_id, ranked.score DESC
+            ORDER BY ranked.global_game_id, ranked.category, ranked.score DESC
         `, ...gameIds, ...roomParams);
 
-        // Group by game and take top N per game
+        // Group by CARD and take top N per card.
         const result: Record<string, Array<{
             iscored_username: string;
             display_name: string | null;
@@ -826,10 +1105,10 @@ export class GlobalLeaderboardService {
             origin_room_short_tag: string | null;
         }>> = {};
         for (const row of rows) {
-            const gid = row.global_game_id;
-            if (!result[gid]) result[gid] = [];
-            if (result[gid].length < topN) {
-                result[gid].push({
+            const key = cardId(row.global_game_id, row.category ?? null);
+            if (!result[key]) result[key] = [];
+            if (result[key].length < topN) {
+                result[key].push({
                     iscored_username: row.iscored_username || 'Unknown',
                     display_name: row.display_name || null,
                     score: row.score,

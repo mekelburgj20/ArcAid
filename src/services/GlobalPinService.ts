@@ -1,5 +1,5 @@
 import { getDatabase } from '../database/database.js';
-import { GlobalLeaderboardService } from './GlobalLeaderboardService.js';
+import { GlobalLeaderboardService, cardId } from './GlobalLeaderboardService.js';
 
 /**
  * Global Scoreboard pins (v2.52.0, Track A phase A4 —
@@ -58,6 +58,18 @@ export interface PinnedGame {
     platforms: string;
     score_count: number;
     top_score: number | null;
+    /**
+     * v2.59.0 (ADR 0016 P4) — which board this rail card shows: the pinned
+     * game's HIGHEST-SCORING fidelity category, or null when it has no scores.
+     *
+     * The rail deliberately stays ONE ENTRY PER PINNED GAME. A pin is on the
+     * game, so splitting a pinned game into three rail cards would triple the
+     * rail off the back of a single user action. But a card has to show one
+     * board, so `score_count`, `top_score`, `top_scores`, `my_rank`,
+     * `my_score` and `neighbors` below are all THIS CATEGORY's figures — the
+     * chip and the rows can never disagree.
+     */
+    category: string | null;
     /**
      * v2.55.0: ranks 1-6, the same rows the grid card renders. Replaces the
      * v2.52.0 `top_player` champion-only field — the rail now renders the FULL
@@ -130,8 +142,14 @@ export class GlobalPinService {
         const game = await db.get<{ id: string }>('SELECT id FROM global_games WHERE id = ?', globalGameId);
         if (!game) return null;
 
-        const ranks = await GlobalLeaderboardService.getViewerRanks([globalGameId], discordUserId, 'global');
-        const seedRank = ranks[globalGameId]?.rank ?? null;
+        // P4 — seed the baseline on the same board `list` will report a rank
+        // for (the game's dominant category). Seeding a game-level rank while
+        // rendering a category-level one would make every rail delta wrong by
+        // however much the two boards differ.
+        const dominant = await GlobalLeaderboardService.getDominantCards([globalGameId], 'global');
+        const category = dominant[globalGameId]?.category ?? null;
+        const ranks = await GlobalLeaderboardService.getViewerCardRanks([globalGameId], discordUserId, 'global');
+        const seedRank = ranks[cardId(globalGameId, category)]?.rank ?? null;
 
         await db.run(
             `INSERT INTO global_game_pins (discord_user_id, global_game_id, created_at, last_known_rank, last_seen_at)
@@ -157,7 +175,7 @@ export class GlobalPinService {
      * The viewer's pins, newest first, with enough per-card data that the rail
      * renders in one round trip.
      *
-     * The rows come from the existing batched `getTopScoresForGames` helper
+     * The rows come from the existing batched `getTopScoresForCards` helper
      * rather than a bespoke query, so the rail's leaderboard is literally the
      * same data the grid card shows — the two must not be able to disagree
      * (v2.55.0 makes them the same React component too).
@@ -176,8 +194,6 @@ export class GlobalPinService {
             local_image_path: string | null;
             wheel_image_path: string | null;
             platforms: string;
-            score_count: number;
-            top_score: number | null;
             last_known_rank: number | null;
             pinned_at: string;
         }>>(`
@@ -192,16 +208,6 @@ export class GlobalPinService {
                 gg.local_image_path,
                 gg.wheel_image_path,
                 gg.platforms,
-                (SELECT COUNT(*) FROM global_scores gs
-                  WHERE gs.global_game_id = gg.id
-                    AND gs.deleted_at IS NULL
-                    AND gs.orphaned_at IS NULL
-                    AND gs.exclude_from_global = 0) as score_count,
-                (SELECT MAX(gs.score) FROM global_scores gs
-                  WHERE gs.global_game_id = gg.id
-                    AND gs.deleted_at IS NULL
-                    AND gs.orphaned_at IS NULL
-                    AND gs.exclude_from_global = 0) as top_score,
                 p.last_known_rank,
                 p.created_at as pinned_at
             FROM global_game_pins p
@@ -213,22 +219,33 @@ export class GlobalPinService {
         if (rows.length === 0) return [];
 
         const gameIds = rows.map(r => r.global_game_id);
-        const [topScores, myRanks] = await Promise.all([
-            GlobalLeaderboardService.getTopScoresForGames(gameIds, CARD_ROWS, 'global'),
-            GlobalLeaderboardService.getViewerRanks(gameIds, discordUserId, 'global'),
+        // P4 — `score_count` / `top_score` used to be two scalar subqueries
+        // over every score on the game. They come from the dominant-card
+        // lookup now instead, because the rail renders ONE category's board
+        // and a footer reading "18 scores" above six Simulation rows (12 of
+        // which are FX) would be the same mixed-engine claim the ADR forbids.
+        const [dominant, topScores, myRanks] = await Promise.all([
+            GlobalLeaderboardService.getDominantCards(gameIds, 'global'),
+            GlobalLeaderboardService.getTopScoresForCards(gameIds, CARD_ROWS, 'global'),
+            GlobalLeaderboardService.getViewerCardRanks(gameIds, discordUserId, 'global'),
         ]);
+        const cardIdFor = (gameId: string) => cardId(gameId, dominant[gameId]?.category ?? null);
 
         // Neighbour rows for the card's "YOU" line, fetched ONLY for pins where
         // the viewer ranks below the six rendered rows. Inside the top 6 they
         // are already on the card, so the extra leaderboard read would buy a
         // row that is never drawn.
-        const neighborsByGame: Record<string, PinnedTopScore[]> = {};
-        await Promise.all(Object.entries(myRanks)
-            .filter(([, mine]) => mine.rank > CARD_ROWS)
-            .map(async ([gameId, mine]) => {
-                const full = await GlobalLeaderboardService.getForGame(gameId, 'global');
-                neighborsByGame[gameId] = full
-                    .filter(e => e.rank >= mine.rank - 1 && e.rank <= mine.rank + 1)
+        const neighborsByCard: Record<string, PinnedTopScore[]> = {};
+        await Promise.all(rows
+            .filter(r => (myRanks[cardIdFor(r.global_game_id)]?.rank ?? 0) > CARD_ROWS)
+            .map(async r => {
+                const key = cardIdFor(r.global_game_id);
+                const rank = myRanks[key]!.rank;
+                const full = await GlobalLeaderboardService.getForCard(
+                    r.global_game_id, dominant[r.global_game_id]?.category ?? null, 'global',
+                );
+                neighborsByCard[key] = full
+                    .filter(e => e.rank >= rank - 1 && e.rank <= rank + 1)
                     .map(e => ({
                         iscored_username: e.iscored_username,
                         display_name: e.display_name ?? null,
@@ -243,7 +260,9 @@ export class GlobalPinService {
             }));
 
         return rows.map(r => {
-            const mine = myRanks[r.global_game_id];
+            const key = cardIdFor(r.global_game_id);
+            const card = dominant[r.global_game_id];
+            const mine = myRanks[key];
             const myRank = mine?.rank ?? null;
             return {
                 global_game_id: r.global_game_id,
@@ -256,9 +275,10 @@ export class GlobalPinService {
                 local_image_path: r.local_image_path,
                 wheel_image_path: r.wheel_image_path,
                 platforms: r.platforms,
-                score_count: r.score_count ?? 0,
-                top_score: r.top_score ?? null,
-                top_scores: (topScores[r.global_game_id] ?? []).map(s => ({
+                category: card?.category ?? null,
+                score_count: card?.score_count ?? 0,
+                top_score: card?.top_score ?? null,
+                top_scores: (topScores[key] ?? []).map(s => ({
                     iscored_username: s.iscored_username,
                     display_name: s.display_name ?? null,
                     discord_user_id: s.discord_user_id,
@@ -268,7 +288,7 @@ export class GlobalPinService {
                     origin_room_logo_url: s.origin_room_logo_url,
                     origin_room_short_tag: s.origin_room_short_tag,
                 })),
-                neighbors: neighborsByGame[r.global_game_id] ?? [],
+                neighbors: neighborsByCard[key] ?? [],
                 my_rank: myRank,
                 my_score: mine?.score ?? null,
                 // Negative = improved (see the interface note on the docs'

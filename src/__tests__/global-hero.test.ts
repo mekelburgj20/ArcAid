@@ -190,11 +190,14 @@ describe('GET /api/global/scoreboard — hero card selection', () => {
         // Mirrors PRE_A4_KEYS in global-pins.test.ts: the per-game key set an
         // anonymous /scoreboard response ships. A5a adds a top-level key and
         // must not leak anything into the rows.
+        // v2.59.0 (P4) added the additive, viewer-independent `category` +
+        // `card_id` to every row and to the hero.
         const PRE_A5_ROW_KEYS = [
             'global_game_id', 'name', 'display_name', 'manufacturer', 'year', 'type',
             'image_url', 'local_image_path', 'wheel_image_path', 'platforms',
             'score_count', 'top_score', 'last_submitted_at', 'popularity',
             'avg_rating', 'rating_count', 'top_scores',
+            'category', 'card_id',
         ].sort();
 
         const app = await createTestApp();

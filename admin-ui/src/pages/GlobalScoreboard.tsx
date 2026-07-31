@@ -15,7 +15,7 @@ import GlobalGameCard, { type GlobalGameCardGame, type Density } from '../compon
 import GlobalHeroCard from '../components/GlobalHeroCard';
 import { GRID_CLASS } from '../lib/globalGrid';
 import { formatScore } from '../lib/format';
-import { PLATFORM_GROUPS } from '../lib/platforms';
+import { CARD_CATEGORY_ORDER, getCardCategoryLabel } from '../lib/scoreProvenance';
 
 /**
  * v2.55.0: the card itself — and the row/score shapes it reads — now live in
@@ -76,6 +76,21 @@ const PINNED_PILL: [SortMode, string] = ['pinned', 'Pinned first'];
  * key — `/api/me/preferences` is theme-only, admin-scoped, and rejects extra
  * keys with a 400.
  */
+/**
+ * v2.59.0 (ADR 0016 P4) — the filter chips.
+ *
+ * These REPLACE the old platform-group chips (`Physical` · `Virtual Pinball` ·
+ * `Video Games`), which filtered GAMES by catalogue availability. The page no
+ * longer lists games, it lists per-category boards, so a filter on a different
+ * taxonomy than the one the cards are cut by would have been two competing
+ * answers to "what am I looking at". Labels come from the shared taxonomy, so
+ * a band rename lands here for free.
+ */
+const CATEGORY_CHIPS: Array<[string, string]> = [
+  ['all', 'All'],
+  ...CARD_CATEGORY_ORDER.map(id => [id, getCardCategoryLabel(id) as string] as [string, string]),
+];
+
 const DENSITY_STORAGE_KEY = 'arcaid-scoreboard-density';
 const DENSITY_PREF_KEY = 'global_density';
 
@@ -83,6 +98,17 @@ function readStoredDensity(): Density {
   try {
     return localStorage.getItem(DENSITY_STORAGE_KEY) === 'mine' ? 'mine' : 'top6';
   } catch { return 'top6'; }
+}
+
+/**
+ * A card's stable identity — v2.59.0 (P4).
+ *
+ * The server always sends `card_id`; the game-id fallback exists so a payload
+ * from an older server (or a fixture) still renders one card per game instead
+ * of a grid keyed on `undefined`, which React collapses into a single row.
+ */
+function cardKeyOf(game: { card_id?: string; global_game_id: string }): string {
+  return game.card_id ?? game.global_game_id;
 }
 
 /** `LIVE · updated {n} ago` — seconds while it still reads as "just now". */
@@ -113,7 +139,8 @@ export default function GlobalScoreboard() {
    *  re-fetches `pinned`. */
   const [sort, setSort] = useState<SortMode>(() => (playerToken ? 'pinned' : 'popular'));
   const [scope, setScope] = useState<string>('global'); // 'global' or a roomId
-  const [platformGroup, setPlatformGroup] = useState<string>('all');
+  /** P4 — `all` or a `CARD_CATEGORY_ORDER` id. Filters CARDS, not games. */
+  const [category, setCategory] = useState<string>('all');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState(''); // debounced value actually sent to API
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -202,14 +229,10 @@ export default function GlobalScoreboard() {
       offset: String(offset),
     });
     if (search) params.set('search', search);
-    if (platformGroup !== 'all') {
-      // A0 #9: PLATFORM_GROUPS is keyed by id (physical/vpin/video); the chip
-      // state stores the KEY, never the human label.
-      const plats = PLATFORM_GROUPS[platformGroup]?.platforms || [];
-      if (plats.length > 0) params.set('platforms', plats.join(','));
-    }
+    // P4: the chip state stores the category ID, never the human label.
+    if (category !== 'all') params.set('category', category);
     return params.toString();
-  }, [sort, scope, search, platformGroup]);
+  }, [sort, scope, search, category]);
 
   // Load first page whenever filters change
   useEffect(() => {
@@ -543,7 +566,7 @@ export default function GlobalScoreboard() {
             onValueChange={setSearchInput}
             debouncedQuery={search}
             scope={scope}
-            platformGroup={platformGroup}
+            category={category}
             loggedIn={Boolean(playerToken)}
             onSubmitGame={handlePaletteSubmit}
           />
@@ -566,17 +589,17 @@ export default function GlobalScoreboard() {
           className={`transition-opacity duration-150 ${paletteOpen ? 'pointer-events-none opacity-25' : ''}`}
           aria-hidden={paletteOpen || undefined}
         >
-        {/* Platform group chips (left) + sort pills (right) */}
+        {/* Category chips (left) + sort pills (right) */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6">
           <div className="flex items-center gap-2 flex-wrap">
             <Filter className="w-4 h-4 text-muted" />
-            {[['all', 'All platforms'], ...Object.entries(PLATFORM_GROUPS).map(([k, v]) => [k, v.label])].map(([k, label]) => (
+            {CATEGORY_CHIPS.map(([k, label]) => (
               <button
                 key={k}
-                onClick={() => setPlatformGroup(k)}
-                aria-pressed={platformGroup === k}
+                onClick={() => setCategory(k)}
+                aria-pressed={category === k}
                 className={`px-3 py-1 text-[10px] rounded-full border ${
-                  platformGroup === k
+                  category === k
                     ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
                     : 'border-border text-muted hover:text-primary'
                 }`}
@@ -637,19 +660,21 @@ export default function GlobalScoreboard() {
           </div>
         </div>
 
-        {/* Results summary */}
+        {/* Results summary. P4: a row is a per-category leaderboard now, not a
+            game — one game can contribute several — so the copy counts what it
+            actually counts. */}
         {!loading && (
           <div className="text-xs text-muted mb-4">
-            Showing {games.length.toLocaleString()} of {total.toLocaleString()} games
+            Showing {games.length.toLocaleString()} of {total.toLocaleString()} leaderboards
           </div>
         )}
 
-        {/* Game grid */}
+        {/* Card grid */}
         {loading ? (
           <LoadingState message="Loading global scoreboard..." />
         ) : games.length === 0 ? (
           <div className="text-center py-16 text-muted">
-            No games found. Try adjusting your filters.
+            No leaderboards found. Try adjusting your filters.
           </div>
         ) : (
           <>
@@ -669,11 +694,15 @@ export default function GlobalScoreboard() {
                   onTogglePin={playerToken ? () => togglePin(hero) : undefined}
                 />
               )}
+              {/* P4 — filter by CARD, not by game. The hero renders one
+                  category's board; the game's OTHER category cards are
+                  different leaderboards and must stay in the grid, or those
+                  scores would have nowhere on the page to appear. */}
               {games
-                .filter(game => game.global_game_id !== hero?.global_game_id)
+                .filter(game => !hero || cardKeyOf(game) !== cardKeyOf(hero))
                 .map(game => (
                   <GlobalGameCard
-                    key={game.global_game_id}
+                    key={cardKeyOf(game)}
                     game={game}
                     density={density}
                     onSubmit={() => handleSubmitClick(game)}

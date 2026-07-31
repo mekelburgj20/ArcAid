@@ -8,7 +8,7 @@ import { catalogueImageFor } from '../lib/catalogueImage';
 // v2.58.0 (ADR 0016): the catalogue still stores legacy platform ids, but the
 // UI speaks engine/device everywhere else — `getLegacyPlatformLabel` folds one
 // to the other so `vpxs` reads "VPX" here exactly as it does on a score row.
-import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
+import { getCardCategoryLabel, getLegacyPlatformLabel, UNSPECIFIED_CATEGORY } from '../lib/scoreProvenance';
 import { planRows, type Density } from '../lib/scoreboardDensity';
 
 /**
@@ -61,6 +61,14 @@ export interface GlobalGameCardGame {
   platforms: string;
   score_count: number;
   top_scores: TopScoreEntry[];
+  /**
+   * v2.59.0 (ADR 0016 P4) — which board this card is: `real` / `simulation` /
+   * `arcade_style` / `video` / `unspecified`, or null when the game has no
+   * scores at all. Every figure on the card is scoped to it.
+   */
+  category?: string | null;
+  /** v2.59.0 (P4) — `${global_game_id}::${category ?? 'none'}`; the React key. */
+  card_id?: string;
   /** v2.52.0 (A4) — per-viewer context. Absent entirely for anonymous viewers. */
   is_pinned?: boolean;
   my_rank?: number | null;
@@ -75,6 +83,42 @@ export interface GlobalGameCardGame {
  * Fast Refresh. Re-exported here because callers reach for it through the card.
  */
 export type { Density, PlannedRow, RowPlan } from '../lib/scoreboardDensity';
+
+/**
+ * The card's fidelity-category chip — v2.59.0 (ADR 0016 P4).
+ *
+ * This is the label that tells a player WHICH BOARD they are looking at, now
+ * that one game can render several cards. Shared with `GlobalHeroCard` so the
+ * two surfaces can't drift.
+ *
+ * Renders nothing for a null category (a game with no scores has no board to
+ * name — "Unspecified" there would claim scores of unrecorded provenance that
+ * don't exist). The `unspecified` bucket itself renders MUTED and carries a
+ * tooltip saying what it means: it is not a fidelity band, and styling it like
+ * one would assert comparability the data cannot support.
+ */
+export function CategoryChip({ category }: { category?: string | null }) {
+  const label = getCardCategoryLabel(category);
+  if (!label) return null;
+  const isUnspecified = category === UNSPECIFIED_CATEGORY;
+  return (
+    <span
+      data-testid="category-chip"
+      data-category={category as string}
+      className="rounded-[3px] border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.4px]"
+      style={{
+        background: 'var(--sb-pill-bg)',
+        borderColor: isUnspecified ? 'var(--sb-cat-muted-border)' : 'var(--sb-cat-border)',
+        color: isUnspecified ? 'var(--sb-cat-muted-fg)' : 'var(--sb-cat-fg)',
+      }}
+      title={isUnspecified
+        ? "These scores don't say which game engine produced them, so they can't be compared with the rest."
+        : `${label} scores — this board only ranks scores from ${label.toLowerCase()} sources.`}
+    >
+      {label}
+    </span>
+  );
+}
 
 /** Dashed rule with a centred ellipsis — the "…and then, you" separator. */
 function BreakLine() {
@@ -206,6 +250,7 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
   const { rows: planned, prompt } = planRows(game, density);
   const platforms = parsePlatforms(game.platforms);
   const primaryPlatform = platforms[0];
+  const categoryLabel = getCardCategoryLabel(game.category);
 
   /**
    * A4 — the "YOU" row. Appended only when the viewer has a rank AND that rank
@@ -277,10 +322,15 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
         {/* One platform pill only (design: the full list lives on the detail
             page), optionally preceded by a caller-supplied badge. The wrapper
             sits at the pill's original offsets, so a card with no badge renders
-            exactly as it did pre-extraction. */}
-        {(badge || primaryPlatform) && (
-          <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
+            exactly as it did pre-extraction.
+
+            P4 adds the category chip between them, and the row may now wrap:
+            three chips on a 1-column phone card would otherwise run under the
+            pin hotspot. `max-w` reserves the hotspot's 44px corner. */}
+        {(badge || categoryLabel || primaryPlatform) && (
+          <div className="absolute right-1.5 top-1.5 flex max-w-[calc(100%-3.25rem)] flex-wrap items-center justify-end gap-1">
             {badge}
+            <CategoryChip category={game.category} />
             {primaryPlatform && (
               <span
                 className="rounded-[3px] border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.4px] text-neon-cyan"

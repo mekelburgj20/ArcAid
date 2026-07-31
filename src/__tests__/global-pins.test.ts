@@ -299,11 +299,16 @@ describe('pin endpoints', () => {
 
 describe('GET /api/global/scoreboard — per-viewer context', () => {
     /** The exact per-game key set the endpoint shipped before A4. */
+    // v2.59.0 (ADR 0016 P4) added `category` + `card_id` to every row. Those
+    // are ADDITIVE and viewer-independent — the point of this assertion is that
+    // the four PER-VIEWER keys never appear without a token, which the explicit
+    // loop below checks directly.
     const PRE_A4_KEYS = [
         'global_game_id', 'name', 'display_name', 'manufacturer', 'year', 'type',
         'image_url', 'local_image_path', 'wheel_image_path', 'platforms',
         'score_count', 'top_score', 'last_submitted_at', 'popularity',
         'avg_rating', 'rating_count', 'top_scores',
+        'category', 'card_id',
     ].sort();
 
     it('(h) an ANONYMOUS request returns exactly the pre-A4 payload — no new keys leak in', async () => {

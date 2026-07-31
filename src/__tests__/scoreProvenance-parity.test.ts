@@ -110,6 +110,34 @@ describe('score provenance — BE/FE taxonomy parity', () => {
         }
     });
 
+    it('agrees on the P4 additions: card categories and their labels', () => {
+        expect(fe.UNSPECIFIED_CATEGORY).toBe(be.UNSPECIFIED_CATEGORY);
+        expect(fe.CARD_CATEGORY_ORDER).toEqual(be.CARD_CATEGORY_ORDER);
+
+        for (const engine of [...Object.keys(be.CANONICAL_ENGINES), be.UNKNOWN, 'nonsense', '']) {
+            expect(fe.engineCardCategory(engine), engine).toBe(be.engineCardCategory(engine));
+        }
+        for (const id of [...be.CARD_CATEGORY_ORDER, null, '', 'nonsense']) {
+            expect(fe.getCardCategoryLabel(id), String(id)).toBe(be.getCardCategoryLabel(id));
+        }
+
+        // Every card category must render a label, or the chip on a card would
+        // be blank and read as a bug. `null` is the one exception: it means
+        // "this game has no scores", which has no board to name.
+        for (const id of be.CARD_CATEGORY_ORDER) {
+            expect(be.getCardCategoryLabel(id), id).toBeTruthy();
+        }
+        expect(be.getCardCategoryLabel(null)).toBeNull();
+
+        // The bucket is NOT a fidelity band: no engine may claim it, and it
+        // must not appear in the band-label map.
+        expect(Object.keys(be.ENGINE_CATEGORY_LABELS)).not.toContain(be.UNSPECIFIED_CATEGORY);
+        for (const id of Object.keys(be.CANONICAL_ENGINES)) {
+            expect(be.engineCardCategory(id), id).not.toBe(be.UNSPECIFIED_CATEGORY);
+        }
+        expect(be.engineCardCategory(be.UNKNOWN)).toBe(be.UNSPECIFIED_CATEGORY);
+    });
+
     it('keeps every engine short label non-empty and distinct from its id', () => {
         // A missing `shortLabel` would fall back to the uppercased id at render
         // time and read as a raw token ("ATGAMES_NATIVE") on a card pill.

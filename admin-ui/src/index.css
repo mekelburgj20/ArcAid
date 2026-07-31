@@ -69,6 +69,15 @@
      stays legible on anything. */
   --sb-pill-bg: rgba(0, 0, 0, 0.58);
   --sb-pill-border: color-mix(in oklab, var(--color-neon-cyan) 34%, transparent);
+  /* Fidelity-category chip (P4, v2.59.0) — "which board am I looking at".
+     Magenta so it reads as a different KIND of fact from the cyan platform
+     pill beside it. The `muted` pair is the Unspecified bucket: it must be
+     visibly not a peer of Real / Simulation / Arcade-Style, because it makes
+     no claim about comparability at all. */
+  --sb-cat-fg: var(--color-neon-magenta);
+  --sb-cat-border: color-mix(in oklab, var(--color-neon-magenta) 38%, transparent);
+  --sb-cat-muted-fg: rgba(255, 255, 255, 0.72);
+  --sb-cat-muted-border: rgba(255, 255, 255, 0.28);
   --sb-row-gold-bg: color-mix(in oklab, var(--color-neon-amber) 12%, transparent);
   --sb-row-gold-border: color-mix(in oklab, var(--color-neon-amber) 35%, transparent);
   --sb-row-silver-bg: color-mix(in oklab, var(--color-medal-silver) 10%, transparent);
@@ -325,6 +334,12 @@
   --sb-art-meta: var(--color-muted);
   --sb-title-shadow: 0 1px 3px rgba(255, 255, 255, 0.9);
   --sb-pill-bg: rgba(255, 255, 255, 0.88);
+  /* Category chip: the magenta lifts a little on a pale chip, and the muted
+     variant inverts from white-alpha to the page's own muted ink — a 72%-white
+     label is invisible on the light pill. */
+  --sb-cat-border: color-mix(in oklab, var(--color-neon-magenta) 50%, transparent);
+  --sb-cat-muted-fg: var(--color-muted);
+  --sb-cat-muted-border: rgba(0, 0, 0, 0.22);
 
   /* Washes need more alpha to register against a light surface. */
   --sb-row-gold-bg: color-mix(in oklab, var(--color-neon-amber) 18%, transparent);

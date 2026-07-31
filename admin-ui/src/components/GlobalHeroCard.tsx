@@ -4,7 +4,7 @@ import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { formatScore } from '../lib/format';
 import { catalogueImageFor } from '../lib/catalogueImage';
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
-import type { GlobalGameCardGame } from './GlobalGameCard';
+import { CategoryChip, type GlobalGameCardGame } from './GlobalGameCard';
 
 /**
  * The Global Scoreboard hero card — v2.57.0 (A5a).
@@ -105,7 +105,12 @@ export default function GlobalHeroCard({ game, onSubmit, onTogglePin, className 
             </>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+          {/* P4 — the hero is chosen at GAME level and its eyebrow still
+              reports the game's total score count, but the rows below are its
+              highest-scoring category's board, so the chip names that board.
+              Without it the champion line would silently mix engines. */}
+          <CategoryChip category={game.category} />
           {platforms.map(p => (
             <span
               key={p}
