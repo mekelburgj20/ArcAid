@@ -328,7 +328,7 @@ describe('GlobalScoreboard — pins stay keyed on the game (v2.59.0 P4)', () => 
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Unpin Twin Boards' })).toHaveLength(2));
   });
 
-  it('links every card of a game to the same detail page', async () => {
+  it('links every card of a game to the same detail page, deep-linked to its own board', async () => {
     mockFetch([
       makeCard('g1', 'Twin Boards', 'simulation', 1),
       makeCard('g1', 'Twin Boards', 'arcade_style', 1),
@@ -337,8 +337,65 @@ describe('GlobalScoreboard — pins stay keyed on the game (v2.59.0 P4)', () => 
     renderScoreboard();
 
     await waitFor(() => expect(allCards()).toHaveLength(2));
-    for (const card of allCards()) {
-      expect(within(card).getAllByRole('link')[0]).toHaveAttribute('href', '/games/g1');
-    }
+    const hrefs = allCards().map(
+      card => within(card).getAllByRole('link')[0].getAttribute('href'),
+    );
+    // Same page — a game has one detail page, however many boards it has…
+    expect(hrefs.every(h => h?.startsWith('/games/g1'))).toBe(true);
+    // …but v2.63.0 each card carries its own category, so the page opens on the
+    // board the player actually clicked instead of defaulting to the biggest.
+    expect(hrefs).toEqual([
+      '/games/g1?category=simulation',
+      '/games/g1?category=arcade_style',
+    ]);
+  });
+});
+
+describe('GlobalScoreboard — the zero-score card names its prospective board (v2.63.0)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    scoreboardRequests = [];
+    document.documentElement.className = '';
+  });
+
+  it('shows the band chip when the catalogue is unambiguous', async () => {
+    mockFetch([
+      makeCard('g0', 'Unplayed Sim', null, 0, { prospective_category: 'simulation' }),
+    ]);
+
+    renderScoreboard();
+    await screen.findByText('Unplayed Sim');
+
+    const chip = screen.getByTestId('category-chip');
+    expect(chip).toHaveTextContent('Simulation');
+    // The copy must not claim scores that don't exist.
+    expect(chip.getAttribute('title')).toMatch(/No scores yet/i);
+    expect(chip).toHaveAttribute('data-prospective', 'true');
+    // Still the claim card, and still keyed as the uncategorised one.
+    expect(screen.getByRole('button', { name: /Claim 1st/ })).toBeInTheDocument();
+    expect(screen.getByText('0 scores')).toBeInTheDocument();
+  });
+
+  it('links BARE — a prospective band is not a board to preselect', async () => {
+    mockFetch([
+      makeCard('g0', 'Unplayed Sim', null, 0, { prospective_category: 'simulation' }),
+    ]);
+
+    renderScoreboard();
+    await screen.findByText('Unplayed Sim');
+
+    const chip = screen.getByTestId('category-chip');
+    const card = chip.closest('a')!.parentElement as HTMLElement;
+    expect(within(card).getAllByRole('link')[0]).toHaveAttribute('href', '/games/g0');
+  });
+
+  it('shows no chip when the catalogue spans two bands', async () => {
+    mockFetch([makeCard('g0', 'Unplayed Both', null, 0)]);
+
+    renderScoreboard();
+    await screen.findByText('Unplayed Both');
+
+    expect(screen.queryByTestId('category-chip')).not.toBeInTheDocument();
   });
 });

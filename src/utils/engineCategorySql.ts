@@ -26,7 +26,12 @@
  * still bound as parameters — see `GlobalLeaderboardService`.
  */
 
-import { CANONICAL_ENGINES, UNSPECIFIED_CATEGORY, type EngineCategory } from './scoreProvenance.js';
+import {
+    CANONICAL_ENGINES,
+    UNSPECIFIED_CATEGORY,
+    getEngineCategory,
+    type EngineCategory,
+} from './scoreProvenance.js';
 
 /**
  * Guard for anything interpolated into SQL. Throws rather than sanitising:
@@ -52,6 +57,65 @@ export function enginesByCategory(): Record<EngineCategory, string[]> {
         out[info.category].push(id);
     }
     return out;
+}
+
+/**
+ * The engine ids that belong to one fidelity band — the inverse of
+ * `CANONICAL_ENGINES[id].category` (v2.63.0).
+ *
+ * Exists so the zero-score catalogue filter can be BOUND rather than
+ * interpolated. `buildEngineCategoryExpr` bakes engine ids into the SQL text
+ * because the expression is reused verbatim across SELECT / GROUP BY / WHERE;
+ * this list instead feeds an `IN (?, ?, …)` whose values come from the same
+ * taxonomy but travel as parameters, which is the safer default wherever the
+ * clause is built once.
+ *
+ * Returns `[]` for `unspecified` and for anything unrecognised. That is the
+ * load-bearing case, not an edge one: `unspecified` is the bucket for engines
+ * with NO band, so no catalogue engine can ever imply it, and a caller must
+ * read the empty list as "match nothing" rather than "match everything".
+ */
+export function categoryEngineIds(category: string | null | undefined): string[] {
+    if (!category) return [];
+    return (enginesByCategory() as Record<string, string[]>)[category] ?? [];
+}
+
+/**
+ * The single fidelity band a ZERO-SCORE game's catalogue engines imply, or null
+ * when they imply none or several (v2.63.0).
+ *
+ * Since v2.62.0 `global_games.platforms` holds canonical ENGINE ids, so a game
+ * nobody has scored yet still knows what it would be scored ON. That is enough
+ * to name the band its first score will land in — but only when the answer is
+ * unambiguous. A table that exists on both `vpx` and `fx` will produce a
+ * Simulation board AND an Arcade-Style board, and picking one to advertise
+ * would be a claim the catalogue does not support, so it returns null and the
+ * card shows no chip.
+ *
+ * Engines with no band (`unknown`, a junk token, a legacy device id such as
+ * `atgames` that never folded) contribute NOTHING rather than voting for
+ * `unspecified`: `unspecified` describes scores whose provenance was not
+ * recorded, and a game with no scores has no provenance to have lost.
+ *
+ * @param platformsJson the raw `global_games.platforms` column (a JSON array).
+ */
+export function prospectiveCategoryFromCatalogue(platformsJson: string | null | undefined): string | null {
+    if (typeof platformsJson !== 'string' || !platformsJson) return null;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(platformsJson);
+    } catch {
+        return null;
+    }
+    if (!Array.isArray(parsed)) return null;
+
+    const bands = new Set<string>();
+    for (const entry of parsed) {
+        if (typeof entry !== 'string') continue;
+        const band = getEngineCategory(entry);
+        if (band) bands.add(band);
+    }
+    return bands.size === 1 ? [...bands][0]! : null;
 }
 
 /**
