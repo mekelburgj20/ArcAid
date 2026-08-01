@@ -192,12 +192,48 @@ export class LobbyFeedGenerator {
             );
 
             // Friend score events + notifications (fire-and-forget, targeted per user)
+            //
+            // v2.70.0 privacy guard — following is global, rooms are not. A
+            // player who follows someone can end up following them INTO an
+            // approval-gated room they were never admitted to, and the
+            // friend_score fan-out would then hand them the room's game names,
+            // player names and scores through the feed and a DM. Both channels
+            // are now gated on the follower being able to VIEW the origin room:
+            // no view, no event AND no DM (not one or the other — the DM leaks
+            // the same three facts on its own).
+            //
+            // Cost: `getJoinPolicy` is ONE settings read per submission, hoisted
+            // out of the loop. Open rooms (the overwhelming majority) short-
+            // circuit right there and pay nothing per follower — the
+            // membership/admin round-trips inside `canViewRoom` only happen for
+            // approval rooms, which is exactly what its own docstring asks
+            // callers to do.
             if (discordUserId) {
                 trackBackground(
                     import('./FriendsService.js')
                         .then(({ FriendsService }) => FriendsService.getPlayersWhoFriended(discordUserId!))
                         .then(async (friendIds) => {
+                            if (friendIds.length === 0) return;
+
+                            const { RoomAccessService } = await import('./RoomAccessService.js');
+                            const gated = (await RoomAccessService.getJoinPolicy(gameRoomId)) === 'approval';
+
                             for (const friendId of friendIds) {
+                                if (gated) {
+                                    // `canViewRoom` takes a decoded token, not a
+                                    // bare id. A follower is always a player by
+                                    // definition here, and the real admin /
+                                    // membership answers are re-read from the DB
+                                    // inside — so an empty `gameRoomIds` costs
+                                    // nothing but honesty (we have no token to
+                                    // copy claims from).
+                                    const canView = await RoomAccessService.canViewRoom(
+                                        { role: 'player', gameRoomIds: [], discordId: friendId },
+                                        gameRoomId,
+                                    ).catch(() => false);
+                                    if (!canView) continue;
+                                }
+
                                 await LobbyFeedService.emit({
                                     gameRoomId,
                                     type: 'friend_score',
