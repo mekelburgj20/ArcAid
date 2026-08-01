@@ -84,6 +84,40 @@ describe('GameInfoPopup — What\'s allowed', () => {
       .toBe('/api/submit/platforms?globalGameId=gg-1');
   });
 
+  /**
+   * v2.70.0 — the endpoint now ships `restrictedText` (it used to strip it, so
+   * the FE's defensive read never had anything to render). These two pin the
+   * behaviour the backend change lights up: the admin's own wording appears,
+   * styled amber to read as a constraint rather than as another chip label,
+   * and an absent/blank value renders nothing at all.
+   */
+  it('renders the tournament\'s restrictedText in amber above the chips', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ...payload,
+        tournamentRules: { ...payload.tournamentRules, restrictedText: 'Cabinet play only this round.' },
+      }),
+    })) as unknown as typeof fetch);
+
+    render(<GameInfoPopup roomId="room-1" gameName="WHO dunnit" />);
+    fireEvent.click(screen.getByLabelText('Game info'));
+
+    const line = await screen.findByText('Cabinet play only this round.');
+    expect(line.className).toContain('text-neon-amber');
+    // It is context for the chips, not a replacement — both still render.
+    expect(screen.getByText('Visual Pinball X')).toBeInTheDocument();
+  });
+
+  it('renders no restriction line when the tournament set none', async () => {
+    render(<GameInfoPopup roomId="room-1" gameName="WHO dunnit" />);
+    fireEvent.click(screen.getByLabelText('Game info'));
+
+    await waitFor(() => expect(screen.getByText('This tournament allows')).toBeInTheDocument());
+    // The base `payload` carries no restrictedText — nothing amber may appear.
+    expect(document.querySelector('.text-neon-amber\\/90')).toBeNull();
+  });
+
   it('keeps notes and the external link when the fetch fails', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }) as unknown as typeof fetch);
 
