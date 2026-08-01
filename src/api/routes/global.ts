@@ -1751,12 +1751,24 @@ router.get('/submit/platforms', async (req, res) => {
 
             // `null` means "no active tournament for this game" — distinct from
             // "a tournament with empty rules", and the FE contract keeps it.
-            // The response ships the two axes only; `restrictedText` is
-            // server-side (it is the rejection message, not picker input).
-            let rules: { engines: AxisRules; devices: AxisRules } | null = null;
+            //
+            // `restrictedText` (v2.70.0) — this used to be stripped, on the
+            // reasoning that it is the REJECTION message and not picker input.
+            // That reasoning still holds for the picker: `SubmissionSheet`
+            // builds its options from the two axes and must not start
+            // rendering prose, and `rooms.ts`'s activate-game handler remains
+            // the place the text is served as an error. What changed is that
+            // the axes are no longer the only consumer — `GameInfoPopup`'s
+            // "What's allowed" section exists to answer "may I even play this,
+            // and how" BEFORE opening the sheet, and the admin's own wording of
+            // the restriction is the most useful thing on that panel. The two
+            // axes say which chips are allowed; this says why. Shipping it is
+            // additive: the FE already parsed it defensively, so no client
+            // change was needed to light it up.
+            let rules: { engines: AxisRules; devices: AxisRules; restrictedText?: string } | null = null;
             if (activeGame?.platform_rules) {
                 const parsed = parseTournamentRules(activeGame.platform_rules, activeGame.tournament_id);
-                rules = { engines: parsed.engines, devices: parsed.devices };
+                rules = { engines: parsed.engines, devices: parsed.devices, restrictedText: parsed.restrictedText };
             }
 
             const submittable = resolveSubmittablePlatforms(effective, rules);

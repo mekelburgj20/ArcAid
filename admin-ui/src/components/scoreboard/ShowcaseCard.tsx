@@ -222,7 +222,7 @@ export default function ShowcaseCard({
                 }}
               >
                 <span style={titleClampStyle}>{displayName}</span>
-                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
               </Link>
             ) : (
               <h2 className={getTitleStyleClass(gameTitleStyle)} style={{
@@ -243,7 +243,7 @@ export default function ShowcaseCard({
                 textAlign: 'center',
               }}>
                 <span style={titleClampStyle}>{displayName}</span>
-                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
               </h2>
             )}
 

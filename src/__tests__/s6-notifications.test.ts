@@ -560,3 +560,95 @@ describe('NotificationService — flag interacts with gate + rate limit', () => 
         expect(await NotificationService.notify({ userId: '200000000000000029', type: 'rankDethroned', message: 'hv' })).toBe(true);
     });
 });
+
+// ===========================================================================
+// v2.70.0 — friend_score respects room visibility.
+//
+// Following is global; rooms are not. Before this guard a follower rode their
+// follow INTO an approval-gated room they had never been admitted to, and the
+// friend_score fan-out handed them the room's game name, player name and score
+// — twice, once via the targeted feed event and once via the DM. Both channels
+// are gated together: leaking either one leaks all three facts.
+// ===========================================================================
+describe('LobbyFeedGenerator — friend_score room-visibility guard', () => {
+    const SCORER = '200000000000000040';
+    const FOLLOWER = '200000000000000041';
+
+    /** FOLLOWER follows SCORER (unidirectional — getPlayersWhoFriended's direction). */
+    async function seedFollow(followerId: string, scorerId: string) {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO friendships (id, user_id, friend_user_id, status)
+             VALUES (?, ?, ?, 'active')`,
+            crypto.randomUUID(), followerId, scorerId,
+        );
+    }
+
+    async function makeApprovalRoom(slug: string, name: string) {
+        const roomId = await createTestRoom(slug, name);
+        await GameRoomSettingsService.set(roomId, 'JOIN_POLICY', 'approval');
+        return roomId;
+    }
+
+    async function addMember(userId: string, roomId: string) {
+        const db = await getDatabase();
+        await db.run(
+            `INSERT OR IGNORE INTO room_members (user_id, room_id, source) VALUES (?, ?, 'claim')`,
+            userId, roomId,
+        );
+    }
+
+    /** Fire a score by SCORER in `roomId` and report what the follower received. */
+    async function submitAndCollect(roomId: string, gameName: string) {
+        const emitSpy = vi.spyOn(LobbyFeedService, 'emit');
+        await LobbyFeedGenerator.onScoreSubmitted({
+            gameRoomId: roomId,
+            gameName,
+            username: 'Scorer',
+            score: 4242,
+            discordUserId: SCORER,
+            source: 'community',
+        });
+        await flush(120);
+
+        const friendEvents = emitSpy.mock.calls
+            .map((c) => c[0] as any)
+            .filter((e) => e.type === 'friend_score' && e.targetUserId === FOLLOWER);
+        const dms = sentDMs.filter((d) => d.userId === FOLLOWER);
+        emitSpy.mockRestore();
+        return { friendEvents, dms };
+    }
+
+    beforeEach(async () => {
+        await seedFollow(FOLLOWER, SCORER);
+        await setPrefs(FOLLOWER, { friendScore: true });
+    });
+
+    it('delivers BOTH the feed event and the DM for an open room', async () => {
+        const roomId = await createTestRoom('fs-open', 'FS Open');
+        const { friendEvents, dms } = await submitAndCollect(roomId, 'WHO dunnit?');
+
+        expect(friendEvents).toHaveLength(1);
+        expect(dms).toHaveLength(1);
+        expect(dms[0]!.content).toContain('Scorer');
+    });
+
+    it('delivers NEITHER to a follower who is not a member of an approval room', async () => {
+        const roomId = await makeApprovalRoom('fs-gated', 'FS Gated');
+        const { friendEvents, dms } = await submitAndCollect(roomId, 'Secret Table');
+
+        expect(friendEvents).toHaveLength(0);
+        // The DM leaks the same game name / player / score on its own, so it
+        // has to be suppressed with the event, not merely alongside it.
+        expect(dms).toHaveLength(0);
+    });
+
+    it('delivers BOTH to a follower who IS a member of an approval room', async () => {
+        const roomId = await makeApprovalRoom('fs-member', 'FS Member');
+        await addMember(FOLLOWER, roomId);
+        const { friendEvents, dms } = await submitAndCollect(roomId, 'Medieval Madness');
+
+        expect(friendEvents).toHaveLength(1);
+        expect(dms).toHaveLength(1);
+    });
+});

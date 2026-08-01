@@ -9,7 +9,7 @@ import { TournamentEngine } from './TournamentEngine.js';
 import { v4 as uuidv4 } from 'uuid';
 import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
-import { computePickDeadline, isPickWindowExpired, pickWindowFallback, DEFAULT_RUNNERUP_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
+import { computePickDeadline, isPickWindowExpired, pickWindowFallback, pickPromptPushBody, pickFallbackPhrase, DEFAULT_RUNNERUP_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -231,8 +231,10 @@ export class TimeoutManager {
             const tournamentRow = await db.get('SELECT name, runnerup_pick_window_min FROM tournaments WHERE id = ?', game.tournamentId);
             const runnerUpWindowMin = tournamentRow?.runnerup_pick_window_min ?? DEFAULT_RUNNERUP_PICK_WINDOW_MIN;
 
-            // Same instant drives the row and the feed countdown.
+            // Same instant drives the row, the feed countdown and (v2.70.0) the
+            // runner-up's own push body.
             const pickerDesignatedAt = new Date().toISOString();
+            const pickDeadline = computePickDeadline(pickerDesignatedAt, runnerUpWindowMin);
             await db.run(
                 `UPDATE games
                  SET picker_discord_id = ?, picker_type = 'RUNNER_UP', picker_designated_at = ?, reminder_count = 0
@@ -248,7 +250,6 @@ export class TimeoutManager {
                 const runnerUpLabel = await (await import('../services/UserProfileService.js')).UserProfileService
                     .getDisplayName(runnerUpId)
                     .catch(() => null) || runnerUpRow.iscored_username || 'Runner-up';
-                const pickDeadline = computePickDeadline(pickerDesignatedAt, runnerUpWindowMin);
                 import('../services/LobbyFeedService.js').then(({ LobbyFeedService }) => {
                     LobbyFeedService.emit({
                         gameRoomId: info.gameRoomId!,
@@ -279,6 +280,34 @@ export class TimeoutManager {
                     .setTimestamp();
                 await sendChannelEmbed(channelId, embed);
             }
+
+            // v2.70.0 — the pivot hands a REAL, short pick obligation to someone
+            // who was not expecting one, and until now the only warning was a
+            // channel embed they had to happen to be reading. The winner gets a
+            // personal turnToPick notification at the placeholder-creation site;
+            // the runner-up, whose window is the SHORTER of the two, got none.
+            //
+            // Same `notify` call, so the same opt-in semantics apply (per-type
+            // pref, webPush channel flag, rate limit, pick-award gate). Copy is
+            // 'autopick', not 'runner-up' — there is no third picker after this
+            // one, which is exactly what `pickWindowFallback('RUNNER_UP', …)`
+            // returns.
+            const runnerUpFallback = pickWindowFallback('RUNNER_UP', game.wonGameId);
+            import('../services/NotificationService.js').then(async ({ NotificationService }) => {
+                const room = info.gameRoomId
+                    ? await db.get('SELECT slug FROM game_rooms WHERE id = ?', info.gameRoomId).catch(() => null)
+                    : null;
+                const link = room?.slug ? NotificationService.buildLink(room.slug, '/picks') : '';
+                await NotificationService.notify({
+                    userId: runnerUpId,
+                    type: 'turnToPick',
+                    message: `The winner's pick window closed, so it's your turn as runner-up in **${tournamentRow?.name ?? 'the tournament'}**. You have **${runnerUpWindowMin} minutes** to use \`/pick-game\` or pick from the web, or ${pickFallbackPhrase(runnerUpFallback)}.${link ? `\n${link}` : ''}`,
+                    pushBody: pickPromptPushBody(tournamentRow?.name ?? null, pickDeadline, runnerUpFallback),
+                    roomId: info.gameRoomId,
+                    tournamentId: game.tournamentId,
+                    pushUrl: link || undefined,
+                });
+            }).catch(() => {});
 
         } catch (error) {
             logError(`Failed to pivot to runner-up for slot ${game.id}:`, error);
