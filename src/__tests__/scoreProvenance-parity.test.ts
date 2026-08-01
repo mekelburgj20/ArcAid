@@ -167,6 +167,29 @@ describe('score provenance — BE/FE taxonomy parity', () => {
         }
     });
 
+    it('agrees on the catalogue fold: tables and behaviour', () => {
+        // The fold is applied on BOTH sides — the migration and importers fold
+        // server-side, and `GameLibrary`/`GlobalScoreboard` fold the ids they
+        // send in a filter. A drift here would make the client ask for a filter
+        // the server cannot answer, silently returning zero games.
+        expect(fe.CATALOGUE_PLATFORM_FEATURE).toEqual(be.CATALOGUE_PLATFORM_FEATURE);
+        expect(fe.CATALOGUE_PLATFORM_ENGINE_OVERRIDE).toEqual(be.CATALOGUE_PLATFORM_ENGINE_OVERRIDE);
+        expect(fe.DEVICE_AVAILABILITY_FEATURES).toEqual(be.DEVICE_AVAILABILITY_FEATURES);
+
+        for (const token of [...Object.keys(be.LEGACY_PLATFORM_MAP), '', 'fx2', 'nonsense']) {
+            expect(fe.foldCataloguePlatforms([token]), token)
+                .toEqual(be.foldCataloguePlatforms([token]));
+        }
+        // …and over whole lists, where dedup and first-seen ordering matter.
+        for (const list of [
+            Object.keys(be.LEGACY_PLATFORM_MAP),
+            Object.keys(be.CANONICAL_ENGINES),
+            ['vpxs', 'real', 'pinball_fx', 'fx2'],
+        ]) {
+            expect(fe.foldCataloguePlatforms(list)).toEqual(be.foldCataloguePlatforms(list));
+        }
+    });
+
     it('makes every canonical engine id a legacy-map key that maps to itself', () => {
         // ADR 0016 catalogue phase §1. `global_games.platforms` becomes an
         // engine list, and LEGACY_PLATFORM_MAP is what every read path uses to
