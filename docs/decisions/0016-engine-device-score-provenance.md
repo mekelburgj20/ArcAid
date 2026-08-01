@@ -120,20 +120,28 @@ Three rules, decided with the product owner:
 1. **Sync applies to tournament games only.** Already structurally true —
    `ScoreSyncPoller.findLocalGameForIscoredId` INNER JOINs `tournaments`, so pinned rows
    (`tournament_id IS NULL`) are unreachable. Locked by test rather than rebuilt.
-2. **Classify where the data supports it, `unknown` otherwise.** Preference order: derive from the
-   tournament's own engine rules where they permit exactly one engine (integrity comes from an
-   enforced constraint, not a recollection); else an admin-declared per-tournament default
-   (`tournaments.iscored_default_engine` / `_device`); else `unknown`. A declaration contradicting
-   single-engine rules is rejected at save time — it is an error, not an override.
-3. **Synced scores are excluded from `global_scores` unconditionally** — including those successfully
-   classified under (2). Classification serves tournament rules and room-level display; it is not a
-   route to the global board. Enforced inside `GlobalScoreService.fanOutFromRoomSubmission` (which
-   rejects `source: 'sync'`) rather than only by removing the caller, so it cannot be undone by
-   accident.
+2. **No inference. Synced scores are always `unknown`/`unknown`.** An earlier revision of this
+   section had provenance derived from tournament rules where those permitted exactly one engine,
+   with an admin-declared per-tournament default as fallback. The product owner rejected it:
+   **iScored is a stopgap during migration, not a long-term integration**, and building inference
+   machinery on top of it invests in a path the product intends to retire. `iscored_default_engine` /
+   `iscored_default_device` are consequently vestigial — unread, retained only because SQLite column
+   drops require a table rebuild.
+3. **Synced scores are excluded from `global_scores`.** Given (2) there are no edge cases: nothing
+   about a synced score can qualify it. Enforced inside
+   `GlobalScoreService.fanOutFromRoomSubmission` (which rejects `source: 'sync'`) rather than only by
+   removing the caller, so it cannot be undone by accident. Note there are **two** iScored import
+   paths — `ScoreSyncPoller` and `TournamentEngine.finalSyncScoresForGame` — and only the former ever
+   fanned out.
+
+Synced scores remain fully visible on room leaderboards and in tournament standings; the room owner
+runs that board and vouches for it. What they lose is presence on the cross-room surface, where
+scores are ranked against strangers and attestation actually costs something.
 
 **Accepted cost:** rooms that run entirely through iScored contribute nothing to the Global
-Scoreboard. This is consistent with iScored being the legacy/optional path and does push rooms toward
-submitting through Arcaid directly, but it is a real product effect, not a side effect.
+Scoreboard. A player who wants a score there enters it in Arcaid. This is intended — it is consistent
+with iScored being the legacy path, and it makes the migration incentive explicit rather than
+implicit.
 
 ### No backfill — clean break
 
