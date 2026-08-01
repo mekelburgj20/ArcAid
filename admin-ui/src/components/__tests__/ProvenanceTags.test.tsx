@@ -71,7 +71,10 @@ describe('ProvenanceTags', () => {
     it('exposes the fidelity category in the tooltip, and omits it when there is none', () => {
         expect(describeProvenance('vpx', 'atgames')).toBe('Visual Pinball X on AtGames Cabinet (Simulation)');
         expect(describeProvenance('fx', 'pc')).toBe('Pinball FX on PC (Arcade-Style)');
-        expect(describeProvenance('real', 'real_cabinet')).toBe('Real Machine (Real)');
+        // v2.65.0 — the `real` band's label is "Real Machine", which is also the
+        // `real` ENGINE's display name. No parenthetical: "Real Machine (Real
+        // Machine)" is noise, and the device is uninformative here too.
+        expect(describeProvenance('real', 'real_cabinet')).toBe('Real Machine');
         // No invented category for the unknown engine.
         expect(describeProvenance(UNKNOWN, 'atgames')).toBe('Unspecified on AtGames Cabinet');
     });

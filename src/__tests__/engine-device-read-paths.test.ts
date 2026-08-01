@@ -92,7 +92,7 @@ describe('fidelity categories (ADR 0016 §"derive from engine only")', () => {
             const label = getEngineCategoryLabel(id);
             expect(label, id).toBe(ENGINE_CATEGORY_LABELS[info.category]);
         }
-        expect(getEngineCategoryLabel('real')).toBe('Real');
+        expect(getEngineCategoryLabel('real')).toBe('Real Machine');
         expect(getEngineCategoryLabel('vpx')).toBe('Simulation');
         expect(getEngineCategoryLabel('vp9')).toBe('Simulation');
         expect(getEngineCategoryLabel('fp')).toBe('Simulation');

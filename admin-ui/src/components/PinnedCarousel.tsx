@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pin, Plus, TrendingUp, TrendingDown } from 'lucide-react';
 import GlobalGameCard, { type GlobalGameCardGame } from './GlobalGameCard';
-import { GRID_GAP_PX, gridColumnsAt } from '../lib/globalGrid';
+import { gridColumnsAt, gridGapAt } from '../lib/globalGrid';
 
 /**
  * v2.55.0 — the "My Pins" carousel on /scoreboard, replacing v2.52.0's 220px
@@ -120,14 +120,20 @@ export default function PinnedCarousel({ pins, onSubmit, onAdd, onTogglePin }: P
     const reduceMotion = usePrefersReducedMotion();
 
     /**
-     * Card width comes from the grid's own column counts (`gridColumnsAt`), not
-     * from a second hardcoded number: n cards across at the same breakpoints the
-     * grid uses, sharing the same 14px gutter.
+     * Card width comes from the grid's own column counts and gutter
+     * (`gridColumnsAt` / `gridGapAt`), not from a second hardcoded number: n
+     * cards across at the same breakpoints the grid uses, at the same gutter.
+     *
+     * v2.65.0 — the gutter became breakpoint-aware when the grid's did, so this
+     * reads it per width instead of holding one constant. The carousel's own
+     * layout is unchanged; its cards simply track the grid, which is the whole
+     * reason this module exists.
      */
     const columns = gridColumnsAt(windowWidth);
+    const gapPx = gridGapAt(windowWidth);
     const isMobile = columns === 1;
     const cardWidth = viewportWidth > 0
-        ? Math.max(160, Math.floor((viewportWidth - (columns - 1) * GRID_GAP_PX) / columns))
+        ? Math.max(160, Math.floor((viewportWidth - (columns - 1) * gapPx) / columns))
         : null;
 
     // Measure the container and the (single) content copy. ResizeObserver
@@ -188,7 +194,7 @@ export default function PinnedCarousel({ pins, onSubmit, onAdd, onTogglePin }: P
 
     const itemStyle = (width: number | null) => ({
         width: width ?? undefined,
-        marginRight: GRID_GAP_PX,
+        marginRight: gapPx,
     });
 
     const cards = (duplicated: boolean) => pins.map(pin => (

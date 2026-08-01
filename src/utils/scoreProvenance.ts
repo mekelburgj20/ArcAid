@@ -109,7 +109,7 @@ export const CANONICAL_ENGINES: Record<string, EngineInfo> = {
  * Simulation or Arcade-Style would assert something the data cannot support.
  */
 export const ENGINE_CATEGORY_LABELS: Record<EngineCategory, string> = {
-    real:         'Real',
+    real:         'Real Machine',
     simulation:   'Simulation',
     arcade_style: 'Arcade-Style',
     video:        'Video Games',
@@ -502,7 +502,7 @@ export function getEngineCategory(id: string | null | undefined): EngineCategory
 }
 
 /**
- * Human fidelity-band label for an engine id — "Real" / "Simulation" /
+ * Human fidelity-band label for an engine id — "Real Machine" / "Simulation" /
  * "Arcade-Style" / "Video Games" — or **null** when the engine is `'unknown'`
  * or unrecognised.
  *
