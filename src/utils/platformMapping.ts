@@ -155,7 +155,28 @@ export function getPlatformDisplay(canonicalId: string): string {
     return CANONICAL_PLATFORMS[canonicalId]?.displayName || canonicalId;
 }
 
-/** IGDB numeric platform ID → canonical platform ID */
+/**
+ * IGDB numeric platform ID → canonical platform ID (TRANSLATION map).
+ *
+ * This is the "what does IGDB id N mean" table. It is deliberately WIDER than
+ * the fetch filter (`IGDB_TARGET_PLATFORMS` below): a retro game that also
+ * shipped on PC/Switch/Wii should still carry those canonical ids on its
+ * catalogue row, even though we don't crawl IGDB *for* PC/Switch/Wii titles.
+ *
+ * igdb-import-hardening (2026-08): three ids were flat-out wrong against
+ * IGDB's documented platform list and were silently mislabelling every game
+ * they touched. Corrections, with the ids IGDB actually uses:
+ *   - 51 was mapped to `tg16` — 51 is **Famicom Disk System**. TurboGrafx-16
+ *     is 86. Removed rather than remapped: FDS is a niche Japan-only add-on
+ *     and folding it into `nes` would mislabel the rows.
+ *   - 67 was mapped to `jaguar` — 67 is **Intellivision**. Jaguar is 62.
+ *     Intellivision has no canonical engine, so it is dropped entirely.
+ *   - 87 was mapped to `3do` — 87 is **Virtual Boy**. 3DO is 50. Virtual Boy
+ *     has no canonical engine, so it is dropped entirely.
+ *
+ * When adding an id, add its IGDB-documented name to `IGDB_PLATFORM_NAMES`
+ * too — the importer verifies the pair against the live API at run start.
+ */
 export const IGDB_PLATFORM_MAP: Record<number, string> = {
     52: 'arcade',
     18: 'nes',
@@ -172,14 +193,47 @@ export const IGDB_PLATFORM_MAP: Record<number, string> = {
     64: 'sms',
     78: 'sega_cd',
     35: 'game_gear',
-    51: 'tg16',
+    86: 'tg16',
     59: 'atari_2600',
     60: 'atari_7800',
-    67: 'jaguar',
-    87: '3do',
+    62: 'jaguar',
+    50: '3do',
     130: 'switch',
     5:  'wii',
     6:  'pc',
+};
+
+/**
+ * IGDB's own `name` for each mapped platform id, as documented on its
+ * `/platforms` endpoint. Used ONLY by the importer's start-of-run verification
+ * pass, which fetches the live `/platforms` rows and WARNs on any mismatch —
+ * cheap insurance against a repeat of the 51/67/87 mislabelling above.
+ * Not used for translation; a mismatch never aborts the import.
+ */
+export const IGDB_PLATFORM_NAMES: Record<number, string> = {
+    52: 'Arcade',
+    18: 'Nintendo Entertainment System',
+    19: 'Super Nintendo Entertainment System',
+    29: 'Sega Mega Drive/Genesis',
+    32: 'Sega Saturn',
+    4:  'Nintendo 64',
+    7:  'PlayStation',
+    8:  'PlayStation 2',
+    23: 'Dreamcast',
+    24: 'Game Boy Advance',
+    33: 'Game Boy',
+    22: 'Game Boy Color',
+    64: 'Sega Master System/Mark III',
+    78: 'Sega CD',
+    35: 'Sega Game Gear',
+    86: 'TurboGrafx-16/PC Engine',
+    59: 'Atari 2600',
+    60: 'Atari 7800',
+    62: 'Atari Jaguar',
+    50: '3DO Interactive Multiplayer',
+    130: 'Nintendo Switch',
+    5:  'Wii',
+    6:  'PC (Microsoft Windows)',
 };
 
 /** VPS tableFormat string → canonical platform ID */
@@ -230,5 +284,30 @@ export const PLATFORM_GROUPS = [
     },
 ] as const;
 
-/** All IGDB platform IDs we import from (used in bulk seed query) */
-export const IGDB_TARGET_PLATFORMS = Object.keys(IGDB_PLATFORM_MAP).map(Number);
+/**
+ * IGDB platform ids EXCLUDED from the bulk-import fetch filter.
+ *
+ * igdb-import-hardening (2026-08): fetch scope and translation scope are now
+ * separate concerns. These three are the modern general-purpose platforms —
+ * crawling them would pull tens of thousands of non-retro titles that nobody
+ * is setting an arcade high score on, and they are the reason a full bulk run
+ * was never going to finish. They stay in `IGDB_PLATFORM_MAP` so a retro game
+ * that ALSO shipped on them keeps the tag on its catalogue row.
+ *
+ * **This is the one-line knob for import scope.** Widening the crawl (e.g.
+ * "we do want Switch after all") means deleting an entry here — nothing else.
+ */
+const IGDB_NON_TARGET_PLATFORMS: readonly number[] = [
+    6,   // PC (Microsoft Windows)
+    130, // Nintendo Switch
+    5,   // Wii
+];
+
+/**
+ * IGDB platform ids the bulk seed actually crawls (the `where platforms = (...)`
+ * filter). Derived: every translated platform minus the non-targets above —
+ * retro consoles + arcade only.
+ */
+export const IGDB_TARGET_PLATFORMS = Object.keys(IGDB_PLATFORM_MAP)
+    .map(Number)
+    .filter(id => !IGDB_NON_TARGET_PLATFORMS.includes(id));
