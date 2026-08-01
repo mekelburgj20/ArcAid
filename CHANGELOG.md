@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.64.0] — unreleased
+
+**Scoreboard cards show the category chip only.** The second chip was the game's first catalogue
+engine — game-level metadata identical on every one of a game's category cards, so a Simulation and
+an Arcade-Style card both claimed e.g. "Future Pinball" as if the scores belonged to that engine
+(field report: Creature from the Black Lagoon). The engine chip is removed; the category chip (and
+v2.63.0's prospective-category chip on unambiguous zero-score cards) stays. The full engine list
+lives on the card art's hover tooltip ("Available on: …", deduped). Zero-score cards with no
+derivable category render no chip row at all. The hero card keeps its game-level engine pills
+(deliberate — it is picked at game level; revisit if it reads wrong in the field).
+Tests: admin-ui 316 → 318.
+
 ## [2.63.0] — unreleased
 
 **Global Scoreboard feedback fixes** (user field-testing of v2.61.0/v2.62.0).
