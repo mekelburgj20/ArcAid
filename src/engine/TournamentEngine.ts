@@ -13,7 +13,7 @@ import { IScoredCreds } from '../utils/iscoredCreds.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
-import { computePickDeadline, pickWindowFallback, DEFAULT_WINNER_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
+import { computePickDeadline, pickWindowFallback, pickPromptPushBody, pickFallbackPhrase, DEFAULT_WINNER_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
@@ -1367,10 +1367,16 @@ export class TournamentEngine {
                 logInfo(`   -> No ${term.game} queued for this slot. Creating picker slot for timeout tracking.`);
                 const winnerPickWindowMin = tournamentRow.winner_pick_window_min ?? DEFAULT_WINNER_PICK_WINDOW_MIN;
                 const slotId = uuidv4();
-                // Captured once and reused for the row, the ticker payload and
-                // the lobby-feed countdown so all three describe the same
-                // instant as the one TimeoutManager enforces against.
+                // Captured once and reused for the row, the ticker payload, the
+                // lobby-feed countdown and (v2.70.0) the web-push body so all
+                // four describe the same instant as the one TimeoutManager
+                // enforces against.
                 const pickerDesignatedAt = new Date().toISOString();
+                const pickDeadline = computePickDeadline(pickerDesignatedAt, winnerPickWindowMin);
+                // A WINNER window expiring pivots to the runner-up; it does NOT
+                // auto-pick. Resolved once here so the feed and the push tell
+                // the player the same true thing.
+                const pickFallback = pickWindowFallback('WINNER', activeGame.id);
                 await db.run(
                     `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id, game_room_id)
                      VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?, ?)`,
@@ -1390,7 +1396,6 @@ export class TournamentEngine {
                 // days later. The FE counts down against the deadline and
                 // renders a closed state past it.
                 if (tournamentRow.game_room_id) {
-                    const pickDeadline = computePickDeadline(pickerDesignatedAt, winnerPickWindowMin);
                     import('../services/LobbyFeedService.js').then(({ LobbyFeedService }) => {
                         LobbyFeedService.emit({
                             gameRoomId: tournamentRow.game_room_id,
@@ -1402,7 +1407,7 @@ export class TournamentEngine {
                                 deadline: pickDeadline.toISOString(),
                                 windowMin: winnerPickWindowMin,
                                 pickerType: 'WINNER',
-                                fallback: pickWindowFallback('WINNER', activeGame.id),
+                                fallback: pickFallback,
                                 pickerName: winnerLabel,
                                 tournamentName: tournamentRow.name,
                             },
@@ -1425,20 +1430,32 @@ export class TournamentEngine {
                 emitPickerAssigned({
                     tournamentName: tournamentRow.name,
                     pickerName: winnerLabel,
-                    deadline: computePickDeadline(pickerDesignatedAt, winnerPickWindowMin).toISOString(),
+                    deadline: pickDeadline.toISOString(),
                 });
 
                 // Notify winner it's their turn to pick. Per-slot DM — when a
                 // user wins multiple slots in one maintenance run, they get one
                 // turn-to-pick DM per won game so they know exactly which slot
                 // each pick fulfills.
+                //
+                // v2.70.0 — the same call also drives web push (turnToPick has
+                // been in WEB_PUSH_TYPES since D4, but nothing shaped a body
+                // for it, so the tray got the DM's first line: a sentence about
+                // the game just won, with the deadline stranded in line two).
+                // `pushBody` now carries the deadline and the honest
+                // consequence, derived from the same instant as the feed
+                // countdown. Opt-in semantics are untouched — this rides
+                // `notify`, so the per-type pref, the webPush channel flag, the
+                // rate limit and the pick-award gate all still apply, and a
+                // user who never opted in gets nothing.
                 import('../services/NotificationService.js').then(({ NotificationService }) => {
                     db.get('SELECT slug FROM game_rooms WHERE id = ?', tournamentRow.game_room_id).then((r: any) => {
                         const link = r?.slug ? NotificationService.buildLink(r.slug, '/picks') : '';
                         NotificationService.notify({
                             userId: winnerId!,
                             type: 'turnToPick',
-                            message: `You won **${activeGame.name}** in **${tournamentRow.name}** — it's your turn to pick the next ${term.game} for that slot. You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` or pick from the web.${link ? `\n${link}` : ''}`,
+                            message: `You won **${activeGame.name}** in **${tournamentRow.name}** — it's your turn to pick the next ${term.game} for that slot. You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` or pick from the web, or ${pickFallbackPhrase(pickFallback)}.${link ? `\n${link}` : ''}`,
+                            pushBody: pickPromptPushBody(tournamentRow.name, pickDeadline, pickFallback),
                             roomId: tournamentRow.game_room_id,
                             tournamentId,
                             pushUrl: link || undefined,

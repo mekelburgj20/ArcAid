@@ -86,3 +86,51 @@ export function pickWindowFallback(
     if (pickerType === 'RUNNER_UP') return 'autopick';
     return wonGameId ? 'runner_up' : 'autopick';
 }
+
+/**
+ * "45 minutes" / "1h 20m" / "less than a minute".
+ *
+ * Byte-for-byte the rule `FeedItem.tsx`'s `formatRemaining` uses for the lobby
+ * pick_prompt countdown. Duplicated rather than shared because the frontend
+ * copy of it is inside a React component in a separate ESM build — but the two
+ * must read identically, because the same player sees both for the same window.
+ */
+export function formatPickRemaining(ms: number): string {
+    const totalMinutes = Math.floor(ms / 60_000);
+    if (totalMinutes < 1) return 'less than a minute';
+    if (totalMinutes < 60) return `${totalMinutes} minute${totalMinutes === 1 ? '' : 's'}`;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+}
+
+/** What the player loses by letting the clock run out, in words. */
+export function pickFallbackPhrase(fallback: PickWindowFallback): string {
+    return fallback === 'runner_up' ? 'the runner-up gets the pick' : 'autopick';
+}
+
+/**
+ * Push-notification body for a pick prompt.
+ *
+ * Deliberately DERIVED FROM THE DEADLINE rather than handed the configured
+ * window: the deadline is the instant TimeoutManager actually enforces, so a
+ * push composed a moment after the row was written says what is left, not what
+ * was granted. Same reason the lobby event carries a deadline instead of a
+ * baked "N minutes".
+ *
+ * The tray title already says "Your turn to pick!", so the body carries only
+ * the two things the title cannot: WHICH tournament, and WHAT IS LOST by
+ * ignoring it. That second half is why `pickWindowFallback` exists — a winner
+ * window expiring pivots to the runner-up, it does NOT auto-pick, and telling
+ * a player otherwise is a lie they can check.
+ */
+export function pickPromptPushBody(
+    tournamentName: string | null | undefined,
+    deadline: Date,
+    fallback: PickWindowFallback,
+    now: Date = new Date(),
+): string {
+    const remaining = formatPickRemaining(Math.max(0, deadline.getTime() - now.getTime()));
+    const where = tournamentName ? `${tournamentName} — ` : '';
+    return `${where}${remaining} before ${pickFallbackPhrase(fallback)}`;
+}

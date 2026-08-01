@@ -53,8 +53,15 @@ const WEB_PUSH_TYPES: ReadonlySet<NotificationType> = new Set<NotificationType>(
     'rankDethroned',
     'tournamentWin',
     // D4 (standalone rooms, v2.32.0) — turn-to-pick is time-sensitive (a
-    // pick window expiring auto-selects for the player), so it belongs on
+    // pick window expiring costs the player the pick), so it belongs on
     // the same "worth waking up your phone for" tier as a win/dethrone.
+    //
+    // v2.70.0 wired the two emission sites that actually produce one — the
+    // placeholder-creation branch in TournamentEngine and the runner-up pivot
+    // in TimeoutManager (which previously sent no personal notification at
+    // all) — and gave both a `pushBody` carrying the deadline instead of the
+    // DM's opening sentence. Membership in this set was never the missing
+    // piece; a body worth reading was.
     'turnToPick',
 ]);
 
@@ -110,6 +117,18 @@ interface NotifyParams {
      * link inside `message`. Falls back to the app root when absent.
      */
     pushUrl?: string;
+    /**
+     * Body text for the web-push notification, when the DM's own first line is
+     * the wrong thing to show (v2.70.0).
+     *
+     * `toPushBody` derives one by stripping markdown and taking line 1, which
+     * suits DMs whose opening sentence IS the news. It suits the pick prompt
+     * badly: that DM opens by naming the game won and the slot, so the tray
+     * would show a sentence about the past instead of the deadline. Callers
+     * that can say it better in a phrase pass one here. Ignored for types
+     * outside WEB_PUSH_TYPES, and the DM text is never affected.
+     */
+    pushBody?: string;
 }
 
 /** In-memory rate limit bucket per (user, class). */
@@ -223,7 +242,7 @@ export class NotificationService {
             if (WEB_PUSH_TYPES.has(type) && webPushOptIn) {
                 const payload: WebPushPayload = {
                     title: PUSH_TITLES[type] ?? 'Arcaid',
-                    body: toPushBody(message),
+                    body: params.pushBody?.trim() || toPushBody(message),
                     url: params.pushUrl || (process.env.PUBLIC_URL || 'https://arcaid.app'),
                     tag: `arcaid-${type}`,
                 };
