@@ -51,6 +51,12 @@ export const ENCRYPTED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
     'TWITCH_CLIENT_SECRET',
     'WEB_PUSH_VAPID_PRIVATE_KEY',
     'GOOGLE_CLIENT_SECRET',
+    // RetroAchievements web API key (RA on-demand import). Listing it HERE is
+    // the encryption opt-in — ADR 0003 is an allowlist, not a convention. This
+    // key is doubly worth protecting because RA carries it in the QUERY STRING
+    // (`?y=<key>`), so it can leak through any logged URL; `RAApiClient`
+    // scrubs it on every log path, and this keeps the stored copy at rest.
+    'RA_API_KEY',
 ]);
 
 export function isEncryptedKey(key: string): boolean {
