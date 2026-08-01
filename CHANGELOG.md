@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.62.0] — unreleased
+
+**The catalogue speaks engines (ADR 0016's last gap).** `global_games.platforms` is now an engine
+list; per-game availability facts (AtGames availability, VPX-standalone/manual-install, VR edition,
+BAM requirement) moved to `features` — the column the AtGames cabinet variants already lived in.
+This ends the last structural source of unknown-engine scores: an AtGames-only game previously
+derived no engine, so its submissions auto-locked to Unspecified.
+
+- **One fold, everywhere.** `foldCataloguePlatforms` implements the legacy→engines+features table
+  once; migration 129 applies it to the stored catalogue and all seven importers + `upsert`/admin
+  `update`/room `submit_to_global` route through it, so the next sync converges with the migration
+  instead of re-polluting it (the fold is idempotent by construction — engine ids pass through via
+  the taxonomy's new identity mappings).
+- **Prod-rehearsed before shipping.** The migration was run against a copy of the production DB:
+  4,262 rows, 3,260 folded, zero unmapped tokens after the rehearsal surfaced that `fx2` (5 rows —
+  Zen FX2-era tables incl. Plants vs. Zombies and Ms. Splosion Man) deserved a `fx_classic` mapping
+  rather than a drop. Only 3 rows remain engine-less, all pre-existing empty-platform placeholder
+  rows.
+- **AtGames games get the `atgames_native` engine** + `atgames` availability feature (product call,
+  2026-08-01) — their submit picker now offers AtGames Native instead of locking to Unspecified.
+- **Device-axis tournament rules match explicit availability only** — "must be available on
+  AtGames" still means games actually tagged AtGames-available (now via features), never "any game
+  whose engine could theoretically run there". An equivalence suite proves a legacy catalogue and
+  its folded form admit identical games under identical rules, including the dominant production
+  rule `required:['atgames']` (with `vpxs_manual` correctly kept in its match set).
+- Engine ids became first-class taxonomy citizens (identity mappings; the `fx → pinball_fx`
+  alias trap fixed on both BE paths and the FE library page). Engine chips render via the
+  provenance display helpers; GameLibrary sorts by engine display label instead of raw JSON.
+- Tests: backend 1015 → 1126, admin-ui 292 → 304.
+
 ## [2.61.0] — unreleased
 
 **The light theme gets its glitch, and the Global Scoreboard gets its sign.** Two design packs
