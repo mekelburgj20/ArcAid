@@ -51,28 +51,27 @@ function imageForScore(s: RecentScore): string | null {
   return null;
 }
 
-/* ─── Hero artwork (B2, v2.56.0) ───
+/* ─── Hero artwork (B2, v2.56.0 · re-lit v2.60.0) ───
  *
- * `ArcaidLogoAnimated` is a CSS/SVG recreation whose glow + drop-shadow layers
- * assume a near-black backdrop (#0C0C13) — on `.theme-light`'s #E8EAF0 canvas
- * the chrome fill and the neon halos both wash out. Light polarity therefore
- * renders the light artwork PNG instead (the same file `BrandWordmark` swaps
- * to). Its 180px minimum display width is satisfied everywhere the hero
- * renders: the narrowest case is a 390px viewport minus the hero's 16px side
- * padding = 358px.
+ * The hero mark follows the visitor's global-page polarity. Both polarities now
+ * render `ArcaidLogoAnimated` — v2.60.0 added its `light` variant, a full
+ * re-lighting of the same 620x560 composition for the #E8EAF0 canvas (purple
+ * backdrop plate, glass-tube delta, dark glyph shadows in place of the cyan
+ * halo, darkened glitch cyan). Same glitch keyframes, same cadence, so the two
+ * polarities differ in colour and lighting only, never in motion.
  *
- * ACCEPTED LOSS: light mode has no glitch animation. The logo package shipped
- * no animated light source, and re-authoring the animation against the light
- * plate is a rebuild of the whole component, not a re-tint.
+ * This replaces the v2.56.0 arrangement, which rendered a static PNG on light
+ * because no animated light source had shipped with the logo pack. That loss —
+ * "light mode has no glitch animation" — is gone; `/arcaid-logo-light-v1.png`
+ * remains in `public/` only for `BrandWordmark`, which is deliberately static
+ * in BOTH polarities (the header mark never animated).
  *
- * The light hero is boxed to the SAME aspect ratio the animated wrap reserves
- * (620 x 380 after its crop) and top-aligned inside it, so the page below the
- * hero lays out identically in both polarities and the motto's proportional
- * anchor keeps landing in the free band under the mark.
+ * Both branches reserve the identical layout box (620 x 380 — the animated
+ * wrap's cropped aspect), so the page below lays out the same either way and
+ * the motto's proportional anchor keeps landing in the free band under the
+ * mark. The light composition's plate bottom (canvas y 348) and delta tip
+ * (y 383) both sit above the motto's anchor (y ~405), same as dark.
  */
-const LIGHT_HERO_SRC = '/arcaid-logo-light-v1.png';
-const HERO_BOX_W = 620;
-const HERO_BOX_H = 380;
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -88,7 +87,7 @@ function timeAgo(iso: string): string {
 
 export default function LandingPage() {
   const { discordUser, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
-  // B2 (v2.56.0) — the hero mark swaps with polarity (see LIGHT_HERO_SRC).
+  // B2 (v2.56.0) — the hero mark swaps with polarity (see the hero-artwork note above).
   const { globalPageTheme } = useTheme();
   const isLight = globalPageTheme === 'light';
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -188,8 +187,8 @@ export default function LandingPage() {
           v2.45.1 fix: no dedicated backdrop section — it renders directly on
           the page's own bg-deep (the same background the room grid below
           sits on) so there's no visible seam between hero and content.
-          v2.56.0 (B2): light polarity swaps the animated mark for the light
-          artwork — the animation assumes a near-black stage. */}
+          v2.56.0 (B2) / v2.60.0: the mark follows polarity — same animated
+          component, its `light` variant re-lit for the pale canvas. */}
       <div style={{
         padding: '8px 16px 0',
         display: 'flex',
@@ -206,22 +205,8 @@ export default function LandingPage() {
             proportionally inside the mark (the free band between the
             wordmark's bottom and the ticker tiles, over the triangle tip). */}
         <div style={{ position: 'relative', width: '100%', maxWidth: 680 }}>
-          {isLight ? (
-            <img
-              src={LIGHT_HERO_SRC}
-              alt="Arcaid"
-              data-testid="landing-hero-light"
-              style={{
-                display: 'block',
-                width: '100%',
-                aspectRatio: `${HERO_BOX_W} / ${HERO_BOX_H}`,
-                objectFit: 'contain',
-                objectPosition: 'top center',
-              }}
-            />
-          ) : (
-            <ArcaidLogoAnimated maxWidth={680} />
-          )}
+          <ArcaidLogoAnimated variant={isLight ? 'light' : 'dark'} maxWidth={680} />
+
           <p data-testid="landing-motto" style={{
             position: 'absolute',
             left: 0,
