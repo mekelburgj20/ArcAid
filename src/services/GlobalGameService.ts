@@ -2,6 +2,37 @@ import crypto from 'crypto';
 import { getDatabase } from '../database/database.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
 import { catalogueMatchTokens } from '../utils/platformRules.js';
+import { foldCataloguePlatforms } from '../utils/scoreProvenance.js';
+
+/**
+ * Fold an inbound catalogue payload so `platforms` is an ENGINE list and
+ * availability facts land in `features` (ADR 0016 catalogue phase §5).
+ *
+ * Applied at the ONE place every importer converges on, plus the admin PUT, so
+ * migration 129's work cannot be undone by the next sync (hazard H-F) and a
+ * stale client posting legacy ids upgrades rather than pollutes.
+ *
+ * Unrecognised tokens are KEPT on the engine axis. That is the VPS importer's
+ * historical behaviour — an unmapped `tableFormat` becomes a verbatim
+ * lower-cased platform id — and dropping it here would silently delete the only
+ * record that a game exists in some format the taxonomy has not learnt yet.
+ * (Migration 129 does drop them, deliberately and with logging; the asymmetry
+ * is documented there. A one-time clean is a different act from permanently
+ * refusing to record something.)
+ *
+ * Idempotent, because the fold is: re-folding an already-folded payload returns
+ * the same engines and adds no features.
+ */
+function foldCatalogueInput<T extends { platforms?: string[]; features?: string[] }>(input: T): T {
+    if (!input.platforms) return input;
+    const fold = foldCataloguePlatforms(input.platforms);
+    const platforms = [...fold.engines, ...fold.dropped];
+    const features = [...new Set([
+        ...(input.features ?? []).map(f => String(f).trim().toLowerCase()).filter(Boolean),
+        ...fold.features,
+    ])];
+    return { ...input, platforms, features };
+}
 import { logInfo, logWarn, logError, logDebug } from '../utils/logger.js';
 
 /**
@@ -517,6 +548,14 @@ export class GlobalGameService {
             input = { ...input, based_on_ipdb_url: input.ipdb_url, ipdb_url: null };
         }
 
+        // ADR 0016 catalogue phase §5 — engines in, availability to features.
+        // Here rather than in each of the seven importers: this is the single
+        // point they all pass through, so they cannot drift from each other or
+        // from migration 129. Importers that emit a NON-obvious shape still say
+        // so at their own call site (Wizard's feature pair, AtGames' native
+        // engine); the ones whose ids are already engines are identity-folded.
+        input = foldCatalogueInput(input);
+
         const inputType = input.type || 'pinball';
 
         const { existing } = await this.resolveDedupCandidates(input);
@@ -905,6 +944,39 @@ export class GlobalGameService {
      */
     static async update(id: string, fields: Partial<GlobalGameInput>): Promise<boolean> {
         const db = await getDatabase();
+        // Fold the admin PUT the same way an import is folded, so an edit form
+        // rendering legacy ids (or a stale tab) upgrades the row instead of
+        // reverting it. Only when `platforms` is actually part of the payload —
+        // `update` is a PARTIAL, so an absent field must stay absent or the
+        // `f in fields` writers below would overwrite a column nobody touched.
+        //
+        // Features specifically: the fold can produce them from platforms, but
+        // this payload may not carry `features` at all, and writing only the
+        // derived ones would wipe the row's cabinet variants. So they are
+        // union-merged onto whatever the row (or the payload) already has, and
+        // the key is only introduced when the fold actually derived something.
+        if ('platforms' in fields) {
+            const fold = foldCataloguePlatforms(fields.platforms ?? []);
+            const next: Partial<GlobalGameInput> = {
+                ...fields,
+                platforms: [...fold.engines, ...fold.dropped],
+            };
+            if (fold.features.length > 0) {
+                let base = fields.features;
+                if (!base) {
+                    const row = await db.get('SELECT features FROM global_games WHERE id = ?', id);
+                    try {
+                        const parsed = JSON.parse(row?.features || '[]');
+                        base = Array.isArray(parsed) ? parsed.filter((v: unknown) => typeof v === 'string') : [];
+                    } catch { base = []; }
+                }
+                next.features = [...new Set([
+                    ...base.map(v => String(v).trim().toLowerCase()).filter(Boolean),
+                    ...fold.features,
+                ])];
+            }
+            fields = next;
+        }
         const sets: string[] = [];
         const params: any[] = [];
 

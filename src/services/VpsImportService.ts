@@ -1,6 +1,7 @@
 import { GlobalGameService, GlobalGameInput } from './GlobalGameService.js';
 import { SyncLogService } from './SyncLogService.js';
 import { VPS_FORMAT_MAP } from '../utils/platformMapping.js';
+import { foldCataloguePlatforms } from '../utils/scoreProvenance.js';
 import { logInfo, logError } from '../utils/logger.js';
 import fs from 'fs';
 import path from 'path';
@@ -61,19 +62,37 @@ interface VpsTutorialFile {
 }
 
 /**
- * Extracts unique table format platforms from a VPS game entry,
- * normalized to canonical platform IDs.
+ * Extracts a VPS entry's table formats as ENGINES plus the availability
+ * FEATURES they imply (ADR 0016 catalogue phase §5).
+ *
+ * `VPS_FORMAT_MAP` emits legacy ids, two of which are not engines: `BAM` is a
+ * table requirement on the `fp` engine, and the FX ids carry device halves. The
+ * shared fold separates them, so a BAM table lands as `platforms: ['fp'],
+ * features: ['bam']` and a VPS sync can no longer re-pollute what migration 129
+ * cleaned (hazard H-F).
+ *
+ * **Unmapped `tableFormat` strings keep their historical treatment** — verbatim
+ * lower-cased, on the engine axis. VPS adds formats before we learn about them,
+ * and a game whose ONLY format is new would otherwise import with no platforms
+ * at all. They come back from the fold as `dropped` rather than silently
+ * surviving, so the decision to re-append them is visible here rather than
+ * implicit. (Migration 129 makes the opposite call for existing rows, with
+ * logging; see its module doc.)
+ *
+ * The result is no longer `.sort()`ed: engine order is first-seen, which is the
+ * primary-chip rule (hazard H-E). Sorting would let alphabetical accident pick
+ * a game's headline engine.
  */
-function extractPlatforms(table: VpsTable): string[] {
-    const platforms = new Set<string>();
-    if (!table.tableFiles) return [];
+function extractPlatformsAndFeatures(table: VpsTable): { platforms: string[]; features: string[] } {
+    if (!table.tableFiles) return { platforms: [], features: [] };
+    const legacy: string[] = [];
     for (const tf of table.tableFiles) {
-        if (tf.tableFormat) {
-            const canonical = VPS_FORMAT_MAP[tf.tableFormat] || tf.tableFormat.toLowerCase();
-            platforms.add(canonical);
-        }
+        if (!tf.tableFormat) continue;
+        const canonical = VPS_FORMAT_MAP[tf.tableFormat] || tf.tableFormat.toLowerCase();
+        if (!legacy.includes(canonical)) legacy.push(canonical);
     }
-    return [...platforms].sort();
+    const fold = foldCataloguePlatforms(legacy);
+    return { platforms: [...fold.engines, ...fold.dropped], features: fold.features };
 }
 
 /**
@@ -335,13 +354,14 @@ export class VpsImportService {
             // Image downloads happen in a separate background pass after metadata is imported.
             for (const table of cataloguable) {
                 try {
+                    const { platforms, features: platformFeatures } = extractPlatformsAndFeatures(table);
                     const input: GlobalGameInput = {
                         name: table.name,
                         manufacturer: table.manufacturer,
                         year: table.year,
                         type: 'pinball',
                         subtype: table.type || undefined, // SS, EM, PM, OG
-                        platforms: extractPlatforms(table),
+                        platforms,
                         themes: table.theme || [],
                         designers: table.designers || [],
                         players: table.players,
@@ -353,7 +373,9 @@ export class VpsImportService {
                         table_download_urls: extractDownloadUrls(table),
                         tutorial_urls: extractTutorials(table),
                         rules_urls: extractRulesUrls(table),
-                        features: extractFeatures(table),
+                        // VPS's own feature tags plus the availability facts
+                        // folded out of the table formats (`bam`, `vr`, `vpxs`).
+                        features: [...new Set([...extractFeatures(table), ...platformFeatures])],
                         imported_from: 'vps',
                         source_updated_at: table.updatedAt
                             ? new Date(table.updatedAt).toISOString()

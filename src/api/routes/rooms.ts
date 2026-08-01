@@ -2533,17 +2533,27 @@ router.post('/:roomId/game_library/submit_to_global', requireAuth, requireRoomAc
         const now = new Date().toISOString();
         const submittedByUserId = req.user?.discordId || req.user?.username || null;
 
+        // ADR 0016 catalogue phase §5 — fold here too. This route bypasses
+        // `GlobalGameService.upsert` on purpose (upsert forces `approved`; a
+        // room proposal must land as `pending`), so it also bypasses the fold
+        // upsert applies. A room admin's browser sends whatever id list its
+        // platform picker offered, which is legacy for any client older than
+        // this release — folding upgrades it instead of seeding the catalogue
+        // with the shape the migration just cleaned up.
+        const { foldCataloguePlatforms } = await import('../../utils/scoreProvenance.js');
+        const proposedFold = foldCataloguePlatforms(platforms || []);
         await db.run(
             `INSERT INTO global_games (
-                id, name, manufacturer, year, type, platforms, status,
+                id, name, manufacturer, year, type, platforms, features, status,
                 submitted_by_user_id, submitted_by_room_id, submitted_at, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
             newId,
             name,
             manufacturer ?? null,
             year ?? null,
             type,
-            JSON.stringify(platforms || []),
+            JSON.stringify([...proposedFold.engines, ...proposedFold.dropped]),
+            JSON.stringify(proposedFold.features),
             submittedByUserId,
             roomId,
             now,

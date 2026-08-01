@@ -160,8 +160,18 @@ export class AtGamesImportService {
                     const result = await GlobalGameService.upsert({
                         name: game.name,
                         type: 'pinball',
-                        platforms: ['atgames'],
-                        features: [...variants],
+                        // ADR 0016 catalogue phase §5, FLAGGED PRODUCT CALL #1:
+                        // engine `atgames_native`. A game on this sheet runs on
+                        // the AtGames machine's own software, and giving it a
+                        // real engine is what stops its submissions auto-locking
+                        // to Unspecified. `atgames` moves to `features` beside
+                        // the cabinet variants, where "available on AtGames"
+                        // belongs. Known imprecision: Zen/FarSight-ported titles
+                        // arguably carry their porter's engine — the sheet knows
+                        // via column-A fill colour, the CSV export cannot read
+                        // colours (ROADMAP "Studio attribution").
+                        platforms: ['atgames_native'],
+                        features: ['atgames', ...variants],
                         status: 'approved',
                         imported_from: 'atgames',
                     });

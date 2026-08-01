@@ -50,10 +50,16 @@ describe('global_games identity index + upsert disambiguation', () => {
         expect(result.action).toBe('updated');
         expect(result.id).toBe(sternId);
 
+        // ADR 0016 catalogue phase §5 — the merged row keeps ENGINES in
+        // `platforms`, and `vpxs` ("also ships as a standalone build") lands in
+        // `features`. Both wizard imports are the `vpx` engine, so the platform
+        // list does not grow; what grows is the availability fact. The
+        // load-bearing assertion here is unchanged: the re-import UPDATED the
+        // Stern row rather than forking a third Playboy.
         const db = await getDatabase();
-        const row = await db.get(`SELECT platforms FROM global_games WHERE id = ?`, sternId);
-        const platforms = JSON.parse(row!.platforms);
-        expect(platforms.sort()).toEqual(['vpx', 'vpxs']);
+        const row = await db.get(`SELECT platforms, features FROM global_games WHERE id = ?`, sternId);
+        expect(JSON.parse(row!.platforms)).toEqual(['vpx']);
+        expect(JSON.parse(row!.features)).toEqual(['vpxs']);
     });
 
     it('blocks inserting a second row with identical (name, type, mfg, year) — thin duplicate protection intact', async () => {

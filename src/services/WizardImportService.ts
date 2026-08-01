@@ -88,40 +88,64 @@ function parseAllSections(markdown: string): WizardTable[] {
 }
 
 /**
- * Strip stale `vpxs` / `vpxs_manual` tags from each touched row and re-add
- * only the ones matching the current README state. Other platform tags are
- * preserved untouched.
+ * Reconcile the `vpxs` / `vpxs_manual` pair against the current README state.
  *
- * Running this after every Wizard import means section changes (a game
- * moving from `wizard_auto` to `wizard_manual` in the README, or vice
- * versa) update the tags on the next sync without needing a separate
- * data-cleanup migration.
+ * Running this after every Wizard import means section changes (a game moving
+ * from `wizard_auto` to `wizard_manual` in the README, or vice versa) update on
+ * the next sync without a data-cleanup migration. Reconciling rather than
+ * union-merging is the whole point: `GlobalGameService.upsert` only ever ADDS,
+ * so a game that left the auto section would keep claiming `vpxs` forever.
+ *
+ * ADR 0016 catalogue phase §5 — the pair now lives in `features`, not
+ * `platforms`. "Installs automatically" versus "install it yourself" is an
+ * availability fact about a table; on the score axis both are the `vpx` engine
+ * (ADR 0016 §"VPX Standalone is the VPX engine"). So this reconciles the two
+ * FEATURE tokens and, additionally, strips any stale `vpxs*` still sitting in
+ * `platforms` — rows written before migration 129, or by an older importer
+ * build, converge on the next sync instead of needing a second migration.
+ *
+ * Everything else on both columns (`vpx`, `fp`, `has_puppack`, `fps_*`, the
+ * AtGames cabinet variants) is left alone.
  */
-async function reconcileWizardPlatformTags(
+const WIZARD_FEATURES = ['vpxs', 'vpxs_manual'];
+
+export async function reconcileWizardPlatformTags(
     flagsById: Map<string, { auto: boolean; manual: boolean }>,
 ): Promise<void> {
     if (flagsById.size === 0) return;
     const { getDatabase } = await import('../database/database.js');
     const db = await getDatabase();
+
+    const parseArray = (raw: string | null | undefined): string[] => {
+        try {
+            const parsed = JSON.parse(raw || '[]');
+            return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+        } catch {
+            return [];
+        }
+    };
+
     for (const [id, flags] of flagsById) {
         const row = await db.get(
-            `SELECT platforms FROM global_games WHERE id = ?`,
+            `SELECT platforms, features FROM global_games WHERE id = ?`,
             id,
-        ) as { platforms: string | null } | undefined;
+        ) as { platforms: string | null; features: string | null } | undefined;
         if (!row) continue;
-        let existing: string[] = [];
-        try {
-            const parsed = JSON.parse(row.platforms || '[]');
-            if (Array.isArray(parsed)) existing = parsed.filter((p): p is string => typeof p === 'string');
-        } catch { /* tolerate malformed JSON */ }
-        const stripped = existing.filter(p => p !== 'vpxs' && p !== 'vpxs_manual');
-        const next = [...stripped];
-        if (flags.auto) next.push('vpxs');
-        if (flags.manual) next.push('vpxs_manual');
-        const unique = [...new Set(next)];
+
+        // Platforms: drop any stale wizard id. The engine (`vpx`) is added by
+        // the upsert above and is not a wizard tag, so it survives.
+        const platforms = parseArray(row.platforms)
+            .filter(p => !WIZARD_FEATURES.includes(p.trim().toLowerCase()));
+
+        // Features: reconcile the pair, preserve the rest in place.
+        const features = parseArray(row.features)
+            .filter(fv => !WIZARD_FEATURES.includes(fv.trim().toLowerCase()));
+        if (flags.auto) features.push('vpxs');
+        if (flags.manual) features.push('vpxs_manual');
+
         await db.run(
-            `UPDATE global_games SET platforms = ? WHERE id = ?`,
-            JSON.stringify(unique), id,
+            `UPDATE global_games SET platforms = ?, features = ? WHERE id = ?`,
+            JSON.stringify([...new Set(platforms)]), JSON.stringify([...new Set(features)]), id,
         );
     }
 }
@@ -350,8 +374,18 @@ export class WizardImportService {
             // reliable `vpxs` (Wizard Tables, auto-install) while excluding
             // `vpxs_manual` (Manual Install — hit-or-miss, low fps). Games
             // listed in BOTH README sections get both tags.
-            const platformsForTable = (t: WizardTable): string[] =>
-                t.section === 'wizard_auto' ? ['vpxs'] : ['vpxs_manual'];
+            //
+            // ADR 0016 catalogue phase §5: the ENGINE is `vpx` for both — a
+            // standalone build is a port of a VPX table with identical physics,
+            // so the scores are comparable and the install method is not a
+            // property of a score. The section becomes an availability feature.
+            // (The upsert folds `vpxs` to exactly this anyway; emitting it
+            // directly keeps the importer's intent readable, and the
+            // reconcile pass below is what handles REMOVAL, which a union
+            // merge can never do.)
+            const platformsForTable = (_t: WizardTable): string[] => ['vpx'];
+            const wizardFeature = (t: WizardTable): string =>
+                t.section === 'wizard_auto' ? 'vpxs' : 'vpxs_manual';
 
             // Aggregate per-game section flags so the reconcile pass below
             // can strip stale wizard tags (e.g. a game that was in auto last
@@ -397,7 +431,7 @@ export class WizardImportService {
                         year,
                         type: 'pinball',
                         platforms: platformsForTable(table),
-                        features: buildFeatures(table),
+                        features: [...buildFeatures(table), wizardFeature(table)],
                         image_url: imageUrl,
                         external_url: sourceUrl,
                         table_download_urls: tableDownloadUrls,
@@ -420,8 +454,8 @@ export class WizardImportService {
             }
 
             // Reconcile wizard tags: strip stale `vpxs` / `vpxs_manual` from
-            // each touched row, add only the tags matching current README state.
-            // Other platform tags (vpx, fp, …) are left alone.
+            // each touched row (both columns), add back only the ones matching
+            // the current README state. Other tags are left alone.
             await reconcileWizardPlatformTags(touchedIds);
 
             logInfo(`Wizard Import: metadata pass complete. Starting background image downloads...`);
