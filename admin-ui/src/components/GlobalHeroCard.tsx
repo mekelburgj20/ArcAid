@@ -4,7 +4,7 @@ import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { formatScore } from '../lib/format';
 import { catalogueImageFor } from '../lib/catalogueImage';
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
-import { CategoryChip, type GlobalGameCardGame } from './GlobalGameCard';
+import { CategoryChip, cardDetailHref, type GlobalGameCardGame } from './GlobalGameCard';
 
 /**
  * The Global Scoreboard hero card — v2.57.0 (A5a).
@@ -128,7 +128,7 @@ export default function GlobalHeroCard({ game, onSubmit, onTogglePin, className 
         <div className="font-mono text-[10px] uppercase tracking-[1px] text-neon-cyan">{eyebrow}</div>
         <h2 className="mt-1 font-display text-[26px] font-extrabold leading-none [text-wrap:pretty] sm:text-[34px]">
           <Link
-            to={`/games/${game.global_game_id}`}
+            to={cardDetailHref(game.global_game_id, game.category)}
             className="no-underline"
             style={{ color: 'var(--sb-art-title)', textShadow: 'var(--sb-title-shadow)' }}
           >
@@ -198,7 +198,7 @@ export default function GlobalHeroCard({ game, onSubmit, onTogglePin, className 
             </button>
           )}
           <Link
-            to={`/games/${game.global_game_id}`}
+            to={cardDetailHref(game.global_game_id, game.category)}
             className="inline-flex items-center rounded-md border px-3 py-[9px] text-[12px] font-bold no-underline transition hover:brightness-110"
             style={{
               background: 'var(--sb-art-btn-bg)',

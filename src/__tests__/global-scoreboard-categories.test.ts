@@ -378,14 +378,16 @@ describe('P4 — the category chips', () => {
         expect(res.body.data[0].global_game_id).toBe(gameId);
     });
 
-    it('drops zero-score games from a filtered view but keeps them under All', async () => {
+    it('drops a zero-score game from a band its CATALOGUE does not claim', async () => {
         const app = await createTestApp();
-        await makeGame('Empty Game');
+        // Engines: vpx (simulation) only. Arcade-Style is a band this game
+        // cannot produce a board in, so the chip must not surface it.
+        await makeGame('Empty Game', ['vpx']);
 
         const all = await request(app).get('/api/global/scoreboard');
         expect(all.body.data.map((r: any) => r.name)).toContain('Empty Game');
 
-        const filtered = await request(app).get('/api/global/scoreboard?category=simulation');
+        const filtered = await request(app).get('/api/global/scoreboard?category=arcade_style');
         expect(filtered.body.data.map((r: any) => r.name)).not.toContain('Empty Game');
     });
 
@@ -404,6 +406,178 @@ describe('P4 — the category chips', () => {
         expect(CARD_CATEGORY_ORDER).toEqual([
             'real', 'simulation', 'arcade_style', 'video', 'unspecified',
         ]);
+    });
+});
+
+/**
+ * v2.63.0 — a zero-score game reaches a category filter through its CATALOGUE.
+ *
+ * The defect: a game nobody has scored yet has a NULL card category, and
+ * `NULL = 'simulation'` is NULL, so it fell out of every category chip. The one
+ * surface where a `Claim 1st →` CTA is worth the most was the one place it
+ * could not be found. Since v2.62.0 `global_games.platforms` holds canonical
+ * ENGINE ids, so the band such a game WOULD produce a board in is derivable
+ * without inventing anything.
+ *
+ * The boundary these lock is that the derivation applies to zero-score games
+ * ONLY. A scored game's boards are what its scores say they are; letting the
+ * catalogue vote there would conjure cards for engines nobody has played.
+ */
+describe('v2.63.0 — zero-score games match a category via the catalogue', () => {
+    it('shows a VPX-only empty game under Simulation, and not under Arcade-Style', async () => {
+        const app = await createTestApp();
+        await makeGame('Unplayed Sim', ['vpx']);
+
+        const sim = await request(app).get('/api/global/scoreboard?category=simulation');
+        expect(sim.body.data.map((r: any) => r.name)).toContain('Unplayed Sim');
+        // …and the card is still the uncategorised one: no board exists yet.
+        const card = (sim.body.data as any[]).find(r => r.name === 'Unplayed Sim');
+        expect(card.category).toBeNull();
+        expect(card.score_count).toBe(0);
+
+        const arcade = await request(app).get('/api/global/scoreboard?category=arcade_style');
+        expect(arcade.body.data.map((r: any) => r.name)).not.toContain('Unplayed Sim');
+    });
+
+    it('shows a multi-band empty game under BOTH of its bands', async () => {
+        const app = await createTestApp();
+        await makeGame('Unplayed Both', ['vpx', 'fx']);
+
+        for (const category of ['simulation', 'arcade_style']) {
+            const res = await request(app).get(`/api/global/scoreboard?category=${category}`);
+            expect(res.body.data.map((r: any) => r.name), category).toContain('Unplayed Both');
+        }
+        const real = await request(app).get('/api/global/scoreboard?category=real');
+        expect(real.body.data.map((r: any) => r.name)).not.toContain('Unplayed Both');
+    });
+
+    it('leaves a SCORED game\'s filter behaviour exactly as it was', async () => {
+        const app = await createTestApp();
+        // Catalogue says vpx + fx, but the only score is an FX one. The game
+        // must appear under Arcade-Style and NOT under Simulation: a catalogue
+        // engine nobody has scored on is not a board.
+        const gameId = await makeGame('Scored FX Only', ['vpx', 'fx']);
+        await addScore(gameId, { username: 'F', score: 900, engine: 'fx' });
+
+        const arcade = await request(app).get('/api/global/scoreboard?category=arcade_style');
+        expect(arcade.body.data.map((r: any) => r.name)).toContain('Scored FX Only');
+
+        const sim = await request(app).get('/api/global/scoreboard?category=simulation');
+        expect(sim.body.data.map((r: any) => r.name)).not.toContain('Scored FX Only');
+    });
+
+    it('matches no band when the catalogue engines are empty or all unknown', async () => {
+        const app = await createTestApp();
+        await makeGame('No Engines', []);
+        // `atgames` is a legacy DEVICE token, not a canonical engine — it
+        // yields no band, so it must vote for nothing (least of all
+        // `unspecified`, which describes scores whose provenance was lost).
+        await makeGame('Device Only', ['atgames']);
+
+        for (const category of CARD_CATEGORY_ORDER) {
+            const res = await request(app).get(`/api/global/scoreboard?category=${category}`);
+            const names = (res.body.data as any[]).map(r => r.name);
+            expect(names, category).not.toContain('No Engines');
+            expect(names, category).not.toContain('Device Only');
+        }
+
+        // Both still reachable under All — dropped from chips, not from the site.
+        const all = await request(app).get('/api/global/scoreboard');
+        expect(all.body.data.map((r: any) => r.name)).toEqual(
+            expect.arrayContaining(['No Engines', 'Device Only']),
+        );
+    });
+
+    it('keeps zero-score games out of the Unspecified chip', async () => {
+        const app = await createTestApp();
+        await makeGame('Unplayed Sim', ['vpx']);
+
+        // `unspecified` is the bucket for scores whose engine was never
+        // recorded. A game with no scores has no provenance to have lost, so no
+        // catalogue engine can imply it.
+        const res = await request(app).get(`/api/global/scoreboard?category=${UNSPECIFIED_CATEGORY}`);
+        expect(res.body.data.map((r: any) => r.name)).not.toContain('Unplayed Sim');
+    });
+
+    it('survives a NULL or malformed platforms column', async () => {
+        const app = await createTestApp();
+        const db = await getDatabase();
+        const good = await makeGame('Unplayed Sim', ['vpx']);
+        // `platforms` is `TEXT DEFAULT '[]'` but nullable, and seven importers
+        // write it independently. SQLite's `json_each` THROWS on a non-JSON
+        // value, so without the `json_valid` guard ONE bad row would 500 every
+        // category-filtered scoreboard request rather than just excluding that
+        // game.
+        await db.run(
+            `INSERT INTO global_games (id, name, type, status, global_leaderboard, platforms)
+             VALUES ('null-plat', 'Null Platforms', 'pinball', 'approved', 1, NULL)`);
+        await db.run(
+            `INSERT INTO global_games (id, name, type, status, global_leaderboard, platforms)
+             VALUES ('bad-plat', 'Bad Platforms', 'pinball', 'approved', 1, 'not json')`);
+
+        const res = await request(app).get('/api/global/scoreboard?category=simulation');
+        expect(res.status).toBe(200);
+        const names = (res.body.data as any[]).map(r => r.name);
+        expect(names).toContain('Unplayed Sim');
+        expect(names).not.toContain('Null Platforms');
+        expect(names).not.toContain('Bad Platforms');
+        expect(good).toBeTruthy();
+    });
+
+    it('counts the rescued card in `total` so pagination still walks it', async () => {
+        const app = await createTestApp();
+        await makeGame('Unplayed Sim', ['vpx']);
+
+        const res = await request(app).get('/api/global/scoreboard?category=simulation');
+        expect(res.body.total).toBe(1);
+        expect(res.body.data).toHaveLength(1);
+    });
+});
+
+describe('v2.63.0 — the zero-score card names the band it would open', () => {
+    it('carries a prospective_category when the catalogue is unambiguous', async () => {
+        const app = await createTestApp();
+        const gameId = await makeGame('Unplayed Sim', ['vpx', 'vp9']);
+
+        const res = await request(app).get('/api/global/scoreboard');
+        const card = (res.body.data as any[]).find(r => r.global_game_id === gameId);
+        expect(card.prospective_category).toBe('simulation');
+        // Display only. The card identity is untouched — it is still the
+        // uncategorised card, and `card_id` is what P4's invariants key on.
+        expect(card.category).toBeNull();
+        expect(card.card_id).toBe(cardId(gameId, null));
+    });
+
+    it('carries none when two bands are possible', async () => {
+        const app = await createTestApp();
+        const gameId = await makeGame('Unplayed Both', ['vpx', 'fx']);
+
+        const res = await request(app).get('/api/global/scoreboard');
+        const card = (res.body.data as any[]).find(r => r.global_game_id === gameId);
+        // Both boards are genuinely possible; advertising one would be a claim
+        // the catalogue does not support.
+        expect(card.prospective_category ?? null).toBeNull();
+    });
+
+    it('carries none for a game that HAS scores — `category` is the answer there', async () => {
+        const app = await createTestApp();
+        const gameId = await makeGame('Scored', ['vpx']);
+        await addScore(gameId, { username: 'S', score: 900, engine: 'vpx' });
+
+        const res = await request(app).get('/api/global/scoreboard');
+        const card = (res.body.data as any[]).find(r => r.global_game_id === gameId);
+        expect(card.category).toBe('simulation');
+        expect(card.prospective_category ?? null).toBeNull();
+    });
+
+    it('never labels a palette (groupBy=game) row', async () => {
+        const app = await createTestApp();
+        await makeGame('Unplayed Sim', ['vpx']);
+
+        // A `game` row's null category means "this row names no single board",
+        // not "this game has no scores" — deriving one would label every result.
+        const res = await request(app).get('/api/global/scoreboard?groupBy=game');
+        expect((res.body.data as any[]).every(r => (r.prospective_category ?? null) === null)).toBe(true);
     });
 });
 
@@ -482,6 +656,156 @@ describe('P4 — total and pagination count CARDS', () => {
         const names = (res.body.data as any[]).map(r => r.name).sort();
         expect(names).toEqual(['Alpha', 'Beta', 'Gamma']);
         expect(names).not.toContain('Delta');
+    });
+});
+
+/**
+ * v2.63.0 — the GAME DETAIL page serves one board per category.
+ *
+ * `GET /api/global/scoreboard/:id` returned a single COMBINED list per game.
+ * That was ADR 0016's comparability defect surviving in the most visible place
+ * on the site: the grid had already split a mixed game into a Simulation card
+ * and an Arcade-Style card, and clicking either landed on a table that mixed
+ * them back together, ranking a VPX run against a Pinball FX run 1..n.
+ */
+describe('v2.63.0 — per-category boards on the game detail endpoint', () => {
+    /** Two bands, and one player holding a score on each. */
+    async function seedTwoBoards(): Promise<string> {
+        const gameId = await makeGame('Two Boards', ['vpx', 'fx']);
+        await addScore(gameId, { username: 'SimAce', score: 900, engine: 'vpx' });
+        await addScore(gameId, { username: 'SimTwo', score: 800, engine: 'vpx' });
+        await addScore(gameId, { username: 'SimAce', score: 50, engine: 'fx' });
+        await addScore(gameId, { username: 'FxAce', score: 100, engine: 'fx' });
+        return gameId;
+    }
+
+    it('never puts a score on two boards, and never mixes bands in one', async () => {
+        const app = await createTestApp();
+        const gameId = await seedTwoBoards();
+
+        const sim = await request(app).get(`/api/global/scoreboard/${gameId}?category=simulation`);
+        const arcade = await request(app).get(`/api/global/scoreboard/${gameId}?category=arcade_style`);
+        expect(sim.status).toBe(200);
+        expect(arcade.status).toBe(200);
+
+        // Each board holds only its own band's engines…
+        expect((sim.body.data as any[]).every(r => r.engine === 'vpx')).toBe(true);
+        expect((arcade.body.data as any[]).every(r => r.engine === 'fx')).toBe(true);
+        // …and no score id appears on both.
+        const simIds = (sim.body.data as any[]).map(r => r.score_id);
+        const arcadeIds = (arcade.body.data as any[]).map(r => r.score_id);
+        expect(simIds.filter(id => arcadeIds.includes(id))).toEqual([]);
+        // Ranks restart per board — that is what makes a rank mean something.
+        expect(simIds).toHaveLength(2);
+        expect((sim.body.data as any[]).map(r => r.rank)).toEqual([1, 2]);
+        expect((arcade.body.data as any[]).map(r => r.rank)).toEqual([1, 2]);
+    });
+
+    it('ranks a player on a board even when their OTHER board score is higher', async () => {
+        const app = await createTestApp();
+        const gameId = await seedTwoBoards();
+
+        // SimAce's 900 must not swallow their 50: a game-level best-per-player
+        // collapse would have left the Arcade-Style board a player short.
+        const arcade = await request(app).get(`/api/global/scoreboard/${gameId}?category=arcade_style`);
+        expect((arcade.body.data as any[]).map(r => r.iscored_username)).toEqual(['FxAce', 'SimAce']);
+    });
+
+    it('advertises every board, biggest first', async () => {
+        const app = await createTestApp();
+        const gameId = await seedTwoBoards();
+
+        const res = await request(app).get(`/api/global/scoreboard/${gameId}`);
+        expect(res.body.categories).toEqual([
+            { category: 'simulation', score_count: 2 },
+            { category: 'arcade_style', score_count: 2 },
+        ]);
+    });
+
+    it('preselects the deep-linked board', async () => {
+        const app = await createTestApp();
+        const gameId = await seedTwoBoards();
+
+        const res = await request(app).get(`/api/global/scoreboard/${gameId}?category=arcade_style`);
+        expect(res.body.category).toBe('arcade_style');
+        expect((res.body.data as any[]).map(r => r.iscored_username)).toEqual(['FxAce', 'SimAce']);
+    });
+
+    it('falls back to the biggest board when the param is absent or bogus', async () => {
+        const app = await createTestApp();
+        const gameId = await makeGame('Lopsided', ['vpx', 'fx']);
+        await addScore(gameId, { username: 'F', score: 100_000, engine: 'fx' });
+        for (const [i, name] of ['S1', 'S2', 'S3'].entries()) {
+            await addScore(gameId, { username: name, score: 900 - i, engine: 'vpx' });
+        }
+
+        for (const query of ['', '?category=', '?category=not_a_band', '?category=real']) {
+            const res = await request(app).get(`/api/global/scoreboard/${gameId}${query}`);
+            // `real` is a real taxonomy id the GAME has no board in — it must
+            // fall back too, or the page renders an empty table under a tab
+            // that isn't in the strip.
+            expect(res.body.category, query).toBe('simulation');
+            expect(res.body.data, query).toHaveLength(3);
+        }
+    });
+
+    it('renders Unspecified like any other board where it has scores', async () => {
+        const app = await createTestApp();
+        const gameId = await makeGame('Mixed Unknown', ['vpx']);
+        await addScore(gameId, { username: 'S', score: 900, engine: 'vpx' });
+        await addScore(gameId, { username: 'U1', score: 800, engine: UNKNOWN });
+        await addScore(gameId, { username: 'U2', score: 700, engine: UNKNOWN });
+
+        const res = await request(app).get(`/api/global/scoreboard/${gameId}?category=${UNSPECIFIED_CATEGORY}`);
+        expect(res.body.category).toBe(UNSPECIFIED_CATEGORY);
+        expect((res.body.data as any[]).map(r => r.iscored_username)).toEqual(['U1', 'U2']);
+        // It is the bigger board here, so it also leads the strip.
+        expect(res.body.categories[0].category).toBe(UNSPECIFIED_CATEGORY);
+    });
+
+    it('is unchanged for a single-category game', async () => {
+        const app = await createTestApp();
+        const gameId = await makeGame('One Board', ['vpx']);
+        await addScore(gameId, { username: 'A', score: 900, engine: 'vpx' });
+        await addScore(gameId, { username: 'B', score: 800, engine: 'vpx' });
+
+        const res = await request(app).get(`/api/global/scoreboard/${gameId}`);
+        expect(res.body.categories).toEqual([{ category: 'simulation', score_count: 2 }]);
+        expect(res.body.category).toBe('simulation');
+        expect(res.body.total).toBe(2);
+        expect((res.body.data as any[]).map(r => r.iscored_username)).toEqual(['A', 'B']);
+    });
+
+    it('keeps the zero-score claim state', async () => {
+        const app = await createTestApp();
+        const gameId = await makeGame('Untouched', ['vpx']);
+
+        const res = await request(app).get(`/api/global/scoreboard/${gameId}`);
+        expect(res.status).toBe(200);
+        expect(res.body.categories).toEqual([]);
+        expect(res.body.category).toBeNull();
+        expect(res.body.data).toEqual([]);
+        expect(res.body.total).toBe(0);
+    });
+
+    it('pages within the selected board, not across the game', async () => {
+        const app = await createTestApp();
+        const gameId = await makeGame('Paged', ['vpx', 'fx']);
+        for (let i = 0; i < 5; i++) {
+            await addScore(gameId, { username: `S${i}`, score: 900 - i, engine: 'vpx' });
+        }
+        await addScore(gameId, { username: 'F', score: 10, engine: 'fx' });
+
+        const res = await request(app).get(`/api/global/scoreboard/${gameId}?category=simulation&limit=2&offset=0`);
+        expect(res.body.total).toBe(5);      // the BOARD's size, not the game's 6
+        expect(res.body.hasMore).toBe(true);
+        expect(res.body.data).toHaveLength(2);
+    });
+
+    it('still 404s an unknown game', async () => {
+        const app = await createTestApp();
+        const res = await request(app).get('/api/global/scoreboard/nope?category=simulation');
+        expect(res.status).toBe(404);
     });
 });
 

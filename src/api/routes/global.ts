@@ -1504,8 +1504,34 @@ router.delete('/global/games/:globalGameId/pin', writeLimiter, requireDiscordUse
 });
 
 /**
- * GET /api/global/scoreboard/:globalGameId — full leaderboard for a single game.
- * Query params: ?scope=global|<roomId>&offset=0&limit=50
+ * GET /api/global/scoreboard/:globalGameId — leaderboard for a single game,
+ * scoped to ONE fidelity category (v2.63.0).
+ *
+ * Query params: `?scope=global|<roomId>&offset=0&limit=50&category=<id>`
+ *
+ * Pre-v2.63 this returned one COMBINED list per game. That was the ADR 0016
+ * comparability defect surviving on the page a player actually reads: the
+ * scoreboard had already split a mixed game into a Simulation card and an
+ * Arcade-Style card, and clicking either landed on a board that mixed the two
+ * back together. Cards may share a game page; their SCORES may not share a
+ * table.
+ *
+ * The response therefore ships three things instead of one:
+ *   • `categories` — every board the game has, biggest first. The tab strip.
+ *   • `category`   — the board actually served (never echoed blindly; always
+ *                    the resolved one, so the client can trust it).
+ *   • `data`       — that board's rows, paged.
+ *
+ * Resolution: an unknown, absent, or empty `category` falls back to
+ * `categories[0]`, i.e. the biggest board, rather than 400ing — a stale
+ * bookmark, a card deep-link whose board has since been emptied, and a plain
+ * `/games/:id` visit must all render a leaderboard. A game with no scores
+ * resolves to `null` and returns an empty `data`, which is the existing
+ * zero-score claim state.
+ *
+ * Single-category games are byte-compatible with the pre-v2.63 response for
+ * `data` / `total` / `hasMore`: with one board, "that board" and "everything"
+ * are the same rows. `GlobalGameDetail` is the only consumer.
  */
 router.get('/global/scoreboard/:globalGameId', async (req, res) => {
     try {
@@ -1513,11 +1539,20 @@ router.get('/global/scoreboard/:globalGameId', async (req, res) => {
         const scope = (req.query.scope as string) || 'global';
         const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
         const offset = parseInt(req.query.offset as string) || 0;
+        const requestedCategory = (req.query.category as string) || '';
 
         const game = await GlobalGameService.getById(globalGameId);
         if (!game) return res.status(404).json({ error: 'Game not found' });
 
-        const rankings = await GlobalLeaderboardService.getForGame(globalGameId, scope);
+        const categories = await GlobalLeaderboardService.getCardCategories(globalGameId, scope);
+        // Membership in THIS game's boards, not merely in the taxonomy: a valid
+        // category id the game has no scores in would otherwise render an empty
+        // table under a tab that isn't on screen.
+        const category = categories.some(c => c.category === requestedCategory)
+            ? requestedCategory
+            : (categories[0]?.category ?? null);
+
+        const rankings = await GlobalLeaderboardService.getForCard(globalGameId, category, scope);
         const paged = rankings.slice(offset, offset + limit);
 
         res.json({
@@ -1529,6 +1564,8 @@ router.get('/global/scoreboard/:globalGameId', async (req, res) => {
                 type: game.type,
                 image_url: game.local_image_path || game.image_url,
             },
+            categories,
+            category,
             data: paged,
             total: rankings.length,
             hasMore: offset + limit < rankings.length,

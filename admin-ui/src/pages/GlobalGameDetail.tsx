@@ -13,7 +13,7 @@ import UserMenu from '../components/UserMenu';
 import LoginButtons from '../components/LoginButtons';
 import ProvenanceTags from '../components/ProvenanceTags';
 import { resolveProvenance } from '../lib/provenanceDisplay';
-import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
+import { getCardCategoryLabel, getLegacyPlatformLabel, UNSPECIFIED_CATEGORY } from '../lib/scoreProvenance';
 import { formatScore } from '../lib/format';
 import { getPortal } from '../lib/portal';
 import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
@@ -128,6 +128,15 @@ export default function GlobalGameDetail() {
   const [scope, setScope] = useState<string>('global');
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
   const [rankingsLoading, setRankingsLoading] = useState(false);
+  /**
+   * v2.63.0 (ADR 0016) — every board this game has, biggest first, and the one
+   * currently shown. Both come STRAIGHT from the server response rather than
+   * being derived here: the server owns the resolution rule (requested board if
+   * it exists, else the biggest), so echoing its answer is what keeps a bogus
+   * `?category=` from leaving the tab strip and the table disagreeing.
+   */
+  const [categories, setCategories] = useState<Array<{ category: string; score_count: number }>>([]);
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   // Pagination: 20 per page, server-side slicing via offset/limit.
   const PAGE_SIZE = 20;
   const [page, setPage] = useState(0);
@@ -240,24 +249,51 @@ export default function GlobalGameDetail() {
     else setScope(roomId);
   };
 
-  // Reset to page 0 whenever scope or game changes; the page-aware fetch effect
-  // below will re-run because `page` flips back to 0.
-  useEffect(() => { setPage(0); }, [globalGameId, scope]);
+  /**
+   * v2.63.0 — the requested board, straight off the URL. A scoreboard card
+   * deep-links its own category here, so the page opens on the board the player
+   * actually clicked rather than on the game's biggest one.
+   *
+   * Kept as a URL param, not component state, for the same reason `?room=`
+   * is: it makes the view shareable, and it means a tab click and an inbound
+   * deep link travel the identical code path.
+   */
+  const categoryParam = searchParams.get('category');
 
-  // Fetch leaderboard whenever game, scope, or page changes
+  // Reset to page 0 whenever scope, category or game changes; the page-aware
+  // fetch effect below will re-run because `page` flips back to 0.
+  useEffect(() => { setPage(0); }, [globalGameId, scope, categoryParam]);
+
+  // Fetch leaderboard whenever game, scope, category or page changes.
+  //
+  // The response's `categories` / `category` are stored verbatim. Nothing here
+  // writes back to the URL off the response — doing so would make the fetch its
+  // own trigger, which is the infinite-loop shape this page has been bitten by
+  // before. A bogus `?category=` therefore stays in the URL while the server's
+  // fallback board renders; the tab strip reflects what is SHOWN.
   useEffect(() => {
     if (!globalGameId) return;
     setRankingsLoading(true);
     const offset = page * PAGE_SIZE;
-    fetch(`/api/global/scoreboard/${globalGameId}?scope=${scope}&limit=${PAGE_SIZE}&offset=${offset}`)
+    const categoryQuery = categoryParam ? `&category=${encodeURIComponent(categoryParam)}` : '';
+    fetch(`/api/global/scoreboard/${globalGameId}?scope=${scope}&limit=${PAGE_SIZE}&offset=${offset}${categoryQuery}`)
       .then(r => r.ok ? r.json() : { data: [], total: 0 })
       .then(payload => {
         setRankings(payload.data || []);
         setTotal(typeof payload.total === 'number' ? payload.total : (payload.data || []).length);
+        setCategories(Array.isArray(payload.categories) ? payload.categories : []);
+        setActiveCategory(payload.category ?? null);
       })
-      .catch(() => { setRankings([]); setTotal(0); })
+      .catch(() => { setRankings([]); setTotal(0); setCategories([]); setActiveCategory(null); })
       .finally(() => setRankingsLoading(false));
-  }, [globalGameId, scope, page]);
+  }, [globalGameId, scope, page, categoryParam]);
+
+  /** Switch boards. Same URL-param path an inbound deep link takes. */
+  const selectCategory = (category: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('category', category);
+    setSearchParams(next, { replace: true });
+  };
 
   // Fetch rating
   useEffect(() => {
@@ -405,11 +441,14 @@ export default function GlobalGameDetail() {
     // freshest top-of-leaderboard view; the page-driven effect will refetch.
     if (page !== 0) { setPage(0); return; }
     setRankingsLoading(true);
-    fetch(`/api/global/scoreboard/${globalGameId}?scope=${scope}&limit=${PAGE_SIZE}&offset=0`)
+    const categoryQuery = categoryParam ? `&category=${encodeURIComponent(categoryParam)}` : '';
+    fetch(`/api/global/scoreboard/${globalGameId}?scope=${scope}&limit=${PAGE_SIZE}&offset=0${categoryQuery}`)
       .then(r => r.ok ? r.json() : { data: [], total: 0 })
       .then(payload => {
         setRankings(payload.data || []);
         setTotal(typeof payload.total === 'number' ? payload.total : (payload.data || []).length);
+        setCategories(Array.isArray(payload.categories) ? payload.categories : []);
+        setActiveCategory(payload.category ?? null);
       })
       .catch(() => {})
       .finally(() => setRankingsLoading(false));
@@ -589,6 +628,59 @@ export default function GlobalGameDetail() {
               {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </div>
+
+          {/* v2.63.0 (ADR 0016) — one board per fidelity category.
+
+              Cards for different categories share this page, but their SCORES
+              must not share a table: a VPX run and a Pinball FX run are not the
+              same contest, and the combined list this page used to show was
+              that claim made in the most visible place on the site.
+
+              There is deliberately NO "All" tab. On the room GameDetail an
+              "All" engine view is defensible — the rows there carry per-row
+              engine tags, so the mixing is visible. Here the rows are a RANKED
+              board with ranks 1..n, and a rank across mixed engines means
+              nothing at all. */}
+          {categories.length > 1 ? (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {categories.map(({ category, score_count }) => {
+                const label = getCardCategoryLabel(category) ?? category;
+                const isActive = category === activeCategory;
+                const isUnspecified = category === UNSPECIFIED_CATEGORY;
+                return (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => selectCategory(category)}
+                    aria-pressed={isActive}
+                    /* The unspecified bucket is a real board, not a footnote —
+                       it is the majority of production scores — but its title
+                       says why it has no fidelity band rather than implying
+                       one. */
+                    title={isUnspecified
+                      ? "These scores don't say which game engine produced them, so they can't be compared with the rest."
+                      : `${label} scores — ${score_count} on this board.`}
+                    className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
+                  >
+                    <span className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                      isActive
+                        ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
+                        : 'border-border text-muted hover:text-primary hover:border-border/80'
+                    }`}>
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : activeCategory ? (
+            /* Exactly one board. No selector to offer, but the board still
+               gets named — otherwise a single-category game would be the only
+               place on the site where a leaderboard doesn't say what it ranks. */
+            <div className="mb-3 text-xs text-muted" data-testid="single-category-label">
+              {getCardCategoryLabel(activeCategory) ?? activeCategory} scores
+            </div>
+          ) : null}
 
           {reportMessage && (
             <div className={`mb-3 text-sm ${reportMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>

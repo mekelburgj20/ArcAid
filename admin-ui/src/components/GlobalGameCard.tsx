@@ -69,6 +69,14 @@ export interface GlobalGameCardGame {
   category?: string | null;
   /** v2.59.0 (P4) — `${global_game_id}::${category ?? 'none'}`; the React key. */
   card_id?: string;
+  /**
+   * v2.63.0 — DISPLAY ONLY, and only ever set on a zero-score card. The band
+   * this game's catalogue engines unambiguously imply, so a `Claim 1st →` card
+   * can name the board the first score will open. Never feeds `card_id` (which
+   * stays `::none`) and never feeds the detail-page deep link (there is no
+   * board to link to yet).
+   */
+  prospective_category?: string | null;
   /** v2.52.0 (A4) — per-viewer context. Absent entirely for anonymous viewers. */
   is_pinned?: boolean;
   my_rank?: number | null;
@@ -96,8 +104,16 @@ export type { Density, PlannedRow, RowPlan } from '../lib/scoreboardDensity';
  * don't exist). The `unspecified` bucket itself renders MUTED and carries a
  * tooltip saying what it means: it is not a fidelity band, and styling it like
  * one would assert comparability the data cannot support.
+ *
+ * v2.63.0 — `prospective` flips the copy from a statement about scores that
+ * exist to one about the board a first score would open. Same label and same
+ * treatment, because it names the same band; different tooltip, because
+ * "this board only ranks…" is false where there is no board yet.
  */
-export function CategoryChip({ category }: { category?: string | null }) {
+export function CategoryChip({ category, prospective = false }: {
+  category?: string | null;
+  prospective?: boolean;
+}) {
   const label = getCardCategoryLabel(category);
   if (!label) return null;
   const isUnspecified = category === UNSPECIFIED_CATEGORY;
@@ -105,6 +121,7 @@ export function CategoryChip({ category }: { category?: string | null }) {
     <span
       data-testid="category-chip"
       data-category={category as string}
+      data-prospective={prospective ? 'true' : undefined}
       className="rounded-[3px] border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.4px]"
       style={{
         background: 'var(--sb-pill-bg)',
@@ -113,11 +130,31 @@ export function CategoryChip({ category }: { category?: string | null }) {
       }}
       title={isUnspecified
         ? "These scores don't say which game engine produced them, so they can't be compared with the rest."
-        : `${label} scores — this board only ranks scores from ${label.toLowerCase()} sources.`}
+        : prospective
+          ? `No scores yet — the first one will open a ${label} board.`
+          : `${label} scores — this board only ranks scores from ${label.toLowerCase()} sources.`}
     >
       {label}
     </span>
   );
+}
+
+/**
+ * The detail-page link for one card — v2.63.0.
+ *
+ * `?category=` is what makes a card and the board it opens the same thing: two
+ * cards of a game share a page, and without the param the page would have to
+ * guess which of them was clicked (it defaults to the biggest board, which is
+ * wrong for every other card).
+ *
+ * A zero-score card links BARE, even when it carries a prospective band. That
+ * band names a board that does not exist yet, so deep-linking it would ask the
+ * page to preselect a tab it cannot render.
+ */
+export function cardDetailHref(globalGameId: string, category?: string | null): string {
+  return category
+    ? `/games/${globalGameId}?category=${encodeURIComponent(category)}`
+    : `/games/${globalGameId}`;
 }
 
 /** Dashed rule with a centred ellipsis — the "…and then, you" separator. */
@@ -250,7 +287,12 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
   const { rows: planned, prompt } = planRows(game, density);
   const platforms = parsePlatforms(game.platforms);
   const primaryPlatform = platforms[0];
-  const categoryLabel = getCardCategoryLabel(game.category);
+  // v2.63.0 — a zero-score card names the band its FIRST score would open,
+  // when the catalogue says so unambiguously. `category` still wins wherever
+  // it exists; the fallback only ever fires for a card with no board.
+  const chipCategory = game.category ?? game.prospective_category ?? null;
+  const chipIsProspective = !game.category && Boolean(game.prospective_category);
+  const categoryLabel = getCardCategoryLabel(chipCategory);
 
   /**
    * A4 — the "YOU" row. Appended only when the viewer has a rank AND that rank
@@ -302,7 +344,7 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
 
       {/* 1. Art block — the whole thing links to the game detail page. */}
       <Link
-        to={`/games/${game.global_game_id}`}
+        to={cardDetailHref(game.global_game_id, game.category)}
         className="relative block h-[110px] shrink-0 no-underline"
       >
         {img ? (
@@ -330,7 +372,7 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
         {(badge || categoryLabel || primaryPlatform) && (
           <div className="absolute right-1.5 top-1.5 flex max-w-[calc(100%-3.25rem)] flex-wrap items-center justify-end gap-1">
             {badge}
-            <CategoryChip category={game.category} />
+            <CategoryChip category={chipCategory} prospective={chipIsProspective} />
             {primaryPlatform && (
               <span
                 className="rounded-[3px] border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.4px] text-neon-cyan"

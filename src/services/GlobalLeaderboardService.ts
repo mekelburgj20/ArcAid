@@ -2,7 +2,12 @@ import { getDatabase } from '../database/database.js';
 import { logInfo } from '../utils/logger.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { catalogueMatchTokens } from '../utils/platformRules.js';
-import { buildEngineCategoryExpr } from '../utils/engineCategorySql.js';
+import {
+    buildEngineCategoryExpr,
+    categoryEngineIds,
+    prospectiveCategoryFromCatalogue,
+} from '../utils/engineCategorySql.js';
+import { CARD_CATEGORY_ORDER } from '../utils/scoreProvenance.js';
 
 /**
  * The card category expression, for queries that alias `global_scores` as `gs`.
@@ -324,6 +329,65 @@ export class GlobalLeaderboardService {
     }
 
     /**
+     * Every board ONE game has, biggest first (v2.63.0).
+     *
+     * The game-detail page's counterpart to `getTopGames`' per-card rows: the
+     * scoreboard already splits a mixed game into a Simulation card and an
+     * Arcade-Style card, but clicking either one landed on a single COMBINED
+     * list that mixed the two back together — the exact comparability claim ADR
+     * 0016 exists to forbid, made on the page a player actually reads. This is
+     * what lets that page render one board per category instead.
+     *
+     * Ordering is `score_count DESC`, then the taxonomy's own display order as
+     * a deterministic tiebreak. Biggest-first means "first" and "highest" name
+     * the SAME element, so the page's default board and its fallback for a
+     * missing or bogus `?category=` are one rule rather than two.
+     *
+     * `score_count` counts score ROWS, matching `getDominantCards`. A board's
+     * rendered length is smaller wherever one player holds several scores
+     * (best-per-player collapses them), so this is a size ranking, not a
+     * row-count promise — the page must not print it as "N players".
+     *
+     * A game with no scores returns `[]`, which the caller reads as the
+     * zero-score claim state.
+     */
+    static async getCardCategories(
+        globalGameId: string,
+        scope: string = 'global',
+    ): Promise<Array<{ category: string; score_count: number }>> {
+        const db = await getDatabase();
+        const isGlobal = scope === 'global';
+        const excludeFilter = isGlobal ? 'AND gs.exclude_from_global = 0' : '';
+        const roomFilter = isGlobal ? '' : 'AND gs.origin_game_room_id = ?';
+        const roomParams = isGlobal ? [] : [scope];
+
+        const rows = await db.all(`
+            SELECT ${CARD_CATEGORY_EXPR} as category, COUNT(*) as score_count
+            FROM global_scores gs
+            WHERE gs.global_game_id = ?
+              AND gs.deleted_at IS NULL
+              AND gs.orphaned_at IS NULL
+              ${excludeFilter}
+              ${roomFilter}
+            GROUP BY category
+        `, globalGameId, ...roomParams);
+
+        const rank = (category: string) => {
+            const i = CARD_CATEGORY_ORDER.indexOf(category);
+            return i === -1 ? CARD_CATEGORY_ORDER.length : i;
+        };
+
+        return rows
+            .filter((row: any) => row.category != null)
+            .map((row: any) => ({
+                category: String(row.category),
+                score_count: row.score_count ?? 0,
+            }))
+            .sort((a, b) =>
+                b.score_count - a.score_count || rank(a.category) - rank(b.category));
+    }
+
+    /**
      * Invalidate cache for a game. Clears both global and all room-scoped entries
      * since any new score on that game potentially shifts multiple leaderboards.
      */
@@ -485,15 +549,59 @@ export class GlobalLeaderboardService {
         // rows outside the chosen band BEFORE grouping, so a mixed game yields
         // exactly the one card that was asked for with the right count. In the
         // JOIN it would instead keep every game and show them all with a count
-        // of zero. And because a game with no scores at all produces a NULL
-        // category, `NULL = 'simulation'` is NULL and it drops out — which is
-        // right: an empty game has no Simulation board to show.
+        // of zero.
         //
         // The category id is a caller-supplied value, so unlike the engine ids
         // baked into the expression it is BOUND, not interpolated.
+        //
+        // ── v2.63.0: zero-score games match via the CATALOGUE ───────────────
+        //
+        // A game with no scores produces a NULL category (the LEFT JOIN found
+        // nothing), and `NULL = 'simulation'` is NULL, so pre-v2.63 an empty
+        // game fell out of EVERY category filter. Nobody could reach an
+        // unplayed table through the chip that describes it, which is the one
+        // place a `Claim 1st →` CTA is most worth showing.
+        //
+        // Since v2.62.0 `global_games.platforms` holds canonical ENGINE ids, so
+        // the band a zero-score game's FIRST score would land in is derivable
+        // without inventing anything. The second disjunct says exactly that: no
+        // score row (`gs.id IS NULL`) AND at least one catalogue engine in the
+        // chosen band. A game on `vpx` + `fx` matches BOTH bands, which is
+        // correct — it will genuinely produce two boards.
+        //
+        // Games WITH scores are untouched. `gs.id IS NULL` is false for every
+        // row a successful join produced, so a scored game can only ever match
+        // through its score-derived category — its boards stay what they are,
+        // and a catalogue row claiming an engine nobody has scored on cannot
+        // conjure a card.
+        //
+        // The engine ids come from `categoryEngineIds` (the same taxonomy the
+        // CASE expression is generated from) and are BOUND. `unspecified`
+        // yields an empty list — no engine has "no band" — so it keeps exactly
+        // the pre-v2.63 clause and zero-score games stay out of it.
         if (options.category) {
-            whereConditions.push(`${CARD_CATEGORY_EXPR} = ?`);
-            whereParams.push(options.category);
+            const engines = categoryEngineIds(options.category);
+            if (engines.length > 0) {
+                // `json_valid` guard: `json_each` THROWS "malformed JSON" on a
+                // NULL or non-JSON `platforms`, and one such row would 500 the
+                // whole scoreboard rather than just excluding that game. The
+                // column is `TEXT DEFAULT '[]'` but nullable, and every
+                // importer writes it independently, so treating a broken value
+                // as "no engines" is the only failure mode worth having.
+                whereConditions.push(`(
+                    ${CARD_CATEGORY_EXPR} = ?
+                    OR (gs.id IS NULL AND EXISTS (
+                        SELECT 1 FROM json_each(
+                            CASE WHEN json_valid(gg.platforms) THEN gg.platforms ELSE '[]' END
+                        ) cje
+                        WHERE LOWER(TRIM(cje.value)) IN (${engines.map(() => '?').join(',')})
+                    ))
+                )`);
+                whereParams.push(options.category, ...engines);
+            } else {
+                whereConditions.push(`${CARD_CATEGORY_EXPR} = ?`);
+                whereParams.push(options.category);
+            }
         }
 
         return {
@@ -772,6 +880,22 @@ export class GlobalLeaderboardService {
             category: string | null;
             /** v2.59.0 (P4) — `${global_game_id}::${category ?? 'none'}`. */
             card_id: string;
+            /**
+             * v2.63.0 — DISPLAY ONLY. The band a zero-score card's catalogue
+             * engines unambiguously imply, so its `Claim 1st →` card can say
+             * which board the first score will open. Null for every card that
+             * has scores (there `category` is the answer) and null when the
+             * catalogue is ambiguous or silent.
+             *
+             * Deliberately a SEPARATE field rather than a value folded into
+             * `category`. `category` means "this card's board", and null means
+             * "there is no board" — the invariant `card_id` is derived from and
+             * that the P4 coverage tests rest on. A prospective band is a
+             * different claim ("there is no board YET, and here is the one that
+             * would open"), so it gets its own name instead of overloading one
+             * that already has a job.
+             */
+            prospective_category?: string | null;
             /** v2.52.0: ISO pin timestamp for `pinnedUserId`, else null/absent. */
             pinned_at?: string | null;
         }>;
@@ -906,11 +1030,22 @@ export class GlobalLeaderboardService {
         );
 
         return {
-            data: data.map((row: any) => ({
-                ...row,
-                category: row.category ?? null,
-                card_id: cardId(row.global_game_id, row.category ?? null),
-            })),
+            data: data.map((row: any) => {
+                const category = row.category ?? null;
+                return {
+                    ...row,
+                    category,
+                    card_id: cardId(row.global_game_id, category),
+                    // v2.63.0 — the zero-score card's prospective band. Only
+                    // ever computed in `card` grouping: a `game` row's null
+                    // category means "this row names no single board", not
+                    // "this game has no scores", so deriving one there would
+                    // label every palette result.
+                    ...(byCard && category === null
+                        ? { prospective_category: prospectiveCategoryFromCatalogue(row.platforms) }
+                        : {}),
+                };
+            }),
             total,
             hasMore: offset + data.length < total,
         };
