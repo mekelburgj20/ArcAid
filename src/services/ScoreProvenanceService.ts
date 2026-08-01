@@ -1,5 +1,8 @@
 import { getDatabase } from '../database/database.js';
-import { parsePlatformsList, resolveSubmittablePlatforms, parseTournamentRules } from '../utils/platformRules.js';
+import {
+    parsePlatformsList, resolveSubmittablePlatforms, parseTournamentRules,
+    type TournamentRules,
+} from '../utils/platformRules.js';
 import { RoomGameTagsService } from './RoomGameTagsService.js';
 import {
     UNKNOWN,
@@ -12,7 +15,6 @@ import {
     normalizeProvenanceToken,
     getEngineDisplay,
     getDeviceDisplay,
-    DEVICE_LEGACY_PLATFORM,
 } from '../utils/scoreProvenance.js';
 
 /**
@@ -37,7 +39,7 @@ export interface ProvenanceScope {
     effective: string[];
     /** effective − tournament `excluded` (ADR 0009's submission-level filter). */
     submittable: string[];
-    rules: { required: string[]; excluded: string[] } | null;
+    rules: TournamentRules | null;
 }
 
 export type ProvenanceValidation =
@@ -168,12 +170,16 @@ export class ScoreProvenanceService {
                     error: `${getDeviceDisplay(device)} can't run ${getEngineDisplay(engine)}.`,
                 };
             }
-            // P1 keeps ADR 0009's `excluded` enforcement alive on the device
-            // axis: a tournament that excludes the `atgames` platform must still
-            // refuse an AtGames-device score. Real device rules arrive in P2.
-            const deviceLegacy = DEVICE_LEGACY_PLATFORM[device];
-            const excluded = (scope.rules?.excluded ?? []).map(p => normalizeProvenanceToken(p));
-            if (deviceLegacy && excluded.includes(deviceLegacy)) {
+            // ADR 0009's `excluded` — now read straight off the device axis.
+            // P1 had to infer this by mapping the device back to a legacy
+            // platform id (`DEVICE_LEGACY_PLATFORM`) and testing membership in
+            // the single flat list, which only worked for the three devices that
+            // HAVE a legacy id. P2's rules name the device directly, and
+            // `parseTournamentRules` lifts legacy rows onto the same axis, so
+            // a tournament excluding the `atgames` platform still refuses an
+            // AtGames-device score — by the same code path as an explicit
+            // device rule.
+            if ((scope.rules?.devices.excluded ?? []).includes(device)) {
                 return {
                     ok: false,
                     error: `${getDeviceDisplay(device)} is not allowed for this tournament.`,
@@ -181,18 +187,16 @@ export class ScoreProvenanceService {
             }
         }
 
+        // --- Engine axis: `excluded` (submission-level, ADR 0009) ---
+        if (engine !== UNKNOWN && (scope.rules?.engines.excluded ?? []).includes(engine)) {
+            return {
+                ok: false,
+                error: `${getEngineDisplay(engine)} is not allowed for this tournament.`,
+            };
+        }
+
         // --- Legacy platform, for the read paths that still use it ---
         const platform = deriveLegacyPlatform(engine, device, scope.effective);
-        if (platform) {
-            const submittableLower = scope.submittable.map(p => normalizeProvenanceToken(p));
-            const excluded = (scope.rules?.excluded ?? []).map(p => normalizeProvenanceToken(p));
-            if (excluded.includes(platform) && !submittableLower.includes(platform)) {
-                return {
-                    ok: false,
-                    error: `${getEngineDisplay(engine)} is not allowed for this tournament.`,
-                };
-            }
-        }
 
         return { ok: true, engine, device, platform };
     }
@@ -235,7 +239,7 @@ export class ScoreProvenanceService {
      */
     private static parseRules(
         raw: string | null, tournamentId: string | null,
-    ): { required: string[]; excluded: string[] } | null {
+    ): TournamentRules | null {
         if (!raw) return null;
         return parseTournamentRules(raw, tournamentId);
     }

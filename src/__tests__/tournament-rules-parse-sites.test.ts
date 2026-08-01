@@ -329,7 +329,11 @@ describe('site 5: GET /api/submit/platforms', () => {
         expect(res.body.platforms).toEqual(expect.arrayContaining(['vpx', 'atgames']));
         expect(res.body.submittable).toContain('vpx');
         expect(res.body.submittable).not.toContain('atgames');
-        expect(res.body.tournamentRules.excluded).toEqual(['atgames']);
+        // ADR 0016 P2 §2 — the legacy flat blob is lifted at read time, so the
+        // response ships two axes. `atgames` has no engine (an AtGames cabinet
+        // runs four of them), so it lifts to the DEVICE axis alone.
+        expect(res.body.tournamentRules.devices.excluded).toEqual(['atgames']);
+        expect(res.body.tournamentRules.engines.excluded).toEqual([]);
     });
 
     it('leaves the picker whole when the tournament excludes nothing', async () => {
@@ -514,7 +518,7 @@ describe('site 10: ScoreProvenanceService', () => {
         const { ScoreProvenanceService } = await import('../services/ScoreProvenanceService.js');
 
         const scope = await ScoreProvenanceService.resolveForTournamentGame(tournamentId, BOTH);
-        expect(scope.rules?.excluded).toEqual(['atgames']);
+        expect(scope.rules?.devices.excluded).toEqual(['atgames']);
         expect(scope.submittable).not.toContain('atgames');
     });
 
@@ -532,13 +536,19 @@ describe('site 10: ScoreProvenanceService', () => {
 // Malformed input — degrade, but say so
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** ADR 0016 P2 §2's "restricts nothing" value, spelled out. */
+const NO_RULES = {
+    engines: { required: [], excluded: [] },
+    devices: { required: [], excluded: [] },
+};
+
 describe('parseTournamentRules — malformed platform_rules', () => {
     it('logs a WARN naming the tournament and returns empty rules', async () => {
         const { parseTournamentRules } = await import('../utils/platformRules.js');
 
         const rules = parseTournamentRules('{ not json', 't-broken-42');
 
-        expect(rules).toEqual({ required: [], excluded: [] });
+        expect(rules).toEqual(NO_RULES);
         expect(logWarn).toHaveBeenCalledTimes(1);
         const message = vi.mocked(logWarn).mock.calls[0]![0] as string;
         expect(message).toContain('t-broken-42');
@@ -549,7 +559,7 @@ describe('parseTournamentRules — malformed platform_rules', () => {
     it('warns for valid JSON that is not an object', async () => {
         const { parseTournamentRules } = await import('../utils/platformRules.js');
 
-        expect(parseTournamentRules('["atgames"]', 't-array')).toEqual({ required: [], excluded: [] });
+        expect(parseTournamentRules('["atgames"]', 't-array')).toEqual(NO_RULES);
         expect(logWarn).toHaveBeenCalledTimes(1);
         expect(vi.mocked(logWarn).mock.calls[0]![0]).toContain('t-array');
     });
@@ -557,9 +567,9 @@ describe('parseTournamentRules — malformed platform_rules', () => {
     it('stays silent for the ordinary empty-rules cases', async () => {
         const { parseTournamentRules } = await import('../utils/platformRules.js');
 
-        expect(parseTournamentRules(null)).toEqual({ required: [], excluded: [] });
-        expect(parseTournamentRules('')).toEqual({ required: [], excluded: [] });
-        expect(parseTournamentRules('{}', 't-empty')).toEqual({ required: [], excluded: [] });
+        expect(parseTournamentRules(null)).toEqual(NO_RULES);
+        expect(parseTournamentRules('')).toEqual(NO_RULES);
+        expect(parseTournamentRules('{}', 't-empty')).toEqual(NO_RULES);
         expect(logWarn).not.toHaveBeenCalled();
     });
 
@@ -575,10 +585,10 @@ describe('parseTournamentRules — malformed platform_rules', () => {
         const { parseTournamentRules, passesplatformRules } = await import('../utils/platformRules.js');
 
         // Pre-fix this reached `passesplatformRules` as a string and threw on
-        // `.some` — a crash, not a degradation.
+        // `.some` — a crash, not a degradation. The coercion survives the
+        // two-axis lift: a non-array field contributes nothing to either axis.
         const rules = parseTournamentRules('{"required":"atgames","excluded":null}', 't-shape');
-        expect(rules.required).toEqual([]);
-        expect(rules.excluded).toEqual([]);
+        expect(rules).toEqual(NO_RULES);
         expect(() => passesplatformRules(['vpx'], rules)).not.toThrow();
     });
 

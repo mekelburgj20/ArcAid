@@ -1,17 +1,28 @@
 import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
 import { PickAwardGate } from './PickAwardGate.js';
+import { parseTournamentRules, normalizeTournamentRulesInput } from '../utils/platformRules.js';
 
 export class TournamentService {
     /**
      * Returns all tournaments, optionally filtered by game room.
+     *
+     * `platform_rules` is re-serialised through `parseTournamentRules` so the
+     * row always LEAVES here in ADR 0016 P2's two-axis shape, even when the
+     * stored blob is still the pre-0016 flat one (~200 live rooms). The DB row
+     * is untouched — this is the read-time shim, not a migration — but it means
+     * the admin UI has exactly one shape to render and cannot re-save a legacy
+     * blob it half-understood.
      */
     static async getAll(gameRoomId?: string): Promise<any[]> {
         const db = await getDatabase();
-        if (gameRoomId) {
-            return db.all('SELECT * FROM tournaments WHERE game_room_id = ?', gameRoomId);
-        }
-        return db.all('SELECT * FROM tournaments');
+        const rows = gameRoomId
+            ? await db.all('SELECT * FROM tournaments WHERE game_room_id = ?', gameRoomId)
+            : await db.all('SELECT * FROM tournaments');
+        return rows.map((row: any) => ({
+            ...row,
+            platform_rules: JSON.stringify(parseTournamentRules(row)),
+        }));
     }
 
     /**
@@ -43,7 +54,10 @@ export class TournamentService {
             `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             data.id, data.name, data.type, data.mode || 'pinball',
-            JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
+            JSON.stringify(data.cadence),
+            // ADR 0016 P2 §2 — every writer emits the two-axis shape. Normalising
+            // here (not only in the Zod schema) covers non-HTTP callers too.
+            JSON.stringify(normalizeTournamentRulesInput(data.platform_rules)),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
             data.is_active ? 1 : 0, data.display_order ?? 0, data.max_active_games ?? 1,
             JSON.stringify(data.cleanup_rule || { mode: 'retain', count: 0 }),
@@ -88,7 +102,10 @@ export class TournamentService {
             `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?
              WHERE id = ?`,
             data.name, data.type, data.mode || 'pinball',
-            JSON.stringify(data.cadence), JSON.stringify(data.platform_rules || {}),
+            JSON.stringify(data.cadence),
+            // ADR 0016 P2 §2 — every writer emits the two-axis shape. Normalising
+            // here (not only in the Zod schema) covers non-HTTP callers too.
+            JSON.stringify(normalizeTournamentRulesInput(data.platform_rules)),
             data.guild_id, data.discord_channel_id, data.discord_role_id,
             data.is_active ? 1 : 0, data.display_order ?? 0, data.max_active_games ?? 1,
             JSON.stringify(data.cleanup_rule || { mode: 'retain', count: 0 }),

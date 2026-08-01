@@ -1,13 +1,36 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import ScheduleBuilder from './ScheduleBuilder';
 import { InfoTip } from './Tooltip';
-import { getPlatformDisplay } from '../lib/platforms';
+import {
+  CANONICAL_DEVICES,
+  LEGACY_PLATFORM_MAP,
+  UNKNOWN,
+  devicesForEngine,
+  enginesFromLegacyPlatforms,
+  getDeviceDisplay,
+  getEngineDisplay,
+  mapLegacyPlatform,
+  normalizeProvenanceToken,
+} from '../lib/scoreProvenance';
 
 // --- Types ---
 
-export interface PlatformRules {
+/**
+ * `tournaments.platform_rules` — ADR 0016 P2 §2's two-axis shape. Mirrors
+ * `TournamentRules` in `src/utils/platformRules.ts`.
+ *
+ * Each axis keeps ADR 0009's orthogonal pair unchanged:
+ *   `required` — "Must be available on": GAME eligibility only, never a picker filter.
+ *   `excluded` — "Not allowed on": SUBMISSION filter only, never affects eligibility.
+ */
+export interface AxisRules {
   required: string[];
   excluded: string[];
+}
+
+export interface PlatformRules {
+  engines: AxisRules;
+  devices: AxisRules;
   restrictedText: string;
 }
 
@@ -37,7 +60,11 @@ export interface TournamentFormState {
 
 // --- Defaults ---
 
-export const defaultPlatformRules: PlatformRules = { required: [], excluded: [], restrictedText: '' };
+export const defaultPlatformRules: PlatformRules = {
+  engines: { required: [], excluded: [] },
+  devices: { required: [], excluded: [] },
+  restrictedText: '',
+};
 export const defaultCleanupRule: CleanupRule = { mode: 'retain', count: 0 };
 
 export const defaultFormState: TournamentFormState = {
@@ -93,13 +120,83 @@ export function parseCadence(cadenceJson: string): { cron: string; timezone: str
   }
 }
 
+function asTokens(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v !== 'string') continue;
+    const token = normalizeProvenanceToken(v);
+    if (token && !out.includes(token)) out.push(token);
+  }
+  return out;
+}
+
+/**
+ * Lift a flat list of legacy platform ids onto the two axes — the FE twin of
+ * `liftLegacyPlatformIds` in `src/utils/platformRules.ts`.
+ *
+ * `GET /:roomId/tournaments` already ships the lifted shape (TournamentService
+ * re-serialises every row through `parseTournamentRules`), so in practice this
+ * never fires. It exists so the form can still render a raw legacy blob if one
+ * ever reaches it, rather than silently showing "no rules" for a tournament
+ * that has them — which is exactly how an admin would save the restriction away.
+ *
+ * An id maps to an engine, a device, or BOTH (`vpxs` → vpx + atgames; `real` →
+ * real + real_cabinet; every `*_vr` id → engine + vr_headset). Both halves are
+ * kept: dropping the device half would widen the restriction. An unrecognised
+ * id stays verbatim on the engine axis.
+ */
+export function liftLegacyPlatformIds(ids: string[]): { engines: string[]; devices: string[] } {
+  const engines: string[] = [];
+  const devices: string[] = [];
+  for (const raw of ids) {
+    const token = normalizeProvenanceToken(raw);
+    if (!token) continue;
+    const prov = LEGACY_PLATFORM_MAP[token];
+    if (!prov || (prov.engine === UNKNOWN && prov.device === UNKNOWN)) {
+      if (!engines.includes(token)) engines.push(token);
+      continue;
+    }
+    if (prov.engine !== UNKNOWN && !engines.includes(prov.engine)) engines.push(prov.engine);
+    if (prov.device !== UNKNOWN && !devices.includes(prov.device)) devices.push(prov.device);
+  }
+  return { engines, devices };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export function parsePlatformRules(json: string): PlatformRules {
+  let parsed: unknown;
   try {
-    const r = JSON.parse(json);
-    return { required: r.required || [], excluded: r.excluded || [], restrictedText: r.restrictedText || '' };
+    parsed = JSON.parse(json);
   } catch {
     return { ...defaultPlatformRules };
   }
+  if (!isPlainObject(parsed)) return { ...defaultPlatformRules };
+  const r = parsed;
+
+  const restrictedText = typeof r.restrictedText === 'string' ? r.restrictedText : '';
+  const isTwoAxis = isPlainObject(r.engines) || isPlainObject(r.devices);
+
+  if (isTwoAxis) {
+    const e = isPlainObject(r.engines) ? r.engines : {};
+    const d = isPlainObject(r.devices) ? r.devices : {};
+    return {
+      engines: { required: asTokens(e.required), excluded: asTokens(e.excluded) },
+      devices: { required: asTokens(d.required), excluded: asTokens(d.excluded) },
+      restrictedText,
+    };
+  }
+
+  const req = liftLegacyPlatformIds(asTokens(r.required));
+  const exc = liftLegacyPlatformIds(asTokens(r.excluded));
+  return {
+    engines: { required: req.engines, excluded: exc.engines },
+    devices: { required: req.devices, excluded: exc.devices },
+    restrictedText,
+  };
 }
 
 export function parseCleanupRule(raw: string | undefined): CleanupRule {
@@ -178,39 +275,77 @@ export function NumberStepper({ value, onChange, min = 0 }: { value: number; onC
 }
 
 /**
- * Detects platforms that are simultaneously required AND excluded — a
- * contradiction that admits games but rejects every submission. Returns the
- * canonical-id list of conflicting platforms (case-insensitive compare).
+ * Detects ids that are simultaneously required AND excluded ON THE SAME AXIS —
+ * a contradiction that admits games but rejects every submission from them.
+ * Returns display labels, per axis, so the message can name what clashed.
+ *
+ * Deliberately per-axis: engine `fx` required + device `atgames` excluded is
+ * the *intended* "FX titles, but not on cabinets" configuration, not a conflict.
  * Exported so tournament Create / Save handlers can gate on it as well.
  */
 export function getPlatformRuleConflicts(rules: PlatformRules): string[] {
-  if (rules.required.length === 0 || rules.excluded.length === 0) return [];
-  const exc = new Set(rules.excluded.map(p => p.toUpperCase()));
-  return rules.required.filter(p => exc.has(p.toUpperCase()));
+  const out: string[] = [];
+  const collect = (axis: AxisRules, label: (id: string) => string) => {
+    if (axis.required.length === 0 || axis.excluded.length === 0) return;
+    const exc = new Set(axis.excluded.map(p => p.toLowerCase()));
+    for (const p of axis.required) {
+      if (exc.has(p.toLowerCase())) out.push(label(p));
+    }
+  };
+  collect(rules.engines, getEngineDisplay);
+  collect(rules.devices, getDeviceDisplay);
+  return out;
 }
 
-function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
-  platforms: string[];
-  rules: PlatformRules;
-  onChange: (r: PlatformRules) => void;
-  onAddPlatform?: (name: string) => void;
+/**
+ * Engine chips a room can restrict on: the engines its catalogue actually
+ * offers (`enginesFromLegacyPlatforms` folds `vpxs` → `vpx` etc.), plus
+ * anything the tournament already has selected so an existing rule is never
+ * invisible in the form it is about to be saved from.
+ */
+export function engineOptionsFor(platforms: string[], rules: PlatformRules): string[] {
+  const out = enginesFromLegacyPlatforms(platforms).filter(e => e !== UNKNOWN);
+  for (const id of [...rules.engines.required, ...rules.engines.excluded]) {
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/**
+ * Device chips: every device that can run one of the room's engines, plus any
+ * device its catalogue ids name outright (`atgames`, `real` → real_cabinet),
+ * plus anything already selected. Ordered by the canonical device list so the
+ * chips don't reshuffle as a room's catalogue grows.
+ */
+export function deviceOptionsFor(platforms: string[], rules: PlatformRules): string[] {
+  const found = new Set<string>();
+  for (const engine of enginesFromLegacyPlatforms(platforms)) {
+    if (engine === UNKNOWN) continue;
+    for (const d of devicesForEngine(engine)) found.add(d);
+  }
+  for (const p of platforms) {
+    const { device } = mapLegacyPlatform(p);
+    if (device !== UNKNOWN) found.add(device);
+  }
+  const out = Object.keys(CANONICAL_DEVICES).filter(d => found.has(d));
+  for (const id of [...rules.devices.required, ...rules.devices.excluded]) {
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/**
+ * One axis's Must / Not-allowed chip pair. The labels are unchanged from the
+ * single-control version — they tested well and ADR 0009's semantics behind
+ * them have not moved; only the namespace they range over has.
+ */
+function AxisEditor({ axis, options, label, emptyText, onToggle }: {
+  axis: AxisRules;
+  options: string[];
+  label: (id: string) => string;
+  emptyText: string;
+  onToggle: (list: 'required' | 'excluded', id: string) => void;
 }) {
-  const [newPlatform, setNewPlatform] = useState('');
-  const conflicts = getPlatformRuleConflicts(rules);
-
-  const toggle = (list: 'required' | 'excluded', p: string) => {
-    const current = rules[list];
-    const next = current.includes(p) ? current.filter(x => x !== p) : [...current, p];
-    onChange({ ...rules, [list]: next });
-  };
-
-  const handleAdd = () => {
-    const name = newPlatform.trim();
-    if (!name || platforms.some(p => p.toUpperCase() === name.toUpperCase())) return;
-    onAddPlatform?.(name);
-    setNewPlatform('');
-  };
-
   return (
     <div className="space-y-3">
       <div>
@@ -218,15 +353,15 @@ function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
           Must be available on <span className="text-faint">(game must list at least one)</span>
         </label>
         <div className="flex flex-wrap gap-2 items-center">
-          {platforms.map(p => (
-            <button key={`req-${p}`} type="button" onClick={() => toggle('required', p)}
+          {options.map(id => (
+            <button key={`req-${id}`} type="button" onClick={() => onToggle('required', id)}
               className={`px-3 py-1 rounded text-xs border cursor-pointer transition-colors ${
-                rules.required.includes(p)
+                axis.required.includes(id)
                   ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
                   : 'bg-raised border-border text-muted hover:border-neon-cyan/50'
-              }`}>{getPlatformDisplay(p)}</button>
+              }`}>{label(id)}</button>
           ))}
-          {platforms.length === 0 && <span className="text-faint text-xs">No platforms configured.</span>}
+          {options.length === 0 && <span className="text-faint text-xs">{emptyText}</span>}
         </div>
       </div>
       <div>
@@ -234,38 +369,66 @@ function PlatformRulesEditor({ platforms, rules, onChange, onAddPlatform }: {
           Not allowed on <span className="text-faint">(blocks score submissions, not game selection)</span>
         </label>
         <div className="flex flex-wrap gap-2">
-          {platforms.map(p => (
-            <button key={`exc-${p}`} type="button" onClick={() => toggle('excluded', p)}
+          {options.map(id => (
+            <button key={`exc-${id}`} type="button" onClick={() => onToggle('excluded', id)}
               className={`px-3 py-1 rounded text-xs border cursor-pointer transition-colors ${
-                rules.excluded.includes(p)
+                axis.excluded.includes(id)
                   ? 'bg-neon-magenta/20 border-neon-magenta text-neon-magenta'
                   : 'bg-raised border-border text-muted hover:border-neon-magenta/50'
-              }`}>{getPlatformDisplay(p)}</button>
+              }`}>{label(id)}</button>
           ))}
         </div>
-        {conflicts.length > 0 && (
-          <p className="mt-2 text-xs text-neon-magenta">
-            {conflicts.map(getPlatformDisplay).join(', ')} can't be both required and not allowed — every submission would be rejected.
-          </p>
-        )}
       </div>
-      {onAddPlatform && (
-        <div>
-          <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
-            Add platform
-          </label>
-          <div className="flex gap-2">
-            <input type="text" placeholder="e.g. Steam" value={newPlatform}
-              onChange={e => setNewPlatform(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAdd(); } }}
-              className="px-3 py-1.5 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors w-40" />
-            <button type="button" onClick={handleAdd}
-              disabled={!newPlatform.trim()}
-              className="px-3 py-1.5 rounded text-xs border border-border text-muted hover:border-neon-cyan hover:text-neon-cyan transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
-              + Add
-            </button>
-          </div>
-        </div>
+    </div>
+  );
+}
+
+function PlatformRulesEditor({ platforms, rules, onChange }: {
+  platforms: string[];
+  rules: PlatformRules;
+  onChange: (r: PlatformRules) => void;
+}) {
+  const conflicts = getPlatformRuleConflicts(rules);
+  const engineOptions = useMemo(() => engineOptionsFor(platforms, rules), [platforms, rules]);
+  const deviceOptions = useMemo(() => deviceOptionsFor(platforms, rules), [platforms, rules]);
+
+  const toggle = (axisKey: 'engines' | 'devices') =>
+    (list: 'required' | 'excluded', id: string) => {
+      const current = rules[axisKey][list];
+      const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
+      onChange({ ...rules, [axisKey]: { ...rules[axisKey], [list]: next } });
+    };
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded border border-border/60 p-3 space-y-3">
+        <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/80">
+          Engines <span className="normal-case tracking-normal text-faint">— what the score was played on (VPX, FX, a real machine)</span>
+        </p>
+        <AxisEditor
+          axis={rules.engines}
+          options={engineOptions}
+          label={getEngineDisplay}
+          emptyText="No engines configured."
+          onToggle={toggle('engines')}
+        />
+      </div>
+      <div className="rounded border border-border/60 p-3 space-y-3">
+        <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/80">
+          Devices <span className="normal-case tracking-normal text-faint">— the hardware it ran on (PC, AtGames cabinet, VR headset)</span>
+        </p>
+        <AxisEditor
+          axis={rules.devices}
+          options={deviceOptions}
+          label={getDeviceDisplay}
+          emptyText="No devices configured."
+          onToggle={toggle('devices')}
+        />
+      </div>
+      {conflicts.length > 0 && (
+        <p className="text-xs text-neon-magenta">
+          {conflicts.join(', ')} can't be both required and not allowed — every submission would be rejected.
+        </p>
       )}
       <div>
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-1.5">
@@ -321,11 +484,16 @@ function CleanupRuleEditor({ value, onChange }: { value: CleanupRule; onChange: 
 interface TournamentFormFieldsProps {
   state: TournamentFormState;
   set: <K extends keyof TournamentFormState>(field: K, value: TournamentFormState[K]) => void;
+  /**
+   * The room's catalogue platform ids (legacy namespace, from
+   * `GET /:roomId/platforms/available`). The rule editor derives its engine and
+   * device chip lists from these — the catalogue is still a legacy-id list, so
+   * this stays the input even though the rules no longer are.
+   */
   platforms: string[];
-  onAddPlatform?: (name: string) => void;
 }
 
-export default function TournamentFormFields({ state, set, platforms, onAddPlatform }: TournamentFormFieldsProps) {
+export default function TournamentFormFields({ state, set, platforms }: TournamentFormFieldsProps) {
   const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors";
   const selectClass = `${inputClass} cursor-pointer`;
 
@@ -423,9 +591,9 @@ export default function TournamentFormFields({ state, set, platforms, onAddPlatf
       </div>
       <div className="mb-4">
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">
-          Platform Rules <InfoTip text="Control which platforms are required or excluded when picking games for this tournament." />
+          Platform Rules <InfoTip text="Two independent controls. Engines are what produced the score (VPX, FX, a real machine); devices are the hardware it ran on (PC, AtGames cabinet, VR headset). 'Must be available on' decides which games can be picked; 'Not allowed on' blocks score submissions. Both sets of rules apply together." />
         </label>
-        <PlatformRulesEditor platforms={platforms} rules={state.platformRules} onChange={r => set('platformRules', r)} onAddPlatform={onAddPlatform} />
+        <PlatformRulesEditor platforms={platforms} rules={state.platformRules} onChange={r => set('platformRules', r)} />
       </div>
       <div className="mb-4">
         <label className="block text-xs font-display uppercase tracking-wider text-muted mb-2">

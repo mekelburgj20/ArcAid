@@ -188,6 +188,19 @@ export default function SubmissionSheet({
      */
     const [fullGamePlatforms, setFullGamePlatforms] = useState<string[]>([]);
     /**
+     * ADR 0016 P2 §2 — the active tournament's two-axis rules, or `null` when
+     * no tournament applies. Only `excluded` is read: `required` is a
+     * game-level eligibility gate and must never filter the picker (ADR 0009).
+     *
+     * The engine axis is already reflected in `submittable` (the server strips
+     * platforms of excluded engines), but the DEVICE axis is not — a device is
+     * not a platform, so `devicesForEngineAndPlatforms` would happily offer
+     * AtGames for a tournament that forbids it and the submit would be rejected
+     * server-side. Filtering here keeps the picker and the validator agreeing.
+     */
+    const [excludedProvenance, setExcludedProvenance] =
+        useState<{ engines: string[]; devices: string[] }>({ engines: [], devices: [] });
+    /**
      * v2.53.0 (ADR 0016) — provenance is two answers now. The resolver endpoint
      * still speaks legacy platform ids; the engine/device option sets are
      * derived from them client-side via `lib/scoreProvenance`, which is a
@@ -256,18 +269,32 @@ export default function SubmissionSheet({
                 const fullList: string[] = Array.isArray(data?.platforms) ? data.platforms : [];
                 setSubmittablePlatforms(list);
                 setFullGamePlatforms(fullList);
+                const rules = data?.tournamentRules;
+                setExcludedProvenance({
+                    engines: Array.isArray(rules?.engines?.excluded) ? rules.engines.excluded : [],
+                    devices: Array.isArray(rules?.devices?.excluded) ? rules.devices.excluded : [],
+                });
                 // Engine auto-locks when the game only supports one.
-                const engines = enginesFromLegacyPlatforms(list);
+                const engines = enginesFromLegacyPlatforms(list)
+                    .filter(e => !(rules?.engines?.excluded ?? []).includes(e));
                 if (engines.length === 1) setEngine(engines[0]);
             } catch {
-                if (!cancelled) setSubmittablePlatforms([]);
+                if (cancelled) return;
+                setSubmittablePlatforms([]);
+                // Don't carry a previous target's exclusions into this one.
+                setExcludedProvenance({ engines: [], devices: [] });
             }
         })();
         return () => { cancelled = true; };
     }, [target, commitDraftState]);
 
-    const engineOptions = submittablePlatforms ? enginesFromLegacyPlatforms(submittablePlatforms) : [];
-    const deviceOptions = engine ? devicesForEngineAndPlatforms(engine, submittablePlatforms ?? []) : [];
+    const engineOptions = submittablePlatforms
+        ? enginesFromLegacyPlatforms(submittablePlatforms).filter(e => !excludedProvenance.engines.includes(e))
+        : [];
+    const deviceOptions = engine
+        ? devicesForEngineAndPlatforms(engine, submittablePlatforms ?? [])
+            .filter(d => !excludedProvenance.devices.includes(d))
+        : [];
 
     /**
      * Device selection follows the engine: keep a still-valid choice, lock when

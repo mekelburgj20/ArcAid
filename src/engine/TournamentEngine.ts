@@ -14,7 +14,7 @@ import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js'
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { RoomEventService } from '../services/RoomEventService.js';
-import { parsePlatformsList, parseTournamentRules } from '../utils/platformRules.js';
+import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
 import { AchievementService } from '../services/AchievementService.js';
@@ -1481,13 +1481,16 @@ export class TournamentEngine {
         // Filter by mode + platform rules. v2.6.x: `excluded` is a submission-
         // level filter only (see `passesplatformRules` JSDoc); game-level gate
         // checks `required` exclusively, against catalogue ∪ room tags.
+        // v2.60.0 (ADR 0016 P2): both axes' `required` via `passesplatformRules`
+        // — the same helper every other eligibility gate uses, so autopick can
+        // no longer disagree with the pick/activate paths about what qualifies.
+        const gameLevelRules = hasGameLevelPlatformRules(platformRules);
         const eligible = libraryGames.filter((g: any) => {
             if (g.mode !== tournamentRow.mode) return false;
-            if (platformRules.required.length === 0) return true;
+            if (!gameLevelRules) return true;
             const cataloguePlatforms = parsePlatformsList(g.platforms || '[]');
             const tags = tagMap.get(g.name.toLowerCase()) || [];
-            const upperPlatforms = [...cataloguePlatforms, ...tags].map((p: string) => p.toUpperCase());
-            return platformRules.required.some((rp: string) => upperPlatforms.includes(rp.toUpperCase()));
+            return passesplatformRules([...cataloguePlatforms, ...tags], platformRules);
         });
 
         // Filter by cooldown

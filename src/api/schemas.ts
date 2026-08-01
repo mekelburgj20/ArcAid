@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { containsBlockedTerm } from '../utils/contentBlocklist.js';
+import { normalizeTournamentRulesInput } from '../utils/platformRules.js';
 
 // S22 Phase 1 content moderation (v2.43.0) — shared field-level refine so a
 // blocked-term name fails Zod validation before it ever reaches a service.
@@ -19,11 +20,33 @@ const cronSchema = z.string().regex(
 
 const discordIdSchema = z.string().regex(/^\d{17,20}$/, 'Must be a valid Discord ID (17-20 digits)');
 
-const platformRulesSchema = z.object({
+/**
+ * `tournaments.platform_rules` — ADR 0016 P2 §2's two-axis shape.
+ *
+ * The preprocess step runs `normalizeTournamentRulesInput`, the SAME lift the
+ * read path uses, so a client still POSTing the pre-0016 flat shape (a stale
+ * browser tab, an older integration) is upgraded rather than rejected — and
+ * every write persists the new shape. See `src/utils/platformRules.ts`.
+ */
+const axisRulesSchema = z.object({
     required: z.array(z.string()).default([]),
     excluded: z.array(z.string()).default([]),
-    restrictedText: z.string().optional().default(''),
-}).default({ required: [], excluded: [], restrictedText: '' });
+}).default({ required: [], excluded: [] });
+
+const emptyPlatformRules = {
+    engines: { required: [], excluded: [] },
+    devices: { required: [], excluded: [] },
+    restrictedText: '',
+};
+
+const platformRulesSchema = z.preprocess(
+    (value) => (value === undefined ? undefined : normalizeTournamentRulesInput(value)),
+    z.object({
+        engines: axisRulesSchema,
+        devices: axisRulesSchema,
+        restrictedText: z.string().optional().default(''),
+    }),
+).default(emptyPlatformRules);
 
 export const CreateTournamentSchema = z.object({
     id: z.string().uuid(),

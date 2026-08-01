@@ -24,6 +24,7 @@ import { WebPushService } from '../../services/WebPushService.js';
 import { NotificationService } from '../../services/NotificationService.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { CARD_CATEGORY_ORDER } from '../../utils/scoreProvenance.js';
+import type { AxisRules } from '../../utils/platformRules.js';
 
 const router = Router();
 
@@ -1572,7 +1573,12 @@ router.get('/global/me/display-name', requireDiscordUser, async (req, res) => {
  *   {
  *     platforms: string[],       // game's effective platform set (pre-rule intersection)
  *     submittable: string[],     // platforms the player can actually pick from
- *     tournamentRules: { required: string[]; excluded: string[] } | null
+ *     // ADR 0016 P2 §2 — two axes. Legacy-shaped stored rules are lifted by
+ *     // `parseTournamentRules`, so the client only ever sees this shape.
+ *     tournamentRules: {
+ *       engines: { required: string[]; excluded: string[] },
+ *       devices: { required: string[]; excluded: string[] },
+ *     } | null
  *   }
  *
  * Public endpoint — no auth. The submit handlers re-validate, so an attacker
@@ -1649,12 +1655,12 @@ router.get('/submit/platforms', async (req, res) => {
 
             // `null` means "no active tournament for this game" — distinct from
             // "a tournament with empty rules", and the FE contract keeps it.
-            // The response ships `required`/`excluded` only; `restrictedText`
-            // is server-side (it is the rejection message, not picker input).
-            let rules: { required: string[]; excluded: string[] } | null = null;
+            // The response ships the two axes only; `restrictedText` is
+            // server-side (it is the rejection message, not picker input).
+            let rules: { engines: AxisRules; devices: AxisRules } | null = null;
             if (activeGame?.platform_rules) {
                 const parsed = parseTournamentRules(activeGame.platform_rules, activeGame.tournament_id);
-                rules = { required: parsed.required, excluded: parsed.excluded };
+                rules = { engines: parsed.engines, devices: parsed.devices };
             }
 
             const submittable = resolveSubmittablePlatforms(effective, rules);
