@@ -171,18 +171,23 @@ export default function BannerCard({
               style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}
             >
               <span style={titleClampStyle}>{displayName}</span>
-              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
             </Link>
           ) : (
             <h3 className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}>
               <span style={titleClampStyle}>{displayName}</span>
-              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
             </h3>
           )
         )}
-        {hasIdentifierImage && (lb.externalUrl || lb.notes) && (
+        {/* Header-art mode hides the title row, so the "i" moves to a corner
+            overlay. No longer gated on notes/url: the bubble now also answers
+            "what engines and hardware does this tournament allow", which every
+            card has, so gating it would hide the thing players are told to
+            look for. `GameInfoPopup` still self-hides when it has nothing. */}
+        {hasIdentifierImage && (
           <div className="absolute left-3 top-3 z-[2]">
-            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={14} />
+            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
           </div>
         )}
         {(lb.tournamentName || lb.gameStatus === 'COMPLETED' || lb.isPinned) && (

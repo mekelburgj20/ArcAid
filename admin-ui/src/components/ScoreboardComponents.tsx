@@ -465,7 +465,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             {(
               <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass} flex items-center gap-1`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
                 {displayText}
-                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
               </h3>
             )}
             {lb.tournamentName && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>}
@@ -501,7 +501,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                   style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
                 >
                   {displayText}
-                  <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+                  <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
                 </h3>
               )}
               {lb.tournamentName && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>}
@@ -537,7 +537,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                 style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
               >
                 {displayText}
-                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
               </h3>
             )}
             {lb.tournamentName && <p className={`text-[11px] uppercase tracking-wider mt-0.5 ${isFill ? 'text-white/60' : 'text-muted'}`}>{lb.tournamentName}</p>}
@@ -559,7 +559,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             {(
               <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass} flex items-center justify-center gap-1`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
                 {displayText}
-                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+                <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
               </h3>
             )}
             {lb.gameStatus === 'COMPLETED' && <span title="Completed" className="absolute right-3 top-3"><Lock size={14} className="text-neon-amber" /></span>}
