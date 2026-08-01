@@ -2120,6 +2120,14 @@ export async function initDatabase(): Promise<Database> {
             const { backfillNormalizedNames } = await import('./migrations/normalizedNameBackfill.js');
             await backfillNormalizedNames(db);
         } },
+        // --- igdb-import-hardening: sync_logs gets a lifecycle + checkpoint ---
+        // `start` used to write status 'success', so an in-flight or dead run
+        // was indistinguishable from a clean one. Adds heartbeat/progress plus
+        // the keyset cursor a resumable bulk import needs.
+        { name: '131_sync_logs_progress_and_checkpoint', handler: async (db) => {
+            const { addSyncLogProgressColumns } = await import('./migrations/syncLogProgress.js');
+            await addSyncLogProgressColumns(db);
+        } },
     ];
 
     for (const migration of migrations) {

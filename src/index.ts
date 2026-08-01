@@ -32,6 +32,18 @@ async function bootstrap() {
         // 1.6 Clear stale leaderboard cache
         await db.run('DELETE FROM leaderboard_cache');
 
+        // 1.65 Sweep catalogue-sync rows abandoned by the previous process.
+        //      A deploy or crash mid-import leaves the job row at 'running'
+        //      forever: the admin UI reports a phantom in-flight sync, the
+        //      single-flight guard refuses new runs, and the resume path has
+        //      no signal that there is work to pick up. Non-fatal.
+        try {
+            const { SyncLogService } = await import('./services/SyncLogService.js');
+            await SyncLogService.sweepStaleRunning();
+        } catch (err) {
+            logError('Sync log sweep failed (non-fatal):', err);
+        }
+
         // 1.7 Auto-import style catalogue if table is empty and scraped data exists
         try {
             const styleCount = await db.get('SELECT COUNT(*) as count FROM style_catalogue');
