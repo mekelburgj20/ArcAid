@@ -1573,6 +1573,12 @@ router.get('/global/me/display-name', requireDiscordUser, async (req, res) => {
  *   {
  *     platforms: string[],       // game's effective platform set (pre-rule intersection)
  *     submittable: string[],     // platforms the player can actually pick from
+ *     // ADR 0016 catalogue phase §4 — `global_games.features`. The catalogue
+ *     // fold moved availability facts (`vpxs`, `vr`, `atgames`, `bam`) out of
+ *     // `platforms`, and the DEVICE half of the picker was derived from them:
+ *     // a `vpxs` platform id used to imply the AtGames device. The client needs
+ *     // the features to keep deriving it. Room tags contribute platforms only.
+ *     features: string[],
  *     // ADR 0016 P2 §2 — two axes. Legacy-shaped stored rules are lifted by
  *     // `parseTournamentRules`, so the client only ever sees this shape.
  *     tournamentRules: {
@@ -1631,22 +1637,26 @@ router.get('/submit/platforms', async (req, res) => {
         // Global submit context — bare globalGameId, no room.
         if (globalGameId && !roomId) {
             const game = await db.get(
-                'SELECT platforms FROM global_games WHERE id = ? AND status = ? LIMIT 1',
+                'SELECT platforms, features FROM global_games WHERE id = ? AND status = ? LIMIT 1',
                 globalGameId, 'approved',
             );
             if (!game) return res.status(404).json({ error: 'Game not found' });
             const platforms = normalizeAndDedupe(parsePlatformsList(game.platforms || '[]'));
-            return res.json({ platforms, submittable: platforms, tournamentRules: null });
+            const features = parsePlatformsList(game.features || '[]');
+            return res.json({ platforms, submittable: platforms, features, tournamentRules: null });
         }
 
         // Room-scoped context — tournament submit OR freeplay. Effective set =
         // catalogue platforms ∪ room-specific tags (see ADR 0008).
         if (roomId && gameName) {
             const gg = await db.get(
-                'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
+                'SELECT platforms, features FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
                 gameName, 'approved',
             );
             const cataloguePlatforms = gg ? parsePlatformsList(gg.platforms || '[]') : [];
+            // NOT run through `normalizeAndDedupe` — that is an alias table over
+            // platform ids, and a feature is not a platform.
+            const features = gg ? parsePlatformsList(gg.features || '[]') : [];
             const { RoomGameTagsService } = await import('../../services/RoomGameTagsService.js');
             const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
             let effective: string[] = [...cataloguePlatforms, ...roomTags];
@@ -1672,7 +1682,7 @@ router.get('/submit/platforms', async (req, res) => {
             }
 
             const submittable = resolveSubmittablePlatforms(effective, rules);
-            return res.json({ platforms: effective, submittable, tournamentRules: rules });
+            return res.json({ platforms: effective, submittable, features, tournamentRules: rules });
         }
 
         return res.status(400).json({ error: 'Provide either globalGameId, OR roomId + gameName' });

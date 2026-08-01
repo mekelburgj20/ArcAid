@@ -1,6 +1,14 @@
 import { logWarn } from './logger.js';
 import { normalizePlatform } from './platformMapping.js';
-import { LEGACY_PLATFORM_MAP, UNKNOWN, isCanonicalEngine, normalizeProvenanceToken } from './scoreProvenance.js';
+import {
+    CANONICAL_ENGINES,
+    DEVICE_AVAILABILITY_FEATURES,
+    LEGACY_PLATFORM_MAP,
+    UNKNOWN,
+    foldCataloguePlatforms,
+    isCanonicalEngine,
+    normalizeProvenanceToken,
+} from './scoreProvenance.js';
 
 /**
  * One axis's rules. ADR 0009's orthogonality, unchanged and now applied twice:
@@ -239,6 +247,156 @@ function matchesAny(gamePlatforms: string[], tokens: string[]): boolean {
 }
 
 /**
+ * Devices decided on the ENGINE axis: the engines whose presence in a game's
+ * platform list means the game is available on that device.
+ *
+ * The counterpart of `DEVICE_AVAILABILITY_FEATURES` (the devices decided on the
+ * FEATURE axis — `atgames`, `vr_headset`). A device appears in exactly one of
+ * the two, or in neither.
+ *
+ * `real_cabinet` and `pc` reproduce today's behaviour EXACTLY:
+ * `legacyPlatformsForDevice('real_cabinet')` is `{real, irl, real machine,
+ * physical}` and `legacyPlatformsForEngine('real')` is the same set, likewise
+ * for `pc`. `console` and `arcade_cabinet` are a deliberate, narrow widening:
+ * NO legacy id maps to either device, so `legacyPlatformsForDevice` returned
+ * only the literal token and a `devices.required: ['console']` rule matched
+ * zero games — vacuous, in a rule shape only reachable from the new two-axis
+ * admin UI (P2's legacy shim can never produce it). Making it mean "this game
+ * exists on a console engine" cannot regress any rule that works today, because
+ * no such rule works today.
+ *
+ * `standalone_other` is in neither map on purpose: nothing in the catalogue
+ * says a table is available on a Raspberry Pi rather than any other standalone
+ * target, and inventing a match would be asserting something the data does not
+ * know. It falls through to the legacy-token path and matches nothing — exactly
+ * as it does today.
+ */
+export const DEVICE_MATCH_ENGINES: Record<string, string[]> = {
+    real_cabinet:   ['real'],
+    pc:             ['pc'],
+    arcade_cabinet: ['arcade'],
+    // Every video engine that is a console — i.e. the `video` category minus
+    // the two that have their own device (`pc`, `arcade`). Derived rather than
+    // listed so a newly added console engine is covered without an edit here.
+    console: Object.values(CANONICAL_ENGINES)
+        .filter(e => e.category === 'video' && e.id !== 'pc' && e.id !== 'arcade')
+        .map(e => e.id),
+};
+
+/**
+ * What a device-axis rule token matches against, on both axes at once.
+ *
+ * `platforms` — legacy platform ids AND canonical engine ids. Covers a
+ *   pre-migration catalogue row (`vpxs`, `pinball_fx_vr`, `real`) and a folded
+ *   one (`vpx`, `fx`, `real`) with one token set, because
+ *   `legacyPlatformsForEngine` includes the engine's own id (catalogue §1).
+ * `features` — the availability facts the fold moves out of `platforms`.
+ *
+ * A game matches if EITHER set intersects. That is what makes the migration
+ * gating-neutral: every platform token in the first set folds to a feature in
+ * the second (or to an engine still in the first), so the same game answers the
+ * same way before and after — asserted directly by the equivalence tests.
+ */
+export function deviceMatchTokens(deviceId: string): { platforms: string[]; features: string[] } {
+    const key = normalizeProvenanceToken(deviceId);
+    if (!key || key === UNKNOWN) return { platforms: [], features: [] };
+
+    const engines = DEVICE_MATCH_ENGINES[key];
+    const platforms = engines
+        ? Array.from(new Set(engines.flatMap(e => legacyPlatformsForEngine(e))))
+        : legacyPlatformsForDevice(key);
+
+    return { platforms, features: DEVICE_AVAILABILITY_FEATURES[key] ?? [] };
+}
+
+/**
+ * Does this game satisfy a device-axis `required` rule?
+ *
+ * **⚠ FLAGGED PRODUCT CALL #2** (contract §4, orchestrator 2026-07-31):
+ * device-required matches on **explicit availability only**, never on
+ * `ENGINE_DEVICE_COMPAT`. The compat map is deliberately permissive — it exists
+ * so a picker does not block a real score, and it says `vpx` runs on `atgames`
+ * for EVERY VPX table. Gating through it would make `required: ['atgames']`
+ * admit the entire VPX catalogue, where today it admits only the games actually
+ * tagged as available there. That is the single most common production rule;
+ * silently widening it is not a migration, it is a different tournament.
+ *
+ * The final device→match table, as implemented:
+ *
+ *   | device           | matches when                                              |
+ *   |------------------|-----------------------------------------------------------|
+ *   | `atgames`        | features ∋ {atgames, vpxs, vpxs_manual} — or, pre-fold,    |
+ *   |                  | platforms ∋ {atgames, vpxs, vpx standalone, vpxs_manual, …}|
+ *   | `vr_headset`     | features ∋ vr — or, pre-fold, platforms ∋ any `*_vr` id    |
+ *   | `real_cabinet`   | engine `real`                                             |
+ *   | `pc`             | engine `pc` (the video engine — NOT "runs on a PC")        |
+ *   | `console`        | any console video engine                                  |
+ *   | `arcade_cabinet` | engine `arcade`                                           |
+ *   | `standalone_other` | nothing — the catalogue does not record it              |
+ *
+ * `vpxs_manual` is in the `atgames` feature set even though contract §4 wrote
+ * the set as `{atgames, vpxs}`: `LEGACY_PLATFORM_MAP['vpxs_manual'].device` is
+ * `atgames`, so a manual-install title matches `required: ['atgames']` today,
+ * and omitting it would quietly stop admitting those games.
+ */
+export function deviceMatchesGame(
+    deviceId: string,
+    gamePlatforms: string[],
+    gameFeatures: string[] = [],
+): boolean {
+    const tokens = deviceMatchTokens(deviceId);
+    return matchesAny(gamePlatforms, tokens.platforms)
+        || matchesAny(gameFeatures, tokens.features);
+}
+
+/**
+ * The catalogue tokens a requested platform filter should match (hazard H-D).
+ *
+ * ONE helper for both catalogue filter paths, which had drifted:
+ * `GlobalGameService.search` post-filtered with a raw `includes(p)` while
+ * `GlobalLeaderboardService.buildCatalogueFilters` alias-folded through
+ * `equivalentLegacyPlatforms`, so the same chip returned different games
+ * depending on which surface asked.
+ *
+ * Resolves a request in EITHER vocabulary — a legacy id from a stale client
+ * (`atgames`, `pinball_fx_vr`) or an engine id from a current one
+ * (`atgames_native`, `fx`) — by folding it and expanding the resulting engines.
+ * So `atgames` matches both the pre-migration rows (platform `atgames`) and the
+ * post-migration ones (engine `atgames_native`), and neither client has to know
+ * which era the row was written in.
+ *
+ * Matches `platforms` only, never `features`: "show me AtGames games" is a
+ * catalogue-membership question, and answering it with every VPX table that
+ * happens to have a standalone build is a different, much larger answer than
+ * the chip promises. Device-axis tournament RULES are where availability
+ * matters, and they have `deviceMatchesGame`.
+ *
+ * Expansion goes through the FOLD in both directions rather than through
+ * `legacyPlatformsForEngine`, and `atgames` is why. `atgames` maps to engine
+ * `unknown` on the score axis (correctly — the cabinet runs four engines), so
+ * `legacyPlatformsForEngine('atgames_native')` returns only `atgames_native`
+ * and a client asking in the new vocabulary would miss every pre-fold row. The
+ * fold is the one place that knows `atgames` and `atgames_native` are the same
+ * catalogue fact, so the reverse index is built from it.
+ */
+export function catalogueMatchTokens(requested: string | null | undefined): string[] {
+    const token = normalizeProvenanceToken(requested);
+    if (!token) return [];
+    const out = new Set<string>([token]);
+
+    const engines = new Set(foldCataloguePlatforms([token]).engines);
+    if (engines.size === 0) return [...out];
+
+    // A token with no engine (`vr`, a free-form room tag) matches only itself:
+    // expanding it along the availability axis would widen the filter, which is
+    // a rule-semantics decision and not a filter's to make.
+    for (const candidate of Object.keys(LEGACY_PLATFORM_MAP)) {
+        if (foldCataloguePlatforms([candidate]).engines.some(e => engines.has(e))) out.add(candidate);
+    }
+    return [...out];
+}
+
+/**
  * THE parser for `tournaments.platform_rules`. Every runtime read goes through
  * here (ADR 0016 P2, Section 1).
  *
@@ -429,10 +587,20 @@ export function resolveSubmittablePlatforms(
  * `devices.excluded = [real_cabinet]`:
  *   - `passesplatformRules`: TRUE (game has atgames → admissible)
  *   - `resolveSubmittablePlatforms`: [vpx, vpxs, atgames] (real stripped)
+ *
+ * `gameFeatures` is the game's `global_games.features` array and is what keeps
+ * the device axis working once availability leaves `platforms` (ADR 0016
+ * catalogue phase §4, hazard H-C). It defaults to `[]` so a pre-fold catalogue
+ * row — and any caller not yet passing it — behaves exactly as before: the
+ * legacy platform ids are still in the platform list and still match. Once the
+ * row is folded the same fact lives in `features` and matches there instead.
+ * Every eligibility call site passes it; the default exists for the legacy
+ * shape, not as a licence to omit it.
  */
 export function passesplatformRules(
     gamePlatforms: string[],
     rules: TournamentRules,
+    gameFeatures: string[] = [],
 ): boolean {
     const requiredEngines = rules.engines?.required ?? [];
     const requiredDevices = rules.devices?.required ?? [];
@@ -442,5 +610,5 @@ export function passesplatformRules(
     if (!engineOk) return false;
 
     return requiredDevices.length === 0 ||
-        requiredDevices.some(d => matchesAny(gamePlatforms, legacyPlatformsForDevice(d)));
+        requiredDevices.some(d => deviceMatchesGame(d, gamePlatforms, gameFeatures));
 }

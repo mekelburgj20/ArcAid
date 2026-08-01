@@ -666,17 +666,33 @@ export function enginesFromLegacyPlatforms(platforms: string[]): string[] {
 }
 
 /**
- * Device options for `engine`, narrowed to what the game's legacy platform list
- * makes plausible. The union of the engine's compat list is intersected with
- * nothing (P1 stays permissive), but devices explicitly implied by the game's
- * platforms (e.g. `atgames` → `atgames`) are guaranteed present.
+ * Device options for `engine`, narrowed to what the game's platform list and
+ * availability features make plausible. The union of the engine's compat list
+ * is intersected with nothing (P1 stays permissive), but devices explicitly
+ * implied by the game are guaranteed present.
+ *
+ * `features` carries the half of that implication the catalogue fold moved out
+ * of `platforms` (ADR 0016 catalogue phase §2). Pre-fold, a `vpxs` platform id
+ * mapped to device `atgames` and put AtGames in the list; post-fold the row
+ * says `platforms: ['vpx'], features: ['vpxs']` and the same guarantee has to
+ * come from the feature. It defaults to `[]` so a caller that has not been
+ * given features yet behaves exactly as it did.
  */
-export function devicesForEngineAndPlatforms(engine: string, platforms: string[]): string[] {
+export function devicesForEngineAndPlatforms(
+    engine: string,
+    platforms: string[],
+    features: string[] = [],
+): string[] {
     const base = devicesForEngine(engine);
     const out = [...base];
     for (const p of platforms) {
         const { device } = mapLegacyPlatform(p);
         if (device !== UNKNOWN && !out.includes(device)) out.push(device);
+    }
+    const have = new Set(features.map(f => normalizeProvenanceToken(f)));
+    for (const [device, tokens] of Object.entries(DEVICE_AVAILABILITY_FEATURES)) {
+        if (out.includes(device)) continue;
+        if (tokens.some(t => have.has(t))) out.push(device);
     }
     return out;
 }

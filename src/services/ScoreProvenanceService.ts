@@ -39,6 +39,17 @@ export interface ProvenanceScope {
     effective: string[];
     /** effective − tournament `excluded` (ADR 0009's submission-level filter). */
     submittable: string[];
+    /**
+     * `global_games.features` — the availability facts the catalogue fold moved
+     * out of `platforms` (ADR 0016 catalogue phase §2): `vpxs`, `vpxs_manual`,
+     * `bam`, `vr`, `atgames`, plus the 8 AtGames cabinet variants.
+     *
+     * Read here because the DEVICE half of the picker used to come from the
+     * platform list — a `vpxs` id implied device `atgames`. Post-fold that fact
+     * lives in `features`, so without it an AtGames-capable VPX table would
+     * stop offering the AtGames device.
+     */
+    features: string[];
     rules: TournamentRules | null;
 }
 
@@ -55,10 +66,11 @@ export class ScoreProvenanceService {
     static async resolveForRoomGame(roomId: string, gameName: string): Promise<ProvenanceScope> {
         const db = await getDatabase();
         const gg = await db.get(
-            'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
+            'SELECT platforms, features FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
             gameName, 'approved',
         );
         const cataloguePlatforms = gg ? parsePlatformsList(gg.platforms || '[]') : [];
+        const features = gg ? parsePlatformsList(gg.features || '[]') : [];
         const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
         const effective = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
 
@@ -74,19 +86,24 @@ export class ScoreProvenanceService {
         const rules = ScoreProvenanceService.parseRules(
             activeGame?.platform_rules ?? null, activeGame?.tournament_id ?? null,
         );
-        return { effective, submittable: resolveSubmittablePlatforms(effective, rules), rules };
+        return { effective, submittable: resolveSubmittablePlatforms(effective, rules), features, rules };
     }
 
     /** Global-submit resolution — catalogue platforms verbatim, no rules. */
     static async resolveForGlobalGame(globalGameId: string): Promise<ProvenanceScope | null> {
         const db = await getDatabase();
         const game = await db.get(
-            'SELECT platforms FROM global_games WHERE id = ? AND status = ? LIMIT 1',
+            'SELECT platforms, features FROM global_games WHERE id = ? AND status = ? LIMIT 1',
             globalGameId, 'approved',
         );
         if (!game) return null;
         const effective = parsePlatformsList(game.platforms || '[]');
-        return { effective, submittable: effective, rules: null };
+        return {
+            effective,
+            submittable: effective,
+            features: parsePlatformsList(game.features || '[]'),
+            rules: null,
+        };
     }
 
     /**
@@ -103,16 +120,17 @@ export class ScoreProvenanceService {
         ) as { game_room_id: string | null; platform_rules: string | null } | undefined;
 
         const gg = await db.get(
-            'SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
+            'SELECT platforms, features FROM global_games WHERE LOWER(name) = LOWER(?) AND status = ? LIMIT 1',
             gameName, 'approved',
         );
         const cataloguePlatforms = gg ? parsePlatformsList(gg.platforms || '[]') : [];
+        const features = gg ? parsePlatformsList(gg.features || '[]') : [];
         const roomTags = tournament?.game_room_id
             ? await RoomGameTagsService.getTagsForGameName(tournament.game_room_id, gameName)
             : [];
         const effective = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
         const rules = ScoreProvenanceService.parseRules(tournament?.platform_rules ?? null, tournamentId);
-        return { effective, submittable: resolveSubmittablePlatforms(effective, rules), rules };
+        return { effective, submittable: resolveSubmittablePlatforms(effective, rules), features, rules };
     }
 
     /** Engine options a player may choose from for this scope. */
@@ -120,9 +138,16 @@ export class ScoreProvenanceService {
         return enginesFromLegacyPlatforms(scope.submittable);
     }
 
-    /** Device options for a chosen engine within this scope. */
+    /**
+     * Device options for a chosen engine within this scope.
+     *
+     * Features are passed alongside the platform list because the catalogue
+     * fold moved half the implication there: pre-fold a `vpxs` platform id put
+     * AtGames in the device list, post-fold the row says `platforms: ['vpx'],
+     * features: ['vpxs']` and the guarantee has to come from the feature.
+     */
     static devicesFor(scope: ProvenanceScope, engine: string): string[] {
-        return devicesForEngineAndPlatforms(engine, scope.submittable);
+        return devicesForEngineAndPlatforms(engine, scope.submittable, scope.features);
     }
 
     /**

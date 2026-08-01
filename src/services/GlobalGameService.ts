@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { getDatabase } from '../database/database.js';
 import { normalizeGameName } from '../utils/catalogueUtils.js';
+import { catalogueMatchTokens } from '../utils/platformRules.js';
 import { logInfo, logWarn, logError, logDebug } from '../utils/logger.js';
 
 /**
@@ -796,12 +797,24 @@ export class GlobalGameService {
             ...params
         );
 
-        // Platform filtering (post-query since platforms is JSON)
+        // Platform filtering (post-query since platforms is JSON).
+        //
+        // ADR 0016 catalogue phase §4 / hazard H-D: this used a raw
+        // `includes(p)` while `GlobalLeaderboardService.buildCatalogueFilters`
+        // alias-folded, so the SAME chip returned different games depending on
+        // which surface asked. Both now resolve through `catalogueMatchTokens`,
+        // which additionally answers a request in either vocabulary — a legacy
+        // id from a stale client and the engine id from a current one both find
+        // the row, whichever era it was written in.
         let filtered = rows;
         if (options?.platforms?.length) {
+            const tokens = new Set<string>();
+            for (const p of options.platforms) {
+                for (const t of catalogueMatchTokens(p)) tokens.add(t);
+            }
             filtered = rows.filter(g => {
                 const gamePlatforms: string[] = JSON.parse(g.platforms || '[]');
-                return options.platforms!.some(p => gamePlatforms.includes(p));
+                return gamePlatforms.some(p => tokens.has(String(p).trim().toLowerCase()));
             });
         }
 

@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { logInfo } from '../utils/logger.js';
-import { UNKNOWN, equivalentLegacyPlatforms } from '../utils/scoreProvenance.js';
+import { UNKNOWN } from '../utils/scoreProvenance.js';
+import { catalogueMatchTokens } from '../utils/platformRules.js';
 import { buildEngineCategoryExpr } from '../utils/engineCategorySql.js';
 
 /**
@@ -453,12 +454,20 @@ export class GlobalLeaderboardService {
             // `vpx` from matching `vpxs` by accident, but ADR 0016 says those
             // ARE the same engine, so the "safe" pattern was quietly excluding
             // VPX-Standalone titles from a VPX filter. `json_each` gives an
-            // exact per-element compare, and `equivalentLegacyPlatforms`
-            // supplies the engine's full id set — so the filter now over- and
-            // under-matches on neither axis.
+            // exact per-element compare, and the shared expansion supplies the
+            // engine's full id set — so the filter now over- and under-matches
+            // on neither axis.
+            //
+            // ADR 0016 catalogue phase §4 / hazard H-D — the expansion is now
+            // `catalogueMatchTokens`, shared with `GlobalGameService.search`
+            // (which was still doing a raw `includes`, so the same chip
+            // returned different games on the two surfaces). It supersedes
+            // `equivalentLegacyPlatforms` here by also resolving ENGINE ids, so
+            // `atgames` finds both a pre-fold row (platform `atgames`) and a
+            // folded one (engine `atgames_native`).
             const tokens = new Set<string>();
             for (const p of options.platforms) {
-                for (const t of equivalentLegacyPlatforms(p)) tokens.add(t);
+                for (const t of catalogueMatchTokens(p)) tokens.add(t);
             }
             const list = [...tokens];
             if (list.length > 0) {

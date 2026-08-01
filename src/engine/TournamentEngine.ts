@@ -1469,8 +1469,12 @@ export class TournamentEngine {
         const eligibilityDays = tournamentRow.eligibility_days ?? 120;
 
         // Get the catalogue (one row per name — variants collapsed for autopick).
+        // `MIN(features)` alongside `MIN(platforms)`: the device axis reads
+        // availability out of `features` post-fold (ADR 0016 catalogue phase
+        // §4). Both are MIN over a name-group for the same pre-existing reason
+        // — variants are collapsed for autopick and one row stands for the name.
         const libraryGames = await db.all(`
-            SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms
+            SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms, MIN(features) AS features
             FROM global_games WHERE status = 'approved'
             GROUP BY LOWER(name)
         `);
@@ -1496,7 +1500,9 @@ export class TournamentEngine {
             if (!gameLevelRules) return true;
             const cataloguePlatforms = parsePlatformsList(g.platforms || '[]');
             const tags = tagMap.get(g.name.toLowerCase()) || [];
-            return passesplatformRules([...cataloguePlatforms, ...tags], platformRules);
+            return passesplatformRules(
+                [...cataloguePlatforms, ...tags], platformRules, parsePlatformsList(g.features || '[]'),
+            );
         });
 
         // Filter by cooldown
