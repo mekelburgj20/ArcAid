@@ -71,26 +71,43 @@ describe('LandingPage — light/dark polarity (v2.56.0)', () => {
     mockFetch();
   });
 
+  // v2.60.0 — both polarities now render the animated mark. The light branch
+  // used to be a static PNG because the logo pack had shipped no animated
+  // light source; `ArcaidLogoAnimated`'s `light` variant is that source.
   describe('B2 — hero mark', () => {
-    it('dark polarity renders the animated mark, not the PNG', async () => {
+    it('dark polarity renders the animated mark in its dark variant', async () => {
       setPolarity('dark');
       const { container } = renderLanding();
 
       await waitFor(() => expect(screen.getByTestId('landing-motto')).toBeInTheDocument());
-      expect(container.querySelector('.arcaid-logo-wrap')).toBeTruthy();
-      expect(screen.queryByTestId('landing-hero-light')).not.toBeInTheDocument();
+      expect(container.querySelector('.arcaid-logo-wrap.arcaid-logo-dark')).toBeTruthy();
+      expect(container.querySelector('.arcaid-logo-plate')).toBeNull();
     });
 
-    it('light polarity renders the light artwork PNG, not the animated mark', async () => {
+    it('light polarity renders the animated mark in its light variant', async () => {
       setPolarity('light');
       const { container } = renderLanding();
 
-      const hero = await screen.findByTestId('landing-hero-light');
-      expect(hero).toHaveAttribute('src', '/arcaid-logo-light-v1.png');
-      // Boxed to the same aspect ratio the animated wrap reserves, so page
-      // layout below the hero is identical in both polarities.
-      expect((hero as HTMLElement).style.aspectRatio).toBe('620 / 380');
-      expect(container.querySelector('.arcaid-logo-wrap')).toBeNull();
+      await waitFor(() => expect(screen.getByTestId('landing-motto')).toBeInTheDocument());
+      const wrap = container.querySelector('.arcaid-logo-wrap.arcaid-logo-light');
+      expect(wrap).toBeTruthy();
+      // The purple backdrop plate is the light composition's tell.
+      expect(container.querySelector('.arcaid-logo-plate')).toBeTruthy();
+    });
+
+    it('reserves the same layout box in both polarities, so the motto anchor holds', async () => {
+      const boxes: string[] = [];
+      for (const polarity of ['dark', 'light'] as const) {
+        localStorage.clear();
+        setPolarity(polarity);
+        const view = renderLanding();
+        await waitFor(() => expect(screen.getByTestId('landing-motto')).toBeInTheDocument());
+        const wrap = view.container.querySelector('.arcaid-logo-wrap') as HTMLElement;
+        boxes.push(`${wrap.style.maxWidth}`);
+        view.unmount();
+      }
+      expect(boxes[0]).toBe('680px');
+      expect(boxes[1]).toBe(boxes[0]);
     });
   });
 

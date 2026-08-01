@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.61.0] — unreleased
+
+**The light theme gets its glitch, and the Global Scoreboard gets its sign.** Two design packs
+implemented as live animated CSS (the packs' PNGs are fallbacks only).
+
+- **Animated light-theme logo.** `ArcaidLogoAnimated` gains a `variant='light'`: purple backdrop
+  plate (position derived by pixel-measuring the reference export — plate at 17,210 on the 620×560
+  sign canvas, pixel-identical to the pack render), three-layer glass-tube delta (bloom/core/
+  filament), dark glyph shadows replacing the dark theme's cyan halo, glitch cyan darkened
+  #5BC8F5 → #0F9BD1 so it holds on light surfaces, pinball rim + contact shadow. Chrome gradient
+  unchanged. Glitch cadence is byte-identical to dark (the v2.45.6 keyframes; per-variant opacity
+  via custom properties — a test asserts the keyframe blocks don't fork). The landing hero's light
+  polarity now renders it in place of the static PNG, retiring the v2.56.0 "ACCEPTED LOSS: light
+  mode has no glitch" note. Header `BrandWordmark` stays static in both themes, as before.
+- **Global Scoreboard title lockup** (`GlobalScoreboardTitle`): neon three-layer trophy + layered
+  chrome "Global Scoreboard" wordmark with pink/cyan fringe, slice-tear glitch, trophy
+  flash/flicker; purple plate on light. Fonts self-hosted (Orbitron 400 added alongside the
+  existing 900 — no Google Fonts request). One accessible `<h1>`; decorative layers aria-hidden;
+  `prefers-reduced-motion` stops all of it. Fluid em-scaling off a container-query root: native
+  902px lockup on desktop, fits 320px phones without wrap or overflow. Live-dot + "LIVE · updated"
+  line and the subtitle (with its Log-in link) are kept, restyled to the pack's subtitle treatment.
+- Tests: admin-ui 278 → 292. Backend untouched.
+
 ## [2.60.0] — unreleased
 
 **Tournament rules on engine + device axes, and the iScored provenance lockdown (ADR 0016, phase 2 —
