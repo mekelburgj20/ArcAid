@@ -310,6 +310,31 @@ export const LEGACY_PLATFORM_MAP: Record<string, Provenance> = {
     // (['AtGames','VPXS','VR','IRL']) — engine unknowable, device is the point.
     vr:                    { engine: UNKNOWN,       device: 'vr_headset' },
 
+    // ── Canonical ENGINE ids, mapped to themselves ──────────────────────────
+    //
+    // `global_games.platforms` becomes an engine list (ADR 0016 §"Catalogue
+    // describes engines, not devices"). Every read path that classifies a
+    // catalogue value goes through THIS map, so an engine id that is not a key
+    // here reads as unknown/unknown: `enginesFromLegacyPlatforms` would yield
+    // `['unknown']` and auto-lock the submit picker to Unspecified, and
+    // `legacyPlatformsForEngine(e)` would return a set NOT containing `e`, so
+    // tournament eligibility would match zero games.
+    //
+    // Most engine ids are already keys above because the legacy id and the
+    // engine id are the same string (`real`, `vpx`, `vp9`, `fp`, `fx`,
+    // `zaccaria`, `pc`, every console id). These four exist only in the new
+    // taxonomy; their legacy spellings (`pinball_fx_classic`,
+    // `pinball_fx_midnight`, `star_wars_pinball_vr`, `atgames`) stay above,
+    // unchanged, and keep mapping exactly as they did.
+    //
+    // Device is UNKNOWN by construction: an engine id names what PRODUCED a
+    // score and asserts nothing about the hardware it ran on. Purely additive —
+    // no token that resolved before resolves differently now.
+    fx_classic:            { engine: 'fx_classic',  device: UNKNOWN },
+    fx_midnight:           { engine: 'fx_midnight', device: UNKNOWN },
+    star_wars:             { engine: 'star_wars',   device: UNKNOWN },
+    atgames_native:        { engine: 'atgames_native', device: UNKNOWN },
+
     // Arcade & video games — engine keeps its id, device stays unknown.
     arcade:      { engine: 'arcade',      device: UNKNOWN },
     nes:         { engine: 'nes',         device: UNKNOWN },

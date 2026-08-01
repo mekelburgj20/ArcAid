@@ -337,11 +337,16 @@ router.get('/:roomId/platforms/available', async (req, res) => {
             WHERE gg.status = 'approved' AND j.value != ''
             ORDER BY platform
         `) as Array<{ platform: string }>;
-        const { normalizePlatform } = await import('../../utils/platformMapping.js');
+        // `normalizeCataloguePlatformId`, NOT the old taxonomy's
+        // `normalizePlatform`: an engine id in the catalogue (or in a room tag)
+        // must survive this fold intact — `fx` would otherwise be re-legacied
+        // to `pinball_fx` on its way into the tournament rules picker. Legacy
+        // ids normalize exactly as before.
+        const { normalizeCataloguePlatformId } = await import('../../utils/platformRules.js');
         const seen = new Set<string>();
         const out: string[] = [];
         for (const r of rows) {
-            const id = normalizePlatform(r.platform);
+            const id = normalizeCataloguePlatformId(r.platform);
             if (!id || seen.has(id)) continue;
             seen.add(id);
             out.push(id);
@@ -349,7 +354,7 @@ router.get('/:roomId/platforms/available', async (req, res) => {
         // Union with room-specific custom tags.
         const tags = await RoomGameTagsService.getDistinctTagsForRoom(roomId);
         for (const tag of tags) {
-            const id = normalizePlatform(tag);
+            const id = normalizeCataloguePlatformId(tag);
             if (!id || seen.has(id)) continue;
             seen.add(id);
             out.push(id);

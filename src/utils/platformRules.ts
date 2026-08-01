@@ -1,5 +1,6 @@
 import { logWarn } from './logger.js';
-import { LEGACY_PLATFORM_MAP, UNKNOWN, normalizeProvenanceToken } from './scoreProvenance.js';
+import { normalizePlatform } from './platformMapping.js';
+import { LEGACY_PLATFORM_MAP, UNKNOWN, isCanonicalEngine, normalizeProvenanceToken } from './scoreProvenance.js';
 
 /**
  * One axis's rules. ADR 0009's orthogonality, unchanged and now applied twice:
@@ -176,6 +177,26 @@ export function normalizeTournamentRulesInput(value: unknown): TournamentRules {
 }
 
 /**
+ * Guarantee an expansion set contains the canonical id it expands.
+ *
+ * A rule token is matched against a game's platform list by exact membership
+ * over its expansion set, so an id missing from its OWN set silently matches
+ * nothing. On the engine axis this now falls out of the identity mappings in
+ * `LEGACY_PLATFORM_MAP` (ADR 0016 catalogue phase §1) and this is belt-and-
+ * braces; on the DEVICE axis it does not — `real_cabinet` and `vr_headset` are
+ * device ids with no legacy spelling of their own, so their sets were built
+ * entirely out of OTHER tokens (`real`, `irl`, …). Adding the id itself is
+ * additive: no catalogue row or room tag has ever carried a device id, so no
+ * game that matched before stops matching, and none starts.
+ *
+ * Mirrors what `equivalentLegacyPlatforms` already does in `scoreProvenance.ts`.
+ */
+function withCanonicalSelf(key: string, tokens: string[]): string[] {
+    if (tokens.length === 0) return [key];
+    return tokens.includes(key) ? tokens : [key, ...tokens];
+}
+
+/**
  * Every legacy platform id that denotes `engineId`.
  *
  * `vpx` → `['vpx', 'visual pinball x', 'vpxs', 'vpx standalone', 'vpxs_manual', …]`
@@ -194,7 +215,7 @@ export function legacyPlatformsForEngine(engineId: string): string[] {
     const out = Object.entries(LEGACY_PLATFORM_MAP)
         .filter(([, prov]) => prov.engine === key)
         .map(([token]) => token);
-    return out.length > 0 ? out : [key];
+    return withCanonicalSelf(key, out);
 }
 
 /**
@@ -208,7 +229,7 @@ export function legacyPlatformsForDevice(deviceId: string): string[] {
     const out = Object.entries(LEGACY_PLATFORM_MAP)
         .filter(([, prov]) => prov.device === key)
         .map(([token]) => token);
-    return out.length > 0 ? out : [key];
+    return withCanonicalSelf(key, out);
 }
 
 function matchesAny(gamePlatforms: string[], tokens: string[]): boolean {
@@ -275,6 +296,36 @@ export function parseTournamentRules(
     }
 
     return normalizeTournamentRulesInput(parsed);
+}
+
+/**
+ * Fold one CATALOGUE token (a `global_games.platforms` entry or a free-form
+ * `room_game_tags` tag) to the id client surfaces should see.
+ *
+ * Exists because the OLD taxonomy's `normalizePlatform` is an alias table over
+ * LEGACY platform ids, and one of its aliases collides head-on with the new
+ * engine namespace: `PLATFORM_ALIASES['fx'] = 'pinball_fx'`. Once the catalogue
+ * stores engine ids (ADR 0016 §"Catalogue describes engines, not devices"), a
+ * row carrying `fx` would be silently re-legacied to `pinball_fx` before the
+ * rules engine or the submit picker ever saw it — the engine id would never
+ * reach the client that is being taught to speak engines.
+ *
+ * So: a canonical ENGINE id passes through untouched; everything else
+ * normalizes exactly as it did before. For every id in today's data the two
+ * branches agree — every canonical engine id that is also a legacy platform id
+ * (`real`, `vpx`, `vp9`, `fp`, `zaccaria`, `pc`, every console id) already
+ * normalized to itself — so this is a no-op on the current catalogue and only
+ * changes what happens to values the catalogue does not yet contain.
+ *
+ * Deliberately NOT placed in `scoreProvenance.ts`: that file is mirrored
+ * byte-for-byte to the frontend and must stay dependency-free, and this one
+ * bridges the two taxonomies.
+ */
+export function normalizeCataloguePlatformId(raw: string | null | undefined): string {
+    const token = normalizeProvenanceToken(raw);
+    if (!token) return '';
+    if (isCanonicalEngine(token)) return token;
+    return normalizePlatform(token);
 }
 
 /**

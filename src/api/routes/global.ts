@@ -1588,8 +1588,10 @@ router.get('/submit/platforms', async (req, res) => {
     try {
         const { roomId, gameName, globalGameId } = req.query as Record<string, string | undefined>;
         const db = await getDatabase();
-        const { parsePlatformsList, resolveSubmittablePlatforms, parseTournamentRules } = await import('../../utils/platformRules.js');
-        const { normalizePlatform } = await import('../../utils/platformMapping.js');
+        const {
+            parsePlatformsList, resolveSubmittablePlatforms, parseTournamentRules,
+            normalizeCataloguePlatformId,
+        } = await import('../../utils/platformRules.js');
 
         // m3 fix (S22 Phase 2 adversarial review) — this route sits outside
         // rooms.ts (so it doesn't pass through roomVisibilityGate) and is the
@@ -1608,11 +1610,17 @@ router.get('/submit/platforms', async (req, res) => {
         // v2.5.1: alias-fold + dedupe so the picker never shows VPX/vpx/vpxs
         // duplicates. Stored data may have legacy mixed-case strings; client
         // surfaces should only ever see canonical IDs.
+        //
+        // The fold is `normalizeCataloguePlatformId`, NOT the old taxonomy's
+        // `normalizePlatform`: this is the resolver SubmissionSheet calls to
+        // build its picker, and a catalogue engine id must reach it unchanged
+        // (`normalizePlatform` would re-legacy `fx` → `pinball_fx`). Legacy
+        // catalogue ids and free-form room tags fold exactly as before.
         const normalizeAndDedupe = (raw: string[]): string[] => {
             const seen = new Set<string>();
             const out: string[] = [];
             for (const p of raw) {
-                const id = normalizePlatform(p);
+                const id = normalizeCataloguePlatformId(p);
                 if (!id || seen.has(id)) continue;
                 seen.add(id);
                 out.push(id);
