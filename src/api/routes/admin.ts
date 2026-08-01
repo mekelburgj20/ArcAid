@@ -686,20 +686,66 @@ router.post('/catalogue/sync-opdb', async (_req, res) => {
     res.status(202).json({ success: true, started: true, source: 'opdb' });
 });
 
-router.post('/catalogue/sync-igdb', async (_req, res) => {
+/**
+ * IGDB bulk seed. Unlike the other sync endpoints this one can run for hours,
+ * so it gets two guards the others don't:
+ *
+ *  - Single-flight. A second POST while a run is genuinely in flight (status
+ *    `running` with a fresh heartbeat) is refused with 409 and the job's
+ *    details, rather than starting a duplicate crawl that would race the first
+ *    one through the same upserts. A `running` row whose process died is not
+ *    in flight and does not block.
+ *  - Live credential probe. Presence of TWITCH_CLIENT_ID/SECRET says nothing
+ *    about whether Twitch will accept them; a bad pair used to return 202
+ *    "started" and then fail in the background where the admin never saw it.
+ *    We now fetch/refresh the token BEFORE answering, and hand back Twitch's
+ *    own error text on rejection.
+ *
+ * `restart: true` in the body abandons any resumable checkpoint and crawls
+ * from the beginning.
+ */
+router.post('/catalogue/sync-igdb', async (req, res) => {
     if (!process.env.TWITCH_CLIENT_ID || !process.env.TWITCH_CLIENT_SECRET) {
         return res.status(400).json({
             error: 'TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET must be configured for IGDB import. Add them under Global Settings → Configuration.',
         });
     }
+
+    const active = await SyncLogService.getActiveRun('igdb');
+    if (active) {
+        return res.status(409).json({
+            error: 'An IGDB import is already running. Wait for it to finish, or let it fail over before starting another.',
+            job: {
+                id: active.id,
+                started_at: active.started_at,
+                heartbeat_at: active.heartbeat_at ?? null,
+                pages_done: active.pages_done ?? 0,
+                records_fetched: active.records_fetched ?? 0,
+                expected_total: active.expected_total ?? null,
+                records_imported: active.records_imported ?? 0,
+                records_updated: active.records_updated ?? 0,
+                records_skipped: active.records_skipped ?? 0,
+            },
+        });
+    }
+
+    try {
+        await IGDBImportService.getAccessToken();
+    } catch (error) {
+        return res.status(400).json({
+            error: `IGDB credentials were rejected: ${(error as Error).message}`,
+        });
+    }
+
+    const restart = (req.body as { restart?: boolean } | undefined)?.restart === true;
     void (async () => {
         try {
-            await IGDBImportService.importFromIGDB();
+            await IGDBImportService.importFromIGDB({ restart });
         } catch (error) {
             logError('Background IGDB sync error:', error);
         }
     })();
-    res.status(202).json({ success: true, started: true, source: 'igdb' });
+    res.status(202).json({ success: true, started: true, source: 'igdb', restart });
 });
 
 /**

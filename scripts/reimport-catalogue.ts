@@ -32,12 +32,19 @@ import { IGDBImportService } from '../src/services/IGDBImportService.js';
 import { WizardImportService } from '../src/services/WizardImportService.js';
 
 async function loadSettingsIntoEnv(): Promise<void> {
-    // Mirrors src/index.ts bootstrap step 1.5 — DB settings override .env at runtime
+    // Uses the SAME loader as src/index.ts bootstrap step 1.5, rather than a
+    // hand-rolled copy of it.
+    //
+    // The copy this replaces did a raw `SELECT key, value FROM settings` and
+    // assigned the values straight into process.env. Every key on the
+    // ENCRYPTED_SETTING_KEYS allowlist (ADR 0003) is stored as AES-GCM
+    // ciphertext, so a CLI run got ciphertext where the server gets plaintext:
+    // TWITCH_CLIENT_SECRET, OPDB_API_KEY and friends were handed to their APIs
+    // as unintelligible strings, and the resulting 401 said nothing about why.
+    // `loadSettingsToEnv` decrypts on the way out.
     const db = await getDatabase();
-    const rows = await db.all('SELECT key, value FROM settings');
-    for (const row of rows) {
-        process.env[row.key] = row.value;
-    }
+    const { loadSettingsToEnv } = await import('../src/utils/secretsMigration.js');
+    await loadSettingsToEnv(db);
 }
 
 const args = process.argv.slice(2);

@@ -2542,13 +2542,19 @@ router.post('/:roomId/game_library/submit_to_global', requireAuth, requireRoomAc
         // with the shape the migration just cleaned up.
         const { foldCataloguePlatforms } = await import('../../utils/scoreProvenance.js');
         const proposedFold = foldCataloguePlatforms(platforms || []);
+        // migration 130: this route bypasses `GlobalGameService.upsert` (see
+        // above), so it also has to write the dedup key itself — a proposal
+        // row with a NULL key still dedups correctly but falls into
+        // `findByNormalizedName`'s scan branch instead of the index.
+        const { normalizeGameName } = await import('../../utils/catalogueUtils.js');
         await db.run(
             `INSERT INTO global_games (
-                id, name, manufacturer, year, type, platforms, features, status,
+                id, name, normalized_name, manufacturer, year, type, platforms, features, status,
                 submitted_by_user_id, submitted_by_room_id, submitted_at, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
             newId,
             name,
+            normalizeGameName(name || ''),
             manufacturer ?? null,
             year ?? null,
             type,
@@ -2669,13 +2675,16 @@ router.post('/:roomId/game_library/import-csv-commit', requireAuth, requireRoomA
                 }
                 const newId = cryptoMod.randomUUID();
                 const now = new Date().toISOString();
+                // migration 130 — same reason as submit_to_global above.
+                const { normalizeGameName } = await import('../../utils/catalogueUtils.js');
                 await db.run(
                     `INSERT INTO global_games (
-                        id, name, manufacturer, year, type, platforms, status,
+                        id, name, normalized_name, manufacturer, year, type, platforms, status,
                         submitted_by_user_id, submitted_by_room_id, submitted_at, created_at
-                     ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
                     newId,
                     input.name,
+                    normalizeGameName(input.name || ''),
                     input.manufacturer ?? null,
                     input.year ?? null,
                     input.type,

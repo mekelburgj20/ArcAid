@@ -35,6 +35,7 @@ interface GlobalGame {
 interface SyncLog {
   id: string;
   source: string;
+  /** running | success | partial | error | interrupted */
   status: string;
   records_imported: number;
   records_updated: number;
@@ -42,6 +43,27 @@ interface SyncLog {
   errors: string | null;
   started_at: string;
   completed_at: string | null;
+  /** igdb-import-hardening: live progress, present once migration 131 has run. */
+  heartbeat_at?: string | null;
+  pages_done?: number | null;
+  records_fetched?: number | null;
+  expected_total?: number | null;
+}
+
+/** Pages are 500 rows; the count endpoint gives us the denominator. */
+const SYNC_PAGE_SIZE = 500;
+
+function syncProgressLabel(log: SyncLog): string | null {
+  if (log.status !== 'running') return null;
+  const fetched = log.records_fetched ?? 0;
+  const pagesDone = log.pages_done ?? 0;
+  const expected = log.expected_total ?? null;
+  if (!expected) {
+    return pagesDone > 0 ? `page ${pagesDone} · ${fetched} fetched` : 'starting…';
+  }
+  const pagesTotal = Math.max(1, Math.ceil(expected / SYNC_PAGE_SIZE));
+  const pct = Math.min(100, Math.round((fetched / expected) * 100));
+  return `page ${pagesDone}/${pagesTotal} · ${fetched}/${expected} (${pct}%)`;
 }
 
 interface CatalogueCounts {
@@ -167,6 +189,10 @@ const STATUS_COLORS: Record<string, string> = {
   success: 'text-neon-green',
   error: 'text-red-400',
   partial: 'text-yellow-400',
+  running: 'text-neon-cyan',
+  // A run whose process died. Distinct from `error` — nothing went wrong with
+  // the data, the job just never got to finish, and re-running resumes it.
+  interrupted: 'text-orange-400',
 };
 
 const PAGE_SIZE = 200;
@@ -305,6 +331,14 @@ export default function GlobalCatalogue() {
           const logs = await api.get<SyncLog[]>('/admin/catalogue/sync-status');
           setSyncStatus(logs);
           const latest = logs.find(l => l.source === source);
+          // Live progress while it works — a bulk IGDB run is hours long and
+          // "started in background" was the last thing the admin heard.
+          if (latest && !latest.completed_at) {
+            const progress = syncProgressLabel(latest);
+            if (progress) {
+              setSyncResult({ source, message: `${SOURCE_LABELS[source]} sync running — ${progress}` });
+            }
+          }
           if (latest && latest.completed_at) {
             const imported = latest.records_imported || 0;
             const updated = latest.records_updated || 0;
@@ -312,14 +346,21 @@ export default function GlobalCatalogue() {
             if (latest.status === 'error') {
               setSyncResult({
                 source,
-                message: `${SOURCE_LABELS[source]} sync failed. Check logs for details.`,
+                message: `${SOURCE_LABELS[source]} sync failed. Check logs for details.` +
+                  ' Syncing again resumes from where it stopped.',
               });
             } else {
+              const expected = latest.expected_total ?? null;
+              const fetched = latest.records_fetched ?? 0;
               setSyncResult({
                 source,
                 message: `${SOURCE_LABELS[source]}: ${imported} imported, ${updated} updated` +
                   (skipped ? `, ${skipped} skipped` : '') +
-                  (latest.status === 'partial' ? ' (partial — some errors)' : ''),
+                  (latest.status === 'partial'
+                    ? expected
+                      ? ` (partial — ${fetched} of ~${expected} rows; sync again to resume)`
+                      : ' (partial — some errors)'
+                    : ''),
               });
             }
             await loadData();
@@ -332,11 +373,22 @@ export default function GlobalCatalogue() {
 
       setSyncResult({
         source,
-        message: `${SOURCE_LABELS[source]} sync is still running after 15 minutes. Check the sync health dashboard.`,
+        message: `${SOURCE_LABELS[source]} sync is still running after 15 minutes — that is expected for a ` +
+          `full bulk import. It keeps going in the background; this card shows live progress.`,
       });
       await loadData();
     } catch (err) {
-      setSyncResult({ source, message: `${SOURCE_LABELS[source]} sync failed to start: ${err}` });
+      // A 409 (single-flight: a run is already in flight) arrives here as the
+      // server's message. It is not a failure to report as one.
+      const message = err instanceof Error ? err.message : String(err);
+      const alreadyRunning = message.toLowerCase().includes('already running');
+      setSyncResult({
+        source,
+        message: alreadyRunning
+          ? `${SOURCE_LABELS[source]}: ${message}`
+          : `${SOURCE_LABELS[source]} sync failed to start: ${message}`,
+      });
+      if (alreadyRunning) await loadData();
     } finally {
       setSyncing(null);
     }
@@ -487,22 +539,34 @@ export default function GlobalCatalogue() {
         {/* Last sync status per source */}
         {syncStatus.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {syncStatus.map(log => (
-              <div key={log.id} className="bg-surface-alt rounded p-3 text-sm">
-                <div className="font-bold text-xs uppercase tracking-wider text-muted mb-1">
-                  {SOURCE_LABELS[log.source] || log.source}
+            {syncStatus.map(log => {
+              const progress = syncProgressLabel(log);
+              return (
+                <div key={log.id} className="bg-surface-alt rounded p-3 text-sm">
+                  <div className="font-bold text-xs uppercase tracking-wider text-muted mb-1">
+                    {SOURCE_LABELS[log.source] || log.source}
+                  </div>
+                  <div className={`flex items-center gap-1.5 ${STATUS_COLORS[log.status] || 'text-muted'}`}>
+                    {log.status === 'running' && <RefreshCw size={12} className="animate-spin shrink-0" />}
+                    {log.status}
+                  </div>
+                  {progress && (
+                    <div className="text-neon-cyan text-xs mt-1">{progress}</div>
+                  )}
+                  {log.status === 'interrupted' && (
+                    <div className="text-orange-400 text-xs mt-1">
+                      stopped mid-run — sync again to resume
+                    </div>
+                  )}
+                  <div className="text-muted text-xs mt-1">
+                    {log.records_imported} new, {log.records_updated} updated
+                  </div>
+                  <div className="text-muted text-xs">
+                    {formatDate(log.heartbeat_at || log.completed_at || log.started_at)}
+                  </div>
                 </div>
-                <div className={STATUS_COLORS[log.status] || 'text-muted'}>
-                  {log.status}
-                </div>
-                <div className="text-muted text-xs mt-1">
-                  {log.records_imported} new, {log.records_updated} updated
-                </div>
-                <div className="text-muted text-xs">
-                  {formatDate(log.completed_at || log.started_at)}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </NeonCard>

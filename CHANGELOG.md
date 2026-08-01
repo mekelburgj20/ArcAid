@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.65.0] — unreleased
+
+**IGDB import hardened end-to-end.** Recon showed the arcade/video-game bulk import had never run
+on prod and could not complete: an unscoped query (~200k games with PC included), an O(n²)
+name-dedup scan (days of work at that scale), no rate-limit retry, no checkpoint, an unbounded
+401 refresh loop, and four wrong platform ids in the mapping table.
+
+- **Dedup is indexed now:** persisted `global_games.normalized_name` + index (migration 130,
+  backfilled), name-walk skipped entirely when an external-id match already resolved the row;
+  legacy NULL-key rows still scan so correctness never depends on the backfill. Hierarchy
+  semantics unchanged — existing dedup suites pass unmodified.
+- **The run survives reality:** exponential-backoff retry honoring Retry-After (429/5xx), one
+  bounded 401 token refresh, keyset pagination with a per-page checkpoint on `sync_logs`
+  (migration 131) and resume-on-rerun, `/games/count` denominator with `partial` status for short
+  runs, a real `running` status + heartbeat + progress (page N/M) surfaced in the admin catalogue
+  card, boot sweep marking stale runs `interrupted`, single-flight 409, live Twitch-credential
+  probe before the 202.
+- **Covers download in a background pass** (VPS pattern: concurrency 8, skip-if-exists, timeouts,
+  progress logging) instead of serially inside the row loop.
+- **Platform ids corrected against IGDB's documented list:** 86→TurboGrafx-16 (51 was actually
+  Famicom Disk System — mislabeled as TG-16), 62→Jaguar (67 was Intellivision), 50→3DO (87 was
+  Virtual Boy); 51/67/87 removed. A start-of-run `/platforms` verification WARNs on any future
+  drift.
+- **Fetch scope is deliberate:** arcade + 19 retro consoles; PC/Switch/Wii excluded from the
+  crawl (kept in translation for multi-platform games). One commented const to widen.
+- **Bulk rows land `pending`, not public.** The dead `searchAndImport` (zero callers, APIcalypse
+  injection) is deleted; the CLI reimport script now decrypts credentials like the server does
+  (it was sending ciphertext to Twitch — the likely cause of the historical "rate limit" failure).
+- Tests: backend 1147 → 1199 (first IGDB suite), admin-ui 318.
+
 ## [2.64.0] — unreleased
 
 **Scoreboard cards show the category chip only.** The second chip was the game's first catalogue

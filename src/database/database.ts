@@ -2111,6 +2111,23 @@ export async function initDatabase(): Promise<Database> {
             const { foldCatalogueToEngines } = await import('./migrations/catalogueEngineFold.js');
             await foldCatalogueToEngines(db);
         } },
+        // --- igdb-import-hardening: catalogue dedup stops full-scanning ---
+        // Step 4 of the dedup hierarchy normalized every row's name in JS on
+        // every upsert. Persist the (deterministic) key so it can be indexed.
+        // Handler rather than raw sql: the sql runner swallows failures, and a
+        // half-applied backfill would leave the fast path blind to real rows.
+        { name: '130_global_games_normalized_name', handler: async (db) => {
+            const { backfillNormalizedNames } = await import('./migrations/normalizedNameBackfill.js');
+            await backfillNormalizedNames(db);
+        } },
+        // --- igdb-import-hardening: sync_logs gets a lifecycle + checkpoint ---
+        // `start` used to write status 'success', so an in-flight or dead run
+        // was indistinguishable from a clean one. Adds heartbeat/progress plus
+        // the keyset cursor a resumable bulk import needs.
+        { name: '131_sync_logs_progress_and_checkpoint', handler: async (db) => {
+            const { addSyncLogProgressColumns } = await import('./migrations/syncLogProgress.js');
+            await addSyncLogProgressColumns(db);
+        } },
     ];
 
     for (const migration of migrations) {
