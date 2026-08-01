@@ -414,11 +414,17 @@ export const RoomScoresQuerySchema = z.object({
  * from the client. At least one of suggested_value/note must be non-empty.
  */
 export const GameFeedbackSchema = z.object({
-    field: z.enum(['name', 'manufacturer', 'year', 'platforms', 'artwork', 'duplicate', 'other']),
+    field: z.enum([
+        'name', 'manufacturer', 'year', 'platforms', 'artwork', 'duplicate', 'other',
+        // Contract §5 — "not score-eligible (game isn't score-based)". A
+        // catalogue-fitness claim rather than a wrong-value claim, which is why
+        // it is exempt from the correction/note requirement below.
+        'not_score_eligible',
+    ]),
     suggested_value: z.string().trim().max(300).optional(),
     note: z.string().trim().max(1000).optional(),
 }).refine(
-    (d) => !!(d.suggested_value || d.note),
+    (d) => d.field === 'not_score_eligible' || !!(d.suggested_value || d.note),
     { message: 'Provide a suggested correction or a note' },
 );
 

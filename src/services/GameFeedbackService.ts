@@ -13,6 +13,14 @@ import { getDatabase } from '../database/database.js';
 
 export const REPORTABLE_FIELDS = [
     'name', 'manufacturer', 'year', 'platforms', 'artwork', 'duplicate', 'other',
+    /**
+     * Contract §5 — "this game isn't score-based". Unlike the others this
+     * disputes the game's PRESENCE, not one of its values, and it is the review
+     * signal that pairs with the RA importer's automatic `score_eligibility`
+     * verdict. Deliberately no auto-removal: a super-admin reviews and uses the
+     * existing catalogue delete/merge tooling.
+     */
+    'not_score_eligible',
 ] as const;
 export type ReportableField = typeof REPORTABLE_FIELDS[number];
 
@@ -68,8 +76,10 @@ export class GameFeedbackService {
         const game = await db.get<{
             id: string; name: string; manufacturer: string | null; year: number | null;
             platforms: string | null; image_url: string | null; local_image_path: string | null;
+            score_eligibility: string | null;
         }>(
-            `SELECT id, name, manufacturer, year, platforms, image_url, local_image_path
+            `SELECT id, name, manufacturer, year, platforms, image_url, local_image_path,
+                    score_eligibility
                FROM global_games WHERE id = ?`,
             params.globalGameId,
         );
@@ -119,11 +129,19 @@ export class GameFeedbackService {
 
     /** The disputed field's current value, rendered as display text. */
     private static snapshotField(
-        game: { name: string; manufacturer: string | null; year: number | null; platforms: string | null; image_url: string | null; local_image_path: string | null },
+        game: {
+            name: string; manufacturer: string | null; year: number | null;
+            platforms: string | null; image_url: string | null; local_image_path: string | null;
+            score_eligibility?: string | null;
+        },
         field: ReportableField,
     ): string | null {
         switch (field) {
             case 'name': return game.name;
+            // Snapshotting the importer's verdict here is what lets the admin
+            // queue show "the reporter says no, and RA said `novelty` too"
+            // side by side, instead of the flag being the only signal (§5).
+            case 'not_score_eligible': return game.score_eligibility ?? null;
             case 'manufacturer': return game.manufacturer;
             case 'year': return game.year != null ? String(game.year) : null;
             case 'platforms': {

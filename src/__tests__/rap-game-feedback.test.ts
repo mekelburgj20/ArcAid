@@ -248,6 +248,81 @@ describe('admin queue — GET/resolve /api/admin/catalogue/feedback', () => {
     });
 });
 
+/**
+ * Contract §5 — the "not score-eligible" flag. It rides the existing game-report
+ * pipe rather than getting its own table/route, so what needs locking is the
+ * three ways it differs from a metadata correction: it is an accepted `field`,
+ * it does NOT require a suggestion or note (there is nothing to suggest), and it
+ * snapshots the RA verdict so the admin queue can show the importer's opinion
+ * next to the reporter's. Explicitly NOT covered because it must not exist:
+ * any auto-removal.
+ */
+describe('"not score-eligible" flag (§5)', () => {
+    it('files with no note and snapshots the RA verdict, then shows up in the admin queue', async () => {
+        const app = await createApp();
+        const db = await getDatabase();
+        const gameId = await seedGame({ name: 'Puzzle Thing' });
+        await db.run(
+            `UPDATE global_games SET score_eligibility = 'novelty', ra_id = 4242 WHERE id = ?`,
+            gameId,
+        );
+
+        const filed = await request(app)
+            .post(`/api/global/games/${gameId}/feedback`)
+            .set('Authorization', `Bearer ${playerToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            // No suggested_value, no note — the field IS the report.
+            .send({ field: 'not_score_eligible' });
+        expect(filed.status).toBe(201);
+
+        const list = await request(app)
+            .get('/api/admin/catalogue/feedback')
+            .set('Authorization', `Bearer ${superToken()}`)
+            .set('X-Forwarded-For', freshIp());
+        expect(list.status).toBe(200);
+        expect(list.body).toHaveLength(1);
+        expect(list.body[0].field).toBe('not_score_eligible');
+        expect(list.body[0].current_value).toBe('novelty');
+        expect(list.body[0].live_name).toBe('Puzzle Thing');
+
+        // NO auto-removal: the game is untouched until an admin acts.
+        const still = await db.get<{ status: string }>(
+            'SELECT status FROM global_games WHERE id = ?', gameId,
+        );
+        expect(still?.status).toBe('approved');
+    });
+
+    it('still requires a suggestion or note for every OTHER field', async () => {
+        const app = await createApp();
+        const gameId = await seedGame();
+        const res = await request(app)
+            .post(`/api/global/games/${gameId}/feedback`)
+            .set('Authorization', `Bearer ${playerToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ field: 'manufacturer' });
+        expect(res.status).toBe(400);
+    });
+
+    it('leaves current_value null when the game has no RA verdict on file', async () => {
+        const app = await createApp();
+        const gameId = await seedGame({ name: 'Hand-Added Game' });
+
+        const filed = await request(app)
+            .post(`/api/global/games/${gameId}/feedback`)
+            .set('Authorization', `Bearer ${playerToken()}`)
+            .set('X-Forwarded-For', freshIp())
+            .send({ field: 'not_score_eligible', note: 'this is a visual novel' });
+        expect(filed.status).toBe(201);
+
+        const db = await getDatabase();
+        const row = await db.get<{ current_value: string | null; note: string }>(
+            'SELECT current_value, note FROM game_feedback WHERE id = ?', filed.body.id,
+        );
+        expect(row?.current_value).toBeNull();
+        expect(row?.note).toBe('this is a visual novel');
+    });
+});
+
 describe('field_sources stamping', () => {
     it('upsert INSERT stamps supplied fields with the input source', async () => {
         await setupTestDb();
