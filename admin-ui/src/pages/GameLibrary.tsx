@@ -9,6 +9,7 @@ import LoadingState from '../components/LoadingState';
 import StarRating from '../components/StarRating';
 import StylePicker from '../components/StylePicker';
 import GameInfoModal from '../components/GameInfoModal';
+import RAGameSearch, { type RAImportResult } from '../components/RAGameSearch';
 import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
 // ADR 0016 catalogue phase §6 — `global_games.platforms` is an ENGINE list, so
 // catalogue chips render through the provenance helper the rest of the app
@@ -691,6 +692,30 @@ export default function GameLibrary() {
     }
   };
 
+  /**
+   * Contract §4 — an RA import IS the add. The game is `status='approved'` the
+   * moment the request returns (demand is the approval gate), so there is no
+   * proposal to file: close the add form, refresh the library, and land the new
+   * row selected so the admin's next click is Activate/Pin rather than a hunt
+   * through the list. `setSearch` is what actually brings the row on screen —
+   * the table is paginated and a fresh import can land on any page.
+   */
+  const handleRAImported = (result: RAImportResult) => {
+    const name = result.game?.name || 'Game';
+    toast(
+      result.action === 'updated'
+        ? `${name} was already in the catalogue — enriched it from RetroAchievements`
+        : `${name} imported from RetroAchievements`,
+      'success',
+    );
+    setProposalCheck(null);
+    setNewGame({ ...emptyAddForm });
+    setShowAddForm(false);
+    setSearch(name);
+    if (result.game?.id) setSelectedIds(new Set([result.game.id]));
+    fetchGames();
+  };
+
   const commitProposal = async () => {
     if (!proposalCheck || !room) return;
     setProposalCommitting(true);
@@ -1051,6 +1076,26 @@ export default function GameLibrary() {
           <NeonButton onClick={handleAddGame} disabled={saving}>
             {saving ? 'Checking…' : 'Check catalogue'}
           </NeonButton>
+
+          {/* Contract §4 — the demand-driven catalogue. A video/arcade game
+              that isn't in Arcaid yet almost certainly IS on RetroAchievements;
+              picking it here is the approval gate, and the import is instant,
+              so the admin never has to file a proposal and wait. Pinball is not
+              on RA, so the section stays out of the way for `mode === pinball`. */}
+          {room && newGame.mode === 'videogame' && (
+            <div className="mt-4">
+              <RAGameSearch
+                basePath={`/rooms/${room.roomId}/ra-catalogue`}
+                authMode="admin"
+                query={newGame.name}
+                canImport
+                actionLabel="Import"
+                showEligibility
+                showConfigHint
+                onImported={handleRAImported}
+              />
+            </div>
+          )}
         </NeonCard>
       )}
 

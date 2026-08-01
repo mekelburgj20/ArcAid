@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.68.0] — unreleased
+
+**RetroAchievements on-demand game import** (product decision 2026-08-01: demand IS the approval
+gate — bulk video-game imports retired as the acquisition strategy; v2.65's hardened IGDB path
+stays dormant as a tool). Requires `RA_USERNAME` + `RA_API_KEY` (encrypted at rest) in Global
+Settings — a free RA account's web API key. Inert until configured.
+
+- **Master list:** `ra_games` shadow table (migration 132) synced per-console from
+  `API_GetGameList?f=1` (achievement-set games only, ~10-15k rows; RA has no server-side search
+  and mandates caching this endpoint — we sync-and-search locally). Super-admin sync button +
+  lazy auto-sync (≤1/7d) with the v2.65 running/progress lifecycle; 20 RA consoles mapped to
+  existing engines via `RA_CONSOLE_ENGINE_MAP` (RA Arcade includes Neo Geo).
+- **Realtime import** from three surfaces sharing one component and one service path: the Global
+  Scoreboard search — palette AND page empty-state — where any logged-in player can "Add to
+  Arcaid" (guests get a login prompt; 5 imports/hour/user; `ra_imported_by` provenance recorded),
+  the room-admin GameLibrary add-game flow, and a super-admin GlobalCatalogue panel.
+  Import = 2-4 RA calls + art rehosted to `data/catalogue-images/ra/` → the game lands approved,
+  engine-tagged, deduped by new `ra_id` external id (migration 133; an RA import onto an existing
+  row ENRICHES it), and appears immediately as a categorized claim card — the player who added it
+  can submit their score in the same visit.
+- **Score-eligibility classification** from RA leaderboard metadata (`RankAsc` + the 14 Format
+  values verified from RAWeb source): verdicts score > score_maybe > time > novelty > unknown;
+  RA silence = unknown, still importable. Verdict hints render on admin surfaces only.
+- **"Not score-eligible" flag:** new reason in the game report-a-problem flow, rendered
+  distinctly (amber badge + filter) in the catalogue feedback queue with the importer's verdict
+  alongside the reporter's claim. No auto-removal — super-admin reviews.
+- API key scrubbed from all logged URLs; "Data from RetroAchievements" attribution on every
+  search surface.
+- Tests: backend 1199 → 1283, admin-ui 339 → 358.
+
 ## [2.67.0] — unreleased
 
 **Neon card redesign** (user direction, 2026-08-01). The Global Scoreboard cards get their arcade

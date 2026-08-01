@@ -45,6 +45,7 @@ import { normalizeSubmitterUserId } from '../../services/SubmissionContextServic
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
 import { RoomGameTagsService } from '../../services/RoomGameTagsService.js';
+import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { GameRoomSettingsService } from '../../services/GameRoomSettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { AdminService } from '../../services/AdminService.js';
@@ -2299,6 +2300,20 @@ router.get('/:roomId/game_library/search', requireAuth, requireRoomAccess('roomI
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
+// --- RetroAchievements on-demand import (contract §2/§3) ---
+//
+// Room-admin surface. The handler bodies are shared with the super-admin and
+// public twins (see src/api/raCatalogueHandlers.ts) — only the middleware
+// differs. Search is a read of our own cached master list; the import WRITES
+// to the shared catalogue and is auto-audited by the app-level `auditLog` on
+// a 2xx POST.
+router.get('/:roomId/ra-catalogue/search', requireAuth, requireRoomAccess('roomId'), raSearchHandler);
+router.post(
+    '/:roomId/ra-catalogue/import/:raGameId',
+    writeLimiter, requireAuth, requireRoomAccess('roomId'), requireNotBanned,
+    raImportHandler,
+);
 
 // Game library (room-scoped view).
 //

@@ -96,6 +96,47 @@ export const globalSubmitLimiter = rateLimit({
 });
 
 /**
+ * RetroAchievements master-list search: 30 requests per minute per IP.
+ *
+ * The global twin of this endpoint is a PUBLIC read — it only exposes our
+ * cached copy of RA's game lists, which RA publishes freely — so it needs no
+ * auth. It does need a cap: it is an unauthenticated endpoint that runs a
+ * double-LIKE over ~10-15k rows, and a search box fires it per keystroke, so
+ * the limit is set above realistic typing (a debounced box makes a handful of
+ * calls per query) and well below scripted abuse.
+ */
+export const raSearchLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => ipKeyGenerator(req.ip),
+    message: { error: 'Too many searches. Please slow down.' },
+});
+
+/**
+ * Player-triggered RetroAchievements import: 5 per hour per Discord user.
+ *
+ * Keyed on `req.user.discordId` (same pattern and IPv6 rationale as
+ * `globalSubmitLimiter`) so a shared IP does not lump distinct players
+ * together — must be mounted AFTER requireDiscordUser to take effect per-user.
+ *
+ * An import is cheap for us (2-4 API calls, 2 image fetches) but it is not
+ * free for RA, and it WRITES to the shared catalogue. Two different abuses are
+ * capped by the one number: hammering RA's fair-use budget, and bulk-adding
+ * junk games that a super-admin then has to review by hand. Five per hour is
+ * far above a real player adding the game they want to post a score on.
+ */
+export const raImportLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => req.user?.discordId || ipKeyGenerator(req.ip),
+    message: { error: 'Import limit reached (5 per hour). Please try again later.' },
+});
+
+/**
  * Guest content (comments, ratings): 10 requests per minute per IP.
  *
  * Keys on the normalized IP via `ipKeyGenerator` (IPv6 addresses are

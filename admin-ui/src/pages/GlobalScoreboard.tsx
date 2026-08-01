@@ -14,6 +14,7 @@ import PinnedCarousel, { type PinnedGame } from '../components/PinnedCarousel';
 import GlobalGameCard, { type GlobalGameCardGame, type Density } from '../components/GlobalGameCard';
 import GlobalHeroCard from '../components/GlobalHeroCard';
 import GlobalScoreboardTitle from '../components/GlobalScoreboardTitle';
+import RAGameSearch, { type RAImportResult } from '../components/RAGameSearch';
 import { GRID_CLASS } from '../lib/globalGrid';
 import { formatScore } from '../lib/format';
 import { CARD_CATEGORY_ORDER, getCardCategoryLabel } from '../lib/scoreProvenance';
@@ -52,6 +53,13 @@ interface Room {
 type SortMode = 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc' | 'pinned';
 
 const PAGE_SIZE = 30;
+
+/**
+ * §4 — "no (or few) catalogue matches". Below this many cards a search reads as
+ * a miss even when it technically returned something, so the RetroAchievements
+ * offer still appears (under the grid rather than instead of it).
+ */
+const FEW_RESULTS = 4;
 
 /** Sort pills replace the old <select>. Order and labels follow the design
  *  handoff. `Pinned first` leads the list but only exists for authenticated
@@ -169,6 +177,16 @@ export default function GlobalScoreboard() {
    *  `nowTs` ticks once a second purely so the rendered age advances. */
   const [lastUpdate, setLastUpdate] = useState(() => Date.now());
   const [nowTs, setNowTs] = useState(() => Date.now());
+  /**
+   * §4 — the card key of a game the viewer just added from RetroAchievements.
+   * Held only long enough to scroll to it and ring it once; a permanent marker
+   * would still be glowing three searches later.
+   */
+  const [raHighlightKey, setRaHighlightKey] = useState<string | null>(null);
+  const raHighlightRef = useRef<HTMLDivElement | null>(null);
+  /** Success line under the RA panel — the page's toasts are score events. */
+  const [raNotice, setRaNotice] = useState<string | null>(null);
+  const raNoticeTimerRef = useRef<number | null>(null);
 
   // Debounce search input (300ms) so we don't hammer the backend on every keystroke
   useEffect(() => {
@@ -427,6 +445,45 @@ export default function GlobalScoreboard() {
   };
 
   /**
+   * §4 — a player added a game from RetroAchievements.
+   *
+   * The refetch is driven by narrowing the search to the imported title rather
+   * than by calling a bespoke reload: the page's one fetch effect is keyed on
+   * `search`, so re-running it through the same door keeps `hero`, `total` and
+   * `hasMore` consistent (the ad-hoc post-submission refetch further down does
+   * not, and that is a wart, not a pattern to copy). The imported game is
+   * brand new and therefore scoreless, so it arrives as a `::none` claim card
+   * — which is exactly the card the player needs in order to post the first
+   * score they came here to post.
+   */
+  const handleRAImported = useCallback((result: RAImportResult) => {
+    const name = result.game?.name || 'That game';
+    setRaHighlightKey(`${result.game.id}::none`);
+    setSearchInput(name);
+    setCategory('all');
+    setRaNotice(`${name} is on Arcaid now — claim the first score.`);
+    if (raNoticeTimerRef.current) window.clearTimeout(raNoticeTimerRef.current);
+    raNoticeTimerRef.current = window.setTimeout(() => setRaNotice(null), 6000);
+  }, []);
+
+  /**
+   * Scroll to the freshly-imported card once the refetch has actually put it on
+   * screen, then drop the marker. Keyed on `games` (not on a timer) because the
+   * card does not exist until that response lands.
+   */
+  useEffect(() => {
+    if (!raHighlightKey) return;
+    if (!games.some(g => cardKeyOf(g) === raHighlightKey)) return;
+    raHighlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const t = window.setTimeout(() => setRaHighlightKey(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [raHighlightKey, games]);
+
+  useEffect(() => () => {
+    if (raNoticeTimerRef.current) window.clearTimeout(raNoticeTimerRef.current);
+  }, []);
+
+  /**
    * A3 — the palette's Submit / ↵ path. Unlike the card path (which redirects
    * straight into OAuth), a logged-out palette user is bounced to the page's
    * own provider-agnostic login affordance: Google is a full IdP, so the
@@ -454,6 +511,47 @@ export default function GlobalScoreboard() {
     }
     setSubmitGame(game);
   };
+
+  /**
+   * §4 — built once and rendered in one of two slots (above an empty grid,
+   * below a thin one) so the two branches can never drift apart.
+   *
+   * `showEligibility` is deliberately false here: the RA verdict is a
+   * moderation signal for admins (§5), not a label to hang on a game in front
+   * of the player deciding whether to add it.
+   */
+  const raSearch = (variant: 'card' | 'bare') => (
+    <RAGameSearch
+      basePath="/global/ra-catalogue"
+      authMode="player"
+      playerToken={playerToken}
+      query={search}
+      /* The page already debounced this value; debouncing it again would
+         just add 300ms to every keystroke. */
+      debounceMs={0}
+      variant={variant}
+      canImport={Boolean(playerToken)}
+      loginPrompt={
+        <button
+          type="button"
+          onClick={handleLogin}
+          className="text-neon-cyan hover:underline"
+        >
+          Log in to add this game
+        </button>
+      }
+      inCatalogueHref={id => `/games/${id}`}
+      onImported={handleRAImported}
+    />
+  );
+
+  /**
+   * The page-level copy of the offer. Suppressed while the palette is open:
+   * the palette carries its own copy (see `emptySlot`) and dims everything
+   * behind it, so rendering both at once just puts a ghost of the same panel
+   * behind the live one.
+   */
+  const raPanel = paletteOpen ? null : raSearch('card');
 
   return (
     <div className="min-h-screen bg-deep text-primary">
@@ -576,6 +674,10 @@ export default function GlobalScoreboard() {
             category={category}
             loggedIn={Boolean(playerToken)}
             onSubmitGame={handlePaletteSubmit}
+            /* §4 — the palette is where a missed search actually lands, and
+               while it is open the page behind it is inert. The offer has to
+               be here too, or it is unreachable at the one moment it matters. */
+            emptySlot={raSearch('bare')}
           />
           <select
             value={scope}
@@ -676,6 +778,29 @@ export default function GlobalScoreboard() {
           </div>
         )}
 
+        {/* §4 — the import confirmation sits ABOVE the results, not with the RA
+            panel: the panel moves between two slots depending on how many cards
+            came back, and a success message that jumps around the page with it
+            is worse than no message. */}
+        {raNotice && (
+          <div
+            className="mb-4 rounded-md border border-neon-green/40 bg-neon-green/10 px-3 py-2 text-sm text-neon-green"
+            role="status"
+            data-testid="ra-import-notice"
+          >
+            {raNotice}
+          </div>
+        )}
+
+        {/* §4 — the demand-driven catalogue's player entry point.
+            Placed ABOVE the grid when the search came up empty (it is then the
+            only answer on screen) and below it otherwise; either way it only
+            appears for a search that the catalogue could barely answer, so it
+            never competes with a healthy result set. */}
+        {!loading && raPanel && search.trim().length >= 2 && games.length === 0 && (
+          <div className="mb-6">{raPanel}</div>
+        )}
+
         {/* Card grid */}
         {loading ? (
           <LoadingState message="Loading global scoreboard..." />
@@ -712,15 +837,34 @@ export default function GlobalScoreboard() {
                   scores would have nowhere on the page to appear. */}
               {games
                 .filter(game => !hero || cardKeyOf(game) !== cardKeyOf(hero))
-                .map(game => (
-                  <GlobalGameCard
-                    key={cardKeyOf(game)}
-                    game={game}
-                    density={density}
-                    onSubmit={() => handleSubmitClick(game)}
-                    onTogglePin={playerToken ? () => togglePin(game) : undefined}
-                  />
-                ))}
+                .map(game => {
+                  const key = cardKeyOf(game);
+                  const card = (
+                    <GlobalGameCard
+                      game={game}
+                      density={density}
+                      onSubmit={() => handleSubmitClick(game)}
+                      onTogglePin={playerToken ? () => togglePin(game) : undefined}
+                    />
+                  );
+                  // §4 — the just-imported card gets a temporary ring from a
+                  // WRAPPER, not from a card prop: the highlight is a property
+                  // of this page's flow, and GlobalGameCard is shared with the
+                  // pins carousel, where it would mean nothing.
+                  if (key !== raHighlightKey) {
+                    return <div key={key} className="contents">{card}</div>;
+                  }
+                  return (
+                    <div
+                      key={key}
+                      ref={raHighlightRef}
+                      data-testid="ra-imported-card"
+                      className="h-full rounded-xl ring-2 ring-neon-cyan/70 shadow-[0_0_18px_rgba(0,229,255,0.25)]"
+                    >
+                      {card}
+                    </div>
+                  );
+                })}
             </div>
             {hasMore && (
               <div className="mt-6 flex justify-center">
@@ -734,6 +878,14 @@ export default function GlobalScoreboard() {
               </div>
             )}
           </>
+        )}
+
+        {/* Thin result sets get the same offer, under the grid — "few matches"
+            is the other half of the contract's trigger, and a player searching
+            "donkey kong" who gets one unrelated hit is in the same bind as one
+            who gets none. */}
+        {!loading && raPanel && search.trim().length >= 2 && games.length > 0 && games.length < FEW_RESULTS && (
+          <div className="mt-6">{raPanel}</div>
         )}
         </div>
       </div>

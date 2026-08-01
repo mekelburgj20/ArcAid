@@ -895,3 +895,64 @@ export function deriveLegacyPlatform(
     }
     return candidates[0] ?? null;
 }
+
+// ─── RetroAchievements consoles → engines ───────────────────────────────────
+
+/**
+ * RetroAchievements console id → canonical engine id (RA on-demand import,
+ * contract §1).
+ *
+ * RA's console ids come from `rc_consoles.h` in rcheevos and are stable public
+ * identifiers. This map is deliberately PARTIAL: it lists only consoles whose
+ * engine ALREADY exists in `CANONICAL_ENGINES`, because the engine id is what
+ * a score's comparability is decided by (ADR 0016) and minting one here would
+ * create a fidelity band nothing else in the system knows about. A console
+ * absent from this map is never synced into the RA master list, so it can
+ * never be imported — widening later costs one entry here (or one new engine
+ * plus one entry), and nothing else.
+ *
+ * RA's pseudo-consoles (100 Hubs, 101 Events, 102 Standalone) are deliberately
+ * absent: they are not hardware and carry no comparable engine.
+ */
+export const RA_CONSOLE_ENGINE_MAP: Record<number, string> = {
+    1:  'genesis',
+    2:  'n64',
+    3:  'snes',
+    4:  'gb',
+    5:  'gba',
+    6:  'gbc',
+    7:  'nes',
+    8:  'tg16',
+    9:  'sega_cd',
+    11: 'sms',
+    12: 'ps1',
+    15: 'game_gear',
+    17: 'jaguar',
+    21: 'ps2',
+    25: 'atari_2600',
+    27: 'arcade',
+    39: 'saturn',
+    40: 'dreamcast',
+    43: '3do',
+    51: 'atari_7800',
+};
+
+/**
+ * The catalogue `type`/`subtype` an RA console implies, or null when the
+ * console is not mapped.
+ *
+ * RA console 27 is Arcade (it also carries Neo Geo) → `type='arcade'`, the
+ * same value the IGDB importer writes for arcade cabinets, so both sources
+ * land in one catalogue band. Every other mapped console is home hardware →
+ * `type='video_game'`, `subtype='console'`.
+ *
+ * Null rather than a default for unmapped consoles: a caller must not be able
+ * to file a console this taxonomy has never ruled on under a fallback type.
+ */
+export function raCatalogueType(consoleId: number): { type: string; subtype: string } | null {
+    const engine = RA_CONSOLE_ENGINE_MAP[consoleId];
+    if (!engine) return null;
+    return engine === 'arcade'
+        ? { type: 'arcade', subtype: 'arcade' }
+        : { type: 'video_game', subtype: 'console' };
+}

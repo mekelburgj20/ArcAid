@@ -23,8 +23,17 @@ const FIELD_OPTIONS: Array<{ value: string; label: string }> = [
     { value: 'platforms', label: 'Platforms are wrong' },
     { value: 'artwork', label: 'Artwork is wrong / missing' },
     { value: 'duplicate', label: 'This is a duplicate of another game' },
+    { value: 'not_score_eligible', label: "Not score-eligible (game isn't score-based)" },
     { value: 'other', label: 'Something else' },
 ];
+
+/**
+ * Contract §5 — the eligibility flag disputes whether the game belongs here at
+ * all, so there is nothing to "suggest" and no source to cite. Requiring prose
+ * to file it would suppress exactly the reports the super-admin wants. The
+ * server's zod refine carries the same exemption; keep the two in step.
+ */
+const NO_DETAIL_REQUIRED = new Set(['not_score_eligible']);
 
 const inputClass =
     'w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm ' +
@@ -39,7 +48,7 @@ export default function ReportProblemModal({ globalGameId, gameName, playerToken
 
     const handleSubmit = async () => {
         if (!playerToken) return;
-        if (!suggested.trim() && !note.trim()) {
+        if (!NO_DETAIL_REQUIRED.has(field) && !suggested.trim() && !note.trim()) {
             setError('Add a suggested correction or a note so admins know what to look at.');
             return;
         }
@@ -106,18 +115,26 @@ export default function ReportProblemModal({ globalGameId, gameName, playerToken
                                 ))}
                             </select>
                         </div>
-                        <div>
-                            <label className="block text-xs text-muted uppercase tracking-wider mb-1">
-                                Suggested correction <span className="normal-case">(optional)</span>
-                            </label>
-                            <input
-                                value={suggested}
-                                onChange={e => setSuggested(e.target.value)}
-                                maxLength={300}
-                                placeholder={field === 'duplicate' ? 'Name of the game it duplicates' : 'e.g. Bally, 1995, …'}
-                                className={inputClass}
-                            />
-                        </div>
+                        {field === 'not_score_eligible' ? (
+                            <p className="text-xs text-muted">
+                                Flags this game for a moderator to look at — nothing is removed
+                                automatically. Add a note below if there's something specific they
+                                should know.
+                            </p>
+                        ) : (
+                            <div>
+                                <label className="block text-xs text-muted uppercase tracking-wider mb-1">
+                                    Suggested correction <span className="normal-case">(optional)</span>
+                                </label>
+                                <input
+                                    value={suggested}
+                                    onChange={e => setSuggested(e.target.value)}
+                                    maxLength={300}
+                                    placeholder={field === 'duplicate' ? 'Name of the game it duplicates' : 'e.g. Bally, 1995, …'}
+                                    className={inputClass}
+                                />
+                            </div>
+                        )}
                         <div>
                             <label className="block text-xs text-muted uppercase tracking-wider mb-1">
                                 Note <span className="normal-case">(optional — why / source)</span>

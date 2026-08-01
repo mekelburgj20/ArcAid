@@ -128,6 +128,17 @@ export interface GlobalGame {
     opdb_id: string | null;
     vps_id: string | null;
     igdb_id: number | null;
+    /** RetroAchievements game id (RA on-demand import). Joins the step-1
+     *  external-id set below. Partial-UNIQUE indexed; migration 133. */
+    ra_id: number | null;
+    /** Classifier verdict at import time — a HINT for admin surfaces and the
+     *  "not score-eligible" review flow, never an enforcement gate. */
+    score_eligibility: string | null;
+    /** How many RA boards the game had at import time (verdict evidence). */
+    ra_leaderboard_count: number | null;
+    /** Who triggered the RA import — players can, so a junk add needs an
+     *  attributable actor. Nullable; every non-RA row has none. */
+    ra_imported_by: string | null;
     ipdb_url: string | null;
     /** v2.x (catalogue-dedup-hardening): thematic IPDB reference for a
      *  virtual-only-manufacturer row (e.g. a Zen Studios or "Original" fan
@@ -175,6 +186,10 @@ export interface GlobalGameInput {
     opdb_id?: string | null;
     vps_id?: string | null;
     igdb_id?: number | null;
+    ra_id?: number | null;
+    score_eligibility?: string | null;
+    ra_leaderboard_count?: number | null;
+    ra_imported_by?: string | null;
     ipdb_url?: string | null;
     based_on_ipdb_url?: string | null;
     external_url?: string | null;
@@ -255,11 +270,14 @@ export class GlobalGameService {
     }
 
     /**
-     * Finds a game by external ID (opdb_id, vps_id, or igdb_id).
+     * Finds a game by external ID (opdb_id, vps_id, igdb_id, or ra_id).
      */
-    static async findByExternalId(source: 'opdb' | 'vps' | 'igdb', externalId: string | number): Promise<GlobalGame | undefined> {
+    static async findByExternalId(source: 'opdb' | 'vps' | 'igdb' | 'ra', externalId: string | number): Promise<GlobalGame | undefined> {
         const db = await getDatabase();
-        const col = source === 'opdb' ? 'opdb_id' : source === 'vps' ? 'vps_id' : 'igdb_id';
+        const col = source === 'opdb' ? 'opdb_id'
+            : source === 'vps' ? 'vps_id'
+            : source === 'igdb' ? 'igdb_id'
+            : 'ra_id';
         return db.get(`SELECT * FROM global_games WHERE ${col} = ?`, externalId);
     }
 
@@ -326,6 +344,7 @@ export class GlobalGameService {
         if (input.opdb_id && candidate.opdb_id && candidate.opdb_id !== input.opdb_id) return true;
         if (input.vps_id && candidate.vps_id && candidate.vps_id !== input.vps_id) return true;
         if (input.igdb_id && candidate.igdb_id && candidate.igdb_id !== input.igdb_id) return true;
+        if (input.ra_id && candidate.ra_id && candidate.ra_id !== input.ra_id) return true;
         return false;
     }
 
@@ -399,6 +418,11 @@ export class GlobalGameService {
         if (input.opdb_id) existing = await this.findByExternalId('opdb', input.opdb_id);
         if (!existing && input.vps_id) existing = await this.findByExternalId('vps', input.vps_id);
         if (!existing && input.igdb_id) existing = await this.findByExternalId('igdb', input.igdb_id);
+        // RA joins the external-id set as a peer, NOT a special case: a
+        // re-import must land on the row it created last time, and the
+        // cross-type guard below applies to it exactly as it does to the
+        // others (an `ra_id` match onto a `pinball` row is refused).
+        if (!existing && input.ra_id) existing = await this.findByExternalId('ra', input.ra_id);
 
         // 2. Cross-type guard
         if (existing && existing.type !== inputType) {
@@ -700,6 +724,15 @@ export class GlobalGameService {
                     opdb_id = COALESCE(?, opdb_id),
                     vps_id = COALESCE(?, vps_id),
                     igdb_id = COALESCE(?, igdb_id),
+                    ra_id = COALESCE(?, ra_id),
+                    -- Supplied-wins, so a re-import refreshes the verdict and
+                    -- the board count from RA's current answer.
+                    score_eligibility = COALESCE(?, score_eligibility),
+                    ra_leaderboard_count = COALESCE(?, ra_leaderboard_count),
+                    -- Reversed on purpose: the FIRST importer keeps the
+                    -- credit. This is moderation provenance ("who put this
+                    -- here"), and a later re-import must not overwrite it.
+                    ra_imported_by = COALESCE(ra_imported_by, ?),
                     ipdb_url = COALESCE(?, ipdb_url),
                     based_on_ipdb_url = COALESCE(?, based_on_ipdb_url),
                     external_url = COALESCE(?, external_url),
@@ -729,6 +762,10 @@ export class GlobalGameService {
                 input.opdb_id ?? null,
                 input.vps_id ?? null,
                 input.igdb_id ?? null,
+                input.ra_id ?? null,
+                input.score_eligibility ?? null,
+                input.ra_leaderboard_count ?? null,
+                input.ra_imported_by ?? null,
                 input.ipdb_url ?? null,
                 input.based_on_ipdb_url ?? null,
                 input.external_url ?? null,
@@ -793,7 +830,9 @@ export class GlobalGameService {
                 id, name, normalized_name, display_name, manufacturer, year, type, subtype,
                 platforms, themes, designers, players,
                 image_url, local_image_path, wheel_image_path,
-                opdb_id, vps_id, igdb_id, ipdb_url, based_on_ipdb_url, external_url,
+                opdb_id, vps_id, igdb_id, ra_id,
+                score_eligibility, ra_leaderboard_count, ra_imported_by,
+                ipdb_url, based_on_ipdb_url, external_url,
                 table_authors, table_download_urls, tutorial_urls, rules_urls,
                 description, source_rating, features,
                 status, submitted_by, reviewed_by, global_leaderboard,
@@ -802,7 +841,9 @@ export class GlobalGameService {
                 ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?,
-                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?,
@@ -820,6 +861,9 @@ export class GlobalGameService {
             input.players ?? null,
             input.image_url ?? null, input.local_image_path ?? null, input.wheel_image_path ?? null,
             input.opdb_id ?? null, input.vps_id ?? null, input.igdb_id ?? null,
+            input.ra_id ?? null,
+            input.score_eligibility ?? null, input.ra_leaderboard_count ?? null,
+            input.ra_imported_by ?? null,
             input.ipdb_url ?? null, input.based_on_ipdb_url ?? null, input.external_url ?? null,
             JSON.stringify(input.table_authors || []),
             input.table_download_urls ? JSON.stringify(input.table_download_urls) : null,

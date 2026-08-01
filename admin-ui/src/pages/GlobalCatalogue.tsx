@@ -4,6 +4,7 @@ import NeonCard from '../components/NeonCard';
 import NeonButton from '../components/NeonButton';
 import LoadingState from '../components/LoadingState';
 import DataTable from '../components/DataTable';
+import RAGameSearch from '../components/RAGameSearch';
 import { Search, RefreshCw, ChevronDown, ChevronUp, Check, X, Trash2, ExternalLink, GitMerge, AlertTriangle, Layers, Flag } from 'lucide-react';
 
 interface GlobalGame {
@@ -30,6 +31,10 @@ interface GlobalGame {
   table_download_urls: string | null;
   local_image_path: string | null;
   created_at: string;
+  /** RA on-demand import (§3). Already on the wire — `SELECT *`. */
+  ra_id: number | null;
+  score_eligibility: string | null;
+  ra_leaderboard_count: number | null;
 }
 
 interface SyncLog {
@@ -162,6 +167,7 @@ const FEEDBACK_FIELD_LABELS: Record<string, string> = {
   platforms: 'Platforms',
   artwork: 'Artwork',
   duplicate: 'Duplicate game',
+  not_score_eligible: 'Not score-eligible',
   other: 'Other',
 };
 
@@ -183,6 +189,27 @@ const SOURCE_LABELS: Record<string, string> = {
   'steam-pinball': 'Steam Pinball',
   'fx-vr': 'FX VR',
   'atgames': 'AtGames',
+  // RA is the one source whose route slug and sync_logs key differ
+  // (`sync-ra-masterlist` vs `ra_masterlist`), so BOTH spellings are mapped:
+  // the button resolves through the first, the status card through the second.
+  'ra-masterlist': 'RA Master List',
+  ra_masterlist: 'RA Master List',
+};
+
+/**
+ * Button key → the `sync_logs.source` the run will actually write. Identity for
+ * every source but RA, whose route is `sync-ra-masterlist` while its log key is
+ * `ra_masterlist` (`RAMasterListService.RA_SYNC_SOURCE`). Without this the
+ * completion poll below would wait forever on a row that never appears.
+ */
+const SYNC_LOG_SOURCE: Record<string, string> = {
+  'ra-masterlist': 'ra_masterlist',
+};
+
+/** Muted, admin-only reading of the RA score-eligibility verdict (§5). */
+const ELIGIBILITY_HINTS: Record<string, string> = {
+  novelty: "RA boards suggest this isn't high-score-based",
+  time: 'RA boards suggest this is time-based, not high-score-based',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -222,6 +249,12 @@ export default function GlobalCatalogue() {
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [feedbackNotes, setFeedbackNotes] = useState<Record<string, string>>({});
+  /** §5 — narrow the queue to the "not score-eligible" flags. */
+  const [eligibilityOnly, setEligibilityOnly] = useState(false);
+
+  // §4 — RA on-demand import panel (collapsed until asked for).
+  const [raPanelOpen, setRaPanelOpen] = useState(false);
+  const [raQuery, setRaQuery] = useState('');
 
   const [auditData, setAuditData] = useState<DedupAuditResult | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
@@ -262,6 +295,16 @@ export default function GlobalCatalogue() {
       setResolvingId(null);
     }
   };
+
+  /**
+   * §4 — after an import, put the admin ON the row. `setSearch` is what brings
+   * it into the (server-filtered, paginated) list; expanding it saves the click
+   * that would otherwise be needed to see the eligibility verdict and RA ids.
+   */
+  const handleRAImported = useCallback((result: { game: { id: string; name: string } }) => {
+    setSearch(result.game?.name || '');
+    setExpandedGame(result.game?.id ?? null);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoadError(null);
@@ -330,7 +373,7 @@ export default function GlobalCatalogue() {
         try {
           const logs = await api.get<SyncLog[]>('/admin/catalogue/sync-status');
           setSyncStatus(logs);
-          const latest = logs.find(l => l.source === source);
+          const latest = logs.find(l => l.source === (SYNC_LOG_SOURCE[source] || source));
           // Live progress while it works — a bulk IGDB run is hours long and
           // "started in background" was the last thing the admin heard.
           if (latest && !latest.completed_at) {
@@ -497,6 +540,10 @@ export default function GlobalCatalogue() {
     }
   };
 
+  const visibleFeedback = (feedbackItems ?? []).filter(
+    item => !eligibilityOnly || item.field === 'not_score_eligible',
+  );
+
   if (loading) return <LoadingState message="Loading catalogue..." />;
 
   return (
@@ -516,7 +563,7 @@ export default function GlobalCatalogue() {
       {/* Sync controls + health */}
       <NeonCard glowColor="magenta" className="mb-6" title="Catalogue Sync">
         <div className="flex flex-wrap gap-3 mb-4">
-          {['vps', 'wizard', 'opdb', 'igdb', 'steam-pinball', 'fx-vr', 'atgames'].map(source => (
+          {['vps', 'wizard', 'opdb', 'igdb', 'steam-pinball', 'fx-vr', 'atgames', 'ra-masterlist'].map(source => (
             <NeonButton
               key={source}
               variant="secondary"
@@ -567,6 +614,48 @@ export default function GlobalCatalogue() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </NeonCard>
+
+      {/* Contract §4 — the third surface of the shared RA search. Same
+          component as the room-admin add flow and the Global Scoreboard; the
+          /admin endpoint twin is the only difference. Behind a toggle because
+          this is an occasional tool, not part of the page's default reading. */}
+      <NeonCard glowColor="cyan" className="mb-6" title="RetroAchievements Import">
+        <p className="text-sm text-muted mb-3">
+          Search the synced RetroAchievements master list and import one game on demand.
+          The import is the approval — the game lands <span className="text-primary">approved</span>{' '}
+          and is immediately usable by every room.
+        </p>
+        <NeonButton
+          variant="secondary"
+          onClick={() => setRaPanelOpen(o => !o)}
+          className="flex items-center gap-2"
+        >
+          <Search size={14} />
+          {raPanelOpen ? 'Hide RA search' : 'Search RetroAchievements'}
+        </NeonButton>
+        {raPanelOpen && (
+          <div className="mt-4">
+            <input
+              type="text"
+              value={raQuery}
+              onChange={e => setRaQuery(e.target.value)}
+              placeholder="Search RetroAchievements by title…"
+              className="w-full px-3 py-2 bg-surface-alt border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan mb-3"
+            />
+            <RAGameSearch
+              basePath="/admin/ra-catalogue"
+              authMode="admin"
+              query={raQuery}
+              canImport
+              actionLabel="Import"
+              heading="Master-list results"
+              showEligibility
+              showConfigHint
+              onImported={handleRAImported}
+            />
           </div>
         )}
       </NeonCard>
@@ -743,6 +832,21 @@ export default function GlobalCatalogue() {
             answer "upstream" when the field comes from IPDB/VPS/OPDB (see the source badge).
           </p>
           <div className="flex gap-1">
+            {/* §5 — the eligibility flags are a different job from metadata
+                corrections (delete/merge vs. edit a field), so the queue can be
+                narrowed to just them rather than being read end-to-end. */}
+            <button
+              onClick={() => setEligibilityOnly(o => !o)}
+              data-testid="feedback-eligibility-filter"
+              aria-pressed={eligibilityOnly}
+              className={`px-3 py-1 rounded text-xs font-medium border transition-colors cursor-pointer ${
+                eligibilityOnly
+                  ? 'border-yellow-500/50 bg-yellow-900/30 text-yellow-300'
+                  : 'border-border text-muted hover:text-primary'
+              }`}
+            >
+              Eligibility flags
+            </button>
             {(['open', 'resolved'] as const).map(v => (
               <button
                 key={v}
@@ -761,13 +865,15 @@ export default function GlobalCatalogue() {
 
         {feedbackLoading ? (
           <div className="text-muted text-sm py-4 text-center">Loading reports…</div>
-        ) : !feedbackItems || feedbackItems.length === 0 ? (
+        ) : visibleFeedback.length === 0 ? (
           <div className="text-muted text-sm py-4 text-center">
-            {feedbackView === 'open' ? 'No open reports — all clear.' : 'No resolved reports yet.'}
+            {eligibilityOnly
+              ? 'No score-eligibility flags here.'
+              : feedbackView === 'open' ? 'No open reports — all clear.' : 'No resolved reports yet.'}
           </div>
         ) : (
           <div className="space-y-3">
-            {feedbackItems.map(item => {
+            {visibleFeedback.map(item => {
               const src = feedbackFieldSource(item);
               const removed = item.live_name === null;
               return (
@@ -781,7 +887,19 @@ export default function GlobalCatalogue() {
                             game removed
                           </span>
                         )}
-                        <span className="px-1.5 py-0.5 text-[10px] uppercase rounded bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan">
+                        {/* §5 — the eligibility flag is not a metadata
+                            correction, so it does not wear the metadata
+                            badge's colour. Amber marks "decide whether this
+                            game belongs in the catalogue at all". */}
+                        <span
+                          data-testid="feedback-field-badge"
+                          data-field={item.field}
+                          className={`px-1.5 py-0.5 text-[10px] uppercase rounded border ${
+                            item.field === 'not_score_eligible'
+                              ? 'bg-yellow-900/30 border-yellow-500/40 text-yellow-300'
+                              : 'bg-neon-cyan/10 border-neon-cyan/30 text-neon-cyan'
+                          }`}
+                        >
                           {FEEDBACK_FIELD_LABELS[item.field] || item.field}
                         </span>
                         <span
@@ -792,8 +910,20 @@ export default function GlobalCatalogue() {
                         </span>
                       </div>
                       <div className="text-sm text-muted mt-1.5">
-                        {item.current_value != null && <>Current: <span className="text-primary">{item.current_value}</span></>}
-                        {item.suggested_value && <>{item.current_value != null && ' → '}Suggested: <span className="text-neon-green">{item.suggested_value}</span></>}
+                        {item.field === 'not_score_eligible' ? (
+                          <>
+                            Reporter says this game isn't score-based.
+                            {' '}
+                            {item.current_value
+                              ? <>RA's verdict at import: <span className="text-primary">{item.current_value.replace('_', ' ')}</span>.</>
+                              : 'No RetroAchievements verdict on file.'}
+                          </>
+                        ) : (
+                          <>
+                            {item.current_value != null && <>Current: <span className="text-primary">{item.current_value}</span></>}
+                            {item.suggested_value && <>{item.current_value != null && ' → '}Suggested: <span className="text-neon-green">{item.suggested_value}</span></>}
+                          </>
+                        )}
                       </div>
                       {item.note && <p className="text-sm text-muted mt-1 whitespace-pre-wrap">{item.note}</p>}
                       <div className="text-xs text-faint mt-1.5 flex items-center gap-3 flex-wrap">
@@ -1007,6 +1137,9 @@ function GameRow({
 }) {
   const platforms: string[] = JSON.parse(game.platforms || '[]');
   const sources = deriveSources(game);
+  const eligibilityHint = game.score_eligibility
+    ? ELIGIBILITY_HINTS[game.score_eligibility] || null
+    : null;
   const statusBadge = {
     approved: 'bg-green-900/40 text-green-300',
     pending_review: 'bg-yellow-900/40 text-yellow-300',
@@ -1046,6 +1179,18 @@ function GameRow({
             {sources.join(', ')}
           </span>
         )}
+        {/* §5 — the import-time verdict as a MUTED admin signal, so a
+            "not score-eligible" report is corroborated rather than being the
+            only evidence. Never shown to players. */}
+        {eligibilityHint && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-300 whitespace-nowrap hidden xl:inline"
+            title={eligibilityHint}
+            data-testid="catalogue-eligibility-hint"
+          >
+            {game.score_eligibility === 'time' ? 'time-based?' : 'not score-based?'}
+          </span>
+        )}
       </button>
 
       {expanded && (
@@ -1057,7 +1202,24 @@ function GameRow({
             <Detail label="VPS ID" value={game.vps_id || '-'} />
             <Detail label="IGDB ID" value={game.igdb_id?.toString() || '-'} />
             <Detail label="Source" value={sources.length > 0 ? sources.join(', ') : 'manual'} />
+            {game.ra_id != null && (
+              <>
+                <Detail label="RA ID" value={String(game.ra_id)} />
+                <Detail
+                  label="Score Eligibility"
+                  value={
+                    (game.score_eligibility || 'unknown').replace('_', ' ') +
+                    (game.ra_leaderboard_count != null
+                      ? ` (${game.ra_leaderboard_count} board${game.ra_leaderboard_count === 1 ? '' : 's'})`
+                      : '')
+                  }
+                />
+              </>
+            )}
           </div>
+          {eligibilityHint && (
+            <p className="text-xs text-muted">{eligibilityHint}</p>
+          )}
 
           {(() => {
             // v2.13.0: surface all source links rather than just external_url.
@@ -1209,6 +1371,10 @@ function deriveSources(game: GlobalGame): string[] {
   if (game.vps_id) evidence.push('vps');
   if (game.opdb_id) evidence.push('opdb');
   if (game.igdb_id) evidence.push('igdb');
+  // An RA-imported row carries `ra_id` whether or not `imported_from` was set
+  // (an RA import onto an existing IGDB row ENRICHES it, §3), so the badge has
+  // to read the external id, not the provenance string.
+  if (game.ra_id) evidence.push('ra');
   if (features.includes('wizard_auto') || features.includes('wizard_manual')) evidence.push('wizard');
   return Array.from(new Set([
     ...(game.imported_from ? [game.imported_from] : []),
