@@ -1582,7 +1582,7 @@ router.get('/submit/platforms', async (req, res) => {
     try {
         const { roomId, gameName, globalGameId } = req.query as Record<string, string | undefined>;
         const db = await getDatabase();
-        const { parsePlatformsList, resolveSubmittablePlatforms } = await import('../../utils/platformRules.js');
+        const { parsePlatformsList, resolveSubmittablePlatforms, parseTournamentRules } = await import('../../utils/platformRules.js');
         const { normalizePlatform } = await import('../../utils/platformMapping.js');
 
         // m3 fix (S22 Phase 2 adversarial review) — this route sits outside
@@ -1639,22 +1639,22 @@ router.get('/submit/platforms', async (req, res) => {
             effective = normalizeAndDedupe(effective);
 
             // Active tournament narrows the picker via platform_rules.
+            // `t.id` is selected so a malformed blob can be warned about by name.
             const activeGame = await db.get(`
-                SELECT t.platform_rules FROM games g
+                SELECT t.id AS tournament_id, t.platform_rules FROM games g
                 JOIN tournaments t ON t.id = g.tournament_id
                 WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ? AND g.status = 'ACTIVE'
                 LIMIT 1
-            `, gameName, roomId) as { platform_rules: string | null } | undefined;
+            `, gameName, roomId) as { tournament_id: string; platform_rules: string | null } | undefined;
 
+            // `null` means "no active tournament for this game" — distinct from
+            // "a tournament with empty rules", and the FE contract keeps it.
+            // The response ships `required`/`excluded` only; `restrictedText`
+            // is server-side (it is the rejection message, not picker input).
             let rules: { required: string[]; excluded: string[] } | null = null;
             if (activeGame?.platform_rules) {
-                try {
-                    const parsed = JSON.parse(activeGame.platform_rules);
-                    rules = {
-                        required: Array.isArray(parsed.required) ? parsed.required : [],
-                        excluded: Array.isArray(parsed.excluded) ? parsed.excluded : [],
-                    };
-                } catch { /* keep rules = null */ }
+                const parsed = parseTournamentRules(activeGame.platform_rules, activeGame.tournament_id);
+                rules = { required: parsed.required, excluded: parsed.excluded };
             }
 
             const submittable = resolveSubmittablePlatforms(effective, rules);

@@ -1,3 +1,97 @@
+import { logWarn } from './logger.js';
+
+/**
+ * The parsed shape of `tournaments.platform_rules`.
+ *
+ * Flat, single-namespace (legacy platform ids) as of ADR 0016 P2 Section 1 —
+ * the two-axis engine/device shape arrives in Section 2, and lands HERE, once,
+ * rather than at ten call sites.
+ */
+export interface TournamentRules {
+    required: string[];
+    excluded: string[];
+    restrictedText?: string;
+}
+
+/**
+ * Either the tournament row itself (anything carrying `platform_rules`, and
+ * ideally `id` so a warning can name it) or the raw JSON string.
+ */
+export type TournamentRulesSource =
+    | string
+    | null
+    | undefined
+    | { id?: string | null; platform_rules?: string | null };
+
+function emptyRules(): TournamentRules {
+    return { required: [], excluded: [] };
+}
+
+function asStringArray(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+/**
+ * THE parser for `tournaments.platform_rules`. Every runtime read goes through
+ * here (ADR 0016 P2, Section 1).
+ *
+ * Before this existed the blob was parsed at ten independent sites, eight of
+ * which swallowed a malformed value into `{}` — and `{}` means *a tournament
+ * that restricts nothing*. So a shape change that tripped any one site degraded
+ * that path to wide-open, in production, with nothing in the logs. Degrading is
+ * still the right behaviour (a bad rules blob must not take a tournament down);
+ * degrading *invisibly* is not, hence the warning.
+ *
+ * Malformed input — unparseable JSON, or valid JSON that isn't an object —
+ * logs a WARN naming the tournament and returns empty rules. A missing/empty
+ * blob is the normal "no rules" case and is silent. `required`/`excluded`
+ * coerce to string arrays defensively: a stored `"required": "vpx"` used to
+ * reach `passesplatformRules` as a string and throw on `.some`.
+ *
+ * NOTE — this is for RUNTIME reads only. Migrations that rewrite stored rows
+ * (database.ts's 101, platformTaxonomyExpansion's 083/089) deliberately keep
+ * their own raw `JSON.parse`: a migration must be a frozen transform of the
+ * shape that existed when it was written, and must not change what it persists
+ * when this parser evolves.
+ */
+export function parseTournamentRules(
+    source: TournamentRulesSource,
+    tournamentId?: string | null,
+): TournamentRules {
+    const row = typeof source === 'object' && source !== null ? source : null;
+    const raw = row ? row.platform_rules ?? null : typeof source === 'string' ? source : null;
+    const id: string = tournamentId || row?.id || '(unknown)';
+
+    if (!raw) return emptyRules();
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        logWarn(
+            `platform_rules is not valid JSON for tournament ${id} — degrading to no rules ` +
+            `(this tournament will restrict nothing until the value is fixed).`,
+        );
+        return emptyRules();
+    }
+
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        logWarn(
+            `platform_rules is not a JSON object for tournament ${id} — degrading to no rules ` +
+            `(this tournament will restrict nothing until the value is fixed).`,
+        );
+        return emptyRules();
+    }
+
+    const obj = parsed as Record<string, unknown>;
+    const rules: TournamentRules = {
+        required: asStringArray(obj.required),
+        excluded: asStringArray(obj.excluded),
+    };
+    if (typeof obj.restrictedText === 'string') rules.restrictedText = obj.restrictedText;
+    return rules;
+}
+
 /**
  * Parses a platforms value (JSON array or comma-separated string) into a string array.
  * Shared between all platform-reading code paths.

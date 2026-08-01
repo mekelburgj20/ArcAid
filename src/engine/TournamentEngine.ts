@@ -14,7 +14,7 @@ import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js'
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { RoomEventService } from '../services/RoomEventService.js';
-import { parsePlatformsList } from '../utils/platformRules.js';
+import { parsePlatformsList, parseTournamentRules } from '../utils/platformRules.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
 import { AchievementService } from '../services/AchievementService.js';
@@ -1458,8 +1458,7 @@ export class TournamentEngine {
         }
 
         // Parse platform rules
-        let platformRules = { required: [] as string[], excluded: [] as string[] };
-        try { platformRules = { ...platformRules, ...JSON.parse(tournamentRow.platform_rules || '{}') }; } catch {}
+        const platformRules = parseTournamentRules(tournamentRow, tournamentId);
 
         const eligibilityDays = tournamentRow.eligibility_days ?? 120;
 

@@ -1,5 +1,5 @@
 import { getDatabase } from '../database/database.js';
-import { parsePlatformsList, resolveSubmittablePlatforms } from '../utils/platformRules.js';
+import { parsePlatformsList, resolveSubmittablePlatforms, parseTournamentRules } from '../utils/platformRules.js';
 import { RoomGameTagsService } from './RoomGameTagsService.js';
 import {
     UNKNOWN,
@@ -60,14 +60,18 @@ export class ScoreProvenanceService {
         const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
         const effective = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
 
+        // `t.id` is selected purely so a malformed rules blob can be warned
+        // about by tournament, not anonymously.
         const activeGame = await db.get(`
-            SELECT t.platform_rules FROM games g
+            SELECT t.id AS tournament_id, t.platform_rules FROM games g
             JOIN tournaments t ON t.id = g.tournament_id
             WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ? AND g.status = 'ACTIVE'
             LIMIT 1
-        `, gameName, roomId) as { platform_rules: string | null } | undefined;
+        `, gameName, roomId) as { tournament_id: string; platform_rules: string | null } | undefined;
 
-        const rules = ScoreProvenanceService.parseRules(activeGame?.platform_rules ?? null);
+        const rules = ScoreProvenanceService.parseRules(
+            activeGame?.platform_rules ?? null, activeGame?.tournament_id ?? null,
+        );
         return { effective, submittable: resolveSubmittablePlatforms(effective, rules), rules };
     }
 
@@ -105,7 +109,7 @@ export class ScoreProvenanceService {
             ? await RoomGameTagsService.getTagsForGameName(tournament.game_room_id, gameName)
             : [];
         const effective = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
-        const rules = ScoreProvenanceService.parseRules(tournament?.platform_rules ?? null);
+        const rules = ScoreProvenanceService.parseRules(tournament?.platform_rules ?? null, tournamentId);
         return { effective, submittable: resolveSubmittablePlatforms(effective, rules), rules };
     }
 
@@ -216,16 +220,23 @@ export class ScoreProvenanceService {
         return ScoreProvenanceService.validate(scope, engine, device);
     }
 
-    private static parseRules(raw: string | null): { required: string[]; excluded: string[] } | null {
+    /**
+     * `null` means "no tournament rules apply here" — no active tournament for
+     * the game, or a global-catalogue scope. That is deliberately distinct from
+     * a tournament whose rules are empty, and callers keep the distinction.
+     *
+     * Everything else delegates to the shared `parseTournamentRules` (ADR 0016
+     * P2 §1) so this — the ONE server-side submission authority — cannot drift
+     * from the nine other read sites when the rule shape changes. A malformed
+     * blob now yields empty rules with a logged warning rather than a silent
+     * `null`; both are "restricts nothing" to every consumer here
+     * (`resolveSubmittablePlatforms` short-circuits identically on a null
+     * argument and on an empty `excluded`), but only one of them says so.
+     */
+    private static parseRules(
+        raw: string | null, tournamentId: string | null,
+    ): { required: string[]; excluded: string[] } | null {
         if (!raw) return null;
-        try {
-            const parsed = JSON.parse(raw);
-            return {
-                required: Array.isArray(parsed.required) ? parsed.required : [],
-                excluded: Array.isArray(parsed.excluded) ? parsed.excluded : [],
-            };
-        } catch {
-            return null;
-        }
+        return parseTournamentRules(raw, tournamentId);
     }
 }

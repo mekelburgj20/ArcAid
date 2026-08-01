@@ -36,7 +36,7 @@ import { isAllowedImage } from '../uploadValidation.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
 // sessions via the registry, never directly.
-import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList, parseTournamentRules } from '../../utils/platformRules.js';
 import { equivalentLegacyPlatforms } from '../../utils/scoreProvenance.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
@@ -517,9 +517,9 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
         let platformFilter = '';
         const platformParams: string[] = [];
         try {
-            const rules = JSON.parse(tournament.platform_rules || '{}');
-            const required: string[] = rules.required || [];
-            const excluded: string[] = rules.excluded || [];
+            const rules = parseTournamentRules(tournament);
+            const required: string[] = rules.required;
+            const excluded: string[] = rules.excluded;
             // v2.58.0 (ADR 0016) — exact JSON membership instead of `LIKE '%p%'`.
             //
             // `gg.platforms` is a JSON array, and raw substring matching read it
@@ -766,15 +766,16 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         }
 
         // 4. Check platform rules. Game's effective platforms = catalogue ∪ room tags.
-        let platformRules = { required: [] as string[], excluded: [] as string[] };
-        try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
+        //    Parsed ONCE — the gate and its rejection message must come from the
+        //    same read of the blob, or the two drift apart.
+        const platformRules = parseTournamentRules(tournament);
 
         const cataloguePlatforms = parsePlatformsList(gameLibEntry.platforms || '[]');
         const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
         const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
 
         if (!passesplatformRules(gamePlatforms, platformRules)) {
-            const restrictedText = (JSON.parse(tournament.platform_rules || '{}') as any).restrictedText;
+            const restrictedText = platformRules.restrictedText;
             return res.status(400).json({
                 error: restrictedText || 'This game is not available for this tournament type (platform restriction)',
             });
@@ -2908,8 +2909,7 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
         // Enforce platform rules. Game's effective platforms = catalogue ∪ room tags.
-        let platformRules = { required: [] as string[], excluded: [] as string[] };
-        try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
+        const platformRules = parseTournamentRules(tournament);
         if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
             const gameLibRow = await db.get(
                 `SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,

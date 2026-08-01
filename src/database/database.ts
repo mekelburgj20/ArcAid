@@ -1426,6 +1426,11 @@ export async function initDatabase(): Promise<Database> {
             let tournUpdated = 0;
             for (const row of tournRows) {
                 let rules: { required?: unknown; excluded?: unknown; restrictedText?: unknown } | null = null;
+                // Deliberately raw JSON.parse, NOT parseTournamentRules — migrations are
+                // frozen transforms of the legacy shape and must not change output when
+                // the live parser evolves (P2 ruling, 2026-07-31). This one parses,
+                // mutates required/excluded in place while preserving every other field
+                // (restrictedText included), and re-persists the same object.
                 try { rules = JSON.parse(row.platform_rules || '{}'); } catch { continue; }
                 if (!rules || typeof rules !== 'object') continue;
 

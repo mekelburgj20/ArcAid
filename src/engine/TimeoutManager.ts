@@ -7,7 +7,7 @@ import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMen
 import { TournamentEngine } from './TournamentEngine.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
 import { v4 as uuidv4 } from 'uuid';
-import { parsePlatformsList } from '../utils/platformRules.js';
+import { parsePlatformsList, parseTournamentRules } from '../utils/platformRules.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 
 export class TimeoutManager {
@@ -307,8 +307,7 @@ export class TimeoutManager {
             const term = getTerminology(tournament.mode);
 
             // Parse platform rules
-            let platformRules = { required: [] as string[], excluded: [] as string[] };
-            try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
+            const platformRules = parseTournamentRules(tournament, game.tournamentId);
 
             const eligibilityDays = tournament.eligibility_days ?? 120;
 
