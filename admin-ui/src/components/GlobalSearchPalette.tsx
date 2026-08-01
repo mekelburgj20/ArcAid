@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Medal, Loader2 } from 'lucide-react';
 import { catalogueImageFor } from '../lib/catalogueImage';
@@ -62,6 +62,18 @@ interface Props {
     /** Drives the logged-out footer hint; submission gating lives on the page. */
     loggedIn: boolean;
     onSubmitGame: (game: PaletteGame) => void;
+    /**
+     * Contract §4 — rendered under the "no games match" line.
+     *
+     * The palette OWNS the page's search field and, while open, dims and
+     * `aria-hidden`s everything behind it. So a "can't find it? add it from
+     * RetroAchievements" offer that lives only on the page below is literally
+     * unreachable at the moment the player needs it: they'd have to dismiss the
+     * palette first, having just been told there are no matches. The offer has
+     * to be reachable from inside the dropdown, and the palette stays dumb about
+     * what it is — the page passes the node in.
+     */
+    emptySlot?: ReactNode;
 }
 
 /** A palette shows a handful of rows; the grid behind is the "full results". */
@@ -77,6 +89,7 @@ export default function GlobalSearchPalette({
     category,
     loggedIn,
     onSubmitGame,
+    emptySlot,
 }: Props) {
     const navigate = useNavigate();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -350,8 +363,11 @@ export default function GlobalSearchPalette({
                                 Start typing to search the catalogue — try a title, a manufacturer, or a year.
                             </div>
                         ) : rows.length === 0 ? (
-                            <div className="px-4 py-4 text-[12px] text-muted">
-                                {loading ? 'Searching…' : `No games match "${query}".`}
+                            <div>
+                                <div className="px-4 py-4 text-[12px] text-muted">
+                                    {loading ? 'Searching…' : `No games match "${query}".`}
+                                </div>
+                                {!loading && emptySlot}
                             </div>
                         ) : (
                             rows.map((game, i) => (
