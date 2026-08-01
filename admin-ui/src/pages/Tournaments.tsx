@@ -238,7 +238,8 @@ export default function Tournaments() {
   // legacy `game_room_settings.PLATFORMS` static list (often drifted from the
   // catalogue, hence the "No platforms configured" empty state on the create
   // form when the setting was unset). The endpoint returns canonical IDs;
-  // TournamentFormFields renders them via `getPlatformDisplay`.
+  // TournamentFormFields folds them into engine + device chip lists (ADR 0016
+  // P2 §2) — the catalogue is still a legacy-id list, the rules no longer are.
   const fetchPlatforms = async () => {
     try {
       const data = await api.get<{ platforms: string[] }>(`/rooms/${room.roomId}/platforms/available`);

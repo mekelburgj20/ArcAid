@@ -111,6 +111,9 @@ export class CommunityScoreService {
             excludeFromGlobal: options?.excludeFromGlobal,
             platform: options?.platform ?? null,
             engine, device,
+            // Matches the `source: 'community'` this method logs to
+            // score_history above (ADR 0016 P2 §3c).
+            source: 'community',
         });
 
         if (fanOut && !options?.excludeFromGlobal) {

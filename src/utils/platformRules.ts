@@ -1,3 +1,282 @@
+import { logWarn } from './logger.js';
+import { LEGACY_PLATFORM_MAP, UNKNOWN, normalizeProvenanceToken } from './scoreProvenance.js';
+
+/**
+ * One axis's rules. ADR 0009's orthogonality, unchanged and now applied twice:
+ *
+ *   `required` — GAME-LEVEL eligibility only. Does the game have at least one
+ *                of these? Never restricts the picker.
+ *   `excluded` — SUBMISSION-LEVEL filter only. Strips picker options and is
+ *                re-validated server-side. Never affects eligibility.
+ */
+export interface AxisRules {
+    required: string[];
+    excluded: string[];
+}
+
+/**
+ * The parsed shape of `tournaments.platform_rules` (ADR 0016 P2 Section 2).
+ *
+ * Two axes — engine ("what produced the score") and device ("what it ran on")
+ * — each carrying ADR 0009's pair. The two axes are evaluated INDEPENDENTLY and
+ * combined with AND: a game qualifies when it satisfies the engine `required`
+ * *and* the device `required`; a platform stays in the picker when it is
+ * excluded by neither axis.
+ *
+ * The stored blob may still be the pre-0016 flat shape
+ * (`{ required, excluded }` over legacy platform ids) — ~200 live rooms have
+ * one. `parseTournamentRules` lifts it at READ time; see
+ * `liftLegacyPlatformIds`. Nothing migrates the rows; a row is upgraded only
+ * when an admin next saves that tournament.
+ */
+export interface TournamentRules {
+    engines: AxisRules;
+    devices: AxisRules;
+    restrictedText?: string;
+}
+
+/**
+ * Either the tournament row itself (anything carrying `platform_rules`, and
+ * ideally `id` so a warning can name it) or the raw JSON string.
+ */
+export type TournamentRulesSource =
+    | string
+    | null
+    | undefined
+    | { id?: string | null; platform_rules?: string | null };
+
+function emptyAxis(): AxisRules {
+    return { required: [], excluded: [] };
+}
+
+/** The "restricts nothing" value. Exported so call sites don't hand-roll it. */
+export function emptyTournamentRules(): TournamentRules {
+    return { engines: emptyAxis(), devices: emptyAxis() };
+}
+
+/** True when the rules restrict anything at all, on either axis. */
+export function hasAnyPlatformRules(rules: TournamentRules | null | undefined): boolean {
+    if (!rules) return false;
+    return (
+        (rules.engines?.required?.length ?? 0) > 0 ||
+        (rules.engines?.excluded?.length ?? 0) > 0 ||
+        (rules.devices?.required?.length ?? 0) > 0 ||
+        (rules.devices?.excluded?.length ?? 0) > 0
+    );
+}
+
+/** True when the rules gate GAME eligibility (i.e. either axis has `required`). */
+export function hasGameLevelPlatformRules(rules: TournamentRules | null | undefined): boolean {
+    if (!rules) return false;
+    return (rules.engines?.required?.length ?? 0) > 0 || (rules.devices?.required?.length ?? 0) > 0;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Coerce a rules field to a de-duplicated, lower-cased token array.
+ *
+ * Defensive on purpose: a stored `"required": "vpx"` used to reach
+ * `passesplatformRules` as a string and throw on `.some`. Lower-casing here is
+ * what keeps the pre-0016 case-insensitive comparison behaviour — engine and
+ * device ids are canonically lower-case, legacy stored data was not.
+ */
+function asTokenArray(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    const out: string[] = [];
+    for (const v of value) {
+        if (typeof v !== 'string') continue;
+        const token = normalizeProvenanceToken(v);
+        if (token && !out.includes(token)) out.push(token);
+    }
+    return out;
+}
+
+/**
+ * THE read-time shim (ADR 0016 P2 §2, "The shim is mandatory, not optional").
+ *
+ * Lifts a flat list of legacy platform ids onto the two axes using
+ * `LEGACY_PLATFORM_MAP` — the same table P1 uses to classify a score, so a rule
+ * and a score are read against one taxonomy rather than two that can drift.
+ *
+ * Three cases:
+ *   - id maps to an engine only (`vpx`, `pinball_fx`, every console id) → engine axis.
+ *   - id maps to a device only (`atgames`, `vr` — engine genuinely unknowable) → device axis.
+ *   - id maps to BOTH (`vpxs` → vpx + atgames; every `*_vr` id → engine +
+ *     vr_headset; `real` → real + real_cabinet) → **both axes**. Dropping the
+ *     device half would quietly widen an existing restriction, which is the one
+ *     failure mode this shim exists to prevent.
+ *
+ * An id the taxonomy does not recognise is kept VERBATIM on the engine axis
+ * rather than dropped. Rooms can tag games with arbitrary platform strings
+ * (`GET /:roomId/platforms/available` unions `room_game_tags` and passes
+ * unknown ids through `normalizePlatform` unchanged), so those strings can
+ * reach `platform_rules`. `legacyPlatformsForEngine` falls back to the literal
+ * token, which reproduces the pre-0016 exact-string match exactly. Dropping it
+ * instead would silently turn a restriction into "restricts nothing".
+ */
+export function liftLegacyPlatformIds(ids: string[]): { engines: string[]; devices: string[] } {
+    const engines: string[] = [];
+    const devices: string[] = [];
+    const pushEngine = (v: string) => { if (v && !engines.includes(v)) engines.push(v); };
+    const pushDevice = (v: string) => { if (v && !devices.includes(v)) devices.push(v); };
+
+    for (const raw of ids) {
+        const token = normalizeProvenanceToken(raw);
+        if (!token) continue;
+        const prov = LEGACY_PLATFORM_MAP[token];
+        if (!prov || (prov.engine === UNKNOWN && prov.device === UNKNOWN)) {
+            pushEngine(token);
+            continue;
+        }
+        if (prov.engine !== UNKNOWN) pushEngine(prov.engine);
+        if (prov.device !== UNKNOWN) pushDevice(prov.device);
+    }
+    return { engines, devices };
+}
+
+/**
+ * Normalise any already-decoded rules value to `TournamentRules`, lifting the
+ * legacy flat shape when that is what it is.
+ *
+ * Shared by `parseTournamentRules` (read path) and the Zod schema (write path)
+ * so a stale browser tab POSTing the old shape is upgraded rather than rejected,
+ * and so **every** writer persists the new shape.
+ *
+ * Legacy detection is by the presence of an `engines`/`devices` object — not by
+ * the absence of `required`/`excluded`, because the new shape has neither at the
+ * top level and `{}` is ambiguous (and identical either way).
+ */
+export function normalizeTournamentRulesInput(value: unknown): TournamentRules {
+    if (!isPlainObject(value)) return emptyTournamentRules();
+
+    const isTwoAxis = isPlainObject(value.engines) || isPlainObject(value.devices);
+    let rules: TournamentRules;
+
+    if (isTwoAxis) {
+        const e = isPlainObject(value.engines) ? value.engines : {};
+        const d = isPlainObject(value.devices) ? value.devices : {};
+        rules = {
+            engines: { required: asTokenArray(e.required), excluded: asTokenArray(e.excluded) },
+            devices: { required: asTokenArray(d.required), excluded: asTokenArray(d.excluded) },
+        };
+    } else {
+        const req = liftLegacyPlatformIds(asTokenArray(value.required));
+        const exc = liftLegacyPlatformIds(asTokenArray(value.excluded));
+        rules = {
+            engines: { required: req.engines, excluded: exc.engines },
+            devices: { required: req.devices, excluded: exc.devices },
+        };
+    }
+
+    if (typeof value.restrictedText === 'string') rules.restrictedText = value.restrictedText;
+    return rules;
+}
+
+/**
+ * Every legacy platform id that denotes `engineId`.
+ *
+ * `vpx` → `['vpx', 'visual pinball x', 'vpxs', 'vpx standalone', 'vpxs_manual', …]`
+ * because ADR 0016 rules those the same engine. A game's catalogue platforms are
+ * still legacy ids (converting `global_games.platforms` to engines is a later
+ * phase), so an axis rule is compared against the catalogue by expanding the
+ * rule token to the id set it covers.
+ *
+ * An unrecognised token expands to itself — see `liftLegacyPlatformIds`.
+ * `'unknown'` expands to nothing: it is the explicit no-claim value and must
+ * never behave as a rule.
+ */
+export function legacyPlatformsForEngine(engineId: string): string[] {
+    const key = normalizeProvenanceToken(engineId);
+    if (!key || key === UNKNOWN) return [];
+    const out = Object.entries(LEGACY_PLATFORM_MAP)
+        .filter(([, prov]) => prov.engine === key)
+        .map(([token]) => token);
+    return out.length > 0 ? out : [key];
+}
+
+/**
+ * Every legacy platform id that denotes `deviceId` — the device-axis twin of
+ * `legacyPlatformsForEngine`. `atgames` → `['atgames', 'vpxs', 'vpx standalone',
+ * 'vpxs_manual', …]`, because VPX Standalone *is* the AtGames device.
+ */
+export function legacyPlatformsForDevice(deviceId: string): string[] {
+    const key = normalizeProvenanceToken(deviceId);
+    if (!key || key === UNKNOWN) return [];
+    const out = Object.entries(LEGACY_PLATFORM_MAP)
+        .filter(([, prov]) => prov.device === key)
+        .map(([token]) => token);
+    return out.length > 0 ? out : [key];
+}
+
+function matchesAny(gamePlatforms: string[], tokens: string[]): boolean {
+    if (tokens.length === 0) return false;
+    const have = new Set(gamePlatforms.map(p => normalizeProvenanceToken(p)));
+    return tokens.some(t => have.has(t));
+}
+
+/**
+ * THE parser for `tournaments.platform_rules`. Every runtime read goes through
+ * here (ADR 0016 P2, Section 1).
+ *
+ * Before this existed the blob was parsed at ten independent sites, eight of
+ * which swallowed a malformed value into `{}` — and `{}` means *a tournament
+ * that restricts nothing*. So a shape change that tripped any one site degraded
+ * that path to wide-open, in production, with nothing in the logs. Degrading is
+ * still the right behaviour (a bad rules blob must not take a tournament down);
+ * degrading *invisibly* is not, hence the warning.
+ *
+ * Malformed input — unparseable JSON, or valid JSON that isn't an object —
+ * logs a WARN naming the tournament and returns empty rules. A missing/empty
+ * blob is the normal "no rules" case and is silent. Rule fields coerce to
+ * string arrays defensively: a stored `"required": "vpx"` used to reach
+ * `passesplatformRules` as a string and throw on `.some`.
+ *
+ * It is ALSO the read-time shim for the pre-0016 flat shape (Section 2). A row
+ * stored as `{ required: ['atgames'] }` comes back as
+ * `{ engines: {…}, devices: { required: ['atgames'], … } }`. No row is
+ * migrated; a row is rewritten only when an admin next saves that tournament.
+ *
+ * NOTE — this is for RUNTIME reads only. Migrations that rewrite stored rows
+ * (database.ts's 101, platformTaxonomyExpansion's 083/089) deliberately keep
+ * their own raw `JSON.parse`: a migration must be a frozen transform of the
+ * shape that existed when it was written, and must not change what it persists
+ * when this parser evolves.
+ */
+export function parseTournamentRules(
+    source: TournamentRulesSource,
+    tournamentId?: string | null,
+): TournamentRules {
+    const row = typeof source === 'object' && source !== null ? source : null;
+    const raw = row ? row.platform_rules ?? null : typeof source === 'string' ? source : null;
+    const id: string = tournamentId || row?.id || '(unknown)';
+
+    if (!raw) return emptyTournamentRules();
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        logWarn(
+            `platform_rules is not valid JSON for tournament ${id} — degrading to no rules ` +
+            `(this tournament will restrict nothing until the value is fixed).`,
+        );
+        return emptyTournamentRules();
+    }
+
+    if (!isPlainObject(parsed)) {
+        logWarn(
+            `platform_rules is not a JSON object for tournament ${id} — degrading to no rules ` +
+            `(this tournament will restrict nothing until the value is fixed).`,
+        );
+        return emptyTournamentRules();
+    }
+
+    return normalizeTournamentRulesInput(parsed);
+}
+
 /**
  * Parses a platforms value (JSON array or comma-separated string) into a string array.
  * Shared between all platform-reading code paths.
@@ -41,30 +320,36 @@ export function mergeEffectivePlatforms(
  * a score. Used by the SubmissionSheet picker and re-validated server-side at
  * every submit handler.
  *
- * Rules (as of v2.7.x — orthogonal-axes semantics):
+ * Rules (ADR 0009's orthogonal-axes semantics, now on two axes):
  *   - If `tournamentRules` is undefined (freeplay / global submit / no active
  *     tournament for this game), return all of `gamePlatforms` unchanged.
- *   - Strip anything in `tournamentRules.excluded` ("Not allowed on" — the
- *     submission-level filter).
- *   - `tournamentRules.required` ("Must be available on") is INTENTIONALLY
- *     ignored here. Required is a *game-level* eligibility gate enforced by
- *     `passesplatformRules` — it decides which games qualify for a tournament,
- *     not which platforms can score in one. A game admitted under a Must rule
- *     is fully scorable on any of its catalogue platforms (modulo NotAllowed).
- *     E.g. WHO dunnit is on [vpx, vpxs, real, fx, fx_vr, atgames]; a tournament
- *     with Must=[atgames] still accepts vpx submissions for it.
+ *   - Strip any platform whose ENGINE is in `engines.excluded` **or** whose
+ *     DEVICE is in `devices.excluded` ("Not allowed on", per axis). The two
+ *     axes are independent; a platform survives only if neither excludes it.
+ *   - `required` on EITHER axis is INTENTIONALLY ignored here. Required is a
+ *     *game-level* eligibility gate enforced by `passesplatformRules` — it
+ *     decides which games qualify for a tournament, not which platforms can
+ *     score in one. A game admitted under a Must rule is fully scorable on any
+ *     of its catalogue platforms (modulo NotAllowed). E.g. WHO dunnit is on
+ *     [vpx, vpxs, real, fx, fx_vr, atgames]; a tournament requiring the
+ *     `atgames` device still accepts vpx submissions for it.
  *
  * Comparison is case-insensitive so legacy stored mixed-case data still works.
  */
 export function resolveSubmittablePlatforms(
     gamePlatforms: string[],
-    tournamentRules?: { required: string[]; excluded: string[] } | null,
+    tournamentRules?: TournamentRules | null,
 ): string[] {
     if (!tournamentRules) return gamePlatforms;
-    const excluded = tournamentRules.excluded ?? [];
-    if (excluded.length === 0) return gamePlatforms;
-    const excUpper = new Set(excluded.map(p => p.toUpperCase()));
-    return gamePlatforms.filter(p => !excUpper.has(p.toUpperCase()));
+    const blocked = new Set<string>();
+    for (const engineId of tournamentRules.engines?.excluded ?? []) {
+        for (const token of legacyPlatformsForEngine(engineId)) blocked.add(token);
+    }
+    for (const deviceId of tournamentRules.devices?.excluded ?? []) {
+        for (const token of legacyPlatformsForDevice(deviceId)) blocked.add(token);
+    }
+    if (blocked.size === 0) return gamePlatforms;
+    return gamePlatforms.filter(p => !blocked.has(normalizeProvenanceToken(p)));
 }
 
 /**
@@ -72,22 +357,39 @@ export function resolveSubmittablePlatforms(
  * qualifies for a tournament. (Submission-level filtering is the job of
  * `resolveSubmittablePlatforms`.)
  *
- * Two orthogonal axes:
- *   - `required` ("Must be available on") is checked here: game must list at
- *     least one required platform. Empty `required` means any game qualifies.
- *   - `excluded` ("Not allowed on") is INTENTIONALLY ignored here — see ADR
- *     0006 + the JSDoc on `resolveSubmittablePlatforms` for rationale.
+ * Two rule kinds on two rule axes:
+ *   - `required` ("Must be available on") is checked here, ON BOTH AXES and
+ *     combined with AND: the game must list at least one platform denoting a
+ *     required engine, AND at least one denoting a required device. An empty
+ *     `required` on an axis means that axis admits everything.
+ *   - `excluded` ("Not allowed on") is INTENTIONALLY ignored here, on both
+ *     axes — see ADR 0009 + the JSDoc on `resolveSubmittablePlatforms`.
  *
- * Example: WHO dunnit is on [vpx, vpxs, real, atgames]. Tournament rule
- * `required = [atgames], excluded = [real]`:
+ * The device axis genuinely participates in eligibility even though "a game has
+ * no device": while the catalogue is still a list of legacy ids, a device is
+ * exactly what ids like `atgames` and `vpxs` carry. Ignoring the device axis
+ * here would turn the single most common production rule — the legacy
+ * `required: ['atgames']`, whose engine is unknowable and which therefore lifts
+ * to the device axis alone — into a tournament that restricts nothing.
+ *
+ * Example: WHO dunnit is on [vpx, vpxs, real, atgames]. Legacy rule
+ * `required = [atgames], excluded = [real]` lifts to
+ * `devices.required = [atgames]`, `engines.excluded = [real]`,
+ * `devices.excluded = [real_cabinet]`:
  *   - `passesplatformRules`: TRUE (game has atgames → admissible)
  *   - `resolveSubmittablePlatforms`: [vpx, vpxs, atgames] (real stripped)
  */
 export function passesplatformRules(
     gamePlatforms: string[],
-    rules: { required: string[]; excluded: string[] }
+    rules: TournamentRules,
 ): boolean {
-    if (rules.required.length === 0) return true;
-    const upper = gamePlatforms.map(p => p.toUpperCase());
-    return rules.required.some(rp => upper.includes(rp.toUpperCase()));
+    const requiredEngines = rules.engines?.required ?? [];
+    const requiredDevices = rules.devices?.required ?? [];
+
+    const engineOk = requiredEngines.length === 0 ||
+        requiredEngines.some(e => matchesAny(gamePlatforms, legacyPlatformsForEngine(e)));
+    if (!engineOk) return false;
+
+    return requiredDevices.length === 0 ||
+        requiredDevices.some(d => matchesAny(gamePlatforms, legacyPlatformsForDevice(d)));
 }

@@ -164,9 +164,15 @@ not a NULL: such scores render without a category and are excluded from engine-f
 - Tournaments can express device restrictions, which was previously impossible.
 
 **Costs and risks**
-- `tournaments.platform_rules` is parsed at **11 independent sites**, each silently falling back to
-  "no rules" on an unexpected shape. Changing the shape without updating every site makes tournaments
-  quietly stop enforcing anything. Every site needs a test.
+- `tournaments.platform_rules` is parsed at **13 independent sites** — **10 runtime** readers plus
+  **3 frozen migration parses** — each silently falling back to "no rules" on an unexpected shape.
+  Changing the shape without updating every runtime site makes tournaments quietly stop enforcing
+  anything. Every runtime site needs a test.
+  *(Count corrected 2026-07-31 during P2 Section 1 implementation; this line previously read "11
+  independent sites". The sweep found the P1 submission authority `ScoreProvenanceService` and the two
+  `platformTaxonomyExpansion` migration parses missing from the inventory. The 10 runtime sites now
+  route through the single `parseTournamentRules` in `src/utils/platformRules.ts`; the 3 migration
+  parses stay raw by design and are commented as such.)*
 - Submission gains a second required question; the flow must not become tedious. Where a game has one
   possible engine, or an engine has one plausible device, the field is auto-filled and locked.
 - An engine→device compatibility map is new authored data that must be maintained as hardware appears.

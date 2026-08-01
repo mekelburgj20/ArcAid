@@ -7,7 +7,10 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
 import { checkCooldown } from '../../utils/cooldown.js';
 import { getTournamentColor } from '../../utils/discord.js';
-import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
+import {
+    passesplatformRules, parsePlatformsList, parseTournamentRules,
+    emptyTournamentRules, type TournamentRules,
+} from '../../utils/platformRules.js';
 import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
 import { BanService } from '../../services/BanService.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -51,7 +54,7 @@ export const pickgame: Command = {
             let tournamentId: string | null = null;
             let tournamentMode: string | null = null;
             let tournamentRoomId: string | null = null;
-            let platformRules = { required: [] as string[], excluded: [] as string[] };
+            let platformRules: TournamentRules = emptyTournamentRules();
 
             if (selectedTournamentName) {
                 const tournamentRow = await db.get("SELECT id, type, mode, platform_rules, game_room_id FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
@@ -59,7 +62,7 @@ export const pickgame: Command = {
                     tournamentId = tournamentRow.id;
                     tournamentMode = tournamentRow.mode;
                     tournamentRoomId = tournamentRow.game_room_id;
-                    try { platformRules = { ...platformRules, ...JSON.parse(tournamentRow.platform_rules || '{}') }; } catch {}
+                    platformRules = parseTournamentRules(tournamentRow);
                 }
             }
 

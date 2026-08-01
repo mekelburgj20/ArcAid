@@ -43,6 +43,7 @@ describe('GlobalScoreService.fanOutFromRoomSubmission — approval-room fan-out 
             playerId: 'discord-fanout-1',
             iscoredUsername: 'FanOutPlayer',
             score: 5000,
+            source: 'community',
         });
         expect(result).not.toBeNull();
     });
@@ -58,6 +59,7 @@ describe('GlobalScoreService.fanOutFromRoomSubmission — approval-room fan-out 
             playerId: 'discord-fanout-2',
             iscoredUsername: 'FanOutPlayer2',
             score: 5000,
+            source: 'community',
         });
         expect(result).not.toBeNull();
     });

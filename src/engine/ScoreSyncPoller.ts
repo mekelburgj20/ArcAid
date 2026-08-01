@@ -327,10 +327,15 @@ export class ScoreSyncPoller {
         if (roomIds.length === 0) return undefined;
         const placeholders = roomIds.map(() => '?').join(', ');
         return db.get(
+            // ADR 0016 P2 §3a: the JOIN is deliberately an INNER JOIN. Pinned
+            // rows (`games.tournament_id IS NULL`) must never be reachable from
+            // the poller — sync applies to tournament games only. Locked by
+            // test in `iscored-provenance.test.ts`; do not relax to LEFT JOIN.
+            //
+            // ADR 0016 P2 §3b: `t.iscored_default_engine` / `_device` are NOT
+            // selected. Synced scores are always unknown/unknown — no inference.
             `SELECT g.id, g.tournament_id, g.name, t.game_room_id,
-                    t.iscored_default_platform AS platform,
-                    t.iscored_default_engine AS engine,
-                    t.iscored_default_device AS device
+                    t.iscored_default_platform AS platform
              FROM games g
              JOIN tournaments t ON t.id = g.tournament_id
              WHERE g.iscored_id = ? AND t.game_room_id IN (${placeholders})
@@ -415,13 +420,17 @@ export class ScoreSyncPoller {
                         discordUserId.startsWith('iscored:') ? null : discordUserId,
                     );
                     const submittedByAnonymousName = submittedByUserId ? null : resolvedName;
-                    // v2.53.0 (ADR 0016): iScored exposes no per-score
-                    // provenance. Fall back to the tournament's configured
-                    // defaults when set (no admin UI today, so NULL in
-                    // practice), else the explicit 'unknown' sentinel — never
-                    // NULL.
-                    const syncEngine = localGame.engine || UNKNOWN;
-                    const syncDevice = localGame.device || UNKNOWN;
+                    // ADR 0016 P2 §3b — NO INFERENCE, EVER. iScored exposes no
+                    // per-score provenance, and the product owner ruled
+                    // (2026-07-31) that none may be inferred: iScored is a
+                    // migration stopgap, so inference machinery would invest in
+                    // a path the product intends to retire. Synced scores are
+                    // ALWAYS unknown/unknown — not derived from tournament
+                    // rules, not from `tournaments.iscored_default_engine`
+                    // /`_device` (now vestigial), not from anything. A player
+                    // who wants provenance enters the score in Arcaid.
+                    const syncEngine = UNKNOWN;
+                    const syncDevice = UNKNOWN;
                     await db.run(`
                         INSERT INTO submissions (
                             id, game_id, iscored_username, score, timestamp, discord_user_id,
@@ -479,32 +488,18 @@ export class ScoreSyncPoller {
                                     .catch(() => {}),
                             );
 
-                            const { GlobalScoreService } = await import('../services/GlobalScoreService.js');
-                            const fanOut = await GlobalScoreService.fanOutFromRoomSubmission({
-                                gameRoomId: localGame.game_room_id,
-                                gameName: localGame.name,
-                                gameId: localGame.id,
-                                playerId: discordUserId,
-                                iscoredUsername: resolvedName,
-                                score: scoreValue,
-                                tournamentId: localGame.tournament_id,
-                                submittedByAnonymousName: submittedByAnonymousName ?? undefined,
-                                platform: localGame.platform ?? null,
-                                engine: syncEngine,
-                                device: syncDevice,
-                            });
-                            if (fanOut) {
-                                const { emitScoreNewGlobal } = await import('../api/websocket.js');
-                                const room = await db.get('SELECT name, slug FROM game_rooms WHERE id = ?', localGame.game_room_id);
-                                emitScoreNewGlobal({
-                                    globalGameId: fanOut.globalGameId,
-                                    gameName: fanOut.gameName,
-                                    playerName: resolvedName,
-                                    score: scoreValue,
-                                    originRoomSlug: room?.slug || null,
-                                    originRoomName: room?.name || null,
-                                });
-                            }
+                            // ADR 0016 P2 §3c — NO GLOBAL FAN-OUT FROM SYNC.
+                            // The `GlobalScoreService.fanOutFromRoomSubmission`
+                            // call (and its `emitScoreNewGlobal` follow-up) that
+                            // used to live here is deliberately gone: a synced
+                            // score carries no provenance, so it can never earn
+                            // a place on the cross-room board. Synced scores
+                            // stay fully visible on room leaderboards and in
+                            // tournament standings. The invariant is ALSO
+                            // enforced inside the service (it rejects
+                            // `source: 'sync'`), so re-adding a call here would
+                            // be a no-op rather than a regression. Do not
+                            // restore it.
                         } catch {}
                     }
                 }

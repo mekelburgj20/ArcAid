@@ -14,7 +14,7 @@ import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js'
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
 import { RoomEventService } from '../services/RoomEventService.js';
-import { parsePlatformsList } from '../utils/platformRules.js';
+import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
 import { AchievementService } from '../services/AchievementService.js';
@@ -210,8 +210,10 @@ export class TournamentEngine {
         const db = await getDatabase();
 
         const row = await db.get(
+            // ADR 0016 P2 §3b: `iscored_default_engine`/`_device` are NOT
+            // selected — synced scores are always unknown/unknown, no inference.
             `SELECT g.*, t.name as tournament_name, t.type as tournament_type, t.game_room_id,
-                    t.iscored_default_platform, t.iscored_default_engine, t.iscored_default_device
+                    t.iscored_default_platform
              FROM games g JOIN tournaments t ON g.tournament_id = t.id
              WHERE g.id = ?`,
             gameId
@@ -309,8 +311,9 @@ export class TournamentEngine {
         const db = await getDatabase();
 
         const row = await db.get(
+            // ADR 0016 P2 §3b: engine/device defaults are not read (see above).
             `SELECT g.*, t.name as tournament_name, t.game_room_id,
-                    t.iscored_default_platform, t.iscored_default_engine, t.iscored_default_device
+                    t.iscored_default_platform
              FROM games g LEFT JOIN tournaments t ON g.tournament_id = t.id
              WHERE g.id = ?`,
             gameId,
@@ -419,8 +422,6 @@ export class TournamentEngine {
         tournament_id: string;
         game_room_id: string | null;
         iscored_default_platform?: string | null;
-        iscored_default_engine?: string | null;
-        iscored_default_device?: string | null;
     }): Promise<number> {
         if (!row.iscored_id || !row.game_room_id) return 0;
         const db = await getDatabase();
@@ -457,11 +458,16 @@ export class TournamentEngine {
         for (const r of existingRows) existingMap.set(r.id as string, r.score as number);
 
         const platform = row.iscored_default_platform ?? null;
-        // v2.53.0 (ADR 0016): iScored carries no per-score provenance. Use the
-        // tournament defaults when configured, else the explicit 'unknown'
-        // sentinel — never NULL.
-        const engine = row.iscored_default_engine || UNKNOWN;
-        const device = row.iscored_default_device || UNKNOWN;
+        // ADR 0016 P2 §3b — NO INFERENCE, EVER. Same rule as ScoreSyncPoller:
+        // iScored carries no per-score provenance and none may be inferred
+        // (product decision 2026-07-31 — iScored is a migration stopgap).
+        // `tournaments.iscored_default_engine`/`_device` are vestigial and
+        // deliberately unread. Synced scores are always unknown/unknown.
+        //
+        // This path also deliberately has NO global fan-out (§3c) — do not add
+        // one; it never had one, and synced scores are excluded from global.
+        const engine = UNKNOWN;
+        const device = UNKNOWN;
         const { ScoreHistoryService } = await import('../services/ScoreHistoryService.js');
         const { normalizeSubmitterUserId } = await import('../services/SubmissionContextService.js');
 
@@ -944,9 +950,9 @@ export class TournamentEngine {
                     iscored_id: activeGame.iscoredId,
                     tournament_id: activeGame.tournamentId,
                     game_room_id: tournamentRow.game_room_id ?? null,
+                    // ADR 0016 P2 §3b: no engine/device defaults are passed —
+                    // finalSyncScoresForGame stamps unknown/unknown itself.
                     iscored_default_platform: tournamentRow.iscored_default_platform ?? null,
-                    iscored_default_engine: tournamentRow.iscored_default_engine ?? null,
-                    iscored_default_device: tournamentRow.iscored_default_device ?? null,
                 });
                 if (captured > 0) {
                     logInfo(`   -> Final-synced ${captured} score(s) from iScored before lock`);
@@ -1458,8 +1464,7 @@ export class TournamentEngine {
         }
 
         // Parse platform rules
-        let platformRules = { required: [] as string[], excluded: [] as string[] };
-        try { platformRules = { ...platformRules, ...JSON.parse(tournamentRow.platform_rules || '{}') }; } catch {}
+        const platformRules = parseTournamentRules(tournamentRow, tournamentId);
 
         const eligibilityDays = tournamentRow.eligibility_days ?? 120;
 
@@ -1482,13 +1487,16 @@ export class TournamentEngine {
         // Filter by mode + platform rules. v2.6.x: `excluded` is a submission-
         // level filter only (see `passesplatformRules` JSDoc); game-level gate
         // checks `required` exclusively, against catalogue ∪ room tags.
+        // v2.60.0 (ADR 0016 P2): both axes' `required` via `passesplatformRules`
+        // — the same helper every other eligibility gate uses, so autopick can
+        // no longer disagree with the pick/activate paths about what qualifies.
+        const gameLevelRules = hasGameLevelPlatformRules(platformRules);
         const eligible = libraryGames.filter((g: any) => {
             if (g.mode !== tournamentRow.mode) return false;
-            if (platformRules.required.length === 0) return true;
+            if (!gameLevelRules) return true;
             const cataloguePlatforms = parsePlatformsList(g.platforms || '[]');
             const tags = tagMap.get(g.name.toLowerCase()) || [];
-            const upperPlatforms = [...cataloguePlatforms, ...tags].map((p: string) => p.toUpperCase());
-            return platformRules.required.some((rp: string) => upperPlatforms.includes(rp.toUpperCase()));
+            return passesplatformRules([...cataloguePlatforms, ...tags], platformRules);
         });
 
         // Filter by cooldown

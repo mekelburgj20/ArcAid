@@ -7,7 +7,7 @@ import { sendChannelMessage, sendChannelEmbed, getTournamentColor, formatUserMen
 import { TournamentEngine } from './TournamentEngine.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
 import { v4 as uuidv4 } from 'uuid';
-import { parsePlatformsList } from '../utils/platformRules.js';
+import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 
 export class TimeoutManager {
@@ -307,8 +307,7 @@ export class TimeoutManager {
             const term = getTerminology(tournament.mode);
 
             // Parse platform rules
-            let platformRules = { required: [] as string[], excluded: [] as string[] };
-            try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
+            const platformRules = parseTournamentRules(tournament, game.tournamentId);
 
             const eligibilityDays = tournament.eligibility_days ?? 120;
 
@@ -324,18 +323,17 @@ export class TimeoutManager {
                 const { RoomGameTagsService } = await import('../services/RoomGameTagsService.js');
                 tagMap = await RoomGameTagsService.getTagMapByGameNameForRoom(tournament.game_room_id);
             }
+            const gameLevelRules = hasGameLevelPlatformRules(platformRules);
             const modeAndPlatformMatches = libraryGames.filter(g => {
                 if (g.mode !== tournament.mode) return false;
                 // v2.6.x: `excluded` is a submission-level filter only; the
                 // game-level gate checks `required` exclusively against
-                // catalogue ∪ room tags.
-                if (platformRules.required.length === 0) return true;
+                // catalogue ∪ room tags. v2.60.0 (ADR 0016 P2): both axes, via
+                // the shared `passesplatformRules`.
+                if (!gameLevelRules) return true;
                 const cataloguePlatforms = parsePlatformsList(g.platforms || '[]');
                 const tags = tagMap.get(g.name.toLowerCase()) || [];
-                const upperPlatforms = [...cataloguePlatforms, ...tags].map((p: string) => p.toUpperCase());
-                return platformRules.required.some(
-                    (rp: string) => upperPlatforms.includes(rp.toUpperCase())
-                );
+                return passesplatformRules([...cataloguePlatforms, ...tags], platformRules);
             });
 
             // Filter by eligibility — batch query instead of per-game check

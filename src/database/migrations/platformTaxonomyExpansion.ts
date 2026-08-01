@@ -106,6 +106,9 @@ export async function renameFx3ToFxClassic(db: Database): Promise<void> {
     let nt = 0;
     for (const row of trows) {
         let parsed: { required?: unknown; excluded?: unknown } = {};
+        // Deliberately raw JSON.parse, NOT parseTournamentRules — migrations are frozen
+        // transforms of the legacy shape and must not change output when the live parser
+        // evolves (P2 ruling, 2026-07-31).
         try { parsed = JSON.parse(row.json ?? '{}'); } catch { continue; }
         const req = replaceInArray(parsed.required);
         const exc = replaceInArray(parsed.excluded);
@@ -346,6 +349,9 @@ export async function normalizeAllPlatformArrays(db: Database): Promise<void> {
     let nt = 0;
     for (const row of trows) {
         let parsed: { required?: unknown; excluded?: unknown } = {};
+        // Deliberately raw JSON.parse, NOT parseTournamentRules — migrations are frozen
+        // transforms of the legacy shape and must not change output when the live parser
+        // evolves (P2 ruling, 2026-07-31).
         try { parsed = JSON.parse(row.json ?? '{}'); } catch { continue; }
         const req = foldArray(parsed.required);
         const exc = foldArray(parsed.excluded);

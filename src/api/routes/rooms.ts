@@ -36,8 +36,10 @@ import { isAllowedImage } from '../uploadValidation.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
 // sessions via the registry, never directly.
-import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
-import { equivalentLegacyPlatforms } from '../../utils/scoreProvenance.js';
+import {
+    passesplatformRules, parsePlatformsList, parseTournamentRules,
+    hasAnyPlatformRules, legacyPlatformsForEngine, legacyPlatformsForDevice,
+} from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
@@ -517,9 +519,7 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
         let platformFilter = '';
         const platformParams: string[] = [];
         try {
-            const rules = JSON.parse(tournament.platform_rules || '{}');
-            const required: string[] = rules.required || [];
-            const excluded: string[] = rules.excluded || [];
+            const rules = parseTournamentRules(tournament);
             // v2.58.0 (ADR 0016) — exact JSON membership instead of `LIKE '%p%'`.
             //
             // `gg.platforms` is a JSON array, and raw substring matching read it
@@ -531,31 +531,41 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             // over-excluding.
             //
             // `json_each` compares elements exactly. Each rule token is expanded
-            // to its engine-equivalent id set first, so the genuine matches the
+            // to the legacy id set it denotes first, so the genuine matches the
             // old pattern caught by luck (`vpx` ↔ `vpxs` — the same engine per
             // ADR 0016) are kept deliberately and NO game that qualifies today
-            // stops qualifying. The rule blob's shape and parsing are untouched;
-            // this is only how a token is compared against the catalogue.
+            // stops qualifying.
+            //
+            // v2.60.0 (ADR 0016 P2 §2) — rules are now two axes. Each is
+            // expanded through its own legacy-id map and the two `required`
+            // clauses are ANDed, matching `passesplatformRules`.
             const membership = (tokens: string[]) => `EXISTS (
                 SELECT 1 FROM json_each(gg.platforms) je
                 WHERE LOWER(je.value) IN (${tokens.map(() => '?').join(',')})
             )`;
-            if (required.length > 0) {
+            const addRequired = (values: string[], expand: (v: string) => string[]) => {
+                if (values.length === 0) return;
                 const clauses: string[] = [];
-                for (const p of required) {
-                    const tokens = equivalentLegacyPlatforms(p);
+                for (const v of values) {
+                    const tokens = expand(v);
                     if (tokens.length === 0) continue;
                     clauses.push(membership(tokens));
                     platformParams.push(...tokens);
                 }
                 if (clauses.length > 0) platformFilter += ` AND (${clauses.join(' OR ')})`;
-            }
-            for (const p of excluded) {
-                const tokens = equivalentLegacyPlatforms(p);
-                if (tokens.length === 0) continue;
-                platformFilter += ` AND NOT ${membership(tokens)}`;
-                platformParams.push(...tokens);
-            }
+            };
+            const addExcluded = (values: string[], expand: (v: string) => string[]) => {
+                for (const v of values) {
+                    const tokens = expand(v);
+                    if (tokens.length === 0) continue;
+                    platformFilter += ` AND NOT ${membership(tokens)}`;
+                    platformParams.push(...tokens);
+                }
+            };
+            addRequired(rules.engines.required, legacyPlatformsForEngine);
+            addRequired(rules.devices.required, legacyPlatformsForDevice);
+            addExcluded(rules.engines.excluded, legacyPlatformsForEngine);
+            addExcluded(rules.devices.excluded, legacyPlatformsForDevice);
         } catch { /* no platform filtering */ }
 
         const libraryGames = await db.all(`
@@ -766,15 +776,16 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         }
 
         // 4. Check platform rules. Game's effective platforms = catalogue ∪ room tags.
-        let platformRules = { required: [] as string[], excluded: [] as string[] };
-        try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
+        //    Parsed ONCE — the gate and its rejection message must come from the
+        //    same read of the blob, or the two drift apart.
+        const platformRules = parseTournamentRules(tournament);
 
         const cataloguePlatforms = parsePlatformsList(gameLibEntry.platforms || '[]');
         const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
         const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
 
         if (!passesplatformRules(gamePlatforms, platformRules)) {
-            const restrictedText = (JSON.parse(tournament.platform_rules || '{}') as any).restrictedText;
+            const restrictedText = platformRules.restrictedText;
             return res.status(400).json({
                 error: restrictedText || 'This game is not available for this tournament type (platform restriction)',
             });
@@ -2908,9 +2919,8 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
         // Enforce platform rules. Game's effective platforms = catalogue ∪ room tags.
-        let platformRules = { required: [] as string[], excluded: [] as string[] };
-        try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
-        if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
+        const platformRules = parseTournamentRules(tournament);
+        if (hasAnyPlatformRules(platformRules)) {
             const gameLibRow = await db.get(
                 `SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                 gameName,

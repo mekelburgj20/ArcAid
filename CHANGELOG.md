@@ -6,6 +6,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.60.0] — unreleased
+
+**Tournament rules on engine + device axes, and the iScored provenance lockdown (ADR 0016, phase 2 —
+the final phase).** Tournament platform rules move onto the two provenance axes P1 introduced, and
+iScored-synced scores are permanently excluded from the Global Scoreboard. See
+`tmp/engine-device-p2-contract.md`.
+
+- **One parser for `tournaments.platform_rules`.** The blob was parsed at 13 independent sites (the
+  phase's risk inventory said 10 and the ADR said 11 — both corrected); 8 of them silently swallowed
+  malformed JSON into "this tournament restricts nothing". All 10 runtime sites now route through
+  `parseTournamentRules`, which logs a warning naming the tournament before degrading; the 3
+  migration parses (101/083/089) stay deliberately raw as frozen legacy-shape transforms. One gating
+  test per site, plus a mutation check proving each test actually fails when its site's rules are
+  blanked.
+- **Two-axis rule shape.** `{ engines: {required, excluded}, devices: {required, excluded} }`,
+  axes evaluated independently and AND-combined; ADR 0009's semantics per axis are unchanged
+  (`required` gates game eligibility only, `excluded` filters the submission picker only). The ~200
+  rooms storing the flat legacy shape are lifted at read time via the same `LEGACY_PLATFORM_MAP` P1
+  classifies scores with — both-axis ids (`vpxs` → engine `vpx` + device `atgames`) restrict both,
+  and unrecognised room-invented tags are kept verbatim rather than dropped so no restriction
+  silently widens. No stored row is migrated; rows upgrade on next admin save. Writes emit the new
+  shape everywhere (Zod preprocess upgrades stale flat-shape POSTs rather than rejecting them).
+  Known lossy lift, errs restrictive: legacy `excluded: [pinball_fx_vr]` ("no VR FX") now excludes
+  all FX **and** all VR — independent axes cannot express the conjunction.
+- **TournamentForm** renders two rule controls — Engines and Devices — each with the existing
+  "Must be available on" / "Not allowed on" pair; conflict detection is per-axis (cross-axis
+  combinations like "FX required, AtGames-device excluded" are valid configs, not contradictions).
+  `SubmissionSheet` now honours explicit device exclusions in the picker.
+- **iScored scores never reach the Global Scoreboard** (product decision 2026-07-31, recorded in
+  ADR 0016). Synced scores are always `engine='unknown'`/`device='unknown'` — no inference from
+  tournament rules, no per-tournament defaults (`tournaments.iscored_default_engine`/`_device` are
+  vestigial and unread on both import paths: `ScoreSyncPoller` and
+  `TournamentEngine.finalSyncScoresForGame`). `GlobalScoreService.fanOutFromRoomSubmission` takes a
+  required `source` param and rejects `'sync'` at the service, so a future caller cannot reinstate
+  the fan-out by accident. Synced scores stay fully visible on room leaderboards and tournament
+  standings. **Consequence, intended:** a room running everything through iScored contributes
+  nothing to the Global Scoreboard — a player who wants a score to count globally enters it in
+  Arcaid. A regression-lock test also pins the poller's tournament-only INNER JOIN (pinned games
+  are unreachable from sync).
+- **Migration 128 purges the residue** now that nothing regrows it: sync-origin `global_scores`
+  rows (identified by matching `score_history` `source='sync'` rows, with a NOT-EXISTS guard so a
+  web submission sharing the same score value survives) and every remaining unknown-engine row
+  across `score_history`/`submissions`/`community_scores`/`global_scores` (pre-GA wipe authorised
+  by the product owner 2026-07-31). Orphaned `score_reports` are removed and both leaderboard
+  caches busted; per-table counts are logged at deploy. The Global Scoreboard's "Unspecified"
+  card likely goes empty as a result and is **deliberately kept** — it is the safety net ensuring
+  scores without a matching card never silently vanish (P4's founding bug).
+- Tests: backend 951 → 1015, admin-ui 263 → 278.
+
 ## [2.59.0] — unreleased
 
 **Per-category cards on the Global Scoreboard (ADR 0016, phase 4).** The request that started this

@@ -5,7 +5,7 @@ import { getDatabase } from '../database/database.js';
 import { GlobalLeaderboardService } from './GlobalLeaderboardService.js';
 import { normalizeSubmitterUserId } from './SubmissionContextService.js';
 import { BanService } from './BanService.js';
-import { logInfo, logError } from '../utils/logger.js';
+import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
 
 export interface GlobalScoreInput {
@@ -280,6 +280,14 @@ export class GlobalScoreService {
      * approval-policy rooms. Approval-room view gating (who can see the room
      * at all) is unaffected; this only concerns individual score fan-out.
      *
+     * v2.60.0 (ADR 0016 P2 §3c): `source` is REQUIRED and `'sync'` is rejected
+     * outright. iScored-synced scores never reach the Global Scoreboard — they
+     * carry no provenance of their own (always `unknown`/`unknown`, see §3b), so
+     * nothing about one can qualify it for a cross-room board where scores are
+     * ranked against strangers. The check lives HERE, not only at the (now
+     * removed) `ScoreSyncPoller` call site, so a future caller cannot reinstate
+     * the fan-out by accident.
+     *
      * Does not throw — fan-out is best-effort and should never break the
      * room-scoped submission flow.
      */
@@ -299,8 +307,29 @@ export class GlobalScoreService {
         /** v2.53.0 (ADR 0016): split provenance; 'unknown' when the source has none. */
         engine?: string | null;
         device?: string | null;
+        /**
+         * v2.60.0 (ADR 0016 P2 §3c): where the score came from. Mirrors
+         * `score_history.source`. `'sync'` is rejected — see the doc comment.
+         * Required so a new caller has to state its provenance rather than
+         * defaulting into the allowed set.
+         */
+        source: 'tournament' | 'community' | 'sync';
     }): Promise<{ globalScoreId: string; globalGameId: string; gameName: string } | null> {
         try {
+            // ADR 0016 P2 §3c: iScored-synced scores are excluded from the
+            // Global Scoreboard, unconditionally and with no edge cases (§3b
+            // guarantees a synced score has no provenance to qualify on). This
+            // is the load-bearing enforcement point — the `ScoreSyncPoller`
+            // call site was removed too, but only this check survives a future
+            // caller re-adding one.
+            if (opts.source === 'sync') {
+                logWarn(
+                    `Global fan-out refused for a sync-origin score (game "${opts.gameName}", player "${opts.iscoredUsername}") — ` +
+                    'iScored-synced scores never reach the Global Scoreboard (ADR 0016).',
+                );
+                return null;
+            }
+
             // v2.2.0: guest submissions never reach global. The Global Leaderboard's
             // identity guarantee depends on every row having an immutable Discord ID
             // behind it — a typed nickname can collide across people and devices, so

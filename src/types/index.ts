@@ -8,9 +8,19 @@ export interface CadenceConfig {
     announcementChannel?: string;
 }
 
-export interface PlatformRules {
+/**
+ * ADR 0016 P2 §2 — two axes, each carrying ADR 0009's orthogonal pair.
+ * The runtime source of truth is `TournamentRules` in
+ * `src/utils/platformRules.ts`; this mirrors it for the `Tournament` DTO.
+ */
+export interface PlatformAxisRules {
     required: string[];       // Game must be available on at least one of these
-    excluded: string[];       // Game cannot be played on these platforms
+    excluded: string[];       // Scores cannot be submitted from these
+}
+
+export interface PlatformRules {
+    engines: PlatformAxisRules;
+    devices: PlatformAxisRules;
     restrictedText?: string;  // Informational text shown in announcements
 }
 

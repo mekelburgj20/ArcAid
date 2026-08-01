@@ -1426,6 +1426,11 @@ export async function initDatabase(): Promise<Database> {
             let tournUpdated = 0;
             for (const row of tournRows) {
                 let rules: { required?: unknown; excluded?: unknown; restrictedText?: unknown } | null = null;
+                // Deliberately raw JSON.parse, NOT parseTournamentRules — migrations are
+                // frozen transforms of the legacy shape and must not change output when
+                // the live parser evolves (P2 ruling, 2026-07-31). This one parses,
+                // mutates required/excluded in place while preserving every other field
+                // (restrictedText included), and re-persists the same object.
                 try { rules = JSON.parse(row.platform_rules || '{}'); } catch { continue; }
                 if (!rules || typeof rules !== 'object') continue;
 
@@ -2080,6 +2085,19 @@ export async function initDatabase(): Promise<Database> {
             DELETE FROM leaderboard_cache;
             DELETE FROM global_leaderboard_cache;
         ` },
+        // --- v2.60.0 (ADR 0016 P2 §3d): purge sync-origin + unknown-engine scores ---
+        // Must run AFTER §3b (both iScored import paths stamp unknown/unknown
+        // unconditionally) and §3c (fanOutFromRoomSubmission rejects
+        // source:'sync') are in the codebase, otherwise the rows grow straight
+        // back. Handler rather than raw sql: the sql runner swallows failures,
+        // and this one must report per-table row counts on a real deploy and
+        // halt loudly if any statement fails mid-wipe. Pre-GA data wipe
+        // authorised by the product owner 2026-07-31 — see the module doc for
+        // the FK/soft-reference audit that licence does NOT cover.
+        { name: '128_purge_sync_and_unknown_engine_scores', handler: async (db) => {
+            const { purgeSyncAndUnknownScores } = await import('./migrations/purgeSyncAndUnknownScores.js');
+            await purgeSyncAndUnknownScores(db);
+        } },
     ];
 
     for (const migration of migrations) {

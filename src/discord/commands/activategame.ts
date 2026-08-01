@@ -6,7 +6,7 @@ import { logInfo, logError } from '../../utils/logger.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
 import { getTournamentColor } from '../../utils/discord.js';
-import { passesplatformRules, parsePlatformsList } from '../../utils/platformRules.js';
+import { passesplatformRules, parsePlatformsList, parseTournamentRules, hasAnyPlatformRules } from '../../utils/platformRules.js';
 
 export const activategame: Command = {
     data: new SlashCommandBuilder()
@@ -77,9 +77,8 @@ export const activategame: Command = {
             }
 
             // Enforce platform rules. Game's effective platforms = catalogue ∪ room tags.
-            let platformRules = { required: [] as string[], excluded: [] as string[] };
-            try { platformRules = { ...platformRules, ...JSON.parse(tournament.platform_rules || '{}') }; } catch {}
-            if (platformRules.required.length > 0 || platformRules.excluded.length > 0) {
+            const platformRules = parseTournamentRules(tournament);
+            if (hasAnyPlatformRules(platformRules)) {
                 const gameLibRow = await db.get(
                     `SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                     gameName,

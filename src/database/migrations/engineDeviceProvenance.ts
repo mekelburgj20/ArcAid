@@ -69,10 +69,24 @@ export async function addEngineDeviceProvenance(db: Database): Promise<void> {
     await addColumnIfMissing(db, 'submission_drafts', 'engine');
     await addColumnIfMissing(db, 'submission_drafts', 'device');
 
-    // Tournament-scoped fallback for iScored-polled scores, mirroring the
-    // existing `iscored_default_platform`. No admin UI exists for any of the
-    // three today (they are always NULL in practice) — P1 deliberately does not
-    // build one, but the columns exist so the sync writers can read them.
+    // VESTIGIAL AS OF P2 (2026-07-31) — DO NOT WIRE THESE UP.
+    //
+    // P1 added these as a tournament-scoped provenance fallback for
+    // iScored-polled scores, mirroring `iscored_default_platform`, and the two
+    // sync writers (`ScoreSyncPoller`, `TournamentEngine.finalSyncScoresForGame`)
+    // read them. P2 §3b removed both reads: the product owner ruled that iScored
+    // scores get NO provenance inference of any kind — iScored is a migration
+    // stopgap, not a long-term integration, so inference machinery on top of it
+    // invests in a path the product intends to retire. Synced scores are always
+    // `unknown`/`unknown`; a player who wants provenance enters the score in
+    // Arcaid. See ADR 0016, "iScored-synced scores never reach the Global
+    // Scoreboard", rule 2.
+    //
+    // The columns are retained rather than dropped only because a SQLite column
+    // drop on `tournaments` needs a create-copy-drop-rename table rebuild, which
+    // is not worth the risk for two inert, always-NULL columns. Nothing reads
+    // them, no admin UI writes them, and no backfill exists. `iscored_default_
+    // platform` (added earlier, still read) is deliberately unaffected.
     await addColumnIfMissing(db, 'tournaments', 'iscored_default_engine');
     await addColumnIfMissing(db, 'tournaments', 'iscored_default_device');
 
