@@ -48,11 +48,20 @@ export function resolveProvenance(entry: ScoreProvenance): { engine: string; dev
  * derived from the engine, so showing it would restate what the engine tag
  * already says at triple the visual weight. An engine with no category
  * contributes no parenthetical at all rather than "(Unknown)".
+ *
+ * v2.65.0 — the same reasoning now also drops a parenthetical that is LITERALLY
+ * the engine's own name. Renaming the `real` band's label to "Real Machine"
+ * (the id stays `real`) collided it with the `real` engine's display name, and
+ * the sentence came out "Real Machine (Real Machine)". A category that adds no
+ * word the reader hasn't already read is not worth the parentheses. Written as
+ * a general comparison rather than a `real` special-case: any future engine
+ * whose name matches its band gets the same treatment for free.
  */
 export function describeProvenance(engine: string, device: string): string {
-    const parts = [getEngineDisplay(engine)];
+    const engineLabel = getEngineDisplay(engine);
+    const parts = [engineLabel];
     if (isDeviceInformative(engine, device)) parts.push(`on ${getDeviceDisplay(device)}`);
     const category = getEngineCategoryLabel(engine);
-    if (category) parts.push(`(${category})`);
+    if (category && category !== engineLabel) parts.push(`(${category})`);
     return parts.join(' ');
 }

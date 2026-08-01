@@ -194,7 +194,7 @@ describe('GlobalScoreboard — per-category cards (v2.59.0 P4)', () => {
     // would have taken Arcade-Style with it.
     await waitFor(() => expect(screen.getAllByText('Hero Game')).toHaveLength(2));
     expect(screen.getAllByTestId('category-chip').map(c => c.textContent).sort())
-      .toEqual(['Arcade-Style', 'Real', 'Simulation']);
+      .toEqual(['Arcade-Style', 'Real Machine', 'Simulation']);
   });
 
   it('counts leaderboards, not games, in the results summary', async () => {
@@ -223,7 +223,7 @@ describe('GlobalScoreboard — category chips (v2.59.0 P4)', () => {
     renderScoreboard();
     await screen.findByText('Game');
 
-    for (const label of ['All', 'Real', 'Simulation', 'Arcade-Style', 'Video Games', 'Unspecified']) {
+    for (const label of ['All', 'Real Machine', 'Simulation', 'Arcade-Style', 'Video Games', 'Unspecified']) {
       expect(screen.getByRole('button', { name: label }), label).toBeInTheDocument();
     }
     // The superseded platform-group chips are gone.
@@ -262,7 +262,8 @@ describe('GlobalScoreboard — category chips (v2.59.0 P4)', () => {
     renderScoreboard();
     await screen.findByText('Game');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Real' }));
+    // v2.65.0 — the label is "Real Machine"; the id it sends is still `real`.
+    fireEvent.click(screen.getByRole('button', { name: 'Real Machine' }));
     await waitFor(() => expect(scoreboardRequests.some(u => u.includes('category=real'))).toBe(true));
 
     scoreboardRequests = [];

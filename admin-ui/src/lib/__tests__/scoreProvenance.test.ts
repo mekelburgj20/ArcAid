@@ -78,7 +78,7 @@ describe('submission picker derivation', () => {
  */
 describe('fidelity categories', () => {
     it('maps each engine to its documented band', () => {
-        expect(getEngineCategoryLabel('real')).toBe('Real');
+        expect(getEngineCategoryLabel('real')).toBe('Real Machine');
         for (const e of ['vpx', 'vp9', 'fp']) {
             expect(getEngineCategoryLabel(e), e).toBe('Simulation');
         }
