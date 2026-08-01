@@ -100,11 +100,16 @@ function renderScoreboard() {
   );
 }
 
-/** All card roots currently on screen (the art <a>'s parent). */
+/**
+ * All card roots currently on screen.
+ *
+ * Was "the art <a>'s parent", walked up from the category chip. v2.67.0 moved
+ * the title and the chip out of the art link into a header row of their own, so
+ * that walk no longer lands on the card — the card root carries its own
+ * `data-testid` instead, which is what a test should have been asking for.
+ */
 function allCards(): HTMLElement[] {
-  return screen.queryAllByTestId('category-chip')
-    .map(chip => chip.closest('a')?.parentElement)
-    .filter(Boolean) as HTMLElement[];
+  return screen.queryAllByTestId('global-game-card');
 }
 
 describe('GlobalScoreboard — per-category cards (v2.59.0 P4)', () => {
@@ -163,7 +168,7 @@ describe('GlobalScoreboard — per-category cards (v2.59.0 P4)', () => {
     expect(unspec.getAttribute('style')).not.toMatch(/rgba?\(/);
   });
 
-  it('renders a zero-score game as ONE uncategorised card with the Claim 1st CTA', async () => {
+  it('renders a zero-score game as ONE uncategorised card with an all-empty podium', async () => {
     mockFetch([makeCard('g0', 'Untouched Game', null, 0)]);
 
     renderScoreboard();
@@ -172,7 +177,11 @@ describe('GlobalScoreboard — per-category cards (v2.59.0 P4)', () => {
     // No chip: a game with no scores has no board to name, and "Unspecified"
     // would claim scores of unrecorded provenance that do not exist.
     expect(screen.queryByTestId('category-chip')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Claim 1st/ })).toBeInTheDocument();
+    // v2.67.0: the dashed "Claim 1st ->" box is gone; an empty board renders
+    // the three podium places, each offering itself.
+    expect(screen.getByRole('button', { name: 'Claim 1st place' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claim 2nd place' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claim 3rd place' })).toBeInTheDocument();
     expect(screen.getByText('0 scores')).toBeInTheDocument();
   });
 
@@ -402,7 +411,9 @@ describe('GlobalScoreboard — cards show the category chip only (v2.64.0)', () 
     renderScoreboard();
     await screen.findByText('Creature');
 
-    const art = screen.getByTestId('category-chip').closest('a') as HTMLElement;
+    // v2.67.0: the art block is the only thing left inside the art <a>, and it
+    // is reached by its own label rather than by walking up from the chip.
+    const art = screen.getByLabelText('Creature details');
     expect(art.getAttribute('title')).toBe('Available on: Visual Pinball X · Future Pinball');
   });
 });
@@ -429,7 +440,11 @@ describe('GlobalScoreboard — the zero-score card names its prospective board (
     expect(chip.getAttribute('title')).toMatch(/No scores yet/i);
     expect(chip).toHaveAttribute('data-prospective', 'true');
     // Still the claim card, and still keyed as the uncategorised one.
-    expect(screen.getByRole('button', { name: /Claim 1st/ })).toBeInTheDocument();
+    // v2.67.0: the dashed "Claim 1st ->" box is gone; an empty board renders
+    // the three podium places, each offering itself.
+    expect(screen.getByRole('button', { name: 'Claim 1st place' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claim 2nd place' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claim 3rd place' })).toBeInTheDocument();
     expect(screen.getByText('0 scores')).toBeInTheDocument();
   });
 
@@ -441,8 +456,7 @@ describe('GlobalScoreboard — the zero-score card names its prospective board (
     renderScoreboard();
     await screen.findByText('Unplayed Sim');
 
-    const chip = screen.getByTestId('category-chip');
-    const card = chip.closest('a')!.parentElement as HTMLElement;
+    const card = screen.getByTestId('global-game-card');
     expect(within(card).getAllByRole('link')[0]).toHaveAttribute('href', '/games/g0');
   });
 

@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.67.0] — unreleased
+
+**Neon card redesign** (user direction, 2026-08-01). The Global Scoreboard cards get their arcade
+identity:
+
+- **Category neon frames.** Each fidelity category has its own 80s/90s neon color — Real Machine
+  magenta `#ff2e63`, Simulation cyan `#35d6e8`, Arcade-Style amber `#ffb020`, Video Games green
+  `#00ff88`, Unspecified deliberately non-neon slate — applied as a visible card border + soft
+  glow, with the category chip reading the same token so chip and frame are one system. Light
+  polarity uses deepened variants (≥4.5:1 as chip text).
+- **The borders glitch like the logo, out of sync.** Two compositor-friendly overlay rings
+  (opacity/transform only, steps() keyframes, logo-cadence bursts every ~4–6s per card with
+  multi-second quiet) whose delays/durations derive from an FNV-1a hash of the card id — stable
+  across renders, verified distinct across cards. Fully frozen under prefers-reduced-motion.
+- **Layout:** title moves to the top row, left-aligned right after the pin (44px hit target);
+  art becomes an inset panel below it; type scales up hard (title 13→22px, players/scores
+  11→16px, medals 12→18px).
+- **Always-on podium:** every card renders gold/silver/bronze rows; unfilled ranks show the medal
+  + "Claim this spot" wired to the submit flow (replacing the dashed "Claim 1st →" box); ranks
+  4+ still render when present. Min height 218→330px token (podium floor makes ~422px real).
+- Pinned rail tracks automatically; hero card unchanged.
+- Tests: admin-ui 318 → 339. Backend untouched.
+
 ## [2.66.0] — unreleased
 
 **Global Scoreboard declutter + "Real Machine" relabel** (user direction, 2026-08-01).

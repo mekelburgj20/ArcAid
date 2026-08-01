@@ -90,6 +90,41 @@
   --sb-cat-border: color-mix(in oklab, var(--color-neon-magenta) 38%, transparent);
   --sb-cat-muted-fg: rgba(255, 255, 255, 0.72);
   --sb-cat-muted-border: rgba(255, 255, 255, 0.28);
+
+  /* ── Per-category arcade neon (v2.67.0) ────────────────────────────────
+     Each fidelity band owns one 80s/90s arcade neon. The Global Scoreboard
+     card wears it TWICE — as its 2px frame plus outer bloom, and as the
+     category chip's border and label — which is the whole point: frame and
+     chip have to read as one system, not as two decorations that happen to
+     be near each other. Selecting a card's neon is `[data-neon]` in the
+     `.gg-card` block near the bottom of this file.
+
+     `unspecified` is deliberately NOT a neon. It is the bucket that makes no
+     comparability claim at all, and a glowing frame would assert one. Same
+     slate serves `none` — a zero-score card has no band yet, and borrowing
+     one before a score has chosen it would be a lie the card can't back. */
+  --sb-neon-real: #ff2e63;
+  --sb-neon-simulation: #35d6e8;
+  --sb-neon-arcade_style: #ffb020;
+  --sb-neon-video: #00ff88;
+  --sb-neon-unspecified: #97a2b5;
+  --sb-neon-none: #97a2b5;
+  /* How much of the neon the resting frame carries, and the bloom around it.
+     Both are dialled back in light polarity below — a 72%-saturated frame
+     plus a 26% bloom on a pale page reads as a rendering artefact rather
+     than as a lit tube. */
+  --sb-neon-border-mix: 72%;
+  --sb-neon-glow: 0 0 14px color-mix(in oklab, var(--gg-neon) 26%, transparent);
+  --sb-neon-glow-hover: 0 0 22px color-mix(in oklab, var(--gg-neon) 42%, transparent);
+  /* The glitch fringe's second ring. Offsetting two rings of the SAME hue
+     reads as a blur; splitting one toward the page's own extreme is what
+     makes a burst read as chromatic misregistration. */
+  --sb-neon-ghost: color-mix(in oklab, var(--gg-neon) 45%, #ffffff);
+  /* Floor height for a card (v2.67.0). ~1.5x the pre-v2.67 zero-score
+     minimum (218px measured): the always-on three-row podium supplies most
+     of it, and this keeps a card WITH art but no scores the same height as
+     its neighbours instead of riding up short. */
+  --sb-card-min-h: 330px;
   --sb-row-gold-bg: color-mix(in oklab, var(--color-neon-amber) 12%, transparent);
   --sb-row-gold-border: color-mix(in oklab, var(--color-neon-amber) 35%, transparent);
   --sb-row-silver-bg: color-mix(in oklab, var(--color-medal-silver) 10%, transparent);
@@ -359,6 +394,32 @@
   --sb-cat-border: color-mix(in oklab, var(--color-neon-magenta) 50%, transparent);
   --sb-cat-muted-fg: var(--color-muted);
   --sb-cat-muted-border: rgba(0, 0, 0, 0.22);
+
+  /* Per-category neon, re-lit for #E8EAF0 (v2.67.0). The dark values are
+     picked to GLOW on near-black; on a pale page the same hues are 1.5-2:1
+     against the surface, so the chip label reading them would fail outright
+     and the frame would read as a pastel outline. Each is the same hue taken
+     deeper — the precedent is --color-brand-delta (#ff2e63 -> #d10f47) — and
+     every one clears 4.5:1 on white as chip text:
+       real       #d10f47  5.68:1     simulation   #0b7f95  4.55:1
+       arcade     #9c5600  5.31:1     video        #08794a  4.94:1
+       unspecified #5b6675 6.03:1
+     Frame/bloom strength drops with them; the ghost ring splits toward the
+     page's dark extreme instead of white, for the same reason. */
+  --sb-neon-real: #d10f47;
+  --sb-neon-simulation: #0b7f95;
+  --sb-neon-arcade_style: #9c5600;
+  --sb-neon-video: #08794a;
+  --sb-neon-unspecified: #5b6675;
+  --sb-neon-none: #5b6675;
+  /* Near-full strength, unlike dark's 72%: these hues are ALREADY the deep
+     variants, so mixing them toward a white page only turns them pastel — and
+     a pastel frame was the one thing the light screenshots showed failing the
+     "make the border more visible" brief. */
+  --sb-neon-border-mix: 90%;
+  --sb-neon-glow: 0 2px 10px color-mix(in oklab, var(--gg-neon) 16%, transparent);
+  --sb-neon-glow-hover: 0 3px 16px color-mix(in oklab, var(--gg-neon) 26%, transparent);
+  --sb-neon-ghost: color-mix(in oklab, var(--gg-neon) 55%, #0a1017);
 
   /* Washes need more alpha to register against a light surface. */
   --sb-row-gold-bg: color-mix(in oklab, var(--color-neon-amber) 18%, transparent);
@@ -901,6 +962,98 @@ select option {
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
+/* ══ Global Scoreboard neon card (v2.67.0) ═════════════════════════════════
+ *
+ * The card's frame is the category's neon, and it GLITCHES like the Arcaid
+ * logo does — brief chromatic misregistration, long quiet stretches.
+ *
+ * Mechanism. The resting frame is an ordinary static 2px border plus a soft
+ * bloom; nothing about it animates. The glitch is two ::before/::after RINGS
+ * stacked over it, invisible at rest, that flash and jump during their burst
+ * windows. Only `opacity` and `transform` are keyframed — both compositor
+ * properties — so a screen of forty cards costs forty composited layers and
+ * zero repaints. Animating `border-color` or `box-shadow` directly (the
+ * obvious way to write this) would repaint every card every frame.
+ *
+ * Cadence is the logo's, ported: `steps(1)` holds, TWO burst clusters per
+ * cycle, each cluster three rapid jumps at irregular offsets. At the 17/21/26s
+ * durations below one cluster lasts ~360ms and its jumps hold ~65-110ms — so
+ * per ring a glitch moment lands roughly every 8-13s, and with the two rings
+ * carrying independent delays a card flickers every ~4-6s with genuine
+ * multi-second quiet between. See ArcaidLogoAnimated's v2.45.4 / v2.45.6
+ * comments for why the cadence is shaped this way.
+ *
+ * Desync is NOT random: `GlobalGameCard` hashes `card_id` (FNV-1a) into
+ * `--gg-gl-dur` / `--gg-gl-delay` / `--gg-gl-delay-2`. Math.random() in render
+ * would re-roll on every re-render — a score arriving would resync the wall.
+ * A hash is stable for the life of the card and different for every card.
+ */
+@keyframes ggNeonGlitch {
+  0%, 21.4%, 23.1%, 68.5%, 70.4%, 100% { transform: translate(0, 0); opacity: 0; }
+  21.7% { transform: translate(3px, -2px); opacity: .9; }
+  22.1% { transform: translate(-4px, 2px); opacity: .35; }
+  22.6% { transform: translate(2px, 1px); opacity: .75; }
+  68.8% { transform: translate(-3px, 2px); opacity: .85; }
+  69.4% { transform: translate(4px, -1px); opacity: .4; }
+  70.0% { transform: translate(2px, 2px); opacity: .65; }
+}
+
+.gg-card {
+  --gg-neon: var(--sb-neon-none);
+  border: 2px solid color-mix(in oklab, var(--gg-neon) var(--sb-neon-border-mix), transparent);
+  box-shadow: var(--sb-neon-glow), var(--sb-card-shadow-strong);
+  transition: box-shadow 150ms ease, border-color 150ms ease;
+}
+
+@media (min-width: 640px) {
+  /* Sub-`sm` keeps the stronger elevation: at one column there is no
+     neighbouring card to imply an edge (v2.65.0's reasoning, unchanged). */
+  .gg-card { box-shadow: var(--sb-neon-glow), var(--sb-card-shadow); }
+}
+
+.gg-card[data-neon="real"]         { --gg-neon: var(--sb-neon-real); }
+.gg-card[data-neon="simulation"]   { --gg-neon: var(--sb-neon-simulation); }
+.gg-card[data-neon="arcade_style"] { --gg-neon: var(--sb-neon-arcade_style); }
+.gg-card[data-neon="video"]        { --gg-neon: var(--sb-neon-video); }
+.gg-card[data-neon="unspecified"]  { --gg-neon: var(--sb-neon-unspecified); }
+
+.gg-card:hover {
+  border-color: var(--gg-neon);
+  box-shadow: var(--sb-neon-glow-hover), var(--sb-card-shadow);
+}
+
+/* The two glitch rings. `inset: 0` puts them on the card's PADDING box, i.e.
+   flush inside its own frame, so a burst reads as the frame splitting rather
+   than as a separate outline appearing. The card clips its overflow, which
+   crops a jumped ring at the edge — that crop is the effect, not a defect. */
+.gg-card::before,
+.gg-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border: 2px solid var(--gg-neon);
+  border-radius: inherit;
+  box-shadow: 0 0 12px var(--gg-neon);
+  pointer-events: none;
+  opacity: 0;
+  animation: ggNeonGlitch var(--gg-gl-dur, 21s) steps(1) infinite;
+  animation-delay: var(--gg-gl-delay, 0s);
+}
+
+.gg-card::after {
+  border-color: var(--sb-neon-ghost);
+  box-shadow: none;
+  animation-direction: reverse;
+  animation-delay: var(--gg-gl-delay-2, 0s);
+}
+
+/* Empty podium place. The hover wash is here rather than an arbitrary
+   Tailwind value because it reads `--gg-neon` off the card. */
+.gg-claim-row:hover {
+  background: color-mix(in oklab, var(--gg-neon) 12%, transparent);
+}
+
 /* Global reduced-motion guard (s20) — the first @media block in this file.
    Placed after the rules it overrides so cascade order (equal specificity)
    picks this one when the user's OS/browser prefers reduced motion. */
@@ -909,6 +1062,13 @@ select option {
   .title-fire,
   .title-plasma,
   .pulse {
+    animation: none;
+  }
+  /* The neon frame is a static border and stays exactly as it is; only the
+     two fringe rings stop. They rest at opacity 0, so freezing them means
+     they simply never appear — the clean lit frame, permanently. */
+  .gg-card::before,
+  .gg-card::after {
     animation: none;
   }
 }
