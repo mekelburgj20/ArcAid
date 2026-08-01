@@ -122,9 +122,9 @@ Endpoints: `POST /admin/catalogue/sync-steam-pinball`, `POST /admin/catalogue/sy
 
 ## Platform taxonomy
 
-Canonical IDs live in `src/utils/platformMapping.ts` (BE) **and** `admin-ui/src/lib/platforms.ts` (FE). When adding/changing a platform, update both — the FE has its own copy of `CANONICAL_PLATFORMS` + `PLATFORM_ALIASES`. Forgetting causes silent FE/BE drift. Display label fallback uppercases unknown ids (`fx2` → `FX2`).
+**Two taxonomy generations coexist.** The provenance taxonomy (ADR 0016) lives in `src/utils/scoreProvenance.ts` (BE) mirrored **byte-identically below the header** in `admin-ui/src/lib/scoreProvenance.ts` (locked by `scoreProvenance-parity.test.ts` — extend, never weaken): `CANONICAL_ENGINES`, `CANONICAL_DEVICES`, `ENGINE_DEVICE_COMPAT`, `LEGACY_PLATFORM_MAP` (every canonical engine id is an identity key as of v2.62.0), and `foldCataloguePlatforms` (the ONE legacy→engines+features fold shared by migration 129 and all seven importers — never fork it). The LEGACY taxonomy (`src/utils/platformMapping.ts` + FE `admin-ui/src/lib/platforms.ts`, no parity test) still backs `normalizePlatform`/aliases — beware `PLATFORM_ALIASES['fx'] = 'pinball_fx'`: catalogue paths must use `normalizeCataloguePlatformId` (BE) / the isCanonicalEngine guard (FE) so engine ids aren't re-legacied.
 
-Categories: physical (`real`, `atgames` + 8 variants), virtual_pinball (Visual Pinball X/9, VPX Standalone + manual, Future Pinball, BAM, Pinball FX family + classic + classic VR + midnight + VR, Star Wars Pinball VR, Zaccaria + VR), arcade_video (NES/SNES/Genesis/etc.).
+**As of v2.62.0 `global_games.platforms` holds ENGINE ids** (`vpx`, `fx_classic`, `atgames_native`, console ids…); per-game availability facts live in `features` (`atgames`, `vpxs`, `vpxs_manual`, `vr`, `bam`, the 8 AtGames cabinet variants). Device-required tournament rules match explicit availability only — never via `ENGINE_DEVICE_COMPAT` (deliberately permissive; matching through it would admit every VPX table to AtGames-only tournaments).
 
 ## Pin-to-scoreboard
 
