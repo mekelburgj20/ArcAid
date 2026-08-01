@@ -31,7 +31,7 @@ import {
     RoomScoresQuerySchema,
     CreateBanSchema,
 } from '../schemas.js';
-import { writeLimiter, pickLimiter, guestContentLimiter } from '../rateLimit.js';
+import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
@@ -761,6 +761,32 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
         res.json({ pendingPicks, queuedGames, tournaments, pickAwardEnabled });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/pick-status):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * Picks nav-badge probe — "does this player need to do something about picks?"
+ *
+ * Deliberately a sibling of /pick-status rather than more keys on it. The nav
+ * calls this on EVERY room-page navigation for every signed-in viewer, while
+ * /pick-status is a page payload (full pending/queued/tournament lists) fetched
+ * once when the Picks page mounts. Keeping them apart means the nav ships only
+ * counts, gets its own tighter rate limit, and can't be made expensive by
+ * growth in the Picks page's payload.
+ */
+// Limiter sits AFTER requireDiscordUser so it can key on req.user.discordId
+// (same requirement as globalSubmitLimiter). Unauthenticated floods are
+// short-circuited by the 401 ahead of it and still covered by generalLimiter.
+router.get('/:roomId/pick-alerts', requireDiscordUser, pickAlertsLimiter, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const discordId = req.user!.discordId!;
+        const { PickAlertService } = await import('../../services/PickAlertService.js');
+        const alerts = await PickAlertService.getAlerts(roomId, discordId);
+        res.json(alerts);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/pick-alerts):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

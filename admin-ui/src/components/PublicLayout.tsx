@@ -27,7 +27,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const location = useLocation();
   const [portal, setPortal] = useState<Portal | null>(null);
   const [portalError, setPortalError] = useState(false);
-  const { discordUser, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
+  const { discordUser, playerToken, loginWithDiscord, loginWithGoogle, logoutPlayer } = useViewerAuth();
   const { loading: pickAwardLoading, enabled: pickAwardEnabled } = usePickAwardEnabled(slug);
   // D2 (v2.38.0) — room-page join/leave affordance, surfaced as a UserMenu
   // contextual item (chosen over a header button: s20/s21 already made mobile
@@ -48,6 +48,10 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   const isSuspended = !!portal?.suspended;
 
   const [lobbyHasNew, setLobbyHasNew] = useState(false);
+  // Picks nav badge — count of things the signed-in player needs to act on
+  // (pending pick they won / empty queue where they have standing / queued
+  // pick gone ineligible). Guests never get one.
+  const [pickAlerts, setPickAlerts] = useState<{ count: number; urgent: boolean } | null>(null);
   // S22 Phase 1 (v2.43.0) — discreet "Report room" affordance, signed-in
   // users only (any provider), hidden for guests.
   const [showReportRoom, setShowReportRoom] = useState(false);
@@ -130,6 +134,40 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       .catch(() => {});
   }, [resolvedRoomId, location.pathname]);
 
+  // Picks badge probe. Piggybacks the lobby-dot's trigger model — fired on
+  // navigation, no interval — so the nav stays as cheap as it was. Unlike the
+  // lobby dot there is no localStorage "last seen": these alerts are server
+  // state, so the badge clears exactly when the underlying thing is resolved
+  // rather than when the player glances at the page.
+  //
+  // Also re-runs on `arcaid_pick_alerts_changed`, which the Picks page fires
+  // after a pick/queue write — without it the badge would sit stale until the
+  // next navigation, which is precisely when the player is watching it.
+  useEffect(() => {
+    if (!resolvedRoomId || !playerToken) {
+      setPickAlerts(null);
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      fetch(`/api/rooms/${resolvedRoomId}/pick-alerts`, {
+        headers: { Authorization: `Bearer ${playerToken}` },
+      })
+        .then(r => (r.ok ? r.json() : null))
+        .then(data => {
+          if (cancelled || !data) return;
+          setPickAlerts({ count: data.count ?? 0, urgent: !!data.urgent });
+        })
+        .catch(() => { /* badge is decoration — stay silent */ });
+    };
+    load();
+    window.addEventListener('arcaid_pick_alerts_changed', load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('arcaid_pick_alerts_changed', load);
+    };
+  }, [resolvedRoomId, playerToken, location.pathname]);
+
   const hasAdminToken = !!localStorage.getItem('arcaid_token');
 
   const handleJoinRoom = async () => {
@@ -151,12 +189,28 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   // v2.39.0 — while gated, every room-scoped tab leads to a page that would
   // just 403 (each fetches its own gated endpoints) — only "Global" survives,
   // since /scoreboard isn't room-scoped.
-  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; end?: boolean; tour?: string }> = [];
+  // `badge` generalizes what used to be a hardcoded `item.label === 'Lobby'`
+  // check at the render site: 'dot' for "there's something new", 'count' for
+  // "there are N things to act on".
+  type NavBadge = { kind: 'dot' } | { kind: 'count'; value: number; urgent: boolean };
+  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; end?: boolean; tour?: string; badge?: NavBadge }> = [];
   if (!isGated && !isSuspended) {
-    navItems.push({ path: `/${slug}/lobby`, label: 'Lobby', icon: <MessageSquare size={16} /> });
+    navItems.push({
+      path: `/${slug}/lobby`,
+      label: 'Lobby',
+      icon: <MessageSquare size={16} />,
+      badge: lobbyHasNew ? { kind: 'dot' } : undefined,
+    });
     navItems.push({ path: `/${slug}`, label: 'Scores', icon: <Monitor size={16} />, end: true, tour: 'nav-scores' });
     if (!pickAwardLoading && pickAwardEnabled) {
-      navItems.push({ path: `/${slug}/picks`, label: 'Picks', icon: <Gamepad2 size={16} /> });
+      navItems.push({
+        path: `/${slug}/picks`,
+        label: 'Picks',
+        icon: <Gamepad2 size={16} />,
+        badge: pickAlerts && pickAlerts.count > 0
+          ? { kind: 'count', value: pickAlerts.count, urgent: pickAlerts.urgent }
+          : undefined,
+      });
     }
     navItems.push({ path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> });
     // v2.42.0 — Members/Players page. Static "Players" label in the nav
@@ -214,10 +268,29 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                   }`
                 }
               >
-                {item.label === 'Lobby' && lobbyHasNew ? (
+                {item.badge ? (
                   <span className="relative">
                     {item.icon}
-                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-neon-cyan rounded-full" />
+                    {item.badge.kind === 'dot' ? (
+                      <span
+                        data-testid={`nav-badge-dot-${item.label.toLowerCase()}`}
+                        className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-neon-cyan rounded-full"
+                      />
+                    ) : (
+                      // Urgent (a pending pick with a running clock) reads
+                      // magenta; the softer nudges (empty queue / ineligible
+                      // head-of-queue) reuse the cyan the lobby dot already
+                      // taught players means "worth a look".
+                      <span
+                        data-testid={`nav-badge-count-${item.label.toLowerCase()}`}
+                        aria-label={`${item.badge.value} pick ${item.badge.value === 1 ? 'item' : 'items'} need attention`}
+                        className={`absolute -top-1.5 -right-2 min-w-4 h-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-deep ${
+                          item.badge.urgent ? 'bg-neon-magenta' : 'bg-neon-cyan'
+                        }`}
+                      >
+                        {item.badge.value > 9 ? '9+' : item.badge.value}
+                      </span>
+                    )}
                   </span>
                 ) : item.icon}
                 {/* s20: label now always visible — small stacked caption on mobile

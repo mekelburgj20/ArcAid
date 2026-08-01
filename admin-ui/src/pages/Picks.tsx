@@ -181,6 +181,12 @@ export default function Picks() {
 
   useEffect(() => { fetchPickStatus(); }, [fetchPickStatus]);
 
+  // Tells the nav (PublicLayout) to re-probe /pick-alerts. Fired only from
+  // write paths — the layout already probes on navigation, so calling this on
+  // mount would just double the request. Cross-component DOM event because
+  // PublicLayout renders Picks through an <Outlet /> and can't be passed props.
+  const refreshPickAlerts = () => window.dispatchEvent(new Event('arcaid_pick_alerts_changed'));
+
   const handlePickConfirm = async (tournamentId: string) => {
     if (!roomId || !playerToken) return;
     const res = await fetch(`/api/rooms/${roomId}/pick-game`, {
@@ -202,6 +208,7 @@ export default function Picks() {
     }
     // Refresh data
     fetchPickStatus();
+    refreshPickAlerts();
     if (selectedTournamentId) {
       fetch(`/api/rooms/${roomId}/game-availability/${selectedTournamentId}`)
         .then(r => r.json())
@@ -220,6 +227,7 @@ export default function Picks() {
       if (!res.ok) { const d = await res.json(); toast(d.error || 'Failed to remove', 'error'); return; }
       toast('Game removed from queue', 'success');
       fetchPickStatus();
+      refreshPickAlerts();
     } catch { toast('Failed to remove game', 'error'); }
   };
 
@@ -238,6 +246,9 @@ export default function Picks() {
         body: JSON.stringify({ gameIds: games.map(g => g.id) }),
       });
       if (!res.ok) { fetchPickStatus(); toast('Failed to reorder', 'error'); }
+      // Reorder changes which game is head-of-queue, so it can flip the
+      // "queued pick is ineligible" alert either way.
+      refreshPickAlerts();
     } catch { fetchPickStatus(); }
   };
 
