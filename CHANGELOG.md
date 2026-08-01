@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.63.0] — unreleased
+
+**Global Scoreboard feedback fixes** (user field-testing of v2.61.0/v2.62.0).
+
+- **LIVE status line moved below the page description** — the header now reads lockup → subtitle →
+  LIVE, instead of the status line interrupting title and description.
+- **Category filters now include zero-score games via their catalogue engines.** A category chip
+  previously matched only score-derived card categories, so a game with no scores vanished from
+  every filter (e.g. "Simulation" showed 11 games — exactly the scored ones). Now a zero-score game
+  matches a category when at least one of its catalogue engines (v2.62.0's engine list) belongs to
+  it; multi-category games match each of theirs. Scored games' behavior is unchanged (`gs.id IS
+  NULL` guards the new disjunct). When a zero-score game's engines are unambiguously one category,
+  its claim card shows that category's chip (`prospective_category` — display-only; card identity
+  and P4's coverage invariants untouched). Hardened along the way: malformed `platforms` JSON on
+  any row would have 500'd every filtered request (`json_each` throws) — guarded with `json_valid`.
+- **The global game page shows scores per category, never combined.** Cards from different
+  categories still share one game page, but its leaderboard is now per-category: a tab strip when a
+  game has boards in 2+ categories (biggest first), each scoreboard card deep-links to its own via
+  `?category=`, bogus/absent params fall back to the largest board. No "All" tab on purpose — a
+  rank across mixed engines is exactly the comparability claim ADR 0016 rejects. Response stays
+  back-compatible for single-category games.
+- Tests: backend 1126 → 1147, admin-ui 304 → 316.
+
 ## [2.62.0] — unreleased
 
 **The catalogue speaks engines (ADR 0016's last gap).** `global_games.platforms` is now an engine
