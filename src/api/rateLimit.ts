@@ -33,6 +33,26 @@ export const pickLimiter = rateLimit({
 });
 
 /**
+ * Picks nav-badge probe: 60 requests per minute per Discord user.
+ *
+ * Fired once per client-side navigation (no interval) by every signed-in
+ * viewer on a room page, so the realistic ceiling is a handful per minute even
+ * for someone clicking around fast. Keyed per-user rather than per-IP so a
+ * shared cabinet/household doesn't throttle one player because another is
+ * browsing; falls back to the normalized IP if requireDiscordUser hasn't run
+ * (see globalSubmitLimiter for the IPv6/ipKeyGenerator rationale). Sits well
+ * under generalLimiter so the probe can never be the thing that 429s a page.
+ */
+export const pickAlertsLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: any) => req.user?.discordId || ipKeyGenerator(req.ip),
+    message: { error: 'Too many requests. Please slow down.' },
+});
+
+/**
  * S16 — OG meta injection on the SPA catch-all: 60 requests per minute per IP.
  * The catch-all isn't under the /api generalLimiter, and a spoofed bot UA now
  * triggers DB lookups there; this caps that surface. Applied ONLY to requests
