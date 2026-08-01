@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.70.0] — unreleased
+
+**Integration release: info bubble + five approved refinements** (user field feedback, 2026-08-01).
+
+- **Room-card 'i' info bubble** shows what a tournament allows — Engines and Hardware pills
+  derived through the SAME shared module the submit sheet uses (extracted, not mirrored — the
+  two surfaces cannot diverge), with 'This tournament allows' vs 'Available on' labeling, a
+  narrowing note when rules removed options, and the admin's own `restrictedText` wording in
+  amber (one-line backend addition; the picker keeps its axes-only contract). Lazy-fetched on
+  first open; enlarged trigger (~27px chip, 44px hit target) on all three card styles.
+- **Size trims per user feedback:** the bubble (~15% smaller footprint) and the Picks nav badge
+  (16→14px) — both measured, both states preserved.
+- **Friend-score privacy guard:** followers who cannot VIEW the origin room (approval rooms)
+  receive neither the targeted feed event nor the Discord DM — open rooms short-circuit before
+  any per-follower work. Closes the activity-leak the owner's Hoser Haven question surfaced.
+- **turnToPick web push actually works now:** the type was already enabled (v2.32.0) but pushed
+  a body that stranded the deadline; it now mirrors the v2.69 lobby copy ('N minutes before the
+  runner-up gets the pick' / 'before autopick') derived from the real deadline. Also found and
+  fixed: the runner-up pivot — the SHORTER window — sent no personal notification at all.
+- Tests: backend 1310 → 1325, admin-ui 377 → 393.
+
 ## [2.69.0] — unreleased
 
 **Pick-flow notifications** (user direction, 2026-08-01).
