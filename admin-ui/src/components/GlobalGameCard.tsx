@@ -275,7 +275,7 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
   onSubmit: () => void;
   /** Undefined for anonymous viewers — the hotspot is not rendered at all. */
   onTogglePin?: () => void;
-  /** v2.55.0 — optional pill rendered left of the platform chip. The pins
+  /** v2.55.0 — optional pill rendered left of the category chip. The pins
    *  carousel passes its rank-delta badge; the grid passes nothing. */
   badge?: ReactNode;
   /** v2.57.0 (A5a) — page-level density. Defaults to the pre-A5a behaviour, so
@@ -285,8 +285,22 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
   const img = catalogueImageFor(game);
   const displayName = game.display_name || game.name;
   const { rows: planned, prompt } = planRows(game, density);
-  const platforms = parsePlatforms(game.platforms);
-  const primaryPlatform = platforms[0];
+  /**
+   * v2.64.0 — the catalogue's engine list is HOVER-ONLY on a card now.
+   *
+   * The card used to render `platforms[0]` as a visible chip. Since v2.62.0
+   * that array holds engine ids, and per-category cards made the chip a lie:
+   * both of Creature from the Black Lagoon's cards (Simulation and
+   * Arcade-Style) showed the same catalogue-level "FUTURE PINBALL", implying
+   * the scores on each board came from that engine. They don't — the card's
+   * board is named by the category chip, and the engines below it can be any
+   * of the game's. The visible chip is gone; the full deduped list survives as
+   * the art block's tooltip, where it reads as game metadata rather than as a
+   * claim about these scores.
+   */
+  const platformList = [...new Set(
+    parsePlatforms(game.platforms).map(p => getLegacyPlatformLabel(p, false)),
+  )].join(' · ');
   // v2.63.0 — a zero-score card names the band its FIRST score would open,
   // when the catalogue says so unambiguously. `category` still wins wherever
   // it exists; the fallback only ever fires for a card with no board.
@@ -346,6 +360,7 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
       <Link
         to={cardDetailHref(game.global_game_id, game.category)}
         className="relative block h-[110px] shrink-0 no-underline"
+        title={platformList ? `Available on: ${platformList}` : undefined}
       >
         {img ? (
           <img
@@ -361,27 +376,19 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
           </div>
         )}
         <div className="absolute inset-0" style={{ background: 'var(--sb-art-scrim)' }} />
-        {/* One platform pill only (design: the full list lives on the detail
-            page), optionally preceded by a caller-supplied badge. The wrapper
-            sits at the pill's original offsets, so a card with no badge renders
-            exactly as it did pre-extraction.
+        {/* The card's chip row: the category chip that names THIS board, plus
+            an optional caller-supplied badge (the pins carousel's rank delta).
+            v2.64.0 dropped the engine pill that used to sit to its right.
 
-            P4 adds the category chip between them, and the row may now wrap:
-            three chips on a 1-column phone card would otherwise run under the
-            pin hotspot. `max-w` reserves the hotspot's 44px corner. */}
-        {(badge || categoryLabel || primaryPlatform) && (
+            Both slots are optional — a zero-score card whose catalogue engines
+            span two bands has neither — so the wrapper renders only when there
+            is something to put in it, and never leaves an empty flex row over
+            the art. It still wraps, and `max-w` still reserves the pin
+            hotspot's 44px corner, for a badge + chip pair on a phone card. */}
+        {(badge || categoryLabel) && (
           <div className="absolute right-1.5 top-1.5 flex max-w-[calc(100%-3.25rem)] flex-wrap items-center justify-end gap-1">
             {badge}
             <CategoryChip category={chipCategory} prospective={chipIsProspective} />
-            {primaryPlatform && (
-              <span
-                className="rounded-[3px] border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.4px] text-neon-cyan"
-                style={{ background: 'var(--sb-pill-bg)', borderColor: 'var(--sb-pill-border)' }}
-                title={[...new Set(platforms.map(p => getLegacyPlatformLabel(p, false)))].join(' · ')}
-              >
-                {getLegacyPlatformLabel(primaryPlatform)}
-              </span>
-            )}
           </div>
         )}
         <div className="absolute inset-x-2.5 bottom-1.5">

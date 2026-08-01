@@ -351,6 +351,61 @@ describe('GlobalScoreboard — pins stay keyed on the game (v2.59.0 P4)', () => 
   });
 });
 
+/**
+ * v2.64.0 — cards carry the category chip and nothing else.
+ *
+ * The engine pill they used to render came from the game's CATALOGUE, so every
+ * card of a game showed the same one. With per-category cards that reads as a
+ * claim about the scores on the board underneath it (the field report: both of
+ * Creature from the Black Lagoon's cards said FUTURE PINBALL), which is exactly
+ * what the category chip is there to say — and says correctly.
+ */
+describe('GlobalScoreboard — cards show the category chip only (v2.64.0)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    scoreboardRequests = [];
+    document.documentElement.className = '';
+  });
+
+  it('renders no engine chip beside the category chip', async () => {
+    mockFetch([
+      makeCard('g1', 'Creature', 'simulation', 3, { platforms: JSON.stringify(['bam']) }),
+      makeCard('g1', 'Creature', 'arcade_style', 2, { platforms: JSON.stringify(['bam']) }),
+    ]);
+
+    renderScoreboard();
+
+    await waitFor(() => expect(screen.getAllByText('Creature')).toHaveLength(2));
+    const cards = allCards();
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      // The board's own name survives…
+      expect(within(card).getByTestId('category-chip')).toBeInTheDocument();
+      // …the catalogue engine that used to sit next to it does not.
+      expect(within(card).queryByText('Future Pinball')).not.toBeInTheDocument();
+    }
+    // Both cards still name their OWN band, which is the point.
+    expect(cards.map(c => within(c).getByTestId('category-chip').textContent))
+      .toEqual(['Simulation', 'Arcade-Style']);
+  });
+
+  it('keeps the full deduped engine list reachable as the art tooltip', async () => {
+    mockFetch([
+      makeCard('g1', 'Creature', 'simulation', 3, {
+        // `vpx` and `vpxs` are one engine — the tooltip must say it once.
+        platforms: JSON.stringify(['vpx', 'vpxs', 'bam']),
+      }),
+    ]);
+
+    renderScoreboard();
+    await screen.findByText('Creature');
+
+    const art = screen.getByTestId('category-chip').closest('a') as HTMLElement;
+    expect(art.getAttribute('title')).toBe('Available on: Visual Pinball X · Future Pinball');
+  });
+});
+
 describe('GlobalScoreboard — the zero-score card names its prospective board (v2.63.0)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
