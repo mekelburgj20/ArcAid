@@ -38,7 +38,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // sessions via the registry, never directly.
 import {
     passesplatformRules, parsePlatformsList, parseTournamentRules,
-    hasAnyPlatformRules, legacyPlatformsForEngine, legacyPlatformsForDevice,
+    hasAnyPlatformRules, legacyPlatformsForEngine, deviceMatchTokens,
 } from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
@@ -337,11 +337,16 @@ router.get('/:roomId/platforms/available', async (req, res) => {
             WHERE gg.status = 'approved' AND j.value != ''
             ORDER BY platform
         `) as Array<{ platform: string }>;
-        const { normalizePlatform } = await import('../../utils/platformMapping.js');
+        // `normalizeCataloguePlatformId`, NOT the old taxonomy's
+        // `normalizePlatform`: an engine id in the catalogue (or in a room tag)
+        // must survive this fold intact — `fx` would otherwise be re-legacied
+        // to `pinball_fx` on its way into the tournament rules picker. Legacy
+        // ids normalize exactly as before.
+        const { normalizeCataloguePlatformId } = await import('../../utils/platformRules.js');
         const seen = new Set<string>();
         const out: string[] = [];
         for (const r of rows) {
-            const id = normalizePlatform(r.platform);
+            const id = normalizeCataloguePlatformId(r.platform);
             if (!id || seen.has(id)) continue;
             seen.add(id);
             out.push(id);
@@ -349,7 +354,7 @@ router.get('/:roomId/platforms/available', async (req, res) => {
         // Union with room-specific custom tags.
         const tags = await RoomGameTagsService.getDistinctTagsForRoom(roomId);
         for (const tag of tags) {
-            const id = normalizePlatform(tag);
+            const id = normalizeCataloguePlatformId(tag);
             if (!id || seen.has(id)) continue;
             seen.add(id);
             out.push(id);
@@ -539,33 +544,56 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             // v2.60.0 (ADR 0016 P2 §2) — rules are now two axes. Each is
             // expanded through its own legacy-id map and the two `required`
             // clauses are ANDed, matching `passesplatformRules`.
-            const membership = (tokens: string[]) => `EXISTS (
-                SELECT 1 FROM json_each(gg.platforms) je
+            //
+            // ADR 0016 catalogue phase §4 — the DEVICE axis now reads `features`
+            // too. Once the fold moves availability out of `platforms`, an
+            // AtGames-available VPX table says `platforms:['vpx'],
+            // features:['vpxs']`, and a platforms-only clause would admit zero
+            // games for the single most common production rule
+            // (`required:['atgames']`, hazard H-C). Each device expands to a
+            // platform token set AND a feature token set, ORed — so a pre-fold
+            // row matches on the first and a folded row on the second, and the
+            // gate answers the same either way. This is the SQL twin of
+            // `deviceMatchesGame`; the two are pinned to each other by test.
+            const membership = (column: string, tokens: string[]) => `EXISTS (
+                SELECT 1 FROM json_each(gg.${column}) je
                 WHERE LOWER(je.value) IN (${tokens.map(() => '?').join(',')})
             )`;
-            const addRequired = (values: string[], expand: (v: string) => string[]) => {
+            /** One rule token → its match clause, plus the params it binds. */
+            const clauseFor = (sets: Array<[string, string[]]>): string | null => {
+                const parts: string[] = [];
+                for (const [column, tokens] of sets) {
+                    if (tokens.length === 0) continue;
+                    parts.push(membership(column, tokens));
+                    platformParams.push(...tokens);
+                }
+                return parts.length > 0 ? `(${parts.join(' OR ')})` : null;
+            };
+            const engineSets = (v: string): Array<[string, string[]]> =>
+                [['platforms', legacyPlatformsForEngine(v)]];
+            const deviceSets = (v: string): Array<[string, string[]]> => {
+                const t = deviceMatchTokens(v);
+                return [['platforms', t.platforms], ['features', t.features]];
+            };
+            const addRequired = (values: string[], sets: (v: string) => Array<[string, string[]]>) => {
                 if (values.length === 0) return;
                 const clauses: string[] = [];
                 for (const v of values) {
-                    const tokens = expand(v);
-                    if (tokens.length === 0) continue;
-                    clauses.push(membership(tokens));
-                    platformParams.push(...tokens);
+                    const clause = clauseFor(sets(v));
+                    if (clause) clauses.push(clause);
                 }
                 if (clauses.length > 0) platformFilter += ` AND (${clauses.join(' OR ')})`;
             };
-            const addExcluded = (values: string[], expand: (v: string) => string[]) => {
+            const addExcluded = (values: string[], sets: (v: string) => Array<[string, string[]]>) => {
                 for (const v of values) {
-                    const tokens = expand(v);
-                    if (tokens.length === 0) continue;
-                    platformFilter += ` AND NOT ${membership(tokens)}`;
-                    platformParams.push(...tokens);
+                    const clause = clauseFor(sets(v));
+                    if (clause) platformFilter += ` AND NOT ${clause}`;
                 }
             };
-            addRequired(rules.engines.required, legacyPlatformsForEngine);
-            addRequired(rules.devices.required, legacyPlatformsForDevice);
-            addExcluded(rules.engines.excluded, legacyPlatformsForEngine);
-            addExcluded(rules.devices.excluded, legacyPlatformsForDevice);
+            addRequired(rules.engines.required, engineSets);
+            addRequired(rules.devices.required, deviceSets);
+            addExcluded(rules.engines.excluded, engineSets);
+            addExcluded(rules.devices.excluded, deviceSets);
         } catch { /* no platform filtering */ }
 
         const libraryGames = await db.all(`
@@ -764,7 +792,7 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
 
         // 2. Look up game in catalogue.
         const gameLibEntry = await db.get(
-            `SELECT name, type AS mode, platforms FROM global_games
+            `SELECT name, type AS mode, platforms, features FROM global_games
              WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
             gameName,
         );
@@ -783,8 +811,12 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         const cataloguePlatforms = parsePlatformsList(gameLibEntry.platforms || '[]');
         const roomTags = await RoomGameTagsService.getTagsForGameName(roomId, gameName);
         const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
+        // Features carry the device-axis availability the fold moved out of
+        // `platforms` (ADR 0016 catalogue phase §4). Room tags are platforms
+        // only — they have never expressed availability.
+        const gameFeatures = parsePlatformsList(gameLibEntry.features || '[]');
 
-        if (!passesplatformRules(gamePlatforms, platformRules)) {
+        if (!passesplatformRules(gamePlatforms, platformRules, gameFeatures)) {
             const restrictedText = platformRules.restrictedText;
             return res.status(400).json({
                 error: restrictedText || 'This game is not available for this tournament type (platform restriction)',
@@ -2501,17 +2533,27 @@ router.post('/:roomId/game_library/submit_to_global', requireAuth, requireRoomAc
         const now = new Date().toISOString();
         const submittedByUserId = req.user?.discordId || req.user?.username || null;
 
+        // ADR 0016 catalogue phase §5 — fold here too. This route bypasses
+        // `GlobalGameService.upsert` on purpose (upsert forces `approved`; a
+        // room proposal must land as `pending`), so it also bypasses the fold
+        // upsert applies. A room admin's browser sends whatever id list its
+        // platform picker offered, which is legacy for any client older than
+        // this release — folding upgrades it instead of seeding the catalogue
+        // with the shape the migration just cleaned up.
+        const { foldCataloguePlatforms } = await import('../../utils/scoreProvenance.js');
+        const proposedFold = foldCataloguePlatforms(platforms || []);
         await db.run(
             `INSERT INTO global_games (
-                id, name, manufacturer, year, type, platforms, status,
+                id, name, manufacturer, year, type, platforms, features, status,
                 submitted_by_user_id, submitted_by_room_id, submitted_at, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
             newId,
             name,
             manufacturer ?? null,
             year ?? null,
             type,
-            JSON.stringify(platforms || []),
+            JSON.stringify([...proposedFold.engines, ...proposedFold.dropped]),
+            JSON.stringify(proposedFold.features),
             submittedByUserId,
             roomId,
             now,
@@ -2922,13 +2964,14 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
         const platformRules = parseTournamentRules(tournament);
         if (hasAnyPlatformRules(platformRules)) {
             const gameLibRow = await db.get(
-                `SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
+                `SELECT platforms, features FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                 gameName,
             );
             const cataloguePlatforms = parsePlatformsList(gameLibRow?.platforms || '[]');
             const roomTags = await RoomGameTagsService.getTagsForGameName(tournament.game_room_id, gameName);
             const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
-            if (!passesplatformRules(gamePlatforms, platformRules)) {
+            const gameFeatures = parsePlatformsList(gameLibRow?.features || '[]');
+            if (!passesplatformRules(gamePlatforms, platformRules, gameFeatures)) {
                 return res.status(400).json({ error: `Game "${gameName}" does not meet this tournament's platform requirements` });
             }
         }

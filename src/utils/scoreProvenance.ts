@@ -284,6 +284,17 @@ export const LEGACY_PLATFORM_MAP: Record<string, Provenance> = {
     fx3:                   { engine: 'fx_classic',  device: UNKNOWN },
     pinball_fx3:           { engine: 'fx_classic',  device: UNKNOWN },
     'pinball fx3':         { engine: 'fx_classic',  device: UNKNOWN },
+    // The FX2 era is the same engine as FX3 — Zen rebranded the line to
+    // "Pinball FX Classic" and both generations' tables sit under it. The map
+    // already said so for the VR spellings ('pinball fx2 vr' → fx_classic +
+    // vr_headset); the flat spellings were simply missing, so a catalogue row
+    // carrying `fx2` read as unknown/unknown. Found by rehearsing migration 129
+    // against a copy of production, where `fx2` was the ONLY unrecognised token
+    // (5 rows) and dropping it would have left "Plants vs. Zombies" and
+    // "Ms. Splosion Man" — both FX2-era Zen tables — with no engine at all.
+    fx2:                   { engine: 'fx_classic',  device: UNKNOWN },
+    pinball_fx2:           { engine: 'fx_classic',  device: UNKNOWN },
+    'pinball fx2':         { engine: 'fx_classic',  device: UNKNOWN },
     'pinball fx classic':  { engine: 'fx_classic',  device: UNKNOWN },
     pinball_fx_classic_vr: { engine: 'fx_classic',  device: 'vr_headset' },
     'pinball fx classic vr': { engine: 'fx_classic', device: 'vr_headset' },
@@ -309,6 +320,31 @@ export const LEGACY_PLATFORM_MAP: Record<string, Provenance> = {
     // Bare device token from the original `PLATFORMS` seed
     // (['AtGames','VPXS','VR','IRL']) — engine unknowable, device is the point.
     vr:                    { engine: UNKNOWN,       device: 'vr_headset' },
+
+    // ── Canonical ENGINE ids, mapped to themselves ──────────────────────────
+    //
+    // `global_games.platforms` becomes an engine list (ADR 0016 §"Catalogue
+    // describes engines, not devices"). Every read path that classifies a
+    // catalogue value goes through THIS map, so an engine id that is not a key
+    // here reads as unknown/unknown: `enginesFromLegacyPlatforms` would yield
+    // `['unknown']` and auto-lock the submit picker to Unspecified, and
+    // `legacyPlatformsForEngine(e)` would return a set NOT containing `e`, so
+    // tournament eligibility would match zero games.
+    //
+    // Most engine ids are already keys above because the legacy id and the
+    // engine id are the same string (`real`, `vpx`, `vp9`, `fp`, `fx`,
+    // `zaccaria`, `pc`, every console id). These four exist only in the new
+    // taxonomy; their legacy spellings (`pinball_fx_classic`,
+    // `pinball_fx_midnight`, `star_wars_pinball_vr`, `atgames`) stay above,
+    // unchanged, and keep mapping exactly as they did.
+    //
+    // Device is UNKNOWN by construction: an engine id names what PRODUCED a
+    // score and asserts nothing about the hardware it ran on. Purely additive —
+    // no token that resolved before resolves differently now.
+    fx_classic:            { engine: 'fx_classic',  device: UNKNOWN },
+    fx_midnight:           { engine: 'fx_midnight', device: UNKNOWN },
+    star_wars:             { engine: 'star_wars',   device: UNKNOWN },
+    atgames_native:        { engine: 'atgames_native', device: UNKNOWN },
 
     // Arcade & video games — engine keeps its id, device stays unknown.
     arcade:      { engine: 'arcade',      device: UNKNOWN },
@@ -641,20 +677,200 @@ export function enginesFromLegacyPlatforms(platforms: string[]): string[] {
 }
 
 /**
- * Device options for `engine`, narrowed to what the game's legacy platform list
- * makes plausible. The union of the engine's compat list is intersected with
- * nothing (P1 stays permissive), but devices explicitly implied by the game's
- * platforms (e.g. `atgames` → `atgames`) are guaranteed present.
+ * Device options for `engine`, narrowed to what the game's platform list and
+ * availability features make plausible. The union of the engine's compat list
+ * is intersected with nothing (P1 stays permissive), but devices explicitly
+ * implied by the game are guaranteed present.
+ *
+ * `features` carries the half of that implication the catalogue fold moved out
+ * of `platforms` (ADR 0016 catalogue phase §2). Pre-fold, a `vpxs` platform id
+ * mapped to device `atgames` and put AtGames in the list; post-fold the row
+ * says `platforms: ['vpx'], features: ['vpxs']` and the same guarantee has to
+ * come from the feature. It defaults to `[]` so a caller that has not been
+ * given features yet behaves exactly as it did.
  */
-export function devicesForEngineAndPlatforms(engine: string, platforms: string[]): string[] {
+export function devicesForEngineAndPlatforms(
+    engine: string,
+    platforms: string[],
+    features: string[] = [],
+): string[] {
     const base = devicesForEngine(engine);
     const out = [...base];
     for (const p of platforms) {
         const { device } = mapLegacyPlatform(p);
         if (device !== UNKNOWN && !out.includes(device)) out.push(device);
     }
+    const have = new Set(features.map(f => normalizeProvenanceToken(f)));
+    for (const [device, tokens] of Object.entries(DEVICE_AVAILABILITY_FEATURES)) {
+        if (out.includes(device)) continue;
+        if (tokens.some(t => have.has(t))) out.push(device);
+    }
     return out;
 }
+
+// ─── Catalogue fold: legacy platform ids → engines + availability ───────────
+
+/**
+ * The availability FACT a legacy catalogue platform id carries, once its engine
+ * half has been taken out of it (ADR 0016 §"Catalogue describes engines, not
+ * devices", contract §2).
+ *
+ * `global_games.platforms` mixed two things: what a table was authored FOR
+ * (`vpx`, `pinball_fx`) and what it happens to be AVAILABLE on (`vpxs` = also
+ * ships as a standalone build, `zaccaria_vr` = a VR edition exists). The first
+ * is the engine and belongs in `platforms`; the second is a per-game fact and
+ * belongs in `features`, where the 8 AtGames cabinet variants already live
+ * (migration 101 established the move).
+ *
+ * Keyed by the SAME tokens as `LEGACY_PLATFORM_MAP` — including the alias
+ * spellings — because a catalogue row or a room tag can carry any of them. A
+ * token absent here simply contributes no feature; it is not junk.
+ */
+export const CATALOGUE_PLATFORM_FEATURE: Record<string, string> = {
+    // VPX Standalone: the VPX engine on standalone hardware. `vpxs` is the
+    // AtGames-capable build; `vpxs_manual` differs only by install effort,
+    // which ADR 0016 rules a catalogue property, not a property of a score.
+    vpxs:                              'vpxs',
+    'vpx standalone':                  'vpxs',
+    vpxs_manual:                       'vpxs_manual',
+    'vpxs-manual':                     'vpxs_manual',
+    'vpx standalone (manual install)': 'vpxs_manual',
+
+    // "This table requires BAM" is availability, not an engine — a BAM table
+    // is the `fp` engine (ADR 0016 §"BAM is not an engine").
+    bam: 'bam',
+
+    // Every `*_vr` id decomposes: the engine keeps the score, the headset is
+    // an availability fact ("a VR edition of this table exists").
+    pinball_fx_vr:           'vr',
+    'pinball fx vr':         'vr',
+    pinball_fx_classic_vr:   'vr',
+    'pinball fx classic vr': 'vr',
+    'pinball fx 2 vr':       'vr',
+    'pinball fx2 vr':        'vr',
+    'fx 2 vr':               'vr',
+    star_wars_pinball_vr:    'vr',
+    'star wars pinball vr':  'vr',
+    zaccaria_vr:             'vr',
+    'zaccaria vr':           'vr',
+    'zaccaria pinball vr':   'vr',
+    // The bare device token from the original `PLATFORMS` seed. No engine at
+    // all, but it still states availability, so it is folded, not dropped.
+    vr:                      'vr',
+
+    // AtGames availability. Distinct from the ENGINE below: "you can play this
+    // on an AtGames cabinet" is true of VPX, Zen and Zaccaria tables too.
+    atgames: 'atgames',
+};
+
+/**
+ * Engine for legacy ids whose engine `LEGACY_PLATFORM_MAP` cannot supply.
+ *
+ * Exactly one entry, and it is a product call (contract §2, FLAGGED PRODUCT
+ * CALL #1, orchestrator 2026-07-31). `LEGACY_PLATFORM_MAP['atgames']` is
+ * `unknown`/`atgames` and must STAY that way: on the SCORE axis an `atgames`
+ * value really is unknowable (the cabinet runs four engines), and pretending
+ * otherwise would fabricate provenance.
+ *
+ * On the CATALOGUE axis the same token means something different and knowable:
+ * a game reached the catalogue via the AtGames sheet, i.e. it runs on the
+ * machine's own software. `atgames_native` is ADR 0016's engine for exactly
+ * that, and it is what ends the auto-lock — an AtGames-only game currently
+ * derives NO engine, so its submit picker locks to Unspecified.
+ *
+ * Known imprecision: Zen/FarSight-ported titles arguably carry their porter's
+ * engine. The sheet's column-A fill colour knows the studio; the CSV export
+ * path cannot read colours (ROADMAP "Studio attribution"). If the product owner
+ * overrules, this is one line.
+ */
+export const CATALOGUE_PLATFORM_ENGINE_OVERRIDE: Record<string, string> = {
+    atgames: 'atgames_native',
+};
+
+/** Result of folding a legacy catalogue platform list (contract §2). */
+export interface CatalogueFold {
+    /** Canonical engine ids, first-seen order, deduped. Becomes `platforms`. */
+    engines: string[];
+    /** Availability facts, deduped. Union-merged into `features`. */
+    features: string[];
+    /**
+     * Tokens that yielded NEITHER an engine nor a feature — `fx2`, a typo, an
+     * unmapped VPS `tableFormat`. Returned rather than discarded so the caller
+     * decides: the migration LOGS them with the row id, the VPS importer keeps
+     * them verbatim on the engine axis (its historical behaviour).
+     */
+    dropped: string[];
+}
+
+/**
+ * THE fold (ADR 0016 catalogue phase, contract §2). One helper, used by the
+ * migration and by all seven importers, so the data written today and the data
+ * written by tomorrow's sync cannot disagree.
+ *
+ * `real`→`real`; `vpxs`→`vpx` + feature `vpxs`; `bam`→`fp` + feature `bam`;
+ * `pinball_fx_vr`→`fx` + feature `vr`; `atgames`→`atgames_native` + feature
+ * `atgames`; console/arcade/pc ids unchanged; junk → `dropped`.
+ *
+ * **Idempotent on the engine axis, by construction.** Every canonical engine id
+ * is a `LEGACY_PLATFORM_MAP` key mapping to itself (catalogue phase §1), so
+ * folding an already-folded list returns the same engines, no features and no
+ * dropped tokens. That is what makes the migration safe to re-run and what lets
+ * an importer fold unconditionally without checking whether a row was migrated.
+ * Feature tokens are not platform ids and are not expected on input; a token
+ * that is both (`vpxs`) still folds to its engine, so a half-migrated row
+ * converges rather than degrading.
+ *
+ * Order is the source list's first occurrence of each engine — several legacy
+ * ids collapse to one engine (`vpx`, `vpxs`, `vpxs_manual` → `vpx`), and the
+ * winner is whichever appeared first. Display surfaces treat `engines[0]` as
+ * the primary chip, so this rule IS the primary-chip rule (contract H-E).
+ */
+export function foldCataloguePlatforms(legacyIds: string[]): CatalogueFold {
+    const engines: string[] = [];
+    const features: string[] = [];
+    const dropped: string[] = [];
+    const push = (list: string[], value: string): void => {
+        if (value && !list.includes(value)) list.push(value);
+    };
+
+    for (const raw of legacyIds ?? []) {
+        const token = normalizeProvenanceToken(raw);
+        if (!token) continue;
+
+        const feature = CATALOGUE_PLATFORM_FEATURE[token] ?? null;
+        const mapped = mapLegacyPlatform(token).engine;
+        const engine = CATALOGUE_PLATFORM_ENGINE_OVERRIDE[token]
+            ?? (mapped === UNKNOWN ? null : mapped);
+
+        if (!engine && !feature) {
+            push(dropped, token);
+            continue;
+        }
+        if (engine) push(engines, engine);
+        if (feature) push(features, feature);
+    }
+
+    return { engines, features, dropped };
+}
+
+/**
+ * Every availability feature that means "this game is playable on `device`".
+ *
+ * The device-axis half of the fold, and the reason a device-`required`
+ * tournament rule keeps working once availability leaves `platforms` (contract
+ * §4 / hazard H-C). `atgames` lists all three VPX-Standalone-or-AtGames
+ * features because all three denoted the `atgames` device before the fold —
+ * dropping `vpxs_manual` would quietly stop admitting manual-install titles a
+ * `required: ['atgames']` tournament admits today.
+ *
+ * Devices absent here (`pc`, `console`, `arcade_cabinet`, `real_cabinet`) are
+ * decided on the ENGINE axis instead; see `deviceMatchesGame` in
+ * `platformRules.ts`.
+ */
+export const DEVICE_AVAILABILITY_FEATURES: Record<string, string[]> = {
+    atgames:    ['atgames', 'vpxs', 'vpxs_manual'],
+    vr_headset: ['vr'],
+};
 
 /**
  * Derive the legacy `platform` id for a (engine, device) pair, preferring an id

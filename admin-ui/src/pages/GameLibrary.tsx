@@ -10,6 +10,13 @@ import StarRating from '../components/StarRating';
 import StylePicker from '../components/StylePicker';
 import GameInfoModal from '../components/GameInfoModal';
 import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
+// ADR 0016 catalogue phase §6 — `global_games.platforms` is an ENGINE list, so
+// catalogue chips render through the provenance helper the rest of the app
+// already uses (`getLegacyPlatformLabel` handles BOTH vocabularies, which
+// matters while a deploy is mid-rollout and rows exist in either shape). Room
+// TAGS stay on `getPlatformDisplay`: they are free-form strings on the old
+// axis, not engines, and folding them would claim a meaning they don't have.
+import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
 
 interface GameRow {
   id?: string;
@@ -89,7 +96,7 @@ function PlatformChips({ platforms: raw, roomTags }: { platforms: string; roomTa
   return (
     <div className="flex gap-1 flex-wrap">
       {list.map(p => (
-        <span key={`p-${p}`} className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">{getPlatformDisplay(p)}</span>
+        <span key={`p-${p}`} className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">{getLegacyPlatformLabel(p)}</span>
       ))}
       {tags.map(t => (
         <span key={`t-${t}`} className="text-xs px-1.5 py-0.5 rounded bg-neon-amber/10 text-neon-amber border border-neon-amber/40" title="Room-only tag">{getPlatformDisplay(t)}</span>
@@ -782,6 +789,16 @@ export default function GameLibrary() {
     return true;
   });
 
+  /**
+   * The label the platforms column actually shows first — `engines[0]` folded
+   * to its display name. `'￿'` for an empty list parks "None" at the end
+   * of an ascending sort instead of the top.
+   */
+  const primaryEngineLabel = (raw: string | null | undefined): string => {
+    const first = normalizePlatformList(parsePlatforms(raw || ''))[0];
+    return first ? getLegacyPlatformLabel(first, false) : '￿';
+  };
+
   // Sorted games. localeCompare uses { sensitivity: 'base' } so the FE order
   // matches the server's `COLLATE NOCASE` (case-insensitive). Variants of a
   // shared name fall back to (year, manufacturer) so e.g. all "Carnival"
@@ -802,7 +819,14 @@ export default function GameLibrary() {
           if (cmp === 0) cmp = cmpStr(a.name, b.name);
           break;
         case 'platforms':
-          cmp = cmpStr(a.platforms || '', b.platforms || '');
+          // ADR 0016 catalogue phase §6 (hazard H-E) — sort on the FIRST
+          // engine's display label, not the raw JSON string. The old comparator
+          // compared `'["vpx","vpxs"]'` against `'["atgames"]'` character by
+          // character, so the leading `[` and `"` did nothing, the order
+          // followed whatever the importer happened to write first, and the
+          // column sorted by a value the user could not see. Empty lists sort
+          // last rather than first, where "None" belongs.
+          cmp = cmpStr(primaryEngineLabel(a.platforms), primaryEngineLabel(b.platforms));
           if (cmp === 0) cmp = cmpStr(a.name, b.name);
           break;
         case 'rating': {

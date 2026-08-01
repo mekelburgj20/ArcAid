@@ -80,14 +80,15 @@ export const activategame: Command = {
             const platformRules = parseTournamentRules(tournament);
             if (hasAnyPlatformRules(platformRules)) {
                 const gameLibRow = await db.get(
-                    `SELECT platforms FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
+                    `SELECT platforms, features FROM global_games WHERE LOWER(name) = LOWER(?) AND status = 'approved' LIMIT 1`,
                     gameName,
                 );
                 const cataloguePlatforms = parsePlatformsList(gameLibRow?.platforms || '[]');
                 const { RoomGameTagsService } = await import('../../services/RoomGameTagsService.js');
                 const roomTags = await RoomGameTagsService.getTagsForGameName(tournament.game_room_id, gameName);
                 const gamePlatforms = Array.from(new Set([...cataloguePlatforms, ...roomTags]));
-                if (!passesplatformRules(gamePlatforms, platformRules)) {
+                const gameFeatures = parsePlatformsList(gameLibRow?.features || '[]');
+                if (!passesplatformRules(gamePlatforms, platformRules, gameFeatures)) {
                     await interaction.editReply(`**${gameName}** does not meet the platform requirements for **${tournamentName}**.`);
                     return;
                 }

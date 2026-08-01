@@ -2098,6 +2098,19 @@ export async function initDatabase(): Promise<Database> {
             const { purgeSyncAndUnknownScores } = await import('./migrations/purgeSyncAndUnknownScores.js');
             await purgeSyncAndUnknownScores(db);
         } },
+        // --- ADR 0016 catalogue phase §3: platforms becomes an ENGINE list ---
+        // Availability facts (`vpxs`, `bam`, every `*_vr`, `atgames`) move to
+        // `features`, following migration 101's platforms→features precedent.
+        // Handler rather than raw sql: the sql runner swallows failures, and
+        // this one must log the pre-fold distribution, per-id transform counts
+        // and every dropped junk token WITH its row id on a real deploy. Only
+        // meaningful alongside the importer changes in the same release —
+        // `GlobalGameService.upsert` union-merges platforms, so the migration
+        // alone is undone by the next sync (hazard H-F).
+        { name: '129_catalogue_platforms_to_engines', handler: async (db) => {
+            const { foldCatalogueToEngines } = await import('./migrations/catalogueEngineFold.js');
+            await foldCatalogueToEngines(db);
+        } },
     ];
 
     for (const migration of migrations) {

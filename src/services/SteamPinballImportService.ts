@@ -5,6 +5,7 @@ import { SyncLogService } from './SyncLogService.js';
 import { logInfo, logError, logWarn } from '../utils/logger.js';
 import { getDatabase } from '../database/database.js';
 import { PACK_CONTENTS, SW_VR_SEED_TABLES } from './steamPinballPackContents.js';
+import { foldCataloguePlatforms } from '../utils/scoreProvenance.js';
 
 /**
  * v2.5.0 — Steam Pinball catalogue importer.
@@ -351,8 +352,15 @@ export class SteamPinballImportService {
         const name = cleanTableName(rawName);
         if (!name) return 'skipped';
 
-        const platforms = [product.platformId];
-        if (product.zaccariaVrTwin) platforms.push('zaccaria_vr');
+        // The curated map still speaks legacy ids (`pinball_fx_classic`,
+        // `zaccaria_vr`) because that is what the Steam pack data was authored
+        // against. The fold turns them into engines + availability so the
+        // catalogue stays consistent without re-curating 220 tables
+        // (ADR 0016 catalogue phase §5).
+        const legacyPlatforms = [product.platformId];
+        if (product.zaccariaVrTwin) legacyPlatforms.push('zaccaria_vr');
+        const fold = foldCataloguePlatforms(legacyPlatforms);
+        const platforms = [...fold.engines, ...fold.dropped];
 
         // "X" vs "X Pinball" suffix dedup pre-pass — see findSuffixVariantMatch.
         const altName = await this.findSuffixVariantMatch(name);
@@ -362,6 +370,7 @@ export class SteamPinballImportService {
             name: upsertName,
             type: 'pinball',
             platforms,
+            features: fold.features,
             external_url: externalUrl,
             image_url: headerImage,
         };

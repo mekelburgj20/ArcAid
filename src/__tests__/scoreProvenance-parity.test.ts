@@ -167,6 +167,56 @@ describe('score provenance — BE/FE taxonomy parity', () => {
         }
     });
 
+    it('agrees on the catalogue fold: tables and behaviour', () => {
+        // The fold is applied on BOTH sides — the migration and importers fold
+        // server-side, and `GameLibrary`/`GlobalScoreboard` fold the ids they
+        // send in a filter. A drift here would make the client ask for a filter
+        // the server cannot answer, silently returning zero games.
+        expect(fe.CATALOGUE_PLATFORM_FEATURE).toEqual(be.CATALOGUE_PLATFORM_FEATURE);
+        expect(fe.CATALOGUE_PLATFORM_ENGINE_OVERRIDE).toEqual(be.CATALOGUE_PLATFORM_ENGINE_OVERRIDE);
+        expect(fe.DEVICE_AVAILABILITY_FEATURES).toEqual(be.DEVICE_AVAILABILITY_FEATURES);
+
+        for (const token of [...Object.keys(be.LEGACY_PLATFORM_MAP), '', 'xyzzy', 'nonsense']) {
+            expect(fe.foldCataloguePlatforms([token]), token)
+                .toEqual(be.foldCataloguePlatforms([token]));
+        }
+        // …and over whole lists, where dedup and first-seen ordering matter.
+        for (const list of [
+            Object.keys(be.LEGACY_PLATFORM_MAP),
+            Object.keys(be.CANONICAL_ENGINES),
+            ['vpxs', 'real', 'pinball_fx', 'xyzzy'],
+        ]) {
+            expect(fe.foldCataloguePlatforms(list)).toEqual(be.foldCataloguePlatforms(list));
+        }
+    });
+
+    it('makes every canonical engine id a legacy-map key that maps to itself', () => {
+        // ADR 0016 catalogue phase §1. `global_games.platforms` becomes an
+        // engine list, and LEGACY_PLATFORM_MAP is what every read path uses to
+        // classify a catalogue value — so an engine id missing from it reads as
+        // unknown/unknown: the submit picker auto-locks "Unspecified" and the
+        // engine's expansion set excludes the engine's own id, so tournament
+        // eligibility matches zero games. Four ids (`fx_classic`,
+        // `fx_midnight`, `star_wars`, `atgames_native`) had exactly that hole;
+        // this asserts the invariant over the WHOLE engine list so a newly
+        // added engine cannot reopen it.
+        for (const id of Object.keys(be.CANONICAL_ENGINES)) {
+            expect(
+                Object.prototype.hasOwnProperty.call(be.LEGACY_PLATFORM_MAP, id),
+                `engine "${id}" is not a LEGACY_PLATFORM_MAP key`,
+            ).toBe(true);
+            expect(be.LEGACY_PLATFORM_MAP[id].engine, id).toBe(id);
+            expect(be.mapLegacyPlatform(id).engine, id).toBe(id);
+            // …and the round trip a catalogue row actually takes.
+            expect(be.enginesFromLegacyPlatforms([id]), id).toEqual([id]);
+        }
+        // The mirror must agree — enforced by the deep-compare above, asserted
+        // here too so a FE-only regression names this invariant, not a diff.
+        for (const id of Object.keys(fe.CANONICAL_ENGINES)) {
+            expect(fe.enginesFromLegacyPlatforms([id]), id).toEqual([id]);
+        }
+    });
+
     it('every legacy mapping targets a canonical engine/device or the unknown sentinel', () => {
         for (const [token, prov] of Object.entries(be.LEGACY_PLATFORM_MAP)) {
             const engineOk = prov.engine === be.UNKNOWN || be.isCanonicalEngine(prov.engine);

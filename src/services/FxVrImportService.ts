@@ -48,7 +48,11 @@ export class FxVrImportService {
                     const result = await GlobalGameService.upsert({
                         name,
                         type: 'pinball',
-                        platforms: ['pinball_fx_vr'],
+                        // ADR 0016 catalogue phase §5: the engine is FX; "a VR
+                        // edition exists" is an availability fact, not a
+                        // different engine (the ADR dissolves the `*_vr` ids).
+                        platforms: ['fx'],
+                        features: ['vr'],
                         status: 'approved',
                         imported_from: 'fx-vr',
                     });

@@ -134,8 +134,15 @@ describe('legacy catalogue platform labels', () => {
         expect(getLegacyPlatformLabel('vr')).toBe('VR');
     });
 
+    it('labels the FX2 era as FX Classic, like the FX3 era', () => {
+        // Zen rebranded the line; both generations are the same engine. The
+        // map already folded the VR spellings this way.
+        expect(getLegacyPlatformLabel('fx2')).toBe('FX Classic');
+        expect(getLegacyPlatformLabel('fx3')).toBe('FX Classic');
+    });
+
     it('uppercases an id in neither taxonomy rather than inventing one', () => {
-        expect(getLegacyPlatformLabel('fx2')).toBe('FX2');
+        expect(getLegacyPlatformLabel('xyzzy')).toBe('XYZZY');
         expect(getLegacyPlatformLabel('')).toBe('');
     });
 });

@@ -188,6 +188,17 @@ export default function SubmissionSheet({
      */
     const [fullGamePlatforms, setFullGamePlatforms] = useState<string[]>([]);
     /**
+     * ADR 0016 catalogue phase §4 — `global_games.features`.
+     *
+     * The DEVICE half of the picker used to be derived from the platform list:
+     * a `vpxs` id implied the AtGames device. The catalogue fold moved that
+     * fact to `features`, so a folded row says `platforms:['vpx'],
+     * features:['vpxs']` and the device list has to read it from there or an
+     * AtGames-capable table quietly stops offering AtGames. The resolver
+     * returns it; `devicesForEngineAndPlatforms` consumes it.
+     */
+    const [gameFeatures, setGameFeatures] = useState<string[]>([]);
+    /**
      * ADR 0016 P2 §2 — the active tournament's two-axis rules, or `null` when
      * no tournament applies. Only `excluded` is read: `required` is a
      * game-level eligibility gate and must never filter the picker (ADR 0009).
@@ -269,6 +280,7 @@ export default function SubmissionSheet({
                 const fullList: string[] = Array.isArray(data?.platforms) ? data.platforms : [];
                 setSubmittablePlatforms(list);
                 setFullGamePlatforms(fullList);
+                setGameFeatures(Array.isArray(data?.features) ? data.features : []);
                 const rules = data?.tournamentRules;
                 setExcludedProvenance({
                     engines: Array.isArray(rules?.engines?.excluded) ? rules.engines.excluded : [],
@@ -281,6 +293,7 @@ export default function SubmissionSheet({
             } catch {
                 if (cancelled) return;
                 setSubmittablePlatforms([]);
+                setGameFeatures([]);
                 // Don't carry a previous target's exclusions into this one.
                 setExcludedProvenance({ engines: [], devices: [] });
             }
@@ -292,7 +305,7 @@ export default function SubmissionSheet({
         ? enginesFromLegacyPlatforms(submittablePlatforms).filter(e => !excludedProvenance.engines.includes(e))
         : [];
     const deviceOptions = engine
-        ? devicesForEngineAndPlatforms(engine, submittablePlatforms ?? [])
+        ? devicesForEngineAndPlatforms(engine, submittablePlatforms ?? [], gameFeatures)
             .filter(d => !excludedProvenance.devices.includes(d))
         : [];
 
@@ -304,7 +317,7 @@ export default function SubmissionSheet({
      */
     useEffect(() => {
         if (!engine) return;
-        const options = devicesForEngineAndPlatforms(engine, submittablePlatforms ?? []);
+        const options = devicesForEngineAndPlatforms(engine, submittablePlatforms ?? [], gameFeatures);
         if (options.length === 0) return;
         setDevice(prev => {
             if (prev && options.includes(prev)) return prev;
@@ -313,7 +326,7 @@ export default function SubmissionSheet({
             if (remembered && options.includes(remembered)) return remembered;
             return '';
         });
-    }, [engine, submittablePlatforms]);
+    }, [engine, submittablePlatforms, gameFeatures]);
 
     // Sprint 10 OAuth-return flow: commit a server-stored draft and close.
     useEffect(() => {

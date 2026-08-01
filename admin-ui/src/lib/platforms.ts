@@ -10,6 +10,8 @@
  * there, mirror the change here.
  */
 
+import { isCanonicalEngine } from './scoreProvenance';
+
 const DISPLAY_NAMES: Record<string, string> = {
     real:          'Real Machine',
     // v2.13.6: AtGames cabinet variants moved to features (see backend
@@ -173,13 +175,27 @@ export const PLATFORM_GROUPS: Record<string, { label: string; platforms: string[
  * Normalize an array of raw platform strings: alias-fold, drop blanks,
  * dedupe on canonical id (preserving first-seen order). Returns the
  * canonical id list — pair with `getPlatformDisplay` for rendering.
+ *
+ * **A canonical ENGINE id passes through untouched.** This is the frontend
+ * sibling of the backend's `normalizeCataloguePlatformId` (ADR 0016 catalogue
+ * phase §1, hazard H-B), and it exists for the same collision: `ALIASES['fx']`
+ * is `'pinball_fx'` in the OLD taxonomy, so once `global_games.platforms`
+ * stores engine ids, a row carrying `fx` was silently re-legacied here —
+ * client-side, in `GameLibrary`'s list, its platform filter and its tag
+ * matching, all three of which call this.
+ *
+ * For every id in today's data the two branches agree: every canonical engine
+ * id that is also a legacy platform id (`real`, `vpx`, `vp9`, `fp`, `zaccaria`,
+ * `pc`, every console id) already normalized to itself. So this changes nothing
+ * about existing rows and only decides what happens to the new vocabulary.
  */
 export function normalizePlatformList(raw: string[] | null | undefined): string[] {
     if (!Array.isArray(raw)) return [];
     const seen = new Set<string>();
     const out: string[] = [];
     for (const p of raw) {
-        const id = normalizePlatform(p);
+        const token = typeof p === 'string' ? p.trim().toLowerCase() : '';
+        const id = token && isCanonicalEngine(token) ? token : normalizePlatform(p);
         if (!id || seen.has(id)) continue;
         seen.add(id);
         out.push(id);

@@ -67,8 +67,13 @@ export const pickgame: Command = {
             }
 
             // Fetch the catalogue for autocomplete (one row per name).
+                // `MIN(features)` alongside `MIN(platforms)`: the device axis
+                // reads availability out of `features` post-fold (ADR 0016
+                // catalogue phase §4). Both are MIN over a name-group for the
+                // same pre-existing reason — variants are collapsed for
+                // autopick and one row has to stand for the name.
             const rows = await db.all(`
-                SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms
+                SELECT name, MIN(type) AS mode, MIN(platforms) AS platforms, MIN(features) AS features
                 FROM global_games WHERE status = 'approved'
                 GROUP BY LOWER(name)
             `);
@@ -95,7 +100,7 @@ export const pickgame: Command = {
                 const cataloguePlatforms = parsePlatformsList(r.platforms || '[]');
                 const tags = tagMap.get(r.name.toLowerCase()) || [];
                 const gamePlatforms = [...cataloguePlatforms, ...tags];
-                return passesplatformRules(gamePlatforms, platformRules);
+                return passesplatformRules(gamePlatforms, platformRules, parsePlatformsList(r.features || '[]'));
             });
 
             // Filter by what the user is currently typing
