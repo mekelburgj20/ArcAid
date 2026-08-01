@@ -431,4 +431,29 @@ describe('GlobalScoreboard — live indicator', () => {
         });
         expect(screen.getByText(/LIVE · updated 0s ago/)).toBeInTheDocument();
     });
+
+    it('sits BELOW the page description, as the last line of the header', async () => {
+        // v2.63.0 — the status line used to sit between the title lockup and
+        // the subtitle, pushing the page's own description down a row so that
+        // telemetry was read before the sentence explaining what the page is.
+        // The pack specifies lockup → subtitle adjacency; the live line is a
+        // footer to that block, not a wedge inside it.
+        mockFetch([game({ top_scores: [entry('P1', 900)] })]);
+        renderPage(null);
+        await screen.findByText('Medieval Madness');
+
+        const subtitle = screen.getByText(/High scores from every Arcaid room/);
+        const status = screen.getByTestId('live-dot').closest('[role="status"]')!;
+        expect(status).toBeInTheDocument();
+
+        // DOCUMENT_POSITION_FOLLOWING === the status line comes after the
+        // subtitle in document order, which is both the visual order and the
+        // order a screen reader walks.
+        expect(subtitle.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING)
+            .toBeTruthy();
+
+        // …and both still ride inside the lockup's body, indented to the
+        // wordmark's left edge rather than escaping to the page.
+        expect(status.parentElement).toBe(subtitle.parentElement);
+    });
 });

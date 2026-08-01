@@ -496,25 +496,16 @@ export default function GlobalScoreboard() {
             The status line and the subtitle ride inside the lockup so they
             stay indented to the wordmark's left edge, as the pack specifies. */}
         <GlobalScoreboardTitle className="mb-2 mx-auto">
-          {/* A5a — the live line + dot. Driven off the last `score:new:global`
-              event, falling back to the last fetch. Deliberately NOT
-              accompanied by the design's "{total} games · {n} players" line:
-              there is no player-count API and inventing one is out of scope.
-              `.pulse` is already nulled under prefers-reduced-motion by
-              index.css's global guard, so no extra media query is needed. */}
-          <div className="mb-1 flex items-center gap-2 font-mono text-[10px] text-muted" role="status">
-            <Circle
-              className="pulse h-2 w-2 shrink-0 fill-current text-neon-magenta"
-              strokeWidth={0}
-              aria-hidden="true"
-              data-testid="live-dot"
-            />
-            <span>LIVE · updated {formatAgo(Math.floor((nowTs - lastUpdate) / 1000))} ago</span>
-          </div>
           {/* A0 #2/#3: provider-agnostic copy, "Arcaid" casing. The copy already
               matches the pack's subtitle, so it simply takes the `gs-sub`
-              treatment rather than being duplicated as static art. */}
-          <p className="gs-sub mb-2">
+              treatment rather than being duplicated as static art.
+
+              This is the FIRST thing under the lockup, and deliberately so: the
+              pack specifies lockup → subtitle adjacency, and a page's
+              description has to reach the reader before its telemetry does.
+              Pre-v2.63 the live line sat between the two and pushed the
+              description down a row for no editorial reason. */}
+          <p className="gs-sub mb-1">
             High scores from every Arcaid room.{' '}
             {playerToken ? null : (
               <>
@@ -529,6 +520,22 @@ export default function GlobalScoreboard() {
               </>
             )}
           </p>
+          {/* A5a — the live line + dot, now the LAST line of the header block.
+              Driven off the last `score:new:global` event, falling back to the
+              last fetch. Deliberately NOT accompanied by the design's
+              "{total} games · {n} players" line: there is no player-count API
+              and inventing one is out of scope. `.pulse` is already nulled
+              under prefers-reduced-motion by index.css's global guard, so no
+              extra media query is needed. */}
+          <div className="mb-2 flex items-center gap-2 font-mono text-[10px] text-muted" role="status">
+            <Circle
+              className="pulse h-2 w-2 shrink-0 fill-current text-neon-magenta"
+              strokeWidth={0}
+              aria-hidden="true"
+              data-testid="live-dot"
+            />
+            <span>LIVE · updated {formatAgo(Math.floor((nowTs - lastUpdate) / 1000))} ago</span>
+          </div>
         </GlobalScoreboardTitle>
         {showSubheadLogin && !playerToken && (
           <LoginButtons
