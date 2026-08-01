@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import { logError } from '../utils/logger.js';
 import { RAApiClient } from '../services/RAApiClient.js';
 import { RAMasterListService } from '../services/RAMasterListService.js';
+import {
+    RAImportService, RAGameNotFoundError, RAUnsupportedConsoleError,
+} from '../services/RAImportService.js';
 
 /**
  * Shared handlers for the RetroAchievements catalogue endpoints (contract §2/§3).
@@ -60,5 +63,79 @@ export async function raSearchHandler(req: Request, res: Response): Promise<void
     } catch (error) {
         logError('API Error (GET ra-catalogue/search):', error);
         res.status(500).json({ error: 'Internal Server Error' });
+    }
+}
+
+/**
+ * Who to record in `global_games.ra_imported_by`.
+ *
+ * Prefers the Discord/provider identity (stable, and the thing a moderator
+ * can act on), falling back to an admin username and finally the local-admin
+ * id. Null when none of those exist — the column is nullable and an
+ * unattributable import is better than a fabricated actor.
+ */
+function importerIdentity(req: Request): string | null {
+    const user = req.user as
+        | { discordId?: string; username?: string; localAdminId?: string }
+        | undefined;
+    if (!user) return null;
+    return user.discordId || user.username || user.localAdminId || null;
+}
+
+/**
+ * `POST .../ra-catalogue/import/:raGameId`
+ *
+ * Shared by all three surfaces. The middleware in front differs (room admin,
+ * super-admin, or any logged-in identity plus a 5/hour cap); what happens
+ * after does not — one service path, so "the admin import" and "the player
+ * import" cannot drift apart.
+ *
+ * Synchronous: returns the created or enriched catalogue row, so the caller
+ * can drop the user straight onto it without a refetch.
+ */
+export async function raImportHandler(req: Request, res: Response): Promise<void> {
+    const raGameId = Number(req.params.raGameId);
+    if (!Number.isInteger(raGameId) || raGameId <= 0) {
+        res.status(400).json({ error: 'A numeric RetroAchievements game id is required.' });
+        return;
+    }
+
+    if (!RAApiClient.isConfigured()) {
+        // 400 with something actionable, not a 500 from the constructor —
+        // same discipline as the OPDB/IGDB sync routes.
+        res.status(400).json({
+            error: 'RetroAchievements import is not configured on this server. ' +
+                'A super-admin must set RA_API_KEY under Global Settings → Configuration.',
+        });
+        return;
+    }
+
+    try {
+        const result = await RAImportService.importGame(raGameId, {
+            importedBy: importerIdentity(req),
+        });
+
+        res.json({
+            success: true,
+            action: result.action,
+            raGameId: result.raGameId,
+            scoreEligibility: result.scoreEligibility,
+            leaderboardCount: result.leaderboardCount,
+            game: result.game,
+            attribution: RA_ATTRIBUTION,
+        });
+    } catch (error) {
+        if (error instanceof RAGameNotFoundError) {
+            res.status(404).json({ error: error.message });
+            return;
+        }
+        if (error instanceof RAUnsupportedConsoleError) {
+            res.status(422).json({ error: error.message });
+            return;
+        }
+        logError(`API Error (POST ra-catalogue/import/${raGameId}):`, error);
+        res.status(500).json({
+            error: 'The RetroAchievements import failed. Please try again in a moment.',
+        });
     }
 }

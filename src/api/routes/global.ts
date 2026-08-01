@@ -2,8 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal, optionalDiscordUser } from '../middleware.js';
-import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter } from '../rateLimit.js';
-import { raSearchHandler } from '../raCatalogueHandlers.js';
+import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter, raImportLimiter } from '../rateLimit.js';
+import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { UpdatePreferencesSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema } from '../schemas.js';
@@ -1226,6 +1226,31 @@ router.get('/global/games', async (req, res) => {
  * `raSearchLimiter` (30/min/IP) caps it — see the limiter's own note.
  */
 router.get('/global/ra-catalogue/search', raSearchLimiter, raSearchHandler);
+
+/**
+ * POST /api/global/ra-catalogue/import/:raGameId — PLAYER-triggered import
+ * (owner decision, contract §3).
+ *
+ * A player on the Global Scoreboard who cannot find Donkey Kong must be able
+ * to add it: players are demand too, and demand is what approves a game under
+ * this model. So the bar is `requireDiscordUser` — ANY logged-in identity, the
+ * same bar as global score submission. A guest gets a log-in prompt from the
+ * UI rather than a button, and never reaches this handler.
+ *
+ * Two limiters, deliberately: `writeLimiter` is the ordinary per-IP write cap,
+ * and `raImportLimiter` adds 5/hour PER USER because an import is both an RA
+ * fair-use cost and a write to the shared catalogue that a super-admin may
+ * later have to review. `raImportLimiter` sits AFTER requireDiscordUser so it
+ * can key on the Discord id rather than degrading to IP.
+ *
+ * The importing identity is recorded on `global_games.ra_imported_by` — with
+ * players able to add games, moderation needs an attributable actor.
+ */
+router.post(
+    '/global/ra-catalogue/import/:raGameId',
+    writeLimiter, requireDiscordUser, raImportLimiter, requireNotBannedGlobal,
+    raImportHandler,
+);
 
 /**
  * GET /api/global/games/:id — single game detail (full metadata).

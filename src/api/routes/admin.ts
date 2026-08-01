@@ -34,7 +34,7 @@ import { IGDBImportService } from '../../services/IGDBImportService.js';
 import { SyncLogService } from '../../services/SyncLogService.js';
 import { RAApiClient } from '../../services/RAApiClient.js';
 import { RAMasterListService, RA_SYNC_SOURCE } from '../../services/RAMasterListService.js';
-import { raSearchHandler } from '../raCatalogueHandlers.js';
+import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { ScoreReportService } from '../../services/ScoreReportService.js';
 import { ContentReportService } from '../../services/ContentReportService.js';
 import { CommentReportService } from '../../services/CommentReportService.js';
@@ -804,6 +804,12 @@ router.post('/catalogue/sync-ra-masterlist', async (_req, res) => {
  * is the only difference.
  */
 router.get('/ra-catalogue/search', raSearchHandler);
+
+/**
+ * Super-admin twin of the RA import (contract §3). Auto-audited by the
+ * app-level `auditLog` middleware on a 2xx POST, like every admin write.
+ */
+router.post('/ra-catalogue/import/:raGameId', raImportHandler);
 
 /** Master-list freshness, for the Catalogue admin page's sync panel. */
 router.get('/ra-catalogue/status', async (_req, res) => {
