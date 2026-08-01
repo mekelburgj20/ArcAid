@@ -47,8 +47,8 @@ import { foldCataloguePlatforms } from '../../utils/scoreProvenance.js';
  *
  * ### Junk
  *
- * A token that yields neither an engine nor an availability feature (`fx2`, a
- * typo, an unmapped VPS `tableFormat`) is DROPPED from `platforms` and logged
+ * A token that yields neither an engine nor an availability feature (a typo, an
+ * unmapped VPS `tableFormat`) is DROPPED from `platforms` and logged
  * with its row id, so it is findable rather than merely absent. Note the
  * deliberate asymmetry with the VPS importer, which keeps its unmapped
  * `tableFormat` strings verbatim on the engine axis (its historical behaviour):

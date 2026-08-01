@@ -176,7 +176,7 @@ describe('score provenance — BE/FE taxonomy parity', () => {
         expect(fe.CATALOGUE_PLATFORM_ENGINE_OVERRIDE).toEqual(be.CATALOGUE_PLATFORM_ENGINE_OVERRIDE);
         expect(fe.DEVICE_AVAILABILITY_FEATURES).toEqual(be.DEVICE_AVAILABILITY_FEATURES);
 
-        for (const token of [...Object.keys(be.LEGACY_PLATFORM_MAP), '', 'fx2', 'nonsense']) {
+        for (const token of [...Object.keys(be.LEGACY_PLATFORM_MAP), '', 'xyzzy', 'nonsense']) {
             expect(fe.foldCataloguePlatforms([token]), token)
                 .toEqual(be.foldCataloguePlatforms([token]));
         }
@@ -184,7 +184,7 @@ describe('score provenance — BE/FE taxonomy parity', () => {
         for (const list of [
             Object.keys(be.LEGACY_PLATFORM_MAP),
             Object.keys(be.CANONICAL_ENGINES),
-            ['vpxs', 'real', 'pinball_fx', 'fx2'],
+            ['vpxs', 'real', 'pinball_fx', 'xyzzy'],
         ]) {
             expect(fe.foldCataloguePlatforms(list)).toEqual(be.foldCataloguePlatforms(list));
         }

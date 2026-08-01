@@ -54,6 +54,7 @@ describe('migration 129 — catalogue platforms → engines', () => {
             [['pinball_fx'],            ['fx'],             []],
             [['pinball_fx_vr'],         ['fx'],             ['vr']],
             [['pinball_fx_classic'],    ['fx_classic'],     []],
+            [['fx2'],                   ['fx_classic'],     []],
             [['pinball_fx_classic_vr'], ['fx_classic'],     ['vr']],
             [['pinball_fx_midnight'],   ['fx_midnight'],    []],
             [['star_wars_pinball_vr'],  ['star_wars'],      ['vr']],
@@ -101,15 +102,15 @@ describe('migration 129 — catalogue platforms → engines', () => {
     });
 
     it('drops junk from platforms and logs it with the row id', async () => {
-        const id = await seedGame(['vpx', 'fx2', 'some vps format']);
+        const id = await seedGame(['vpx', 'xyzzy', 'some vps format']);
         const counts = await foldCatalogueToEngines(await getDatabase());
         expect((await readGame(id)).platforms).toEqual(['vpx']);
-        expect(counts.dropped['fx2']).toEqual([id]);
+        expect(counts.dropped['xyzzy']).toEqual([id]);
         expect(counts.dropped['some vps format']).toEqual([id]);
     });
 
     it('counts rows left with no engine at all', async () => {
-        await seedGame(['fx2']);
+        await seedGame(['xyzzy']);
         await seedGame(['vr']);      // feature-only, legitimately engine-less
         await seedGame(['vpx']);
         const counts = await foldCatalogueToEngines(await getDatabase());

@@ -274,6 +274,17 @@ export const LEGACY_PLATFORM_MAP: Record<string, Provenance> = {
     fx3:                   { engine: 'fx_classic',  device: UNKNOWN },
     pinball_fx3:           { engine: 'fx_classic',  device: UNKNOWN },
     'pinball fx3':         { engine: 'fx_classic',  device: UNKNOWN },
+    // The FX2 era is the same engine as FX3 — Zen rebranded the line to
+    // "Pinball FX Classic" and both generations' tables sit under it. The map
+    // already said so for the VR spellings ('pinball fx2 vr' → fx_classic +
+    // vr_headset); the flat spellings were simply missing, so a catalogue row
+    // carrying `fx2` read as unknown/unknown. Found by rehearsing migration 129
+    // against a copy of production, where `fx2` was the ONLY unrecognised token
+    // (5 rows) and dropping it would have left "Plants vs. Zombies" and
+    // "Ms. Splosion Man" — both FX2-era Zen tables — with no engine at all.
+    fx2:                   { engine: 'fx_classic',  device: UNKNOWN },
+    pinball_fx2:           { engine: 'fx_classic',  device: UNKNOWN },
+    'pinball fx2':         { engine: 'fx_classic',  device: UNKNOWN },
     'pinball fx classic':  { engine: 'fx_classic',  device: UNKNOWN },
     pinball_fx_classic_vr: { engine: 'fx_classic',  device: 'vr_headset' },
     'pinball fx classic vr': { engine: 'fx_classic', device: 'vr_headset' },

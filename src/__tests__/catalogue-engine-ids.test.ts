@@ -128,8 +128,12 @@ describe('canonical engine ids resolve as themselves', () => {
         expect(mapLegacyPlatform('star_wars_pinball_vr')).toEqual({ engine: 'star_wars', device: 'vr_headset' });
         expect(mapLegacyPlatform('zaccaria_vr')).toEqual({ engine: 'zaccaria', device: 'vr_headset' });
         expect(mapLegacyPlatform('real')).toEqual({ engine: 'real', device: 'real_cabinet' });
-        // And an unrecognised token is still unknown/unknown, not an engine.
-        expect(mapLegacyPlatform('fx2')).toEqual({ engine: UNKNOWN, device: UNKNOWN });
+        // The FX2 era is the FX Classic engine — the map already said so for
+        // the VR spellings; the flat ones were added after a production
+        // rehearsal of migration 129 found `fx2` on 5 real rows.
+        expect(mapLegacyPlatform('fx2')).toEqual({ engine: 'fx_classic', device: UNKNOWN });
+        // And a genuinely unrecognised token is still unknown/unknown.
+        expect(mapLegacyPlatform('xyzzy')).toEqual({ engine: UNKNOWN, device: UNKNOWN });
     });
 
     it('keeps today\'s dominant rule gating a legacy catalogue identically', () => {
@@ -176,8 +180,9 @@ describe('normalizeCataloguePlatformId (H-B)', () => {
             'playstation', 'playstation 2', 'game boy advance', 'sega genesis', 'sega saturn',
             'sega master system', 'sega cd', 'sega game gear', 'nintendo 64', 'nintendo switch',
             'turbografx-16', 'turbografx16', 'atari 2600', 'atari 7800', 'atari jaguar',
+            'fx2', 'pinball_fx2', 'pinball fx2',
             // Free-form room tags and junk: verbatim-lowercase, unchanged.
-            'fx2', 'my-house-rules', 'Beta Cab',
+            'xyzzy', 'my-house-rules', 'Beta Cab',
         ];
         for (const token of legacyTokens) {
             if (token === 'fx') continue; // the one deliberate divergence, asserted above

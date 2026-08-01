@@ -192,7 +192,7 @@ describe('pre/post-fold gating equivalence, over every device rule', () => {
         ['pinball_fx_classic_vr'], ['pinball_fx_midnight'],
         ['star_wars_pinball_vr'], ['zaccaria'], ['zaccaria_vr'],
         ['atgames'], ['real'], ['irl'], ['nes'], ['snes'], ['arcade'], ['pc'],
-        ['vr'], ['fx2'], [],
+        ['vr'], ['fx2'], ['xyzzy'], [],
     ];
 
     it('admits the same games for every single-device rule', () => {

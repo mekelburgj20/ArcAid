@@ -36,6 +36,12 @@ const FOLD_TABLE: Array<[string, string[], string[]]> = [
     ['pinball_fx',            ['fx'],             []],
     ['pinball_fx_vr',         ['fx'],             ['vr']],
     ['pinball_fx_classic',    ['fx_classic'],     []],
+    // The FX2 era is the same engine as FX3 — Zen rebranded the line to
+    // "Pinball FX Classic". Added after rehearsing migration 129 against a
+    // copy of production, where `fx2` was the only unrecognised token and
+    // dropping it would have left two FX2-era Zen tables with no engine.
+    ['fx2',                   ['fx_classic'],     []],
+    ['pinball_fx2',           ['fx_classic'],     []],
     ['pinball_fx_classic_vr', ['fx_classic'],     ['vr']],
     ['pinball_fx_midnight',   ['fx_midnight'],    []],
     ['star_wars_pinball_vr',  ['star_wars'],      ['vr']],
@@ -106,17 +112,22 @@ describe('foldCataloguePlatforms — the contract §2 fold table', () => {
     });
 
     it('routes junk to `dropped` rather than discarding it silently', () => {
-        // `fx2` is the real one: it is NOT a legacy id (`fx3` is), so it has
-        // always resolved to nothing. Callers log these — the migration with
-        // the row id, so a bad token is findable instead of merely absent.
-        const fold = foldCataloguePlatforms(['vpx', 'fx2', 'total nonsense', 'vpx']);
+        // Callers log these — the migration with the row id, so a bad token is
+        // findable instead of merely absent.
+        //
+        // The token here is deliberately meaningless. `fx2` used to sit in this
+        // test, and rehearsing migration 129 against a copy of production is
+        // what showed it did not belong: it was the only "junk" in the whole
+        // catalogue and it had a real engine all along. A junk case wants a
+        // token nobody could argue for, not the nearest unmapped real one.
+        const fold = foldCataloguePlatforms(['vpx', 'xyzzy', 'total nonsense', 'vpx']);
         expect(fold.engines).toEqual(['vpx']);
         expect(fold.features).toEqual([]);
-        expect(fold.dropped).toEqual(['fx2', 'total nonsense']);
+        expect(fold.dropped).toEqual(['xyzzy', 'total nonsense']);
     });
 
     it('dedups dropped tokens too', () => {
-        expect(foldCataloguePlatforms(['fx2', 'FX2', ' fx2 ']).dropped).toEqual(['fx2']);
+        expect(foldCataloguePlatforms(['xyzzy', 'XYZZY', ' xyzzy ']).dropped).toEqual(['xyzzy']);
     });
 
     it('ignores empty and whitespace-only tokens without calling them junk', () => {
@@ -151,7 +162,7 @@ describe('foldCataloguePlatforms — idempotence', () => {
             ['vpx', 'vpxs', 'atgames'],
             ['pinball_fx_vr', 'zaccaria_vr', 'star_wars_pinball_vr'],
             ['bam', 'fp', 'vr'],
-            ['real', 'nes', 'fx2'],
+            ['real', 'nes', 'xyzzy'],
             Object.keys(LEGACY_PLATFORM_MAP),
         ];
         for (const input of inputs) {
