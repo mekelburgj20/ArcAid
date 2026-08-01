@@ -274,17 +274,47 @@ export class GlobalGameService {
      * periods, commas, or accented characters were invisible to upsert's
      * step-4 dedup and fell through to INSERT → UNIQUE collisions.
      *
-     * At ~5k catalogue rows, full-scan + JS normalize compare runs in
-     * milliseconds; negligible for admin-triggered catalogue imports.
+     * igdb-import-hardening (2026-08): the v2.4.12 note also claimed the
+     * resulting full scan was "negligible for admin-triggered catalogue
+     * imports." That held for a 5k-row catalogue and a few hundred incoming
+     * games; it does not hold for a bulk import, where `upsert` calls this
+     * once per row and turns a run of N games into N full-table `SELECT *`
+     * scans. The IGDB bulk seed is the case that proved it — it never
+     * finished a single run.
+     *
+     * `normalizeGameName` is a pure function of the name string, so the key
+     * is now persisted in `global_games.normalized_name` (migration 130) and
+     * indexed. Matching is unchanged — same normalizer, same equality — but
+     * the candidate set arrives via an index seek instead of a scan.
+     *
+     * The NULL branch is the correctness guarantee, not a fallback for
+     * convenience: rows written before migration 130, and any raw INSERT
+     * that bypasses this service (the two room-proposal routes in rooms.ts,
+     * test fixtures), can still have no stored key. Those rows are scanned
+     * and normalized exactly as before, so this method's RESULT never
+     * depends on the backfill having reached a given row — only its speed
+     * does. After the backfill the NULL set is empty and the scan costs one
+     * indexed lookup returning nothing.
      */
     static async findByNormalizedName(name: string): Promise<GlobalGame[]> {
         const db = await getDatabase();
         const normalized = normalizeGameName(name);
         if (!normalized) return [];
-        const candidates = await db.all<GlobalGame[]>(`SELECT * FROM global_games`);
-        return candidates.filter(
-            (g: GlobalGame) => normalizeGameName(g.name) === normalized
+
+        const indexed = await db.all<GlobalGame[]>(
+            `SELECT * FROM global_games WHERE normalized_name = ?`,
+            normalized,
         );
+
+        const unkeyed = await db.all<GlobalGame[]>(
+            `SELECT * FROM global_games WHERE normalized_name IS NULL`,
+        );
+        if (unkeyed.length === 0) return indexed;
+
+        return [
+            ...indexed,
+            ...unkeyed.filter((g: GlobalGame) => normalizeGameName(g.name) === normalized),
+        ];
     }
 
     /**
@@ -342,8 +372,22 @@ export class GlobalGameService {
      * Mirrors `upsert`'s dedup semantics exactly — pulled out so both the
      * write path and the new read-only proposal path consult the same logic.
      * Keep in sync with `upsert`'s remaining lines.
+     *
+     * igdb-import-hardening (2026-08): `opts.includeNameMatches` controls
+     * whether the step-4 name walk runs even when steps 1–3 already resolved
+     * a row. Step 4 itself is guarded by `if (!existing)` and always was, so
+     * the walk's only remaining purpose in that case is populating the
+     * returned `nameMatches` — which `upsert` discards and only
+     * `findCandidates` (one interactive call, rendering a "did you mean?"
+     * list) actually reads. The write path therefore opts out and skips a
+     * query per upsert; `findCandidates` opts in and behaves exactly as
+     * before. The resolved `existing` is identical either way — this cannot
+     * change which row an import merges into.
      */
-    private static async resolveDedupCandidates(input: GlobalGameInput): Promise<{
+    private static async resolveDedupCandidates(
+        input: GlobalGameInput,
+        opts?: { includeNameMatches?: boolean },
+    ): Promise<{
         existing: GlobalGame | undefined;
         nameMatches: GlobalGame[];
     }> {
@@ -415,8 +459,14 @@ export class GlobalGameService {
         // concrete match exists do we fall back to the NULL-tolerant check
         // — keeps "sole thin candidate" merges working without letting a
         // thin row shadow a real rich row.
-        const nameMatches = (await this.findByNormalizedName(input.name))
-            .filter(g => g.type === inputType);
+        //
+        // Skip the walk entirely when an earlier step already resolved a row
+        // and the caller has no use for the match list — see the opts note on
+        // this method. `existing` is unaffected; step 4 was already inert in
+        // that case.
+        const nameMatches = (existing && !opts?.includeNameMatches)
+            ? []
+            : (await this.findByNormalizedName(input.name)).filter(g => g.type === inputType);
         if (!existing) {
             const nonConflicting = nameMatches.filter(g => !this.hasExternalIdConflict(input, g));
 
@@ -510,7 +560,9 @@ export class GlobalGameService {
         exact: GlobalGame | null;
         possible: GlobalGame[];
     }> {
-        const { existing, nameMatches } = await this.resolveDedupCandidates(input);
+        const { existing, nameMatches } = await this.resolveDedupCandidates(input, {
+            includeNameMatches: true,
+        });
         const exact = existing ?? null;
         const possible = exact
             ? nameMatches.filter(g => g.id !== exact.id)
@@ -738,7 +790,7 @@ export class GlobalGameService {
         const now = new Date().toISOString();
         await db.run(
             `INSERT INTO global_games (
-                id, name, display_name, manufacturer, year, type, subtype,
+                id, name, normalized_name, display_name, manufacturer, year, type, subtype,
                 platforms, themes, designers, players,
                 image_url, local_image_path, wheel_image_path,
                 opdb_id, vps_id, igdb_id, ipdb_url, based_on_ipdb_url, external_url,
@@ -747,7 +799,7 @@ export class GlobalGameService {
                 status, submitted_by, reviewed_by, global_leaderboard,
                 imported_from, imported_at, source_updated_at, field_sources
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?, ?, ?,
@@ -756,7 +808,10 @@ export class GlobalGameService {
                 ?, ?, ?, ?,
                 ?, ?, ?, ?
             )`,
-            id, input.name, input.display_name ?? null,
+            // migration 130: the dedup key is written with the row it belongs
+            // to. The UPDATE branch above never touches `name`, so a row's key
+            // can only ever be set here or by `update()` below.
+            id, input.name, normalizeGameName(input.name || ''), input.display_name ?? null,
             input.manufacturer ?? null, input.year ?? null,
             input.type || 'pinball', input.subtype ?? null,
             JSON.stringify(input.platforms || []),
@@ -991,6 +1046,14 @@ export class GlobalGameService {
                 sets.push(`${f} = ?`);
                 params.push((fields as any)[f] ?? null);
             }
+        }
+        // migration 130: an admin rename moves the row's dedup key with it.
+        // Without this the index would keep pointing the row at its old name
+        // and step-4 dedup would match the renamed row on a name it no longer
+        // has. Only written when `name` is actually part of this partial.
+        if ('name' in fields) {
+            sets.push('normalized_name = ?');
+            params.push(normalizeGameName(fields.name || ''));
         }
         if ('year' in fields) { sets.push('year = ?'); params.push(fields.year ?? null); }
         if ('igdb_id' in fields) { sets.push('igdb_id = ?'); params.push(fields.igdb_id ?? null); }
