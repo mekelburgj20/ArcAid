@@ -2,7 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { logError, logInfo } from '../../utils/logger.js';
 import { requireAuth, requireDiscordUser, requireSuperAdmin, requireNotBanned, requireNotBannedGlobal, optionalDiscordUser } from '../middleware.js';
-import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter } from '../rateLimit.js';
+import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSearchLimiter } from '../rateLimit.js';
+import { raSearchHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { UpdatePreferencesSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema } from '../schemas.js';
@@ -1210,6 +1211,21 @@ router.get('/global/games', async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
+/**
+ * GET /api/global/ra-catalogue/search — public RetroAchievements master-list
+ * search (contract §2).
+ *
+ * Deliberately UNAUTHENTICATED. It reads only our cached copy of RA's
+ * per-console game lists, which RA publishes freely, and the Global Scoreboard
+ * needs it in the search empty state where the viewer may well be a guest —
+ * gating it would mean a guest cannot even SEE that Donkey Kong is available
+ * to add. What is gated is the import (`requireDiscordUser`); a guest sees the
+ * row with a log-in prompt instead of a button.
+ *
+ * `raSearchLimiter` (30/min/IP) caps it — see the limiter's own note.
+ */
+router.get('/global/ra-catalogue/search', raSearchLimiter, raSearchHandler);
 
 /**
  * GET /api/global/games/:id — single game detail (full metadata).

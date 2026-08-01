@@ -2128,6 +2128,35 @@ export async function initDatabase(): Promise<Database> {
             const { addSyncLogProgressColumns } = await import('./migrations/syncLogProgress.js');
             await addSyncLogProgressColumns(db);
         } },
+        // --- RA on-demand import: the RetroAchievements master list ---
+        // A SHADOW INDEX of RA, not a child of global_games: nothing references
+        // it, every row is re-derivable from the API, and it is freely
+        // re-syncable/truncatable. It exists because RA publishes no search
+        // endpoint — the only way to offer "search RetroAchievements" is to
+        // hold a local copy of the per-console game lists and search that.
+        // Hence also no FK and no cascade: deleting a catalogue game must not
+        // remove the RA row it was imported from.
+        { name: '132_ra_games_master_list', sql: `
+            CREATE TABLE IF NOT EXISTS ra_games (
+                ra_game_id INTEGER PRIMARY KEY,
+                console_id INTEGER NOT NULL,
+                console_name TEXT,
+                title TEXT NOT NULL,
+                normalized_title TEXT NOT NULL,
+                image_icon TEXT,
+                num_achievements INTEGER,
+                num_leaderboards INTEGER,
+                date_modified TEXT,
+                synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ra_games_normalized ON ra_games(normalized_title);
+            CREATE INDEX IF NOT EXISTS idx_ra_games_console ON ra_games(console_id);
+        ` },
+        // --- RA on-demand import: catalogue columns (see the handler) ---
+        { name: '133_global_games_ra_columns', handler: async (db) => {
+            const { addRaCatalogueColumns } = await import('./migrations/raCatalogueColumns.js');
+            await addRaCatalogueColumns(db);
+        } },
     ];
 
     for (const migration of migrations) {

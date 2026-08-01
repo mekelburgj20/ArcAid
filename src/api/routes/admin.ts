@@ -32,6 +32,9 @@ import { GlobalGameService, isVirtualOnlyManufacturer } from '../../services/Glo
 import { OPDBImportService } from '../../services/OPDBImportService.js';
 import { IGDBImportService } from '../../services/IGDBImportService.js';
 import { SyncLogService } from '../../services/SyncLogService.js';
+import { RAApiClient } from '../../services/RAApiClient.js';
+import { RAMasterListService, RA_SYNC_SOURCE } from '../../services/RAMasterListService.js';
+import { raSearchHandler } from '../raCatalogueHandlers.js';
 import { ScoreReportService } from '../../services/ScoreReportService.js';
 import { ContentReportService } from '../../services/ContentReportService.js';
 import { CommentReportService } from '../../services/CommentReportService.js';
@@ -746,6 +749,73 @@ router.post('/catalogue/sync-igdb', async (req, res) => {
         }
     })();
     res.status(202).json({ success: true, started: true, source: 'igdb', restart });
+});
+
+/**
+ * RetroAchievements master-list sync (contract §2).
+ *
+ * Refreshes `ra_games` — our searchable shadow of RA's per-console game lists
+ * — across every console in `RA_CONSOLE_ENGINE_MAP`. This imports NOTHING into
+ * the catalogue; it only makes games findable in the add-game flows, where the
+ * admin's selection is what triggers the actual import.
+ *
+ * Validates the key upfront and answers 400 with an actionable message rather
+ * than 202-then-fail-silently — the same fix the OPDB/IGDB routes carry.
+ * Single-flight via the `sync_logs` running/heartbeat lifecycle: a second
+ * click while a crawl is live gets 409 plus the live job, not a competing
+ * crawl.
+ */
+router.post('/catalogue/sync-ra-masterlist', async (_req, res) => {
+    if (!RAApiClient.isConfigured()) {
+        return res.status(400).json({
+            error: 'RA_API_KEY is not configured. Add it under Global Settings → Configuration; ' +
+                'any free RetroAchievements account can mint one at ' +
+                'https://retroachievements.org/controlpanel.php.',
+        });
+    }
+
+    const active = await SyncLogService.getActiveRun(RA_SYNC_SOURCE);
+    if (active) {
+        return res.status(409).json({
+            error: 'A RetroAchievements master-list sync is already running.',
+            job: {
+                id: active.id,
+                started_at: active.started_at,
+                heartbeat_at: active.heartbeat_at ?? null,
+                pages_done: active.pages_done ?? 0,
+                records_fetched: active.records_fetched ?? 0,
+            },
+        });
+    }
+
+    void (async () => {
+        try {
+            await RAMasterListService.syncAll();
+        } catch (error) {
+            logError('Background RA master-list sync error:', error);
+        }
+    })();
+    res.status(202).json({ success: true, started: true, source: RA_SYNC_SOURCE });
+});
+
+/**
+ * Super-admin twin of the RA master-list search (contract §2). Same handler as
+ * the room and public surfaces; the router-level requireAuth + requireSuperAdmin
+ * is the only difference.
+ */
+router.get('/ra-catalogue/search', raSearchHandler);
+
+/** Master-list freshness, for the Catalogue admin page's sync panel. */
+router.get('/ra-catalogue/status', async (_req, res) => {
+    try {
+        res.json({
+            ...(await RAMasterListService.getStatus()),
+            configured: RAApiClient.isConfigured(),
+        });
+    } catch (error) {
+        logError('API Error (GET admin/ra-catalogue/status):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
 });
 
 /**
