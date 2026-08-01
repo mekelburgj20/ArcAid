@@ -13,6 +13,7 @@ import { IScoredCreds } from '../utils/iscoredCreds.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
+import { computePickDeadline, pickWindowFallback, DEFAULT_WINNER_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
@@ -574,8 +575,15 @@ export class TournamentEngine {
     /**
      * Checks if a game is eligible to be played based on a rolling lookback period.
      * Lookback days defaults to the GAME_ELIGIBILITY_DAYS setting (default 120).
+     *
+     * This is the shared cooldown check the activation path runs (both the
+     * rotation loop and the extra-slot fill loop call it before activating a
+     * queued row). PickAlertService reuses it verbatim so the Picks nav badge
+     * can never disagree with what maintenance will actually do — pass
+     * `{ quiet: true }` for such read-only probes so a per-navigation check
+     * doesn't emit a log line per queued game.
      */
-    public async isGameEligible(tournamentId: string, gameName: string, lookbackDaysParam?: number): Promise<boolean> {
+    public async isGameEligible(tournamentId: string, gameName: string, lookbackDaysParam?: number, opts?: { quiet?: boolean }): Promise<boolean> {
         const db = await getDatabase();
 
         // Read from tournament column, fallback to parameter, then hardcoded default
@@ -603,11 +611,11 @@ export class TournamentEngine {
         const count = row?.count ?? 0;
 
         if (count > 0) {
-            logInfo(`Game '${gameName}' is NOT eligible (played within last ${lookbackDays} days).`);
+            if (!opts?.quiet) logInfo(`Game '${gameName}' is NOT eligible (played within last ${lookbackDays} days).`);
             return false;
         }
 
-        logInfo(`Game '${gameName}' is eligible.`);
+        if (!opts?.quiet) logInfo(`Game '${gameName}' is eligible.`);
         return true;
     }
 
@@ -1357,14 +1365,50 @@ export class TournamentEngine {
             } else if (winnerPicks && winnerId) {
                 // Current behavior: give winner a pick window
                 logInfo(`   -> No ${term.game} queued for this slot. Creating picker slot for timeout tracking.`);
-                const winnerPickWindowMin = tournamentRow.winner_pick_window_min ?? 60;
+                const winnerPickWindowMin = tournamentRow.winner_pick_window_min ?? DEFAULT_WINNER_PICK_WINDOW_MIN;
                 const slotId = uuidv4();
+                // Captured once and reused for the row, the ticker payload and
+                // the lobby-feed countdown so all three describe the same
+                // instant as the one TimeoutManager enforces against.
+                const pickerDesignatedAt = new Date().toISOString();
                 await db.run(
                     `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id, game_room_id)
                      VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?, ?)`,
-                    slotId, tournamentId, '[Pending Pick]', winnerId, new Date().toISOString(), activeGame.id, tournamentRow.game_room_id ?? null
+                    slotId, tournamentId, '[Pending Pick]', winnerId, pickerDesignatedAt, activeGame.id, tournamentRow.game_room_id ?? null
                 );
                 logInfo(`   -> Created picker slot for winner (pick window active).`);
+
+                // Public pick prompt on the lobby feed. This branch is
+                // specifically the one where the winner must pick BY HAND —
+                // when the queue already held an eligible game the rotation
+                // path activates it and never reaches here, so no prompt is
+                // emitted for an auto-filled slot.
+                //
+                // The row carries the deadline in metadata rather than baking
+                // "N minutes" into the title: the feed is append-only, so a
+                // static number would still be shouting the original countdown
+                // days later. The FE counts down against the deadline and
+                // renders a closed state past it.
+                if (tournamentRow.game_room_id) {
+                    const pickDeadline = computePickDeadline(pickerDesignatedAt, winnerPickWindowMin);
+                    import('../services/LobbyFeedService.js').then(({ LobbyFeedService }) => {
+                        LobbyFeedService.emit({
+                            gameRoomId: tournamentRow.game_room_id,
+                            type: 'pick_prompt',
+                            title: `${winnerLabel}, pick the next ${term.game} for ${tournamentRow.name}`,
+                            playerId: winnerId!,
+                            tournamentId,
+                            metadata: {
+                                deadline: pickDeadline.toISOString(),
+                                windowMin: winnerPickWindowMin,
+                                pickerType: 'WINNER',
+                                fallback: pickWindowFallback('WINNER', activeGame.id),
+                                pickerName: winnerLabel,
+                                tournamentName: tournamentRow.name,
+                            },
+                        }).catch(() => {});
+                    }).catch(() => {});
+                }
 
                 if (channelId) {
                     const color = getTournamentColor(tournamentRow.type);
@@ -1381,7 +1425,7 @@ export class TournamentEngine {
                 emitPickerAssigned({
                     tournamentName: tournamentRow.name,
                     pickerName: winnerLabel,
-                    deadline: new Date(Date.now() + (tournamentRow.winner_pick_window_min ?? 60) * 60000).toISOString(),
+                    deadline: computePickDeadline(pickerDesignatedAt, winnerPickWindowMin).toISOString(),
                 });
 
                 // Notify winner it's their turn to pick. Per-slot DM — when a

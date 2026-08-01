@@ -9,6 +9,7 @@ import { TournamentEngine } from './TournamentEngine.js';
 import { v4 as uuidv4 } from 'uuid';
 import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
+import { computePickDeadline, isPickWindowExpired, pickWindowFallback, DEFAULT_RUNNERUP_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -108,7 +109,11 @@ export class TimeoutManager {
         const { winnerWindowMin, runnerUpWindowMin } = settings;
 
         if (game.pickerType === 'WINNER') {
-            if (elapsedMins >= winnerWindowMin) {
+            // Expiry uses the shared predicate so the deadline the lobby feed
+            // counts down to is byte-for-byte the one enforced here. (Reminder
+            // cadence below still works off elapsed minutes — it's an interval,
+            // not a deadline.)
+            if (isPickWindowExpired(game.pickerDesignatedAt, winnerWindowMin, now)) {
                 logInfo(`Winner for game slot ${game.id} timed out after ${winnerWindowMin}min. Pivoting to runner-up...`);
                 await this.pivotToRunnerUp(game);
             } else {
@@ -120,7 +125,7 @@ export class TimeoutManager {
                 }
             }
         } else if (game.pickerType === 'RUNNER_UP') {
-            if (elapsedMins >= runnerUpWindowMin) {
+            if (isPickWindowExpired(game.pickerDesignatedAt, runnerUpWindowMin, now)) {
                 logInfo(`Runner-up for game slot ${game.id} timed out after ${runnerUpWindowMin}min. Auto-selecting...`);
                 await this.fallbackToAutoSelection(game);
             } else {
@@ -223,15 +228,45 @@ export class TimeoutManager {
             logInfo(`   -> Pivoting to runner-up: <@${runnerUpId}> (${runnerUpRow.iscored_username})`);
 
             // Reassign the QUEUED slot to the runner-up
-            const tournamentRow = await db.get('SELECT runnerup_pick_window_min FROM tournaments WHERE id = ?', game.tournamentId);
-            const runnerUpWindowMin = tournamentRow?.runnerup_pick_window_min ?? 30;
+            const tournamentRow = await db.get('SELECT name, runnerup_pick_window_min FROM tournaments WHERE id = ?', game.tournamentId);
+            const runnerUpWindowMin = tournamentRow?.runnerup_pick_window_min ?? DEFAULT_RUNNERUP_PICK_WINDOW_MIN;
 
+            // Same instant drives the row and the feed countdown.
+            const pickerDesignatedAt = new Date().toISOString();
             await db.run(
                 `UPDATE games
                  SET picker_discord_id = ?, picker_type = 'RUNNER_UP', picker_designated_at = ?, reminder_count = 0
                  WHERE id = ?`,
-                runnerUpId, new Date().toISOString(), game.id
+                runnerUpId, pickerDesignatedAt, game.id
             );
+
+            // The pivot hands a fresh manual-pick obligation to a different
+            // player, so it gets its own public prompt — same event type, the
+            // shorter runner-up window, and fallback 'autopick' (there is no
+            // third picker after this one).
+            if (info.gameRoomId) {
+                const runnerUpLabel = await (await import('../services/UserProfileService.js')).UserProfileService
+                    .getDisplayName(runnerUpId)
+                    .catch(() => null) || runnerUpRow.iscored_username || 'Runner-up';
+                const pickDeadline = computePickDeadline(pickerDesignatedAt, runnerUpWindowMin);
+                import('../services/LobbyFeedService.js').then(({ LobbyFeedService }) => {
+                    LobbyFeedService.emit({
+                        gameRoomId: info.gameRoomId!,
+                        type: 'pick_prompt',
+                        title: `${runnerUpLabel}, pick the next ${term.game} for ${tournamentRow?.name ?? 'the tournament'}`,
+                        playerId: runnerUpId,
+                        tournamentId: game.tournamentId,
+                        metadata: {
+                            deadline: pickDeadline.toISOString(),
+                            windowMin: runnerUpWindowMin,
+                            pickerType: 'RUNNER_UP',
+                            fallback: pickWindowFallback('RUNNER_UP', game.wonGameId),
+                            pickerName: runnerUpLabel,
+                            tournamentName: tournamentRow?.name ?? null,
+                        },
+                    }).catch(() => {});
+                }).catch(() => {});
+            }
 
             const channelId = await this.getChannelId(game.tournamentId);
             if (channelId) {

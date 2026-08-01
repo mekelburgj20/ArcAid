@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Flame, TrendingUp, Target, Trophy, Gamepad2, Crown, Users, Megaphone, Star, Zap } from 'lucide-react';
+import { Flame, TrendingUp, Target, Trophy, Gamepad2, Crown, Users, Megaphone, Star, Zap, Hourglass } from 'lucide-react';
 
 interface FeedEvent {
   id: number;
@@ -9,6 +10,7 @@ interface FeedEvent {
   subtitle: string | null;
   game_name: string | null;
   created_at: string;
+  metadata?: Record<string, any> | null;
 }
 
 const TYPE_ICONS: Record<string, { icon: typeof Flame; color: string }> = {
@@ -23,7 +25,62 @@ const TYPE_ICONS: Record<string, { icon: typeof Flame; color: string }> = {
   admin_shoutout:    { icon: Zap,        color: 'text-neon-magenta' },
   staleness_challenge:{ icon: Crown,     color: 'text-muted' },
   streak_extended:   { icon: Flame,      color: 'text-neon-amber' },
+  pick_prompt:       { icon: Hourglass,  color: 'text-neon-magenta' },
 };
+
+/**
+ * Live countdown for `pick_prompt` rows.
+ *
+ * The event stores a deadline, never a rendered "N minutes" — the feed is
+ * append-only and a baked number would still be claiming "45 minutes
+ * remaining" a week later. The countdown is therefore computed at render and
+ * re-ticked on a timer.
+ *
+ * Past the deadline we render a neutral closed state rather than a negative
+ * countdown. We deliberately do NOT claim to know the outcome: nothing mutates
+ * the row when a pick lands, so "closed" covers picked, auto-picked and
+ * passed-to-runner-up alike. A pick made early leaves the countdown running
+ * until its original deadline — stale by at most one window, and self-resolving.
+ */
+function formatRemaining(ms: number): string {
+  const totalMinutes = Math.floor(ms / 60_000);
+  if (totalMinutes < 1) return 'less than a minute';
+  if (totalMinutes < 60) return `${totalMinutes} minute${totalMinutes === 1 ? '' : 's'}`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+}
+
+function PickCountdown({ deadline, fallback }: { deadline: string; fallback?: string }) {
+  const deadlineMs = new Date(deadline).getTime();
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    // Nothing to tick for a closed (or malformed) window — the closed state is
+    // static, so an open feed of old prompts costs no timers.
+    if (!Number.isFinite(deadlineMs) || Date.now() >= deadlineMs) return;
+    const timer = setInterval(() => {
+      setNow(Date.now());
+      // Self-cancel on the tick that crosses the deadline.
+      if (Date.now() >= deadlineMs) clearInterval(timer);
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [deadlineMs]);
+
+  if (!Number.isFinite(deadlineMs)) return null;
+
+  const remaining = deadlineMs - now;
+  if (remaining <= 0) {
+    return <p className="text-xs text-faint mt-0.5">Pick window closed</p>;
+  }
+
+  const consequence = fallback === 'runner_up' ? 'the runner-up gets the pick' : 'autopick';
+  // Built as one string rather than interpolated JSX fragments so it lands as a
+  // single text node — screen readers announce it as one phrase, and it stays
+  // matchable as one string.
+  const text = `${formatRemaining(remaining)} remaining before ${consequence}`;
+  return <p className="text-xs text-neon-magenta mt-0.5">{text}</p>;
+}
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -56,6 +113,9 @@ export default function FeedItem({ event, slug }: FeedItemProps) {
         <p className="text-sm text-primary leading-snug">{event.title}</p>
         {event.subtitle && (
           <p className="text-xs text-muted mt-0.5">{event.subtitle}</p>
+        )}
+        {event.type === 'pick_prompt' && event.metadata?.deadline && (
+          <PickCountdown deadline={event.metadata.deadline} fallback={event.metadata.fallback} />
         )}
       </div>
       <span className="text-[10px] text-faint flex-shrink-0 mt-0.5">

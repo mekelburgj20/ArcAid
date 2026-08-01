@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
-import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users } from 'lucide-react';
+import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users, Hourglass } from 'lucide-react';
 import {
   GameCard,
   RankingGroupCard,
@@ -157,6 +157,8 @@ export default function KioskScoreboard() {
     new_high_score: Flame, rank_change: TrendingUp, score_posted: Target,
     tournament_results: Trophy, tournament_active: Gamepad2,
     player_milestone: Star, friend_score: Users,
+    // Static title only (no countdown) — same reasoning as ScoreboardTicker.
+    pick_prompt: Hourglass,
   };
 
   const tickerItems = useMemo(() => feedEvents.map(e => {

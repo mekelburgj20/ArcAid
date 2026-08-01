@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users, Crown } from 'lucide-react';
+import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users, Crown, Hourglass } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 
 interface TickerFeedEvent {
@@ -22,6 +22,11 @@ const TICKER_ICONS: Record<string, typeof Flame> = {
   friend_score: Users,
   streak_extended: Flame,
   staleness_challenge: Crown,
+  // The ticker shows the static title only — never the live countdown. A
+  // marquee that scrolls past once is the wrong surface for a ticking number,
+  // and the title alone ("<player>, pick the next game for <tournament>")
+  // stays true after the window closes.
+  pick_prompt: Hourglass,
 };
 
 interface ScoreboardTickerProps {
