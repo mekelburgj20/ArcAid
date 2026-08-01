@@ -43,12 +43,16 @@ const HOVER_CLOSE_GRACE_MS = 300;
  * that actually takes the pointer.
  *
  * Two numbers rather than one because the constraints disagree: the chip has to
- * sit inside a 14px card title without dominating it (32px), while a tap target
- * has to clear the 44px accessibility floor. An absolutely-positioned overlay
- * inside the button gives the second without inflating the first — the overlay
- * is a child, so a pointer landing on it still fires the button.
+ * sit inside a 14px card title without dominating it, while a tap target has to
+ * clear the 44px accessibility floor. An absolutely-positioned overlay inside
+ * the button gives the second without inflating the first — the overlay is a
+ * child, so a pointer landing on it still fires the button.
+ *
+ * v2.70.0 — trimmed 32 -> 27 (glyph 16 -> 13, its pre-chip size) on the user's
+ * "just a tad too large" note. The HIT TARGET IS DELIBERATELY UNCHANGED at
+ * 44px: the chip got smaller, the thing a thumb has to hit did not.
  */
-const BUTTON_MIN_PX = 32;
+const BUTTON_MIN_PX = 27;
 const HIT_TARGET_PX = 44;
 
 /** Viewport margin the bubble is clamped inside on small screens. */
@@ -73,7 +77,7 @@ function supportsHover(): boolean {
 /** Small pill listing one engine or one device. */
 function AllowedChip({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center rounded-full border border-border/70 bg-raised/60 px-2 py-0.5 text-[10px] leading-4 text-secondary whitespace-nowrap">
+    <span className="inline-flex items-center rounded-full border border-border/70 bg-raised/60 px-1.5 py-px text-[9px] leading-[14px] text-secondary whitespace-nowrap">
       {label}
     </span>
   );
@@ -112,7 +116,7 @@ function AllowedChip({ label }: { label: string }) {
 export default function GameInfoPopup({
   externalUrl,
   notes,
-  size = 16,
+  size = 13,
   className = '',
   roomId,
   gameName,
@@ -337,12 +341,12 @@ export default function GameInfoPopup({
       {open && coords && createPortal(
         <div
           ref={bubbleRef}
-          className="fixed z-[60] bg-surface border border-border rounded-lg shadow-lg p-3 min-w-[220px] max-w-[320px]"
+          className="fixed z-[60] bg-surface border border-border rounded-lg shadow-lg p-2.5 min-w-[190px] max-w-[272px]"
           style={{
             left: coords.left,
             top: coords.top,
             transform: coords.below ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
-            maxWidth: `min(320px, calc(100vw - ${VIEWPORT_MARGIN_PX * 2}px))`,
+            maxWidth: `min(272px, calc(100vw - ${VIEWPORT_MARGIN_PX * 2}px))`,
           }}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
@@ -350,40 +354,40 @@ export default function GameInfoPopup({
           onMouseLeave={handleHoverLeave}
         >
           {notes && (
-            <p className="text-xs text-muted mb-2 whitespace-pre-wrap">{notes}</p>
+            <p className="text-[11px] text-muted mb-1.5 whitespace-pre-wrap">{notes}</p>
           )}
           {externalUrl && (
             <a
               href={externalUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-neon-cyan hover:underline break-all"
+              className="inline-flex items-center gap-1 text-[11px] text-neon-cyan hover:underline break-all"
             >
-              <ExternalLink size={12} className="flex-shrink-0" />
+              <ExternalLink size={11} className="flex-shrink-0" />
               {externalUrl}
             </a>
           )}
           {canFetchAllowed && (
-            <div className={notes || externalUrl ? 'mt-2 pt-2 border-t border-border/60' : ''}>
+            <div className={notes || externalUrl ? 'mt-1.5 pt-1.5 border-t border-border/60' : ''}>
               {allowedLoading && !allowed && (
-                <p className="text-[10px] uppercase tracking-wider text-faint">Checking what's allowed…</p>
+                <p className="text-[9px] uppercase tracking-wider text-faint">Checking what's allowed…</p>
               )}
               {allowedError && !allowed && (
-                <p className="text-[10px] text-faint">Couldn't load what's allowed.</p>
+                <p className="text-[9px] text-faint">Couldn't load what's allowed.</p>
               )}
               {allowed && (engines.length > 0 || devices.length > 0) && (
                 <>
-                  <p className="text-[10px] uppercase tracking-wider text-faint mb-1.5">
+                  <p className="text-[9px] uppercase tracking-wider text-faint mb-1">
                     {allowedHeading}
                   </p>
                   {allowed.restrictedText && (
-                    <p className="text-[11px] text-neon-amber/90 mb-1.5 whitespace-pre-wrap">
+                    <p className="text-[10px] text-neon-amber/90 mb-1 whitespace-pre-wrap">
                       {allowed.restrictedText}
                     </p>
                   )}
                   {engines.length > 0 && (
-                    <div className="mb-1.5">
-                      <p className="text-[10px] text-muted mb-1">Engines</p>
+                    <div className="mb-1">
+                      <p className="text-[9px] text-muted mb-0.5">Engines</p>
                       <div className="flex flex-wrap gap-1">
                         {engines.map(e => <AllowedChip key={e} label={getEngineDisplay(e)} />)}
                       </div>
@@ -391,14 +395,14 @@ export default function GameInfoPopup({
                   )}
                   {devices.length > 0 && (
                     <div>
-                      <p className="text-[10px] text-muted mb-1">Hardware</p>
+                      <p className="text-[9px] text-muted mb-0.5">Hardware</p>
                       <div className="flex flex-wrap gap-1">
                         {devices.map(d => <AllowedChip key={d} label={getDeviceDisplay(d)} />)}
                       </div>
                     </div>
                   )}
                   {narrowed && (
-                    <p className="text-[10px] text-faint mt-1.5">Narrowed by this tournament's rules.</p>
+                    <p className="text-[9px] text-faint mt-1">Narrowed by this tournament's rules.</p>
                   )}
                 </>
               )}

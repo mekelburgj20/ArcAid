@@ -171,12 +171,12 @@ export default function BannerCard({
               style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}
             >
               <span style={titleClampStyle}>{displayName}</span>
-              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
+              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
             </Link>
           ) : (
             <h3 className={`font-display font-bold leading-tight px-5 flex items-center justify-center gap-1 text-center ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}>
               <span style={titleClampStyle}>{displayName}</span>
-              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
+              <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
             </h3>
           )
         )}
@@ -187,7 +187,7 @@ export default function BannerCard({
             look for. `GameInfoPopup` still self-hides when it has nothing. */}
         {hasIdentifierImage && (
           <div className="absolute left-3 top-3 z-[2]">
-            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={16} />
+            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
           </div>
         )}
         {(lb.tournamentName || lb.gameStatus === 'COMPLETED' || lb.isPinned) && (
