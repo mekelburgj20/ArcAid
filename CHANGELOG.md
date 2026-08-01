@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.68.1] — unreleased
+
+**Card refinements** (user field feedback on v2.67.0): the game art fills the card top again with
+the title overlaid (uniform 12px gutter on all four art edges; polarity-aware scrim + title
+shadow tuned against busy artwork; pin leads the title with a 44px hit target), and the glitch
+rings moved onto/outside the border where the neon tube lives (transparent-fill outline rings at
+-3px/-5px inset, jump offsets cut to ±1-2px so artifacts hug the frame and spill strictly
+outward; card no longer clips them). Tests: admin-ui 358 → 359.
+
 ## [2.68.0] — unreleased
 
 **RetroAchievements on-demand game import** (product decision 2026-08-01: demand IS the approval
