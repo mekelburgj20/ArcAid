@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.69.0] — unreleased
+
+**Pick-flow notifications** (user direction, 2026-08-01).
+
+- **Picks nav badge**: signed-in players see a count badge on the Picks nav item when (a) a
+  pending pick placeholder is waiting on them (urgent, magenta), (b) a tournament they've held a
+  picker slot in has an empty queue (soft nudge, cyan — gated to players with pick standing so
+  it never nags the uninvolved), or (c) their head-of-queue pick is cooldown-ineligible (reuses
+  the activation path's own eligibility check — the badge cannot disagree with what activation
+  will do). New lightweight `GET /:roomId/pick-alerts` (per-user rate-limited; probed on
+  navigation like the Lobby dot, no polling loop). Fixed en route: a limiter mounted before
+  `requireDiscordUser` was keying on IP while claiming per-user.
+- **Public lobby pick-prompt**: when a winner must pick manually (placeholder creation — and on
+  runner-up pivot), the lobby feed shows "*player*, pick the next game for *tournament*" with a
+  live countdown. The deadline derives from new `src/utils/pickWindow.ts` — now the SINGLE
+  source feeding TimeoutManager's enforcement, the ticker payload, and the feed event, so the
+  countdown can't disagree with the actual timer. The copy is honest about what expiry means:
+  "before the runner-up gets the pick" vs "before autopick" (a winner's lapse pivots to the
+  runner-up; autopick only fires when that lapses too). Closed windows render "Pick window
+  closed" rather than a stale countdown.
+- Tests: backend 1283 → 1310, admin-ui 359 → 377.
+
 ## [2.68.1] — unreleased
 
 **Card refinements** (user field feedback on v2.67.0): the game art fills the card top again with
