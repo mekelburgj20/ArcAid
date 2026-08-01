@@ -256,6 +256,7 @@ describe('D2 (v2.41.0) — per-submission opt-out governs fan-out uniformly, no 
         const result = await GlobalScoreService.fanOutFromRoomSubmission({
             gameRoomId: roomId, gameName: 'PGG Approval Default Game',
             playerId: 'discord-pgg-1', iscoredUsername: 'PggPlayer1', score: 1000,
+            source: 'community',
         });
         expect(result).not.toBeNull();
 
@@ -277,7 +278,7 @@ describe('D2 (v2.41.0) — per-submission opt-out governs fan-out uniformly, no 
         const result = await GlobalScoreService.fanOutFromRoomSubmission({
             gameRoomId: roomId, gameName: 'PGG Approval Excluded Game',
             playerId: 'discord-pgg-2', iscoredUsername: 'PggPlayer2', score: 1000,
-            excludeFromGlobal: true,
+            excludeFromGlobal: true, source: 'community',
         });
         // fanOutFromRoomSubmission still returns a result (the row is recorded
         // with the flag set) — callers gate the PUBLIC leaderboard read on
@@ -303,6 +304,7 @@ describe('D2 (v2.41.0) — per-submission opt-out governs fan-out uniformly, no 
         const result = await GlobalScoreService.fanOutFromRoomSubmission({
             gameRoomId: roomId, gameName: 'PGG Approval Guest Game',
             playerId: 'COMMUNITY', iscoredUsername: 'GuestPlayer', score: 1000,
+            source: 'community',
         });
         expect(result).toBeNull();
 
@@ -322,6 +324,7 @@ describe('D2 (v2.41.0) — per-submission opt-out governs fan-out uniformly, no 
         const result = await GlobalScoreService.fanOutFromRoomSubmission({
             gameRoomId: roomId, gameName: 'PGG Open Control Game',
             playerId: 'discord-pgg-open-1', iscoredUsername: 'PggOpenPlayer', score: 1000,
+            source: 'community',
         });
         expect(result).not.toBeNull();
     });

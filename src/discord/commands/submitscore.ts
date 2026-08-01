@@ -396,6 +396,9 @@ export const submitscore: Command = {
                         platform,
                         engine,
                         device,
+                        // Discord /submit-score is a tournament submission
+                        // (ADR 0016 P2 §3c).
+                        source: 'tournament',
                     });
                     if (fanOut && !excludeGlobal) {
                         const { emitScoreNewGlobal } = await import('../../api/websocket.js');
