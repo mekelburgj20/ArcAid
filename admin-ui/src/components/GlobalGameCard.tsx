@@ -325,7 +325,13 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
     : null;
 
   return (
-    <div className="group relative flex h-full flex-col overflow-hidden rounded-[10px] border border-border bg-surface transition-colors duration-150 hover:border-[var(--sb-card-hover-border)]">
+    /* v2.65.0 — the card carries its own elevation, and carries MORE of it
+       below `sm`. At one column there is no neighbouring card to imply an edge,
+       so a hairline border alone left each card reading as part of one
+       continuous column; the stronger shadow is what makes it a discrete
+       object. Both values are tokens, so the light polarity gets neutral
+       elevation rather than a black bloom. */
+    <div className="group relative flex h-full flex-col overflow-hidden rounded-[10px] border border-border bg-surface shadow-[var(--sb-card-shadow-strong)] transition-colors duration-150 hover:border-[var(--sb-card-hover-border)] sm:shadow-[var(--sb-card-shadow)]">
       {/* A4 — pin hotspot. A SIBLING of the art <Link>, not a child: a button
           nested inside an anchor is invalid and swallows the anchor's
           activation on some browsers.
@@ -391,14 +397,17 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
             <CategoryChip category={chipCategory} prospective={chipIsProspective} />
           </div>
         )}
-        <div className="absolute inset-x-2.5 bottom-1.5">
+        {/* v2.65.0 — the title block gets its breathing room from inset, not
+            from a taller art block: the 110px banner height is unchanged, the
+            text simply stops crowding the card's edges. */}
+        <div className="absolute inset-x-3.5 bottom-2.5">
           <h3
             className="font-display text-[13px] font-bold leading-[1.15] [text-wrap:pretty]"
             style={{ color: 'var(--sb-art-title)', textShadow: 'var(--sb-title-shadow)' }}
           >
             {displayName}
           </h3>
-          <div className="mt-px text-[9.5px]" style={{ color: 'var(--sb-art-meta)' }}>
+          <div className="mt-0.5 text-[9.5px]" style={{ color: 'var(--sb-art-meta)' }}>
             {game.manufacturer || 'Unknown'}{game.year ? ` · ${game.year}` : ''}
           </div>
         </div>
@@ -406,9 +415,9 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
 
       {/* 2. Leaderboard — exactly as many rows as there are scores, max 6.
              3. Empty state — dashed "Claim 1st" CTA, no placeholder podium. */}
-      <div className="flex-1 px-3 py-2.5">
+      <div className="flex-1 px-3.5 py-3.5">
         {planned.length > 0 ? (
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {planned.map(row => (
               <div key={`${row.rank}-${row.entry.discord_user_id}-${row.entry.iscored_username}`}>
                 {/* A5a — the break line only appears where the plan actually
@@ -451,8 +460,22 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
         )}
       </div>
 
-      {/* 4. Footer */}
-      <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/50 px-3 py-[7px]">
+      {/* 4. Footer — a CONTAINED strip since v2.65.0.
+             It used to be a hairline `border-border/50` rule with the same
+             background as the card body, which on a stacked phone layout put
+             the Submit button in undifferentiated space directly above the
+             next card's art. Users read it as the button for the game BELOW.
+             A filled band with its own top border makes the button visibly
+             part of THIS card. Applied at every width, not just under `sm` —
+             it reads as intentional structure on desktop too, and a
+             breakpoint-forked footer would drift. */}
+      <div
+        className="mt-auto flex items-center justify-between gap-2 border-t px-3.5 py-2.5"
+        style={{
+          background: 'var(--sb-card-footer-bg)',
+          borderTopColor: 'var(--sb-card-footer-border)',
+        }}
+      >
         <span className="text-[10px] text-muted">
           {game.score_count.toLocaleString()} {game.score_count === 1 ? 'score' : 'scores'}
         </span>

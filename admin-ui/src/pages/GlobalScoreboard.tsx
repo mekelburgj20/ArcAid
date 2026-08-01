@@ -696,7 +696,12 @@ export default function GlobalScoreboard() {
                 <GlobalHeroCard
                   key={`hero-${hero.global_game_id}`}
                   game={hero}
-                  className="sm:col-span-2 md:row-span-2"
+                  /* v2.65.0 — the row span follows the 3-column breakpoint,
+                     which moved from `md` to `lg` when max columns went 4 → 3.
+                     Left on `md` it would have made the hero full-width AND
+                     double-height in the 2-column band, which is a hole in the
+                     layout rather than emphasis. */
+                  className="sm:col-span-2 lg:row-span-2"
                   onSubmit={() => handleSubmitClick(hero)}
                   onTogglePin={playerToken ? () => togglePin(hero) : undefined}
                 />

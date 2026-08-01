@@ -64,6 +64,18 @@
   --sb-art-meta: rgba(255, 255, 255, 0.62);
   --sb-title-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
   --sb-card-hover-border: color-mix(in oklab, var(--color-neon-cyan) 60%, transparent);
+  /* Card footer strip + elevation (v2.65.0 declutter).
+     The footer is a CONTAINED band, not a hairline rule: on a phone the grid
+     stacks to one column and the only thing between a card's Submit button and
+     the next card's art was 14px of page background, so the button read as if
+     it belonged to the game below it. A filled strip with its own top border
+     ends that — the button is visibly inside something.
+     `--sb-card-shadow-strong` is the sub-`sm` variant: with no neighbouring
+     column to imply a card edge, the boundary has to carry itself. */
+  --sb-card-footer-bg: rgba(0, 0, 0, 0.26);
+  --sb-card-footer-border: rgba(255, 255, 255, 0.10);
+  --sb-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --sb-card-shadow-strong: 0 4px 14px rgba(0, 0, 0, 0.45);
   /* Semi-opaque, not a tint: this pill sits on arbitrary game art, and a 6%
      white wash vanished over bright/busy backglasses. Dark fill + cyan text
      stays legible on anything. */
@@ -334,6 +346,13 @@
   --sb-art-meta: var(--color-muted);
   --sb-title-shadow: 0 1px 3px rgba(255, 255, 255, 0.9);
   --sb-pill-bg: rgba(255, 255, 255, 0.88);
+  /* Card footer strip + elevation: a black wash and a 45%-black shadow both
+     turn to mud on a pale surface, so the strip becomes a faint neutral ink
+     wash and the shadows become soft neutral elevation. */
+  --sb-card-footer-bg: rgba(15, 20, 30, 0.05);
+  --sb-card-footer-border: rgba(15, 20, 30, 0.12);
+  --sb-card-shadow: 0 1px 3px rgba(15, 20, 30, 0.10);
+  --sb-card-shadow-strong: 0 4px 14px rgba(15, 20, 30, 0.16);
   /* Category chip: the magenta lifts a little on a pale chip, and the muted
      variant inverts from white-alpha to the page's own muted ink — a 72%-white
      label is invisible on the light pill. */
