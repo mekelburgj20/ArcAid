@@ -32,6 +32,8 @@ import { glitchVars } from '../lib/cardGlitch';
  *      laid over one is only ever as legible as that particular backglass —
  *      moving it off makes the type reliable at any size, which is what let
  *      it grow.
+ *      (v2.68.0 puts it BACK on the art — see below. The 22px size that this
+ *      move bought is what it keeps.)
  *   2. TYPE AT ~1.6-2x. Title 13 -> 22px, player names 11 -> 16px, scores
  *      11 -> 16px, avatars 18 -> 26px, medals 12 -> 18px. Manufacturer/year
  *      stays deliberately secondary at 11px.
@@ -43,6 +45,28 @@ import { glitchVars } from '../lib/cardGlitch';
  *      and the glitch keyframes live in `index.css` under `.gg-card`, and the
  *      per-card desync (a hash of `card_id` into the animation timings) in
  *      `lib/cardGlitch.ts`; this file only picks the category key.
+ *
+ * ─── v2.68.0 — the art takes the top of the card, and the title with it ───
+ *
+ * v2.67 left the card opening with a band of surface colour: a title row, then
+ * a separate inset art panel under it. Two blocks where a player reads one
+ * object. The art now occupies the whole top REGION of the card — inset from
+ * the card's edges by the same 12px gutter it already had on its left, applied
+ * to all four sides — and the title, its manufacturer/year line, the pin and
+ * the category chip all sit ON it. The title row's former slot folds into the
+ * image, so the art grows 118 -> 176px and the card's overall height is
+ * unchanged.
+ *
+ * The hazard v2.67 was avoiding is real (a 22px title over a busy backglass),
+ * and it is answered rather than dodged: `--sb-art-scrim-top` lays a heavy
+ * gradient over the top ~72% of the art and `--sb-art-title-shadow` adds a
+ * two-stop shadow under the glyphs. Both are polarity-flipping tokens, so the
+ * light theme gets a white veil under dark ink rather than an island of
+ * white-on-black.
+ *
+ * The card also stopped clipping in this release. `overflow-hidden` moved onto
+ * the art block — the one child that needs it — because `.gg-card`'s glitch
+ * rings now sit OUTSIDE the frame and a clipping card would crop them off.
  */
 
 export interface TopScoreEntry {
@@ -426,90 +450,120 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
       data-testid="global-game-card"
       data-neon={neonKey}
       style={glitchVars(game.card_id ?? game.global_game_id)}
-      className="gg-card group relative flex h-full min-h-[var(--sb-card-min-h)] flex-col overflow-hidden rounded-[10px] bg-surface"
+      className="gg-card group relative flex h-full min-h-[var(--sb-card-min-h)] flex-col rounded-[10px] bg-surface"
     >
-      {/* 1. Title row — pin, then the game name, then the board's chip. The
-             name opens the card because it is the one thing every player
-             scans for; it used to sit over the bottom of the art, where its
-             legibility was a property of whichever backglass had loaded. */}
-      <div className="relative z-[2] flex items-start gap-1.5 px-3 pt-3">
-        {onTogglePin && (
-          /* A 44x44 hit target with a 26px visual chip centred inside it —
-             how a small control gets a thumb-sized target without a
-             negative-inset wrapper, which the card's `overflow-hidden` would
-             clip away exactly where the extra area was wanted. The negative
-             margins pull the oversized box back so the visible chip still
-             lines up with the card's 12px gutter and the title still starts
-             immediately after it. */
-          <button
-            type="button"
-            onClick={onTogglePin}
-            aria-pressed={Boolean(game.is_pinned)}
-            aria-label={game.is_pinned ? `Unpin ${displayName}` : `Pin ${displayName}`}
-            title={game.is_pinned ? 'Unpin this game' : 'Pin this game'}
-            className="relative -ml-2 -mr-1.5 -mt-2 h-11 w-11 shrink-0"
-          >
-            <span
-              className="absolute left-[9px] top-[9px] flex h-[26px] w-[26px] items-center justify-center rounded-[5px] border transition-colors"
-              style={{ background: 'var(--color-raised)', borderColor: 'var(--color-border)' }}
+      {/*
+        1. Art — the top REGION of the card, not a panel below a header, and
+           the surface the title is set on.
+
+           `m-3` is the whole geometry rule: the 12px the art already had on
+           its left is now what it has on every side, and the podium below
+           drops its own top padding so the art's `mb` is the single gutter
+           between them rather than one of two stacked ones.
+
+           `overflow-hidden` lives HERE rather than on the card because this is
+           the only child that needs clipping (the image's corners), and the
+           card cannot afford it any more: `.gg-card`'s glitch rings sit
+           outside the frame and a clipping card would crop them away.
+      */}
+      <div
+        data-testid="card-art"
+        className="relative m-3 h-[176px] shrink-0 overflow-hidden rounded-[6px]"
+      >
+        <Link
+          to={detailHref}
+          className="absolute inset-0 block no-underline"
+          title={platformList ? `Available on: ${platformList}` : undefined}
+          aria-label={`${displayName} details`}
+        >
+          {img ? (
+            <img
+              src={img}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-deep text-[12px] text-muted">
+              No image
+            </div>
+          )}
+          {/* The scrim is a child of the art LINK, so the whole darkened band
+              is still part of the art's click target — only the controls
+              drawn over it opt out below. It covers the top 72% and fades to
+              nothing, leaving the bottom of every backglass untouched. */}
+          <div
+            className="absolute inset-x-0 top-0 h-[72%]"
+            style={{ background: 'var(--sb-art-scrim-top)' }}
+            aria-hidden="true"
+          />
+        </Link>
+
+        {/*
+          The title row, over the art. A SIBLING of the art link rather than a
+          child, because a <button> (the pin) inside an <a> is invalid and
+          swallows the anchor's activation on some browsers.
+
+          It is `pointer-events-none` with each interactive child opting back
+          in, so the gaps between pin, title and chip still click through to
+          the art beneath instead of becoming dead strips across it.
+        */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-[2] flex items-start gap-2 p-2">
+          {onTogglePin && (
+            /* A 26px chip with its hit target grown to 44px by a transparent
+               `::after` — the chip stays 26px in the flex flow, so the title
+               starts right after it rather than after a 44px column, and the
+               grown area no longer has a card clip to be eaten by. */
+            <button
+              type="button"
+              onClick={onTogglePin}
+              aria-pressed={Boolean(game.is_pinned)}
+              aria-label={game.is_pinned ? `Unpin ${displayName}` : `Pin ${displayName}`}
+              title={game.is_pinned ? 'Unpin this game' : 'Pin this game'}
+              className="pointer-events-auto relative flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[5px] border transition-colors after:absolute after:-inset-[9px] after:content-['']"
+              style={{ background: 'var(--sb-art-btn-bg)', borderColor: 'var(--sb-art-btn-border)' }}
             >
               <Pin
                 className={`h-[13px] w-[13px] ${game.is_pinned ? 'fill-current text-neon-amber' : 'text-primary'}`}
                 aria-hidden="true"
               />
-            </span>
-          </button>
-        )}
+            </button>
+          )}
 
-        <Link to={detailHref} className="min-w-0 flex-1 no-underline">
-          <h3 className="font-display text-[22px] font-bold leading-[1.08] text-primary [text-wrap:balance]">
-            {displayName}
-          </h3>
-          <div className="mt-1 text-[11px] text-muted">
-            {game.manufacturer || 'Unknown'}{game.year ? ` · ${game.year}` : ''}
-          </div>
-        </Link>
+          <Link to={detailHref} className="pointer-events-auto min-w-0 flex-1 no-underline">
+            <h3
+              className="font-display text-[22px] font-bold leading-[1.08] [text-wrap:balance]"
+              style={{ color: 'var(--sb-art-title)', textShadow: 'var(--sb-art-title-shadow)' }}
+            >
+              {displayName}
+            </h3>
+            <div
+              className="mt-1 text-[11px]"
+              style={{ color: 'var(--sb-art-meta-strong)', textShadow: 'var(--sb-art-title-shadow)' }}
+            >
+              {game.manufacturer || 'Unknown'}{game.year ? ` · ${game.year}` : ''}
+            </div>
+          </Link>
 
-        {/* Both slots are optional — a zero-score card whose catalogue engines
-            span two bands has neither — so the wrapper renders only when there
-            is something to put in it, and never leaves an empty flex column
-            beside the title. `max-w` stops a badge + chip pair crowding the
-            title out on a phone card. */}
-        {(badge || categoryLabel) && (
-          <div className="flex max-w-[45%] shrink-0 flex-wrap items-center justify-end gap-1">
-            {badge}
-            <CategoryChip category={chipCategory} prospective={chipIsProspective} />
-          </div>
-        )}
+          {/* Both slots are optional — a zero-score card whose catalogue engines
+              span two bands has neither — so the wrapper renders only when there
+              is something to put in it, and never leaves an empty flex column
+              beside the title. `max-w` stops a badge + chip pair crowding the
+              title out on a phone card. */}
+          {(badge || categoryLabel) && (
+            <div className="pointer-events-auto flex max-w-[42%] shrink-0 flex-wrap items-center justify-end gap-1">
+              {badge}
+              <CategoryChip category={chipCategory} prospective={chipIsProspective} />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* 2. Art — no longer carrying text, so no scrim and no title block.
-             Inset and rounded rather than full-bleed: a hard-edged band
-             directly under the title read as a second card beginning. */}
-      <Link
-        to={detailHref}
-        className="relative mx-3 mt-3 block h-[118px] shrink-0 overflow-hidden rounded-[6px] no-underline"
-        title={platformList ? `Available on: ${platformList}` : undefined}
-        aria-label={`${displayName} details`}
-      >
-        {img ? (
-          <img
-            src={img}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-deep text-[12px] text-muted">
-            No image
-          </div>
-        )}
-      </Link>
-
-      {/* 3. Podium — places 1-3 always, then whatever ranks the density plan
-             puts below them. */}
-      <div className="flex-1 px-3 py-3">
+      {/* 2. Podium — places 1-3 always, then whatever ranks the density plan
+             puts below them. No top padding: the art's own bottom margin is
+             the gutter, and doubling it would push the podium down 24px. */}
+      <div className="flex-1 px-3 pb-3">
         <div className="space-y-1.5">
           {PODIUM_RANKS.map(rank => {
             const row = plannedByRank.get(rank);
@@ -558,7 +612,7 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
         </div>
       </div>
 
-      {/* 4. Footer — a CONTAINED strip since v2.65.0.
+      {/* 3. Footer — a CONTAINED strip since v2.65.0.
              It used to be a hairline `border-border/50` rule with the same
              background as the card body, which on a stacked phone layout put
              the Submit button in undifferentiated space directly above the
@@ -567,8 +621,12 @@ export default function GlobalGameCard({ game, onSubmit, onTogglePin, badge, den
              part of THIS card. Applied at every width, not just under `sm` —
              it reads as intentional structure on desktop too, and a
              breakpoint-forked footer would drift. */}
+      {/* `rounded-b-[8px]` is the card's 10px radius less its 2px frame: the
+          card stopped clipping in v2.68.0, so the one child with a fill of its
+          own has to round its own bottom corners or they square off outside
+          the frame. */}
       <div
-        className="relative z-[2] mt-auto flex items-center justify-between gap-2 border-t px-3 py-2.5"
+        className="relative z-[2] mt-auto flex items-center justify-between gap-2 rounded-b-[8px] border-t px-3 py-2.5"
         style={{
           background: 'var(--sb-card-footer-bg)',
           borderTopColor: 'var(--sb-card-footer-border)',

@@ -7,7 +7,7 @@ import { glitchVars } from '../../lib/cardGlitch';
 /**
  * v2.67.0 neon card — the four things the rebuild is, locked.
  *
- *   1. The title opens the card (header row), not the art block.
+ *   1. The title and the art are ONE block (v2.68.0 — see below).
  *   2. Places 1-3 always render; ranks 4+ are still shown on top of them.
  *   3. The frame's category neon is declared by `data-neon`, and the chip
  *      reads the same `--gg-neon` the frame does.
@@ -15,6 +15,12 @@ import { glitchVars } from '../../lib/cardGlitch';
  *      `card_id` — stable across renders, different between cards.
  *      `Math.random()` would pass a "they differ" test and fail the "stable"
  *      one, which is why both are here.
+ *
+ * v2.68.0 revises (1) and adds a fifth: the title moved back ONTO the art (an
+ * overlay that is a sibling of the art's own link, not a child of it — a
+ * button inside an anchor is invalid), and the card stopped clipping so its
+ * glitch rings can spill outward past the frame. Both are structural, both are
+ * the kind of thing a later refactor silently undoes, so both are asserted.
  */
 
 function makeScore(n: number): TopScoreEntry {
@@ -58,24 +64,38 @@ function renderCard(game: GlobalGameCardGame, onSubmit = vi.fn()) {
   return { ...utils, onSubmit, card: screen.getByTestId('global-game-card') };
 }
 
-describe('GlobalGameCard — layout (v2.67.0)', () => {
-  it('puts the title in the card header, not inside the art link', () => {
+describe('GlobalGameCard — layout (v2.68.0)', () => {
+  it('sets the title ON the art, in a link of its own', () => {
     const { card } = renderCard(makeGame());
     const heading = within(card).getByRole('heading', { name: 'Medieval Madness' });
-    // The art link is labelled; if the title were still inside it, this walk
-    // would land on the art rather than on the header's own link.
+    // Inside the art block…
+    expect(within(card).getByTestId('card-art')).toContainElement(heading);
+    // …but NOT inside the art's own link. The overlay has to be a sibling of
+    // it: the pin is a <button>, and a button nested in an anchor is invalid
+    // and swallows the anchor's activation on some browsers.
     expect(heading.closest('a')).not.toBe(within(card).getByLabelText('Medieval Madness details'));
     expect(heading.closest('a')).toHaveAttribute('href', '/games/g1?category=real');
   });
 
-  it('renders the pin control immediately before the title', () => {
+  it('renders the pin control immediately before the title, over the art', () => {
     render(
       <MemoryRouter>
         <GlobalGameCard game={makeGame()} onSubmit={vi.fn()} onTogglePin={vi.fn()} />
       </MemoryRouter>,
     );
-    const row = screen.getByRole('button', { name: /^Pin / }).parentElement as HTMLElement;
+    const pin = screen.getByRole('button', { name: /^Pin / });
+    const row = pin.parentElement as HTMLElement;
     expect(within(row).getByRole('heading', { name: 'Medieval Madness' })).toBeInTheDocument();
+    expect(screen.getByTestId('card-art')).toContainElement(pin);
+  });
+
+  it('clips the art, not the card — the glitch rings sit outside the frame', () => {
+    const { card } = renderCard(makeGame());
+    // `.gg-card::before/::after` render past the card's own border box. A card
+    // that clipped would crop every outward artefact back to the frame, which
+    // is the half of the effect this release exists to restore.
+    expect(card.className).not.toContain('overflow-hidden');
+    expect(within(card).getByTestId('card-art').className).toContain('overflow-hidden');
   });
 
   it('carries the 1.5x floor height as a token, not a magic number', () => {

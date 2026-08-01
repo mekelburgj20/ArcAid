@@ -60,9 +60,32 @@
      consumes these exclusively: no literal rgba() belongs in that TSX. */
   --sb-art-scrim: linear-gradient(180deg, rgba(0, 0, 0, 0.05) 40%, rgba(16, 18, 26, 0.95) 100%);
   --sb-hero-scrim: linear-gradient(90deg, rgba(16, 18, 26, 0.95) 10%, rgba(16, 18, 26, 0.5) 55%, transparent 100%);
+  /* v2.68.0 — the Global Scoreboard card's art hosts the title again, but at
+     the TOP of the block rather than the bottom, so it needs a scrim that runs
+     the other way. Not a mirror of `--sb-art-scrim`: that one only had to
+     carry a 13px title, this one carries a 22px title plus its meta line over
+     whatever backglass loaded, so it opens heavier (0.92) and still holds 0.80
+     a third of the way down before releasing. The element it paints is 72% of
+     the art's height, so the bottom quarter of every image is untouched. */
+  --sb-art-scrim-top: linear-gradient(180deg,
+    rgba(4, 6, 12, 0.92) 0%,
+    rgba(4, 6, 12, 0.80) 30%,
+    rgba(4, 6, 12, 0.52) 58%,
+    rgba(4, 6, 12, 0.20) 82%,
+    transparent 100%);
   --sb-art-title: oklch(100% 0 0);
   --sb-art-meta: rgba(255, 255, 255, 0.62);
   --sb-title-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  /* Two-stop shadow for the on-art card title (v2.68.0): a tight 2px stroke
+     that keeps the letterforms crisp against high-frequency art, plus a wide
+     soft one that darkens the immediate ground under the glyphs. The single
+     4px shadow `--sb-title-shadow` carries is enough for 13px type and visibly
+     is not for 22px, where the counters are large enough to show the art
+     through them. Kept separate so `GlobalHeroCard` is untouched. */
+  --sb-art-title-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 12px rgba(0, 0, 0, 0.8);
+  /* The meta line is 11px on the same ground, so it takes the alpha the title
+     doesn't need — 0.62 white (the hero's value) greys out over bright art. */
+  --sb-art-meta-strong: rgba(255, 255, 255, 0.82);
   --sb-card-hover-border: color-mix(in oklab, var(--color-neon-cyan) 60%, transparent);
   /* Card footer strip + elevation (v2.65.0 declutter).
      The footer is a CONTAINED band, not a hairline rule: on a phone the grid
@@ -377,9 +400,22 @@
      rather than white-on-black-band sitting in a light page. */
   --sb-art-scrim: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 35%, rgba(255, 255, 255, 0.94) 100%);
   --sb-hero-scrim: linear-gradient(90deg, rgba(255, 255, 255, 0.95) 10%, rgba(255, 255, 255, 0.55) 55%, transparent 100%);
+  /* Light polarity inverts the card's top scrim to a white veil, so the on-art
+     title stays the page's own dark ink rather than becoming the one piece of
+     white-on-black text on a pale page. Opens a shade heavier than the dark
+     value: dark ink over a partly-transparent white veil loses contrast faster
+     against a bright backglass than white ink does against a dark one. */
+  --sb-art-scrim-top: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(255, 255, 255, 0.86) 30%,
+    rgba(255, 255, 255, 0.58) 58%,
+    rgba(255, 255, 255, 0.22) 82%,
+    transparent 100%);
   --sb-art-title: var(--color-primary);
   --sb-art-meta: var(--color-muted);
   --sb-title-shadow: 0 1px 3px rgba(255, 255, 255, 0.9);
+  --sb-art-title-shadow: 0 1px 2px rgba(255, 255, 255, 0.95), 0 2px 12px rgba(255, 255, 255, 0.85);
+  --sb-art-meta-strong: var(--color-muted);
   --sb-pill-bg: rgba(255, 255, 255, 0.88);
   /* Card footer strip + elevation: a black wash and a 45%-black shadow both
      turn to mud on a pale surface, so the strip becomes a faint neutral ink
@@ -975,6 +1011,23 @@ select option {
  * zero repaints. Animating `border-color` or `box-shadow` directly (the
  * obvious way to write this) would repaint every card every frame.
  *
+ * v2.68.0 — WHERE the burst lands. The rings used to sit at `inset: 0` (the
+ * card's padding box, i.e. just inside the frame) and jump 3-4px, which put a
+ * displaced ring's trailing edge several pixels INTO the card face: the effect
+ * read as artefacts flashing on the card rather than as the frame's own tube
+ * flickering. The light is in the border, so a misregistered copy of it belongs
+ * ON the border line or OUTSIDE it, never over the content. Both rings now rest
+ * just outside the frame (-3px and -5px, concentric radii to match) and jump at
+ * most 2px, so the near ring lands on the border line at its extreme and the
+ * ghost never crosses it at all. Everything else about them is unchanged — they
+ * are still fill-less outlines, so there is nothing to paint over the card even
+ * when they overlap it.
+ *
+ * That geometry only works because `.gg-card` does NOT clip: the card's
+ * `overflow-hidden` moved onto the art block (the only child that needs it) in
+ * the same release. A clipping card would crop every outward artefact back to
+ * the frame, which is precisely the half of the effect being asked for.
+ *
  * Cadence is the logo's, ported: `steps(1)` holds, TWO burst clusters per
  * cycle, each cluster three rapid jumps at irregular offsets. At the 17/21/26s
  * durations below one cluster lasts ~360ms and its jumps hold ~65-110ms — so
@@ -990,12 +1043,12 @@ select option {
  */
 @keyframes ggNeonGlitch {
   0%, 21.4%, 23.1%, 68.5%, 70.4%, 100% { transform: translate(0, 0); opacity: 0; }
-  21.7% { transform: translate(3px, -2px); opacity: .9; }
-  22.1% { transform: translate(-4px, 2px); opacity: .35; }
-  22.6% { transform: translate(2px, 1px); opacity: .75; }
-  68.8% { transform: translate(-3px, 2px); opacity: .85; }
-  69.4% { transform: translate(4px, -1px); opacity: .4; }
-  70.0% { transform: translate(2px, 2px); opacity: .65; }
+  21.7% { transform: translate(1px, -2px); opacity: .9; }
+  22.1% { transform: translate(-2px, 1px); opacity: .35; }
+  22.6% { transform: translate(1px, 1px); opacity: .75; }
+  68.8% { transform: translate(-1px, 2px); opacity: .85; }
+  69.4% { transform: translate(2px, -1px); opacity: .4; }
+  70.0% { transform: translate(-1px, -1px); opacity: .65; }
 }
 
 .gg-card {
@@ -1022,26 +1075,40 @@ select option {
   box-shadow: var(--sb-neon-glow-hover), var(--sb-card-shadow);
 }
 
-/* The two glitch rings. `inset: 0` puts them on the card's PADDING box, i.e.
-   flush inside its own frame, so a burst reads as the frame splitting rather
-   than as a separate outline appearing. The card clips its overflow, which
-   crops a jumped ring at the edge — that crop is the effect, not a defect. */
+/* The two glitch rings — displaced copies of the FRAME, hugging it from the
+   outside (v2.68.0).
+
+   `inset: -3px` sets the near ring's own 2px border one pixel clear of the
+   card's, and `border-radius: 13px` (the card's 10px + the 3px offset) keeps
+   it concentric — an inherited 10px would pinch its corners inside the frame's
+   and the burst would read as a rounded rectangle appearing rather than as the
+   frame itself misfiring. `background: transparent` is stated rather than
+   assumed because it is the load-bearing property: these are outlines, and an
+   outline that overlaps the card paints nothing over it. `box-shadow` on a
+   fill-less box casts strictly outward from the border box, so the bloom
+   cannot wash the card face either. */
 .gg-card::before,
 .gg-card::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -3px;
   z-index: 4;
   border: 2px solid var(--gg-neon);
-  border-radius: inherit;
-  box-shadow: 0 0 12px var(--gg-neon);
+  border-radius: 13px;
+  background: transparent;
+  box-shadow: 0 0 10px var(--gg-neon);
   pointer-events: none;
   opacity: 0;
   animation: ggNeonGlitch var(--gg-gl-dur, 21s) steps(1) infinite;
   animation-delay: var(--gg-gl-delay, 0s);
 }
 
+/* The chromatic ghost sits two pixels further out again, so at its extreme
+   excursion it is still clear of the frame: the split reads as the tube's
+   fringe throwing outward, never as a second outline crossing the art. */
 .gg-card::after {
+  inset: -5px;
+  border-radius: 15px;
   border-color: var(--sb-neon-ghost);
   box-shadow: none;
   animation-direction: reverse;
