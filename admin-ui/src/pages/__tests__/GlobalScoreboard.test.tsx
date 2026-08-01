@@ -9,7 +9,8 @@ import { ThemeProvider } from '../../components/ThemeProvider';
 // behaviours the redesign actually changed, all of which are easy to silently
 // regress by "restoring" the old podium:
 //   * rows are score-driven, never padded with `—` placeholders
-//   * a scoreless game gets the "Claim 1st" CTA instead of an empty podium
+//   * a scoreless game gets three claimable podium places (v2.67.0; it used
+//     to get a single dashed "Claim 1st ->" box)
 //   * the card renders at most CARD_ROWS (6) even though the API returns 10
 //   * ranks 1-3 render lucide Medals wearing the A1 medal tokens
 // Plus the two things that must NOT have been dropped in the rewrite: the
@@ -121,8 +122,11 @@ function renderScoreboard() {
 
 /** The card element for a given game title — the <a> art block's parent. */
 async function findCard(title: string): Promise<HTMLElement> {
+  // v2.67.0 moved the title out of the art <a> into the card's own header row,
+  // so the old `heading.closest('a').parentElement` walk stopped landing on the
+  // card. The root carries a `data-testid`, which is the thing to ask for.
   const heading = await screen.findByText(title);
-  const card = heading.closest('a')?.parentElement;
+  const card = heading.closest('[data-testid="global-game-card"]');
   if (!card) throw new Error(`No card found for "${title}"`);
   return card as HTMLElement;
 }
@@ -151,16 +155,52 @@ describe('GlobalScoreboard card (v2.50.0 A2)', () => {
     expect(within(card).getByText('1 score')).toBeInTheDocument();
   });
 
-  it('a 0-score game renders the "Claim 1st" CTA instead of an empty podium', async () => {
+  it('a 0-score game renders three empty podium places, each claimable', async () => {
     mockFetch([makeGame('g0', 'Untouched Game', [])]);
 
     renderScoreboard();
 
     const card = await findCard('Untouched Game');
-    expect(within(card).getByRole('button', { name: /Claim 1st/ })).toBeInTheDocument();
+    // v2.67.0 replaced the single dashed "Claim 1st ->" box with the podium
+    // itself: the medals are drawn whether or not anyone holds them.
+    for (const place of ['1st', '2nd', '3rd']) {
+      expect(within(card).getByRole('button', { name: `Claim ${place} place` })).toBeInTheDocument();
+    }
+    expect(within(card).getAllByText('Claim this spot')).toHaveLength(3);
+    // An empty place is NOT held by anybody: the "Nth place" label — which is
+    // how every other test asserts "somebody is here" — must not appear.
     expect(within(card).queryByLabelText('1st place')).not.toBeInTheDocument();
+    // The old podium padded missing places with em-dashes; this one does not.
     expect(within(card).queryByText('—')).not.toBeInTheDocument();
     expect(within(card).getByText('0 scores')).toBeInTheDocument();
+  });
+
+  it('a partially-filled podium keeps the taken places and offers the rest', async () => {
+    mockFetch([makeGame('g1', 'Lonely Leader', [makeScore(1)])]);
+
+    renderScoreboard();
+
+    const card = await findCard('Lonely Leader');
+    expect(within(card).getByLabelText('1st place')).toBeInTheDocument();
+    expect(within(card).getByText('player1')).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Claim 1st place' })).not.toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Claim 2nd place' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Claim 3rd place' })).toBeInTheDocument();
+  });
+
+  it('a claim place opens the same submit flow the footer button does', async () => {
+    signInAs('discord-me');
+    mockFetch([makeGame('g0', 'Claimable Game', [])]);
+
+    renderScoreboard();
+
+    const card = await findCard('Claimable Game');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Claim 1st place' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Claimable Game')).toBeInTheDocument();
   });
 
   it('renders at most 6 rows for a 10-score payload', async () => {
