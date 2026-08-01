@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.66.0] — unreleased
+
+**Global Scoreboard declutter + "Real Machine" relabel** (user direction, 2026-08-01).
+
+- Grid max 4 → 3 columns with double-width gutters; more padding around card titles and score
+  rows; card footer is a contained strip (own fill + top border) at all sizes so the Submit
+  button unambiguously belongs to its card; mobile gets doubled inter-card gaps + stronger card
+  elevation (the field problem: Submit floating between cards). Hero span moved to `lg` only
+  (full-width double-height in a 2-col band was a layout hole). The pinned rail tracked the new
+  card widths automatically via the shared grid module.
+- The `real` category renders as **"Real Machine"** everywhere (id `real` unchanged in SQL,
+  URLs, params). Every surface already flowed through the label helpers — zero hardcodes found.
+  The rename exposed a real tooltip bug ("Real Machine (Real Machine)" — engine name repeating
+  the category) fixed generally: redundant category parentheticals are dropped.
+- Tests: backend 1199, admin-ui 318 (all at baseline; label assertions updated).
+
 ## [2.65.0] — unreleased
 
 **IGDB import hardened end-to-end.** Recon showed the arcade/video-game bulk import had never run
