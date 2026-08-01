@@ -813,20 +813,29 @@ export default function GlobalScoreboard() {
             {/* A0 #12: no grid-auto-rows — row height is content-driven and
                 cards stretch to match the tallest in their row. */}
             <div className={GRID_CLASS}>
-              {/* A5a — the hero occupies grid position 1, spanning 2x2 from
-                  `md` up (full width, single row, below that). Its game is
-                  filtered out of the rest of the grid: the same card twice on
-                  one screen reads as a bug, not as emphasis. */}
+              {/* A5a — the hero occupies grid position 1. Its game is filtered
+                  out of the rest of the grid: the same card twice on one
+                  screen reads as a bug, not as emphasis. */}
               {hero && (
                 <GlobalHeroCard
                   key={`hero-${hero.global_game_id}`}
                   game={hero}
-                  /* v2.65.0 — the row span follows the 3-column breakpoint,
-                     which moved from `md` to `lg` when max columns went 4 → 3.
-                     Left on `md` it would have made the hero full-width AND
-                     double-height in the 2-column band, which is a hole in the
-                     layout rather than emphasis. */
-                  className="sm:col-span-2 lg:row-span-2"
+                  /* v2.70.0 — WIDE, NOT TALL, and full-bleed on a phone.
+                     `lg:row-span-2` is gone: two columns by two rows made the
+                     hero four card-tiles of desktop real estate, which read as
+                     oversized rather than as important. It now takes two
+                     columns of ONE row, so it is a header strip across the top
+                     of the grid at exactly the row height its neighbours set.
+                     (`sm:col-span-2` is unchanged and is already the full
+                     width of the 2-column band.)
+
+                     Below `sm` it breaks the page's own `px-4` gutter while
+                     the grid cards stay inset — the phone's version of "this
+                     one is different", since at one column it cannot be wider
+                     than its neighbours. `-mx-[14px]` rather than `-mx-4`
+                     leaves 2px so the marquee's left/right lamp strips stay on
+                     screen; see `.gg-hero` in index.css. */
+                  className="-mx-[14px] sm:mx-0 sm:col-span-2"
                   onSubmit={() => handleSubmitClick(hero)}
                   onTogglePin={playerToken ? () => togglePin(hero) : undefined}
                 />
