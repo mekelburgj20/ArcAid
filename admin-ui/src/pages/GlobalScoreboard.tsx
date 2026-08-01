@@ -13,6 +13,7 @@ import GlobalSearchPalette, { type PaletteGame } from '../components/GlobalSearc
 import PinnedCarousel, { type PinnedGame } from '../components/PinnedCarousel';
 import GlobalGameCard, { type GlobalGameCardGame, type Density } from '../components/GlobalGameCard';
 import GlobalHeroCard from '../components/GlobalHeroCard';
+import GlobalScoreboardTitle from '../components/GlobalScoreboardTitle';
 import { GRID_CLASS } from '../lib/globalGrid';
 import { formatScore } from '../lib/format';
 import { CARD_CATEGORY_ORDER, getCardCategoryLabel } from '../lib/scoreProvenance';
@@ -486,50 +487,49 @@ export default function GlobalScoreboard() {
 
       {/* Content */}
       <div className="px-4 sm:px-6 lg:px-10 py-10">
-        {/* v2.55.0 — heading centred on desktop only; a centred heading on a
-            narrow phone reads worse than left-aligned, so `sm:` gates it.
-            Trophy + title both scaled 1.5x (24px→36px, text-3xl→text-[2.8125rem]
-            = 30px→45px). The trophy takes the logo's own delta pink via
-            --color-brand-delta rather than an approximate palette token. */}
-        <div className="flex items-center gap-3 mb-2 sm:justify-center">
-          {/* 1.5x applies from `sm:` up. At 45px the title wraps to two lines on
-              a 390px phone and swallows the first screen, so mobile keeps the
-              original 24px/30px pairing. */}
-          <Trophy className="w-6 h-6 sm:w-9 sm:h-9 shrink-0" style={{ color: 'var(--color-brand-delta)' }} />
-          {/* A5a — the live dot. `.pulse` is already nulled under
-              prefers-reduced-motion by index.css's global guard, so no extra
-              media query is needed here. */}
-          <Circle
-            className="pulse h-2 w-2 shrink-0 fill-current text-neon-magenta"
-            strokeWidth={0}
-            aria-hidden="true"
-            data-testid="live-dot"
-          />
-          <h1 className="font-display text-3xl sm:text-[2.8125rem] leading-tight font-bold">Global Scoreboard</h1>
-        </div>
-        {/* A5a — the live line. Driven off the last `score:new:global` event,
-            falling back to the last fetch. Deliberately NOT accompanied by the
-            design's "{total} games · {n} players" line: there is no
-            player-count API and inventing one is out of scope. */}
-        <div className="mb-1 font-mono text-[10px] text-muted sm:text-center" role="status">
-          LIVE · updated {formatAgo(Math.floor((nowTs - lastUpdate) / 1000))} ago
-        </div>
-        {/* A0 #2/#3: provider-agnostic copy, "Arcaid" casing. */}
-        <p className="text-muted mb-2 text-[12.5px] sm:text-center">
-          High scores from every Arcaid room.{' '}
-          {playerToken ? null : (
-            <>
-              <button
-                type="button"
-                onClick={() => setShowSubheadLogin(v => !v)}
-                className="text-neon-cyan underline underline-offset-2 hover:brightness-110"
-              >
-                Log in
-              </button>
-              {' to submit your own scores.'}
-            </>
-          )}
-        </p>
+        {/* v2.60.0 — the flat Trophy-icon + <h1> pairing is replaced by the
+            design pack's neon-trophy lockup (see GlobalScoreboardTitle). The
+            v2.55.0 alignment behaviour is preserved by different means: the
+            lockup caps at its 902px native width, so `mx-auto` centres the
+            whole block once the viewport can hold it and is a no-op below
+            that, leaving a phone with the same left-aligned reading order.
+            The status line and the subtitle ride inside the lockup so they
+            stay indented to the wordmark's left edge, as the pack specifies. */}
+        <GlobalScoreboardTitle className="mb-2 mx-auto">
+          {/* A5a — the live line + dot. Driven off the last `score:new:global`
+              event, falling back to the last fetch. Deliberately NOT
+              accompanied by the design's "{total} games · {n} players" line:
+              there is no player-count API and inventing one is out of scope.
+              `.pulse` is already nulled under prefers-reduced-motion by
+              index.css's global guard, so no extra media query is needed. */}
+          <div className="mb-1 flex items-center gap-2 font-mono text-[10px] text-muted" role="status">
+            <Circle
+              className="pulse h-2 w-2 shrink-0 fill-current text-neon-magenta"
+              strokeWidth={0}
+              aria-hidden="true"
+              data-testid="live-dot"
+            />
+            <span>LIVE · updated {formatAgo(Math.floor((nowTs - lastUpdate) / 1000))} ago</span>
+          </div>
+          {/* A0 #2/#3: provider-agnostic copy, "Arcaid" casing. The copy already
+              matches the pack's subtitle, so it simply takes the `gs-sub`
+              treatment rather than being duplicated as static art. */}
+          <p className="gs-sub mb-2">
+            High scores from every Arcaid room.{' '}
+            {playerToken ? null : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowSubheadLogin(v => !v)}
+                  className="text-neon-cyan underline underline-offset-2 hover:brightness-110"
+                >
+                  Log in
+                </button>
+                {' to submit your own scores.'}
+              </>
+            )}
+          </p>
+        </GlobalScoreboardTitle>
         {showSubheadLogin && !playerToken && (
           <LoginButtons
             className="mb-6"
