@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.71.1] — unreleased
+
+**Hero frame: attract-mode sweep replaces the marquee bulbs** (user verdict on v2.71.0). One
+bright gold band travels smoothly around the lit frame (8s laps, 22°/44° lead/trail falloff,
+single segment — dual was A/B-rejected as reading like uneven lighting) via a masked gradient
+ring with a transform-only rotating layer. Band widened to 5px so the crest registers over the
+bright frame. Light theme sweeps deep bronze (a white-hot crest on a pale page reads as
+erasure). Reduced motion: even gold wash, no parked hot-spot. Zero layout shift (geometry-diff
+verified). Tests: admin-ui 395 → 396.
+
 ## [2.71.0] — unreleased
 
 **Hero champion marquee** (user-approved option 1, 2026-08-01). The Global Scoreboard hero gets
