@@ -29,40 +29,93 @@ export async function getIScoredCredsForRoom(
     if (roomId) {
         // Avoid import cycle — GameRoomSettingsService imports nothing from here.
         const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
-        const enabled = (await GameRoomSettingsService.get(roomId, 'ISCORED_ENABLED')) !== 'false';
-        if (!enabled) return null;
+        const settingsByRoom = await GameRoomSettingsService.getManyForRooms([roomId], [...ISCORED_CRED_KEYS]);
+        return resolveCredsFromSettings(roomId, settingsByRoom.get(roomId) ?? {});
+    }
+    return envCreds();
+}
 
-        const [u, p, url] = await Promise.all([
-            GameRoomSettingsService.get(roomId, 'ISCORED_USERNAME'),
-            GameRoomSettingsService.get(roomId, 'ISCORED_PASSWORD'),
-            GameRoomSettingsService.get(roomId, 'ISCORED_PUBLIC_URL'),
-        ]);
+/**
+ * The `game_room_settings` keys iScored credential resolution depends on.
+ * Exported so the batched path and the single-room path can never read a
+ * different key set.
+ */
+export const ISCORED_CRED_KEYS = [
+    'ISCORED_ENABLED',
+    'ISCORED_USERNAME',
+    'ISCORED_PASSWORD',
+    'ISCORED_PUBLIC_URL',
+] as const;
 
-        const anyPerRoom = !!(u || p || url);
-        const allPerRoom = !!(u && p && url);
+/**
+ * Batched multi-room resolution — v2.74.0 (S24.2).
+ *
+ * `ScoreSyncPoller` resolves creds for EVERY room on every tick (default 10s).
+ * Doing that through `getIScoredCredsForRoom` cost ≥4 uncached settings reads
+ * per room per tick, paid even for `ISCORED_ENABLED=false` rooms whose answer
+ * is always null. This is one query for all rooms and all four keys, then the
+ * SAME `resolveCredsFromSettings` rule per room — the precedence logic is
+ * shared, not forked, so the batched path cannot drift from the single path.
+ *
+ * Returns a map with an entry only for rooms that resolved to real creds.
+ */
+export async function getIScoredCredsForRooms(
+    roomIds: string[],
+): Promise<Map<string, IScoredCreds>> {
+    const out = new Map<string, IScoredCreds>();
+    if (roomIds.length === 0) return out;
 
-        if (allPerRoom) {
-            const gameroomName = IScoredApiClient.parseGameroomName(url!);
-            if (!gameroomName) {
-                logWarn(`iScored creds for room ${roomId}: ISCORED_PUBLIC_URL is set but gameroom name could not be parsed. Treating as disabled.`);
-                return null;
-            }
-            return {
-                username: u!,
-                password: p!,
-                publicUrl: url!,
-                gameroomName,
-                source: 'room',
-            };
-        }
+    const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
+    const settingsByRoom = await GameRoomSettingsService.getManyForRooms(roomIds, [...ISCORED_CRED_KEYS]);
+    for (const roomId of roomIds) {
+        const creds = resolveCredsFromSettings(roomId, settingsByRoom.get(roomId) ?? {});
+        if (creds) out.set(roomId, creds);
+    }
+    return out;
+}
 
-        if (anyPerRoom) {
-            logWarn(`iScored creds for room ${roomId}: partial per-room config (missing one of USERNAME/PASSWORD/PUBLIC_URL). Treating as disabled — set all three or clear all three.`);
+/**
+ * The precedence rule from this module's doc comment, applied to one room's
+ * already-loaded settings. Pure apart from the env fallback and the warnings.
+ */
+function resolveCredsFromSettings(
+    roomId: string,
+    settings: Record<string, string>,
+): IScoredCreds | null {
+    const enabled = (settings['ISCORED_ENABLED'] ?? null) !== 'false';
+    if (!enabled) return null;
+
+    const u = settings['ISCORED_USERNAME'] ?? null;
+    const p = settings['ISCORED_PASSWORD'] ?? null;
+    const url = settings['ISCORED_PUBLIC_URL'] ?? null;
+
+    const anyPerRoom = !!(u || p || url);
+    const allPerRoom = !!(u && p && url);
+
+    if (allPerRoom) {
+        const gameroomName = IScoredApiClient.parseGameroomName(url!);
+        if (!gameroomName) {
+            logWarn(`iScored creds for room ${roomId}: ISCORED_PUBLIC_URL is set but gameroom name could not be parsed. Treating as disabled.`);
             return null;
         }
-        // Fall through to env — room has no per-room creds.
+        return {
+            username: u!,
+            password: p!,
+            publicUrl: url!,
+            gameroomName,
+            source: 'room',
+        };
     }
 
+    if (anyPerRoom) {
+        logWarn(`iScored creds for room ${roomId}: partial per-room config (missing one of USERNAME/PASSWORD/PUBLIC_URL). Treating as disabled — set all three or clear all three.`);
+        return null;
+    }
+    // Fall through to env — room has no per-room creds.
+    return envCreds();
+}
+
+function envCreds(): IScoredCreds | null {
     const u = process.env.ISCORED_USERNAME;
     const p = process.env.ISCORED_PASSWORD;
     const url = process.env.ISCORED_PUBLIC_URL;
