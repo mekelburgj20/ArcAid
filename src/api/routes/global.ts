@@ -1447,6 +1447,121 @@ router.get('/global/recent-scores', async (req, res) => {
 });
 
 /**
+ * v2.74.0 (S24.7) — TTL cache for the SHARED half of `GET /global/scoreboard`.
+ *
+ * The list route is the public /scoreboard page's only data source and was
+ * entirely uncached: every anonymous page load and every "Load more" ran the
+ * grouped count query, the grouped data query, the hero's two aggregate
+ * queries and a top-scores window pass over the whole page's games.
+ *
+ * ## What is deliberately NOT cached
+ *
+ * - **Authenticated requests.** A logged-in viewer's payload carries
+ *   `pinned_at` (which changes the SQL itself), `is_pinned`, `my_rank`,
+ *   `my_score` and `neighbors`. Those are per-user by definition, and caching
+ *   a per-user variant keyed on the query string alone would serve one user's
+ *   ranks to another. `sort=pinned` is covered by the same rule — it only
+ *   reaches `getTopGames` as a pin sort when there IS a viewer.
+ * - **Searches.** The key space is unbounded (every keystroke of the ⌘K
+ *   palette is a distinct query) so the hit rate is near zero while the memory
+ *   cost is not.
+ *
+ * The hero rides in the same entry: it is part of the offset-0 payload and is
+ * derived from the identical filter set, so it can never disagree with the
+ * grid it sits above.
+ *
+ * ## Invalidation
+ *
+ * TTL only. The cached thing is a global aggregate (popularity, score counts,
+ * top-5 previews) where 30s of staleness is invisible, and the FE already
+ * bumps counts optimistically off the `score:new:global` socket event, which
+ * papers over the window client-side. A write-path invalidation hook would be
+ * a lot of coupling for an aggregate nobody watches to the second.
+ */
+const SCOREBOARD_CACHE_TTL_MS = 30_000;
+/**
+ * Hard cap on distinct cached variants. The key space is bounded by the filter
+ * combinations the UI can produce (sort × scope × type × platforms × category ×
+ * page), but `platforms` is a free-form comma list, so a cap keeps a crafted
+ * request loop from growing this without bound. Oldest-inserted is evicted
+ * first — Map preserves insertion order.
+ */
+const SCOREBOARD_CACHE_MAX_ENTRIES = 200;
+const scoreboardCache = new Map<string, { payload: unknown; expiresAt: number }>();
+/**
+ * The database handle the cached payloads were derived from.
+ *
+ * In production this is set once and never changes, so the check below is a
+ * reference compare. In tests every `setupTestDb()` mints a fresh in-memory
+ * handle, and without this the cache — keyed on the query string alone — would
+ * serve one test's scoreboard to the next. Tying the cache's lifetime to the
+ * data it was computed FROM is also just the honest invariant.
+ */
+let scoreboardCacheDb: unknown = null;
+
+async function reconcileScoreboardCacheDb(): Promise<void> {
+    const db = await getDatabase();
+    if (db !== scoreboardCacheDb) {
+        scoreboardCache.clear();
+        scoreboardCacheDb = db;
+    }
+}
+
+/**
+ * The cache key, or null when this request must not be cached.
+ * Built from the FULL query tuple — a param that changes the response and is
+ * missing here would serve the wrong page.
+ */
+function scoreboardCacheKey(req: { query: Record<string, any> }, viewerId: string | null): string | null {
+    if (viewerId) return null;
+    const search = (req.query.search as string) || '';
+    if (search.trim()) return null;
+    return [
+        req.query.sort ?? '',
+        req.query.scope ?? '',
+        req.query.limit ?? '',
+        req.query.offset ?? '',
+        req.query.type ?? '',
+        req.query.platforms ?? '',
+        req.query.hasScores ?? '',
+        req.query.category ?? '',
+        req.query.groupBy ?? '',
+    ].join('|');
+}
+
+function readScoreboardCache(key: string): unknown | null {
+    const entry = scoreboardCache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+        scoreboardCache.delete(key);
+        return null;
+    }
+    return entry.payload;
+}
+
+function writeScoreboardCache(key: string, payload: unknown): void {
+    if (scoreboardCache.size >= SCOREBOARD_CACHE_MAX_ENTRIES) {
+        // Sweep anything already expired before falling back to oldest-first.
+        const now = Date.now();
+        for (const [k, v] of scoreboardCache) {
+            if (v.expiresAt <= now) scoreboardCache.delete(k);
+        }
+        while (scoreboardCache.size >= SCOREBOARD_CACHE_MAX_ENTRIES) {
+            const oldest = scoreboardCache.keys().next();
+            if (oldest.done) break;
+            scoreboardCache.delete(oldest.value);
+        }
+    }
+    scoreboardCache.set(key, { payload, expiresAt: Date.now() + SCOREBOARD_CACHE_TTL_MS });
+}
+
+/** Test hook — drops every cached variant. */
+export function __clearGlobalScoreboardCache(): void {
+    scoreboardCache.clear();
+    scoreboardCacheDb = null;
+}
+
+/**
  * GET /api/global/scoreboard — paginated CARD list + per-card score aggregates.
  *
  * v2.59.0 (ADR 0016 P4): a row is a `(game, fidelity category)` card, not a
@@ -1488,6 +1603,16 @@ router.get('/global/recent-scores', async (req, res) => {
 router.get('/global/scoreboard', optionalDiscordUser, async (req, res) => {
     try {
         const viewerId = req.user?.discordId ?? null;
+        // v2.74.0 (S24.7) — anonymous-only TTL cache, checked before any work.
+        const cacheKey = scoreboardCacheKey(req, viewerId);
+        if (cacheKey) {
+            await reconcileScoreboardCacheDb();
+            const hit = readScoreboardCache(cacheKey);
+            if (hit) {
+                res.json(hit);
+                return;
+            }
+        }
         const requestedSort = (req.query.sort as 'popular' | 'most_scores' | 'highest_rated' | 'most_recent' | 'name_asc' | 'pinned') || 'popular';
         // `pinned` needs a viewer to mean anything. Anonymous requests degrade
         // to `popular` rather than 400ing — a shared `?sort=pinned` link opened
@@ -1547,7 +1672,9 @@ router.get('/global/scoreboard', optionalDiscordUser, async (req, res) => {
         const heroKey = (value: any) => (offset === 0 ? { hero: value } : {});
 
         if (!viewerId) {
-            res.json({ ...result, data: enriched, ...heroKey(heroBase) });
+            const payload = { ...result, data: enriched, ...heroKey(heroBase) };
+            if (cacheKey) writeScoreboardCache(cacheKey, payload);
+            res.json(payload);
             return;
         }
 
