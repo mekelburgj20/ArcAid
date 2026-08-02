@@ -22,8 +22,13 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
   // Read once per render so both the effect and the error-state JSX below
   // agree on whether this is a link flow (Fix 9 needs it in render, outside
   // the effect).
-  const state = searchParams.get('state'); // room slug, player:slug, __super__, or link:<nonce>
+  const state = searchParams.get('state'); // room slug, player:slug, __super__, link:<nonce>, or connect:<nonce>
   const isLinkFlow = state?.startsWith('link:') ?? false;
+  // v2.72.0 (Discord HQ) — the "connect Discord notifications" flow. Shares
+  // this callback route (one registered redirect URI) but is otherwise its own
+  // exchange: it never mints or replaces a token, it just adds the already
+  // signed-in user to the Arcaid community server so DMs can reach them.
+  const isConnectFlow = state?.startsWith('connect:') ?? false;
 
   useEffect(() => {
     // Prevent double-execution in React strict mode
@@ -60,6 +65,57 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
       // this OAuth round-trip — proves to the server (Fix 1b) that the
       // browser completing the link is the one that started it.
       linkAuthToken = localStorage.getItem('arcaid_player_token');
+    }
+
+    // v2.72.0 — connect-notifications completion. Same browser-binding rule as
+    // the link flow: the nonce in `state` must match the one this tab stashed
+    // before redirecting, so a crafted authorize URL clicked by a victim can't
+    // drive their account through someone else's flow.
+    if (isConnectFlow) {
+      const connectNonce = state!.slice('connect:'.length);
+      const storedNonce = sessionStorage.getItem('arcaid_connect_nonce');
+      sessionStorage.removeItem('arcaid_connect_nonce');
+      const returnPath = sessionStorage.getItem('arcaid_connect_return') || '/account/settings';
+      sessionStorage.removeItem('arcaid_connect_return');
+
+      if (errorParam) {
+        // Declining consent is a normal choice, not an error state to strand
+        // the user in — send them back with a flag the settings page reads.
+        window.location.href = `${returnPath}?connect=declined`;
+        return;
+      }
+      if (!storedNonce || storedNonce !== connectNonce) {
+        window.location.href = `${returnPath}?connect=error`;
+        return;
+      }
+      if (!code) {
+        window.location.href = `${returnPath}?connect=error`;
+        return;
+      }
+
+      const playerToken = localStorage.getItem('arcaid_player_token');
+      fetch('/api/auth/discord/connect-notifications/callback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(playerToken ? { Authorization: `Bearer ${playerToken}` } : {}),
+        },
+        body: JSON.stringify({
+          code,
+          redirectUri: `${window.location.origin}/auth/discord/callback`,
+          nonce: connectNonce,
+        }),
+      })
+        .then(async res => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          window.location.href = `${returnPath}?connect=success`;
+        })
+        .catch(err => {
+          window.location.href =
+            `${returnPath}?connect=error&reason=${encodeURIComponent(err.message || 'Connection failed')}`;
+        });
+      return;
     }
 
     if (errorParam) {
@@ -227,7 +283,7 @@ export default function DiscordCallback({ onLogin }: { onLogin: () => void }) {
             : (err.message || 'Discord login failed'),
         );
       });
-  }, [searchParams, onLogin, isLinkFlow, state]);
+  }, [searchParams, onLogin, isLinkFlow, isConnectFlow, state]);
 
   if (linkSuccess) {
     return (

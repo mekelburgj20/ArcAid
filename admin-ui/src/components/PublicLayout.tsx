@@ -17,6 +17,7 @@ import RoomJoinGate from './RoomJoinGate';
 import { PlayerQuickViewProvider } from '../contexts/PlayerQuickViewContext';
 import ReportContentModal from './ReportContentModal';
 import TourController from './TourController';
+import NotificationNudgeBanner from './NotificationNudgeBanner';
 
 interface PublicLayoutProps {
   gameRoomName?: string;
@@ -393,6 +394,10 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                 RoomJoinGate has resolved, so a gated/suspended/loading room
                 never shows it. See tmp/first-login-tutorial-contract.md. */}
             <TourController />
+            {/* v2.72.0 (Discord HQ) — "we couldn't DM you" / "set up
+                notifications" nudge. Renders nothing for guests, for users
+                with no pending nudge, and in Discord-connected rooms. */}
+            <NotificationNudgeBanner roomDiscordEnabled={portal?.discord_enabled !== false} />
             <PlayerQuickViewProvider>
               <Outlet />
             </PlayerQuickViewProvider>

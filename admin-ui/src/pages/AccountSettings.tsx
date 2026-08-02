@@ -30,6 +30,29 @@ const REASON_COPY: Record<string, string> = {
   taken_alias: 'This name is in use as another player\'s iScored alias.',
 };
 
+/**
+ * Response of GET/PUT /api/me/notification-settings (v2.72.0, Discord HQ).
+ *
+ * `discord` is the honest-status half: a bot may DM a user only while they
+ * share a server with it, so the page states whether that's true rather than
+ * showing five toggles that quietly do nothing.
+ */
+interface NotificationSettings {
+  prefs: Record<string, boolean>;
+  types: string[];
+  webPushTypes: string[];
+  discord: {
+    available: boolean;
+    reachable: boolean;
+    via: 'global' | 'room_guild' | null;
+    viaRoomName: string | null;
+    gatewayReady: boolean;
+    connectAvailable: boolean;
+    inviteUrl: string | null;
+  };
+  nudge: { failedAt: string; type?: string; reason: string } | null;
+}
+
 const NOTIF_TYPES: { key: string; label: string; helper: string }[] = [
   { key: 'tournamentWin', label: 'Tournament Win', helper: 'When you win a tournament.' },
   { key: 'turnToPick', label: 'Turn to Pick', helper: "When it's your turn to pick the next game." },
@@ -83,6 +106,11 @@ export default function AccountSettings() {
   // Notification preferences (independent fetch from the profile load)
   const [prefs, setPrefs] = useState<Record<string, boolean> | null>(null);
   const [draftPrefs, setDraftPrefs] = useState<Record<string, boolean> | null>(null);
+  // v2.72.0 (Discord HQ) — the deliverability verdict + community-server
+  // config that rides along with the prefs.
+  const [notifSettings, setNotifSettings] = useState<NotificationSettings | null>(null);
+  const [connectBusy, setConnectBusy] = useState(false);
+  const [connectNotice, setConnectNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [notifLoading, setNotifLoading] = useState(true);
   const [notifSaving, setNotifSaving] = useState(false);
   const [notifSaveError, setNotifSaveError] = useState<string | null>(null);
@@ -250,13 +278,18 @@ export default function AccountSettings() {
   const loadPrefs = useCallback(async () => {
     if (!playerToken) return;
     try {
-      const res = await fetch('/api/me/notification-preferences', {
+      // v2.72.0 — /notification-settings supersedes /notification-preferences:
+      // same prefs blob, plus the Discord DM deliverability verdict the status
+      // line below needs. The old endpoint still exists for anything else
+      // reading it; both write through the same server-side merge.
+      const res = await fetch('/api/me/notification-settings', {
         headers: { Authorization: `Bearer ${playerToken}` },
       });
       if (res.ok) {
-        const data = (await res.json()) as Record<string, boolean>;
-        setPrefs(data);
-        setDraftPrefs(data);
+        const data = (await res.json()) as NotificationSettings;
+        setPrefs(data.prefs ?? {});
+        setDraftPrefs(data.prefs ?? {});
+        setNotifSettings(data);
       }
     } catch {
       // network error — section stays empty
@@ -265,6 +298,50 @@ export default function AccountSettings() {
   }, [playerToken]);
 
   useEffect(() => { loadPrefs(); }, [loadPrefs]);
+
+  // v2.72.0 — read the connect-flow outcome DiscordCallback bounced back with,
+  // then strip it from the URL so a refresh doesn't re-announce it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get('connect');
+    if (!outcome) return;
+    if (outcome === 'success') {
+      setConnectNotice({ kind: 'success', text: "You're connected — Arcaid can send you Discord DMs now." });
+    } else if (outcome === 'declined') {
+      setConnectNotice({
+        kind: 'error',
+        text: 'Connection cancelled. You can try again, join manually, or use browser notifications instead.',
+      });
+    } else {
+      setConnectNotice({ kind: 'error', text: params.get('reason') || 'Something went wrong connecting to Discord.' });
+    }
+    window.history.replaceState({}, '', window.location.pathname);
+    // Reload so the deliverability line reflects the new membership.
+    loadPrefs();
+  }, [loadPrefs]);
+
+  // Start the connect flow: ask the server for an authorize URL, stash the
+  // nonce so DiscordCallback can prove this tab started it, then redirect.
+  const startConnect = async () => {
+    if (!playerToken || connectBusy) return;
+    setConnectBusy(true);
+    setConnectNotice(null);
+    try {
+      const redirectUri = `${window.location.origin}/auth/discord/callback`;
+      const res = await fetch(
+        `/api/auth/discord/connect-notifications?redirectUri=${encodeURIComponent(redirectUri)}`,
+        { headers: { Authorization: `Bearer ${playerToken}` } },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not start the connection.');
+      sessionStorage.setItem('arcaid_connect_nonce', data.nonce);
+      sessionStorage.setItem('arcaid_connect_return', '/account/settings');
+      window.location.href = data.authorizeUrl;
+    } catch (e) {
+      setConnectNotice({ kind: 'error', text: (e as Error).message || 'Could not start the connection.' });
+      setConnectBusy(false);
+    }
+  };
 
   // Browser push: server VAPID config + this device's current subscription.
   useEffect(() => {
@@ -371,15 +448,16 @@ export default function AccountSettings() {
     setNotifSaveError(null);
     setNotifSaved(false);
     try {
-      const res = await fetch('/api/me/notification-preferences', {
+      const res = await fetch('/api/me/notification-settings', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(draftPrefs),
+        body: JSON.stringify({ prefs: draftPrefs }),
       });
       if (res.ok) {
-        const data = (await res.json()) as Record<string, boolean>;
-        setPrefs(data);
-        setDraftPrefs(data);
+        const data = (await res.json()) as NotificationSettings;
+        setPrefs(data.prefs ?? {});
+        setDraftPrefs(data.prefs ?? {});
+        setNotifSettings(data);
         setNotifSaved(true);
         window.setTimeout(() => setNotifSaved(false), 2200);
       } else {
@@ -744,7 +822,8 @@ export default function AccountSettings() {
             <section className="mt-8 pt-8 border-t border-border">
               <h2 className="text-sm font-medium mb-2">Notifications</h2>
               <p className="text-xs text-muted mb-4">
-                You'll receive a Discord DM when an enabled event happens. All types are off until you turn them on.
+                Pick the events you want to hear about, then choose how they reach you. Everything
+                is off until you turn it on.
               </p>
               {notifLoading ? (
                 <p className="text-sm text-muted">Loading…</p>
@@ -753,13 +832,29 @@ export default function AccountSettings() {
                   <div>
                     {NOTIF_TYPES.map(({ key, label, helper }) => {
                       const checked = draftPrefs?.[key] === true;
+                      // v2.72.0 — the five opt-ins are ONE stored set shared by
+                      // both delivery channels (and by the
+                      // /arcaid-notifications Discord command), so they render
+                      // once here rather than being duplicated per channel.
+                      // The chips say which channels can carry each event:
+                      // browser push only handles the time-sensitive subset the
+                      // server reports in `webPushTypes`.
+                      const pushable = notifSettings?.webPushTypes?.includes(key) ?? false;
                       return (
                         <label
                           key={key}
                           className="flex items-start justify-between gap-3 py-2.5 border-b border-border last:border-b-0 cursor-pointer"
                         >
                           <span className="min-w-0">
-                            <span className="block text-sm text-primary">{label}</span>
+                            <span className="block text-sm text-primary">
+                              {label}
+                              <span className="ml-2 inline-flex gap-1 align-middle">
+                                <span className="px-1.5 py-px rounded text-[10px] border border-border text-faint">DM</span>
+                                {pushable && (
+                                  <span className="px-1.5 py-px rounded text-[10px] border border-border text-faint">Push</span>
+                                )}
+                              </span>
+                            </span>
                             <span className="block text-xs text-faint">{helper}</span>
                           </span>
                           <button
@@ -798,47 +893,127 @@ export default function AccountSettings() {
                       {notifSaving ? 'Saving…' : 'Save'}
                     </button>
                   </div>
-                  {vapidKey && (
-                    <div className="mt-6 pt-4 border-t border-border">
-                      <h3 className="text-sm font-medium mb-1">Browser push</h3>
-                      {pushSupported ? (
-                        <>
-                          <label className="flex items-start justify-between gap-3 py-2.5 cursor-pointer">
-                            <span className="min-w-0">
-                              <span className="block text-sm text-primary">Push notifications on this device</span>
-                              <span className="block text-xs text-faint">
-                                Tournament Win and Rank Dethroned alerts as browser notifications, even when
-                                Arcaid isn't open. Uses the matching event toggles above.
+                  {/* v2.72.0 (Discord HQ) — the two delivery channels, side by
+                      side, each owning its own status. Browser push is a
+                      per-device switch; Discord DMs depend on something the
+                      user can't see (whether they share a server with the bot),
+                      so that block states the verdict plainly instead of
+                      implying the toggles above are enough. */}
+                  <div className="mt-6 pt-4 border-t border-border grid gap-4 sm:grid-cols-2">
+                    {vapidKey && (
+                      <div className="rounded border border-border p-3">
+                        <h3 className="text-sm font-medium mb-1">Browser push</h3>
+                        {pushSupported ? (
+                          <>
+                            <label className="flex items-start justify-between gap-3 py-2 cursor-pointer">
+                              <span className="min-w-0">
+                                <span className="block text-sm text-primary">Push on this device</span>
+                                <span className="block text-xs text-faint">
+                                  Time-sensitive events arrive as browser notifications, even when Arcaid
+                                  isn't open. No Discord account needed.
+                                </span>
                               </span>
-                            </span>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={pushSubscribed}
-                              disabled={pushBusy}
-                              onClick={togglePush}
-                              className={`shrink-0 mt-0.5 w-9 h-5 rounded-full border transition-colors disabled:opacity-50 ${pushSubscribed ? 'bg-neon-cyan/30 border-neon-cyan/50' : 'bg-surface border-border'}`}
-                            >
-                              <span
-                                className={`block w-4 h-4 rounded-full bg-primary transition-transform ${pushSubscribed ? 'translate-x-4' : 'translate-x-0.5'}`}
-                                style={{ marginTop: '1px' }}
-                              />
-                            </button>
-                          </label>
-                          {pushError && (
-                            <p className="mt-1 text-xs text-rose-400 inline-flex items-center gap-1">
-                              <AlertCircle size={12} /> {pushError}
-                            </p>
-                          )}
-                        </>
-                      ) : (
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={pushSubscribed}
+                                disabled={pushBusy}
+                                onClick={togglePush}
+                                className={`shrink-0 mt-0.5 w-9 h-5 rounded-full border transition-colors disabled:opacity-50 ${pushSubscribed ? 'bg-neon-cyan/30 border-neon-cyan/50' : 'bg-surface border-border'}`}
+                              >
+                                <span
+                                  className={`block w-4 h-4 rounded-full bg-primary transition-transform ${pushSubscribed ? 'translate-x-4' : 'translate-x-0.5'}`}
+                                  style={{ marginTop: '1px' }}
+                                />
+                              </button>
+                            </label>
+                            {pushError && (
+                              <p className="mt-1 text-xs text-rose-400 inline-flex items-start gap-1">
+                                <AlertCircle size={12} className="mt-0.5 shrink-0" /> {pushError}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-xs text-faint">
+                            Not supported in this browser. On iPhone/iPad, add Arcaid to your Home Screen
+                            first, then enable push from the installed app.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="rounded border border-border p-3">
+                      <h3 className="text-sm font-medium mb-1">Discord DMs</h3>
+                      {!notifSettings?.discord.available ? (
                         <p className="text-xs text-faint">
-                          Not supported in this browser. On iPhone/iPad, add Arcaid to your Home Screen
-                          first, then enable push from the installed app.
+                          You're signed in with Google. Link a Discord account above if you'd like DMs —
+                          browser push works without one.
+                        </p>
+                      ) : !notifSettings.discord.gatewayReady ? (
+                        <p className="text-xs text-faint inline-flex items-start gap-1">
+                          <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                          Couldn't check delivery status right now. Your settings are saved either way.
+                        </p>
+                      ) : notifSettings.discord.reachable ? (
+                        <p className="text-xs text-emerald-400 inline-flex items-start gap-1">
+                          <CheckCircle2 size={12} className="mt-0.5 shrink-0" />
+                          <span>
+                            Enabled{' '}
+                            {notifSettings.discord.via === 'global'
+                              ? '(Arcaid community server)'
+                              : notifSettings.discord.viaRoomName
+                                ? `(you share ${notifSettings.discord.viaRoomName}'s server)`
+                                : "(you share a server with the Arcaid bot)"}
+                          </span>
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-xs text-amber-400 inline-flex items-start gap-1">
+                            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                            <span>
+                              Discord can only deliver DMs if you share a server with the Arcaid bot.
+                            </span>
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {notifSettings.discord.connectAvailable && (
+                              <button
+                                type="button"
+                                onClick={startConnect}
+                                disabled={connectBusy}
+                                className="px-3 py-1.5 rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan text-xs font-medium hover:bg-neon-cyan/20 disabled:opacity-50 cursor-pointer inline-flex items-center gap-1.5"
+                              >
+                                <Link2 size={12} />
+                                {connectBusy ? 'Connecting…' : 'Connect Discord notifications'}
+                              </button>
+                            )}
+                            {notifSettings.discord.inviteUrl && (
+                              <a
+                                href={notifSettings.discord.inviteUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-neon-cyan hover:underline"
+                              >
+                                or join the server yourself
+                              </a>
+                            )}
+                          </div>
+                          <p className="mt-2 text-xs text-faint">
+                            Prefer not to? Turn on browser push instead — it needs nothing from Discord.
+                          </p>
+                        </>
+                      )}
+                      {connectNotice && (
+                        <p
+                          className={`mt-2 text-xs inline-flex items-start gap-1 ${connectNotice.kind === 'success' ? 'text-emerald-400' : 'text-rose-400'}`}
+                        >
+                          {connectNotice.kind === 'success'
+                            ? <CheckCircle2 size={12} className="mt-0.5 shrink-0" />
+                            : <AlertCircle size={12} className="mt-0.5 shrink-0" />}
+                          {connectNotice.text}
                         </p>
                       )}
                     </div>
-                  )}
+                  </div>
                 </>
               )}
             </section>
