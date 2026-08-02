@@ -11,6 +11,14 @@ import {
     getDeviceDisplay,
     getEngineDisplay,
 } from '../lib/scoreProvenance';
+// The picker's option sets come from `lib/allowedProvenance`, which
+// `GameInfoPopup`'s "What's allowed" section also imports — one derivation, so
+// the card can never advertise an option this sheet refuses.
+import {
+    allowedDevicesForEngine,
+    allowedEngines,
+    parseSubmitPlatformsResponse,
+} from '../lib/allowedProvenance';
 import type { SubmitRank } from '../lib/api';
 import { formatScore } from '../lib/format';
 
@@ -276,19 +284,13 @@ export default function SubmissionSheet({
                 const res = await fetch(`/api/submit/platforms?${params.toString()}`);
                 const data = await res.json().catch(() => ({}));
                 if (cancelled) return;
-                const list: string[] = Array.isArray(data?.submittable) ? data.submittable : [];
-                const fullList: string[] = Array.isArray(data?.platforms) ? data.platforms : [];
-                setSubmittablePlatforms(list);
-                setFullGamePlatforms(fullList);
-                setGameFeatures(Array.isArray(data?.features) ? data.features : []);
-                const rules = data?.tournamentRules;
-                setExcludedProvenance({
-                    engines: Array.isArray(rules?.engines?.excluded) ? rules.engines.excluded : [],
-                    devices: Array.isArray(rules?.devices?.excluded) ? rules.devices.excluded : [],
-                });
+                const resolved = parseSubmitPlatformsResponse(data);
+                setSubmittablePlatforms(resolved.submittable);
+                setFullGamePlatforms(resolved.platforms);
+                setGameFeatures(resolved.features);
+                setExcludedProvenance(resolved.exclusions);
                 // Engine auto-locks when the game only supports one.
-                const engines = enginesFromLegacyPlatforms(list)
-                    .filter(e => !(rules?.engines?.excluded ?? []).includes(e));
+                const engines = allowedEngines(resolved.submittable, resolved.exclusions.engines);
                 if (engines.length === 1) setEngine(engines[0]);
             } catch {
                 if (cancelled) return;
@@ -302,11 +304,10 @@ export default function SubmissionSheet({
     }, [target, commitDraftState]);
 
     const engineOptions = submittablePlatforms
-        ? enginesFromLegacyPlatforms(submittablePlatforms).filter(e => !excludedProvenance.engines.includes(e))
+        ? allowedEngines(submittablePlatforms, excludedProvenance.engines)
         : [];
     const deviceOptions = engine
-        ? devicesForEngineAndPlatforms(engine, submittablePlatforms ?? [], gameFeatures)
-            .filter(d => !excludedProvenance.devices.includes(d))
+        ? allowedDevicesForEngine(engine, submittablePlatforms ?? [], gameFeatures, excludedProvenance.devices)
         : [];
 
     /**

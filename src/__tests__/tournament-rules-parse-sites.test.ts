@@ -352,6 +352,57 @@ describe('site 5: GET /api/submit/platforms', () => {
         // ADR 0009: `required` is an eligibility axis, never a picker filter.
         expect(res.body.submittable).toEqual(expect.arrayContaining(['vpx', 'atgames']));
     });
+
+    /**
+     * v2.70.0 — the endpoint used to strip `restrictedText` deliberately ("the
+     * rejection message, not picker input"). The info bubble's "What's allowed"
+     * section is a second, legitimate consumer: it answers "may I play this,
+     * and how" before the submit sheet is ever opened, and the admin's own
+     * wording is the most useful line on that panel. Sites 7+8 above still
+     * prove the rejection-message use is intact.
+     */
+    it("ships the tournament's restrictedText alongside the two axes", async () => {
+        const roomId = await seedRoom('sp-text');
+        const tournamentId = await seedTournament(roomId, 'SP Text', {
+            required: [], excluded: ['atgames'], restrictedText: 'Cabinet play only this round.',
+        });
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id)
+             VALUES ('g-sp3', ?, ?, 'ACTIVE', ?)`, tournamentId, BOTH, roomId,
+        );
+
+        const app = await globalApp();
+        const res = await request(app).get('/api/submit/platforms')
+            .query({ roomId, gameName: BOTH });
+
+        expect(res.status).toBe(200);
+        expect(res.body.tournamentRules.restrictedText).toBe('Cabinet play only this round.');
+        // Shipping the prose must not disturb the axes the picker reads.
+        expect(res.body.tournamentRules.devices.excluded).toEqual(['atgames']);
+        expect(res.body.submittable).not.toContain('atgames');
+    });
+
+    it('omits restrictedText when the tournament set none', async () => {
+        const roomId = await seedRoom('sp-notext');
+        const tournamentId = await seedTournament(
+            roomId, 'SP NoText', { required: [], excluded: ['atgames'] },
+        );
+        const db = await getDatabase();
+        await db.run(
+            `INSERT INTO games (id, tournament_id, name, status, game_room_id)
+             VALUES ('g-sp4', ?, ?, 'ACTIVE', ?)`, tournamentId, BOTH, roomId,
+        );
+
+        const app = await globalApp();
+        const res = await request(app).get('/api/submit/platforms')
+            .query({ roomId, gameName: BOTH });
+
+        // Absent or empty — either is falsy to the FE's `.trim()` guard, and
+        // the amber line is suppressed. What must NOT happen is a stray
+        // "undefined"/"null" string reaching the bubble.
+        expect(res.body.tournamentRules.restrictedText ?? '').toBe('');
+    });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

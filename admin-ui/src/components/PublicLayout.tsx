@@ -281,10 +281,15 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                       // magenta; the softer nudges (empty queue / ineligible
                       // head-of-queue) reuse the cyan the lobby dot already
                       // taught players means "worth a look".
+                      //
+                      // v2.70.0 — trimmed one step (16px -> 14px, 9px -> 8px
+                      // type, tighter offsets) on the user's "just a tad too
+                      // large" note. Both colour states and the 9+ cap are
+                      // unchanged; this is dimensions only.
                       <span
                         data-testid={`nav-badge-count-${item.label.toLowerCase()}`}
                         aria-label={`${item.badge.value} pick ${item.badge.value === 1 ? 'item' : 'items'} need attention`}
-                        className={`absolute -top-1.5 -right-2 min-w-4 h-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold leading-none text-deep ${
+                        className={`absolute -top-1 -right-1.5 min-w-3.5 h-3.5 px-0.5 flex items-center justify-center rounded-full text-[8px] font-bold leading-none text-deep ${
                           item.badge.urgent ? 'bg-neon-magenta' : 'bg-neon-cyan'
                         }`}
                       >

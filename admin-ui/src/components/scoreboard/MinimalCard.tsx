@@ -147,12 +147,12 @@ export default function MinimalCard({
             style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}
           >
             <span style={titleClampStyle}>{displayName}</span>
-            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
           </Link>
         ) : (
           <h3 className={`font-display font-bold leading-tight text-primary flex items-center gap-1 ${getTitleStyleClass(gameTitleStyle)}`} style={{ fontSize: titleFontSize ? `${titleFontSize}px` : '1rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight }}>
             <span style={titleClampStyle}>{displayName}</span>
-            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} size={13} />
+            <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
           </h3>
         )}
         <div className="flex items-center gap-3 mt-1">
