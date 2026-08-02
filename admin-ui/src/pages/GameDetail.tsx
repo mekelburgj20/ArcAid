@@ -11,7 +11,7 @@ import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
-import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag } from 'lucide-react';
+import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
 import ReportContentModal from '../components/ReportContentModal';
 import ConfirmModal from '../components/ConfirmModal';
@@ -146,6 +146,9 @@ interface ScoreHistoryEntry {
   /** Discord id of the submitter; null for guest/anon rows. Used to gate
    *  player self-delete on this row. */
   submitted_by_user_id?: string | null;
+  /** S23.7 — admin verification. Both null = unverified (every legacy row). */
+  verified_by?: string | null;
+  verified_at?: string | null;
 }
 
 interface GamePlayerRanking {
@@ -283,6 +286,9 @@ export default function GameDetail() {
 
   // v2.47.0 (S22 follow-ups Workstream 2) — Flag-a-comment modal target.
   const [flagTarget, setFlagTarget] = useState<GameComment | null>(null);
+  /** S23.6 — room-scoped score report; reuses ReportContentModal's endpoint
+   *  prop, the same pattern the comment/tip reports above use. */
+  const [scoreFlagTarget, setScoreFlagTarget] = useState<ScoreHistoryEntry | null>(null);
 
   // Load game data once room is resolved
   useEffect(() => {
@@ -577,6 +583,39 @@ export default function GameDetail() {
     if (viewerClaims.role === 'super_admin') return true;
     if (viewerClaims.role === 'room_admin' && viewerClaims.gameRoomIds.includes(roomId)) return true;
     return !!entry.submitted_by_user_id && entry.submitted_by_user_id === viewerClaims.discordId;
+  };
+
+  /** S23.7 — verify/unverify is admin-only (verifying your own score would
+   *  defeat the point), using the same admin detection the delete gate uses. */
+  const canVerifyScoreHistory = (): boolean => {
+    if (!viewerClaims || !roomId) return false;
+    if (viewerClaims.role === 'super_admin') return true;
+    return viewerClaims.role === 'room_admin' && viewerClaims.gameRoomIds.includes(roomId);
+  };
+
+  /** S23.7 — toggles `verified_by`/`verified_at` on one score_history row. */
+  const handleToggleVerified = async (entry: ScoreHistoryEntry) => {
+    if (!roomId || !playerToken) return;
+    const verifying = !entry.verified_at;
+    try {
+      const res = await fetch(
+        `/api/rooms/${roomId}/score-history/${entry.id}/${verifying ? 'verify' : 'unverify'}`,
+        { method: 'POST', headers: { Authorization: `Bearer ${playerToken}` } },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast(err.error || 'Failed to update verification', 'error');
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      setPlayerHistory(prev => prev.map(h => h.id === entry.id
+        ? { ...h, verified_at: verifying ? (body.verified_at || new Date().toISOString()) : null,
+                  verified_by: verifying ? (body.verified_by || null) : null }
+        : h));
+      toast(verifying ? 'Score verified' : 'Verification removed', 'success');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to update verification', 'error');
+    }
   };
 
   const handleRate = async (rating: number) => {
@@ -880,6 +919,10 @@ export default function GameDetail() {
                                             h={h}
                                             canDelete={canDeleteScoreHistory(h)}
                                             onDelete={() => handleDeleteScoreHistory(h)}
+                                            canVerify={canVerifyScoreHistory()}
+                                            onToggleVerified={() => handleToggleVerified(h)}
+                                            canReport={!!viewerClaims?.discordId}
+                                            onReport={() => setScoreFlagTarget(h)}
                                           />
                                         ))}
                                       </div>
@@ -897,6 +940,10 @@ export default function GameDetail() {
                                             h={h}
                                             canDelete={canDeleteScoreHistory(h)}
                                             onDelete={() => handleDeleteScoreHistory(h)}
+                                            canVerify={canVerifyScoreHistory()}
+                                            onToggleVerified={() => handleToggleVerified(h)}
+                                            canReport={!!viewerClaims?.discordId}
+                                            onReport={() => setScoreFlagTarget(h)}
                                           />
                                         ))}
                                       </div>
@@ -1296,6 +1343,18 @@ export default function GameDetail() {
           />
         )}
 
+        {/* S23.6 — room-scoped score report. Points at the room route (not
+            GlobalGameDetail's window.prompt), so the report lands in the
+            super-admin Reports queue tagged with this room. */}
+        {scoreFlagTarget && roomId && (
+          <ReportContentModal
+            title="Report this score"
+            targetLabel={`${scoreFlagTarget.score.toLocaleString()} — ${scoreFlagTarget.display_name || scoreFlagTarget.iscored_username}`}
+            endpoint={`/rooms/${roomId}/score-history/${scoreFlagTarget.id}/report`}
+            onClose={() => setScoreFlagTarget(null)}
+          />
+        )}
+
         {activeTab === 'player-stats' && (
           <div className="space-y-6">
             {/* Top Players */}
@@ -1642,12 +1701,22 @@ export default function GameDetail() {
 /** v2.1.0 — one row in the expanded score-history view. Keeps the visual
     consistent between "This tournament" + "All time" groupings. Trash icon
     appears when `canDelete` is true (admin viewing any row, or player viewing
-    their own row); kept hover-only to avoid visual noise on the common case. */
-function ScoreHistoryRow({ h, canDelete, onDelete }: {
+    their own row); kept hover-only to avoid visual noise on the common case.
+
+    S23.6/S23.7 add two more hover-only controls beside it: a flag (report this
+    score — any logged-in viewer) and a verify toggle (admins only). The
+    verified checkmark itself is always visible, not hover-gated: it's the
+    signal, not an action. */
+function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, canReport, onReport }: {
   h: ScoreHistoryEntry;
   canDelete: boolean;
   onDelete: () => void;
+  canVerify?: boolean;
+  onToggleVerified?: () => void;
+  canReport?: boolean;
+  onReport?: () => void;
 }) {
+  const isVerified = !!h.verified_at;
   return (
     <div className="flex items-center justify-between text-sm group">
       <div className="flex items-center gap-2 min-w-0">
@@ -1657,6 +1726,15 @@ function ScoreHistoryRow({ h, canDelete, onDelete }: {
           h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
           'bg-neon-green/10 text-neon-green'
         }`}>{h.source}</span>
+        {isVerified && (
+          <span
+            className="inline-flex items-center text-neon-green"
+            title={`Verified by an admin${h.verified_at ? ` on ${new Date(h.verified_at).toLocaleDateString()}` : ''}`}
+            aria-label="Verified score"
+          >
+            <BadgeCheck size={13} />
+          </span>
+        )}
         {h.photo_url && (
           <a href={h.photo_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-neon-cyan/70 hover:text-neon-cyan no-underline" title="View proof">
             proof
@@ -1665,6 +1743,30 @@ function ScoreHistoryRow({ h, canDelete, onDelete }: {
       </div>
       <div className="flex items-center gap-2">
         <span className="text-faint text-xs whitespace-nowrap">{new Date(h.created_at).toLocaleDateString()}</span>
+        {canReport && onReport && (
+          <button
+            type="button"
+            onClick={onReport}
+            className="p-4 -m-2 opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 text-muted/60 hover:text-neon-amber transition-all cursor-pointer"
+            title="Report this score"
+            aria-label="Report this score"
+          >
+            <Flag size={12} />
+          </button>
+        )}
+        {canVerify && onToggleVerified && (
+          <button
+            type="button"
+            onClick={onToggleVerified}
+            className={`p-4 -m-2 opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 transition-all cursor-pointer ${
+              isVerified ? 'text-neon-green hover:text-neon-green/70' : 'text-muted/60 hover:text-neon-green'
+            }`}
+            title={isVerified ? 'Remove verification' : 'Verify this score'}
+            aria-label={isVerified ? 'Remove verification' : 'Verify this score'}
+          >
+            <BadgeCheck size={12} />
+          </button>
+        )}
         {canDelete && (
           <button
             type="button"

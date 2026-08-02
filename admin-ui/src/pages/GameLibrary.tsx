@@ -198,19 +198,47 @@ function TagDialog({ game, existingTags, onAdd, onRemove, onClose }: {
   );
 }
 
+/** S23.4 — shape of `POST /:roomId/scores/import-csv-preview`. */
+type ScoreImportBucket = 'ok' | 'needs_review' | 'error';
+interface ScoreImportRowInput {
+  game_name: string;
+  player_name: string;
+  score: string;
+  date?: string;
+  engine: string;
+  device: string;
+  photo_url?: string;
+}
+interface ScoreImportPreview {
+  rows: Array<{
+    index: number;
+    input: ScoreImportRowInput;
+    bucket: ScoreImportBucket;
+    error?: string;
+    candidates?: Array<{ id: string; name: string; manufacturer: string | null; year: number | null }>;
+  }>;
+  summary: Record<ScoreImportBucket, number> & { total: number };
+}
+
 /**
- * Bulk-tag dialog. Single tag string applied to all selected games on commit;
- * the server endpoint INSERT-OR-IGNOREs so re-applying an existing tag is a
- * no-op (counted in the response but harmless).
+ * Bulk tag/untag dialog. Single tag string applied to (or removed from) all
+ * selected games on commit; the add endpoint INSERT-OR-IGNOREs and the remove
+ * endpoint deletes only what's there, so both directions are idempotent
+ * (counted in the response but harmless).
+ *
+ * S23.5 — one component for both directions rather than a near-identical fork:
+ * only the copy and the endpoint differ.
  */
-function BulkTagDialog({ count, existingTags, onApply, onClose }: {
+function BulkTagDialog({ count, existingTags, mode = 'tag', onApply, onClose }: {
   count: number;
   existingTags: string[];
+  mode?: 'tag' | 'untag';
   onApply: (tag: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [input, setInput] = useState('');
   const [applying, setApplying] = useState(false);
+  const isUntag = mode === 'untag';
 
   const submit = async () => {
     if (!input.trim() || applying) return;
@@ -225,11 +253,21 @@ function BulkTagDialog({ count, existingTags, onApply, onClose }: {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="bg-surface border border-border rounded-lg p-6 w-full max-w-md">
-        <h2 className="font-display text-lg font-bold mb-2">Bulk Tag</h2>
+        <h2 className="font-display text-lg font-bold mb-2">{isUntag ? 'Bulk Untag' : 'Bulk Tag'}</h2>
         <p className="text-muted text-sm mb-4">
-          Apply a tag to <span className="text-primary font-medium">{count}</span> selected
-          game{count !== 1 ? 's' : ''}. Tags appear alongside catalogue platforms and can be used
-          in tournament platform rules (e.g. "Must be available on WMS").
+          {isUntag ? (
+            <>
+              Remove a tag from <span className="text-primary font-medium">{count}</span> selected
+              game{count !== 1 ? 's' : ''}. Games that don't carry the tag are left alone.
+              Catalogue platforms are unaffected — only this room's own tags are removed.
+            </>
+          ) : (
+            <>
+              Apply a tag to <span className="text-primary font-medium">{count}</span> selected
+              game{count !== 1 ? 's' : ''}. Tags appear alongside catalogue platforms and can be used
+              in tournament platform rules (e.g. "Must be available on WMS").
+            </>
+          )}
         </p>
         <div className="flex gap-2 mb-3">
           <input
@@ -264,7 +302,7 @@ function BulkTagDialog({ count, existingTags, onApply, onClose }: {
         <div className="flex justify-end gap-2">
           <NeonButton variant="ghost" onClick={onClose} disabled={applying}>Cancel</NeonButton>
           <NeonButton onClick={submit} disabled={!input.trim() || applying}>
-            {applying ? 'Applying…' : `Tag ${count}`}
+            {applying ? 'Applying…' : `${isUntag ? 'Untag' : 'Tag'} ${count}`}
           </NeonButton>
         </div>
       </div>
@@ -401,6 +439,8 @@ export default function GameLibrary() {
   const [tagTarget, setTagTarget] = useState<GameRow | null>(null);
   const [infoTarget, setInfoTarget] = useState<GameRow | null>(null);
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  // S23.5 — the bulk-untag endpoint shipped in S22 with no FE caller.
+  const [bulkUntagOpen, setBulkUntagOpen] = useState(false);
   const [bulkActivateOpen, setBulkActivateOpen] = useState(false);
   const [bulkPinOpen, setBulkPinOpen] = useState(false);
 
@@ -430,6 +470,12 @@ export default function GameLibrary() {
   // Per-row decisions for needs_review entries; auto_submit uses suggestedDecision.
   const [csvDecisions, setCsvDecisions] = useState<Record<number, { decision: 'submit_to_global' }>>({});
   const [csvCommitting, setCsvCommitting] = useState(false);
+
+  // S23.4 — bulk historical score import (separate flow from the game CSV
+  // above; different columns, different endpoint, writes scores not games).
+  const [scorePreview, setScorePreview] = useState<ScoreImportPreview | null>(null);
+  const [scoreImporting, setScoreImporting] = useState(false);
+  const [scoreCommitting, setScoreCommitting] = useState(false);
 
   const addPlatform = async () => {
     const name = newPlatformName.trim().toUpperCase();
@@ -666,6 +712,94 @@ export default function GameLibrary() {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'arcaid_games_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // --- S23.4: bulk historical score import -------------------------------
+  // Same client-parse shape as the game CSV above: PapaParse in-browser, POST
+  // JSON for a read-only preview, hold the response in memory, replay the `ok`
+  // rows on commit. Imported scores land as historical room scores — they are
+  // NOT attached to any running tournament and never reach the Global
+  // Scoreboard (see the server route's block comment for why).
+  const handleScoreFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScoreImporting(true);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          const rows = (results.data as Record<string, string>[])
+            .map(row => ({
+              game_name: (row.game_name || '').trim(),
+              player_name: (row.player_name || '').trim(),
+              score: (row.score || '').trim(),
+              date: row.date?.trim() || undefined,
+              engine: (row.engine || '').trim(),
+              device: (row.device || '').trim(),
+              photo_url: row.photo_url?.trim() || undefined,
+            }))
+            .filter(r => r.game_name && r.player_name && r.score);
+          if (rows.length === 0) {
+            toast('CSV had no usable rows', 'error');
+            return;
+          }
+          const preview = await api.post<ScoreImportPreview>(
+            `${prefix}/scores/import-csv-preview`, { rows },
+          );
+          setScorePreview(preview);
+          toast(`Preview ready: ${preview.summary.total} rows`, 'success');
+        } catch (err: any) {
+          toast(err.message || 'Preview failed', 'error');
+        } finally {
+          setScoreImporting(false);
+          e.target.value = '';
+        }
+      },
+    });
+  };
+
+  // Only `ok` rows are sent. The server re-resolves each one anyway (drift
+  // guard), so anything that went ambiguous since the preview is reported
+  // per-row rather than failing the batch.
+  const commitScorePreview = async () => {
+    if (!scorePreview) return;
+    const ready = scorePreview.rows.filter(r => r.bucket === 'ok').map(r => r.input);
+    if (ready.length === 0) {
+      toast('No importable rows in this preview', 'error');
+      return;
+    }
+    setScoreCommitting(true);
+    try {
+      const result = await api.post<{
+        ok: boolean;
+        counts: { imported: number; skipped: number; errors: number };
+        errors?: Array<{ index: number; error: string }>;
+      }>(`${prefix}/scores/import-csv-commit`, { rows: ready });
+      const { counts } = result;
+      const parts = [`${counts.imported} imported`];
+      if (counts.skipped) parts.push(`${counts.skipped} skipped`);
+      if (counts.errors) parts.push(`${counts.errors} failed`);
+      toast(parts.join(' · '), counts.errors ? 'error' : 'success');
+      setScorePreview(null);
+    } catch (err: any) {
+      toast(err.message || 'Commit failed', 'error');
+    } finally {
+      setScoreCommitting(false);
+    }
+  };
+
+  const downloadScoreTemplate = () => {
+    const headers = ['game_name','player_name','score','date','engine','device','photo_url'];
+    const csv = headers.join(',')
+      + '\n"Medieval Madness","Alice","12345678","2026-01-15","vpx","pc",""';
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'arcaid_scores_template.csv';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -925,6 +1059,23 @@ export default function GameLibrary() {
     }
   };
 
+  // S23.5 — bulk-untag counterpart. Same single-call shape; the server deletes
+  // only the (room, game, tag) rows that exist, so a tag not present is a no-op.
+  const handleBulkUntag = async (tag: string) => {
+    if (!room || selectedIds.size === 0 || !tag.trim()) return;
+    try {
+      const res = await api.post<{ removed: number }>(`${prefix}/games/bulk-untag`, {
+        globalGameIds: [...selectedIds], tag: tag.trim(),
+      });
+      toast(`Removed tag from ${res.removed} game${res.removed !== 1 ? 's' : ''}`, 'success');
+      setBulkUntagOpen(false);
+      clearSelection();
+      fetchGames();
+    } catch (err: any) {
+      toast(err.message || 'Failed to remove tag', 'error');
+    }
+  };
+
   // Per-row tag add/remove. Reuses single-game endpoints; updates state from
   // the server response so the chip list mirrors persistence.
   const handleAddTagToGame = async (g: GameRow, tag: string) => {
@@ -1022,10 +1173,94 @@ export default function GameLibrary() {
               {importing ? 'Importing...' : 'Import CSV'}
             </span>
           </label>
+          {/* S23.4 — bulk historical score import, deliberately next to the
+              library CSV import since it's the same parse-preview-commit ritual. */}
+          {room && (
+            <label htmlFor="score-csv-upload" className="cursor-pointer">
+              <input type="file" accept=".csv" onChange={handleScoreFileUpload} className="hidden" id="score-csv-upload" disabled={scoreImporting} />
+              <span className={`
+                inline-flex items-center justify-center gap-2 px-4 py-2 rounded border text-sm font-medium
+                transition-all duration-200 cursor-pointer
+                bg-raised text-muted border-border hover:text-primary hover:border-border-glow
+                ${scoreImporting ? 'opacity-40 cursor-not-allowed' : ''}
+              `}>
+                {scoreImporting ? 'Importing...' : 'Import Scores'}
+              </span>
+            </label>
+          )}
           <div className="flex-1" />
           <NeonButton variant="ghost" onClick={downloadTemplate}>CSV Template</NeonButton>
+          {room && (
+            <NeonButton variant="ghost" onClick={downloadScoreTemplate}>Scores Template</NeonButton>
+          )}
         </div>
       </div>
+
+      {/* S23.4 — score-import preview. Nothing is written until Import is
+          clicked; `needs_review` and `error` rows are excluded from the commit. */}
+      {scorePreview && (
+        <NeonCard glowColor="cyan" className="mb-4 border-l-2 border-l-neon-cyan" title={`Score Import Preview · ${scorePreview.summary.total} rows`}>
+          <div className="grid grid-cols-3 gap-3 mb-4 text-center text-xs">
+            <div>
+              <div className="text-neon-green font-display text-lg">{scorePreview.summary.ok}</div>
+              <div className="text-faint">ready to import</div>
+            </div>
+            <div>
+              <div className="text-neon-amber font-display text-lg">{scorePreview.summary.needs_review}</div>
+              <div className="text-faint">ambiguous game name</div>
+            </div>
+            <div>
+              <div className="text-red-400 font-display text-lg">{scorePreview.summary.error}</div>
+              <div className="text-faint">not importable</div>
+            </div>
+          </div>
+
+          {(scorePreview.summary.needs_review > 0 || scorePreview.summary.error > 0) && (
+            <div className="mb-4 max-h-64 overflow-y-auto border border-border rounded">
+              <table className="w-full text-xs">
+                <thead className="bg-raised sticky top-0">
+                  <tr className="text-faint text-left">
+                    <th className="px-2 py-1.5 font-medium">Row</th>
+                    <th className="px-2 py-1.5 font-medium">Game</th>
+                    <th className="px-2 py-1.5 font-medium">Player</th>
+                    <th className="px-2 py-1.5 font-medium">Problem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scorePreview.rows.filter(r => r.bucket !== 'ok').map(r => (
+                    <tr key={r.index} className="border-t border-border">
+                      <td className="px-2 py-1.5 text-faint">{r.index + 1}</td>
+                      <td className="px-2 py-1.5 text-primary">{r.input.game_name}</td>
+                      <td className="px-2 py-1.5 text-muted">{r.input.player_name}</td>
+                      <td className={`px-2 py-1.5 ${r.bucket === 'error' ? 'text-red-400' : 'text-neon-amber'}`}>
+                        {r.error || (r.bucket === 'needs_review' ? 'Ambiguous game name' : 'Not importable')}
+                        {r.candidates && r.candidates.length > 0 && (
+                          <span className="text-faint">
+                            {' — '}{r.candidates.map(c => `${c.name}${c.manufacturer ? ` (${c.manufacturer}${c.year ? ` ${c.year}` : ''})` : ''}`).join(' · ')}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="text-faint text-xs mb-3">
+            Imported scores are recorded as historical room scores. They appear on this room's
+            scores and game pages, are <span className="text-muted">not</span> attached to any
+            running tournament, and are not posted to the global Arcaid scoreboard.
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <NeonButton variant="ghost" onClick={() => setScorePreview(null)} disabled={scoreCommitting}>Cancel</NeonButton>
+            <NeonButton onClick={commitScorePreview} disabled={scoreCommitting || scorePreview.summary.ok === 0}>
+              {scoreCommitting ? 'Importing…' : `Import ${scorePreview.summary.ok} score${scorePreview.summary.ok !== 1 ? 's' : ''}`}
+            </NeonButton>
+          </div>
+        </NeonCard>
+      )}
 
       {showAddForm && (
         <NeonCard glowColor="cyan" className="mb-6 border-l-2 border-l-neon-cyan" title="Add New Game">
@@ -1477,6 +1712,7 @@ export default function GameLibrary() {
           </span>
           <span className="text-faint">·</span>
           <NeonButton variant="ghost" onClick={() => setBulkTagOpen(true)} className="text-xs px-2 py-1">Tag…</NeonButton>
+          <NeonButton variant="ghost" onClick={() => setBulkUntagOpen(true)} className="text-xs px-2 py-1">Untag…</NeonButton>
           <NeonButton variant="ghost" onClick={() => setBulkActivateOpen(true)} className="text-xs px-2 py-1">Activate…</NeonButton>
           <NeonButton variant="ghost" onClick={() => setBulkPinOpen(true)} className="text-xs px-2 py-1">Pin</NeonButton>
           <button onClick={clearSelection} className="text-xs text-faint hover:text-primary underline ml-2">Clear</button>
@@ -1512,6 +1748,17 @@ export default function GameLibrary() {
           existingTags={[...new Set(games.flatMap(g => g.room_tags ?? []))].sort()}
           onApply={handleBulkTag}
           onClose={() => setBulkTagOpen(false)}
+        />
+      )}
+
+      {/* S23.5 — bulk-untag prompt; same dialog in 'untag' mode. */}
+      {bulkUntagOpen && (
+        <BulkTagDialog
+          count={selectedIds.size}
+          mode="untag"
+          existingTags={[...new Set(games.flatMap(g => g.room_tags ?? []))].sort()}
+          onApply={handleBulkUntag}
+          onClose={() => setBulkUntagOpen(false)}
         />
       )}
 

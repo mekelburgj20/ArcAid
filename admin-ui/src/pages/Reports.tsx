@@ -73,6 +73,11 @@ interface ScoreReportRow {
   /** v2.49.0 — resolved via user_profiles. */
   reporter_display_name: string | null;
   reporter_username: string | null;
+  /** S23.6 — which table `score_id` points at. 'global' for every pre-S23 row. */
+  score_source: 'global' | 'room_history';
+  /** S23.6 — the reporting room for 'room_history' rows; null for global. */
+  game_room_id: string | null;
+  room_name: string | null;
 }
 
 /** v2.47.0 (S22 follow-ups Workstream 2) — mirrors CommentReportEnriched. */
@@ -170,6 +175,12 @@ function nameOrId(displayName: string | null | undefined, username: string | nul
 /** v2.49.0 — Bans tab scope column: "Global" or the owning room's name. */
 function banScopeLabel(b: BanRow): string {
   return b.game_room_id ? (b.room_name || 'Unknown room') : 'Global';
+}
+
+/** S23.6 — Scores tab scope column, mirroring `banScopeLabel`: a report is
+ *  either against a Global Scoreboard score or against one room's score. */
+function scoreScopeLabel(r: ScoreReportRow): string {
+  return r.score_source === 'room_history' ? (r.room_name || 'Unknown room') : 'Global';
 }
 
 const TABS: Array<{ key: ReportTab; label: string }> = [
@@ -831,9 +842,20 @@ export default function Reports() {
                 <div key={r.id} className="bg-raised border border-border rounded px-4 py-3">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-primary">
-                        {r.game_name || 'Unknown game'} — {r.iscored_username || r.player_id || 'Unknown player'}
-                        {typeof r.score === 'number' && <span className="text-faint"> · {r.score.toLocaleString()}</span>}
+                      <p className="text-sm font-medium text-primary flex items-center gap-2 flex-wrap">
+                        <span>
+                          {r.game_name || 'Unknown game'} — {r.iscored_username || r.player_id || 'Unknown player'}
+                          {typeof r.score === 'number' && <span className="text-faint"> · {r.score.toLocaleString()}</span>}
+                        </span>
+                        {/* S23.6 scope chip — a score report is now either
+                            against the Global Scoreboard or against one room. */}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-normal ${
+                          r.score_source === 'room_history'
+                            ? 'bg-neon-purple/10 text-neon-purple'
+                            : 'bg-neon-cyan/10 text-neon-cyan'
+                        }`}>
+                          {scoreScopeLabel(r)}
+                        </span>
                       </p>
                       <p className="text-xs text-faint mt-0.5">
                         Reported by <span title={r.reporter_discord_id}>{nameOrId(r.reporter_display_name, r.reporter_username, r.reporter_discord_id)}</span> · {timeAgo(r.created_at)}
@@ -856,23 +878,42 @@ export default function Reports() {
                         >
                           Dismiss
                         </NeonButton>
-                        <NeonButton
-                          variant="secondary"
-                          className="text-xs px-3 py-1.5"
-                          onClick={() => handleScoreAction(r.id, 'soft-delete')}
-                          disabled={actingOn === r.id}
-                        >
-                          Soft Delete
-                        </NeonButton>
-                        <NeonButton
-                          variant="danger"
-                          className="text-xs px-3 py-1.5"
-                          onClick={() => setConfirmTarget({ kind: 'hard-delete', report: r })}
-                          disabled={actingOn === r.id}
-                        >
-                          <Trash2 size={13} className="inline -mt-0.5 mr-1" />
-                          Hard Delete
-                        </NeonButton>
+                        {/* S23.6 — `global_scores` supports a soft-delete
+                            tombstone, `score_history` does not: a room score is
+                            removed outright (with the sync-suppression tombstone
+                            so it can't come back). Offering "Soft Delete" there
+                            would be a lie, so room rows get one Delete button. */}
+                        {r.score_source === 'room_history' ? (
+                          <NeonButton
+                            variant="danger"
+                            className="text-xs px-3 py-1.5"
+                            onClick={() => setConfirmTarget({ kind: 'hard-delete', report: r })}
+                            disabled={actingOn === r.id}
+                          >
+                            <Trash2 size={13} className="inline -mt-0.5 mr-1" />
+                            Delete Score
+                          </NeonButton>
+                        ) : (
+                          <>
+                            <NeonButton
+                              variant="secondary"
+                              className="text-xs px-3 py-1.5"
+                              onClick={() => handleScoreAction(r.id, 'soft-delete')}
+                              disabled={actingOn === r.id}
+                            >
+                              Soft Delete
+                            </NeonButton>
+                            <NeonButton
+                              variant="danger"
+                              className="text-xs px-3 py-1.5"
+                              onClick={() => setConfirmTarget({ kind: 'hard-delete', report: r })}
+                              disabled={actingOn === r.id}
+                            >
+                              <Trash2 size={13} className="inline -mt-0.5 mr-1" />
+                              Hard Delete
+                            </NeonButton>
+                          </>
+                        )}
                         <NeonButton
                           variant="danger"
                           className="text-xs px-3 py-1.5"
