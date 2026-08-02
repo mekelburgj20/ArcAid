@@ -22,7 +22,13 @@ import { v4 as uuidv4 } from 'uuid';
 
 export interface ResolvedSubmitGame {
     id: string;
-    iscored_id: string;
+    /**
+     * S23.1 (v2.73.0): nullable. A game that was never pushed to iScored — the
+     * normal state for a standalone room, which seeds `ISCORED_ENABLED='false'`
+     * (`GameRoomService`) — still resolves. iScored sync is a conditional
+     * downstream step now, not a precondition for submitting.
+     */
+    iscored_id: string | null;
     tournament_id: string;
     game_room_id: string | null;
 }
@@ -50,7 +56,10 @@ export async function resolveActiveSubmitGame(gameName: string): Promise<Resolve
         JOIN tournaments t ON g.tournament_id = t.id
         WHERE g.name = ? COLLATE NOCASE AND g.status = 'ACTIVE'
     `, gameName);
-    if (!game || !game.iscored_id) return { ok: false, reason: 'not_found' };
+    // S23.1: `iscored_id` is NOT required. Pre-v2.73.0 a null `iscored_id`
+    // resolved as not_found, which locked every standalone room out of
+    // /submit-score entirely.
+    if (!game) return { ok: false, reason: 'not_found' };
     if (game.game_room_id) {
         const { RoomAccessService } = await import('../../services/RoomAccessService.js');
         if (await RoomAccessService.isSuspended(game.game_room_id)) {
@@ -217,7 +226,9 @@ export const submitscore: Command = {
                 if (resolved.reason === 'suspended') {
                     await interaction.editReply('This room has been suspended pending review. Score submission is disabled.');
                 } else {
-                    await interaction.editReply(`Could not find an active ${term.game} named '${gameName}' linked to iScored.`);
+                    // S23.1: the "linked to iScored" phrasing is gone — iScored
+                    // linkage is no longer a precondition for submitting.
+                    await interaction.editReply(`Could not find an active ${term.game} named '${gameName}'.`);
                 }
                 return;
             }
@@ -310,19 +321,6 @@ export const submitscore: Command = {
             await fs.writeFile(tempPhotoPath, buffer);
 
             try {
-                // Submit to iScored — route through registry so this can't
-                // race with parallel maintenance fires on the same account.
-                const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
-                const creds = await getIScoredCredsForRoom(game.game_room_id);
-                if (!creds) {
-                    await interaction.editReply('No iScored credentials configured. Cannot submit.');
-                    return;
-                }
-                const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
-                await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
-                    await client.submitScore(game.iscored_id, username!, score, tempPhotoPath);
-                });
-
                 // Record internally (use sync-compatible ID so sync won't create a duplicate)
                 const submittedByUserId = normalizeSubmitterUserId(interaction.user.id);
                 const submittedByAnonymousName = submittedByUserId ? null : username!;
@@ -363,6 +361,29 @@ export const submitscore: Command = {
 
                 // Invalidate leaderboard cache
                 await LeaderboardService.invalidate(game.id);
+
+                // S23.2 — resulting rank for the success reply. `getForGame`
+                // recomputes off the freshly-invalidated cache and returns the
+                // SAME ranking the board renders (score_history filtered by
+                // submitted_during_tournament_id, identity-collapsed), so the
+                // number quoted here can't disagree with the leaderboard. The
+                // recalculate isn't extra work — the invalidate above already
+                // forced one on the next read; this just warms it.
+                let rankLine = '';
+                try {
+                    const rankings = await LeaderboardService.getForGame(game.id);
+                    const mine = rankings.find(r =>
+                        (!!submittedByUserId && r.discord_user_id === submittedByUserId)
+                        || r.iscored_username.toLowerCase() === username!.toLowerCase(),
+                    );
+                    if (mine) {
+                        rankLine = mine.rank === 1
+                            ? `\n> You're **#1** on **${gameName}**!`
+                            : `\n> You're **#${mine.rank}** of ${rankings.length} on **${gameName}**.`;
+                    }
+                } catch (err) {
+                    logError('Rank lookup for /submit-score reply failed (non-fatal):', err);
+                }
 
                 // Ranking group caches self-invalidate via data watermark on
                 // next read — no explicit invalidation call needed (v2.10.x).
@@ -416,6 +437,32 @@ export const submitscore: Command = {
                     logError('Global fan-out from /submit-score failed (non-fatal):', err);
                 }
 
+                // S23.1 — iScored sync is now a CONDITIONAL, non-fatal step that
+                // runs AFTER the local write, mirroring the web paths'
+                // `IScoredSubmitSync.syncScoreToIScored`: no creds (room has
+                // iScored disabled/unconfigured) → silent skip with an info log;
+                // any throw → logged, never surfaced as a submit failure. The
+                // local row is already committed by this point, so a sync
+                // outage can no longer cost the player their score.
+                // (The success reply deliberately says nothing about iScored, so
+                // it stays honest whether the sync ran, was skipped, or failed.)
+                try {
+                    const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
+                    const creds = game.iscored_id ? await getIScoredCredsForRoom(game.game_room_id) : null;
+                    if (!creds) {
+                        logInfo(`iScored sync skipped for "${gameName}" (${game.iscored_id ? 'no creds for room' : 'game not linked to iScored'})`);
+                    } else {
+                        // Route through the registry so this can't race with
+                        // parallel maintenance fires on the same account.
+                        const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+                        await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                            await client.submitScore(game.iscored_id!, username!, score, tempPhotoPath);
+                        });
+                    }
+                } catch (err) {
+                    logError(`iScored sync failed for "${gameName}" by ${username} (non-fatal):`, err);
+                }
+
                 // Build web UI tip with room slug
                 let webTip = '';
                 try {
@@ -429,7 +476,7 @@ export const submitscore: Command = {
                     }
                 } catch { /* non-critical */ }
 
-                await interaction.editReply(`Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!${webTip}`);
+                await interaction.editReply(`Successfully submitted your score of **${score.toLocaleString()}** to **${gameName}**!${rankLine}${webTip}`);
 
                 // Send rating follow-up (fire-and-forget, don't block the score confirmation)
                 sendRatingFollowUp(interaction, gameName, username!, game.game_room_id).catch(err => {
