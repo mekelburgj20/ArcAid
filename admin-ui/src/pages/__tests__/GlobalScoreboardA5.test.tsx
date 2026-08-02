@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { ViewerAuthContext } from '../../contexts/ViewerAuthContext';
 import { ThemeProvider } from '../../components/ThemeProvider';
 import GlobalScoreboard from '../GlobalScoreboard';
@@ -233,8 +235,50 @@ describe('GlobalScoreboard — hero card', () => {
         // the category, so the card stopped NAMING the board, not scoping it.
         expect(within(heroCard).getByText('Attack from Mars').closest('a'))
             .toHaveAttribute('href', '/games/hero-1?category=simulation');
-        // And the marquee is present, as four chase-light strips.
-        expect(within(heroCard).getByTestId('hero-marquee')).toBeInTheDocument();
+        // And the marquee is present. v2.72.0 swapped its four chase-light
+        // strips for one travelling sweep: a masked ring over the frame plus
+        // the rotating conic layer inside it. Gold-in-motion IS the identity
+        // this test protects, so the mechanism is asserted, not just the node.
+        const attract = within(heroCard).getByTestId('hero-attract');
+        expect(attract).toBeInTheDocument();
+        expect(attract.querySelector('.gg-hero__sweep')).not.toBeNull();
+    });
+
+    /**
+     * v2.72.0 — the attract sweep's reduced-motion contract, asserted against
+     * `index.css` itself.
+     *
+     * jsdom loads no stylesheet and evaluates no media query, so there is no
+     * computed style to interrogate; the source is the only place the guard can
+     * be checked, and it is worth checking because the failure mode is silent —
+     * a rename of `.gg-hero__sweep` leaves a rule pointing at nothing and the
+     * frame keeps spinning for users who asked it not to.
+     *
+     * Two halves, and the second is the one that actually encodes the doctrine:
+     * the rotation stops AND the ring stays lit. `animation: none` alone would
+     * park the segment on whatever edge the keyframe rested on; the flat
+     * `background` override is what turns it into an even glow instead.
+     */
+    it('stops the attract sweep under prefers-reduced-motion but keeps the frame lit', () => {
+        // Resolved from the vitest root (admin-ui/) — `import.meta.url` is a
+        // transformed http:// URL under jsdom, not a file:// one. index.css is
+        // CRLF-tracked on Windows; the block below is matched with bare \n.
+        const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+            .replace(/\r\n/g, '\n');
+
+        const start = css.indexOf('@media (prefers-reduced-motion: reduce) {');
+        expect(start).toBeGreaterThan(-1);
+        const block = css.slice(start, css.indexOf('\n}\n', start));
+
+        const rule = block.slice(block.indexOf('.gg-hero__sweep {'));
+        expect(rule).toContain('.gg-hero__sweep {');
+        expect(rule).toContain('animation: none;');
+        // Still gold, still the champion's frame — just not travelling.
+        expect(rule).toContain('var(--sb-hero-sweep)');
+
+        // And the strips this replaced are gone from the sheet entirely, so a
+        // half-finished revert cannot leave both mechanisms running at once.
+        expect(css).not.toContain('gg-hero__lamps');
     });
 
     /**
