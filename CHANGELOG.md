@@ -6,6 +6,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.75.0] — unreleased
+
+**Searchable Personal Bests** (closes ROADMAP "Personal-best lookup in game rooms", user request
+2026-07-31). The Global Scoreboard's *My Score* density mode had no room-scoped equivalent — a
+player with scores across many games couldn't quickly answer "what's my best on X?".
+
+- **The Personal Bests table on the player detail page (`/:slug/players/:name`) is now searchable
+  and complete.** A search input (shown when the list exceeds 5 rows) filters by case-insensitive
+  substring on game name, as-you-type. The unfiltered view caps at 20 rows with a
+  "Show all N" / "Show fewer" toggle; while a query is active every match renders uncapped with an
+  "N of M games" count line (a hidden match is exactly the failure the search exists to prevent),
+  and a no-match query shows an empty-state row instead of hiding the section. API order
+  (`room_rank ASC`) is never re-sorted; filtering is client-side by design — no new endpoint or
+  query param. The block is extracted to an exported `PersonalBestsSection` (same file) with
+  identical render output for the pre-existing short-list case.
+- **BE: `StatsService.getPersonalBests` `LIMIT 50` → `1000`.** The old top-50-by-rank truncation
+  would have defeated the search — it hides a player's best on games they rank poorly at, which is
+  exactly what the lookup is for. 1000 is a backstop against pathological data, not a paging
+  boundary; the query (and its v2.74.0 `score_history` doctrine) is otherwise untouched.
+
+Files: `src/services/StatsService.ts` (limit + rationale comment),
+`admin-ui/src/pages/PlayerDetail.tsx` (`PersonalBestsSection` extraction + search/collapse UI),
+`admin-ui/src/pages/__tests__/PlayerDetailPersonalBests.test.tsx` (new).
+
+No migrations. Tests: admin-ui 404 → **414** (+10: render parity, filter, case-insensitivity,
+toggle, uncapped-while-filtering, empty state); backend stats suites green
+(`s13-achievements`, `gamedetail-history-stats`, `s14-social-loops`), full suite on CI.
+
+Known followup (in ROADMAP): room-scoped Personal Bests exclude **pinned** games (the room-scope
+join goes through `tournaments`, so `tournament_id IS NULL` rows never appear) — pre-existing
+behavior, now explicitly tracked.
+
 ## [2.74.0] — unreleased
 
 **S24: backend efficiency round 2** (refreshed contract). No migrations. Structural query-count

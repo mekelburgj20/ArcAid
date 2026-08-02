@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare, Flag } from 'lucide-react';
+import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare, Flag, Search } from 'lucide-react';
 import ShareButton from '../components/ShareButton';
 import ReportContentModal from '../components/ReportContentModal';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
@@ -367,42 +367,122 @@ export default function PlayerDetail() {
         )}
 
         {/* Personal Bests */}
-        {stats.personalBests && stats.personalBests.length > 0 && (
-          <div className="mt-8">
-            <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Personal Bests</h2>
-            <div className="bg-surface border border-border rounded-lg overflow-hidden">
-              <div className="grid grid-cols-4 gap-2 px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-                <span>Game</span>
-                <span className="text-right">Best</span>
-                <span className="text-right">Room Rank</span>
-                <span className="text-right">Date</span>
-              </div>
-              {stats.personalBests.map((pb, i) => (
-                <div
-                  key={i}
-                  className="grid grid-cols-4 gap-2 items-center px-5 py-3 border-b border-border/30 last:border-0"
-                >
-                  <Link
-                    to={`/${slug}/games/${encodeURIComponent(pb.game_name)}`}
-                    className="text-primary hover:text-neon-cyan no-underline transition-colors font-medium truncate"
-                  >
-                    {pb.game_name}
-                  </Link>
-                  <span className="text-right font-display font-bold text-neon-amber">
-                    {pb.best_score.toLocaleString()}
-                  </span>
-                  <span className="text-right text-muted text-sm">
-                    #{pb.room_rank} of {pb.total_players}
-                  </span>
-                  <span className="text-right text-faint text-xs">
-                    {new Date(pb.achieved_at).toLocaleDateString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <PersonalBestsSection personalBests={stats.personalBests} slug={slug} />
       </main>
+    </div>
+  );
+}
+
+/** Rows shown by default before the "Show all N" toggle is used. */
+const PERSONAL_BESTS_DEFAULT_VISIBLE = 20;
+/** Below this many rows a search box is more clutter than help. */
+const PERSONAL_BESTS_SEARCH_THRESHOLD = 5;
+
+/**
+ * Searchable Personal Bests (ROADMAP line 11). The list arrives already
+ * ordered by `room_rank ASC` from `StatsService.getPersonalBests` — never
+ * re-sort it here. Filtering is deliberately client-side (the endpoint takes
+ * no search param); the BE limit was raised to 1000 so the list the FE filters
+ * over is effectively complete.
+ *
+ * Collapse/expand applies to the UNFILTERED view only — while a query is
+ * active every match is shown, because a hidden match is exactly the failure
+ * mode the search exists to prevent.
+ */
+export function PersonalBestsSection({
+  personalBests,
+  slug,
+}: {
+  personalBests?: PersonalBest[];
+  slug?: string;
+}) {
+  const [query, setQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
+
+  const all = personalBests ?? [];
+  const trimmed = query.trim();
+  const filtering = trimmed.length > 0;
+
+  const matches = useMemo(() => {
+    if (!filtering) return all;
+    const needle = trimmed.toLowerCase();
+    return all.filter(pb => pb.game_name.toLowerCase().includes(needle));
+  }, [all, filtering, trimmed]);
+
+  if (all.length === 0) return null;
+
+  const collapsed = !filtering && !showAll && matches.length > PERSONAL_BESTS_DEFAULT_VISIBLE;
+  const visible = collapsed ? matches.slice(0, PERSONAL_BESTS_DEFAULT_VISIBLE) : matches;
+  const showSearch = all.length > PERSONAL_BESTS_SEARCH_THRESHOLD;
+
+  return (
+    <div className="mt-8">
+      <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Personal Bests</h2>
+
+      {showSearch && (
+        <div className="relative mb-3 max-w-sm">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search your games…"
+            aria-label="Search your personal bests"
+            className="w-full bg-surface border border-border rounded pl-8 pr-3 py-2 text-sm text-primary placeholder-faint focus:border-neon-cyan focus:outline-none"
+          />
+        </div>
+      )}
+
+      {filtering && (
+        <p className="text-faint text-xs mb-2">
+          {matches.length} of {all.length} games
+        </p>
+      )}
+
+      <div className="bg-surface border border-border rounded-lg overflow-hidden">
+        <div className="grid grid-cols-4 gap-2 px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+          <span>Game</span>
+          <span className="text-right">Best</span>
+          <span className="text-right">Room Rank</span>
+          <span className="text-right">Date</span>
+        </div>
+        {visible.length === 0 ? (
+          <div className="px-5 py-4 text-muted text-sm">No games match &ldquo;{trimmed}&rdquo;</div>
+        ) : (
+          visible.map((pb, i) => (
+            <div
+              key={i}
+              className="grid grid-cols-4 gap-2 items-center px-5 py-3 border-b border-border/30 last:border-0"
+            >
+              <Link
+                to={`/${slug}/games/${encodeURIComponent(pb.game_name)}`}
+                className="text-primary hover:text-neon-cyan no-underline transition-colors font-medium truncate"
+              >
+                {pb.game_name}
+              </Link>
+              <span className="text-right font-display font-bold text-neon-amber">
+                {pb.best_score.toLocaleString()}
+              </span>
+              <span className="text-right text-muted text-sm">
+                #{pb.room_rank} of {pb.total_players}
+              </span>
+              <span className="text-right text-faint text-xs">
+                {new Date(pb.achieved_at).toLocaleDateString()}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+
+      {!filtering && matches.length > PERSONAL_BESTS_DEFAULT_VISIBLE && (
+        <button
+          type="button"
+          onClick={() => setShowAll(v => !v)}
+          className="mt-2 text-xs text-muted hover:text-neon-cyan transition-colors bg-transparent border-0 cursor-pointer p-0"
+        >
+          {showAll ? 'Show fewer' : `Show all ${matches.length}`}
+        </button>
+      )}
     </div>
   );
 }
