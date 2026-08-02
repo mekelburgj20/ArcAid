@@ -5,6 +5,7 @@ import { logError, logInfo } from '../utils/logger.js';
 import { PickAwardGate } from './PickAwardGate.js';
 import { SettingsService } from './SettingsService.js';
 import { WebPushService, type WebPushPayload } from './WebPushService.js';
+import { DiscordReachabilityService } from './DiscordReachabilityService.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
 
 /** Notification preference keys — all default to false (opt-in only). */
@@ -49,7 +50,7 @@ function classOf(type: NotificationType): NotifClass {
  * separate set from HIGH_VALUE_TYPES — today the members coincide, but the
  * flag-default semantics and the push channel are independent concepts.
  */
-const WEB_PUSH_TYPES: ReadonlySet<NotificationType> = new Set<NotificationType>([
+export const WEB_PUSH_TYPES: ReadonlySet<NotificationType> = new Set<NotificationType>([
     'rankDethroned',
     'tournamentWin',
     // D4 (standalone rooms, v2.32.0) — turn-to-pick is time-sensitive (a
@@ -214,6 +215,42 @@ export class NotificationService {
             }
             if (!optedIn) return false;
 
+            // 1b. Known-unreachable short-circuit (Discord HQ arc, v2.72.0,
+            // contract Section 5). An opted-in user who shares no guild with
+            // the bot is ALREADY a failed send — Discord would reject it with
+            // 50007 — so raise the nudge here without burning a REST
+            // round-trip, and let the web-push channel below carry the event.
+            //
+            // Placed before the web-push branch on purpose: that branch reads
+            // `discordDeliveryAllowed` to decide whether a push alone counts as
+            // `delivered`, so flipping the flag afterwards would under-report
+            // successful pushes to unreachable users.
+            //
+            // Three conditions guard this, and all three matter:
+            //   • `isConfigured()` — with GLOBAL_DISCORD_GUILD_ID unset the arc
+            //     is inert and this branch never runs, so an unconfigured
+            //     server behaves exactly as it did before v2.72.0.
+            //   • `gatewayReady` — reachability comes from the gateway's guild
+            //     cache, but DMs ride REST. A gateway outage makes every
+            //     verdict false while sends keep working perfectly; suppressing
+            //     on that would turn a cosmetic outage into silent
+            //     notification loss. "We couldn't tell" always means "send".
+            //   • the verdict itself.
+            if (discordDeliveryAllowed && await DiscordReachabilityService.isConfigured()) {
+                const reach = await DiscordReachabilityService.canDm(userId);
+                if (reach.gatewayReady && !reach.reachable) {
+                    logInfo(`NotificationService: ${type} DM skipped for ${userId} — no shared guild (nudge raised).`);
+                    // Dynamic import: DmNudgeService imports THIS module for
+                    // `mergePrefs`, so a static import here would close a cycle.
+                    trackBackground(
+                        import('./DmNudgeService.js')
+                            .then(m => m.DmNudgeService.record(userId, 'unreachable', type))
+                            .catch(() => {}),
+                    );
+                    discordDeliveryAllowed = false;
+                }
+            }
+
             // 2. Check rate limit (per-class budget)
             if (!this.checkRateLimit(userId, type)) {
                 logInfo(`NotificationService: rate-limited DM to ${userId} (type: ${type}, class: ${classOf(type)})`);
@@ -263,7 +300,7 @@ export class NotificationService {
             // 4. Send DM — only attempted when the per-room Discord gate (0a)
             // allows it.
             if (discordDeliveryAllowed) {
-                const sent = await sendDirectMessage(userId, body);
+                const sent = await sendDirectMessage(userId, body, { type });
                 if (sent) {
                     logInfo(`NotificationService: sent ${type} DM to ${userId}`);
                     if (appendFooter) {

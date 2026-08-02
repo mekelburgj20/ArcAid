@@ -22,7 +22,10 @@ import { getVersionInfo } from '../../utils/version.js';
 import { AuditService } from '../../services/AuditService.js';
 import { AccountDeletionService, LastSuperAdminError } from '../../services/AccountDeletionService.js';
 import { WebPushService } from '../../services/WebPushService.js';
-import { NotificationService } from '../../services/NotificationService.js';
+import { NotificationService, PREF_TYPE_KEYS, WEB_PUSH_TYPES } from '../../services/NotificationService.js';
+import { DiscordReachabilityService } from '../../services/DiscordReachabilityService.js';
+import { DmNudgeService } from '../../services/DmNudgeService.js';
+import { isDiscordUserId } from '../../utils/identityProvider.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { CARD_CATEGORY_ORDER } from '../../utils/scoreProvenance.js';
 import type { AxisRules } from '../../utils/platformRules.js';
@@ -372,6 +375,118 @@ router.put('/me/notification-preferences', requireDiscordUser, async (req, res) 
         res.json(merged);
     } catch (error) {
         logError('API Error (PUT /api/me/notification-preferences):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Notification Settings (Discord HQ arc, v2.72.0, contract Section 2) ---
+//
+// One storage, two surfaces. The `/arcaid-notifications` Discord command and
+// this endpoint read and write the SAME `user_preferences.notification_prefs`
+// blob through the same `NotificationService.mergePrefs` writer, so a pref set
+// in Discord renders here and vice versa. That parity is the whole point: the
+// players this arc serves — the ones in Discord-less rooms — cannot reach the
+// slash command at all, and until now had no way to configure notifications.
+//
+// Beyond the prefs, the response carries the Discord DM deliverability verdict
+// so the page can be honest rather than hopeful: a checkbox promising DMs to
+// someone who shares no guild with the bot is a lie the old UI told by omission.
+
+/** Shape both GET and PUT return, so the FE has one parser. */
+async function buildNotificationSettings(userId: string) {
+    const db = await getDatabase();
+    const row = await db.get(
+        'SELECT notification_prefs FROM user_preferences WHERE discord_user_id = ?',
+        userId,
+    );
+    let prefs: Record<string, unknown> = {};
+    if (row?.notification_prefs) {
+        try { prefs = JSON.parse(row.notification_prefs); } catch { prefs = {}; }
+    }
+
+    const isDiscord = isDiscordUserId(userId);
+    const [reachability, globalGuildId, inviteUrl] = await Promise.all([
+        DiscordReachabilityService.canDm(userId),
+        DiscordReachabilityService.getGlobalGuildId(),
+        DiscordReachabilityService.getInviteUrl(),
+    ]);
+
+    return {
+        prefs,
+        /** The five per-type opt-in keys, so the FE never hardcodes the list. */
+        types: [...PREF_TYPE_KEYS],
+        /** Subset of `types` that the browser-push channel can also carry. */
+        webPushTypes: [...WEB_PUSH_TYPES],
+        discord: {
+            /** False for a `google:*` identity — no Discord account, no DMs. */
+            available: isDiscord,
+            reachable: reachability.reachable,
+            via: reachability.via,
+            viaRoomName: reachability.viaRoomName,
+            gatewayReady: reachability.gatewayReady,
+            /**
+             * Whether the one-click connect flow can be offered. Requires the
+             * HQ guild AND the OAuth app credentials — without either, the FE
+             * renders no button and makes no reachability promises.
+             */
+            connectAvailable: isDiscord
+                && !!globalGuildId
+                && !!process.env.DISCORD_CLIENT_ID
+                && !!process.env.DISCORD_CLIENT_SECRET,
+            /** Manual-join fallback; null when the owner hasn't set one. */
+            inviteUrl,
+        },
+        nudge: await DmNudgeService.get(userId),
+    };
+}
+
+router.get('/me/notification-settings', requireDiscordUser, async (req, res) => {
+    try {
+        res.json(await buildNotificationSettings(req.user!.discordId!));
+    } catch (error) {
+        logError('API Error (GET /api/me/notification-settings):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.put('/me/notification-settings', requireDiscordUser, async (req, res) => {
+    try {
+        if (!req.body || typeof req.body !== 'object') {
+            return res.status(400).json({ error: 'Body must be a JSON object' });
+        }
+        // Same allowlisted merge as the legacy PUT /me/notification-preferences:
+        // only the five typed booleans are honoured, so a caller-crafted body
+        // can never set `webPush`, `_hvFooterShown`, or forge/clear `_dmNudge`.
+        const updates = NotificationService.typedPrefUpdates(req.body.prefs ?? req.body);
+        await NotificationService.mergePrefs(req.user!.discordId!, updates);
+        res.json(await buildNotificationSettings(req.user!.discordId!));
+    } catch (error) {
+        logError('API Error (PUT /api/me/notification-settings):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- DM nudge (Discord HQ arc, v2.72.0, contract Section 4) ---
+//
+// Lightweight endpoint for the site-wide banner, kept separate from the
+// settings payload above so the layout can poll it without pulling prefs +
+// three settings reads + a guild fetch on every page.
+
+router.get('/me/dm-nudge', requireDiscordUser, async (req, res) => {
+    try {
+        res.json({ nudge: await DmNudgeService.get(req.user!.discordId!) });
+    } catch (error) {
+        logError('API Error (GET /api/me/dm-nudge):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.post('/me/dm-nudge/dismiss', requireDiscordUser, async (req, res) => {
+    try {
+        await DmNudgeService.clear(req.user!.discordId!);
+        res.json({ ok: true });
+    } catch (error) {
+        logError('API Error (POST /api/me/dm-nudge/dismiss):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

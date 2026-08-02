@@ -11,6 +11,8 @@ import { LinkNonceStore } from '../../services/LinkNonceStore.js';
 import { isGoogleUserId, isDiscordUserId } from '../../utils/identityProvider.js';
 import { sanitizeProviderUsername } from '../../utils/contentBlocklist.js';
 import { BanService } from '../../services/BanService.js';
+import { DiscordReachabilityService } from '../../services/DiscordReachabilityService.js';
+import { DmNudgeService } from '../../services/DmNudgeService.js';
 
 const router = Router();
 
@@ -690,6 +692,231 @@ router.post('/google/callback', async (req, res) => {
         return res.json({ token, refreshToken, user: { discordId: canonicalUserId, username: displayName, avatar: pictureUrl }, ...(linked && { linked: true }) });
     } catch (error) {
         logError('API Error (POST /api/auth/google/callback):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Discord "connect notifications" flow (Discord HQ arc, v2.72.0, Section 3)
+//
+// A SEPARATE OAuth flow from login, and it must stay separate. The login
+// authorize is `identify`-only — hard-learned, adding scopes there broke it
+// (see CLAUDE.md, "Discord OAuth state encoding"). This flow asks for
+// `identify guilds.join`, which lets the bot add a consenting user to the
+// Arcaid HQ guild server-side, giving them a shared guild with the bot and
+// therefore a working DM channel. Nothing about the login scopes changes.
+//
+// State encoding extends the existing conventions in this file: login uses
+// `__super__` / `player:<slug>` / bare slug, account linking uses
+// `link:<nonce>`; this uses `connect:<nonce>`. As with `link:`, the server
+// never trusts `state` itself — the FE decodes it client-side and posts the
+// nonce back explicitly, and the callback additionally requires the caller's
+// bearer token and asserts three identities agree (nonce initiator, token
+// subject, and the Discord account that just authorized).
+// ---------------------------------------------------------------------------
+
+/** Prefix for this flow's OAuth `state`, alongside `link:` above. */
+export const CONNECT_STATE_PREFIX = 'connect:';
+
+const CONNECT_SCOPES = 'identify guilds.join';
+
+/**
+ * Start the flow: mint a nonce and hand back the authorize URL.
+ *
+ * 400s (rather than half-working) when there is no HQ guild configured or no
+ * OAuth app — the FE hides the button in those cases, so reaching here means
+ * something is out of sync and a silent no-op would be worse than an error.
+ */
+router.get('/discord/connect-notifications', requireDiscordUser, async (req, res) => {
+    try {
+        const userId = req.user!.discordId;
+        // A `google:*` identity has no Discord account to add to a guild.
+        // Joining HQ would not give THEM a DM channel, because the notification
+        // path has no snowflake to DM in the first place.
+        if (!userId || !isDiscordUserId(userId)) {
+            return res.status(400).json({ error: 'Only a Discord-signed-in account can connect Discord notifications.' });
+        }
+
+        const clientId = process.env.DISCORD_CLIENT_ID;
+        if (!clientId || !process.env.DISCORD_CLIENT_SECRET) {
+            return res.status(400).json({ error: 'Discord OAuth is not configured on this server.' });
+        }
+
+        const guildId = await DiscordReachabilityService.getGlobalGuildId();
+        if (!guildId) {
+            return res.status(400).json({ error: 'The Arcaid community server is not configured on this server.' });
+        }
+
+        const redirectUri = typeof req.query.redirectUri === 'string' ? req.query.redirectUri : '';
+        if (!redirectUri) {
+            return res.status(400).json({ error: 'redirectUri required' });
+        }
+        // Open-redirect hygiene. Discord independently rejects any redirect_uri
+        // that isn't registered on the app, so this is defence in depth rather
+        // than the only guard — but it keeps a crafted link from bouncing a
+        // user through our own endpoint toward someone else's origin. Skipped
+        // when PUBLIC_URL is unset (dev/test), where there's no origin to
+        // compare against.
+        const publicUrl = process.env.PUBLIC_URL;
+        if (publicUrl) {
+            try {
+                if (new URL(redirectUri).origin !== new URL(publicUrl).origin) {
+                    return res.status(400).json({ error: 'redirectUri must be on this site.' });
+                }
+            } catch {
+                return res.status(400).json({ error: 'redirectUri is not a valid URL.' });
+            }
+        }
+
+        const nonce = LinkNonceStore.create(userId);
+        const authorizeUrl = 'https://discord.com/api/oauth2/authorize?' + new URLSearchParams({
+            client_id: clientId,
+            redirect_uri: redirectUri,
+            response_type: 'code',
+            scope: CONNECT_SCOPES,
+            state: `${CONNECT_STATE_PREFIX}${nonce}`,
+        }).toString();
+
+        res.json({ authorizeUrl, nonce });
+    } catch (error) {
+        logError('API Error (GET /api/auth/discord/connect-notifications):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * Complete the flow: exchange the code, verify identity three ways, then add
+ * the user to the HQ guild.
+ *
+ * `PUT /guilds/{guild}/members/{user}` is authorized with the BOT token and
+ * carries the user's OAuth access token in the body — that is what makes it a
+ * consented server-side join rather than an invite. Discord answers 201 when
+ * it adds the member and 204 when they were already in the guild; both are
+ * success here, which makes the endpoint safely idempotent (a double-click, a
+ * refreshed callback page, or a user who joined manually first all land well).
+ */
+router.post('/discord/connect-notifications/callback', requireDiscordUser, async (req, res) => {
+    try {
+        const { code, redirectUri, nonce } = req.body ?? {};
+        if (!code || !redirectUri || !nonce) {
+            return res.status(400).json({ error: 'code, redirectUri and nonce required' });
+        }
+
+        const userId = req.user!.discordId;
+        if (!userId || !isDiscordUserId(userId)) {
+            return res.status(400).json({ error: 'Only a Discord-signed-in account can connect Discord notifications.' });
+        }
+
+        // 1. Nonce — proves the browser completing this flow is the one that
+        // started it. Consumed (single-use) before anything else happens.
+        const initiator = LinkNonceStore.consume(String(nonce));
+        if (!initiator) {
+            return res.status(400).json({ error: 'This request expired. Please try connecting again.' });
+        }
+        // 2. Identity match #1 — the nonce's initiator vs. the bearer token.
+        if (initiator !== userId) {
+            logError('Connect-notifications identity mismatch: nonce initiator does not match caller', new Error(`nonce=${initiator} caller=${userId}`));
+            return res.status(403).json({ error: 'This request was started by a different account.' });
+        }
+
+        const clientId = process.env.DISCORD_CLIENT_ID;
+        const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+        const botToken = process.env.DISCORD_BOT_TOKEN;
+        if (!clientId || !clientSecret) {
+            return res.status(400).json({ error: 'Discord OAuth is not configured on this server.' });
+        }
+        if (!botToken) {
+            return res.status(400).json({ error: 'The Discord bot is not configured on this server.' });
+        }
+
+        const guildId = await DiscordReachabilityService.getGlobalGuildId();
+        if (!guildId) {
+            return res.status(400).json({ error: 'The Arcaid community server is not configured on this server.' });
+        }
+
+        // 3. Exchange the code.
+        const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                client_id: clientId,
+                client_secret: clientSecret,
+                grant_type: 'authorization_code',
+                code,
+                redirect_uri: redirectUri,
+            }),
+        });
+        if (!tokenRes.ok) {
+            const err = await tokenRes.text();
+            logError('Connect-notifications token exchange failed:', err);
+            return res.status(401).json({ error: 'Discord rejected the authorization. Please try again.' });
+        }
+        const tokenData = await tokenRes.json() as { access_token: string; scope?: string };
+
+        // 4. Consent check. A user can untick `guilds.join` on Discord's consent
+        // screen and still complete the flow; without that scope the PUT below
+        // would fail with an opaque 403, so say plainly what happened instead.
+        if (!(tokenData.scope ?? '').split(/\s+/).includes('guilds.join')) {
+            return res.status(400).json({
+                error: 'Arcaid needs permission to add you to the community server. Please try again and leave that permission enabled.',
+                code: 'CONSENT_DECLINED',
+            });
+        }
+
+        // 5. Identity match #2 — the Discord account that just authorized vs.
+        // the caller. Without this, a user could authorize as someone else's
+        // account and have THAT account joined under their session.
+        const userRes = await fetch('https://discord.com/api/users/@me', {
+            headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        });
+        if (!userRes.ok) {
+            return res.status(401).json({ error: 'Failed to fetch Discord user info' });
+        }
+        const discordUser = await userRes.json() as { id: string };
+        if (discordUser.id !== userId) {
+            return res.status(403).json({
+                error: 'That Discord account is not the one you are signed in with.',
+                code: 'IDENTITY_MISMATCH',
+            });
+        }
+
+        // 6. The join itself.
+        const joinRes = await fetch(
+            `https://discord.com/api/v10/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(userId)}`,
+            {
+                method: 'PUT',
+                headers: { Authorization: `Bot ${botToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ access_token: tokenData.access_token }),
+            },
+        );
+
+        if (joinRes.status !== 201 && joinRes.status !== 204) {
+            // Surface Discord's own words (guild full, user banned, bot lacks
+            // CREATE_INSTANT_INVITE) rather than a generic failure — the owner
+            // needs the real reason, and the invite-link fallback stays visible
+            // on the page either way.
+            const detail = await joinRes.text().catch(() => '');
+            logError(`Connect-notifications guild join failed (${joinRes.status}):`, detail);
+            let message = 'Discord could not add you to the community server.';
+            try {
+                const parsed = JSON.parse(detail) as { message?: string };
+                if (parsed?.message) message = `Discord said: ${parsed.message}`;
+            } catch { /* non-JSON body — keep the generic message */ }
+            return res.status(502).json({ error: message, code: 'JOIN_FAILED' });
+        }
+
+        // Flip the cached verdict immediately so the status line says ✅ on the
+        // very next read instead of waiting out the negative TTL.
+        DiscordReachabilityService.invalidate(userId);
+        // Joining fixes the most common cause of the "we couldn't DM you"
+        // banner, so retire it now rather than waiting for the next send.
+        await DmNudgeService.clear(userId).catch(() => {});
+
+        const alreadyMember = joinRes.status === 204;
+        logInfo(`Connect-notifications: ${userId} ${alreadyMember ? 'already in' : 'joined'} guild ${guildId}`);
+        res.json({ ok: true, alreadyMember });
+    } catch (error) {
+        logError('API Error (POST /api/auth/discord/connect-notifications/callback):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
