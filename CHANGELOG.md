@@ -6,6 +6,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.73.0] — unreleased
+
+**S23: standalone Discord submits, bulk score import, score integrity** (refreshed contract;
+folds in the three S22 residuals). Migrations **134–137** (all ALTER-ADD, no rebuilds).
+
+- **Discord `/submit-score` finally works in rooms without iScored.** Pre-fix, an
+  `ISCORED_ENABLED=false` room was locked out entirely — the command aborted on missing creds
+  *before any local write*, and standalone room creation seeds exactly that setting, so this was
+  every standalone room. The hard `iscored_id` gate in `resolveActiveSubmitGame` is gone; the
+  local write (submissions upsert + `score_history` + fan-out + feed) runs unconditionally, and
+  iScored sync is now a conditional, non-fatal step AFTER it — mirroring the web paths. A sync
+  outage can no longer cost a player their score. Success replies also gained **rank feedback**
+  ("You're #3 of 11") computed from the same `LeaderboardService.getForGame` ranking the board
+  renders. (The ambiguous-engine select-menu polish was time-boxed out; the re-run prompt stays.)
+- **Bulk score-import CSV** (room admin): `game_name, player_name, score, date?, engine, device,
+  photo_url?` — preview/commit two-step copying the game-CSV importer's in-browser-parse shape,
+  500-row cap, per-row provenance validation via `ScoreProvenanceService`. Rulings as contracted:
+  rows land `source='community'` with NO tournament linkage (a new `skipTournamentLink` opt-out
+  on `ScoreHistoryService.log` — the logger otherwise auto-attaches the currently-active
+  tournament, which would have polluted live boards with backfills), NO Global-Scoreboard
+  fan-out (asserted by test), no iScored sync, no feed events; explicit `AuditService.log` on
+  commit. The `submissions` upsert runs only when the game is live in the room (arbitrary
+  historical catalogue games have no `games` row) — `score_history` is always written.
+- **Room-scoped score reports** (was global-only). `score_reports` gains a `score_source`
+  discriminator + `game_room_id` (migrations 134/135; existing rows default `'global'`). New
+  `POST /:roomId/score-history/:historyId/report` (Discord-authed, ban-gated, duplicate-open
+  409). `ScoreReportService` branches per source — room rows join `score_history` with a
+  load-bearing `CAST(r.score_id AS INTEGER)` (TEXT vs INTEGER storage classes would otherwise
+  match nothing, silently). Room-report deletes route through the extracted
+  `ScoreHistoryService.deleteEvent` — the v2.9.0 per-row delete machinery (recompute +
+  `deleted_score_suppressions` tombstone) moved out of the route so it's reused, not forked;
+  the Reports UI shows one "Delete Score" for room rows (no fake soft/hard distinction —
+  `score_history` has no tombstone column). FE: flag affordance on room GameDetail rows via the
+  existing `ReportContentModal` pattern.
+- **Verified-score loop** (gates the future self-EDIT feature): `score_history.verified_by`/
+  `verified_at` (migrations 136/137 — deliberately NOT the dead legacy `scores.verified`).
+  Verify/unverify admin routes (audit-logged), checkmark in the GameDetail history expand.
+  Leaderboard-row checkmark deferred to post-S24.1 (it would bake mutable state into
+  `leaderboard_cache` JSON — the exact staleness class S24.1 removes).
+- **Bulk "Untag…"** wired into the game-library bulk bar — the `bulk-untag` endpoint existed
+  with zero FE callers since ADR 0008.
+
+Tests: backend 1371 → 1400 (new `s23-score-integrity.test.ts`, 29 cases), admin-ui 404
+(unchanged, green).
+
 ## [2.72.0] — unreleased
 
 **Discord HQ: global community server + web notification settings** (owner-approved contract,
