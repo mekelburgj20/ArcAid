@@ -64,6 +64,8 @@ interface RankingEntry {
   /** Sprint 13 — admin-set short label; falls back to slug-derived when null. */
   origin_room_short_tag: string | null;
   avatar_hash: string | null;
+  /** v2.74.0 (S24.1): full avatar URL (Google-linked users). */
+  avatar_url?: string | null;
   score_id: string;
   /**
    * v2.5.1 — per-row platform stamp; null for legacy multi-platform rows.
@@ -720,6 +722,7 @@ export default function GlobalGameDetail() {
                             username={entry.display_name || entry.iscored_username}
                             discordUserId={entry.discord_user_id}
                             avatarHash={entry.avatar_hash}
+                            avatarUrl={entry.avatar_url}
                             size={24}
                           />
                           <span className="truncate">{entry.display_name || entry.iscored_username}</span>

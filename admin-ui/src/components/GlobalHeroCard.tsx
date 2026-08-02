@@ -214,6 +214,7 @@ export default function GlobalHeroCard({ game, onSubmit, onTogglePin, className 
                 username={championName as string}
                 discordUserId={champion.discord_user_id}
                 avatarHash={champion.avatar_hash}
+                avatarUrl={champion.avatar_url}
                 size={48}
               />
               <div className="min-w-0 flex-1">

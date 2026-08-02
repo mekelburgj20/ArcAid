@@ -36,6 +36,8 @@ export interface PinnedTopScore {
     display_name: string | null;
     discord_user_id: string;
     avatar_hash: string | null;
+    /** v2.74.0 (S24.1) — Google-linked avatar URL; `PlayerAvatar` prefers it. */
+    avatar_url: string | null;
     score: number;
     origin_room_slug: string | null;
     origin_room_logo_url: string | null;
@@ -251,6 +253,7 @@ export class GlobalPinService {
                         display_name: e.display_name ?? null,
                         discord_user_id: e.discord_user_id,
                         avatar_hash: e.avatar_hash,
+                        avatar_url: e.avatar_url,
                         score: e.score,
                         origin_room_slug: e.origin_room_slug,
                         origin_room_logo_url: e.origin_room_logo_url,
@@ -283,6 +286,7 @@ export class GlobalPinService {
                     display_name: s.display_name ?? null,
                     discord_user_id: s.discord_user_id,
                     avatar_hash: s.avatar_hash,
+                    avatar_url: s.avatar_url,
                     score: s.score,
                     origin_room_slug: s.origin_room_slug,
                     origin_room_logo_url: s.origin_room_logo_url,

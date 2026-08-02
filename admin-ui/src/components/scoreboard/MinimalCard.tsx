@@ -208,6 +208,7 @@ export default function MinimalCard({
                       username={playerName(entry)}
                       discordUserId={entry.discord_user_id}
                       avatarHash={entry.avatar_hash}
+                      avatarUrl={entry.avatar_url}
                       size={22}
                     />
                     {/* v2.13.16: PlayerNameLink opens quick-view modal on

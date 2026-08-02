@@ -66,8 +66,13 @@ describe('LeaderboardService', () => {
             const db = await getDatabase();
             const cached = await db.get('SELECT * FROM leaderboard_cache WHERE game_id = ?', gameId);
             expect(cached).toBeTruthy();
+            // v2.74.0 (S24.1): the blob is a `{v, rows}` envelope, not a bare
+            // array. The rows are identity-stable — names and avatars are
+            // joined on at read time — so the cache survives a profile edit.
+            // See src/__tests__/s24-efficiency.test.ts for that contract.
             const parsed = JSON.parse(cached.rankings);
-            expect(parsed).toHaveLength(1);
+            expect(parsed.v).toBe(2);
+            expect(parsed.rows).toHaveLength(1);
         });
     });
 

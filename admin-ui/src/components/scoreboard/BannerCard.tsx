@@ -262,6 +262,7 @@ export default function BannerCard({
                           username={playerName(entry)}
                           discordUserId={entry.discord_user_id}
                           avatarHash={entry.avatar_hash}
+                          avatarUrl={entry.avatar_url}
                           size={16}
                         />
                       </div>

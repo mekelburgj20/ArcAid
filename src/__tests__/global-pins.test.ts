@@ -227,8 +227,11 @@ describe('pin endpoints', () => {
         expect(row.top_scores).toHaveLength(6);
         expect(row.top_scores.map((s: any) => s.score)).toEqual([90_000, 89_000, 88_000, 87_000, 86_000, 85_000]);
         // Same entry shape the grid card's rows use, badge fields included.
+        // v2.74.0 (S24.1): `avatar_url` joins the set — Google-linked users
+        // store a full URL rather than a Discord CDN hash, and `PlayerAvatar`
+        // prefers it. Additive; every pre-existing key is unchanged.
         expect(Object.keys(row.top_scores[0]).sort()).toEqual([
-            'avatar_hash', 'discord_user_id', 'display_name', 'iscored_username',
+            'avatar_hash', 'avatar_url', 'discord_user_id', 'display_name', 'iscored_username',
             'origin_room_logo_url', 'origin_room_short_tag', 'origin_room_slug', 'score',
         ]);
     });

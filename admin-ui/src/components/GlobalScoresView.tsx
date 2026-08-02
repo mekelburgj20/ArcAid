@@ -27,6 +27,8 @@ interface GlobalTopScore {
   display_name?: string | null;
   score: number;
   avatar_hash: string | null;
+  /** v2.74.0 (S24.1): full avatar URL (Google-linked users). */
+  avatar_url?: string | null;
   discord_user_id: string;
 }
 
@@ -83,6 +85,7 @@ function globalRowToLeaderboard(g: GlobalTopGame): GameLeaderboard {
       display_name: s.display_name ?? null,
       score: s.score,
       avatar_hash: s.avatar_hash ?? null,
+      avatar_url: s.avatar_url ?? null,
     })),
     globalGameId: g.global_game_id,
   };

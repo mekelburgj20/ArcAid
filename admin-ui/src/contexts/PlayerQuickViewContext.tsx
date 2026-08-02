@@ -34,6 +34,8 @@ export interface PlayerEntryLike {
   display_name?: string | null;
   discord_user_id?: string | null;
   avatar_hash?: string | null;
+  /** v2.74.0 (S24.1): full avatar URL (Google-linked users). */
+  avatar_url?: string | null;
 }
 
 interface OpenArgs {
@@ -244,6 +246,7 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
             username={display}
             discordUserId={entry.discord_user_id || null}
             avatarHash={entry.avatar_hash || null}
+            avatarUrl={entry.avatar_url || null}
             size={42}
           />
           <div className="flex-1 min-w-0">

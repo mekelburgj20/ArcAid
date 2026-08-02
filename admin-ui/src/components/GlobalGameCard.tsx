@@ -75,6 +75,8 @@ export interface TopScoreEntry {
   display_name?: string | null;
   score: number;
   avatar_hash: string | null;
+  /** v2.74.0 (S24.1): full avatar URL (Google-linked users). Preferred over avatar_hash. */
+  avatar_url?: string | null;
   discord_user_id: string;
   origin_room_slug: string | null;
   origin_room_logo_url: string | null;
@@ -277,6 +279,7 @@ export function LeaderboardRow({ entry, rank, isYou = false, isNext = false }: {
         username={name}
         discordUserId={entry.discord_user_id}
         avatarHash={entry.avatar_hash}
+        avatarUrl={entry.avatar_url}
         size={26}
       />
       {/* Name and room badge travel together, hard left. Previously the name

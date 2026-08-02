@@ -1,8 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requireDiscordUser, requireNotBanned } from '../middleware.js';
 import { UserProfileService } from '../../services/UserProfileService.js';
-import { LeaderboardService } from '../../services/LeaderboardService.js';
-import { GlobalLeaderboardService } from '../../services/GlobalLeaderboardService.js';
 import { logError } from '../../utils/logger.js';
 
 const router = Router();
@@ -47,9 +45,12 @@ router.patch('/me/profile', requireAuth, requireDiscordUser, requireNotBanned, a
             return res.status(400).json({ error: 'display_name must be a string or null' });
         }
         const next = await UserProfileService.setDisplayName(discordId, raw);
-        // Display name change ripples through every leaderboard render.
-        await LeaderboardService.invalidateAll();
-        await GlobalLeaderboardService.invalidateAll();
+        // v2.74.0 (S24.1): no cache invalidation here any more. Leaderboard
+        // caches hold identity-stable rows and join `user_profiles` at READ
+        // time, so the new name is live on the next render. The two
+        // `invalidateAll()` calls this replaces were whole-table DELETEs of
+        // every room's leaderboard — one rename made the next page load
+        // serially recalculate every game in the system.
         res.json({ display_name: next });
     } catch (error) {
         const e = error as Error & { code?: string; reason?: string };
