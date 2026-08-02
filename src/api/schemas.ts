@@ -367,6 +367,38 @@ export const ImportCsvCommitSchema = z.object({
     })).min(1).max(500),
 });
 
+/**
+ * S23.4 — bulk historical score import. Same client-side-parse shape as the
+ * game CSV importer above: the FE parses with PapaParse and posts JSON, the
+ * preview response is held in browser memory and replayed on commit. No
+ * server-side session.
+ *
+ * `score` accepts a string because CSVs routinely carry thousands separators
+ * ("1,234,567") and the browser hands us raw cells; the preprocess strips
+ * anything that isn't a digit before coercing. `date` is optional ISO — when
+ * absent the row lands with the import's own timestamp.
+ */
+export const ScoreImportRowSchema = z.object({
+    game_name: z.string().min(1).max(200),
+    player_name: z.string().min(1).max(100),
+    score: z.preprocess(
+        v => typeof v === 'string' ? Number(v.replace(/[,\s_]/g, '')) : v,
+        z.number().int().positive(),
+    ),
+    date: z.string().max(40).optional(),
+    engine: z.string().min(1).max(50),
+    device: z.string().min(1).max(50),
+    photo_url: z.string().max(1000).optional(),
+});
+
+export const ScoreImportPreviewSchema = z.object({
+    rows: z.array(z.unknown()).min(1).max(500),
+});
+
+export const ScoreImportCommitSchema = z.object({
+    rows: z.array(ScoreImportRowSchema).min(1).max(500),
+});
+
 export const ReorderQueueSchema = z.object({
     gameIds: z.array(z.string().min(1)).min(1).max(20),
 });
