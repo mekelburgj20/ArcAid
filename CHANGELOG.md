@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.71.0] — unreleased
+
+**Hero champion marquee** (user-approved option 1, 2026-08-01). The Global Scoreboard hero gets
+its own identity: gold chase-light marquee frame (four compositor-only strips running one
+clockwise circuit; reduced-motion keeps the ring lit but still), a Hottest board ribbon, and NO
+category chip or engine pills — gold means champion, neon means category, and the two claims no
+longer share a color system (deliberately not medal-amber either: medals mark a rank inside a
+board, gold marks a board). Desktop shrinks from the 2-row monolith to a wide 2-column banner
+(art left, champion plate right, one row tall); mobile goes full-bleed against the inset grid
+(2px short of the screen edge so the side lamp strips survive), with the champion score on its
+own line so the one string that must never truncate never does.
+Tests: admin-ui 393 → 395.
+
 ## [2.70.0] — unreleased
 
 **Integration release: info bubble + five approved refinements** (user field feedback, 2026-08-01).
