@@ -26,6 +26,8 @@ const GLOBAL_KEYS = [
   'WEB_PUSH_VAPID_PUBLIC_KEY',
   'WEB_PUSH_VAPID_PRIVATE_KEY',
   'OG_META_ENABLED',
+  'GLOBAL_DISCORD_GUILD_ID',
+  'GLOBAL_DISCORD_INVITE_URL',
 ];
 
 const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'GOOGLE_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET', 'WEB_PUSH_VAPID_PRIVATE_KEY'];
@@ -49,6 +51,14 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   WEB_PUSH_VAPID_PUBLIC_KEY: { label: 'Web Push VAPID Public Key', description: 'Public half of the VAPID keypair for browser push notifications. Generate a pair with "npm run generate-vapid-keys". Both keys must be set for push to activate; rotating the pair invalidates every existing browser subscription.' },
   WEB_PUSH_VAPID_PRIVATE_KEY: { label: 'Web Push VAPID Private Key', description: 'Private half of the VAPID keypair for browser push notifications. Encrypted at rest.' },
   OG_META_ENABLED: { label: 'Link-Preview Meta (OG Tags)', description: 'Inject Open Graph tags into game/player pages for link-preview crawlers (Discord, Slack, Twitter). Kill-switch: set to Disabled if link previews misbehave. Humans always get the normal app either way.' },
+  GLOBAL_DISCORD_GUILD_ID: {
+    label: 'Arcaid Community Server ID',
+    description: 'Guild ID of the shared Arcaid Discord server. A bot can only DM a user while they share a server with it, so this gives players in rooms WITHOUT Discord integration a way to receive DMs. The bot must be a member of this server; to use the one-click join button it also needs the "Create Invite" permission there (otherwise only the invite link below is offered). Leave blank to disable the whole feature — no join button, no reachability claims.',
+  },
+  GLOBAL_DISCORD_INVITE_URL: {
+    label: 'Arcaid Community Invite Link',
+    description: 'Optional https:// invite link to the same server, shown as a manual-join fallback next to the one-click button. Set this if the bot lacks the "Create Invite" permission, or simply to give players who prefer joining themselves a way to do it.',
+  },
 };
 
 interface SuperAdmin {

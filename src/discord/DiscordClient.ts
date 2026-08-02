@@ -101,6 +101,38 @@ export class DiscordClient {
     }
 
     /**
+     * Whether `userId` is a member of `guildId` (Discord HQ arc, v2.72.0).
+     *
+     * This is the deliverability primitive behind `DiscordReachabilityService`:
+     * a bot may DM a user only while they share at least one guild, so
+     * membership here is the closest thing to a "can I DM them?" probe that
+     * does not involve actually sending a message.
+     *
+     * Reads via `guild.members.fetch(userId)`, which needs the SERVER MEMBERS
+     * (`GatewayIntentBits.GuildMembers`) privileged intent — already requested
+     * in this client's constructor (see `intents` above), so no portal change
+     * is implied by this method existing.
+     *
+     * Returns false — never throws — for: gateway not ready, bot not in the
+     * guild, unknown member (Discord error 10007), or any transport failure.
+     * Callers must treat false as "unknown or absent", not as proof of
+     * non-membership.
+     */
+    public async isMemberOfGuild(guildId: string, userId: string): Promise<boolean> {
+        try {
+            if (!this.client.isReady()) return false;
+            const guild = this.client.guilds.cache.get(guildId);
+            if (!guild) return false;
+            const member = await guild.members.fetch(userId);
+            return !!member;
+        } catch {
+            // 10007 Unknown Member is the expected "not a member" path; every
+            // other failure (rate limit, transport) degrades the same way.
+            return false;
+        }
+    }
+
+    /**
      * Deploys the slash commands to Discord.
      */
     public async deployCommands(guildId?: string): Promise<void> {

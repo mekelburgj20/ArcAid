@@ -2,6 +2,7 @@ import { REST, Routes, EmbedBuilder } from 'discord.js';
 import { logError } from './logger.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { isDiscordUserId, isGoogleUserId } from './identityProvider.js';
+import { trackBackground } from './backgroundTasks.js';
 
 /** Embed accent colors keyed by tournament tag or type. */
 const TAG_COLORS: Record<string, number> = {
@@ -43,11 +44,55 @@ export async function sendChannelMessage(channelId: string, content: string): Pr
 }
 
 /**
+ * Discord API error codes meaning "this user cannot receive your DM", as
+ * opposed to a transient transport problem. Used to decide whether a failed
+ * send should raise the Section-4 nudge (Discord HQ arc, v2.72.0).
+ *
+ *   50007 Cannot send messages to this user — the canonical case: no shared
+ *         guild, or a shared guild with "Allow direct messages from server
+ *         members" switched off, or the user blocked the bot.
+ *   50013 Missing Permissions — the same condition surfaces this way on some
+ *         DM-channel paths.
+ *
+ * A rate limit, a 500, or a network blip is NOT in this set: those mean "try
+ * again later", and nudging the user to fix their privacy settings over a
+ * transient outage would be a lie.
+ */
+const CANNOT_DM_CODES: ReadonlySet<number> = new Set([50007, 50013]);
+
+/** True when `err` is a Discord rejection meaning the user is un-DM-able. */
+export function isCannotDmError(err: unknown): boolean {
+    const code = (err as { code?: unknown; rawError?: { code?: unknown } })?.code
+        ?? (err as { rawError?: { code?: unknown } })?.rawError?.code;
+    return typeof code === 'number' && CANNOT_DM_CODES.has(code);
+}
+
+/**
  * Sends a direct message to a Discord user via the REST API.
  * Creates a DM channel first, then sends the message.
  * Returns true if sent, false on failure (silent — does not throw).
+ *
+ * THE SWALLOW IS LOAD-BEARING and must stay: callers are score submissions,
+ * tournament rotations and cron maintenance, none of which may fail because a
+ * player closed their DMs. (Note for future readers: `NotificationService` is
+ * often described as the place that swallows DM failures — it isn't. The
+ * try/catch that actually eats them is right here, and `notify()` only ever
+ * sees the boolean.)
+ *
+ * v2.72.0 adds the nudge side-effects around that swallow — an un-DM-able
+ * rejection raises a flag the web app surfaces once (`DmNudgeService`), and a
+ * success clears any flag already standing. Both are fire-and-forget and
+ * tracked via `trackBackground`, so the return value and timing are unchanged
+ * and a nudge-write failure can't break the caller either.
+ *
+ * `context.type` lets `NotificationService` name the notification that failed;
+ * every other caller may omit it.
  */
-export async function sendDirectMessage(userId: string, content: string): Promise<boolean> {
+export async function sendDirectMessage(
+    userId: string,
+    content: string,
+    context?: { type?: string },
+): Promise<boolean> {
     const token = process.env.DISCORD_BOT_TOKEN;
     if (!token) {
         logError('Cannot send Discord DM: DISCORD_BOT_TOKEN is not set.');
@@ -59,9 +104,21 @@ export async function sendDirectMessage(userId: string, content: string): Promis
             body: { recipient_id: userId },
         }) as { id: string };
         await rest.post(Routes.channelMessages(channel.id), { body: { content } });
+        trackBackground(
+            import('../services/DmNudgeService.js')
+                .then(m => m.DmNudgeService.clear(userId))
+                .catch(() => {}),
+        );
         return true;
     } catch (err) {
         logError(`Failed to send DM to user ${userId}:`, err);
+        if (isCannotDmError(err)) {
+            trackBackground(
+                import('../services/DmNudgeService.js')
+                    .then(m => m.DmNudgeService.record(userId, 'send_failed', context?.type))
+                    .catch(() => {}),
+            );
+        }
         return false;
     }
 }

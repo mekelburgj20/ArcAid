@@ -6,6 +6,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.72.0] — unreleased
+
+**Discord HQ: global community server + web notification settings** (owner-approved contract,
+2026-08-01). A shared "Arcaid HQ" guild gives every player a mutual server with the bot, so
+Discord DMs can work even when their room has no Discord integration. Everything ships inert
+until `GLOBAL_DISCORD_GUILD_ID` is set in Global Settings.
+
+- **`DiscordReachabilityService.canDm`** answers "can the bot DM this user?" from guild
+  membership (HQ guild first, then Discord-enabled room guilds; 10min positive / 1min negative
+  cache). Gateway-down verdicts are never cached and never suppress a send — DMs ride REST, so
+  "we couldn't tell" always means "send".
+- **Web notification settings** (Account Settings): the five notification opt-ins render once
+  with DM/Push channel chips — they are ONE stored set shared with the `/arcaid-notifications`
+  Discord command (same prefs JSON, two surfaces) — above Browser-push and Discord-DM channel
+  cards. The Discord card shows a live deliverability verdict instead of implying the toggles
+  alone suffice. Closes the chicken-and-egg for players in Discord-less rooms. New
+  `GET`/`PUT /api/me/notification-settings`.
+- **One-click join**: `GET`/`POST /api/auth/discord/connect-notifications[/callback]` — a
+  SEPARATE OAuth flow with scopes `identify guilds.join`; the LOGIN authorize is untouched and
+  stays `identify`-only. `connect:<nonce>` state extends the `link:` convention; three-way
+  identity check (nonce initiator = bearer token = authorizing Discord account); 201 and 204
+  both count as success so the join is idempotent; Discord's own error text surfaces verbatim;
+  `GLOBAL_DISCORD_INVITE_URL` renders as the manual fallback.
+- **Failure nudge**: un-DM-able rejections (Discord 50007/50013 — transient failures
+  deliberately excluded) raise a one-time dismissible banner via `DmNudgeService`, stored under
+  `_dmNudge` in `user_preferences.notification_prefs` — no new table, no migration; cleared on
+  dismissal or the next successful DM. Opted-in users who are already known-unreachable
+  short-circuit at `notify()` time: the nudge raises without burning the doomed REST call, and
+  web push still carries the event.
+- Contract correction, followed the code: the DM-failure swallow lives in `sendDirectMessage`
+  (`src/utils/discord.ts`), not `NotificationService` — the nudge hooks there, swallow preserved.
+
+Operator runbook: set `GLOBAL_DISCORD_GUILD_ID` (+ optional `GLOBAL_DISCORD_INVITE_URL`, https
+only); grant the bot **Create Invite** in the HQ guild (or rely on the invite-link fallback);
+the SERVER MEMBERS intent is already enabled (the client requests it at startup — the gateway
+would refuse the handshake otherwise). A user with "Allow direct messages from server members"
+off stays unreachable even after joining — the UI never promises otherwise and the nudge
+catches it.
+
+Tests: backend 1325 → 1371 (new `discord-hq.test.ts`, 46 cases), admin-ui 396 → 404 (nudge
+banner suite).
+
 ## [2.71.1] — unreleased
 
 **Hero frame: attract-mode sweep replaces the marquee bulbs** (user verdict on v2.71.0). One
