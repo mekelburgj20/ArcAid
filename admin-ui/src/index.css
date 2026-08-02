@@ -166,6 +166,46 @@
   --sb-hero-glow: 0 0 40px color-mix(in oklab, var(--color-neon-cyan) 13%, transparent);
   --sb-hero-score-glow: 0 0 10px color-mix(in oklab, var(--color-neon-amber) 33%, transparent);
 
+  /* ── Champion marquee (v2.70.0) ────────────────────────────────────────
+     The hero's own colour, and the reason it has one.
+
+     Every card in the grid wears its FIDELITY BAND's neon (`--sb-neon-*`
+     above), so colour on this page already means "which board". The hero used
+     to join that system — a category chip in the band's magenta, a cyan frame
+     — and the result was a big card that said the same KIND of thing as the
+     small ones. It now says a different thing: gold, and gold means champion.
+     That is why the chip and the engine pills came off the card entirely; a
+     hero wearing two vocabularies reads as neither.
+
+     Gold is deliberately not `--color-neon-amber` (the medal/1st-place token).
+     The medals mark a rank INSIDE a board; this marks a board. Sitting them
+     side by side at the same hue would merge the two claims. This is a warmer,
+     lamp-yellow gold — an arcade marquee's bulbs, not a trophy's plating. */
+  --sb-hero-gold: #ffcf47;
+  --sb-hero-frame: color-mix(in oklab, var(--sb-hero-gold) 70%, transparent);
+  --sb-hero-frame-glow:
+    0 0 30px color-mix(in oklab, var(--sb-hero-gold) 20%, transparent),
+    0 6px 22px rgba(0, 0, 0, 0.45);
+  /* The card face itself carries a whisper of the gold so the frame is not a
+     ring around neutral surface — a lit marquee spills onto its own board. */
+  --sb-hero-surface: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--sb-hero-gold) 7%, var(--color-surface)) 0%,
+    var(--color-surface) 62%);
+  /* Chase lamps. `--sb-hero-lamp-gap` is BOTH the tile size of the lamp
+     gradient and the translate distance of one animation cycle — they must
+     stay the same value or the loop visibly seams. */
+  --sb-hero-lamp: #fff3c4;
+  --sb-hero-lamp-halo: color-mix(in oklab, var(--sb-hero-gold) 62%, transparent);
+  --sb-hero-lamp-gap: 18px;
+  --sb-hero-chase-dur: 1.6s;
+  /* Eyebrow ribbon — the marquee's header plate. Dark ink on gold, so it is
+     the one element on the page that inverts, which is what a plate does. */
+  --sb-hero-ribbon-bg: linear-gradient(180deg, #ffe488 0%, #f5b82b 55%, #c68a10 100%);
+  --sb-hero-ribbon-fg: #2a1c00;
+  --sb-hero-champ-bg: color-mix(in oklab, var(--sb-hero-gold) 10%, transparent);
+  --sb-hero-champ-border: color-mix(in oklab, var(--sb-hero-gold) 32%, transparent);
+
   /* Search palette (A3, v2.51.0) — the ⌘K command palette on /scoreboard.
      Same rule as the card tokens above: the component ships zero literal
      rgba(), so the palette is legible under both polarities. */
@@ -475,6 +515,33 @@
   --sb-hero-border: color-mix(in oklab, var(--color-neon-cyan) 52%, transparent);
   --sb-hero-glow: 0 8px 32px rgba(15, 20, 30, 0.14);
   --sb-hero-score-glow: none;
+
+  /* Champion marquee, re-lit for #E8EAF0 (v2.70.0). Same problem the
+     per-category neons have one block up: #ffcf47 is 1.3:1 against a pale
+     surface, so the frame would vanish and the champion's score — set in the
+     gold — would be unreadable. The fix is the established one: the same hue
+     taken deep enough to clear 4.5:1 as text (#8a5d00 -> 5.9:1 on white,
+     4.8:1 on coffee), with the frame run at near-full strength because mixing
+     an already-deep gold toward a white page only turns it beige.
+
+     The lamps are the one place a straight swap fails: a chase light is a
+     BRIGHT dot on a dark board, and on a pale board there is nothing for it to
+     be brighter than. They invert — dark gold bulbs on the light surface, with
+     the halo still carrying the hue — so the ring still reads as a row of
+     bulbs rather than as a dotted line that happened to be drawn. */
+  --sb-hero-gold: #8a5d00;
+  --sb-hero-frame: color-mix(in oklab, var(--sb-hero-gold) 88%, transparent);
+  --sb-hero-frame-glow: 0 8px 30px rgba(15, 20, 30, 0.16);
+  --sb-hero-surface: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--sb-hero-gold) 10%, var(--color-surface)) 0%,
+    var(--color-surface) 62%);
+  --sb-hero-lamp: #a8781a;
+  --sb-hero-lamp-halo: color-mix(in oklab, var(--sb-hero-gold) 40%, transparent);
+  --sb-hero-ribbon-bg: linear-gradient(180deg, #a87400 0%, #8a5d00 60%, #6d4900 100%);
+  --sb-hero-ribbon-fg: #fff6dd;
+  --sb-hero-champ-bg: color-mix(in oklab, var(--sb-hero-gold) 12%, transparent);
+  --sb-hero-champ-border: color-mix(in oklab, var(--sb-hero-gold) 42%, transparent);
 
   /* Palette: a black-on-black field and a 50%-black drop shadow both vanish on
      a light page, so the field sinks to the raised surface and the shadow
@@ -1121,6 +1188,136 @@ select option {
   background: color-mix(in oklab, var(--gg-neon) 12%, transparent);
 }
 
+/*
+ * ═══ The champion marquee — GlobalHeroCard's gold frame + chase lights ═══
+ * (v2.70.0)
+ *
+ * The grid's cards glitch; the hero CHASES. Both are 80s-arcade cabinet
+ * language and neither is the other's variant, which is the point: a player
+ * scanning the page must be able to tell the one card that is not a category
+ * board without reading a word of it.
+ *
+ * ─── Why chase lights and not a gradient shimmer ───
+ *
+ * A shimmer is a moving highlight — it says "this is shiny". Bulbs running
+ * round a perimeter say "this is the marquee above the cabinet", which is the
+ * exact object the design is quoting, and it survives being a still image in
+ * a way a shimmer does not (a frozen shimmer is just a gradient; a frozen
+ * chase is still a ring of bulbs).
+ *
+ * ─── How it stays cheap ───
+ *
+ * Four thin strips, one per edge, each clipping an over-wide `::before` that
+ * paints a repeating radial-gradient of bulbs. The only animated property is
+ * `transform: translate` — no per-frame border-color, no box-shadow keyframes,
+ * no background-position (which repaints the strip every frame). Each strip is
+ * its own compositor layer of a few hundred px², so the whole marquee is four
+ * cheap layers regardless of how long the card is.
+ *
+ * The translate distance is exactly ONE `--sb-hero-lamp-gap`, i.e. one bulb
+ * pitch, and the `::before` overhangs by the same amount at each end. That is
+ * what makes the loop seamless: after one cycle every bulb has moved into its
+ * neighbour's slot and the strip is pixel-identical to its start.
+ *
+ * Directions run clockwise — top rightward, right downward, bottom leftward,
+ * left upward — so the ring reads as one circuit rather than as four
+ * independent strips that happen to be moving.
+ */
+@keyframes ggMarqueeChaseX  { to { transform: translateX(var(--sb-hero-lamp-gap)); } }
+@keyframes ggMarqueeChaseXr { to { transform: translateX(calc(-1 * var(--sb-hero-lamp-gap))); } }
+@keyframes ggMarqueeChaseY  { to { transform: translateY(var(--sb-hero-lamp-gap)); } }
+@keyframes ggMarqueeChaseYr { to { transform: translateY(calc(-1 * var(--sb-hero-lamp-gap))); } }
+
+.gg-hero {
+  background: var(--sb-hero-surface);
+  border: 2px solid var(--sb-hero-frame);
+  box-shadow: var(--sb-hero-frame-glow);
+}
+
+/* The lamp ring. `inset: 0` over the card, `border-radius: inherit` so the
+   strips sit inside the rounded frame rather than crossing its corners. */
+.gg-hero__marquee {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.gg-hero__lamps {
+  position: absolute;
+  overflow: hidden;
+}
+
+/* One bulb per tile: a hot core, a halo, then nothing. Three stops rather
+   than a soft radial fade — a fade renders as a smudge at 4px, and what the
+   eye needs to see is a discrete bulb. */
+.gg-hero__lamps::before {
+  content: "";
+  position: absolute;
+  background-image: radial-gradient(
+    circle at center,
+    var(--sb-hero-lamp) 0 1.7px,
+    var(--sb-hero-lamp-halo) 1.7px 3.2px,
+    transparent 3.3px);
+  animation-duration: var(--sb-hero-chase-dur);
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+/* Horizontal edges: full bulb pitch across, strip height carries one bulb. */
+.gg-hero__lamps--t,
+.gg-hero__lamps--b {
+  left: 7px;
+  right: 7px;
+  height: 9px;
+}
+.gg-hero__lamps--t { top: 4px; }
+.gg-hero__lamps--b { bottom: 4px; }
+
+.gg-hero__lamps--t::before,
+.gg-hero__lamps--b::before {
+  inset: 0 calc(-1 * var(--sb-hero-lamp-gap));
+  background-size: var(--sb-hero-lamp-gap) 100%;
+}
+.gg-hero__lamps--t::before { animation-name: ggMarqueeChaseX; }
+.gg-hero__lamps--b::before { animation-name: ggMarqueeChaseXr; }
+
+/* Vertical edges are inset past the horizontal ones, so the corner bulb is
+   drawn once (by the top/bottom strip) instead of twice at half a pitch. */
+.gg-hero__lamps--l,
+.gg-hero__lamps--r {
+  top: 16px;
+  bottom: 16px;
+  width: 9px;
+}
+.gg-hero__lamps--l { left: 4px; }
+.gg-hero__lamps--r { right: 4px; }
+
+.gg-hero__lamps--l::before,
+.gg-hero__lamps--r::before {
+  inset: calc(-1 * var(--sb-hero-lamp-gap)) 0;
+  background-size: 100% var(--sb-hero-lamp-gap);
+}
+.gg-hero__lamps--r::before { animation-name: ggMarqueeChaseY; }
+.gg-hero__lamps--l::before { animation-name: ggMarqueeChaseYr; }
+
+/*
+ * Full-bleed phone variant.
+ *
+ * At one column the hero breaks the page's 16px gutter while the grid cards
+ * stay inset — that contrast IS the emphasis, and it is the only emphasis
+ * available once the card is no longer allowed to be twice as tall. It stops
+ * 2px short of each screen edge rather than going truly edge-to-edge: at 0 the
+ * left and right lamp strips would sit under the viewport's own boundary (and
+ * on iOS, under the rubber-band) and the ring would lose two of its four
+ * sides. 2px keeps the whole circuit on screen and still reads as full-bleed
+ * against a 16px-inset neighbour.
+ */
+@media (max-width: 639px) {
+  .gg-hero { border-radius: 8px; }
+}
+
 /* Global reduced-motion guard (s20) — the first @media block in this file.
    Placed after the rules it overrides so cascade order (equal specificity)
    picks this one when the user's OS/browser prefers reduced motion. */
@@ -1136,6 +1333,13 @@ select option {
      they simply never appear — the clean lit frame, permanently. */
   .gg-card::before,
   .gg-card::after {
+    animation: none;
+  }
+  /* The hero's marquee stops CHASING but stays LIT — the bulbs rest where
+     they are, so the gold ring that says "champion" is still there. Freezing
+     them to invisible (the `.gg-card` rings' behaviour) would strip the hero
+     of the one signal that distinguishes it from the category grid. */
+  .gg-hero__lamps::before {
     animation: none;
   }
 }

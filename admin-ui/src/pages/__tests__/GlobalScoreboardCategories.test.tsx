@@ -202,8 +202,13 @@ describe('GlobalScoreboard — per-category cards (v2.59.0 P4)', () => {
     // card is the hero's own and is filtered out; filtering by GAME instead
     // would have taken Arcade-Style with it.
     await waitFor(() => expect(screen.getAllByText('Hero Game')).toHaveLength(2));
+    // Two chips, not three: v2.70.0 took the category chip OFF the hero, so
+    // the only chips on the page belong to GRID cards. The hero's own board is
+    // still Simulation — its detail link carries `?category=simulation` — it
+    // just no longer names it, because on this page a category chip is the
+    // grid's vocabulary and the hero speaks champion-gold instead.
     expect(screen.getAllByTestId('category-chip').map(c => c.textContent).sort())
-      .toEqual(['Arcade-Style', 'Real Machine', 'Simulation']);
+      .toEqual(['Arcade-Style', 'Real Machine']);
   });
 
   it('counts leaderboards, not games, in the results summary', async () => {

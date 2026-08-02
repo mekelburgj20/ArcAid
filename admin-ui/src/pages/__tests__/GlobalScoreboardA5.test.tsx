@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ViewerAuthContext } from '../../contexts/ViewerAuthContext';
 import { ThemeProvider } from '../../components/ThemeProvider';
@@ -207,6 +207,53 @@ describe('GlobalScoreboard — hero card', () => {
 
         await screen.findByText('Champion');
         expect(screen.getAllByText('Medieval Madness')).toHaveLength(1);
+    });
+
+    /**
+     * v2.70.0 — the champion marquee.
+     *
+     * The hero used to wear the grid's vocabulary: a fidelity-category chip
+     * and up to two engine pills. Both are gone, and this is the assertion
+     * that keeps them gone — re-adding either is exactly the regression that
+     * would make the hero read as one more category board.
+     */
+    it('wears NO category chip and NO engine pills — gold is its only identity', async () => {
+        mockFetch([game({ top_scores: [entry('P1', 900)] })], {
+            heroRow: hero({ category: 'simulation', platforms: '["vpx","fx_classic"]' }),
+        });
+        renderPage(null);
+
+        await screen.findByText('Attack from Mars');
+        const heroCard = screen.getByTestId('global-hero-card');
+        expect(within(heroCard).queryByTestId('category-chip')).not.toBeInTheDocument();
+        // The engine pills rendered these exact labels pre-v2.70.
+        expect(within(heroCard).queryByText('VPX')).not.toBeInTheDocument();
+        expect(within(heroCard).queryByText(/Pinball FX/i)).not.toBeInTheDocument();
+        // …but the board it ranks is unchanged: the detail link still carries
+        // the category, so the card stopped NAMING the board, not scoping it.
+        expect(within(heroCard).getByText('Attack from Mars').closest('a'))
+            .toHaveAttribute('href', '/games/hero-1?category=simulation');
+        // And the marquee is present, as four chase-light strips.
+        expect(within(heroCard).getByTestId('hero-marquee')).toBeInTheDocument();
+    });
+
+    /**
+     * The ribbon is a CLAIM, so it obeys the same threshold the HOT badge and
+     * the weekly count do. "Hottest board" above it, "Featured board" below —
+     * the server's neutral fallback must not be dressed as a trend.
+     */
+    it('says HOTTEST BOARD only above the threshold, FEATURED BOARD below it', async () => {
+        mockFetch([game({ top_scores: [entry('P1', 900)] })], { heroRow: hero() });
+        const { unmount } = renderPage(null);
+        expect(await screen.findByTestId('hero-ribbon')).toHaveTextContent('Hottest board');
+        unmount();
+
+        mockFetch([game({ top_scores: [entry('P1', 900)] })], {
+            heroRow: hero({ is_hot: false, weekly_score_count: 1 }),
+        });
+        renderPage(null);
+        expect(await screen.findByTestId('hero-ribbon')).toHaveTextContent('Featured board');
+        expect(screen.queryByText('Hot')).not.toBeInTheDocument();
     });
 
     it('shows the hero Pin action only when logged in, and reflects pin state', async () => {
