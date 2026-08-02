@@ -6,6 +6,54 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.74.0] — unreleased
+
+**S24: backend efficiency round 2** (refreshed contract). No migrations. Structural query-count
+wins, one live-bug fix, and the Google-avatar fold-in.
+
+- **Read-time profile join (S24.1) — the structural centerpiece.** `leaderboard_cache` +
+  `global_leaderboard_cache` now store identity-stable rows only (wrapped in a `{v, rows}`
+  envelope; old bare-array blobs read as cache misses), and display names/avatars attach at read
+  time via the new `resolveProfiles` (`src/services/PlayerProfileResolver.ts` — two batched
+  queries per page, reproducing the documented resolution rule leg-for-leg, including the
+  synthetic-id guard). The rename (`users.ts`) and avatar-change (`auth.ts`) paths now perform
+  NO cache invalidation — pre-fix a rename was 2 whole-table cache DELETEs plus a full serial
+  room recalculate on the next page load. **Fixes a live bug: avatar changes never invalidated
+  `global_leaderboard_cache`, so a changed avatar was permanently stale on the Global
+  Scoreboard.** Regression test asserts avatar visibility with zero invalidation. CLAUDE.md's
+  display-resolution section rewritten: never bake a name/avatar back into that cache JSON.
+- **Google avatars on every leaderboard surface** (closes the ROADMAP line): `avatar_url` ships
+  through the resolver + the live query sites (`RankingService.computeRankings`,
+  `StatsService.getAllPlayerStats`, `GlobalPinService.list` — an unlisted re-projection consumer
+  caught by a key-shape assertion) and threads through ~12 `<PlayerAvatar>` JSX sites.
+- **Poller churn (S24.2):** per-tick creds resolution collapses from ≥4 settings reads × every
+  room (including iScored-disabled ones) to one batched query; `user_mappings`/`player_aliases`
+  full-table loads defer until a gate decision actually says run. All-skip tick = zero identity
+  queries (asserted).
+- **Thundering-herd dedup (S24.3):** in-flight promise maps on `getForGame`, `getRankings`, and
+  `getForGameByProvenance` (keyed `(gameId, engine, device)`; its deliberate cache bypass
+  stands). Two concurrent cold reads = one recalculate (asserted).
+- **`getActiveLeaderboards` (S24.4):** cadence/room on the main SELECT, batched TIMEZONE lookup,
+  per-tournament COMPLETED queries folded into one window query — `2T+` queries → 3 fixed.
+- **StatsService (S24.5):** both correlated finish-position subquery copies →
+  `RANK()/COUNT() OVER`; champion-streak scans bounded (display cap 100); **doctrine fix:
+  `getPersonalBests` reads `score_history`** — a moderated-away score no longer lingers as
+  someone's personal best. (Optional 60s stats TTL skipped — the window functions removed the
+  cost that motivated it.)
+- **`/room-scores` (S24.6):** one windowed ranking query per page instead of one per card.
+- **Global Scoreboard TTL cache (S24.7):** 30s in-memory cache on the SHARED half of the list
+  route — anonymous repeat loads cost zero DB work. Viewer-varying views (`sort=pinned`, pin
+  enrichment, logged-in) and searches are never cached; 200-entry cap; DB-handle reconciliation
+  guards test isolation.
+
+Behavior notes: public `/scoreboard` may be up to 30s stale for logged-out visitors (logged-in
+always live); renames/avatars now propagate instantly everywhere; a personal best can
+legitimately disappear if its backing score was moderated away.
+
+Tests: backend 1400 → 1421 (new S24 correctness/concurrency suite), admin-ui 404 (green).
+Fixture correction: `s13-achievements` `insertSubmission` now dual-writes `score_history`,
+matching every production path.
+
 ## [2.73.0] — unreleased
 
 **S23: standalone Discord submits, bulk score import, score integrity** (refreshed contract;

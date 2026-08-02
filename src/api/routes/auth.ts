@@ -4,7 +4,6 @@ import { requireAuth, requireDiscordUser } from '../middleware.js';
 import { logInfo, logError } from '../../utils/logger.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
 import { AdminService } from '../../services/AdminService.js';
-import { LeaderboardService } from '../../services/LeaderboardService.js';
 import { getDatabase } from '../../database/database.js';
 import { IdentityLinkService } from '../../services/IdentityLinkService.js';
 import { LinkNonceStore } from '../../services/LinkNonceStore.js';
@@ -266,10 +265,6 @@ router.post('/discord/callback', async (req, res) => {
         const storedUsername = sanitizeProviderUsername(displayName);
         if (user.avatar) {
             const db = await getDatabase();
-            const existing = await db.get(
-                'SELECT avatar_hash FROM user_profiles WHERE discord_user_id = ?', canonicalUserId
-            );
-            const changed = !existing || existing.avatar_hash !== user.avatar;
             await db.run(
                 `INSERT INTO user_profiles (discord_user_id, avatar_hash, avatar_fetched_at, username)
                  VALUES (?, ?, datetime('now'), ?)
@@ -280,9 +275,12 @@ router.post('/discord/callback', async (req, res) => {
                     updated_at = datetime('now')`,
                 canonicalUserId, user.avatar, storedUsername
             );
-            if (changed) {
-                await LeaderboardService.invalidateAll();
-            }
+            // v2.74.0 (S24.1): no `LeaderboardService.invalidateAll()` here any
+            // more, and the `changed` pre-read it gated is gone with it.
+            // Avatars are joined from `user_profiles` at read time, so a new
+            // hash is live on the next render. The old call was also only half
+            // a fix — it never touched `global_leaderboard_cache`, so avatar
+            // changes were PERMANENTLY stale on the Global Scoreboard.
         } else {
             // Even without an avatar, ensure the user_profiles row exists so
             // display_name can be set later, and keep username fresh.
@@ -614,10 +612,6 @@ router.post('/google/callback', async (req, res) => {
         if (!linked) {
             if (pictureUrl) {
                 const db = await getDatabase();
-                const existing = await db.get(
-                    'SELECT avatar_url FROM user_profiles WHERE discord_user_id = ?', canonicalUserId
-                );
-                const changed = !existing || existing.avatar_url !== pictureUrl;
                 await db.run(
                     `INSERT INTO user_profiles (discord_user_id, avatar_url, avatar_fetched_at, username)
                      VALUES (?, ?, datetime('now'), ?)
@@ -628,9 +622,8 @@ router.post('/google/callback', async (req, res) => {
                         updated_at = datetime('now')`,
                     canonicalUserId, pictureUrl, storedUsername
                 );
-                if (changed) {
-                    await LeaderboardService.invalidateAll();
-                }
+                // v2.74.0 (S24.1) — see the Discord branch above: avatars
+                // resolve at read time now, so no invalidation is needed.
             } else {
                 const db = await getDatabase();
                 await db.run(

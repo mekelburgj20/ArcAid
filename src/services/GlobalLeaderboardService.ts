@@ -8,6 +8,7 @@ import {
     prospectiveCategoryFromCatalogue,
 } from '../utils/engineCategorySql.js';
 import { CARD_CATEGORY_ORDER } from '../utils/scoreProvenance.js';
+import { resolveProfiles } from './PlayerProfileResolver.js';
 
 /**
  * The card category expression, for queries that alias `global_scores` as `gs`.
@@ -53,6 +54,11 @@ export interface GlobalRankedEntry {
     /** Sprint 13 — optional admin-set short label; null falls back to slug-derived. */
     origin_room_short_tag: string | null;
     avatar_hash: string | null;
+    /**
+     * v2.74.0 (S24.1) — full avatar URL for Google-linked users. `PlayerAvatar`
+     * prefers it over `avatar_hash`.
+     */
+    avatar_url: string | null;
     score_id: string;
     /**
      * v2.5.1: per-row platform stamp shown on the Global Scoreboard's per-game
@@ -146,7 +152,89 @@ export interface HeroGameRow {
  *
  * Cached per (global_game_id, scope) in global_leaderboard_cache.
  */
+/**
+ * What actually goes into `global_leaderboard_cache.rankings` — v2.74.0 (S24.1).
+ *
+ * IDENTITY-STABLE ONLY. See `PlayerProfileResolver` for why: baking
+ * `display_name`/`avatar_hash` in here is what forced `invalidateAll()` on every
+ * profile edit, and — because the avatar path only ever invalidated the ROOM
+ * cache — is why an avatar change never reached the Global Scoreboard at all.
+ * Do not add a name or an avatar back to this shape.
+ */
+interface CachedGlobalRow {
+    rank: number;
+    /** `global_scores.player_id` — possibly an `iscored:*` synthetic. Unresolved. */
+    discord_user_id: string;
+    submitted_by_user_id: string | null;
+    iscored_username: string;
+    score: number;
+    photo_url: string | null;
+    submitted_at: string;
+    origin_type: string;
+    origin_game_room_id: string | null;
+    origin_room_name: string | null;
+    origin_room_slug: string | null;
+    origin_room_logo_url: string | null;
+    origin_room_short_tag: string | null;
+    score_id: string;
+    platform: string | null;
+    engine: string;
+    device: string;
+}
+
+const GLOBAL_CACHE_ENVELOPE_VERSION = 2;
+
+interface GlobalCacheEnvelope {
+    v: number;
+    rows: CachedGlobalRow[];
+}
+
+/** Parse a cached blob, returning null when it predates the S24.1 shape. */
+function parseGlobalCacheEnvelope(raw: string): CachedGlobalRow[] | null {
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || Array.isArray(parsed)) return null; // pre-S24.1 bare array
+        const envelope = parsed as GlobalCacheEnvelope;
+        if (envelope.v !== GLOBAL_CACHE_ENVELOPE_VERSION || !Array.isArray(envelope.rows)) return null;
+        return envelope.rows;
+    } catch {
+        return null;
+    }
+}
+
 export class GlobalLeaderboardService {
+    /**
+     * Attach display identity to identity-stable rows (v2.74.0, S24.1).
+     * Two batched queries regardless of row count.
+     */
+    private static async hydrate(rows: CachedGlobalRow[]): Promise<GlobalRankedEntry[]> {
+        const profiles = await resolveProfiles(rows);
+        return rows.map((row, i) => {
+            const profile = profiles[i]!;
+            return {
+                rank: row.rank,
+                discord_user_id: profile.discord_user_id,
+                iscored_username: row.iscored_username,
+                display_name: profile.display_name,
+                score: row.score,
+                photo_url: row.photo_url,
+                submitted_at: row.submitted_at,
+                origin_type: row.origin_type,
+                origin_game_room_id: row.origin_game_room_id,
+                origin_room_name: row.origin_room_name,
+                origin_room_slug: row.origin_room_slug,
+                origin_room_logo_url: row.origin_room_logo_url,
+                origin_room_short_tag: row.origin_room_short_tag,
+                avatar_hash: profile.avatar_hash,
+                avatar_url: profile.avatar_url,
+                score_id: row.score_id,
+                platform: row.platform,
+                engine: row.engine,
+                device: row.device,
+            };
+        });
+    }
+
     /**
      * Recalculate and cache the leaderboard for a single global game.
      *
@@ -158,13 +246,14 @@ export class GlobalLeaderboardService {
         const rankings = await GlobalLeaderboardService.rankedRows(globalGameId, scope);
 
         const db = await getDatabase();
+        const envelope: GlobalCacheEnvelope = { v: GLOBAL_CACHE_ENVELOPE_VERSION, rows: rankings };
         await db.run(
             `INSERT OR REPLACE INTO global_leaderboard_cache (global_game_id, scope, rankings, generated_at) VALUES (?, ?, ?, ?)`,
-            globalGameId, scope, JSON.stringify(rankings), new Date().toISOString()
+            globalGameId, scope, JSON.stringify(envelope), new Date().toISOString()
         );
 
         logInfo(`Global leaderboard recalculated for ${globalGameId} (${scope}): ${rankings.length} entries`);
-        return rankings;
+        return GlobalLeaderboardService.hydrate(rankings);
     }
 
     /**
@@ -183,7 +272,7 @@ export class GlobalLeaderboardService {
         globalGameId: string,
         scope: string = 'global',
         category?: string | null,
-    ): Promise<GlobalRankedEntry[]> {
+    ): Promise<CachedGlobalRow[]> {
         const db = await getDatabase();
 
         const isGlobal = scope === 'global';
@@ -201,7 +290,8 @@ export class GlobalLeaderboardService {
         const rows = await db.all(`
             SELECT
                 best.score_id,
-                COALESCE(best.submitted_by_user_id, um.discord_user_id, best.discord_user_id) as discord_user_id,
+                best.discord_user_id,
+                best.submitted_by_user_id,
                 best.iscored_username,
                 best.score,
                 best.photo_url,
@@ -214,9 +304,7 @@ export class GlobalLeaderboardService {
                 gr.name as origin_room_name,
                 gr.slug as origin_room_slug,
                 gr.logo_url as origin_room_logo_url,
-                gr.short_tag as origin_room_short_tag,
-                up.display_name,
-                up.avatar_hash
+                gr.short_tag as origin_room_short_tag
             FROM (
                 SELECT
                     gs.id as score_id,
@@ -259,21 +347,16 @@ export class GlobalLeaderboardService {
                 ) gs
             ) best
             LEFT JOIN game_rooms gr ON gr.id = best.origin_game_room_id
-            LEFT JOIN user_mappings um ON (
-                best.discord_user_id LIKE 'iscored:%'
-                AND LOWER(um.iscored_username) = LOWER(best.iscored_username)
-            )
-            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(best.submitted_by_user_id, um.discord_user_id)
             WHERE best.rn = 1
             GROUP BY best.score_id
             ORDER BY best.score DESC, best.submitted_at ASC
         `, globalGameId, ...roomParams, ...categoryParams);
 
-        const rankings: GlobalRankedEntry[] = rows.map((e: any, i: number) => ({
+        return rows.map((e: any, i: number) => ({
             rank: i + 1,
-            discord_user_id: e.discord_user_id,
+            discord_user_id: e.discord_user_id || '',
+            submitted_by_user_id: e.submitted_by_user_id || null,
             iscored_username: e.iscored_username || 'Unknown',
-            display_name: e.display_name || null,
             score: e.score,
             photo_url: e.photo_url || null,
             submitted_at: e.submitted_at,
@@ -283,14 +366,11 @@ export class GlobalLeaderboardService {
             origin_room_slug: e.origin_room_slug || null,
             origin_room_logo_url: e.origin_room_logo_url || null,
             origin_room_short_tag: e.origin_room_short_tag || null,
-            avatar_hash: e.avatar_hash || null,
             score_id: e.score_id,
             platform: e.platform || null,
             engine: e.engine || UNKNOWN,
             device: e.device || UNKNOWN,
         }));
-
-        return rankings;
     }
 
     /**
@@ -302,7 +382,10 @@ export class GlobalLeaderboardService {
             'SELECT rankings FROM global_leaderboard_cache WHERE global_game_id = ? AND scope = ?',
             globalGameId, scope
         );
-        if (cached) return JSON.parse(cached.rankings);
+        const rows = cached ? parseGlobalCacheEnvelope(cached.rankings) : null;
+        // A pre-S24.1 blob (bare array, names baked in) reads as `null` and
+        // falls through to one recalculate that rewrites it in the new shape.
+        if (rows) return GlobalLeaderboardService.hydrate(rows);
         return this.recalculate(globalGameId, scope);
     }
 
@@ -325,7 +408,9 @@ export class GlobalLeaderboardService {
         scope: string = 'global',
     ): Promise<GlobalRankedEntry[]> {
         if (!category) return [];
-        return GlobalLeaderboardService.rankedRows(globalGameId, scope, category);
+        return GlobalLeaderboardService.hydrate(
+            await GlobalLeaderboardService.rankedRows(globalGameId, scope, category),
+        );
     }
 
     /**
@@ -1178,6 +1263,8 @@ export class GlobalLeaderboardService {
         display_name: string | null;
         score: number;
         avatar_hash: string | null;
+        /** v2.74.0 (S24.1) — Google-linked avatar URL; preferred over the hash. */
+        avatar_url: string | null;
         discord_user_id: string;
         /** Sprint 12 — badge fields on Global Scoreboard cards. */
         origin_room_slug: string | null;
@@ -1206,7 +1293,8 @@ export class GlobalLeaderboardService {
                 gr.logo_url as origin_room_logo_url,
                 gr.short_tag as origin_room_short_tag,
                 up.display_name,
-                up.avatar_hash
+                up.avatar_hash,
+                up.avatar_url
             FROM (
                 SELECT
                     gs.global_game_id,
@@ -1243,6 +1331,7 @@ export class GlobalLeaderboardService {
             display_name: string | null;
             score: number;
             avatar_hash: string | null;
+            avatar_url: string | null;
             discord_user_id: string;
             origin_room_slug: string | null;
             origin_room_logo_url: string | null;
@@ -1257,6 +1346,7 @@ export class GlobalLeaderboardService {
                     display_name: row.display_name || null,
                     score: row.score,
                     avatar_hash: row.avatar_hash || null,
+                    avatar_url: row.avatar_url || null,
                     discord_user_id: row.discord_user_id,
                     origin_room_slug: row.origin_room_slug || null,
                     origin_room_logo_url: row.origin_room_logo_url || null,

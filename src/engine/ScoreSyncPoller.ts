@@ -6,6 +6,7 @@ import { normalizeSubmitterUserId } from '../services/SubmissionContextService.j
 import { OpsAlertService } from '../services/OpsAlertService.js';
 import { trackBackground } from '../utils/backgroundTasks.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
+import type { IScoredCreds } from '../utils/iscoredCreds.js';
 
 // Tick cadence for the notification-file gate. The actual `getAllScores` call
 // is gated inside `IScoredNotificationGate.shouldSync` so most ticks are a
@@ -206,14 +207,21 @@ export class ScoreSyncPoller {
         try {
             // Group rooms by unique iScored account so we poll each account
             // exactly once per cycle, even if two rooms share credentials.
-            const { getIScoredCredsForRoom } = await import('../utils/iscoredCreds.js');
+            //
+            // v2.74.0 (S24.2): creds for ALL rooms resolve in ONE settings
+            // query. Pre-S24 this loop called `getIScoredCredsForRoom` per
+            // room, and each call was ≥4 uncached `game_room_settings` reads —
+            // paid every 10s for every room, including the iScored-disabled
+            // ones whose answer is always null.
+            const { getIScoredCredsForRooms } = await import('../utils/iscoredCreds.js');
             const db = await getDatabase();
             const rooms = (await db.all('SELECT id FROM game_rooms')) as Array<{ id: string }>;
+            const credsByRoom = await getIScoredCredsForRooms(rooms.map(r => r.id));
 
-            const accounts = new Map<string, { creds: Awaited<ReturnType<typeof getIScoredCredsForRoom>>; roomIds: string[] }>();
+            const accounts = new Map<string, { creds: IScoredCreds; roomIds: string[] }>();
             // Track the env-fallback "account" for rooms with no per-room config.
             for (const room of rooms) {
-                const c = await getIScoredCredsForRoom(room.id);
+                const c = credsByRoom.get(room.id);
                 if (!c) continue;
                 const key = `${c.gameroomName}::${c.publicUrl}`;
                 if (!accounts.has(key)) accounts.set(key, { creds: c, roomIds: [] });
@@ -228,17 +236,33 @@ export class ScoreSyncPoller {
                 return;
             }
 
-            // Pre-load user mappings and aliases once (global tables).
-            const mappingRows = await db.all('SELECT iscored_username, discord_user_id FROM user_mappings');
-            const mappingMap = new Map<string, string>();
-            for (const m of mappingRows) {
-                mappingMap.set(m.iscored_username.toLowerCase(), m.discord_user_id);
-            }
-            const aliasRows = await db.all('SELECT old_username, new_username FROM player_aliases');
-            const aliasMap = new Map<string, string>();
-            for (const a of aliasRows) {
-                aliasMap.set(a.old_username.toLowerCase(), a.new_username);
-            }
+            /**
+             * v2.74.0 (S24.2): the `user_mappings` + `player_aliases` full-table
+             * loads are DEFERRED until an account actually decides to sync.
+             *
+             * The notification gate means the overwhelming majority of ticks
+             * skip every account, and those ticks were still scanning both
+             * global tables end to end. Loading lazily preserves the freshness
+             * contract exactly — the tables are still read fresh once per
+             * cycle, at most, and shared by every account that syncs in that
+             * cycle (which is what `pollOneAccount` always assumed).
+             */
+            let identityMaps: { mappingMap: Map<string, string>; aliasMap: Map<string, string> } | null = null;
+            const loadIdentityMaps = async () => {
+                if (identityMaps) return identityMaps;
+                const mappingRows = await db.all('SELECT iscored_username, discord_user_id FROM user_mappings');
+                const mappingMap = new Map<string, string>();
+                for (const m of mappingRows) {
+                    mappingMap.set(m.iscored_username.toLowerCase(), m.discord_user_id);
+                }
+                const aliasRows = await db.all('SELECT old_username, new_username FROM player_aliases');
+                const aliasMap = new Map<string, string>();
+                for (const a of aliasRows) {
+                    aliasMap.set(a.old_username.toLowerCase(), a.new_username);
+                }
+                identityMaps = { mappingMap, aliasMap };
+                return identityMaps;
+            };
 
             const changedGameIds = new Set<string>();
             let anyAccountSucceeded = false;
@@ -261,6 +285,7 @@ export class ScoreSyncPoller {
 
                     if (decision.run) {
                         logDebug(`ScoreSyncPoller[${creds.gameroomName}]: full sync (${decision.reason})`);
+                        const { mappingMap, aliasMap } = await loadIdentityMaps();
                         await this.pollOneAccount(db, creds, roomIds, mappingMap, aliasMap, changedGameIds);
                         this.gate.markSynced(accountKey, notifValue);
                     } else {

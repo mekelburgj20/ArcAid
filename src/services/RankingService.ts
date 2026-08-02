@@ -24,6 +24,11 @@ export interface OverallRanking {
     total_points: number;
     games_played: number;
     avatar_hash?: string | null;
+    /**
+     * v2.74.0 (S24.1) — full avatar URL for Google-linked users. `PlayerAvatar`
+     * prefers it over `avatar_hash`.
+     */
+    avatar_url?: string | null;
     /** Per-game breakdown: game name -> { rank, points } */
     breakdown: Array<{ game_name: string; game_rank: number; points: number }>;
 }
@@ -51,6 +56,18 @@ export const RANK_METHOD_INFO: Record<RankMethod, { label: string; description: 
 };
 
 export class RankingService {
+    /**
+     * In-flight ranking computations, keyed by group id — v2.74.0 (S24.3).
+     *
+     * A recompute is 50-200ms of window-function work. Every viewer who lands
+     * on the room page in that window used to start their own; a room with 4
+     * ranking groups and a burst of traffic after a maintenance rotation
+     * (which flips the watermark for every group at once) multiplied that by
+     * the number of concurrent readers. Sharing the promise makes all but the
+     * first free. Precedent: `RAImportService.inFlight`.
+     */
+    private static inFlightCompute = new Map<string, Promise<OverallRanking[]>>();
+
     /**
      * Get all ranking groups with their tournament IDs.
      */
@@ -324,16 +341,21 @@ export class RankingService {
                 .filter(id => !isSyntheticId(id))
         )];
         // Pull avatar + display_name from user_profiles (keyed by discord_user_id).
+        // v2.74.0 (S24.1): `avatar_url` joins the projection so Google-linked
+        // users' avatars render on ranking cards too (they previously fell back
+        // to initials because only the Discord hash was ever selected).
         const avatarMap = new Map<string, string>(); // keyed by discord_user_id
+        const avatarUrlMap = new Map<string, string>(); // keyed by discord_user_id
         const displayNameMap = new Map<string, string>(); // keyed by discord_user_id
         if (discordIds.length > 0) {
             const ph = discordIds.map(() => '?').join(',');
             const profileRows = await db.all(
-                `SELECT discord_user_id, display_name, avatar_hash FROM user_profiles WHERE discord_user_id IN (${ph})`,
+                `SELECT discord_user_id, display_name, avatar_hash, avatar_url FROM user_profiles WHERE discord_user_id IN (${ph})`,
                 ...discordIds
             );
             for (const row of profileRows) {
                 if (row.avatar_hash) avatarMap.set(row.discord_user_id, row.avatar_hash);
+                if (row.avatar_url) avatarUrlMap.set(row.discord_user_id, row.avatar_url);
                 if (row.display_name) displayNameMap.set(row.discord_user_id, row.display_name);
             }
         }
@@ -342,11 +364,11 @@ export class RankingService {
         const usernamesFallback = [...playerData.values()]
             .filter(p => canUseUsernameFallback(p.discord_user_id))
             .map(p => p.iscored_username.toLowerCase());
-        const userAvatarMap = new Map<string, { discord_user_id: string; avatar_hash: string; display_name: string | null }>();
+        const userAvatarMap = new Map<string, { discord_user_id: string; avatar_hash: string; avatar_url: string | null; display_name: string | null }>();
         if (usernamesFallback.length > 0) {
             const ph2 = usernamesFallback.map(() => '?').join(',');
             const rows2 = await db.all(
-                `SELECT um.iscored_username, um.discord_user_id, up.avatar_hash, up.display_name
+                `SELECT um.iscored_username, um.discord_user_id, up.avatar_hash, up.avatar_url, up.display_name
                  FROM user_mappings um
                  LEFT JOIN user_profiles up ON up.discord_user_id = um.discord_user_id
                  WHERE LOWER(um.iscored_username) IN (${ph2})`,
@@ -356,6 +378,7 @@ export class RankingService {
                 userAvatarMap.set(row.iscored_username.toLowerCase(), {
                     discord_user_id: row.discord_user_id,
                     avatar_hash: row.avatar_hash || '',
+                    avatar_url: row.avatar_url || null,
                     display_name: row.display_name || null,
                 });
             }
@@ -368,11 +391,13 @@ export class RankingService {
             // Resolve avatar + display_name: try discord_user_id first, then username fallback
             let resolvedDiscordId = player.discord_user_id;
             let resolvedAvatar: string | null = avatarMap.get(player.discord_user_id) || null;
+            let resolvedAvatarUrl: string | null = avatarUrlMap.get(player.discord_user_id) || null;
             let resolvedDisplayName: string | null = displayNameMap.get(player.discord_user_id) || null;
-            if (!resolvedAvatar || !resolvedDisplayName) {
+            if (!resolvedAvatar || !resolvedAvatarUrl || !resolvedDisplayName) {
                 const fb = userAvatarMap.get(player.iscored_username.toLowerCase());
                 if (fb) {
                     if (!resolvedAvatar && fb.avatar_hash) resolvedAvatar = fb.avatar_hash;
+                    if (!resolvedAvatarUrl && fb.avatar_url) resolvedAvatarUrl = fb.avatar_url;
                     if (!resolvedDisplayName && fb.display_name) resolvedDisplayName = fb.display_name;
                     if (isSyntheticId(resolvedDiscordId)) resolvedDiscordId = fb.discord_user_id;
                 }
@@ -393,6 +418,7 @@ export class RankingService {
                     total_points: Math.round(avgRank * 100) / 100, // 2 decimal places
                     games_played: gamesPlayed,
                     avatar_hash: resolvedAvatar,
+                    avatar_url: resolvedAvatarUrl,
                     breakdown: bestGames,
                 });
             } else {
@@ -408,6 +434,7 @@ export class RankingService {
                     total_points: totalPoints,
                     games_played: gamesPlayed,
                     avatar_hash: resolvedAvatar,
+                    avatar_url: resolvedAvatarUrl,
                     breakdown: bestGames,
                 });
             }
@@ -468,7 +495,16 @@ export class RankingService {
                 freshWatermark = currentWatermark;
             }
         }
-        return await this.computeRankings(groupId, freshWatermark);
+        // S24.3 — dedup concurrent cold reads of the same group. Note the
+        // watermark check above stays OUTSIDE the dedup: it is the sub-10ms
+        // fast path and must run per caller, or a reader arriving just after a
+        // recompute finished would join a stale in-flight promise.
+        const existing = this.inFlightCompute.get(groupId);
+        if (existing) return existing;
+        const run = this.computeRankings(groupId, freshWatermark)
+            .finally(() => { this.inFlightCompute.delete(groupId); });
+        this.inFlightCompute.set(groupId, run);
+        return run;
     }
 
     /**

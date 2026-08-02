@@ -22,6 +22,8 @@ export interface RankedEntry {
   display_name?: string | null;
   score: number;
   avatar_hash?: string | null;
+  /** v2.74.0 (S24.1): full avatar URL (Google-linked users). Preferred over avatar_hash. */
+  avatar_url?: string | null;
   /**
    * v2.58.0 (ADR 0016) — per-score provenance. `engine` is what produced the
    * score (and the only thing that determines comparability); `device` is what
@@ -90,6 +92,8 @@ export interface RankingGroupData {
     total_points: number;
     games_played: number;
     avatar_hash?: string | null;
+    /** v2.74.0 (S24.1): full avatar URL (Google-linked users). */
+    avatar_url?: string | null;
   }>;
 }
 
@@ -644,7 +648,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           <span className={`font-display font-bold ${rankColor}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>
                             {entry.rank}
                           </span>
-                          <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
+                          <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={20} />
                           <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</span>
                         </div>
                         <span
@@ -681,7 +685,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           <span className={`font-display font-bold w-6 text-center flex-shrink-0 ${rankColor}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>
                             {entry.rank}
                           </span>
-                          <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={20} />
+                          <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={20} />
                           <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -933,7 +937,7 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
             <span className={`font-display font-bold text-sm w-5 text-left flex-shrink-0 tabular-nums ${rankColor(entry.rank)}`}>
               {entry.rank}
             </span>
-            <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} size={24} />
+            <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={24} />
             <div className="flex-1 min-w-0">
               <div className="text-sm text-secondary truncate">{playerName(entry)}</div>
               <div className="flex items-center gap-2">

@@ -190,6 +190,7 @@ export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
                   username={playerName(entry)}
                   discordUserId={entry.discord_user_id}
                   avatarHash={entry.avatar_hash}
+                  avatarUrl={entry.avatar_url}
                   size={22}
                 />
                 <span className="flex-1 text-sm text-secondary truncate">

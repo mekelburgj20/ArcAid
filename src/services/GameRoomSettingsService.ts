@@ -58,6 +58,45 @@ export class GameRoomSettingsService {
         return decodeValue(key, row.value);
     }
 
+    /**
+     * Batched multi-room, multi-key read — v2.74.0 (S24.2).
+     *
+     * One query for `(rooms × keys)` instead of one per key per room. Decoding
+     * goes through the SAME `decodeValue` path as `get`/`getAll`, so encrypted
+     * keys are decrypted identically and the `isEncryptedKey` allowlist stays
+     * the single source of truth (never hand-roll decryption at a call site).
+     *
+     * Rooms with no matching rows are ABSENT from the map; callers treat that
+     * as "no settings", which is what a per-key `get` returning null meant.
+     *
+     * Built for `ScoreSyncPoller`, which resolved iScored creds room-by-room on
+     * every tick — ≥4 uncached `game_room_settings` reads per room, every 10s,
+     * including for rooms with `ISCORED_ENABLED=false` that could never do
+     * anything with them.
+     */
+    static async getManyForRooms(
+        gameRoomIds: string[],
+        keys: string[],
+    ): Promise<Map<string, Record<string, string>>> {
+        const out = new Map<string, Record<string, string>>();
+        if (gameRoomIds.length === 0 || keys.length === 0) return out;
+
+        const db = await getDatabase();
+        const roomPh = gameRoomIds.map(() => '?').join(',');
+        const keyPh = keys.map(() => '?').join(',');
+        const rows = await db.all(
+            `SELECT game_room_id, key, value FROM game_room_settings
+             WHERE game_room_id IN (${roomPh}) AND key IN (${keyPh})`,
+            ...gameRoomIds, ...keys,
+        );
+        for (const row of rows as Array<{ game_room_id: string; key: string; value: string }>) {
+            let bucket = out.get(row.game_room_id);
+            if (!bucket) { bucket = {}; out.set(row.game_room_id, bucket); }
+            bucket[row.key] = decodeValue(row.key, row.value);
+        }
+        return out;
+    }
+
     static async getAll(gameRoomId: string): Promise<Record<string, string>> {
         const db = await getDatabase();
         const rows = await db.all(

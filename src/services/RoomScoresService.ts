@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { normalizeImageUrl, RankedEntry } from './LeaderboardService.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
+import { resolveProfiles } from './PlayerProfileResolver.js';
 
 /**
  * scores-page-redesign (B1/B2): "Room Scores" = every score ever set in this
@@ -76,9 +77,10 @@ const EMPTY_CHROME: CardChrome = {
 export class RoomScoresService {
     /**
      * Two-phase read: Phase 1 pulls the paginated game list + aggregate
-     * metadata straight from score_history; Phase 2 fetches each game's
-     * top-10 ranking (Promise.all) using the exact canonical partition query
-     * from LeaderboardService.recalculate, minus the tournament-window filter.
+     * metadata straight from score_history; Phase 2 fetches the top-10 ranking
+     * for EVERY game on the page in one windowed query (v2.74.0, S24.6 — was
+     * one query per card under `Promise.all`), using the canonical partition
+     * from LeaderboardService.recalculate minus the tournament-window filter.
      */
     static async getRoomScores(roomId: string, opts: {
         sort?: 'recent' | 'alpha' | 'most_played';
@@ -130,10 +132,14 @@ export class RoomScoresService {
 
         const gameNames: string[] = games.map((g: any) => g.game_name as string);
         const chromeMap = await this.resolveCardChrome(roomId, gameNames);
+        // v2.74.0 (S24.6): ONE windowed query for the whole page's rankings.
+        // Pre-S24 this was `getGameRankings` per card — 48 queries on a full
+        // page, in parallel but still 48 round-trips plus 48 profile joins.
+        const rankingsByGame = await this.getGameRankingsBatch(roomId, gameNames);
 
-        const data: RoomScoreCard[] = await Promise.all(games.map(async (game: any) => {
+        const data: RoomScoreCard[] = games.map((game: any) => {
             const gameName = game.game_name as string;
-            const rankings = await this.getGameRankings(roomId, gameName);
+            const rankings = rankingsByGame.get(gameName.toLowerCase()) ?? [];
             const chrome = chromeMap.get(gameName.toLowerCase()) || EMPTY_CHROME;
 
             const card: RoomScoreCard = {
@@ -170,75 +176,112 @@ export class RoomScoresService {
             }
 
             return card;
-        }));
+        });
 
         return { data, total, hasMore: offset + data.length < total };
     }
 
     /**
-     * Canonical best-per-player-per-game ranking, identical to
-     * LeaderboardService.recalculate's query with the
-     * `submitted_during_tournament_id` predicate removed (all-time-best
-     * instead of best-during-tournament-window). Top 10 only — card preview.
+     * Canonical best-per-player-per-game ranking for EVERY game on the page, in
+     * one query — v2.74.0 (S24.6).
+     *
+     * Identical to `LeaderboardService.recalculate`'s query with the
+     * `submitted_during_tournament_id` predicate removed (all-time-best instead
+     * of best-during-tournament-window), plus a second window that numbers the
+     * best-per-player rows WITHIN each game so the top-10 card preview cut is a
+     * predicate rather than a per-game `LIMIT 10`. Grouping is on
+     * `LOWER(game_name)`, matching the page query's own `GROUP BY`.
+     *
+     * Display names/avatars are resolved once for the whole page by
+     * `resolveProfiles` (S24.1), not joined per row.
+     *
+     * Returns a map keyed by LOWERCASED game name.
      */
-    private static async getGameRankings(roomId: string, gameName: string): Promise<RankedEntry[]> {
+    private static async getGameRankingsBatch(
+        roomId: string,
+        gameNames: string[],
+    ): Promise<Map<string, RankedEntry[]>> {
+        const out = new Map<string, RankedEntry[]>();
+        if (gameNames.length === 0) return out;
+
         const db = await getDatabase();
+        const lowerNames = [...new Set(gameNames.map(n => n.toLowerCase()))];
+        const placeholders = lowerNames.map(() => '?').join(',');
 
         const entries = await db.all(`
             SELECT
-                COALESCE(best.submitted_by_user_id, um.discord_user_id, best.discord_user_id) as discord_user_id,
-                best.iscored_username,
-                best.score,
-                best.platform,
-                best.engine,
-                best.device,
-                up.display_name,
-                up.avatar_hash
+                ranked.game_key,
+                ranked.discord_user_id,
+                ranked.submitted_by_user_id,
+                ranked.iscored_username,
+                ranked.score,
+                ranked.platform,
+                ranked.engine,
+                ranked.device,
+                ranked.game_rank
             FROM (
                 SELECT
-                    iscored_username,
-                    discord_user_id,
-                    submitted_by_user_id,
-                    score,
-                    platform,
-                    engine,
-                    device,
+                    best.game_key,
+                    best.discord_user_id,
+                    best.submitted_by_user_id,
+                    best.iscored_username,
+                    best.score,
+                    best.platform,
+                    best.engine,
+                    best.device,
                     ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
-                        ORDER BY score DESC, created_at ASC
-                    ) as rn
-                FROM score_history
-                WHERE game_room_id = ?
-                  AND LOWER(game_name) = LOWER(?)
-                  AND orphaned_at IS NULL
-            ) best
-            LEFT JOIN user_mappings um ON (
-                -- iscored:* synthetic ids resolve to a real Discord user via
-                -- user_mappings.iscored_username (case-insensitive).
-                best.discord_user_id LIKE 'iscored:%'
-                AND LOWER(um.iscored_username) = LOWER(best.iscored_username)
-            )
-            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(best.submitted_by_user_id, um.discord_user_id)
-            WHERE best.rn = 1
-            ORDER BY best.score DESC
-            LIMIT 10
-        `, roomId, gameName);
+                        PARTITION BY best.game_key ORDER BY best.score DESC
+                    ) as game_rank
+                FROM (
+                    SELECT
+                        LOWER(game_name) as game_key,
+                        iscored_username,
+                        discord_user_id,
+                        submitted_by_user_id,
+                        score,
+                        platform,
+                        engine,
+                        device,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY LOWER(game_name),
+                                         COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
+                            ORDER BY score DESC, created_at ASC
+                        ) as rn
+                    FROM score_history
+                    WHERE game_room_id = ?
+                      AND LOWER(game_name) IN (${placeholders})
+                      AND orphaned_at IS NULL
+                ) best
+                WHERE best.rn = 1
+            ) ranked
+            WHERE ranked.game_rank <= 10
+            ORDER BY ranked.game_key, ranked.game_rank
+        `, roomId, ...lowerNames);
 
-        return entries.map((e: any, i: number) => ({
-            rank: i + 1,
-            discord_user_id: e.discord_user_id,
-            iscored_username: e.iscored_username || 'Unknown',
-            display_name: e.display_name || null,
-            score: e.score,
-            avatar_hash: e.avatar_hash || null,
-            // v2.58.0 (ADR 0016): the CTE has always selected `platform` and
-            // then dropped it on the floor — the outer SELECT never projected
-            // it, so room-card previews showed no provenance at all while every
-            // other surface did. Projected properly now, on both new axes.
-            platform: e.platform || null,
-            engine: e.engine || UNKNOWN,
-            device: e.device || UNKNOWN,
-        }));
+        const profiles = await resolveProfiles(entries as any[]);
+        entries.forEach((e: any, i: number) => {
+            const profile = profiles[i]!;
+            let list = out.get(e.game_key);
+            if (!list) { list = []; out.set(e.game_key, list); }
+            list.push({
+                rank: e.game_rank,
+                discord_user_id: profile.discord_user_id,
+                iscored_username: e.iscored_username || 'Unknown',
+                display_name: profile.display_name,
+                score: e.score,
+                avatar_hash: profile.avatar_hash,
+                avatar_url: profile.avatar_url,
+                // v2.58.0 (ADR 0016): the CTE has always selected `platform` and
+                // then dropped it on the floor — the outer SELECT never projected
+                // it, so room-card previews showed no provenance at all while every
+                // other surface did. Projected properly now, on both new axes.
+                platform: e.platform || null,
+                engine: e.engine || UNKNOWN,
+                device: e.device || UNKNOWN,
+            });
+        });
+
+        return out;
     }
 
     /**

@@ -7,6 +7,7 @@ import {
     mapLegacyPlatform,
     normalizeProvenanceToken,
 } from '../utils/scoreProvenance.js';
+import { resolveProfiles } from './PlayerProfileResolver.js';
 
 /**
  * v2.0.3: translate stored catalogue paths (`data/catalogue-images/…`) to the
@@ -51,9 +52,106 @@ export interface RankedEntry {
     engine?: string | null;
     /** v2.58.0 (ADR 0016): what it ran on. Provenance only, never a boundary. */
     device?: string | null;
+    /**
+     * v2.74.0 (S24.1) — full avatar URL for Google-linked users. `PlayerAvatar`
+     * prefers it over `avatar_hash`. Null for Discord-only and anonymous rows.
+     */
+    avatar_url?: string | null;
+}
+
+/**
+ * What actually goes into `leaderboard_cache.rankings` — v2.74.0 (S24.1).
+ *
+ * IDENTITY-STABLE ONLY: no `display_name`, no `avatar_hash`, no `avatar_url`.
+ * Those are joined on at read time by `resolveProfiles`, which is what lets a
+ * rename or an avatar change appear on the next read without invalidating
+ * anything. Re-introducing a name or an avatar into this shape re-introduces
+ * the invalidation storm (and the "Global Scoreboard shows a stale avatar
+ * forever" bug) that S24.1 removed — don't.
+ */
+interface CachedRankedRow {
+    rank: number;
+    /** The row's OWN discord id — possibly an `iscored:*` synthetic. Not resolved. */
+    discord_user_id: string;
+    /** `score_history.submitted_by_user_id`; null for unattributed rows. */
+    submitted_by_user_id: string | null;
+    iscored_username: string;
+    score: number;
+    platform: string | null;
+    engine: string;
+    device: string;
+}
+
+/**
+ * Cache envelope version. Bumped when the row shape changes so a cache written
+ * by an older build is recognised as stale rather than silently rendered with
+ * missing names — pre-S24 rows are bare ARRAYS, so `Array.isArray` alone is a
+ * sufficient legacy test today, but the explicit version keeps the next shape
+ * change from needing a new heuristic.
+ */
+const CACHE_ENVELOPE_VERSION = 2;
+
+interface CacheEnvelope {
+    v: number;
+    rows: CachedRankedRow[];
+}
+
+/** Parse a cached blob, returning null when it predates the S24.1 shape. */
+function parseCacheEnvelope(raw: string): CachedRankedRow[] | null {
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || Array.isArray(parsed)) return null; // pre-S24.1 bare array
+        const envelope = parsed as CacheEnvelope;
+        if (envelope.v !== CACHE_ENVELOPE_VERSION || !Array.isArray(envelope.rows)) return null;
+        return envelope.rows;
+    } catch {
+        return null;
+    }
 }
 
 export class LeaderboardService {
+    /**
+     * In-flight recalculations, keyed by game id — v2.74.0 (S24.3).
+     *
+     * N concurrent cold reads of the same game used to run N full recalculates
+     * (a page load with 12 cards behind a cold cache, times every viewer who
+     * hits refresh at the same moment). Sharing the promise makes all but the
+     * first a free ride. Precedent: `RAImportService.inFlight`.
+     */
+    private static inFlightRecalc = new Map<string, Promise<CachedRankedRow[]>>();
+
+    /**
+     * In-flight provenance-filtered reads, keyed `(gameId, engine, device)` —
+     * v2.74.0 (S24.3). `getForGameByProvenance` deliberately has NO persistent
+     * cache (see its doc comment); dedup is orthogonal to that and just stops
+     * simultaneous identical requests from each running the window query.
+     */
+    private static inFlightProvenance = new Map<string, Promise<CachedRankedRow[]>>();
+
+    /**
+     * Attach display identity to identity-stable rows (v2.74.0, S24.1).
+     * Two batched queries for the whole batch — pass as many rows at once as
+     * possible (see `getActiveLeaderboards`, which hydrates a whole page).
+     */
+    private static async hydrate(rows: CachedRankedRow[]): Promise<RankedEntry[]> {
+        const profiles = await resolveProfiles(rows);
+        return rows.map((row, i) => {
+            const profile = profiles[i]!;
+            return {
+                rank: row.rank,
+                discord_user_id: profile.discord_user_id,
+                iscored_username: row.iscored_username,
+                display_name: profile.display_name,
+                score: row.score,
+                avatar_hash: profile.avatar_hash,
+                avatar_url: profile.avatar_url,
+                platform: row.platform,
+                engine: row.engine,
+                device: row.device,
+            };
+        });
+    }
+
     /**
      * Recalculate and cache the leaderboard for a specific game.
      *
@@ -68,6 +166,27 @@ export class LeaderboardService {
      * canonical source for tournament card rankings is now score_history.
      */
     static async recalculate(gameId: string): Promise<RankedEntry[]> {
+        return this.hydrate(await this.recalculateRows(gameId));
+    }
+
+    /**
+     * `recalculate`'s identity-stable half: runs the ranking query, writes the
+     * cache, returns the rows WITHOUT names/avatars (v2.74.0, S24.1).
+     *
+     * Split out so `getActiveLeaderboards` can recalculate several games and
+     * then hydrate the entire page in ONE batch, instead of paying a profile
+     * lookup per game. Deduped per game id (S24.3).
+     */
+    private static async recalculateRows(gameId: string): Promise<CachedRankedRow[]> {
+        const existing = this.inFlightRecalc.get(gameId);
+        if (existing) return existing;
+        const run = this.runRecalculate(gameId)
+            .finally(() => { this.inFlightRecalc.delete(gameId); });
+        this.inFlightRecalc.set(gameId, run);
+        return run;
+    }
+
+    private static async runRecalculate(gameId: string): Promise<CachedRankedRow[]> {
         const db = await getDatabase();
 
         // Resolve the game's tournament + room scope so we can filter score_history correctly.
@@ -79,30 +198,56 @@ export class LeaderboardService {
         `, gameId);
         if (!gameMeta) {
             // Game not found — cache an empty ranking so callers don't thrash on retries.
-            await db.run(
-                `INSERT OR REPLACE INTO leaderboard_cache (game_id, rankings, generated_at) VALUES (?, ?, ?)`,
-                gameId, JSON.stringify([]), new Date().toISOString()
-            );
+            await this.writeCache(gameId, []);
             return [];
         }
 
-        // Best-score-per-player from score_history for this tournament window.
-        // PARTITION collapses by submitted_by_user_id (Discord linkage) when set,
-        // else by anon name — so a user with multiple aliases under one Discord
-        // ID renders as one leaderboard row, while pure-anon submissions still
-        // partition per-name. ROW_NUMBER picks the highest-scoring row in the
-        // partition; its iscored_username is the displayed alias when no
-        // user_profiles.display_name is set.
+        const rankings = await this.queryRankedRows(gameMeta, [], []);
+        await this.writeCache(gameId, rankings);
+
+        logInfo(`Leaderboard recalculated for game ${gameId}: ${rankings.length} entries`);
+        return rankings;
+    }
+
+    private static async writeCache(gameId: string, rows: CachedRankedRow[]): Promise<void> {
+        const db = await getDatabase();
+        const envelope: CacheEnvelope = { v: CACHE_ENVELOPE_VERSION, rows };
+        await db.run(
+            `INSERT OR REPLACE INTO leaderboard_cache (game_id, rankings, generated_at) VALUES (?, ?, ?)`,
+            gameId, JSON.stringify(envelope), new Date().toISOString()
+        );
+    }
+
+    /**
+     * Best-score-per-player from score_history for this tournament window.
+     *
+     * PARTITION collapses by submitted_by_user_id (Discord linkage) when set,
+     * else by anon name — so a user with multiple aliases under one Discord ID
+     * renders as one leaderboard row, while pure-anon submissions still
+     * partition per-name. ROW_NUMBER picks the highest-scoring row in the
+     * partition; its iscored_username is the displayed alias when no
+     * user_profiles.display_name is set.
+     *
+     * v2.74.0 (S24.1): the `user_mappings` / `user_profiles` joins that used to
+     * live here moved to read time (`resolveProfiles`) so the cached rows are
+     * identity-stable. `submitted_by_user_id` and the RAW per-row discord id
+     * are both projected because the read-time resolver needs both legs.
+     */
+    private static async queryRankedRows(
+        gameMeta: { name: string; tournament_id: string | null; game_room_id: string | null },
+        extraClauses: string[],
+        extraParams: any[],
+    ): Promise<CachedRankedRow[]> {
+        const db = await getDatabase();
         const entries = await db.all(`
             SELECT
-                COALESCE(best.submitted_by_user_id, um.discord_user_id, best.discord_user_id) as discord_user_id,
+                best.discord_user_id,
+                best.submitted_by_user_id,
                 best.iscored_username,
                 best.score,
                 best.platform,
                 best.engine,
-                best.device,
-                up.display_name,
-                up.avatar_hash
+                best.device
             FROM (
                 SELECT
                     iscored_username,
@@ -121,38 +266,22 @@ export class LeaderboardService {
                   AND submitted_during_tournament_id = ?
                   AND LOWER(game_name) = LOWER(?)
                   AND orphaned_at IS NULL
+                  ${extraClauses.join('\n                  ')}
             ) best
-            LEFT JOIN user_mappings um ON (
-                -- iscored:* synthetic ids resolve to a real Discord user via
-                -- user_mappings.iscored_username (case-insensitive).
-                best.discord_user_id LIKE 'iscored:%'
-                AND LOWER(um.iscored_username) = LOWER(best.iscored_username)
-            )
-            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(best.submitted_by_user_id, um.discord_user_id)
             WHERE best.rn = 1
             ORDER BY best.score DESC
-        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name);
+        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name, ...extraParams);
 
-        const rankings: RankedEntry[] = entries.map((e: any, i: number) => ({
+        return entries.map((e: any, i: number) => ({
             rank: i + 1,
-            discord_user_id: e.discord_user_id,
+            discord_user_id: e.discord_user_id || '',
+            submitted_by_user_id: e.submitted_by_user_id || null,
             iscored_username: e.iscored_username || 'Unknown',
-            display_name: e.display_name || null,
             score: e.score,
-            avatar_hash: e.avatar_hash || null,
             platform: e.platform || null,
             engine: e.engine || UNKNOWN,
             device: e.device || UNKNOWN,
         }));
-
-        // Cache the result
-        await db.run(
-            `INSERT OR REPLACE INTO leaderboard_cache (game_id, rankings, generated_at) VALUES (?, ?, ?)`,
-            gameId, JSON.stringify(rankings), new Date().toISOString()
-        );
-
-        logInfo(`Leaderboard recalculated for game ${gameId}: ${rankings.length} entries`);
-        return rankings;
     }
 
     /**
@@ -162,11 +291,13 @@ export class LeaderboardService {
         const db = await getDatabase();
         const cached = await db.get('SELECT rankings, generated_at FROM leaderboard_cache WHERE game_id = ?', gameId);
 
-        if (cached) {
-            return JSON.parse(cached.rankings);
-        }
+        const rows = cached ? parseCacheEnvelope(cached.rankings) : null;
+        // A pre-S24.1 cache blob (bare array with names baked in) reads as
+        // `null` and falls through to one recalculate, after which the row is
+        // in the new shape. No migration needed — the cache is derived state.
+        if (rows) return this.hydrate(rows);
 
-        return await this.recalculate(gameId);
+        return this.hydrate(await this.recalculateRows(gameId));
     }
 
     /**
@@ -201,6 +332,27 @@ export class LeaderboardService {
         gameId: string,
         filter: { engine?: string | null; device?: string | null },
     ): Promise<RankedEntry[]> {
+        const engine = normalizeProvenanceToken(filter.engine);
+        const device = normalizeProvenanceToken(filter.device);
+        if (!engine && !device) return this.getForGame(gameId);
+
+        // S24.3 — dedup identical concurrent requests. The cache bypass above
+        // is deliberate and unchanged; this only prevents two simultaneous
+        // readers of the SAME filtered board from both running the query.
+        const key = `${gameId}::${engine ?? ''}::${device ?? ''}`;
+        const existing = this.inFlightProvenance.get(key);
+        const run = existing ?? this.runProvenanceQuery(gameId, engine, device)
+            .finally(() => { this.inFlightProvenance.delete(key); });
+        if (!existing) this.inFlightProvenance.set(key, run);
+
+        return this.hydrate(await run);
+    }
+
+    private static async runProvenanceQuery(
+        gameId: string,
+        engine: string | null,
+        device: string | null,
+    ): Promise<CachedRankedRow[]> {
         const db = await getDatabase();
         const gameMeta = await db.get(`
             SELECT g.id, g.name, g.tournament_id, t.game_room_id
@@ -210,8 +362,6 @@ export class LeaderboardService {
         `, gameId);
         if (!gameMeta) return [];
 
-        const engine = normalizeProvenanceToken(filter.engine);
-        const device = normalizeProvenanceToken(filter.device);
         const clauses: string[] = [];
         const params: any[] = [];
         if (engine) {
@@ -222,58 +372,8 @@ export class LeaderboardService {
             clauses.push('AND LOWER(COALESCE(device, ?)) = ?');
             params.push(UNKNOWN, device);
         }
-        if (clauses.length === 0) return this.getForGame(gameId);
 
-        const entries = await db.all(`
-            SELECT
-                COALESCE(best.submitted_by_user_id, um.discord_user_id, best.discord_user_id) as discord_user_id,
-                best.iscored_username,
-                best.score,
-                best.platform,
-                best.engine,
-                best.device,
-                up.display_name,
-                up.avatar_hash
-            FROM (
-                SELECT
-                    iscored_username,
-                    discord_user_id,
-                    submitted_by_user_id,
-                    score,
-                    platform,
-                    engine,
-                    device,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(submitted_by_user_id, 'iscored:' || LOWER(iscored_username))
-                        ORDER BY score DESC, created_at ASC
-                    ) as rn
-                FROM score_history
-                WHERE game_room_id = ?
-                  AND submitted_during_tournament_id = ?
-                  AND LOWER(game_name) = LOWER(?)
-                  AND orphaned_at IS NULL
-                  ${clauses.join('\n                  ')}
-            ) best
-            LEFT JOIN user_mappings um ON (
-                best.discord_user_id LIKE 'iscored:%'
-                AND LOWER(um.iscored_username) = LOWER(best.iscored_username)
-            )
-            LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(best.submitted_by_user_id, um.discord_user_id)
-            WHERE best.rn = 1
-            ORDER BY best.score DESC
-        `, gameMeta.game_room_id, gameMeta.tournament_id, gameMeta.name, ...params);
-
-        return entries.map((e: any, i: number) => ({
-            rank: i + 1,
-            discord_user_id: e.discord_user_id,
-            iscored_username: e.iscored_username || 'Unknown',
-            display_name: e.display_name || null,
-            score: e.score,
-            avatar_hash: e.avatar_hash || null,
-            platform: e.platform || null,
-            engine: e.engine || UNKNOWN,
-            device: e.device || UNKNOWN,
-        }));
+        return this.queryRankedRows(gameMeta, clauses, params);
     }
 
     /**
@@ -403,6 +503,13 @@ export class LeaderboardService {
                    COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                    g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
                    g.tournament_id, g.external_url, g.notes,
+                   -- v2.74.0 (S24.4): cadence + owning room ride along on the
+                   -- row that needs them. Pre-S24 this method issued one
+                   -- SELECT cadence, game_room_id FROM tournaments WHERE id = ?
+                   -- per distinct tournament on the page, plus one TIMEZONE
+                   -- lookup inside that loop — a guaranteed N+1 on every
+                   -- scoreboard render. The join was already here.
+                   t.cadence as tournament_cadence, t.game_room_id as tournament_game_room_id,
                    COALESCE(g.global_game_id, gg.id) as global_game_id,
                    sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
                    sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
@@ -428,7 +535,13 @@ export class LeaderboardService {
             ? await db.all(tournamentQuery, gameRoomId)
             : await db.all(tournamentQuery);
 
-        const retainedGames: any[] = [];
+        // v2.74.0 (S24.4): ONE window-function query replaces the two per-
+        // tournament COMPLETED-games queries that used to run inside this loop.
+        // `retain` caps at N most-recent per tournament, `scheduled` takes them
+        // all — both are just a different predicate on the same ROW_NUMBER, so
+        // the branch moves from SQL into a filter here.
+        const retainCapByTournament = new Map<string, number>(); // Infinity == scheduled
+        const tournamentMeta = new Map<string, { name: string; type: string; display_order: number }>();
         for (const t of tournaments) {
             let rule: { mode: string; count?: number } = { mode: 'retain', count: 0 };
             try { rule = JSON.parse(t.cleanup_rule || '{}'); } catch {}
@@ -436,46 +549,55 @@ export class LeaderboardService {
             if (rule.mode === 'immediate' || (rule.mode === 'retain' && (rule.count || 0) === 0)) {
                 continue; // No completed games visible
             }
-
             if (rule.mode === 'retain' && (rule.count || 0) > 0) {
-                const completed = await db.all(`
-                    SELECT g.id, g.name as game_name, g.display_name, g.status, ? as tournament_name, ? as tournament_type,
-                           ? as display_order,
-                           COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
-                           g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
-                           g.external_url, g.notes,
-                           COALESCE(g.global_game_id, gg.id) as global_game_id,
-                           sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
-                           sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
-                    FROM games g
-                    LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
-                    LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
-                    LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
-                    LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
-                    WHERE g.tournament_id = ? AND g.status = 'COMPLETED'
-                    ORDER BY g.end_date DESC
-                    LIMIT ?
-                `, t.name, t.type, t.display_order, t.id, rule.count);
-                retainedGames.push(...completed);
+                retainCapByTournament.set(t.id, rule.count!);
             } else if (rule.mode === 'scheduled') {
-                const completed = await db.all(`
-                    SELECT g.id, g.name as game_name, g.display_name, g.status, ? as tournament_name, ? as tournament_type,
-                           ? as display_order,
+                retainCapByTournament.set(t.id, Number.POSITIVE_INFINITY);
+            } else {
+                continue;
+            }
+            tournamentMeta.set(t.id, { name: t.name, type: t.type, display_order: t.display_order });
+        }
+
+        const retainedGames: any[] = [];
+        if (retainCapByTournament.size > 0) {
+            const retainIds = [...retainCapByTournament.keys()];
+            const retainPlaceholders = retainIds.map(() => '?').join(',');
+            const completedRows = await db.all(`
+                SELECT * FROM (
+                    SELECT g.id, g.name as game_name, g.display_name, g.status, g.tournament_id,
                            COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) as image_url,
                            g.catalogue_style_id, g.logo_style_id, g.bg_style_id, g.style_header_disabled,
-                           g.external_url, g.notes,
+                           g.external_url, g.notes, g.end_date,
                            COALESCE(g.global_game_id, gg.id) as global_game_id,
                            sc_bg.has_background as bg_has_bg, sc_logo.has_header as logo_has_header,
-                           sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header
+                           sc_cat.has_background as cat_has_bg, sc_cat.has_header as cat_has_header,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY g.tournament_id ORDER BY g.end_date DESC
+                           ) as rn
                     FROM games g
                     LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
                     LEFT JOIN style_catalogue sc_bg ON g.bg_style_id = sc_bg.id
                     LEFT JOIN style_catalogue sc_logo ON g.logo_style_id = sc_logo.id
                     LEFT JOIN style_catalogue sc_cat ON g.catalogue_style_id = sc_cat.id
-                    WHERE g.tournament_id = ? AND g.status = 'COMPLETED'
-                    ORDER BY g.end_date DESC
-                `, t.name, t.type, t.display_order, t.id);
-                retainedGames.push(...completed);
+                    WHERE g.tournament_id IN (${retainPlaceholders}) AND g.status = 'COMPLETED'
+                )
+                ORDER BY tournament_id, rn
+            `, ...retainIds);
+
+            for (const row of completedRows) {
+                const cap = retainCapByTournament.get(row.tournament_id);
+                if (cap === undefined || row.rn > cap) continue;
+                const meta = tournamentMeta.get(row.tournament_id)!;
+                retainedGames.push({
+                    ...row,
+                    tournament_name: meta.name,
+                    tournament_type: meta.type,
+                    display_order: meta.display_order,
+                    // Completed rows never carry cadence (nextMaintenanceAt is
+                    // ACTIVE-only), so leave the cadence columns absent — the
+                    // ACTIVE branch below is what reads them.
+                });
             }
         }
 
@@ -501,35 +623,76 @@ export class LeaderboardService {
                 ...gameIds
             )
             : [];
-        const cacheMap = new Map(cachedRows.map((r: any) => [r.game_id, JSON.parse(r.rankings)]));
+        const cacheMap = new Map<string, CachedRankedRow[]>();
+        for (const r of cachedRows as any[]) {
+            const rows = parseCacheEnvelope(r.rankings);
+            // A pre-S24.1 blob is treated as a miss and recalculated below.
+            if (rows) cacheMap.set(r.game_id, rows);
+        }
 
-        // Build cadence map for active tournaments to compute next maintenance time
-        const cadenceMap = new Map<string, { cron: string; timezone: string }>();
-        const tournamentIds = [...new Set(deduped.map((g: any) => g.tournament_id).filter(Boolean))];
-        for (const tid of tournamentIds) {
-            const tRow = await db.get('SELECT cadence, game_room_id FROM tournaments WHERE id = ?', tid);
-            if (tRow?.cadence) {
-                try {
-                    const cadenceObj = JSON.parse(tRow.cadence);
-                    if (cadenceObj?.cron) {
-                        let tz = cadenceObj.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
-                        if (tRow.game_room_id) {
-                            const roomTz = await db.get(
-                                "SELECT value FROM game_room_settings WHERE game_room_id = ? AND key = 'TIMEZONE'",
-                                tRow.game_room_id
-                            );
-                            if (roomTz?.value) tz = roomTz.value;
-                        }
-                        cadenceMap.set(tid, { cron: cadenceObj.cron, timezone: tz });
-                    }
-                } catch {}
+        // v2.74.0 (S24.1): resolve names/avatars for the WHOLE page in one
+        // batch after the cache reads, instead of a profile join per
+        // recalculated game. The per-miss recalculate is now rare (profile
+        // edits no longer nuke the table) and is deduped by `recalculateRows`.
+        const rowsByGame = new Map<string, CachedRankedRow[]>();
+        for (const game of deduped) {
+            const cached = cacheMap.get(game.id);
+            rowsByGame.set(game.id, cached ?? await this.recalculateRows(game.id));
+        }
+        const flatRows: CachedRankedRow[] = [];
+        for (const game of deduped) flatRows.push(...rowsByGame.get(game.id)!);
+        const flatHydrated = await this.hydrate(flatRows);
+        const rankingsByGame = new Map<string, RankedEntry[]>();
+        let cursor = 0;
+        for (const game of deduped) {
+            const count = rowsByGame.get(game.id)!.length;
+            rankingsByGame.set(game.id, flatHydrated.slice(cursor, cursor + count));
+            cursor += count;
+        }
+
+        // v2.74.0 (S24.4): cadence now rides on the ACTIVE-games row (see the
+        // main SELECT), and the per-tournament room TIMEZONE lookup that used
+        // to sit inside this loop is one batched query over the distinct rooms.
+        const cadenceRaw = new Map<string, { cron: string; timezone: string | null; roomId: string | null }>();
+        for (const game of activeGames as any[]) {
+            if (!game.tournament_id || cadenceRaw.has(game.tournament_id) || !game.tournament_cadence) continue;
+            try {
+                const cadenceObj = JSON.parse(game.tournament_cadence);
+                if (cadenceObj?.cron) {
+                    cadenceRaw.set(game.tournament_id, {
+                        cron: cadenceObj.cron,
+                        timezone: cadenceObj.timezone || null,
+                        roomId: game.tournament_game_room_id || null,
+                    });
+                }
+            } catch { /* malformed cadence JSON — no maintenance countdown */ }
+        }
+        const tzRoomIds = [...new Set([...cadenceRaw.values()].map(c => c.roomId).filter(Boolean))] as string[];
+        const roomTzById = new Map<string, string>();
+        if (tzRoomIds.length > 0) {
+            const tzPlaceholders = tzRoomIds.map(() => '?').join(',');
+            const tzRows = await db.all(
+                `SELECT game_room_id, value FROM game_room_settings
+                 WHERE key = 'TIMEZONE' AND game_room_id IN (${tzPlaceholders})`,
+                ...tzRoomIds
+            );
+            for (const r of tzRows as any[]) {
+                if (r.value) roomTzById.set(r.game_room_id, r.value);
             }
+        }
+        const cadenceMap = new Map<string, { cron: string; timezone: string }>();
+        for (const [tid, c] of cadenceRaw) {
+            // Precedence is unchanged: per-room TIMEZONE wins over the cadence's
+            // own timezone, which wins over BOT_TIMEZONE, which wins over the
+            // hardcoded default.
+            const roomTz = c.roomId ? roomTzById.get(c.roomId) : undefined;
+            const tz = roomTz || c.timezone || process.env.BOT_TIMEZONE || 'America/Chicago';
+            cadenceMap.set(tid, { cron: c.cron, timezone: tz });
         }
 
         const results = [];
         for (const game of deduped) {
-            // Use cached rankings if available, otherwise recalculate
-            const rankings = cacheMap.get(game.id) ?? await this.recalculate(game.id);
+            const rankings = rankingsByGame.get(game.id) ?? [];
 
             // Compute next maintenance time for active games
             let nextMaintenanceAt: string | null = null;
