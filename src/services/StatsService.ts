@@ -22,6 +22,21 @@ import { isProviderUserId } from '../utils/identityProvider.js';
  * denormalized `games.game_room_id` column (migration 073) already exists
  * to support that path.
  */
+
+/**
+ * How many recent COMPLETED/ARCHIVED games the champion-streak query scans —
+ * v2.74.0 (S24.5).
+ *
+ * The streak is "consecutive most-recent wins", and the JS loop that consumes
+ * this stops at the first game the player did not win. Scanning the room's
+ * ENTIRE completed history to answer that was unbounded work whose result was
+ * discarded after row 1 in almost every call. 100 is a display cap, not a
+ * correctness constant: a player who has won more than 100 consecutive games
+ * reads as exactly 100. That is a fine trade for a trophy-case number, and if
+ * anyone ever gets close, raising it is a one-line change.
+ */
+const CHAMPION_STREAK_SCAN_LIMIT = 100;
+
 export class StatsService {
     /**
      * Get comprehensive stats for a player by Discord user ID.
@@ -371,17 +386,30 @@ export class StatsService {
             )
         `, discordUserId, ...roomParams);
 
-        // Average finish position and top-5 rate
+        // Average finish position and top-5 rate.
+        //
+        // v2.74.0 (S24.5): two correlated subqueries per row became one pass of
+        // RANK()/COUNT() OVER (PARTITION BY game_id). `RANK()` is the exact
+        // equivalent of the old `COUNT(*) + 1 WHERE score > mine` — it is 1 plus
+        // the number of STRICTLY higher rows, so ties still share a position.
+        // The result shape is byte-identical; the JS reduce below is untouched.
         const finishStats = await db.all(`
-            SELECT s.game_id,
-                   (SELECT COUNT(*) + 1 FROM submissions s2 WHERE s2.game_id = s.game_id AND s2.score > s.score) as finish_position,
-                   (SELECT COUNT(*) FROM submissions s2 WHERE s2.game_id = s.game_id) as total_players
-            FROM submissions s
-            JOIN games g ON s.game_id = g.id
-            ${roomJoin}
-            WHERE g.status IN ('COMPLETED', 'ARCHIVED') AND s.discord_user_id = ?
-            ${roomWhere}
-        `, discordUserId, ...roomParams);
+            WITH scoped AS (
+                SELECT s.game_id, s.score, s.discord_user_id
+                FROM submissions s
+                JOIN games g ON s.game_id = g.id
+                ${roomJoin}
+                WHERE g.status IN ('COMPLETED', 'ARCHIVED')
+                ${roomWhere}
+            )
+            SELECT game_id, finish_position, total_players FROM (
+                SELECT game_id, discord_user_id,
+                       RANK() OVER (PARTITION BY game_id ORDER BY score DESC) as finish_position,
+                       COUNT(*) OVER (PARTITION BY game_id) as total_players
+                FROM scoped
+            )
+            WHERE discord_user_id = ?
+        `, ...roomParams, discordUserId);
 
         const totalGames = gamesPlayed?.total ?? 0;
         const totalWins = wins?.total ?? 0;
@@ -391,15 +419,34 @@ export class StatsService {
         const top5Count = finishStats.filter((r: any) => r.finish_position <= 5).length;
         const top5Rate = finishStats.length > 0 ? top5Count / finishStats.length : 0;
 
-        // Champion streak: consecutive most-recent wins
+        // Champion streak: consecutive most-recent wins.
+        //
+        // v2.74.0 (S24.5): bounded + de-correlated. The JS loop below `break`s
+        // at the first non-win, so scanning EVERY completed game a room has
+        // ever run (with a per-game winner subquery) was work that got thrown
+        // away after the first row in the overwhelming majority of calls.
+        // CHAMPION_STREAK_SCAN_LIMIT caps it; the winner comes from one
+        // ROW_NUMBER pass over the bounded game set.
         const recentGames = await db.all(`
-            SELECT g.id as game_id, g.end_date,
-                   (SELECT s2.discord_user_id FROM submissions s2 WHERE s2.game_id = g.id ORDER BY s2.score DESC LIMIT 1) as winner_id
-            FROM games g
-            ${roomJoin}
-            WHERE g.status IN ('COMPLETED', 'ARCHIVED')
-            ${roomWhere}
-            ORDER BY g.end_date DESC
+            WITH recent AS (
+                SELECT g.id as game_id, g.end_date
+                FROM games g
+                ${roomJoin}
+                WHERE g.status IN ('COMPLETED', 'ARCHIVED')
+                ${roomWhere}
+                ORDER BY g.end_date DESC
+                LIMIT ${CHAMPION_STREAK_SCAN_LIMIT}
+            ),
+            winners AS (
+                SELECT s.game_id, s.discord_user_id,
+                       ROW_NUMBER() OVER (PARTITION BY s.game_id ORDER BY s.score DESC) as rn
+                FROM submissions s
+                WHERE s.game_id IN (SELECT game_id FROM recent)
+            )
+            SELECT r.game_id, r.end_date, w.discord_user_id as winner_id
+            FROM recent r
+            LEFT JOIN winners w ON w.game_id = r.game_id AND w.rn = 1
+            ORDER BY r.end_date DESC
         `, ...roomParams);
 
         let championStreak = 0;
@@ -439,7 +486,8 @@ export class StatsService {
 
         // S13 trophy case: achievements delegate to AchievementService.getForPlayer
         // verbatim (do not reimplement); personalBests is a room-scoped
-        // best-per-game ranking derived from `submissions`.
+        // best-per-game ranking derived from `score_history` (v2.74.0, S24.5 —
+        // was `submissions`).
         const achievements = gameRoomId
             ? await AchievementService.getForPlayer(gameRoomId, {
                 discordUserId,
@@ -502,16 +550,24 @@ export class StatsService {
             )
         `, username, ...roomParams);
 
+        // v2.74.0 (S24.5) — window-function twin of the discord-id copy above.
         const finishStats = await db.all(`
-            SELECT s.game_id,
-                   (SELECT COUNT(*) + 1 FROM submissions s2 WHERE s2.game_id = s.game_id AND s2.score > s.score) as finish_position,
-                   (SELECT COUNT(*) FROM submissions s2 WHERE s2.game_id = s.game_id) as total_players
-            FROM submissions s
-            JOIN games g ON s.game_id = g.id
-            ${roomJoin}
-            WHERE g.status IN ('COMPLETED', 'ARCHIVED') AND LOWER(s.iscored_username) = LOWER(?)
-            ${roomWhere}
-        `, username, ...roomParams);
+            WITH scoped AS (
+                SELECT s.game_id, s.score, s.iscored_username
+                FROM submissions s
+                JOIN games g ON s.game_id = g.id
+                ${roomJoin}
+                WHERE g.status IN ('COMPLETED', 'ARCHIVED')
+                ${roomWhere}
+            )
+            SELECT game_id, finish_position, total_players FROM (
+                SELECT game_id, iscored_username,
+                       RANK() OVER (PARTITION BY game_id ORDER BY score DESC) as finish_position,
+                       COUNT(*) OVER (PARTITION BY game_id) as total_players
+                FROM scoped
+            )
+            WHERE LOWER(iscored_username) = LOWER(?)
+        `, ...roomParams, username);
 
         const totalGames = gamesPlayed?.total ?? 0;
         const totalWins = wins?.total ?? 0;
@@ -521,15 +577,27 @@ export class StatsService {
         const top5Count = finishStats.filter((r: any) => r.finish_position <= 5).length;
         const top5Rate = finishStats.length > 0 ? top5Count / finishStats.length : 0;
 
-        // Champion streak by username
+        // Champion streak by username — v2.74.0 (S24.5), see the discord-id twin.
         const recentGames = await db.all(`
-            SELECT g.id as game_id, g.end_date,
-                   (SELECT LOWER(s2.iscored_username) FROM submissions s2 WHERE s2.game_id = g.id ORDER BY s2.score DESC LIMIT 1) as winner_username
-            FROM games g
-            ${roomJoin}
-            WHERE g.status IN ('COMPLETED', 'ARCHIVED')
-            ${roomWhere}
-            ORDER BY g.end_date DESC
+            WITH recent AS (
+                SELECT g.id as game_id, g.end_date
+                FROM games g
+                ${roomJoin}
+                WHERE g.status IN ('COMPLETED', 'ARCHIVED')
+                ${roomWhere}
+                ORDER BY g.end_date DESC
+                LIMIT ${CHAMPION_STREAK_SCAN_LIMIT}
+            ),
+            winners AS (
+                SELECT s.game_id, LOWER(s.iscored_username) as iscored_username,
+                       ROW_NUMBER() OVER (PARTITION BY s.game_id ORDER BY s.score DESC) as rn
+                FROM submissions s
+                WHERE s.game_id IN (SELECT game_id FROM recent)
+            )
+            SELECT r.game_id, r.end_date, w.iscored_username as winner_username
+            FROM recent r
+            LEFT JOIN winners w ON w.game_id = r.game_id AND w.rn = 1
+            ORDER BY r.end_date DESC
         `, ...roomParams);
 
         let championStreak = 0;
@@ -614,10 +682,10 @@ export class StatsService {
      * against every other player's best on the same game.
      *
      * Room-scoping mirrors getEnhancedPlayerStats/getEnhancedPlayerStatsByUsername
-     * verbatim (`JOIN tournaments t ON g.tournament_id = t.id AND t.game_room_id = ?`)
-     * — `submissions` has no `game_room_id` column of its own, so pinned games
-     * (tournament_id IS NULL) are implicitly excluded here too, consistent with
-     * every other room-scoped query in this file (see file-header note).
+     * verbatim (`JOIN tournaments t ON g.tournament_id = t.id AND t.game_room_id = ?`),
+     * so pinned games (tournament_id IS NULL) are implicitly excluded here too,
+     * consistent with every other room-scoped query in this file (see the
+     * file-header note).
      *
      * `playerKey` is the three-leg identity key: COALESCE(submitted_by_user_id,
      * um.discord_user_id, 'iscored:' || LOWER(iscored_username)) — the
@@ -625,6 +693,23 @@ export class StatsService {
      * (pre-link iScored syncs) into the mapped user. room_rank/total_players
      * are computed over that same partition per game so multi-alias players
      * collapse to one ranked row, matching LeaderboardService.
+     *
+     * ## v2.74.0 (S24.5) — source moved from `submissions` to `score_history`
+     *
+     * This was the last doctrine violation in the stats payload. `submissions`
+     * is the best-EVER-per-player cache; `score_history` is the event log and
+     * the table every other derivation in this file (and in
+     * `LeaderboardService` / `RoomScoresService` / `RankingService`) reads.
+     * They disagree in exactly the cases that matter here: the per-row delete
+     * machinery (v2.9.0) removes `score_history` rows and RECOMPUTES the
+     * `submissions` row from what remains, and the orphan flip marks
+     * `score_history`. A best derived from `submissions` could therefore
+     * outlive the score it came from, or survive a moderation delete.
+     *
+     * The sibling `getParticipationStreak` already read `score_history`, so
+     * the two halves of the same payload were derived from different tables —
+     * they now agree. Collapsing many events to one best per player is what
+     * `best_per_player` already did, so the shape is unchanged.
      */
     private static async getPersonalBests(playerKey: string, gameRoomId?: string) {
         const db = await getDatabase();
@@ -635,19 +720,28 @@ export class StatsService {
 
         const rows = await db.all(`
             WITH scoped AS (
-                SELECT s.game_id AS game_id, g.name AS game_name, s.score AS score, s.timestamp AS timestamp,
-                       COALESCE(s.submitted_by_user_id, um.discord_user_id, 'iscored:' || LOWER(s.iscored_username)) AS player_key
-                FROM submissions s
-                JOIN games g ON s.game_id = g.id
-                LEFT JOIN user_mappings um ON um.iscored_username = s.iscored_username COLLATE NOCASE
+                SELECT sh.game_id AS game_id, g.name AS game_name, sh.score AS score, sh.created_at AS timestamp,
+                       COALESCE(sh.submitted_by_user_id, um.discord_user_id, 'iscored:' || LOWER(sh.iscored_username)) AS player_key
+                FROM score_history sh
+                JOIN games g ON sh.game_id = g.id
+                LEFT JOIN user_mappings um ON um.iscored_username = sh.iscored_username COLLATE NOCASE
                 ${roomJoin}
-                WHERE s.orphaned_at IS NULL
+                WHERE sh.orphaned_at IS NULL
                 ${roomWhere}
+            ),
+            -- S24.5: rank only the games this player actually appears on.
+            -- Pre-S24 every player on every game in the room was ranked and
+            -- then all but one player's rows were thrown away at the final
+            -- WHERE. The rank itself still needs every player ON THOSE GAMES,
+            -- which is why the filter narrows games rather than players.
+            player_games AS (
+                SELECT DISTINCT game_id FROM scoped WHERE player_key = ?
             ),
             best_per_player AS (
                 SELECT game_id, game_name, player_key, score, timestamp,
                        ROW_NUMBER() OVER (PARTITION BY game_id, player_key ORDER BY score DESC, timestamp DESC) AS rn
                 FROM scoped
+                WHERE game_id IN (SELECT game_id FROM player_games)
             ),
             top AS (
                 SELECT game_id, game_name, player_key, score AS best_score, timestamp AS achieved_at
@@ -664,7 +758,7 @@ export class StatsService {
             WHERE player_key = ?
             ORDER BY room_rank ASC, game_name ASC
             LIMIT 50
-        `, ...roomParams, playerKey);
+        `, ...roomParams, playerKey, playerKey);
 
         return rows;
     }
@@ -1059,6 +1153,7 @@ export class StatsService {
                     COALESCE(um.iscored_username, s.iscored_username) as iscored_username,
                     up.display_name,
                     up.avatar_hash,
+                    up.avatar_url,
                     COUNT(DISTINCT s.game_id) as games_played,
                     MAX(s.score) as best_score,
                     ROUND(AVG(s.score)) as avg_score
@@ -1082,6 +1177,7 @@ export class StatsService {
                 COALESCE(um.iscored_username, s.iscored_username) as iscored_username,
                 up.display_name,
                 up.avatar_hash,
+                up.avatar_url,
                 COUNT(DISTINCT s.game_id) as games_played,
                 MAX(s.score) as best_score,
                 ROUND(AVG(s.score)) as avg_score

@@ -84,6 +84,31 @@ async function insertSubmission(opts: {
         id, opts.gameId, opts.discordUserId, opts.username, opts.score, new Date().toISOString(),
         opts.submittedByUserId ?? null,
     );
+    // v2.74.0 (S24.5): dual-write to score_history, which every production
+    // submit path does (CommunityScoreService / the tournament submit handlers
+    // / the poller all write BOTH tables). This fixture wrote `submissions`
+    // only, so it stopped resembling production the moment a reader moved to
+    // the event log — which `StatsService.getPersonalBests` now has, per the
+    // S24.5 doctrine fix. Mirrors `helpers.ts createTestSubmission`.
+    const game = await db.get<{ name: string; tournament_id: string | null }>(
+        'SELECT name, tournament_id FROM games WHERE id = ?', opts.gameId,
+    );
+    if (game) {
+        const tournament = game.tournament_id
+            ? await db.get<{ game_room_id: string | null }>(
+                'SELECT game_room_id FROM tournaments WHERE id = ?', game.tournament_id)
+            : null;
+        await db.run(
+            `INSERT INTO score_history (
+                game_name, game_room_id, game_id, iscored_username, discord_user_id,
+                submitted_by_user_id, score, source, submitted_from_room_id,
+                submitted_during_tournament_id
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'tournament', ?, ?)`,
+            game.name, tournament?.game_room_id ?? null, opts.gameId,
+            opts.username, opts.discordUserId, opts.submittedByUserId ?? null, opts.score,
+            tournament?.game_room_id ?? null, game.tournament_id,
+        );
+    }
     return id;
 }
 
