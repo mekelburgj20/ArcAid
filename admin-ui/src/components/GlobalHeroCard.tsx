@@ -34,11 +34,15 @@ import { cardDetailHref, type GlobalGameCardGame } from './GlobalGameCard';
  *      is still the game's biggest one and the detail link still carries
  *      `?category=`; the card simply stops NAMING it, because naming it was
  *      what made it look like a card rather than like a marquee.
- *   2. A MARQUEE FRAME. Gold border, gold spill across the card face, and bulbs
- *      chasing clockwise round the perimeter — the light rig above an arcade
- *      cabinet. All of it lives in `index.css` under `.gg-hero`, because it is
- *      colour tokens and keyframes; this file only supplies the four strips.
- *      A trophy ribbon straddles the top edge like a marquee's header plate.
+ *   2. A MARQUEE FRAME. Gold border, gold spill across the card face, and — as
+ *      of v2.72.0 — a single bright segment of light travelling clockwise round
+ *      the perimeter, the attract mode of the rig above an arcade cabinet.
+ *      (v2.71 chased discrete bulbs here; at reading distance they read as a
+ *      dotted border with a tic rather than as light, so the ring became one
+ *      continuous sweep.) All of it lives in `index.css` under `.gg-hero`,
+ *      because it is colour tokens and keyframes; this file only supplies the
+ *      ring and its rotor. A trophy ribbon straddles the top edge like a
+ *      marquee's header plate.
  *   3. A BANNER, NOT A MONOLITH. Below `sm` the card stacks (art, then the
  *      champion) and breaks the page gutter. From `sm` up it goes HORIZONTAL —
  *      art left, everything else right — so the extra width the page gives it
@@ -57,20 +61,20 @@ export interface HeroGame extends GlobalGameCardGame {
 }
 
 /**
- * The four chase-light strips.
+ * The attract sweep — a single bright segment travelling round the frame.
  *
- * Rendered as one `aria-hidden` block of empty spans because that is exactly
- * what they are: decoration with no content, no semantics and no hit area.
- * Everything about how they move is in `index.css` — splitting the geometry
- * across two files would put half of the loop's seam in each.
+ * Two `aria-hidden` empty elements, because that is exactly what they are:
+ * decoration with no content, no semantics and no hit area. The outer one is
+ * masked into a ring lying over the card's border; the inner one is the
+ * oversized conic-gradient layer that rotates inside it. Everything about the
+ * geometry, the segment's falloff and the lap time lives in `index.css` —
+ * splitting it across two files would put half of the mask's arithmetic in
+ * each.
  */
-function MarqueeLights() {
+function AttractSweep() {
   return (
-    <div className="gg-hero__marquee" data-testid="hero-marquee" aria-hidden="true">
-      <span className="gg-hero__lamps gg-hero__lamps--t" />
-      <span className="gg-hero__lamps gg-hero__lamps--r" />
-      <span className="gg-hero__lamps gg-hero__lamps--b" />
-      <span className="gg-hero__lamps gg-hero__lamps--l" />
+    <div className="gg-hero__attract" data-testid="hero-attract" aria-hidden="true">
+      <span className="gg-hero__sweep" />
     </div>
   );
 }
@@ -115,7 +119,7 @@ export default function GlobalHeroCard({ game, onSubmit, onTogglePin, className 
          it is the only child that needs to. */
       className={`gg-hero relative flex flex-col rounded-[14px] ${className}`}
     >
-      <MarqueeLights />
+      <AttractSweep />
 
       {/*
         The header plate. Straddles the top edge the way a cabinet's marquee

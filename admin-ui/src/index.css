@@ -192,13 +192,14 @@
     135deg,
     color-mix(in oklab, var(--sb-hero-gold) 7%, var(--color-surface)) 0%,
     var(--color-surface) 62%);
-  /* Chase lamps. `--sb-hero-lamp-gap` is BOTH the tile size of the lamp
-     gradient and the translate distance of one animation cycle — they must
-     stay the same value or the loop visibly seams. */
-  --sb-hero-lamp: #fff3c4;
-  --sb-hero-lamp-halo: color-mix(in oklab, var(--sb-hero-gold) 62%, transparent);
-  --sb-hero-lamp-gap: 18px;
-  --sb-hero-chase-dur: 1.6s;
+  /* The attract sweep. `--sb-hero-sweep` is the PEAK of the travelling
+     highlight — the hottest point of the segment as it passes a given inch of
+     frame. It carries the value the chase bulbs' filament used through v2.71:
+     a white-hot yellow, which is exactly what the crest of a sweep wants.
+     `--sb-hero-sweep-dur` is one full lap of the frame; attract-mode pace, not
+     a chase's clip. */
+  --sb-hero-sweep: #fff3c4;
+  --sb-hero-sweep-dur: 8s;
   /* Eyebrow ribbon — the marquee's header plate. Dark ink on gold, so it is
      the one element on the page that inverts, which is what a plate does. */
   --sb-hero-ribbon-bg: linear-gradient(180deg, #ffe488 0%, #f5b82b 55%, #c68a10 100%);
@@ -524,11 +525,14 @@
      4.8:1 on coffee), with the frame run at near-full strength because mixing
      an already-deep gold toward a white page only turns it beige.
 
-     The lamps are the one place a straight swap fails: a chase light is a
-     BRIGHT dot on a dark board, and on a pale board there is nothing for it to
-     be brighter than. They invert — dark gold bulbs on the light surface, with
-     the halo still carrying the hue — so the ring still reads as a row of
-     bulbs rather than as a dotted line that happened to be drawn. */
+     The SWEEP is the one place a straight swap fails. Dark polarity's peak is
+     a white-hot #fff3c4 — a filament read against a near-black board — and on
+     a pale page there is nothing for white to be brighter than: the highlight
+     would travel round the frame as a gap in it. So the peak inverts to a
+     DEEPER, more saturated gold than the frame it rides. The frame is #8a5d00
+     run at 88%, i.e. a muted bronze; the crest is that hue pushed to full
+     chroma, so what travels is a band of the frame catching fire rather than a
+     band of it being erased. */
   --sb-hero-gold: #8a5d00;
   --sb-hero-frame: color-mix(in oklab, var(--sb-hero-gold) 88%, transparent);
   --sb-hero-frame-glow: 0 8px 30px rgba(15, 20, 30, 0.16);
@@ -536,8 +540,7 @@
     135deg,
     color-mix(in oklab, var(--sb-hero-gold) 10%, var(--color-surface)) 0%,
     var(--color-surface) 62%);
-  --sb-hero-lamp: #a8781a;
-  --sb-hero-lamp-halo: color-mix(in oklab, var(--sb-hero-gold) 40%, transparent);
+  --sb-hero-sweep: #c8901f;
   --sb-hero-ribbon-bg: linear-gradient(180deg, #a87400 0%, #8a5d00 60%, #6d4900 100%);
   --sb-hero-ribbon-fg: #fff6dd;
   --sb-hero-champ-bg: color-mix(in oklab, var(--sb-hero-gold) 12%, transparent);
@@ -1189,44 +1192,71 @@ select option {
 }
 
 /*
- * ═══ The champion marquee — GlobalHeroCard's gold frame + chase lights ═══
- * (v2.70.0)
+ * ═══ The champion marquee — GlobalHeroCard's gold frame + attract sweep ═══
+ * (v2.71.0 shipped this as chase bulbs; v2.72.0 replaced them)
  *
- * The grid's cards glitch; the hero CHASES. Both are 80s-arcade cabinet
+ * The grid's cards glitch; the hero ATTRACTS. Both are 80s-arcade cabinet
  * language and neither is the other's variant, which is the point: a player
  * scanning the page must be able to tell the one card that is not a category
  * board without reading a word of it.
  *
- * ─── Why chase lights and not a gradient shimmer ───
+ * ─── Why a travelling gradient and not chase bulbs ───
  *
- * A shimmer is a moving highlight — it says "this is shiny". Bulbs running
- * round a perimeter say "this is the marquee above the cabinet", which is the
- * exact object the design is quoting, and it survives being a still image in
- * a way a shimmer does not (a frozen shimmer is just a gradient; a frozen
- * chase is still a ring of bulbs).
+ * v2.71 ran discrete bulbs round the perimeter. They quoted the object, but at
+ * any normal viewing distance they read as a DOTTED BORDER with a tic in it,
+ * and at one bulb-pitch per 1.6s that tic was the busiest thing on a page whose
+ * other cards only flicker every 21s. What a cabinet actually does with nobody
+ * standing at it is ATTRACT: a slow continuous wash of light travelling the
+ * marquee's edge. That is one bright segment crossing a lit frame, not a row of
+ * points — quieter at rest, and more alive in motion.
  *
  * ─── How it stays cheap ───
  *
- * Four thin strips, one per edge, each clipping an over-wide `::before` that
- * paints a repeating radial-gradient of bulbs. The only animated property is
- * `transform: translate` — no per-frame border-color, no box-shadow keyframes,
- * no background-position (which repaints the strip every frame). Each strip is
- * its own compositor layer of a few hundred px², so the whole marquee is four
- * cheap layers regardless of how long the card is.
+ * ONE element moves, and the only animated property on it is `transform`.
  *
- * The translate distance is exactly ONE `--sb-hero-lamp-gap`, i.e. one bulb
- * pitch, and the `::before` overhangs by the same amount at each end. That is
- * what makes the loop seamless: after one cycle every bulb has moved into its
- * neighbour's slot and the strip is pixel-identical to its start.
+ *   `.gg-hero__attract` is a masked RING. It covers the card's border box plus
+ *   3px, and the two-layer mask (paint everything, subtract the content box)
+ *   leaves only a 5px band straddling the border. A rounded rectangle is all
+ *   the mask knows, so the band follows the card's corners for free — including
+ *   the phone's tighter radius — which is the thing four straight strips could
+ *   never do without four more corner pieces.
  *
- * Directions run clockwise — top rightward, right downward, bottom leftward,
- * left upward — so the ring reads as one circuit rather than as four
- * independent strips that happen to be moving.
+ *   `.gg-hero__sweep` is an oversized SQUARE inside it carrying the conic
+ *   gradient, spinning about the card's centre. Masked to the ring, only that
+ *   band ever paints; square and 200% of the card's width, no corner of the
+ *   card is ever left uncovered as it turns, at either the desktop banner's
+ *   aspect ratio or the phone's tall stack. Rotating a child inside a static
+ *   mask is a compositor transform — no per-frame `background-position`, no
+ *   border-color keyframes, no repaint of the frame itself.
+ *
+ * ─── The segment ───
+ *
+ * A conic gradient is angular, so one set of stops IS the segment and its
+ * softness is simply how many degrees each ramp takes. Rotation is clockwise,
+ * which means a fixed point on the frame samples the stops in DESCENDING order
+ * — so the high-angle side of the segment arrives first. It is the short ramp
+ * (22°) and the low-angle side is the long one (44°): light with a leading edge
+ * and a trailing tail, not a symmetrical blob sliding round. The whole lit arc
+ * is 72° of 360, so roughly a fifth of the frame carries the sweep at once.
+ *
+ * ONE segment, not two opposed ones. Both were built and screenshot side by
+ * side (tmp/visual-check-12): a second crest 180° away reads as a frame that is
+ * unevenly lit rather than as a light going round it, because the eye has two
+ * things to track and neither of them is travelling anywhere it can follow.
+ *
+ * Everything outside the segment is the peak colour at ZERO ALPHA rather than
+ * `transparent`, which would interpolate through transparent-black and smear
+ * the tail grey. So the static gold border shows through the whole resting arc,
+ * and the sweep reads as a highlight crossing an already-lit frame rather than
+ * as the only light on the card.
+ *
+ * One lap is `--sb-hero-sweep-dur` and the timing is `linear` — attract pace is
+ * stately and CONTINUOUS; an eased lap would read as a thing being swung, and
+ * `steps()` would put the tic back.
  */
-@keyframes ggMarqueeChaseX  { to { transform: translateX(var(--sb-hero-lamp-gap)); } }
-@keyframes ggMarqueeChaseXr { to { transform: translateX(calc(-1 * var(--sb-hero-lamp-gap))); } }
-@keyframes ggMarqueeChaseY  { to { transform: translateY(var(--sb-hero-lamp-gap)); } }
-@keyframes ggMarqueeChaseYr { to { transform: translateY(calc(-1 * var(--sb-hero-lamp-gap))); } }
+@keyframes ggHeroAttract {
+  to { transform: translate(-50%, -50%) rotate(1turn); }
+}
 
 .gg-hero {
   background: var(--sb-hero-surface);
@@ -1234,73 +1264,62 @@ select option {
   box-shadow: var(--sb-hero-frame-glow);
 }
 
-/* The lamp ring. `inset: 0` over the card, `border-radius: inherit` so the
-   strips sit inside the rounded frame rather than crossing its corners. */
-.gg-hero__marquee {
+/* `inset` is NEGATIVE because an absolutely positioned child is laid out
+   against the PADDING box: at `0` the ring would sit just inside the border and
+   wash the card face instead of lighting the frame. -3px clears the 2px border
+   and puts a further 1px outside it.
+
+   The band is 5px, not the border's 2px, and that is the whole reason the sweep
+   reads. Tried at 2px first: a white-hot 2px line laid over an already-bright
+   2px gold border is a change of a few percent in luminance over four hundred
+   square pixels, and three frozen phases of the lap were indistinguishable in
+   screenshots. At 5px the crest makes the frame visibly THICKEN as well as
+   brighten — it spills 3px outside the card and 2px inside, so what travels is
+   a swell of light rather than a slightly whiter hairline. The resting arc is
+   fully transparent, so none of that extra width exists when the segment is
+   elsewhere; the card's static geometry is unchanged.
+
+   `border-radius` is stated, not inherited, precisely BECAUSE the box is 3px
+   larger than the card's: 14 + 3 keeps the ring concentric with the frame
+   instead of pinching its corners inside them. Same reasoning (and the same
+   arithmetic) as `.gg-card::before` further up this file. */
+.gg-hero__attract {
   position: absolute;
-  inset: 0;
+  inset: -3px;
   z-index: 3;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.gg-hero__lamps {
-  position: absolute;
+  border-radius: 17px;
+  padding: 5px;
   overflow: hidden;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
 }
 
-/* One bulb per tile: a hot core, a halo, then nothing. Three stops rather
-   than a soft radial fade — a fade renders as a smudge at 4px, and what the
-   eye needs to see is a discrete bulb. */
-.gg-hero__lamps::before {
-  content: "";
+.gg-hero__sweep {
+  --gg-sw-off: color-mix(in oklab, var(--sb-hero-sweep) 0%, transparent);
+  --gg-sw-lo: color-mix(in oklab, var(--sb-hero-sweep) 20%, transparent);
+  --gg-sw-mid: color-mix(in oklab, var(--sb-hero-sweep) 62%, transparent);
   position: absolute;
-  background-image: radial-gradient(
-    circle at center,
-    var(--sb-hero-lamp) 0 1.7px,
-    var(--sb-hero-lamp-halo) 1.7px 3.2px,
-    transparent 3.3px);
-  animation-duration: var(--sb-hero-chase-dur);
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
+  top: 50%;
+  left: 50%;
+  width: 200%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: conic-gradient(
+    from 0deg,
+    var(--gg-sw-off) 0deg,
+    var(--gg-sw-lo) 12deg,
+    var(--gg-sw-mid) 36deg,
+    var(--sb-hero-sweep) 44deg,
+    var(--sb-hero-sweep) 50deg,
+    var(--gg-sw-mid) 56deg,
+    var(--gg-sw-lo) 62deg,
+    var(--gg-sw-off) 72deg,
+    var(--gg-sw-off) 360deg);
+  animation: ggHeroAttract var(--sb-hero-sweep-dur) linear infinite;
 }
-
-/* Horizontal edges: full bulb pitch across, strip height carries one bulb. */
-.gg-hero__lamps--t,
-.gg-hero__lamps--b {
-  left: 7px;
-  right: 7px;
-  height: 9px;
-}
-.gg-hero__lamps--t { top: 4px; }
-.gg-hero__lamps--b { bottom: 4px; }
-
-.gg-hero__lamps--t::before,
-.gg-hero__lamps--b::before {
-  inset: 0 calc(-1 * var(--sb-hero-lamp-gap));
-  background-size: var(--sb-hero-lamp-gap) 100%;
-}
-.gg-hero__lamps--t::before { animation-name: ggMarqueeChaseX; }
-.gg-hero__lamps--b::before { animation-name: ggMarqueeChaseXr; }
-
-/* Vertical edges are inset past the horizontal ones, so the corner bulb is
-   drawn once (by the top/bottom strip) instead of twice at half a pitch. */
-.gg-hero__lamps--l,
-.gg-hero__lamps--r {
-  top: 16px;
-  bottom: 16px;
-  width: 9px;
-}
-.gg-hero__lamps--l { left: 4px; }
-.gg-hero__lamps--r { right: 4px; }
-
-.gg-hero__lamps--l::before,
-.gg-hero__lamps--r::before {
-  inset: calc(-1 * var(--sb-hero-lamp-gap)) 0;
-  background-size: 100% var(--sb-hero-lamp-gap);
-}
-.gg-hero__lamps--r::before { animation-name: ggMarqueeChaseY; }
-.gg-hero__lamps--l::before { animation-name: ggMarqueeChaseYr; }
 
 /*
  * Full-bleed phone variant.
@@ -1309,13 +1328,17 @@ select option {
  * stay inset — that contrast IS the emphasis, and it is the only emphasis
  * available once the card is no longer allowed to be twice as tall. It stops
  * 2px short of each screen edge rather than going truly edge-to-edge: at 0 the
- * left and right lamp strips would sit under the viewport's own boundary (and
- * on iOS, under the rubber-band) and the ring would lose two of its four
- * sides. 2px keeps the whole circuit on screen and still reads as full-bleed
- * against a 16px-inset neighbour.
+ * ring's left and right runs would sit under the viewport's own boundary (and
+ * on iOS, under the rubber-band), so the sweep would vanish for the two
+ * stretches of its lap that cross them. 2px keeps the whole circuit on screen
+ * and still reads as full-bleed against a 16px-inset neighbour.
  */
 @media (max-width: 639px) {
   .gg-hero { border-radius: 8px; }
+  /* The ring's radius is stated rather than inherited (its box is 3px larger
+     than the card's), so the phone's tighter corner has to be restated too —
+     8 + 3, by the same arithmetic. */
+  .gg-hero__attract { border-radius: 11px; }
 }
 
 /* Global reduced-motion guard (s20) — the first @media block in this file.
@@ -1335,12 +1358,16 @@ select option {
   .gg-card::after {
     animation: none;
   }
-  /* The hero's marquee stops CHASING but stays LIT — the bulbs rest where
-     they are, so the gold ring that says "champion" is still there. Freezing
-     them to invisible (the `.gg-card` rings' behaviour) would strip the hero
-     of the one signal that distinguishes it from the category grid. */
-  .gg-hero__lamps::before {
+  /* The hero's marquee stops TRAVELLING but stays LIT — freezing it to
+     invisible (the `.gg-card` rings' behaviour) would strip the hero of the one
+     signal that distinguishes it from the category grid. Parking the sweep
+     mid-lap would leave one hot spot stuck on whichever edge the keyframe
+     happened to rest on, which reads as a rendering fault rather than as a
+     design; so the segment is dropped for an EVEN wash at the tail's intensity,
+     and the whole frame simply glows. */
+  .gg-hero__sweep {
     animation: none;
+    background: color-mix(in oklab, var(--sb-hero-sweep) 34%, transparent);
   }
 }
 
