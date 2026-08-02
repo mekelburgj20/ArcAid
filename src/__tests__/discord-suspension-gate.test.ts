@@ -70,9 +70,13 @@ describe('guildInteractionBlockReason', () => {
     });
 });
 
-/** helpers.ts's createTestGame doesn't set iscored_id — resolveActiveSubmitGame
- * requires it truthy (mirrors the pre-existing production query), so tests
- * that need an "active + iScored-linked" game set it directly. */
+/** helpers.ts's createTestGame doesn't set iscored_id, so tests that want an
+ * "active + iScored-linked" game set it directly.
+ *
+ * S23.1 note: `resolveActiveSubmitGame` no longer REQUIRES iscored_id (a
+ * standalone room's games never have one — see s23-score-integrity.test.ts).
+ * These tests keep setting it so they exercise the iScored-linked shape
+ * specifically, proving the suspension guard is unchanged for those rooms. */
 async function linkGameToIscored(gameId: string, iscoredId: string): Promise<void> {
     const db = await getDatabase();
     await db.run('UPDATE games SET iscored_id = ? WHERE id = ?', iscoredId, gameId);

@@ -15,9 +15,26 @@ export interface ScoreReport {
     resolved_at: string | null;
     resolved_by: string | null;
     resolution: string | null;
+    /** S23.6 — see `ScoreSource`. Pre-S23 rows read 'global' via the column DEFAULT. */
+    score_source: ScoreSource;
+    /** S23.6 — set only for 'room_history' rows. */
+    game_room_id: string | null;
 }
 
+/**
+ * S23.6 — which table `score_reports.score_id` points at.
+ *   'global'       → `global_scores.id` (the pre-S23 shape; the column's DEFAULT)
+ *   'room_history' → `score_history.id`, with `game_room_id` set
+ */
+export type ScoreSource = 'global' | 'room_history';
+
 export interface ScoreReportWithContext extends ScoreReport {
+    /** S23.6 — discriminator; 'global' for every pre-S23 row. */
+    score_source: ScoreSource;
+    /** S23.6 — the reporting room for 'room_history' rows; NULL for global. */
+    game_room_id: string | null;
+    /** S23.6 — resolved room name, for the Reports page scope column. */
+    room_name: string | null;
     // Joined global_scores fields
     global_game_id: string | null;
     player_id: string | null;
@@ -68,6 +85,41 @@ export interface UserBanEnriched extends UserBan {
  * sees it in the queue → resolves it with one of: dismiss, soft-delete, hard-delete,
  * ban user. Resolution is recorded and the report is hidden from the default queue.
  */
+/**
+ * S23.6 — one SELECT list serving both report kinds.
+ *
+ * The two joins are mutually exclusive by `score_source`, so exactly one side
+ * is non-NULL per row and the COALESCEs pick it. `CAST(r.score_id AS INTEGER)`
+ * is load-bearing: `score_reports.score_id` is TEXT and `score_history.id` is
+ * INTEGER, and SQLite compares across storage classes by class rank (every TEXT
+ * sorts above every INTEGER) — without the cast the join silently matches
+ * nothing.
+ */
+const REPORT_CONTEXT_SELECT = `
+    SELECT
+        r.id, r.score_id, r.reporter_discord_id, r.reason, r.created_at,
+        r.resolved_at, r.resolved_by, r.resolution,
+        r.score_source, r.game_room_id,
+        s.global_game_id,
+        COALESCE(s.player_id, sh.submitted_by_user_id) as player_id,
+        COALESCE(s.iscored_username, sh.iscored_username) as iscored_username,
+        COALESCE(s.score, sh.score) as score,
+        COALESCE(s.photo_url, sh.photo_url) as photo_url,
+        s.origin_type,
+        COALESCE(s.origin_game_room_id, r.game_room_id) as origin_game_room_id,
+        COALESCE(s.submitted_at, sh.created_at) as submitted_at,
+        s.deleted_at as score_deleted_at,
+        COALESCE(gg.name, sh.game_name) as game_name,
+        gr.name as room_name,
+        up.display_name as reporter_display_name, up.username as reporter_username
+     FROM score_reports r
+     LEFT JOIN global_scores s ON r.score_source = 'global' AND s.id = r.score_id
+     LEFT JOIN global_games gg ON gg.id = s.global_game_id
+     LEFT JOIN score_history sh ON r.score_source = 'room_history' AND sh.id = CAST(r.score_id AS INTEGER)
+     LEFT JOIN game_rooms gr ON gr.id = r.game_room_id
+     LEFT JOIN user_profiles up ON up.discord_user_id = r.reporter_discord_id
+`;
+
 export class ScoreReportService {
     /**
      * List pending (unresolved) reports with full context: the reported score,
@@ -76,18 +128,7 @@ export class ScoreReportService {
     static async listPending(limit = 100, offset = 0): Promise<ScoreReportWithContext[]> {
         const db = await getDatabase();
         return db.all(
-            `SELECT
-                r.id, r.score_id, r.reporter_discord_id, r.reason, r.created_at,
-                r.resolved_at, r.resolved_by, r.resolution,
-                s.global_game_id, s.player_id, s.iscored_username, s.score,
-                s.photo_url, s.origin_type, s.origin_game_room_id, s.submitted_at,
-                s.deleted_at as score_deleted_at,
-                gg.name as game_name,
-                up.display_name as reporter_display_name, up.username as reporter_username
-             FROM score_reports r
-             LEFT JOIN global_scores s ON s.id = r.score_id
-             LEFT JOIN global_games gg ON gg.id = s.global_game_id
-             LEFT JOIN user_profiles up ON up.discord_user_id = r.reporter_discord_id
+            `${REPORT_CONTEXT_SELECT}
              WHERE r.resolved_at IS NULL
              ORDER BY r.created_at ASC
              LIMIT ? OFFSET ?`,
@@ -101,18 +142,7 @@ export class ScoreReportService {
     static async listResolved(limit = 100, offset = 0): Promise<ScoreReportWithContext[]> {
         const db = await getDatabase();
         return db.all(
-            `SELECT
-                r.id, r.score_id, r.reporter_discord_id, r.reason, r.created_at,
-                r.resolved_at, r.resolved_by, r.resolution,
-                s.global_game_id, s.player_id, s.iscored_username, s.score,
-                s.photo_url, s.origin_type, s.origin_game_room_id, s.submitted_at,
-                s.deleted_at as score_deleted_at,
-                gg.name as game_name,
-                up.display_name as reporter_display_name, up.username as reporter_username
-             FROM score_reports r
-             LEFT JOIN global_scores s ON s.id = r.score_id
-             LEFT JOIN global_games gg ON gg.id = s.global_game_id
-             LEFT JOIN user_profiles up ON up.discord_user_id = r.reporter_discord_id
+            `${REPORT_CONTEXT_SELECT}
              WHERE r.resolved_at IS NOT NULL
              ORDER BY r.resolved_at DESC
              LIMIT ? OFFSET ?`,
@@ -133,15 +163,46 @@ export class ScoreReportService {
     }
 
     /**
+     * S23.6 — delete the reported score, whichever table it lives in.
+     *
+     * `global_scores` supports soft delete (a `deleted_at` tombstone), so both
+     * the soft and hard variants below are meaningful there. `score_history`
+     * has no soft-delete concept: its removal goes through
+     * `ScoreHistoryService.deleteEvent`, the SAME machinery the per-row delete
+     * route uses (row drop → photo cleanup → `deleted_score_suppressions`
+     * tombstone so the sync poller can't re-import it → `submissions`
+     * recompute → invalidate + broadcast). Deliberately reused rather than
+     * forked — the recompute is the subtle part.
+     */
+    private static async removeReportedScore(
+        report: ScoreReport, adminDiscordId: string, hard: boolean,
+    ): Promise<boolean> {
+        if (report.score_source === 'room_history') {
+            const { ScoreHistoryService } = await import('./ScoreHistoryService.js');
+            const row = await ScoreHistoryService.getDeletableRow(Number(report.score_id));
+            // Already gone (e.g. the player self-deleted, or a sibling report
+            // removed it first) — still a successful resolution.
+            if (row) await ScoreHistoryService.deleteEvent(row, adminDiscordId);
+            return true;
+        }
+        if (hard) {
+            await GlobalScoreService.hardDelete(report.score_id);
+        } else {
+            await GlobalScoreService.softDelete(report.score_id, adminDiscordId);
+        }
+        return true;
+    }
+
+    /**
      * Resolve by soft-deleting the score. Also resolves any other open reports
      * on the same score so the admin doesn't have to dismiss them one by one.
      */
     static async softDeleteScore(reportId: string, adminDiscordId: string): Promise<boolean> {
         const report = await this.getById(reportId);
         if (!report) return false;
-        await GlobalScoreService.softDelete(report.score_id, adminDiscordId);
-        await this.resolveAllForScore(report.score_id, adminDiscordId, 'deleted');
-        logInfo(`Score ${report.score_id} soft-deleted via report ${reportId} by ${adminDiscordId}`);
+        await this.removeReportedScore(report, adminDiscordId, false);
+        await this.resolveAllForScore(report.score_id, report.score_source, adminDiscordId, 'deleted');
+        logInfo(`Score ${report.score_id} (${report.score_source}) soft-deleted via report ${reportId} by ${adminDiscordId}`);
         return true;
     }
 
@@ -151,33 +212,57 @@ export class ScoreReportService {
     static async hardDeleteScore(reportId: string, adminDiscordId: string): Promise<boolean> {
         const report = await this.getById(reportId);
         if (!report) return false;
-        await GlobalScoreService.hardDelete(report.score_id);
-        await this.resolveAllForScore(report.score_id, adminDiscordId, 'deleted');
-        logInfo(`Score ${report.score_id} hard-deleted via report ${reportId} by ${adminDiscordId}`);
+        await this.removeReportedScore(report, adminDiscordId, true);
+        await this.resolveAllForScore(report.score_id, report.score_source, adminDiscordId, 'deleted');
+        logInfo(`Score ${report.score_id} (${report.score_source}) hard-deleted via report ${reportId} by ${adminDiscordId}`);
         return true;
     }
 
     /**
-     * Resolve by banning the player and soft-deleting the score.
+     * Resolve by banning the player and deleting the score.
      * `durationDays` = null means permanent.
+     *
+     * S23.6 — for a room report the identity comes from
+     * `score_history.submitted_by_user_id`. When that's NULL the score is
+     * anonymous and there is NO identity to ban: we refuse rather than guess
+     * one from the display name (names are first-claim-wins per room and are
+     * not identities).
      */
     static async banUser(
         reportId: string,
         adminDiscordId: string,
         durationDays: number | null,
         banReason?: string
-    ): Promise<boolean> {
+    ): Promise<boolean | { error: string }> {
         const report = await this.getById(reportId);
         if (!report) return false;
 
         const db = await getDatabase();
-        const score = await db.get('SELECT player_id FROM global_scores WHERE id = ?', report.score_id);
-        if (!score) return false;
+        let playerId: string | null;
+        if (report.score_source === 'room_history') {
+            const row = await db.get(
+                'SELECT submitted_by_user_id FROM score_history WHERE id = ?',
+                Number(report.score_id),
+            );
+            if (!row) return false;
+            playerId = row.submitted_by_user_id ?? null;
+            if (!playerId) {
+                return { error: 'Cannot ban: this is an anonymous score with no linked account.' };
+            }
+        } else {
+            const score = await db.get('SELECT player_id FROM global_scores WHERE id = ?', report.score_id);
+            if (!score) return false;
+            playerId = score.player_id;
+        }
 
-        await this.ban(score.player_id, adminDiscordId, durationDays, banReason || report.reason || undefined);
-        await GlobalScoreService.softDelete(report.score_id, adminDiscordId);
-        await this.resolveAllForScore(report.score_id, adminDiscordId, 'banned');
-        logInfo(`User ${score.player_id} banned via report ${reportId} by ${adminDiscordId} (duration: ${durationDays ?? 'permanent'})`);
+        await this.ban(
+            playerId!, adminDiscordId, durationDays, banReason || report.reason || undefined,
+            // A room report bans within that room; a global report bans globally.
+            report.score_source === 'room_history' ? report.game_room_id : null,
+        );
+        await this.removeReportedScore(report, adminDiscordId, false);
+        await this.resolveAllForScore(report.score_id, report.score_source, adminDiscordId, 'banned');
+        logInfo(`User ${playerId} banned via report ${reportId} by ${adminDiscordId} (duration: ${durationDays ?? 'permanent'})`);
         return true;
     }
 
@@ -205,15 +290,20 @@ export class ScoreReportService {
      */
     private static async resolveAllForScore(
         scoreId: string,
+        scoreSource: ScoreSource,
         adminDiscordId: string,
         resolution: ReportResolution
     ): Promise<void> {
         const db = await getDatabase();
+        // S23.6: `score_source` is part of the key. A `score_history.id` is a
+        // small integer rendered as text, so without it a room report could in
+        // principle sweep an unrelated global report that happened to share the
+        // string.
         await db.run(
             `UPDATE score_reports
              SET resolved_at = datetime('now'), resolved_by = ?, resolution = ?
-             WHERE score_id = ? AND resolved_at IS NULL`,
-            adminDiscordId, resolution, scoreId
+             WHERE score_id = ? AND score_source = ? AND resolved_at IS NULL`,
+            adminDiscordId, resolution, scoreId, scoreSource
         );
     }
 

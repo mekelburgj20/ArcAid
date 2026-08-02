@@ -1454,14 +1454,19 @@ router.post('/score-reports/:reportId/ban', async (req, res) => {
         // Banning that id writes a user_bans row that can never match any
         // real session — a silent no-op that looks like it worked. Reject
         // explicitly instead.
-        const db = await getDatabase();
-        const scoreRow = await db.get<{ player_id: string | null }>(
-            'SELECT player_id FROM global_scores WHERE id = ?', report.score_id,
-        );
-        if (scoreRow?.player_id?.startsWith('iscored:')) {
-            return res.status(400).json({
-                error: "Cannot ban an iScored-synced name — it has no login identity to ban. Use Soft Delete or Hard Delete instead.",
-            });
+        // S23.6: only meaningful for a global report — a room report's identity
+        // comes from `score_history.submitted_by_user_id`, and `banUser`
+        // refuses that case itself (anonymous row → no identity to ban).
+        if (report.score_source !== 'room_history') {
+            const db = await getDatabase();
+            const scoreRow = await db.get<{ player_id: string | null }>(
+                'SELECT player_id FROM global_scores WHERE id = ?', report.score_id,
+            );
+            if (scoreRow?.player_id?.startsWith('iscored:')) {
+                return res.status(400).json({
+                    error: "Cannot ban an iScored-synced name — it has no login identity to ban. Use Soft Delete or Hard Delete instead.",
+                });
+            }
         }
 
         const ok = await ScoreReportService.banUser(
@@ -1470,6 +1475,7 @@ router.post('/score-reports/:reportId/ban', async (req, res) => {
             durationDays ?? null,
             reason,
         );
+        if (typeof ok === 'object') return res.status(400).json({ error: ok.error });
         if (!ok) return res.status(404).json({ error: 'Report not found' });
         res.json({ success: true });
     } catch (error) {

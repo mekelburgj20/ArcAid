@@ -22,6 +22,9 @@ import {
     GameProposalSchema,
     ImportCsvPreviewSchema,
     ImportCsvCommitSchema,
+    ScoreImportRowSchema,
+    ScoreImportPreviewSchema,
+    ScoreImportCommitSchema,
     GameCommentSchema,
     PickGameSchema,
     ReorderQueueSchema,
@@ -1344,13 +1347,8 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
         const historyId = parseInt(req.params.historyId as string, 10);
         if (!Number.isFinite(historyId)) return res.status(400).json({ error: 'Invalid history id' });
 
-        const db = await getDatabase();
-        const row = await db.get(
-            `SELECT id, game_room_id, game_id, game_name, iscored_username, score,
-                    source, submitted_by_user_id, photo_url
-             FROM score_history WHERE id = ?`,
-            historyId
-        );
+        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+        const row = await ScoreHistoryService.getDeletableRow(historyId);
         if (!row) return res.status(404).json({ error: 'Score not found' });
         if (row.game_room_id !== roomId) return res.status(404).json({ error: 'Score not found in this room' });
         if (row.source !== 'tournament' && row.source !== 'sync') {
@@ -1364,61 +1362,12 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
             return res.status(403).json({ error: 'You can only delete your own scores' });
         }
 
-        await db.run('DELETE FROM score_history WHERE id = ?', historyId);
-
-        // S12: remove the score's evidence photo from disk now that its row is
-        // gone (best-effort, never throws; a no-op when the row carried no photo).
-        deleteScorePhotoFiles([row.photo_url]);
-
-        // Tombstone for the sync poller (see deleted_score_suppressions doc).
-        // We suppress at MAX(existing, deleted_score) so a player who deletes
-        // their 5000, then their 4000, doesn't accidentally lower the
-        // threshold and let iScored re-import the 5000 on the next poll.
-        if (row.game_id && (row.source === 'sync' || row.source === 'tournament')) {
-            await db.run(
-                `INSERT INTO deleted_score_suppressions
-                    (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
-                 VALUES (?, LOWER(?), ?, datetime('now'), ?)
-                 ON CONFLICT(game_id, iscored_username_lower) DO UPDATE SET
-                    suppressed_score = MAX(suppressed_score, excluded.suppressed_score),
-                    deleted_at = datetime('now'),
-                    deleted_by_user_id = excluded.deleted_by_user_id`,
-                row.game_id, row.iscored_username, row.score,
-                req.user!.discordId || req.user!.username || 'self'
-            );
-        }
-
-        // Recompute the submissions row for this (game, player). Submissions is
-        // best-per-player-per-game; sync+tournament sources both feed it. We
-        // grab score+created_at from the same row (highest score, earliest
-        // timestamp on tie) so the submissions timestamp continues to reflect
-        // when the *displayed* score was set, not just the latest activity.
-        if (row.game_id) {
-            const submissionId = `${row.game_id}-${(row.iscored_username as string).toLowerCase()}`;
-            const remaining = await db.get(
-                `SELECT score, created_at
-                 FROM score_history
-                 WHERE game_id = ?
-                   AND LOWER(iscored_username) = LOWER(?)
-                   AND orphaned_at IS NULL
-                   AND source IN ('tournament','sync')
-                 ORDER BY score DESC, created_at ASC
-                 LIMIT 1`,
-                row.game_id, row.iscored_username
-            );
-            if (remaining) {
-                await db.run(
-                    `UPDATE submissions SET score = ?, timestamp = ? WHERE id = ?`,
-                    remaining.score, remaining.created_at, submissionId
-                );
-            } else {
-                await db.run('DELETE FROM submissions WHERE id = ?', submissionId);
-            }
-            const { LeaderboardService } = await import('../../services/LeaderboardService.js');
-            await LeaderboardService.invalidate(row.game_id);
-            const { emitLeaderboardUpdated } = await import('../websocket.js');
-            emitLeaderboardUpdated(roomId, { gameId: row.game_id });
-        }
+        // S23.6 — the delete/photo-cleanup/tombstone/recompute/broadcast
+        // sequence now lives in ScoreHistoryService.deleteEvent so the
+        // score-report resolution path shares it verbatim.
+        await ScoreHistoryService.deleteEvent(
+            row, req.user!.discordId || req.user!.username || 'self',
+        );
 
         // Activity log: only when an admin used this. Self-delete is mundane
         // and would noise up the room timeline.
@@ -1434,10 +1383,155 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
             }).catch(() => {});
         }
 
-        logInfo(`score_history#${historyId} deleted by ${req.user!.role}=${req.user!.discordId} (player ${row.iscored_username}, score ${row.score}, game ${row.game_id || row.game_name})`);
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/score-history/:historyId):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * S23.7 — verified-score loop (minimal floor).
+ *
+ * Marks a `score_history` row as admin-verified. Deliberately NOT on the dead
+ * legacy `scores` table (zero readers/writers). No auto-verification, no bulk
+ * verify, no player-facing "request verification" — this exists so the future
+ * self-EDIT question ("can an edit raise a verified score?") is answerable.
+ *
+ * Room-admin only (`requireAuth + requireRoomAccess`), unlike the sibling
+ * DELETE route which also allows self-service on your own row: verifying your
+ * own score would defeat the point.
+ */
+router.post('/:roomId/score-history/:historyId/verify', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const historyId = parseInt(req.params.historyId as string, 10);
+        if (!Number.isFinite(historyId)) return res.status(400).json({ error: 'Invalid history id' });
+
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT id, game_room_id, game_name, iscored_username, score FROM score_history WHERE id = ?',
+            historyId,
+        );
+        if (!row) return res.status(404).json({ error: 'Score not found' });
+        if (row.game_room_id !== roomId) return res.status(404).json({ error: 'Score not found in this room' });
+
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        await db.run(
+            `UPDATE score_history SET verified_by = ?, verified_at = datetime('now') WHERE id = ?`,
+            actor, historyId,
+        );
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor,
+            action: 'score_verified',
+            target_type: 'score_history',
+            target_id: String(historyId),
+            details: JSON.stringify({
+                roomId, gameName: row.game_name,
+                player: row.iscored_username, score: row.score,
+            }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        const updated = await db.get(
+            'SELECT verified_by, verified_at FROM score_history WHERE id = ?', historyId,
+        );
+        res.json({ success: true, verified_by: updated?.verified_by, verified_at: updated?.verified_at });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/score-history/:historyId/verify):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/** S23.7 — clears the verification set by the route above. */
+router.post('/:roomId/score-history/:historyId/unverify', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const historyId = parseInt(req.params.historyId as string, 10);
+        if (!Number.isFinite(historyId)) return res.status(400).json({ error: 'Invalid history id' });
+
+        const db = await getDatabase();
+        const row = await db.get(
+            'SELECT id, game_room_id, game_name, iscored_username, score FROM score_history WHERE id = ?',
+            historyId,
+        );
+        if (!row) return res.status(404).json({ error: 'Score not found' });
+        if (row.game_room_id !== roomId) return res.status(404).json({ error: 'Score not found in this room' });
+
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        await db.run(
+            'UPDATE score_history SET verified_by = NULL, verified_at = NULL WHERE id = ?',
+            historyId,
+        );
+
+        await AuditService.log({
+            actor,
+            action: 'score_unverified',
+            target_type: 'score_history',
+            target_id: String(historyId),
+            details: JSON.stringify({
+                roomId, gameName: row.game_name,
+                player: row.iscored_username, score: row.score,
+            }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/score-history/:historyId/unverify):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * S23.6 — room-scoped score report. The global sibling is
+ * `POST /api/global/scores/:scoreId/report` (global.ts); this one points at a
+ * `score_history` row instead of a `global_scores` row, which is why
+ * `score_reports` grew a `score_source` discriminator (migration 134).
+ */
+router.post('/:roomId/score-history/:historyId/report', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const historyId = parseInt(req.params.historyId as string, 10);
+        if (!Number.isFinite(historyId)) return res.status(400).json({ error: 'Invalid history id' });
+        const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 500) : null;
+
+        const db = await getDatabase();
+        // Must belong to this room and not be orphaned (an orphaned row's game
+        // is gone, so there's nothing an admin could act on).
+        const row = await db.get(
+            'SELECT id FROM score_history WHERE id = ? AND game_room_id = ? AND orphaned_at IS NULL',
+            historyId, roomId,
+        );
+        if (!row) return res.status(404).json({ error: 'Score not found' });
+
+        // Don't let a user report the same score twice while a prior report is open
+        const existing = await db.get(
+            `SELECT id FROM score_reports
+             WHERE score_id = ? AND score_source = 'room_history'
+               AND reporter_discord_id = ? AND resolved_at IS NULL`,
+            String(historyId), req.user!.discordId,
+        );
+        if (existing) {
+            return res.status(409).json({ error: 'You have already reported this score.' });
+        }
+
+        const cryptoMod = await import('crypto');
+        const reportId = cryptoMod.randomUUID();
+        await db.run(
+            `INSERT INTO score_reports (id, score_id, reporter_discord_id, reason, score_source, game_room_id)
+             VALUES (?, ?, ?, ?, 'room_history', ?)`,
+            reportId, String(historyId), req.user!.discordId, reason, roomId,
+        );
+
+        logInfo(`score_history#${historyId} (room ${roomId}) reported by ${req.user!.discordId}`);
+        res.status(201).json({ id: reportId });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/score-history/:historyId/report):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
@@ -2745,6 +2839,285 @@ router.post('/:roomId/game_library/import-csv-commit', requireAuth, requireRoomA
         res.json({ ok: counts.errors === 0, counts, errors: errors.length ? errors : undefined });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/game_library/import-csv-commit):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// S23.4 — bulk historical score import (preview → commit).
+//
+// Shape copies the game-CSV importer above: the FE parses the file in-browser
+// with PapaParse and posts JSON; the preview response is held in browser memory
+// and replayed on commit. No server-side ephemeral session.
+//
+// Deliberate NON-behaviours (S23.4 rulings). These rows are historical
+// all-time scores an admin is backfilling, not live submissions:
+//   - `source='community'`. `score_history.source` has a CHECK constraint of
+//     ('tournament','community','sync'); adding a fourth value means rebuilding
+//     the biggest table in the DB. 'sync' is wrong because doctrine forces
+//     engine/device to 'unknown' for synced rows (ADR 0016 P2) while CSV rows
+//     carry real admin-supplied provenance. 'community' = "recorded outside a
+//     tournament window", which is exactly what these are.
+//   - NO tournament linkage (`submitted_during_tournament_id` stays NULL via
+//     `skipTournamentLink`) — otherwise a backfill would silently land on
+//     whatever tournament happens to be running right now.
+//   - NO Global Scoreboard fan-out. Rows are names, not authenticated users, so
+//     `submitted_by_user_id` is NULL; `fanOutFromRoomSubmission`'s guest gate
+//     would drop them anyway, but the import path never calls it at all.
+//   - NO iScored sync, NO lobby-feed events, NO score toasts — a bulk import
+//     must not spam the feed. One `leaderboard:updated` per affected game at
+//     the end instead.
+// ---------------------------------------------------------------------------
+
+type ScoreImportBucket = 'ok' | 'needs_review' | 'error';
+
+/**
+ * Shared per-row resolution for the two routes below. Resolves the game against
+ * the global catalogue (which IS the room library, ADR 0007), validates the
+ * engine/device pair against that game's scope in this room, and parses the
+ * date. Returns the bucket plus everything the commit loop needs.
+ */
+async function resolveScoreImportRow(roomId: string, raw: unknown): Promise<{
+    bucket: ScoreImportBucket;
+    error?: string;
+    /** Populated for 'ok' rows. */
+    resolved?: {
+        gameName: string;
+        globalGameId: string;
+        playerName: string;
+        score: number;
+        createdAt: string | null;
+        engine: string;
+        device: string;
+        platform: string | null;
+        photoUrl: string | null;
+    };
+    /** Populated for 'needs_review' — the ambiguous catalogue candidates. */
+    candidates?: Array<{ id: string; name: string; manufacturer: string | null; year: number | null }>;
+}> {
+    const parsed = ScoreImportRowSchema.safeParse(raw);
+    if (!parsed.success) {
+        return { bucket: 'error', error: parsed.error.issues[0]?.message || 'Invalid row' };
+    }
+    const input = parsed.data;
+
+    const db = await getDatabase();
+    const matches = await db.all(
+        `SELECT id, name, manufacturer, year FROM global_games
+         WHERE LOWER(name) = LOWER(?) AND status = 'approved'
+         ORDER BY created_at ASC`,
+        input.game_name.trim(),
+    );
+    if (matches.length === 0) {
+        return { bucket: 'error', error: `No catalogue game named "${input.game_name}"` };
+    }
+    if (matches.length > 1) {
+        // The composite identity index lets same-name games from different
+        // manufacturers/years coexist (ADR 0004), so a bare name can be
+        // genuinely ambiguous. The admin disambiguates in the UI.
+        return { bucket: 'needs_review', candidates: matches, error: 'Multiple catalogue games share this name' };
+    }
+    const game = matches[0]!;
+
+    const { ScoreProvenanceService } = await import('../../services/ScoreProvenanceService.js');
+    const scope = await ScoreProvenanceService.resolveForRoomGame(roomId, game.name);
+    const provenance = ScoreProvenanceService.validate(scope, input.engine, input.device);
+    if (!provenance.ok) return { bucket: 'error', error: provenance.error };
+
+    let createdAt: string | null = null;
+    if (input.date && input.date.trim()) {
+        const d = new Date(input.date.trim());
+        if (Number.isNaN(d.getTime())) {
+            return { bucket: 'error', error: `Unparseable date "${input.date}"` };
+        }
+        createdAt = d.toISOString();
+    }
+
+    return {
+        bucket: 'ok',
+        resolved: {
+            gameName: game.name,
+            globalGameId: game.id,
+            playerName: input.player_name.trim(),
+            score: input.score,
+            createdAt,
+            engine: provenance.engine,
+            device: provenance.device,
+            platform: provenance.platform,
+            photoUrl: input.photo_url?.trim() || null,
+        },
+    };
+}
+
+/**
+ * POST /:roomId/scores/import-csv-preview — read-only binning of parsed rows.
+ * Nothing is written. `needs_review` means the game name matched more than one
+ * catalogue entry; `error` means the row can't be imported as written.
+ */
+router.post('/:roomId/scores/import-csv-preview', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
+    try {
+        const validationResult = validate(ScoreImportPreviewSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const roomId = req.params.roomId as string;
+
+        const rows = [];
+        for (let i = 0; i < validationResult.data.rows.length; i++) {
+            const outcome = await resolveScoreImportRow(roomId, validationResult.data.rows[i]);
+            rows.push({ index: i, input: validationResult.data.rows[i], ...outcome });
+        }
+
+        const summary = {
+            ok: rows.filter(r => r.bucket === 'ok').length,
+            needs_review: rows.filter(r => r.bucket === 'needs_review').length,
+            error: rows.filter(r => r.bucket === 'error').length,
+            total: rows.length,
+        };
+        res.json({ rows, summary });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/scores/import-csv-preview):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+/**
+ * POST /:roomId/scores/import-csv-commit — writes the rows.
+ *
+ * Drift guard: rather than the identity-preview `previewHash` 409 pattern, this
+ * re-resolves every row server-side at commit time (the same discipline the
+ * game-CSV commit uses). Cheaper to reason about, and a row that went ambiguous
+ * or invalid since the preview is reported per-row instead of failing the batch.
+ *
+ * Per-row best-effort: one bad row doesn't roll back the others.
+ */
+router.post('/:roomId/scores/import-csv-commit', requireAuth, requireRoomAccess('roomId'), requireNotBanned, async (req, res) => {
+    try {
+        const validationResult = validate(ScoreImportCommitSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const roomId = req.params.roomId as string;
+        const actor = req.user?.discordId || req.user?.username || 'admin';
+
+        const db = await getDatabase();
+        const { ScoreHistoryService } = await import('../../services/ScoreHistoryService.js');
+
+        const counts = { imported: 0, skipped: 0, errors: 0 };
+        const errors: Array<{ index: number; error: string }> = [];
+        const touchedGameIds = new Set<string>();
+
+        for (let i = 0; i < validationResult.data.rows.length; i++) {
+            try {
+                const outcome = await resolveScoreImportRow(roomId, validationResult.data.rows[i]);
+                if (outcome.bucket !== 'ok' || !outcome.resolved) {
+                    counts.skipped++;
+                    errors.push({ index: i, error: outcome.error || 'Row not importable' });
+                    continue;
+                }
+                const r = outcome.resolved;
+
+                // A `games` row exists only when this catalogue game is
+                // currently pinned or in a tournament for this room. When it
+                // is, keep `submissions` (best-per-player-per-game, keyed on
+                // games.id) consistent with the new history row. When it isn't,
+                // score_history alone is the correct and complete write — the
+                // same shape freeplay/community submissions have.
+                const gameRow = await db.get(
+                    `SELECT g.id FROM games g
+                     LEFT JOIN tournaments t ON t.id = g.tournament_id
+                     WHERE LOWER(g.name) = LOWER(?)
+                       AND COALESCE(t.game_room_id, g.game_room_id) = ?
+                     ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
+                     LIMIT 1`,
+                    r.gameName, roomId,
+                );
+
+                if (gameRow?.id) {
+                    await db.run(
+                        `INSERT INTO submissions (
+                            id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
+                            submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
+                            submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
+                            engine, device
+                         )
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?, ?)
+                         ON CONFLICT(id) DO UPDATE SET
+                            score = MAX(score, excluded.score),
+                            photo_url = COALESCE(excluded.photo_url, submissions.photo_url),
+                            platform = COALESCE(excluded.platform, submissions.platform),
+                            engine = COALESCE(NULLIF(excluded.engine, 'unknown'), submissions.engine, 'unknown'),
+                            device = COALESCE(NULLIF(excluded.device, 'unknown'), submissions.device, 'unknown')`,
+                        `${gameRow.id}-${r.playerName.toLowerCase()}`, gameRow.id, 'SYSTEM',
+                        r.playerName, r.score, r.photoUrl, r.createdAt || new Date().toISOString(),
+                        roomId, r.playerName, r.platform, r.engine, r.device,
+                    );
+                    touchedGameIds.add(gameRow.id);
+                }
+
+                await ScoreHistoryService.log({
+                    gameName: r.gameName,
+                    gameRoomId: roomId,
+                    gameId: gameRow?.id,
+                    username: r.playerName,
+                    score: r.score,
+                    photoUrl: r.photoUrl ?? undefined,
+                    source: 'community',
+                    // Historical backfill — never attach to a live tournament.
+                    skipTournamentLink: true,
+                    anonymousName: r.playerName,
+                    platform: r.platform,
+                    engine: r.engine,
+                    device: r.device,
+                });
+
+                // Backdating: ScoreHistoryService.log always stamps
+                // created_at = now. When the CSV supplied a date, correct the
+                // row we just wrote so the history reads chronologically.
+                if (r.createdAt) {
+                    await db.run(
+                        `UPDATE score_history SET created_at = ?
+                         WHERE id = (SELECT MAX(id) FROM score_history
+                                     WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
+                                       AND LOWER(iscored_username) = LOWER(?) AND score = ?)`,
+                        r.createdAt, roomId, r.gameName, r.playerName, r.score,
+                    );
+                }
+
+                counts.imported++;
+            } catch (err) {
+                counts.errors++;
+                errors.push({ index: i, error: (err as Error).message });
+            }
+        }
+
+        // One broadcast per affected game (no per-row toasts — see the block
+        // comment above).
+        if (touchedGameIds.size > 0) {
+            const { LeaderboardService } = await import('../../services/LeaderboardService.js');
+            const { emitLeaderboardUpdated } = await import('../websocket.js');
+            for (const gameId of touchedGameIds) {
+                await LeaderboardService.invalidate(gameId);
+                emitLeaderboardUpdated(roomId, { gameId });
+            }
+        }
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor,
+            action: 'scores_bulk_imported',
+            target_type: 'game_room',
+            target_id: roomId,
+            details: JSON.stringify({
+                submitted: validationResult.data.rows.length,
+                imported: counts.imported,
+                skipped: counts.skipped,
+                errors: counts.errors,
+            }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        logInfo(`Bulk score import for room ${roomId} by ${actor}: ${counts.imported} imported, ${counts.skipped} skipped, ${counts.errors} errors`);
+        res.json({ ok: counts.errors === 0 && counts.skipped === 0, counts, errors: errors.length ? errors : undefined });
+    } catch (error) {
+        logError('API Error (POST rooms/:roomId/scores/import-csv-commit):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

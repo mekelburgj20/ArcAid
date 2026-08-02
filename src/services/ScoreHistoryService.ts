@@ -2,6 +2,21 @@ import { getDatabase } from '../database/database.js';
 import { normalizeSubmitterUserId } from './SubmissionContextService.js';
 import { RoomMembershipService } from './RoomMembershipService.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
+import { deleteScorePhotoFiles } from '../utils/scorePhotoCleanup.js';
+import { logInfo } from '../utils/logger.js';
+
+/** A `score_history` row as the per-row delete machinery needs to see it. */
+export interface DeletableScoreRow {
+    id: number;
+    game_room_id: string;
+    game_id: string | null;
+    game_name: string;
+    iscored_username: string;
+    score: number;
+    source: string;
+    submitted_by_user_id: string | null;
+    photo_url: string | null;
+}
 
 export class ScoreHistoryService {
     /**
@@ -33,6 +48,14 @@ export class ScoreHistoryService {
          */
         engine?: string | null;
         device?: string | null;
+        /**
+         * S23.4 — bulk CSV score import. Without this, the auto-resolve below
+         * would attach an imported historical score to whatever tournament
+         * happens to be ACTIVE for that room+game right now, putting it on a
+         * live tournament board it was never played in. Imports pass `true`;
+         * every interactive submit path leaves it unset.
+         */
+        skipTournamentLink?: boolean;
     }) {
         const db = await getDatabase();
 
@@ -57,7 +80,7 @@ export class ScoreHistoryService {
         // COMPLETED, the tournament window for that game is closed, so new
         // submissions don't count toward it.
         let submittedTournamentId = params.tournamentId ?? null;
-        if (!submittedTournamentId && params.gameRoomId && params.gameName) {
+        if (!submittedTournamentId && !params.skipTournamentLink && params.gameRoomId && params.gameName) {
             const activeGame = await db.get(
                 `SELECT t.id as tournament_id
                  FROM games g
@@ -92,6 +115,95 @@ export class ScoreHistoryService {
     }
 
     /**
+     * Fetch the columns the per-row delete machinery needs. Separate from
+     * `deleteEvent` so callers can run their own authorization/ownership checks
+     * against the row before deleting it.
+     */
+    static async getDeletableRow(historyId: number): Promise<DeletableScoreRow | undefined> {
+        const db = await getDatabase();
+        return db.get<DeletableScoreRow>(
+            `SELECT id, game_room_id, game_id, game_name, iscored_username, score,
+                    source, submitted_by_user_id, photo_url
+             FROM score_history WHERE id = ?`,
+            historyId,
+        );
+    }
+
+    /**
+     * v2.9.0 per-row score deletion, extracted from the
+     * `DELETE /:roomId/score-history/:historyId` route in S23.6 so the score-report
+     * resolution path can reuse it instead of forking the recompute.
+     *
+     * Does, in order: drop the row → delete its evidence photo from disk →
+     * write the `deleted_score_suppressions` tombstone (so `ScoreSyncPoller`
+     * can't re-import it on the next cycle) → recompute the corresponding
+     * `submissions` row from what's left → invalidate + broadcast.
+     *
+     * Authorization is the CALLER's job — this method assumes it's already been
+     * decided. Same for the `source IN ('tournament','sync')` restriction the
+     * route enforces.
+     */
+    static async deleteEvent(row: DeletableScoreRow, actorId: string): Promise<void> {
+        const db = await getDatabase();
+        await db.run('DELETE FROM score_history WHERE id = ?', row.id);
+
+        // S12: remove the score's evidence photo from disk now that its row is
+        // gone (best-effort, never throws; a no-op when the row carried no photo).
+        deleteScorePhotoFiles([row.photo_url]);
+
+        // Tombstone for the sync poller (see deleted_score_suppressions doc).
+        // We suppress at MAX(existing, deleted_score) so a player who deletes
+        // their 5000, then their 4000, doesn't accidentally lower the
+        // threshold and let iScored re-import the 5000 on the next poll.
+        if (row.game_id && (row.source === 'sync' || row.source === 'tournament')) {
+            await db.run(
+                `INSERT INTO deleted_score_suppressions
+                    (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
+                 VALUES (?, LOWER(?), ?, datetime('now'), ?)
+                 ON CONFLICT(game_id, iscored_username_lower) DO UPDATE SET
+                    suppressed_score = MAX(suppressed_score, excluded.suppressed_score),
+                    deleted_at = datetime('now'),
+                    deleted_by_user_id = excluded.deleted_by_user_id`,
+                row.game_id, row.iscored_username, row.score, actorId,
+            );
+        }
+
+        // Recompute the submissions row for this (game, player). Submissions is
+        // best-per-player-per-game; sync+tournament sources both feed it. We
+        // grab score+created_at from the same row (highest score, earliest
+        // timestamp on tie) so the submissions timestamp continues to reflect
+        // when the *displayed* score was set, not just the latest activity.
+        if (row.game_id) {
+            const submissionId = `${row.game_id}-${row.iscored_username.toLowerCase()}`;
+            const remaining = await db.get(
+                `SELECT score, created_at
+                 FROM score_history
+                 WHERE game_id = ?
+                   AND LOWER(iscored_username) = LOWER(?)
+                   AND orphaned_at IS NULL
+                   AND source IN ('tournament','sync')
+                 ORDER BY score DESC, created_at ASC
+                 LIMIT 1`,
+                row.game_id, row.iscored_username,
+            );
+            if (remaining) {
+                await db.run(
+                    `UPDATE submissions SET score = ?, timestamp = ? WHERE id = ?`,
+                    remaining.score, remaining.created_at, submissionId,
+                );
+            } else {
+                await db.run('DELETE FROM submissions WHERE id = ?', submissionId);
+            }
+            const { LeaderboardService } = await import('./LeaderboardService.js');
+            await LeaderboardService.invalidate(row.game_id);
+            const { emitLeaderboardUpdated } = await import('../api/websocket.js');
+            emitLeaderboardUpdated(row.game_room_id, { gameId: row.game_id });
+        }
+
+        logInfo(`score_history#${row.id} deleted by ${actorId} (player ${row.iscored_username}, score ${row.score}, game ${row.game_id || row.game_name})`);
+    }
+
+    /**
      * Get all score history for a specific player + game in a room.
      * Returns both tournament and community submissions.
      *
@@ -109,6 +221,9 @@ export class ScoreHistoryService {
         return db.all(`
             SELECT sh.id, sh.score, sh.source, sh.photo_url, sh.created_at, sh.game_id,
                    sh.iscored_username,
+                   -- S23.7: verification state drives the checkmark + the
+                   -- admin verify/unverify toggle on the history-expand rows.
+                   sh.verified_by, sh.verified_at,
                    up.display_name,
                    sh.submitted_by_user_id,
                    sh.submitted_during_tournament_id as tournament_id,
@@ -156,7 +271,8 @@ export class ScoreHistoryService {
     static async getGameSubmissions(gameRoomId: string, gameId: string) {
         const db = await getDatabase();
         return db.all(`
-            SELECT sh.id, sh.iscored_username, up.display_name, sh.score, sh.source, sh.photo_url, sh.created_at
+            SELECT sh.id, sh.iscored_username, up.display_name, sh.score, sh.source, sh.photo_url, sh.created_at,
+                   sh.verified_by, sh.verified_at
             FROM score_history sh
             LEFT JOIN user_mappings um ON LOWER(um.iscored_username) = LOWER(sh.iscored_username)
             LEFT JOIN user_profiles up ON up.discord_user_id = COALESCE(sh.submitted_by_user_id, um.discord_user_id)

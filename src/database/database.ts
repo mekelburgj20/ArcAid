@@ -2157,6 +2157,21 @@ export async function initDatabase(): Promise<Database> {
             const { addRaCatalogueColumns } = await import('./migrations/raCatalogueColumns.js');
             await addRaCatalogueColumns(db);
         } },
+        // --- S23.6: score_reports gets a table discriminator ---
+        // `score_reports.score_id` used to be implicitly a `global_scores.id` —
+        // every ScoreReportService consumer hard-joined that table. Room-scoped
+        // reports point at a `score_history.id` instead, so the row has to say
+        // which table it means. ALTER-ADD only (no rebuild): existing rows are
+        // all global by construction, which is exactly what the DEFAULT gives
+        // them. `game_room_id` stays NULL for global rows.
+        { name: '134_score_reports_score_source', sql: `ALTER TABLE score_reports ADD COLUMN score_source TEXT NOT NULL DEFAULT 'global'` },
+        { name: '135_score_reports_game_room_id', sql: `ALTER TABLE score_reports ADD COLUMN game_room_id TEXT` },
+        // --- S23.7: verified-score loop ---
+        // Deliberately on `score_history`, NOT the dead legacy `scores` table
+        // (whose `verified` column has zero readers and zero writers). Both
+        // NULL = unverified, which is every pre-existing row.
+        { name: '136_score_history_verified_by', sql: `ALTER TABLE score_history ADD COLUMN verified_by TEXT` },
+        { name: '137_score_history_verified_at', sql: `ALTER TABLE score_history ADD COLUMN verified_at TEXT` },
     ];
 
     for (const migration of migrations) {
