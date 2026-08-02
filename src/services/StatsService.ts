@@ -757,7 +757,14 @@ export class StatsService {
             FROM ranked
             WHERE player_key = ?
             ORDER BY room_rank ASC, game_name ASC
-            LIMIT 50
+            -- The FE filters this list client-side (searchable Personal Bests on
+            -- the player detail page), so it must be effectively COMPLETE — a
+            -- top-50 truncation would hide a player's best on a game they rank
+            -- poorly at, which is exactly what the search is for. 1000 is a
+            -- backstop against pathological data, not a paging boundary: the
+            -- number of distinct games one player has scored on in one room is
+            -- naturally bounded well below it.
+            LIMIT 1000
         `, ...roomParams, playerKey, playerKey);
 
         return rows;
