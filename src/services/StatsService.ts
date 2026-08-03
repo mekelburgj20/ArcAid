@@ -681,11 +681,37 @@ export class StatsService {
      * S13 trophy case: the player's best score per game in a room, ranked
      * against every other player's best on the same game.
      *
-     * Room-scoping mirrors getEnhancedPlayerStats/getEnhancedPlayerStatsByUsername
-     * verbatim (`JOIN tournaments t ON g.tournament_id = t.id AND t.game_room_id = ?`),
-     * so pinned games (tournament_id IS NULL) are implicitly excluded here too,
-     * consistent with every other room-scoped query in this file (see the
-     * file-header note).
+     * ## The game key is `(game_room_id, LOWER(game_name))`, NOT `game_id`
+     *
+     * `score_history` rows are keyed by `game_name` + `game_room_id`. Its
+     * `game_id` column is at best a transient pointer and is NULL on every row
+     * in production (verified 2026-08-02: zero non-NULL `game_id` rows
+     * table-wide). Two forces drive it to NULL: the dominant web submit path
+     * (`CommunityScoreService` → `ScoreHistoryService.log`) never supplies a
+     * `gameId` at all, and every unpin / game-delete / cleanup path
+     * deliberately runs `UPDATE score_history SET game_id = NULL` to preserve
+     * the score after its `games` row goes away (ADR 0005). The paths that DO
+     * pass a `gameId` (Discord `/submit-score`, the iScored sync writers, the
+     * bulk CSV import) therefore only ever populate it until the next
+     * rotation. Net effect: any read that does `JOIN games g ON sh.game_id =
+     * g.id` matches NOTHING. `RoomScoresService` is the matching doctrine —
+     * it scopes by `game_room_id`, groups by `LOWER(game_name)`, takes the
+     * display name from `MAX(game_name)`, and never joins `games`. This does
+     * the same. `game_room_id` stays in the key even on the unscoped call so
+     * the same game name in two rooms remains two separate boards.
+     *
+     * Room-scoping is `AND sh.game_room_id = ?`, exactly like the sibling
+     * `getParticipationStreak`.
+     *
+     * ### Deliberate behavior deltas vs. the pre-v2.74 `submissions` list
+     *
+     * Scores on pinned games, freeplay/community scores, and scores whose
+     * `games` row has since been deleted ALL appear now — none of them did
+     * under the old `JOIN games`/`JOIN tournaments` scoping. That is
+     * consistent with the Room Scores page, which shows exactly this
+     * population. A score outliving its game and still ranking is intended.
+     * The moderation rule is unchanged: deleting the `score_history` rows
+     * removes the best.
      *
      * `playerKey` is the three-leg identity key: COALESCE(submitted_by_user_id,
      * um.discord_user_id, 'iscored:' || LOWER(iscored_username)) — the
@@ -709,23 +735,23 @@ export class StatsService {
      * The sibling `getParticipationStreak` already read `score_history`, so
      * the two halves of the same payload were derived from different tables —
      * they now agree. Collapsing many events to one best per player is what
-     * `best_per_player` already did, so the shape is unchanged.
+     * `best_per_player` already did, so the shape is unchanged. (The S24.5
+     * revision scoped via `JOIN games`, which is what the name+room keying
+     * documented above replaces.)
      */
     private static async getPersonalBests(playerKey: string, gameRoomId?: string) {
         const db = await getDatabase();
 
-        const roomJoin = gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : '';
-        const roomWhere = gameRoomId ? 'AND t.game_room_id = ?' : '';
+        const roomWhere = gameRoomId ? 'AND sh.game_room_id = ?' : '';
         const roomParams = gameRoomId ? [gameRoomId] : [];
 
         const rows = await db.all(`
             WITH scoped AS (
-                SELECT sh.game_id AS game_id, g.name AS game_name, sh.score AS score, sh.created_at AS timestamp,
+                SELECT sh.game_room_id AS game_room_id, LOWER(sh.game_name) AS game_key,
+                       sh.game_name AS game_name, sh.score AS score, sh.created_at AS timestamp,
                        COALESCE(sh.submitted_by_user_id, um.discord_user_id, 'iscored:' || LOWER(sh.iscored_username)) AS player_key
                 FROM score_history sh
-                JOIN games g ON sh.game_id = g.id
                 LEFT JOIN user_mappings um ON um.iscored_username = sh.iscored_username COLLATE NOCASE
-                ${roomJoin}
                 WHERE sh.orphaned_at IS NULL
                 ${roomWhere}
             ),
@@ -735,28 +761,41 @@ export class StatsService {
             -- WHERE. The rank itself still needs every player ON THOSE GAMES,
             -- which is why the filter narrows games rather than players.
             player_games AS (
-                SELECT DISTINCT game_id FROM scoped WHERE player_key = ?
+                SELECT DISTINCT game_room_id, game_key FROM scoped WHERE player_key = ?
+            ),
+            board AS (
+                SELECT s.*
+                FROM scoped s
+                JOIN player_games pg
+                  ON pg.game_room_id = s.game_room_id AND pg.game_key = s.game_key
+            ),
+            -- Display name for the board, collapsing casing variants of the
+            -- same game_name into one — same rule as RoomScoresService.
+            game_names AS (
+                SELECT game_room_id, game_key, MAX(game_name) AS game_name
+                FROM board
+                GROUP BY game_room_id, game_key
             ),
             best_per_player AS (
-                SELECT game_id, game_name, player_key, score, timestamp,
-                       ROW_NUMBER() OVER (PARTITION BY game_id, player_key ORDER BY score DESC, timestamp DESC) AS rn
-                FROM scoped
-                WHERE game_id IN (SELECT game_id FROM player_games)
+                SELECT game_room_id, game_key, player_key, score, timestamp,
+                       ROW_NUMBER() OVER (PARTITION BY game_room_id, game_key, player_key ORDER BY score DESC, timestamp DESC) AS rn
+                FROM board
             ),
             top AS (
-                SELECT game_id, game_name, player_key, score AS best_score, timestamp AS achieved_at
+                SELECT game_room_id, game_key, player_key, score AS best_score, timestamp AS achieved_at
                 FROM best_per_player WHERE rn = 1
             ),
             ranked AS (
-                SELECT game_id, game_name, player_key, best_score, achieved_at,
-                       RANK() OVER (PARTITION BY game_id ORDER BY best_score DESC) AS room_rank,
-                       COUNT(*) OVER (PARTITION BY game_id) AS total_players
+                SELECT game_room_id, game_key, player_key, best_score, achieved_at,
+                       RANK() OVER (PARTITION BY game_room_id, game_key ORDER BY best_score DESC) AS room_rank,
+                       COUNT(*) OVER (PARTITION BY game_room_id, game_key) AS total_players
                 FROM top
             )
-            SELECT game_name, best_score, room_rank, total_players, achieved_at
-            FROM ranked
-            WHERE player_key = ?
-            ORDER BY room_rank ASC, game_name ASC
+            SELECT gn.game_name AS game_name, r.best_score, r.room_rank, r.total_players, r.achieved_at
+            FROM ranked r
+            JOIN game_names gn ON gn.game_room_id = r.game_room_id AND gn.game_key = r.game_key
+            WHERE r.player_key = ?
+            ORDER BY r.room_rank ASC, gn.game_name ASC
             -- The FE filters this list client-side (searchable Personal Bests on
             -- the player detail page), so it must be effectively COMPLETE — a
             -- top-50 truncation would hide a player's best on a game they rank

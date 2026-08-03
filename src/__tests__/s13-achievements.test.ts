@@ -112,6 +112,43 @@ async function insertSubmission(opts: {
     return id;
 }
 
+/**
+ * Insert a `score_history` row in the shape production actually stores:
+ * `game_name` + `game_room_id` populated, **`game_id` NULL**.
+ *
+ * `insertSubmission` above sets `game_id` because it starts from a `games`
+ * row, but that is NOT what prod looks like — verified 2026-08-02, zero
+ * non-NULL `game_id` rows table-wide. The dominant web submit path
+ * (`CommunityScoreService`) never supplies one, and every unpin/delete/cleanup
+ * path NULLs it to preserve the score after its `games` row goes away
+ * (ADR 0005). Readers must therefore key on `(game_room_id, LOWER(game_name))`
+ * — a `JOIN games ON sh.game_id = g.id` matches nothing in production, which
+ * is exactly how `getPersonalBests` shipped empty for every player in v2.74.0.
+ */
+async function insertHistoryScore(opts: {
+    gameRoomId: string;
+    gameName: string;
+    username: string;
+    score: number;
+    submittedByUserId?: string | null;
+    tournamentId?: string | null;
+    createdAt?: string;
+    source?: 'tournament' | 'community' | 'sync';
+}) {
+    const db = await getDatabase();
+    await db.run(
+        `INSERT INTO score_history (
+            game_name, game_room_id, game_id, iscored_username, discord_user_id,
+            submitted_by_user_id, score, source, submitted_from_room_id,
+            submitted_during_tournament_id, created_at
+         ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        opts.gameName, opts.gameRoomId, opts.username,
+        opts.submittedByUserId ?? 'SYSTEM', opts.submittedByUserId ?? null,
+        opts.score, opts.source ?? 'community', opts.gameRoomId,
+        opts.tournamentId ?? null, opts.createdAt ?? new Date().toISOString(),
+    );
+}
+
 describe('migration 108 backfill (tournament_win from COMPLETED games)', () => {
     it('backfills exactly one tournament_win row for the top scorer, idempotent on re-run', async () => {
         await setupTestDb();
@@ -269,5 +306,133 @@ describe('GET /api/rooms/:roomId/stats/enhanced/player/:identifier — achieveme
         expect(best.room_rank).toBe(1);
         expect(best.total_players).toBe(2);
         expect(best.achieved_at).toBeTruthy();
+    });
+});
+
+/**
+ * Regression suite for the v2.74.0 → v2.75.0 Personal Bests outage.
+ *
+ * S24.5 moved `getPersonalBests` off `submissions` onto `score_history` but
+ * scoped the new query with `JOIN games g ON sh.game_id = g.id` (+ `JOIN
+ * tournaments` for the room). Production `score_history` rows carry
+ * `game_name` + `game_room_id` and a NULL `game_id`, so the join matched
+ * nothing and every player in every room got an empty list — which the FE
+ * renders by hiding the whole section, taking the v2.75.0 search with it.
+ *
+ * These tests all build rows through `insertHistoryScore` (game_id NULL) so
+ * they fail against any reader that reaches for `games` via `sh.game_id`.
+ */
+describe('StatsService.getPersonalBests — name+room keying (prod row shape)', () => {
+    it('returns bests from score_history rows with game_id NULL, ranked correctly', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+
+        const discordId1 = '111111111111111111';
+        const discordId2 = '222222222222222222';
+
+        await insertHistoryScore({
+            gameRoomId: roomId, gameName: 'Medieval Madness',
+            username: 'PlayerOne', score: 5000, submittedByUserId: discordId1,
+        });
+        await insertHistoryScore({
+            gameRoomId: roomId, gameName: 'Medieval Madness',
+            username: 'PlayerTwo', score: 9000, submittedByUserId: discordId2,
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/enhanced/player/${discordId1}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.personalBests).toHaveLength(1);
+        const best = res.body.personalBests[0];
+        expect(best.game_name).toBe('Medieval Madness');
+        expect(best.best_score).toBe(5000);
+        expect(best.room_rank).toBe(2);
+        expect(best.total_players).toBe(2);
+        expect(best.achieved_at).toBeTruthy();
+    });
+
+    it('keeps the same game name in two rooms on separate boards, ranked per room', async () => {
+        const app = await createTestApp();
+        const roomA = await createTestRoom('room-a', 'Room A');
+        const roomB = await createTestRoom('room-b', 'Room B');
+
+        const target = '111111111111111111';
+        const rival = '222222222222222222';
+
+        // Room A: target loses to one rival → rank 2 of 2.
+        await insertHistoryScore({
+            gameRoomId: roomA, gameName: 'Attack From Mars',
+            username: 'Target', score: 100, submittedByUserId: target,
+        });
+        await insertHistoryScore({
+            gameRoomId: roomA, gameName: 'Attack From Mars',
+            username: 'Rival', score: 500, submittedByUserId: rival,
+        });
+        // Room B: same game name, target alone → rank 1 of 1. If the two rooms
+        // blended, room A's rival would drag this to 2 of 3.
+        await insertHistoryScore({
+            gameRoomId: roomB, gameName: 'Attack From Mars',
+            username: 'Target', score: 100, submittedByUserId: target,
+        });
+
+        const resA = await request(app).get(`/api/rooms/${roomA}/stats/enhanced/player/${target}`);
+        expect(resA.status).toBe(200);
+        expect(resA.body.personalBests).toHaveLength(1);
+        expect(resA.body.personalBests[0].room_rank).toBe(2);
+        expect(resA.body.personalBests[0].total_players).toBe(2);
+
+        const resB = await request(app).get(`/api/rooms/${roomB}/stats/enhanced/player/${target}`);
+        expect(resB.status).toBe(200);
+        expect(resB.body.personalBests).toHaveLength(1);
+        expect(resB.body.personalBests[0].room_rank).toBe(1);
+        expect(resB.body.personalBests[0].total_players).toBe(1);
+    });
+
+    it('includes scores with no tournament linkage (pinned / freeplay games)', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const discordId = '111111111111111111';
+
+        // No games row, no tournament — the shape a pinned-game or freeplay
+        // score has once its games row is gone (or never existed).
+        await insertHistoryScore({
+            gameRoomId: roomId, gameName: 'Pinned Only Game',
+            username: 'Solo', score: 4200, submittedByUserId: discordId,
+            tournamentId: null,
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/enhanced/player/${discordId}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.personalBests).toHaveLength(1);
+        expect(res.body.personalBests[0].game_name).toBe('Pinned Only Game');
+        expect(res.body.personalBests[0].best_score).toBe(4200);
+    });
+
+    it('collapses casing variants of a game name into one board with one display name', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+
+        const discordId1 = '111111111111111111';
+        const discordId2 = '222222222222222222';
+
+        await insertHistoryScore({
+            gameRoomId: roomId, gameName: 'Big Shot',
+            username: 'PlayerOne', score: 700, submittedByUserId: discordId1,
+        });
+        await insertHistoryScore({
+            gameRoomId: roomId, gameName: 'BIG SHOT',
+            username: 'PlayerTwo', score: 300, submittedByUserId: discordId2,
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/stats/enhanced/player/${discordId1}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.personalBests).toHaveLength(1);
+        const best = res.body.personalBests[0];
+        expect(best.room_rank).toBe(1);
+        expect(best.total_players).toBe(2);
+        // MAX(game_name) picks one variant for the whole board.
+        expect(best.game_name.toLowerCase()).toBe('big shot');
     });
 });
