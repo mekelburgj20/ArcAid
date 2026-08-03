@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ChevronLeft, Circle, Trophy } from 'lucide-react';
+import { ChevronLeft, Circle } from 'lucide-react';
 import { formatScore, scoreTitle } from '../lib/format';
 import { playerName } from '../components/ScoreboardComponents';
 import { TournamentTypeBadge } from '../components/TournamentTypeBadge';
@@ -55,23 +55,6 @@ function shortDate(iso: string | null | undefined): string | null {
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
-
-/**
- * Podium medals for ranks 1–3.
- *
- * The colours are the Global Scoreboard's own tokens (`GlobalGameCard`'s
- * `RANK_TINTS`), not new ones: gold reuses the already theme-aware amber,
- * silver and bronze are the `--color-medal-*` variables that ship a
- * light-polarity override. A tie for a place — two rank-1 rows — therefore
- * yields two gold trophies, because the treatment keys off the server's rank
- * and nothing else. Ranks 4+ get no trophy but still get the slot, so every
- * player name in a board starts at the same x.
- */
-const RANK_MEDALS: Record<number, { color: string; label: string }> = {
-  1: { color: 'text-neon-amber', label: '1st place' },
-  2: { color: 'text-medal-silver', label: '2nd place' },
-  3: { color: 'text-medal-bronze', label: '3rd place' },
-};
 
 /** "Jan 1 – Feb 3, 2026", collapsing to a single date when both ends match. */
 function dateRange(from: string | null, to: string | null): string | null {
@@ -190,12 +173,13 @@ export default function TournamentDetail() {
 
                 <div className="divide-y divide-border/20">
                   {board.scores.map(row => {
-                    const medal = RANK_MEDALS[row.rank];
                     return (
                     <div
                       key={`${row.iscored_username}-${row.rank}-${row.score}`}
                       className="flex items-center gap-3 px-4 py-2.5"
                     >
+                      {/* Stats surface: the rank number carries the podium —
+                          no trophy icons here (owner call, 2026-08-02). */}
                       <span className={`font-display font-bold text-sm w-6 text-center flex-shrink-0 ${
                         row.rank === 1 ? 'text-neon-amber' :
                         row.rank === 2 ? 'text-neon-cyan' :
@@ -203,11 +187,6 @@ export default function TournamentDetail() {
                         'text-faint'
                       }`}>
                         {row.rank}
-                      </span>
-                      {/* Slot is always present so rank 4+ names align with the
-                          podium's. */}
-                      <span className="flex w-3 flex-shrink-0 items-center justify-center">
-                        {medal && <Trophy size={12} className={medal.color} aria-label={medal.label} />}
                       </span>
                       {/* Name + date share the ONE flexible column: stacked on
                           phones (where an inline date would starve the name),

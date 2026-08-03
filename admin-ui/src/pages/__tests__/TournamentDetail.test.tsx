@@ -129,32 +129,15 @@ describe('TournamentDetail', () => {
     expect(screen.getByText('21,000,000')).toBeInTheDocument();
   });
 
-  it('medals the top three with the Global Scoreboard gold/silver/bronze tokens', async () => {
+  it('renders no trophy icons — the rank number carries the podium on stats surfaces', async () => {
     mockFetch({ body: PAYLOAD });
     renderPage();
 
     await waitFor(() => expect(screen.getByText('Pixel')).toBeInTheDocument());
 
-    const board = screen.getByRole('link', { name: 'WHO dunnit' }).closest('section') as HTMLElement;
-    // Same tokens `GlobalGameCard.RANK_TINTS` uses — gold is the theme-aware
-    // amber, silver/bronze are the --color-medal-* variables.
-    expect(within(board).getByLabelText('1st place')).toHaveClass('text-neon-amber');
-    expect(within(board).getByLabelText('2nd place')).toHaveClass('text-medal-silver');
-    expect(within(board).getByLabelText('3rd place')).toHaveClass('text-medal-bronze');
-    // Rank 4 stays plain.
-    expect(within(board).queryByLabelText('4th place')).not.toBeInTheDocument();
-    expect(within(board).getAllByLabelText(/place$/)).toHaveLength(3);
-  });
-
-  it('gives a tied first place a trophy each', async () => {
-    mockFetch({ body: PAYLOAD });
-    renderPage();
-
-    await waitFor(() => expect(screen.getByText('NudgeNinja')).toBeInTheDocument());
-
-    const board = screen.getByRole('link', { name: 'Medieval Madness' }).closest('section') as HTMLElement;
-    expect(within(board).getAllByLabelText('1st place')).toHaveLength(2);
-    expect(within(board).queryByLabelText('2nd place')).not.toBeInTheDocument();
+    // Owner call 2026-08-02: trophies are for score cards, not stats pages.
+    // Ranks keep their tint scheme (1 amber / 2 cyan / 3 green) but no icons.
+    expect(screen.queryByLabelText(/place$/)).not.toBeInTheDocument();
   });
 
   it('shows the back link to History', async () => {
