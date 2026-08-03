@@ -190,9 +190,9 @@ export default function Stats() {
             <NeonCard title="Recent Scores">
               <div className="space-y-2">
                 {playerDetail.recentScores.map((s, i) => (
-                  <div key={i} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
-                    <span className="text-sm">{s.game_name}</span>
-                    <div className="flex items-center gap-4">
+                  <div key={i} className="flex items-center justify-between gap-3 py-2 border-b border-border/50 last:border-0">
+                    <span className="text-sm truncate min-w-0">{s.game_name}</span>
+                    <div className="flex items-center gap-4 flex-shrink-0">
                       <ScoreDisplay score={s.score} size="sm" />
                       <span className="text-faint text-xs">{new Date(s.date).toLocaleDateString()}</span>
                     </div>
@@ -222,7 +222,14 @@ export default function Stats() {
             </NeonCard>
             <NeonCard glowColor="magenta">
               <p className="text-xs font-display uppercase tracking-wider text-muted mb-1">Avg Score</p>
-              <p className="font-display text-2xl font-bold text-neon-magenta">{gameDetail.avgScore.toLocaleString()}</p>
+              {/* Length-aware ramp (same idea as GameDetail's StatCard): an
+                  average can be 12+ digits and this card is half-width on
+                  phones — shrink the type rather than overflow the card. */}
+              <p className={`font-display font-bold text-neon-magenta whitespace-nowrap tabular-nums ${
+                gameDetail.avgScore.toLocaleString().length > 13 ? 'text-sm'
+                  : gameDetail.avgScore.toLocaleString().length > 10 ? 'text-base'
+                  : gameDetail.avgScore.toLocaleString().length > 7 ? 'text-xl' : 'text-2xl'
+              }`}>{gameDetail.avgScore.toLocaleString()}</p>
             </NeonCard>
           </div>
 

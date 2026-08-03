@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare, Flag, Search } from 'lucide-react';
 import ShareButton from '../components/ShareButton';
 import ReportContentModal from '../components/ReportContentModal';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
+import { formatScore, scoreTitle } from '../lib/format';
 
 interface Achievements {
   tournamentWins: number;
@@ -348,18 +349,23 @@ export default function PlayerDetail() {
               {stats.recentScores.map((s, i) => (
                 <div
                   key={i}
-                  className="flex items-center justify-between px-5 py-3 border-b border-border/30 last:border-0"
+                  className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border/30 last:border-0"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <Link
                       to={`/${slug}/games/${encodeURIComponent(s.game_name)}`}
-                      className="text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
+                      className="block truncate text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
                     >
                       {s.game_name}
                     </Link>
                     <p className="text-faint text-xs">{new Date(s.date).toLocaleDateString()}</p>
                   </div>
-                  <span className="font-display font-bold text-neon-amber">{s.score.toLocaleString()}</span>
+                  <span
+                    className="font-display font-bold text-neon-amber flex-shrink-0 whitespace-nowrap tabular-nums"
+                    title={scoreTitle(s.score)}
+                  >
+                    {formatScore(s.score)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -372,6 +378,33 @@ export default function PlayerDetail() {
     </div>
   );
 }
+
+/**
+ * Shared header/row grid template. `grid-cols-4` (four equal fractions) used to
+ * let a 10+ digit Best bleed into the Room Rank column at 390px.
+ *
+ * The score, rank and date tracks are `auto` — i.e. `minmax(min-content,
+ * max-content)`, so they are never squeezed below the number they hold. A `rem`
+ * floor was tried first and is wrong: `minmax(5.5rem, auto)` still lets the
+ * track shrink to 5.5rem when space is tight, which clipped a 12-digit score at
+ * 390px. The game name is the one flexible track (`minmax(0,1fr)`) and it
+ * truncates instead — a truncated title is readable, a truncated number is not.
+ *
+ * Four content-sized columns plus a 12-digit score do not fit on a 390px phone
+ * at all: the name track collapsed to 0 and the titles vanished. So below `sm`
+ * the table reflows to two columns (Game | Best) and rank + date move to a
+ * caption under the game name — the same "give the number its own space rather
+ * than squeeze the row" move GlobalHeroCard makes.
+ *
+ * Column gaps come from per-cell padding, not `gap-x`: the row divider lives on
+ * each cell (a shared grid has no row element to hang it on), and a column gap
+ * would chop that divider into disconnected segments.
+ */
+const PERSONAL_BESTS_GRID =
+  'grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]';
+
+/** Header-strip cell: a grid child, so the row chrome lives on the cell. */
+const PB_HEAD = 'py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider truncate';
 
 /** Rows shown by default before the "Show all N" toggle is used. */
 const PERSONAL_BESTS_DEFAULT_VISIBLE = 20;
@@ -439,38 +472,49 @@ export function PersonalBestsSection({
         </p>
       )}
 
-      <div className="bg-surface border border-border rounded-lg overflow-hidden">
-        <div className="grid grid-cols-4 gap-2 px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-          <span>Game</span>
-          <span className="text-right">Best</span>
-          <span className="text-right">Room Rank</span>
-          <span className="text-right">Date</span>
-        </div>
+      {/* Header and rows share ONE grid so the header labels sit over the
+          columns they name. Two sibling grids (the previous shape) size their
+          tracks independently, so the moment the score track grew for a long
+          value the header drifted off it. */}
+      <div className={`bg-surface border border-border rounded-lg overflow-hidden ${PERSONAL_BESTS_GRID} gap-y-0`}>
+        <span className={`${PB_HEAD} pl-5 pr-3`}>Game</span>
+        <span className={`${PB_HEAD} pr-5 sm:pr-4 text-right`}>Best</span>
+        <span className={`${PB_HEAD} hidden sm:block pr-4 text-right`}>Room Rank</span>
+        <span className={`${PB_HEAD} hidden sm:block pr-5 text-right`}>Date</span>
         {visible.length === 0 ? (
-          <div className="px-5 py-4 text-muted text-sm">No games match &ldquo;{trimmed}&rdquo;</div>
+          <div className="col-span-2 sm:col-span-4 px-5 py-4 text-muted text-sm">No games match &ldquo;{trimmed}&rdquo;</div>
         ) : (
-          visible.map((pb, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-4 gap-2 items-center px-5 py-3 border-b border-border/30 last:border-0"
-            >
-              <Link
-                to={`/${slug}/games/${encodeURIComponent(pb.game_name)}`}
-                className="text-primary hover:text-neon-cyan no-underline transition-colors font-medium truncate"
-              >
-                {pb.game_name}
-              </Link>
-              <span className="text-right font-display font-bold text-neon-amber">
-                {pb.best_score.toLocaleString()}
-              </span>
-              <span className="text-right text-muted text-sm">
-                #{pb.room_rank} of {pb.total_players}
-              </span>
-              <span className="text-right text-faint text-xs">
-                {new Date(pb.achieved_at).toLocaleDateString()}
-              </span>
-            </div>
-          ))
+          visible.map((pb, i) => {
+            const cell = `flex items-center py-3 ${i === visible.length - 1 ? '' : 'border-b border-border/30'}`;
+            return (
+              <Fragment key={i}>
+                <span className={`${cell} pl-5 pr-3 min-w-0 flex-col !items-start justify-center gap-0.5`}>
+                  <Link
+                    to={`/${slug}/games/${encodeURIComponent(pb.game_name)}`}
+                    className="max-w-full truncate text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
+                  >
+                    {pb.game_name}
+                  </Link>
+                  {/* Phone-only caption carrying the two columns the reflow drops. */}
+                  <span className="sm:hidden text-faint text-[11px] whitespace-nowrap">
+                    #{pb.room_rank} of {pb.total_players} · {new Date(pb.achieved_at).toLocaleDateString()}
+                  </span>
+                </span>
+                <span
+                  className={`${cell} justify-end pr-5 sm:pr-4 font-display font-bold text-neon-amber whitespace-nowrap tabular-nums`}
+                  title={scoreTitle(pb.best_score)}
+                >
+                  {formatScore(pb.best_score)}
+                </span>
+                <span className={`${cell} hidden sm:flex justify-end pr-4 text-muted text-sm whitespace-nowrap`}>
+                  #{pb.room_rank} of {pb.total_players}
+                </span>
+                <span className={`${cell} hidden sm:flex justify-end pr-5 text-faint text-xs whitespace-nowrap`}>
+                  {new Date(pb.achieved_at).toLocaleDateString()}
+                </span>
+              </Fragment>
+            );
+          })
         )}
       </div>
 

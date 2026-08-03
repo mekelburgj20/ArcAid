@@ -144,6 +144,7 @@ export default function ScoreList({
                   fontFamily: monoFontFamily,
                   fontWeight: 700,
                   whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
                 title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
               >

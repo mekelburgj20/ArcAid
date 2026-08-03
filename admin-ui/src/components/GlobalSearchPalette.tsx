@@ -488,7 +488,7 @@ const PaletteRow = function PaletteRow({
                         <Medal className="h-[9px] w-[9px] text-neon-amber" aria-hidden="true" />
                         <span className="max-w-[90px] truncate">{playerName(champion)}</span>
                     </div>
-                    <div className="font-mono text-[12px] font-bold text-neon-amber">
+                    <div className="whitespace-nowrap font-mono text-[12px] font-bold tabular-nums text-neon-amber">
                         {formatScore(champion.score)}
                     </div>
                 </div>

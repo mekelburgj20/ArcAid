@@ -254,7 +254,10 @@ export default function BannerCard({
                     <span className={`w-6 text-right text-xs font-bold tabular-nums flex-shrink-0 ${rankColor}`}>
                       {entry.rank}
                     </span>
-                    <div className={`flex-1 rounded-full px-3 py-1 relative ${
+                    {/* min-w-0: without it the pill's min-content (driven by the
+                        widest score) would widen the whole row rather than the
+                        pill absorbing the available space. */}
+                    <div className={`flex-1 min-w-0 rounded-full px-3 py-1 relative ${
                       isViewerRow ? 'bg-neon-cyan/25' : 'bg-white/18'
                     }`}>
                       <div className="absolute left-2 top-1/2 -translate-y-1/2">
@@ -276,7 +279,7 @@ export default function BannerCard({
                           className="text-[11px] sb-fs-11 truncate text-secondary block no-underline hover:text-neon-cyan transition-colors"
                         />
                         <span
-                          className={`text-xs font-bold tabular-nums block ${scoreColor}`}
+                          className={`text-xs font-bold tabular-nums whitespace-nowrap block ${scoreColor}`}
                           title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
                         >
                           {formatScore(entry.score)}

@@ -56,6 +56,18 @@ interface PodiumSlotConfig {
   scoreSize: number;
 }
 
+/**
+ * Length-aware font step for podium scores. Podium slots are equal-width flex
+ * columns with no room to grow, and numbers can't be ellipsised, so long values
+ * shrink to stay inside the slot. Thresholds mirror `StatCard` in GameDetail;
+ * the floor (9px) keeps the longest realistic render ("999,999,999,999", 15
+ * chars) legible.
+ */
+function podiumScoreFontSize(base: number, rendered: string): number {
+  const scale = rendered.length > 13 ? 0.7 : rendered.length > 10 ? 0.8 : rendered.length > 7 ? 0.9 : 1;
+  return Math.max(9, Math.round(base * scale));
+}
+
 /** A single podium card — always rendered (empty state if no entry) */
 function PodiumSlot({
   config, theme, slug, hasMultiple, expandedPlayer, playerHistory, historyLoading, onTogglePlayer,
@@ -144,14 +156,20 @@ function PodiumSlot({
               )}
             </div>
 
-            {/* Score + expand icon row */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+            {/* Score + expand icon row.
+                The podium slot is a fixed-width flex column, so an ellipsis is
+                not an option here — a truncated number is a wrong number. We
+                step the font down for long values instead (the same trick
+                StatCard uses) and keep it on one line: a 13-char score renders
+                at ~78% of the slot's nominal size and still fits. */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, maxWidth: '100%' }}>
               <span
                 style={{
                   fontWeight: 700,
                   fontFamily: theme.monoFontFamily,
                   color: pod.scoreColor,
-                  fontSize: scoreSize,
+                  fontSize: podiumScoreFontSize(scoreSize, formatScore(entry.score)),
+                  whiteSpace: 'nowrap',
                 }}
                 title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}
               >
