@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.75.1] — unreleased
+
+**Fix: Personal Bests was empty for every player in every room** (since v2.74.0; found via the
+owner's field check of the v2.75.0 search — the FE hides the section when the list is empty, so
+there was no search box to find).
+
+- **Root cause:** S24.5 moved `getPersonalBests` from `submissions` to `score_history` but scoped
+  the new query with `JOIN games g ON sh.game_id = g.id` (+ `JOIN tournaments`). Production
+  `score_history` has **zero non-NULL `game_id` rows table-wide** (verified 2026-08-02):
+  `game_id` is a transient pointer, not a key — the dominant web submit path
+  (`CommunityScoreService`) never supplies one, and every unpin/game-delete/cleanup path
+  deliberately runs `UPDATE score_history SET game_id = NULL` to preserve the score after its
+  `games` row goes away (ADR 0005). Any read joining `games` on `sh.game_id` matches nothing.
+- **Fix:** re-keyed on `(game_room_id, LOWER(game_name))` — the `RoomScoresService` doctrine
+  (room scope via `sh.game_room_id = ?` like the sibling `getParticipationStreak`, display name
+  from `MAX(game_name)` so casing variants fold, `game_room_id` kept in the key so the same game
+  name in two rooms stays two boards).
+- **Deliberate behavior deltas vs. the pre-v2.74 `submissions` list:** pinned-game scores,
+  freeplay/community scores, and scores whose `games` row was since deleted now all appear — the
+  same population the Room Scores page shows. This closes the v2.75.0 residual (a)
+  (pinned-games exclusion) as a side effect.
+- **Why tests missed it:** the s13 fixture wrote `score_history` rows WITH `game_id` — a shape no
+  live path sustains. New `insertHistoryScore` fixture writes the real prod shape (`game_id`
+  NULL); 4 regression tests (prod-shape ranking, cross-room isolation, no-tournament inclusion,
+  casing collapse), all verified failing against the old query.
+
+Files: `src/services/StatsService.ts` (query re-key + doctrine comment rewrite),
+`src/__tests__/s13-achievements.test.ts` (prod-shape fixture + 4 regression tests).
+
+No migrations. Tests: backend 1421 → **1425**, full suite green; admin-ui untouched (414).
+
 ## [2.75.0] — unreleased
 
 **Searchable Personal Bests** (closes ROADMAP "Personal-best lookup in game rooms", user request
