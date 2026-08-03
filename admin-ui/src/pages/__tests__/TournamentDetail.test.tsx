@@ -30,9 +30,12 @@ const PAYLOAD = {
       scores: [
         { rank: 1, discord_user_id: 'd-1', iscored_username: 'PixelWizard', display_name: 'Pixel', score: 1_234_567_890_123, created_at: '2026-01-10T01:00:00.000Z' },
         { rank: 2, discord_user_id: 'd-2', iscored_username: 'FlipperFrenzy', display_name: null, score: 21_000_000, created_at: '2026-01-10T02:00:00.000Z' },
+        { rank: 3, discord_user_id: 'd-4', iscored_username: 'TiltMonster', display_name: null, score: 9_450_000, created_at: '2026-01-10T03:00:00.000Z' },
+        { rank: 4, discord_user_id: 'd-5', iscored_username: 'BumperBandit', display_name: null, score: 777_000, created_at: '2026-01-10T04:00:00.000Z' },
       ],
     },
     {
+      // Competition tie for first — two rank-1 rows, and no rank 2.
       game_key: 'medieval madness',
       game_name: 'Medieval Madness',
       slot_count: 0,
@@ -42,6 +45,7 @@ const PAYLOAD = {
       winner: null,
       scores: [
         { rank: 1, discord_user_id: 'd-3', iscored_username: 'NudgeNinja', display_name: null, score: 1_250_000, created_at: '2026-01-05T01:00:00.000Z' },
+        { rank: 1, discord_user_id: 'd-6', iscored_username: 'GhostRider', display_name: null, score: 1_250_000, created_at: '2026-01-05T02:00:00.000Z' },
       ],
     },
   ],
@@ -123,6 +127,34 @@ describe('TournamentDetail', () => {
     // ≥1T abbreviates with the full value in a tooltip; below 1T is exact.
     expect(screen.getByText('1.2T')).toHaveAttribute('title', '1,234,567,890,123');
     expect(screen.getByText('21,000,000')).toBeInTheDocument();
+  });
+
+  it('medals the top three with the Global Scoreboard gold/silver/bronze tokens', async () => {
+    mockFetch({ body: PAYLOAD });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('Pixel')).toBeInTheDocument());
+
+    const board = screen.getByRole('link', { name: 'WHO dunnit' }).closest('section') as HTMLElement;
+    // Same tokens `GlobalGameCard.RANK_TINTS` uses — gold is the theme-aware
+    // amber, silver/bronze are the --color-medal-* variables.
+    expect(within(board).getByLabelText('1st place')).toHaveClass('text-neon-amber');
+    expect(within(board).getByLabelText('2nd place')).toHaveClass('text-medal-silver');
+    expect(within(board).getByLabelText('3rd place')).toHaveClass('text-medal-bronze');
+    // Rank 4 stays plain.
+    expect(within(board).queryByLabelText('4th place')).not.toBeInTheDocument();
+    expect(within(board).getAllByLabelText(/place$/)).toHaveLength(3);
+  });
+
+  it('gives a tied first place a trophy each', async () => {
+    mockFetch({ body: PAYLOAD });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('NudgeNinja')).toBeInTheDocument());
+
+    const board = screen.getByRole('link', { name: 'Medieval Madness' }).closest('section') as HTMLElement;
+    expect(within(board).getAllByLabelText('1st place')).toHaveLength(2);
+    expect(within(board).queryByLabelText('2nd place')).not.toBeInTheDocument();
   });
 
   it('shows the back link to History', async () => {

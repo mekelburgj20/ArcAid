@@ -180,6 +180,22 @@ interface CatalogueGameInfo {
 
 type Tab = 'leaderboard' | 'community' | 'tips' | 'player-stats';
 
+/**
+ * Community "Best Scores" board cells (desktop grid only).
+ *
+ * `self-stretch` keeps the per-cell bottom borders at one height, so the row
+ * rule reads as an unbroken line rather than a dashed one — a rank glyph is
+ * shorter than a name, and an empty header cell has no height at all. Padding
+ * lives on the cell instead of a grid gap for the same reason: a column gap
+ * would chop the divider into segments.
+ */
+const CB_HEAD = 'flex items-center self-stretch py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider';
+const CB_CELL = 'flex items-center self-stretch min-w-0 py-3 border-b border-border/20';
+
+/** Podium colouring for the rank glyph, shared by both layouts. */
+const communityRankColor = (i: number) =>
+  i === 0 ? 'text-neon-amber' : i === 1 ? 'text-neon-cyan' : i === 2 ? 'text-neon-green' : 'text-faint';
+
 export default function GameDetail() {
   const { slug, name } = useParams<{ slug: string; name: string }>();
   // v2.13.12 — back link returns to the tab the user came from.
@@ -1162,47 +1178,88 @@ export default function GameDetail() {
               <div className="mb-8">
                 <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Best Scores</h2>
                 <div className="bg-surface border border-border rounded-lg overflow-hidden">
-                  {/* The reported "21,000,000 clips off the right edge" row.
-                      Plays is a small fixed slot; Best is content-sized (min-w
-                      keeps it aligned with the header at ordinary lengths but
-                      lets it grow instead of overflowing) and the player name is
-                      the column that yields. */}
-                  <div className="flex items-center justify-between gap-3 px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="w-8 text-center flex-shrink-0">#</span>
-                      <span className="truncate">Player</span>
-                    </div>
-                    <div className="flex items-center gap-6 flex-shrink-0">
-                      <span className="w-10 text-right">Plays</span>
-                      <span className="min-w-[6rem] text-right">Best</span>
-                    </div>
-                  </div>
-                  {communityBoard.map((entry, i) => (
-                    <div
-                      key={entry.player_key ?? entry.iscored_username}
-                      className={`flex items-center justify-between gap-3 px-5 py-3 border-b border-border/20 last:border-0 ${
-                        i === 0 ? 'bg-neon-amber/8' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
-                          i === 0 ? 'text-neon-amber' : i === 1 ? 'text-neon-cyan' : i === 2 ? 'text-neon-green' : 'text-faint'
-                        }`}>
+                  {/* ── Mobile: two stacked lines per row ────────────────────
+                      The score stopped clipping in the first pass, but four
+                      things on one 390px line left the player name as "Pi…".
+                      Same answer History took: the name gets a line to itself,
+                      the number gets the next one, and the columnar header is
+                      hidden because the stack has no columns to name. Rank
+                      stays the row's left anchor beside both lines. */}
+                  <div className="sm:hidden">
+                    {communityBoard.map((entry, i) => (
+                      <div
+                        key={entry.player_key ?? entry.iscored_username}
+                        className={`flex items-start gap-3 px-4 py-3 border-b border-border/20 last:border-0 ${
+                          i === 0 ? 'bg-neon-amber/8' : ''
+                        }`}
+                      >
+                        <span className={`font-display font-bold w-6 flex-shrink-0 text-center leading-5 ${communityRankColor(i)}`}>
                           {i + 1}
                         </span>
-                        <span className="font-medium truncate min-w-0">{entry.display_name || entry.iscored_username}</span>
+                        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                          <span className="min-w-0 truncate font-medium text-sm">
+                            {entry.display_name || entry.iscored_username}
+                          </span>
+                          <div className="flex items-baseline gap-2 min-w-0">
+                            <span className="min-w-0 truncate text-faint text-[11px]">
+                              {entry.times_played} {entry.times_played === 1 ? 'play' : 'plays'}
+                            </span>
+                            <span
+                              className={`ml-auto flex-shrink-0 whitespace-nowrap tabular-nums font-display font-bold ${
+                                i === 0 ? 'text-neon-amber' : 'text-primary'
+                              }`}
+                              title={scoreTitle(entry.best_score)}
+                            >
+                              {formatScore(entry.best_score)}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-6 flex-shrink-0">
-                        <span className="text-muted text-sm w-10 text-right tabular-nums">{entry.times_played}</span>
-                        <span
-                          className={`font-display font-bold min-w-[6rem] text-right flex-shrink-0 whitespace-nowrap tabular-nums ${i === 0 ? 'text-neon-amber' : 'text-primary'}`}
-                          title={scoreTitle(entry.best_score)}
-                        >
-                          {formatScore(entry.best_score)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+
+                  {/* ── Desktop: header + rows share ONE grid ────────────────
+                      Two sibling grids with the same template still drift,
+                      because each sizes its own `auto` tracks to its own
+                      content — the label "PLAYS" is wider than "14", so the
+                      header stopped sitting over the column it names (the
+                      reported misalignment). Rows are therefore
+                      `display:contents` wrappers whose CELLS are the grid
+                      items. Score and plays keep `auto` tracks so a 12-digit
+                      number widens its own column rather than clipping; the
+                      player name is the one track that yields. */}
+                  <div className="hidden sm:grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center [&>*:last-child>*]:border-b-0">
+                    <span className={`${CB_HEAD} pl-5 pr-3 justify-center`}>#</span>
+                    <span className={`${CB_HEAD} pr-3`}>Player</span>
+                    <span className={`${CB_HEAD} pr-6 justify-end`}>Plays</span>
+                    <span className={`${CB_HEAD} pr-5 justify-end`}>Best</span>
+                    {communityBoard.map((entry, i) => {
+                      const tint = i === 0 ? 'bg-neon-amber/8' : '';
+                      return (
+                        <div key={entry.player_key ?? entry.iscored_username} className="contents">
+                          <span className={`${CB_CELL} ${tint} pl-5 pr-3 justify-center font-display font-bold ${communityRankColor(i)}`}>
+                            {i + 1}
+                          </span>
+                          <span className={`${CB_CELL} ${tint} pr-3`}>
+                            <span className="min-w-0 truncate font-medium">
+                              {entry.display_name || entry.iscored_username}
+                            </span>
+                          </span>
+                          <span className={`${CB_CELL} ${tint} pr-6 justify-end text-muted text-sm tabular-nums`}>
+                            {entry.times_played}
+                          </span>
+                          <span
+                            className={`${CB_CELL} ${tint} pr-5 justify-end whitespace-nowrap tabular-nums font-display font-bold ${
+                              i === 0 ? 'text-neon-amber' : 'text-primary'
+                            }`}
+                            title={scoreTitle(entry.best_score)}
+                          >
+                            {formatScore(entry.best_score)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             ) : (

@@ -345,27 +345,34 @@ export default function PlayerDetail() {
         {stats.recentScores.length > 0 && (
           <div>
             <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Recent Scores</h2>
+            {/* Stacks on phones for the same reason Personal Bests does: a
+                game name sharing its line with a 12-digit score truncates to
+                nothing. Line 1 is the name across the full width, line 2 is
+                the date left and the score right. From `sm` the three sit on
+                one line — name yields, number never does. */}
             <div className="bg-surface border border-border rounded-lg overflow-hidden">
               {stats.recentScores.map((s, i) => (
                 <div
                   key={i}
-                  className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border/30 last:border-0"
+                  className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3 px-5 py-3 border-b border-border/30 last:border-0"
                 >
-                  <div className="min-w-0">
-                    <Link
-                      to={`/${slug}/games/${encodeURIComponent(s.game_name)}`}
-                      className="block truncate text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
-                    >
-                      {s.game_name}
-                    </Link>
-                    <p className="text-faint text-xs">{new Date(s.date).toLocaleDateString()}</p>
-                  </div>
-                  <span
-                    className="font-display font-bold text-neon-amber flex-shrink-0 whitespace-nowrap tabular-nums"
-                    title={scoreTitle(s.score)}
+                  <Link
+                    to={`/${slug}/games/${encodeURIComponent(s.game_name)}`}
+                    className="min-w-0 sm:flex-1 truncate text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
                   >
-                    {formatScore(s.score)}
-                  </span>
+                    {s.game_name}
+                  </Link>
+                  <div className="flex items-baseline gap-3 min-w-0 sm:flex-shrink-0">
+                    <span className="min-w-0 truncate text-faint text-xs">
+                      {new Date(s.date).toLocaleDateString()}
+                    </span>
+                    <span
+                      className="ml-auto font-display font-bold text-neon-amber flex-shrink-0 whitespace-nowrap tabular-nums"
+                      title={scoreTitle(s.score)}
+                    >
+                      {formatScore(s.score)}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -391,20 +398,30 @@ export default function PlayerDetail() {
  * truncates instead — a truncated title is readable, a truncated number is not.
  *
  * Four content-sized columns plus a 12-digit score do not fit on a 390px phone
- * at all: the name track collapsed to 0 and the titles vanished. So below `sm`
- * the table reflows to two columns (Game | Best) and rank + date move to a
- * caption under the game name — the same "give the number its own space rather
- * than squeeze the row" move GlobalHeroCard makes.
+ * at all: the name track collapsed to 0 and the titles vanished. A first pass
+ * reflowed to two columns (Game | Best) with rank + date as a caption, but the
+ * name still shared its line with the number and truncated to "Attack from
+ * Mar…". So below `sm` each row now STACKS: line 1 is the game name across
+ * both tracks, line 2 is the rank/date caption left and the score right. Same
+ * shape History uses; the number keeps its own space either way.
+ *
+ * One grid still holds both lines — a separate mobile list would duplicate
+ * every game link in the DOM, which the section's tests count. `col-span-2`
+ * on the name cell is what makes line 1 full-width, and the two desktop-only
+ * cells simply drop out of flow.
  *
  * Column gaps come from per-cell padding, not `gap-x`: the row divider lives on
  * each cell (a shared grid has no row element to hang it on), and a column gap
- * would chop that divider into disconnected segments.
+ * would chop that divider into disconnected segments. The divider sits on the
+ * row's LAST line, so on phones the name cell carries no rule (`sm:border-b`
+ * only) and the line-2 cells carry it instead.
  */
 const PERSONAL_BESTS_GRID =
   'grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]';
 
-/** Header-strip cell: a grid child, so the row chrome lives on the cell. */
-const PB_HEAD = 'py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider truncate';
+/** Header-strip cell: a grid child, so the row chrome lives on the cell.
+ *  Hidden on phones — the stacked layout has no columns to label. */
+const PB_HEAD = 'hidden sm:block py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider truncate';
 
 /** Rows shown by default before the "Show all N" toggle is used. */
 const PERSONAL_BESTS_DEFAULT_VISIBLE = 20;
@@ -485,23 +502,34 @@ export function PersonalBestsSection({
           <div className="col-span-2 sm:col-span-4 px-5 py-4 text-muted text-sm">No games match &ldquo;{trimmed}&rdquo;</div>
         ) : (
           visible.map((pb, i) => {
-            const cell = `flex items-center py-3 ${i === visible.length - 1 ? '' : 'border-b border-border/30'}`;
+            const last = i === visible.length - 1;
+            // Class strings are whole literals, never concatenated fragments —
+            // Tailwind's scanner only sees complete utility names in source.
+            const rule = last ? '' : 'border-b border-border/30';
+            // Line 1 on phones: no rule (the row continues below); the rule
+            // returns from `sm` up, where line 1 IS the row.
+            const nameCell = `flex items-center pt-3 pb-1 sm:py-3 ${last ? '' : 'sm:border-b sm:border-border/30'}`;
+            // Line 2 on phones: carries the row's rule.
+            const lineTwo = `flex items-center pb-3 pt-0 sm:py-3 ${rule}`;
+            const cell = `flex items-center py-3 ${rule}`;
             return (
               <Fragment key={i}>
-                <span className={`${cell} pl-5 pr-3 min-w-0 flex-col !items-start justify-center gap-0.5`}>
+                <span className={`${nameCell} col-span-2 sm:col-span-1 pl-5 pr-5 sm:pr-3 min-w-0`}>
                   <Link
                     to={`/${slug}/games/${encodeURIComponent(pb.game_name)}`}
                     className="max-w-full truncate text-primary hover:text-neon-cyan no-underline transition-colors font-medium"
                   >
                     {pb.game_name}
                   </Link>
-                  {/* Phone-only caption carrying the two columns the reflow drops. */}
-                  <span className="sm:hidden text-faint text-[11px] whitespace-nowrap">
+                </span>
+                {/* Phone-only caption carrying the two columns the reflow drops. */}
+                <span className={`${lineTwo} sm:hidden pl-5 pr-3 min-w-0 text-faint text-[11px]`}>
+                  <span className="min-w-0 truncate">
                     #{pb.room_rank} of {pb.total_players} · {new Date(pb.achieved_at).toLocaleDateString()}
                   </span>
                 </span>
                 <span
-                  className={`${cell} justify-end pr-5 sm:pr-4 font-display font-bold text-neon-amber whitespace-nowrap tabular-nums`}
+                  className={`${lineTwo} justify-end pr-5 sm:pr-4 font-display font-bold text-neon-amber whitespace-nowrap tabular-nums`}
                   title={scoreTitle(pb.best_score)}
                 >
                   {formatScore(pb.best_score)}

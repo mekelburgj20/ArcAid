@@ -165,6 +165,24 @@ describe('PersonalBestsSection', () => {
     expect(visibleGameNames()).toHaveLength(0);
   });
 
+  it('stacks each row on phones: the name owns line 1, rank/date caption line 2', () => {
+    renderSection(makeBests(['Funhouse', 'Whirlwind', 'Junk Yard']));
+
+    // The name cell spans BOTH mobile tracks — that is what gives the game
+    // title the full width instead of sharing its line with the score, which
+    // is what truncated "Attack from Mar…". It collapses back to one column
+    // from `sm` up.
+    const nameCell = screen.getByText('Funhouse').parentElement as HTMLElement;
+    expect(nameCell).toHaveClass('col-span-2');
+    expect(nameCell).toHaveClass('sm:col-span-1');
+
+    // Line 2's caption carries the two columns the phone layout drops. Date is
+    // formatted by the runner's locale, so match loosely.
+    expect(screen.getAllByText(/^#1 of 12 · /).length).toBeGreaterThan(0);
+    // ...and the desktop columns still exist beside it.
+    expect(screen.getByText('#1 of 12')).toBeTruthy();
+  });
+
   it('keeps score / rank / date columns intact for a filtered row', () => {
     renderSection(MANY);
 

@@ -127,9 +127,17 @@ export default function PublicHistory() {
                 const to = rowLink(item, roomSlug);
                 const body = (
                   <div className="flex flex-col gap-1 min-w-0">
+                    {/* The type tag is pushed to the right edge rather than
+                        sitting inline after the name, so the tags line up down
+                        the list instead of starting at a name-dependent
+                        offset — and the name gets every pixel up to it. The
+                        badge's own `flex-shrink-0 whitespace-nowrap` still
+                        keeps it from wrapping. */}
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="min-w-0 truncate font-medium text-sm text-primary">{item.game_name}</span>
-                      <TypeBadge type={item.tournament_type} />
+                      <span className="ml-auto flex-shrink-0">
+                        <TypeBadge type={item.tournament_type} />
+                      </span>
                     </div>
                     <div className="flex items-baseline gap-2 min-w-0">
                       <span className={`flex items-center gap-1 min-w-0 text-sm ${winner ? 'text-neon-green font-medium' : 'text-faint'}`}>
