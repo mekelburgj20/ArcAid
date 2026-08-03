@@ -102,6 +102,16 @@ Standardize prose/UI strings on "Arcaid" (logo wordmark is stylized all-caps ARC
 
 Spotlight-style intro tour on first login, player perspective: nav menu → posting scores via Scores → game cards + click-title-for-detail → account menu (settings, scoreboard display prefs, Friends). Most-used features only — do not overwhelm. Skippable from step 1 + "never show again" checkbox → persisted server-side in `user_preferences` (follows the account across devices). Candidate tech: lightweight in-house spotlight overlay (no dep) over the existing pages.
 
+### Room scoreboard revamp — bring the Global Scoreboard's card language to game rooms (user-asked 2026-08-02, direction not yet picked)
+
+The owner wants the room score displays revamped "similar perhaps to the global scoreboard" (the v2.66–v2.71 arc: neon category frames + chips, podium top-3 + ranked list, bigger type, 3-col grid, hero treatment, density modes). Proposed as three independently-shippable phases (Fable, 2026-08-02 — awaiting owner's pick before any build):
+
+1. **New "Arcade" card style** — port the Global card language into the room card system as a FOURTH `SCOREBOARD_STYLE` beside banner/showcase/minimal (CardRouter dispatch means no existing room changes look without opting in). Reuses the v2.67 neon token family + glitch machinery rather than reinventing.
+2. **Room page layout modernization** — Global's 3-col grid + doubled gutters, hero for the hottest board, and the "My Score" density mode (closes the deferred second half of the Personal Bests request, ROADMAP entry above).
+3. **Proof-photo affordance rides along** — the "click a score to open its proof photo" request (entry below, deferred until "the UX redesign arc completes") hangs off the new row layout once it stops moving.
+
+Workflow per standing practice: phase 1 starts with mock-data screenshots of the owner's room in the new style, judged by the owner BEFORE merge. Related-but-distinct: the "Player-selectable Global Scoreboard card style" entry below is the reverse adapter (Global page → room card system); building the Arcade style first would make that adapter's job easier, not harder.
+
 ### Player-selectable Global Scoreboard card style (user-asked 2026-07-27)
 
 Let players pick the card style they see on `/scoreboard`, like the per-viewer Display Preferences in game rooms. Assessment (Fable, 2026-07-27):
