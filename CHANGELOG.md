@@ -6,6 +6,69 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.76.0] — unreleased
+
+**Field-check UX batch** (owner reports, 2026-08-02): score overflow, nav highlighting, and a
+History view that finally works on a phone — plus the app's first per-tournament score page.
+
+### Score-overflow sweep (12 files)
+
+- **The reported bug:** the Community tab's Best Scores table clipped 8+ digit scores at the
+  card's rounded edge — the score cell was a fixed `w-20` (80px, ~7 digits) with no shrink guard,
+  and the card's `overflow-hidden` did the clipping. Recon found the same anti-pattern family
+  across the app (Full Score History `w-20`, PlayerDetail Personal Bests equal-fraction grid,
+  fixed-px grid tracks) plus a dozen unguarded flex rows.
+- **One containment doctrine, applied everywhere:** score cells get `flex-shrink-0
+  whitespace-nowrap tabular-nums` and NO fixed width; the adjacent name column yields
+  (`min-w-0` + `truncate`); grid score columns are content-sized. Long-number stat tiles use
+  the length-aware font ramp (`StatCard`'s, now also on `MiniStat` and admin Stats' Avg Score);
+  Personal Bests reflows to a 2-column stack below `sm` (GlobalHeroCard's sanctioned pattern).
+  `ShowcasePodium` steps its font down by length (ellipsis on a number is wrong; the slot can't
+  grow). New `scoreTitle()` helper in `lib/format.ts` for the full-value ≥1T tooltip.
+- Screenshot-verified at 390px/1280px with 15-digit scores: no numeric overflow, no horizontal
+  page scroll.
+
+### Nav active-state (the section stays lit)
+
+- Five room pages were URL *siblings* of their nav section, so no highlight could ever match
+  (`/history` + `/compare` → Stats, `/players/:id` → Players, `/games/:name` → Scores,
+  `/mystery-award` → Picks). Desktop and mobile share one nav — the bug was everywhere, mobile
+  is just where the highlight is the only location cue.
+- New `navSectionForPath()` (`admin-ui/src/lib/navSections.ts`) — one testable predicate maps
+  every path (trailing-slash tolerant) to its section; nav items now use it with explicit
+  `aria-current="page"` so the a11y state and visual state can't diverge. 33 new tests.
+  The `/tournaments/*` path maps to Stats (new this release). The Global item stays inert by
+  structure (the room nav unmounts on global pages).
+
+### History view + per-tournament score boards
+
+- **`/:slug/history` redesigned.** Mobile rows are a clean 3-line stack: game + type badge
+  (badges no longer wrap — `flex-shrink-0 whitespace-nowrap`), winner with trophy + score,
+  tournament name + end date — winner and end date were already in the API but hidden on mobile.
+  Desktop gains a dedicated Type column so badge-width variance stops pushing tournament names
+  around (single-grid `display:contents` rows keep headers aligned over columns).
+- **Every History row now links to the new tournament page** `/:slug/tournaments/:tournamentId`
+  (additive `game_id`/`tournament_id` columns on `GET /:roomId/history`).
+- **New page + endpoint: all scores submitted to ONE tournament.**
+  `GET /api/rooms/:roomId/tournaments/:tournamentId/scores` (public;
+  `src/services/TournamentScoresService.ts`) returns per-game boards keyed on
+  `submitted_during_tournament_id` + `LOWER(game_name)` — **never a `games` join on
+  `sh.game_id`** (the v2.75.1 decay lesson, applied from the start). Boards ship ranked
+  best-per-player rows (canonical identity partition, competition ranking 1-2-2-4, display
+  names via `resolveProfiles`), slot metadata decorated by name from the tournament's `games`
+  rows ("Featured N×"; deleted-slot boards still render — score outlives game), and the board's
+  own rank-1 as winner (documented: the tournament-window winner, which can differ from
+  `/history`'s all-time-`submissions` winner). FE: `TournamentDetail.tsx` — back link, type
+  badge, LIVE indicator, date range, per-board score lists with gold top row.
+
+Files: BE `src/api/routes/rooms.ts` (route + 2 SELECT columns), new
+`TournamentScoresService.ts` + test suite; FE 12 score-sweep files + `lib/navSections.ts` +
+`PublicLayout.tsx` + `PublicHistory.tsx` + new `TournamentDetail.tsx` +
+`TournamentTypeBadge.tsx` + `App.tsx` route.
+
+No migrations. Tests: backend 1425 → **1432**, admin-ui 414 → **458** (+33 nav, +11
+history/tournament). Screenshots in the PR-adjacent `tmp/` harnesses (gitignored).
+
 ## [2.75.1] — unreleased
 
 **Fix: Personal Bests was empty for every player in every room** (since v2.74.0; found via the
