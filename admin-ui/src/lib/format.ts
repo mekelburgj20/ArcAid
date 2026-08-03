@@ -11,6 +11,17 @@ export function formatScore(n: number | null | undefined): string {
 }
 
 /**
+ * The tooltip companion to `formatScore`. Only abbreviated (≥1T) renders lose
+ * information, so only those get a `title`; everything else already shows the
+ * exact digits and a redundant tooltip is noise. Returns `undefined` so it can
+ * be spread straight into a `title=` prop.
+ */
+export function scoreTitle(n: number | null | undefined): string | undefined {
+    if (n == null) return undefined;
+    return n >= 1_000_000_000_000 ? n.toLocaleString() : undefined;
+}
+
+/**
  * Aggregate-stat compression (T/B/M tiers) — the LandingPage variant.
  * Deliberately distinct from formatScore: leaderboard scores below 1T render
  * exact digits, marketing aggregates compress.

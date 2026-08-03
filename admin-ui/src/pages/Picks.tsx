@@ -548,9 +548,9 @@ export default function Picks() {
                   {game.allTimeHigh != null ? (
                     <div className="flex items-center justify-end gap-1">
                       <Star size={12} className="text-neon-amber flex-shrink-0" />
-                      <span className="text-primary font-medium">{game.allTimeHigh.toLocaleString()}</span>
+                      <span className="text-primary font-medium flex-shrink-0 whitespace-nowrap tabular-nums">{game.allTimeHigh.toLocaleString()}</span>
                       {game.allTimeHighPlayer && (
-                        <span className="text-muted hidden lg:inline">({game.allTimeHighPlayer})</span>
+                        <span className="text-muted hidden lg:inline truncate min-w-0">({game.allTimeHighPlayer})</span>
                       )}
                     </div>
                   ) : (
@@ -614,7 +614,7 @@ export default function Picks() {
                   </div>
                   <div>
                     <span className="text-faint">High Score</span>
-                    <p className="text-primary">{game.allTimeHigh != null ? game.allTimeHigh.toLocaleString() : '--'}</p>
+                    <p className="text-primary whitespace-nowrap tabular-nums">{game.allTimeHigh != null ? game.allTimeHigh.toLocaleString() : '--'}</p>
                   </div>
                   <div>
                     <span className="text-faint">Winner</span>

@@ -852,10 +852,10 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
                     <span className={`font-display font-bold text-xs w-6 text-center flex-shrink-0 ${
                       i === 0 ? 'text-neon-amber' : i === 1 ? 'text-neon-cyan' : i === 2 ? 'text-neon-green' : 'text-faint'
                     }`}>{i + 1}</span>
-                    <span className="text-sm truncate">{sub.iscored_username}</span>
+                    <span className="text-sm truncate min-w-0">{sub.iscored_username}</span>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="font-display font-bold text-sm">{sub.score.toLocaleString()}</span>
+                    <span className="font-display font-bold text-sm flex-shrink-0 whitespace-nowrap tabular-nums">{sub.score.toLocaleString()}</span>
                     <span className="text-faint text-[10px] w-20 text-right">{new Date(sub.timestamp).toLocaleDateString()}</span>
                     <button
                       type="button"
@@ -887,10 +887,10 @@ function ManageScoresModal({ lb, roomId, onClose, onDeleted }: {
                 <div key={`${s.gameId}-${s.username}`} className="flex items-center justify-between px-5 py-2.5 group hover:bg-raised/30 transition-colors">
                   <div className="flex items-center gap-3 min-w-0">
                     <Lock size={12} className="text-faint flex-shrink-0" />
-                    <span className="text-sm truncate">{s.username}</span>
+                    <span className="text-sm truncate min-w-0">{s.username}</span>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="font-display font-bold text-sm">{s.suppressedScore.toLocaleString()}</span>
+                    <span className="font-display font-bold text-sm flex-shrink-0 whitespace-nowrap tabular-nums">{s.suppressedScore.toLocaleString()}</span>
                     <span className="text-faint text-[10px] w-28 text-right truncate" title={s.deletedBy ? `Deleted by ${s.deletedBy}` : 'Deleted'}>
                       {new Date(s.deletedAt).toLocaleDateString()}{s.deletedBy ? ` · ${s.deletedBy}` : ''}
                     </span>

@@ -11,6 +11,7 @@ import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
+import { formatScore, scoreTitle } from '../lib/format';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
 import ReportContentModal from '../components/ReportContentModal';
@@ -178,6 +179,22 @@ interface CatalogueGameInfo {
 }
 
 type Tab = 'leaderboard' | 'community' | 'tips' | 'player-stats';
+
+/**
+ * Community "Best Scores" board cells (desktop grid only).
+ *
+ * `self-stretch` keeps the per-cell bottom borders at one height, so the row
+ * rule reads as an unbroken line rather than a dashed one — a rank glyph is
+ * shorter than a name, and an empty header cell has no height at all. Padding
+ * lives on the cell instead of a grid gap for the same reason: a column gap
+ * would chop the divider into segments.
+ */
+const CB_HEAD = 'flex items-center self-stretch py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider';
+const CB_CELL = 'flex items-center self-stretch min-w-0 py-3 border-b border-border/20';
+
+/** Podium colouring for the rank glyph, shared by both layouts. */
+const communityRankColor = (i: number) =>
+  i === 0 ? 'text-neon-amber' : i === 1 ? 'text-neon-cyan' : i === 2 ? 'text-neon-green' : 'text-faint';
 
 export default function GameDetail() {
   const { slug, name } = useParams<{ slug: string; name: string }>();
@@ -1100,25 +1117,33 @@ export default function GameDetail() {
                 <div className="mt-3 bg-surface border border-border rounded-lg overflow-hidden">
                   {gameHistory.length > 0 ? (
                     <>
-                      <div className="flex items-center justify-between px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-                        <span>Player</span>
-                        <div className="flex items-center gap-6">
+                      {/* Score column is `min-w`, never `w` — it lines up with the
+                          header for ordinary scores but grows rather than clipping
+                          when a 12+ digit score lands. */}
+                      <div className="flex items-center justify-between gap-3 px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
+                        <span className="min-w-0 truncate">Player</span>
+                        <div className="flex items-center gap-6 flex-shrink-0">
                           <span>Source</span>
-                          <span className="w-20 text-right">Score</span>
+                          <span className="min-w-[6rem] text-right">Score</span>
                           <span className="w-20 text-right">Date</span>
                         </div>
                       </div>
                       {gameHistory.map(h => (
-                        <div key={h.id} className="flex items-center justify-between px-5 py-2.5 border-b border-border/20 last:border-0 text-sm">
-                          <span className="font-medium truncate">{h.display_name || h.iscored_username}</span>
-                          <div className="flex items-center gap-6">
+                        <div key={h.id} className="flex items-center justify-between gap-3 px-5 py-2.5 border-b border-border/20 last:border-0 text-sm">
+                          <span className="font-medium truncate min-w-0">{h.display_name || h.iscored_username}</span>
+                          <div className="flex items-center gap-6 flex-shrink-0">
                             <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                               h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
                               h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
                               'bg-neon-green/10 text-neon-green'
                             }`}>{h.source}</span>
-                            <span className="font-display font-bold w-20 text-right">{h.score.toLocaleString()}</span>
-                            <span className="text-faint text-xs w-20 text-right">{new Date(h.created_at).toLocaleDateString()}</span>
+                            <span
+                              className="font-display font-bold min-w-[6rem] text-right flex-shrink-0 whitespace-nowrap tabular-nums"
+                              title={scoreTitle(h.score)}
+                            >
+                              {formatScore(h.score)}
+                            </span>
+                            <span className="text-faint text-xs w-20 text-right flex-shrink-0">{new Date(h.created_at).toLocaleDateString()}</span>
                           </div>
                         </div>
                       ))}
@@ -1153,39 +1178,88 @@ export default function GameDetail() {
               <div className="mb-8">
                 <h2 className="font-display text-sm text-muted uppercase tracking-wider mb-3">Best Scores</h2>
                 <div className="bg-surface border border-border rounded-lg overflow-hidden">
-                  <div className="flex items-center justify-between px-5 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 text-center">#</span>
-                      <span>Player</span>
-                    </div>
-                    <div className="flex items-center gap-6">
-                      <span>Plays</span>
-                      <span className="w-20 text-right">Best</span>
-                    </div>
-                  </div>
-                  {communityBoard.map((entry, i) => (
-                    <div
-                      key={entry.player_key ?? entry.iscored_username}
-                      className={`flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0 ${
-                        i === 0 ? 'bg-neon-amber/8' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className={`font-display font-bold w-8 text-center flex-shrink-0 ${
-                          i === 0 ? 'text-neon-amber' : i === 1 ? 'text-neon-cyan' : i === 2 ? 'text-neon-green' : 'text-faint'
-                        }`}>
+                  {/* ── Mobile: two stacked lines per row ────────────────────
+                      The score stopped clipping in the first pass, but four
+                      things on one 390px line left the player name as "Pi…".
+                      Same answer History took: the name gets a line to itself,
+                      the number gets the next one, and the columnar header is
+                      hidden because the stack has no columns to name. Rank
+                      stays the row's left anchor beside both lines. */}
+                  <div className="sm:hidden">
+                    {communityBoard.map((entry, i) => (
+                      <div
+                        key={entry.player_key ?? entry.iscored_username}
+                        className={`flex items-start gap-3 px-4 py-3 border-b border-border/20 last:border-0 ${
+                          i === 0 ? 'bg-neon-amber/8' : ''
+                        }`}
+                      >
+                        <span className={`font-display font-bold w-6 flex-shrink-0 text-center leading-5 ${communityRankColor(i)}`}>
                           {i + 1}
                         </span>
-                        <span className="font-medium truncate">{entry.display_name || entry.iscored_username}</span>
+                        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                          <span className="min-w-0 truncate font-medium text-sm">
+                            {entry.display_name || entry.iscored_username}
+                          </span>
+                          <div className="flex items-baseline gap-2 min-w-0">
+                            <span className="min-w-0 truncate text-faint text-[11px]">
+                              {entry.times_played} {entry.times_played === 1 ? 'play' : 'plays'}
+                            </span>
+                            <span
+                              className={`ml-auto flex-shrink-0 whitespace-nowrap tabular-nums font-display font-bold ${
+                                i === 0 ? 'text-neon-amber' : 'text-primary'
+                              }`}
+                              title={scoreTitle(entry.best_score)}
+                            >
+                              {formatScore(entry.best_score)}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-6">
-                        <span className="text-muted text-sm">{entry.times_played}</span>
-                        <span className={`font-display font-bold w-20 text-right ${i === 0 ? 'text-neon-amber' : 'text-primary'}`}>
-                          {entry.best_score.toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+
+                  {/* ── Desktop: header + rows share ONE grid ────────────────
+                      Two sibling grids with the same template still drift,
+                      because each sizes its own `auto` tracks to its own
+                      content — the label "PLAYS" is wider than "14", so the
+                      header stopped sitting over the column it names (the
+                      reported misalignment). Rows are therefore
+                      `display:contents` wrappers whose CELLS are the grid
+                      items. Score and plays keep `auto` tracks so a 12-digit
+                      number widens its own column rather than clipping; the
+                      player name is the one track that yields. */}
+                  <div className="hidden sm:grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center [&>*:last-child>*]:border-b-0">
+                    <span className={`${CB_HEAD} pl-5 pr-3 justify-center`}>#</span>
+                    <span className={`${CB_HEAD} pr-3`}>Player</span>
+                    <span className={`${CB_HEAD} pr-6 justify-end`}>Plays</span>
+                    <span className={`${CB_HEAD} pr-5 justify-end`}>Best</span>
+                    {communityBoard.map((entry, i) => {
+                      const tint = i === 0 ? 'bg-neon-amber/8' : '';
+                      return (
+                        <div key={entry.player_key ?? entry.iscored_username} className="contents">
+                          <span className={`${CB_CELL} ${tint} pl-5 pr-3 justify-center font-display font-bold ${communityRankColor(i)}`}>
+                            {i + 1}
+                          </span>
+                          <span className={`${CB_CELL} ${tint} pr-3`}>
+                            <span className="min-w-0 truncate font-medium">
+                              {entry.display_name || entry.iscored_username}
+                            </span>
+                          </span>
+                          <span className={`${CB_CELL} ${tint} pr-6 justify-end text-muted text-sm tabular-nums`}>
+                            {entry.times_played}
+                          </span>
+                          <span
+                            className={`${CB_CELL} ${tint} pr-5 justify-end whitespace-nowrap tabular-nums font-display font-bold ${
+                              i === 0 ? 'text-neon-amber' : 'text-primary'
+                            }`}
+                            title={scoreTitle(entry.best_score)}
+                          >
+                            {formatScore(entry.best_score)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1202,16 +1276,21 @@ export default function GameDetail() {
                   {communityHistory.slice(0, 10).map((entry) => (
                     <div
                       key={entry.id}
-                      className="flex items-center justify-between px-5 py-3 border-b border-border/20 last:border-0"
+                      className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border/20 last:border-0"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <span className="font-medium truncate">{entry.display_name || entry.iscored_username}</span>
-                        <span className="flex items-center gap-1 text-faint text-xs">
+                        <span className="font-medium truncate min-w-0">{entry.display_name || entry.iscored_username}</span>
+                        <span className="flex items-center gap-1 text-faint text-xs flex-shrink-0">
                           <Clock size={12} />
                           {new Date(entry.created_at).toLocaleDateString()}
                         </span>
                       </div>
-                      <span className="font-display font-bold text-primary">{entry.score.toLocaleString()}</span>
+                      <span
+                        className="font-display font-bold text-primary flex-shrink-0 whitespace-nowrap tabular-nums"
+                        title={scoreTitle(entry.score)}
+                      >
+                        {formatScore(entry.score)}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1718,9 +1797,11 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, 
 }) {
   const isVerified = !!h.verified_at;
   return (
-    <div className="flex items-center justify-between text-sm group">
+    <div className="flex items-center justify-between gap-2 text-sm group">
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-muted">{h.score.toLocaleString()}</span>
+        <span className="text-muted flex-shrink-0 whitespace-nowrap tabular-nums" title={scoreTitle(h.score)}>
+          {formatScore(h.score)}
+        </span>
         <span className={`text-[10px] px-1.5 py-0.5 rounded ${
           h.source === 'tournament' ? 'bg-neon-cyan/10 text-neon-cyan' :
           h.source === 'sync' ? 'bg-neon-purple/10 text-neon-purple' :
@@ -1784,24 +1865,30 @@ function ScoreHistoryRow({ h, canDelete, onDelete, canVerify, onToggleVerified, 
 }
 
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
-  // Auto-shrink font for long values to fit within card width
-  const fontSize = value.length > 13 ? 'text-sm' : value.length > 10 ? 'text-base' : value.length > 7 ? 'text-xl' : 'text-2xl';
+  // Auto-shrink font for long values to fit within card width. A grouped number
+  // has no break opportunity (browsers don't wrap at commas), so the ramp is the
+  // only thing standing between a 12-digit all-time high and a clipped card at
+  // 390px, where this grid is 2-up — hence the extra `text-xs` step.
+  const fontSize = value.length > 13 ? 'text-xs' : value.length > 10 ? 'text-base' : value.length > 7 ? 'text-xl' : 'text-2xl';
   return (
     <div className="bg-surface border border-border rounded-lg p-4 text-center">
       <p className="text-faint text-xs uppercase tracking-wider mb-1">{label}</p>
-      <p className={`font-display font-bold ${fontSize} ${color}`}>{value}</p>
+      <p className={`font-display font-bold ${fontSize} ${color} whitespace-nowrap tabular-nums`}>{value}</p>
     </div>
   );
 }
 
 function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  // Same length-aware ramp as StatCard — a Personal Best can be 12+ digits and
+  // these sit in a 4-column grid on phones.
+  const fontSize = value.length > 13 ? 'text-[11px]' : value.length > 10 ? 'text-xs' : value.length > 7 ? 'text-sm' : 'text-lg';
   return (
     <div className="bg-raised border border-border/50 rounded-lg p-3 text-center">
       <div className="flex items-center justify-center gap-1 text-faint mb-1">
         {icon}
         <span className="text-[10px] uppercase tracking-wider">{label}</span>
       </div>
-      <p className="font-display font-bold text-lg text-primary">{value}</p>
+      <p className={`font-display font-bold ${fontSize} text-primary whitespace-nowrap tabular-nums`}>{value}</p>
     </div>
   );
 }

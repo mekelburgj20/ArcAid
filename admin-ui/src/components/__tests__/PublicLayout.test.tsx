@@ -312,4 +312,58 @@ describe('PublicLayout', () => {
       expect(screen.queryByText('This room requires approval to join')).toBeNull();
     });
   });
+
+  // Field report: the Stats icon went dark on Stats → History. The unit-level
+  // truth table lives in navSectionForPath.test.tsx; this is the wiring check
+  // that the render site actually consults the predicate.
+  describe('nav active state on sibling sub-pages', () => {
+    function renderNavAt(path: string) {
+      const fetchMock = vi.fn((url: string) => {
+        if (url.startsWith('/api/portal')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ id: 'room-1', roomId: 'room-1', slug: 'rtx_pinball', name: 'RTX Pinball', pick_award_enabled: false }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+      vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+      return render(
+        <MemoryRouter initialEntries={[path]}>
+          <ViewerAuthProvider>
+            <Routes>
+              <Route path="/:slug" element={<PublicLayout />}>
+                <Route index element={<div />} />
+                <Route path="history" element={<div />} />
+                <Route path="players/:name" element={<div />} />
+              </Route>
+            </Routes>
+          </ViewerAuthProvider>
+        </MemoryRouter>,
+      );
+    }
+
+    /** The lit nav item is the one carrying aria-current="page". */
+    async function activeNavLabel(): Promise<string | null> {
+      const nav = await screen.findByLabelText('Room navigation');
+      const current = nav.querySelector('[aria-current="page"]');
+      return current?.getAttribute('aria-label') ?? null;
+    }
+
+    it('keeps Stats lit on /:slug/history (the reported bug)', async () => {
+      renderNavAt('/rtx_pinball/history');
+      await waitFor(async () => expect(await activeNavLabel()).toBe('Stats'));
+    });
+
+    it('lights Players on /:slug/players/:name', async () => {
+      renderNavAt('/rtx_pinball/players/Krobs');
+      await waitFor(async () => expect(await activeNavLabel()).toBe('Players'));
+    });
+
+    it('lights Scores on the room root', async () => {
+      renderNavAt('/rtx_pinball');
+      await waitFor(async () => expect(await activeNavLabel()).toBe('Scores'));
+    });
+  });
 });

@@ -55,6 +55,7 @@ import { AdminService } from '../../services/AdminService.js';
 import { getDashboardData } from '../../services/DashboardService.js';
 import { RatingService } from '../../services/RatingService.js';
 import { RoomScoresService } from '../../services/RoomScoresService.js';
+import { TournamentScoresService } from '../../services/TournamentScoresService.js';
 import { ScoreProvenanceService } from '../../services/ScoreProvenanceService.js';
 import { AuditService } from '../../services/AuditService.js';
 
@@ -3210,6 +3211,8 @@ router.get('/:roomId/history', async (req, res) => {
 
         const results = await db.all(
             `SELECT
+                g.id AS game_id,
+                t.id AS tournament_id,
                 g.name AS game_name,
                 t.name AS tournament_name,
                 t.type AS tournament_type,
@@ -3234,6 +3237,27 @@ router.get('/:roomId/history', async (req, res) => {
         res.json({ results, total, page, limit });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/history):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Per-tournament score boards (public) — every score submitted DURING one
+// tournament, one board per game it featured. Backs `/:slug/tournaments/:id`,
+// the click-through target of each History row. See TournamentScoresService for
+// why this keys on `submitted_during_tournament_id` and never joins `games` on
+// `score_history.game_id`.
+router.get('/:roomId/tournaments/:tournamentId/scores', async (req, res) => {
+    try {
+        const data = await TournamentScoresService.getTournamentScores(
+            req.params.roomId as string,
+            req.params.tournamentId as string,
+        );
+        // Missing and wrong-room are the same 404 — a tournament id must not be
+        // probeable from a room it doesn't belong to.
+        if (!data) return res.status(404).json({ error: 'Tournament not found' });
+        res.json(data);
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/tournaments/:tournamentId/scores):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

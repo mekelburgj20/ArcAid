@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, NavLink, Outlet, useParams, useLocation } from 'react-router-dom';
+import { Link, Outlet, useParams, useLocation } from 'react-router-dom';
 import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare, Users } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from './Toast';
 import { getPortal, type Portal } from '../lib/portal';
+import { navSectionForPath, type NavSection } from '../lib/navSections';
 import { getTitleStyleClass } from './ScoreboardComponents';
 import { RoomContext } from '../contexts/RoomContext';
 import UserMenu from './UserMenu';
@@ -193,34 +194,43 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
   // `badge` generalizes what used to be a hardcoded `item.label === 'Lobby'`
   // check at the render site: 'dot' for "there's something new", 'count' for
   // "there are N things to act on".
+  //
+  // `section` drives the lit state via `navSectionForPath` (lib/navSections.ts)
+  // — see that function for why NavLink's built-in matching can't do it. The
+  // Global tab has no section on purpose: the room nav unmounts on /scoreboard,
+  // so it is structurally unable to be active.
   type NavBadge = { kind: 'dot' } | { kind: 'count'; value: number; urgent: boolean };
-  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; end?: boolean; tour?: string; badge?: NavBadge }> = [];
+  const navItems: Array<{ path: string; label: string; icon: React.ReactNode; section?: NavSection; tour?: string; badge?: NavBadge }> = [];
   if (!isGated && !isSuspended) {
     navItems.push({
       path: `/${slug}/lobby`,
       label: 'Lobby',
       icon: <MessageSquare size={16} />,
+      section: 'lobby',
       badge: lobbyHasNew ? { kind: 'dot' } : undefined,
     });
-    navItems.push({ path: `/${slug}`, label: 'Scores', icon: <Monitor size={16} />, end: true, tour: 'nav-scores' });
+    navItems.push({ path: `/${slug}`, label: 'Scores', icon: <Monitor size={16} />, section: 'scores', tour: 'nav-scores' });
     if (!pickAwardLoading && pickAwardEnabled) {
       navItems.push({
         path: `/${slug}/picks`,
         label: 'Picks',
         icon: <Gamepad2 size={16} />,
+        section: 'picks',
         badge: pickAlerts && pickAlerts.count > 0
           ? { kind: 'count', value: pickAlerts.count, urgent: pickAlerts.urgent }
           : undefined,
       });
     }
-    navItems.push({ path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} /> });
+    navItems.push({ path: `/${slug}/stats`, label: 'Stats', icon: <BarChart3 size={16} />, section: 'stats' });
     // v2.42.0 — Members/Players page. Static "Players" label in the nav
     // (reads fine whether the room is roster-based or score-poster-based);
     // the page itself flips its own header between "Members"/"Players"
     // depending on join_policy.
-    navItems.push({ path: `/${slug}/members`, label: 'Players', icon: <Users size={16} /> });
+    navItems.push({ path: `/${slug}/members`, label: 'Players', icon: <Users size={16} />, section: 'players' });
   }
   navItems.push({ path: '/scoreboard', label: 'Global', icon: <Trophy size={16} /> });
+
+  const activeNavSection = navSectionForPath(location.pathname, slug);
 
   return (
     <div className="h-[100dvh] bg-deep text-primary relative flex flex-col overflow-hidden">
@@ -256,14 +266,16 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             </Link>
           </div>
           <div className="flex-1 min-w-0 flex items-center justify-start sm:justify-end gap-0.5 sm:gap-1 overflow-x-auto" data-tour="nav">
-            {navItems.map(item => (
-              <NavLink
+            {navItems.map(item => {
+              const isActive = item.section != null && item.section === activeNavSection;
+              return (
+              <Link
                 key={item.path}
                 to={item.path}
-                end={item.end}
                 aria-label={item.label}
+                aria-current={isActive ? 'page' : undefined}
                 data-tour={item.tour}
-                className={({ isActive }) =>
+                className={
                   `flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 min-h-11 min-w-11 px-1.5 sm:px-3 py-1 sm:py-2 rounded transition-colors no-underline ${
                     isActive ? 'text-neon-cyan bg-neon-cyan/10' : 'text-muted hover:text-neon-cyan'
                   }`
@@ -303,8 +315,9 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
                     (was icon-only, unlabeled for screen readers relying on visible
                     text), inline row label unchanged on sm+. */}
                 <span className="text-[10px] sm:text-sm leading-none">{item.label}</span>
-              </NavLink>
-            ))}
+              </Link>
+              );
+            })}
           </div>
           <div className="flex items-center flex-shrink-0">
             {/* Discord login / user menu */}
