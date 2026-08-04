@@ -6,6 +6,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.77.0] — unreleased
+
+**Picks badge honesty + Picks page mobile pass** (tester field report via the owner, 2026-08-03:
+a badge with nothing behind it on the page).
+
+### The badge/page agreement fix
+
+- **Root cause of the report:** `PickAlertService`'s `emptyQueue` "soft nudge" ("your queue is
+  empty — line one up") counted a player as having standing if ANY game row ever carried them as
+  picker — including when their own pick was the CURRENTLY ACTIVE game. The tester's badge showed
+  2 precisely because his two picked games were live in both gated tournaments; the Picks page has
+  no UI for that state, so the badge looked haunted. Now suppressed per-tournament while the
+  viewer's own pick is ACTIVE (lifts on completion); regression test reproduces the field case.
+- **Badge and page agree by construction:** `Picks.tsx` now fetches the SAME `/pick-alerts`
+  payload the nav badge uses and renders every state — `emptyQueue` → soft cyan per-tournament
+  banner ("Nothing queued for X — line up your next pick"), `ineligible` → amber "On cooldown"
+  chip on the matching queued row (previously indistinguishable from a healthy row). Post-write
+  refreshes clear banner and badge in the same tick.
+- **`pick-status` filter alignment:** its `pendingPicks` ignored `is_active` + the `winner_picks`
+  gate while the badge filtered both — an archived/gate-off tournament could render an
+  "Awaiting your pick" prompt the modal couldn't act on. Aligned (NULL-is-enabled legacy default
+  preserved). `queuedGames` deliberately NOT filtered — hiding those rows would strip the
+  player's only delete path for them.
+- **TimeoutManager placeholder leaks:** two `fallbackToAutoSelection` branches (auto-pick
+  disabled; no eligible games) left `[Pending Pick]` rows with `picker_discord_id` NULLed —
+  invisible to badge AND page but parked at the queue head (`queue_order` NULL sorts first),
+  silently blocking the tournament and generating phantom soft alerts for others. Both now DELETE
+  the placeholder (mirroring the existing at-max-active branch). The catch-all error branch keeps
+  the row AND the picker id — a transient failure must not orphan a player's pick.
+- Stale-badge fix: PublicLayout clears the badge on 401 (was: painted the last count forever);
+  other errors still keep the previous value.
+
+### Picks page mobile UX
+
+- Header un-scrunched: title/description stack above a full-width tournament selector on phones
+  (was one non-wrapping row where a 60-char description wrapped 4 lines beside the select).
+  Copy shortened: "Queue your next pick or spin the Mystery Award."
+- **"Translite" jargon removed from player-facing copy** — now "Spin for a random pick from the
+  available tables." (The Mystery Award cabinet keeps its themed internals.)
+- Mystery Award card balanced on mobile: chip + title row, full-width description, full-width
+  Spin button; desktop inline layout unchanged. Summary cards collapse to a single-row chip
+  strip at 390px. Queued rows wrap to two lines on phones (game name + tournament context) —
+  the cooldown chip made the pre-existing truncation visibly worse, screenshots drove the fix.
+
+Files: `src/services/PickAlertService.ts`, `src/api/routes/rooms.ts` (pick-status),
+`src/engine/TimeoutManager.ts`, `admin-ui/src/pages/Picks.tsx`,
+`admin-ui/src/components/PublicLayout.tsx`.
+
+No migrations. Tests: backend 1432 → **1446** (emptyQueue suppression incl. the field-case
+regression, pick-status alignment, all three TimeoutManager branches; one pre-existing assertion
+rewritten — it locked the old orphan-the-placeholder behavior), admin-ui 461 → **469**.
+
 ## [2.76.0] — unreleased
 
 **Field-check UX batch** (owner reports, 2026-08-02): score overflow, nav highlighting, and a
