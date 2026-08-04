@@ -72,6 +72,33 @@ interface PickStatusData {
 }
 
 /**
+ * v2.77.0 — the Picks page reads the SAME endpoint the nav badge reads.
+ *
+ * The badge counted three states; the page rendered one of them. A player
+ * whose queue was empty in two gated tournaments got a count-2 badge and a
+ * page with nothing on it — an unclearable number. Rather than re-derive the
+ * states client-side (which is how they drifted apart in the first place), the
+ * page consumes `/pick-alerts` verbatim: every state the badge counts has a
+ * matching thing to look at here. Agreement by construction.
+ */
+interface PickAlertTournamentRef {
+  tournamentId: string;
+  tournamentName: string;
+}
+interface PickAlertIneligible extends PickAlertTournamentRef {
+  gameId: string;
+  gameName: string;
+  reason: 'cooldown';
+}
+interface PickAlertsData {
+  pendingPickCount: number;
+  emptyQueue: PickAlertTournamentRef[];
+  ineligible: PickAlertIneligible[];
+  count: number;
+  urgent: boolean;
+}
+
+/**
  * v2.2.10: URL param is a human-readable slug derived from the tournament
  * name (e.g. "Daily Grind" → "daily_grind"), not the UUID. The raw id is
  * still used internally for API calls — the slug is resolved to an id once
@@ -181,11 +208,30 @@ export default function Picks() {
 
   useEffect(() => { fetchPickStatus(); }, [fetchPickStatus]);
 
-  // Tells the nav (PublicLayout) to re-probe /pick-alerts. Fired only from
-  // write paths — the layout already probes on navigation, so calling this on
-  // mount would just double the request. Cross-component DOM event because
-  // PublicLayout renders Picks through an <Outlet /> and can't be passed props.
-  const refreshPickAlerts = () => window.dispatchEvent(new Event('arcaid_pick_alerts_changed'));
+  // Same probe the nav badge runs (see PickAlertsData above). Silent on
+  // failure — these drive supplementary banners, never the page's core data.
+  const [pickAlerts, setPickAlerts] = useState<PickAlertsData | null>(null);
+  const fetchPickAlerts = useCallback(() => {
+    if (!roomId || !playerToken) { setPickAlerts(null); return; }
+    fetch(`/api/rooms/${roomId}/pick-alerts`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => { if (data) setPickAlerts(data); })
+      .catch(() => {});
+  }, [roomId, playerToken]);
+
+  useEffect(() => { fetchPickAlerts(); }, [fetchPickAlerts]);
+
+  // Tells the nav (PublicLayout) to re-probe /pick-alerts, and re-probes for
+  // this page too so the banners clear in the same tick the badge does. Fired
+  // only from write paths — both surfaces already probe on mount/navigation.
+  // Cross-component DOM event because PublicLayout renders Picks through an
+  // <Outlet /> and can't be passed props.
+  const refreshPickAlerts = () => {
+    window.dispatchEvent(new Event('arcaid_pick_alerts_changed'));
+    fetchPickAlerts();
+  };
 
   const handlePickConfirm = async (tournamentId: string) => {
     if (!roomId || !playerToken) return;
@@ -264,6 +310,11 @@ export default function Picks() {
   const totalCount = data?.games.length ?? 0;
 
   const hasPendingPicks = (pickStatus?.pendingPicks.length ?? 0) > 0;
+  // Every badge state gets a rendering. `emptyQueue` becomes a soft banner;
+  // `ineligible` marks the queued row it refers to (the server only ever flags
+  // the head of a queue — that's the row that would actually activate next).
+  const emptyQueueAlerts = pickAlerts?.emptyQueue ?? [];
+  const ineligibleByGameId = new Map((pickAlerts?.ineligible ?? []).map(i => [i.gameId, i]));
 
   // Defense-in-depth (plan §3): when gate off the Picks page should not exist.
   // Sprint 7 already hides the nav tab; this covers direct-URL access.
@@ -290,19 +341,23 @@ export default function Picks() {
         &larr; Scoreboard
       </Link>
 
-      <div className="mt-3 mb-4 flex items-baseline justify-between gap-3">
-        <div>
+      {/* v2.77.0 — the title block and the tournament select shared one
+          non-wrapping row with no min-w-0, so at 390px a long tournament name
+          squeezed the heading into a two-line sliver. Stack them on phones;
+          the select goes full-width under the title and keeps sm+ inline. */}
+      <div className="mt-3 mb-4 flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2 sm:gap-3">
+        <div className="min-w-0">
           <h1 className="font-display text-xl font-bold text-primary">Picks</h1>
           <p className="text-muted text-xs mt-1">
-            Spin the Mystery Award, or queue your next pick from available tables.
+            Queue your next pick or spin the Mystery Award.
           </p>
         </div>
         {tournaments.length > 1 && (
-          <div className="relative">
+          <div className="relative w-full sm:w-auto sm:flex-shrink-0">
             <select
               value={selectedTournamentId || ''}
               onChange={(e) => setSelectedTournamentId(e.target.value)}
-              className="appearance-none bg-surface border border-border rounded-lg px-4 py-2 pr-8 text-sm text-primary focus:outline-none focus:border-neon-cyan/50 cursor-pointer"
+              className="appearance-none w-full sm:w-auto bg-surface border border-border rounded-lg px-4 py-2 pr-8 text-sm text-primary focus:outline-none focus:border-neon-cyan/50 cursor-pointer"
             >
               {tournaments.map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>
@@ -343,25 +398,31 @@ export default function Picks() {
       )}
 
       {/* Top-level Mystery Award action (plan §9). Persistent at the top of Picks. */}
+      {/* v2.77.0 mobile balance — at 390px the icon + title + description + Spin
+          button all fought for one flex row and wrapped into a ragged block.
+          Phones now get three stacked bands (chip+title / description /
+          full-width Spin); sm+ keeps the original single inline row. */}
       <div className="mb-6 rounded-lg border border-neon-green/30 bg-gradient-to-br from-neon-green/5 to-transparent p-4 sm:p-5">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-neon-green/10 border border-neon-green/30 text-neon-green flex items-center justify-center">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+          {/* 2-col grid rather than nested flex rows: the description spans
+              both columns on phones (full-width, under the chip+title line)
+              and tucks under the title on sm+ — one DOM node either way, so
+              no duplicated headings for screen readers. */}
+          <div className="min-w-0 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 sm:gap-y-0">
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-neon-green/10 border border-neon-green/30 text-neon-green flex items-center justify-center sm:row-span-2">
               <MysteryAwardIcon size={22} />
             </div>
-            <div className="min-w-0">
-              <h2 className="font-display text-sm font-bold text-primary">Mystery Award</h2>
-              <p className="text-xs text-muted">
-                {mysteryAvailable
-                  ? 'Spin the translite for a random available pick.'
-                  : 'Needs at least 2 available tables to spin.'}
-              </p>
-            </div>
+            <h2 className="font-display text-sm font-bold text-primary min-w-0 sm:self-end">Mystery Award</h2>
+            <p className="col-span-2 sm:col-span-1 sm:col-start-2 sm:self-start text-xs text-muted min-w-0">
+              {mysteryAvailable
+                ? 'Spin for a random pick from the available tables.'
+                : 'Needs at least 2 available tables to spin.'}
+            </p>
           </div>
           <button
             onClick={() => setShowPicker(true)}
             disabled={!mysteryAvailable}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-neon-green/40 bg-neon-green/10 text-neon-green text-sm font-semibold hover:bg-neon-green/20 hover:border-neon-green/60 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full sm:w-auto sm:flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg border border-neon-green/40 bg-neon-green/10 text-neon-green text-sm font-semibold hover:bg-neon-green/20 hover:border-neon-green/60 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <MysteryAwardIcon size={16} />
             Spin
@@ -376,6 +437,25 @@ export default function Picks() {
           <p className="text-xs text-neon-green">
             It's your turn to pick! Select an available game below to activate it.
           </p>
+        </div>
+      )}
+
+      {/* Empty-queue nudge (v2.77.0). The soft half of the badge: cyan, not
+          magenta — nothing is on a clock here, the player just has no next
+          pick lined up. One row per tournament so the copy can name it. */}
+      {discordUser && emptyQueueAlerts.length > 0 && (
+        <div
+          data-testid="picks-empty-queue-banner"
+          className="mb-4 rounded-lg bg-neon-cyan/5 border border-neon-cyan/25 divide-y divide-neon-cyan/10"
+        >
+          {emptyQueueAlerts.map(a => (
+            <div key={`eq-${a.tournamentId}`} className="flex items-start gap-2 px-4 py-2.5">
+              <Clock size={14} className="text-neon-cyan flex-shrink-0 mt-px" />
+              <p className="text-xs text-muted min-w-0">
+                Nothing queued for <span className="text-primary font-medium">{a.tournamentName}</span> — line up your next pick.
+              </p>
+            </div>
+          ))}
         </div>
       )}
 
@@ -398,13 +478,37 @@ export default function Picks() {
                 <span className="text-xs text-neon-green font-medium flex-shrink-0">Awaiting your pick</span>
               </div>
             ))}
-            {pickStatus.queuedGames.map((q, idx) => (
+            {pickStatus.queuedGames.map((q, idx) => {
+              // v2.77.0 — the badge's (c) condition, made visible. Without the
+              // chip this row looks identical to a healthy one right up until
+              // maintenance silently skips it.
+              const inelig = ineligibleByGameId.get(q.id);
+              return (
               <div key={`queued-${q.id}`} className="flex items-center justify-between px-4 py-2.5 gap-2">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
+                {/* v2.77.0 — wraps to two lines on phones: the game name (the
+                    identity of the pick) shares line 1 with the index, the
+                    clock and any cooldown chip, and the tournament name drops
+                    to line 2 as context. Pre-fix all four competed in one
+                    non-wrapping row and the game name lost, rendering as
+                    "WHO ..." at 390px — the chip only made it tighter.
+                    `order-last` is mobile-only, so sm+ keeps the original
+                    tournament-then-game reading order on a single line. */}
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
                   <span className="text-[10px] text-faint w-4 text-center flex-shrink-0">{idx + 1}</span>
-                  <Clock size={14} className="text-neon-cyan flex-shrink-0" />
-                  <span className="text-xs text-muted truncate flex-shrink-0">{q.tournament_name}</span>
-                  <span className="text-xs text-primary font-medium truncate">{q.game_name}</span>
+                  <Clock size={14} className={`flex-shrink-0 ${inelig ? 'text-neon-amber' : 'text-neon-cyan'}`} />
+                  {inelig && (
+                    <span
+                      data-testid={`picks-cooldown-chip-${q.id}`}
+                      title="This pick is on cooldown and would be skipped at the next rotation."
+                      className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
+                    >
+                      On cooldown
+                    </span>
+                  )}
+                  <span className="order-last sm:order-none w-full sm:w-auto pl-6 sm:pl-0 text-xs text-muted truncate min-w-0 sm:max-w-[40%]">
+                    {q.tournament_name}
+                  </span>
+                  <span className="text-xs text-primary font-medium truncate min-w-0 flex-1">{q.game_name}</span>
                 </div>
                 <div className="flex items-center gap-0.5 flex-shrink-0">
                   <button
@@ -432,7 +536,8 @@ export default function Picks() {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -443,34 +548,40 @@ export default function Picks() {
         </p>
       )}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      {/* Summary cards / filter chips.
+          v2.77.0 — the hard `grid-cols-3` squeezed three stacked label+number
+          cards into ~110px each at 390px. Phones now get a single-row chip
+          strip (label and count side by side, so each chip needs a fraction of
+          the height); sm+ keeps the original three stacked cards. Counts are
+          flex-shrink-0 + tabular-nums per the score-containment doctrine —
+          the label yields, the number never wraps. */}
+      <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3 mb-6">
         <button
-          onClick={() => setFilter(filter === 'all' ? 'all' : 'all')}
-          className={`bg-surface border rounded-lg p-3 text-center cursor-pointer transition-colors ${
+          onClick={() => setFilter('all')}
+          className={`bg-surface border rounded-lg px-2 py-2 sm:p-3 flex items-center justify-center gap-1.5 sm:block sm:text-center cursor-pointer transition-colors ${
             filter === 'all' ? 'border-neon-cyan/50' : 'border-border hover:border-border/80'
           }`}
         >
-          <p className="text-faint text-[10px] uppercase tracking-wider mb-0.5">Total</p>
-          <p className="font-display font-bold text-lg text-primary">{totalCount}</p>
+          <p className="text-faint text-[10px] uppercase tracking-wider truncate min-w-0 sm:mb-0.5">Total</p>
+          <p className="font-display font-bold text-sm sm:text-lg text-primary flex-shrink-0 whitespace-nowrap tabular-nums">{totalCount}</p>
         </button>
         <button
           onClick={() => setFilter(filter === 'available' ? 'all' : 'available')}
-          className={`bg-surface border rounded-lg p-3 text-center cursor-pointer transition-colors ${
+          className={`bg-surface border rounded-lg px-2 py-2 sm:p-3 flex items-center justify-center gap-1.5 sm:block sm:text-center cursor-pointer transition-colors ${
             filter === 'available' ? 'border-neon-green/50' : 'border-border hover:border-border/80'
           }`}
         >
-          <p className="text-faint text-[10px] uppercase tracking-wider mb-0.5">Available</p>
-          <p className="font-display font-bold text-lg text-neon-green">{availableCount}</p>
+          <p className="text-faint text-[10px] uppercase tracking-wider truncate min-w-0 sm:mb-0.5">Available</p>
+          <p className="font-display font-bold text-sm sm:text-lg text-neon-green flex-shrink-0 whitespace-nowrap tabular-nums">{availableCount}</p>
         </button>
         <button
           onClick={() => setFilter(filter === 'cooldown' ? 'all' : 'cooldown')}
-          className={`bg-surface border rounded-lg p-3 text-center cursor-pointer transition-colors ${
+          className={`bg-surface border rounded-lg px-2 py-2 sm:p-3 flex items-center justify-center gap-1.5 sm:block sm:text-center cursor-pointer transition-colors ${
             filter === 'cooldown' ? 'border-neon-amber/50' : 'border-border hover:border-border/80'
           }`}
         >
-          <p className="text-faint text-[10px] uppercase tracking-wider mb-0.5">Cooldown</p>
-          <p className="font-display font-bold text-lg text-neon-amber">{cooldownCount}</p>
+          <p className="text-faint text-[10px] uppercase tracking-wider truncate min-w-0 sm:mb-0.5">Cooldown</p>
+          <p className="font-display font-bold text-sm sm:text-lg text-neon-amber flex-shrink-0 whitespace-nowrap tabular-nums">{cooldownCount}</p>
         </button>
       </div>
 

@@ -11,7 +11,9 @@ import { TournamentEngine } from '../engine/TournamentEngine.js';
  *                      a slot and the clock is running. Always badges.
  *   (b) `emptyQueue` — a tournament where the player has pick standing but
  *                      nothing queued. Gated (see below) so it never nags
- *                      players who don't engage with picks.
+ *                      players who don't engage with picks, and suppressed
+ *                      while the player's OWN pick is the currently ACTIVE
+ *                      game (v2.77.0 — see the inline note at the call site).
  *   (c) `ineligible` — the player's HEAD-of-queue pick would be skipped at
  *                      activation (cooldown). Always badges — this is the
  *                      silent failure the feature exists to surface: pre-badge,
@@ -140,6 +142,24 @@ export class PickAlertService {
             } else if (pending === 0) {
                 // (b) nothing queued and no pending pick — nudge only if this
                 // player has pick standing in THIS tournament (see class docs).
+                //
+                // Suppression (v2.77.0): their own pick is the game that is
+                // LIVE right now. The nudge means "you could line up your next
+                // pick" — nagging a player while the table they chose is the
+                // active one is just wrong, and it was the field-reported bug:
+                // the badge counted it, the Picks page rendered nothing to act
+                // on, so the count was unclearable. Standing is deliberately
+                // still the broad any-status EXISTS; this only carves out the
+                // one state where the player is already the reason the
+                // tournament is busy.
+                const live = await db.get(
+                    `SELECT 1 AS ok FROM games
+                     WHERE tournament_id = ? AND status = 'ACTIVE' AND picker_discord_id = ?
+                     LIMIT 1`,
+                    t.id, discordId,
+                );
+                if (live) continue;
+
                 const standing = await db.get(
                     'SELECT 1 AS ok FROM games WHERE tournament_id = ? AND picker_discord_id = ? LIMIT 1',
                     t.id, discordId,
