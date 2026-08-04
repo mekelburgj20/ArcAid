@@ -293,15 +293,26 @@ describe('site 4: TimeoutManager.fallbackToAutoSelection', () => {
         expect(slot?.status).toBe('ACTIVE');
     });
 
-    it('leaves the slot unfilled when nothing satisfies `required`', async () => {
+    it('activates nothing when no catalogue game satisfies `required`', async () => {
         const roomId = await seedRoom('tm-empty');
         const tournamentId = await seedTournament(
             roomId, 'TM Empty', { required: ['star_wars_pinball_vr'], excluded: [] },
         );
 
         const slot = await runFallback(tournamentId, roomId);
-        expect(slot?.name).toBe('[Pending Pick]');
-        expect(slot?.status).toBe('QUEUED');
+
+        // The point of this site test is that `required` is honoured — nothing
+        // outside the rule gets activated. v2.77.0 changed WHAT happens to the
+        // unfillable slot: it used to be left QUEUED with picker_discord_id
+        // NULLed, which made it invisible to both the Picks page and the nav
+        // badge while still wedged at the head of the queue. It is now deleted.
+        // (Disposal policy is locked in picks-badge-page-agreement.test.ts.)
+        expect(slot).toBeUndefined();
+        const db = await getDatabase();
+        const active = await db.all(
+            `SELECT name FROM games WHERE tournament_id = ? AND status = 'ACTIVE'`, tournamentId,
+        );
+        expect(active).toHaveLength(0);
     });
 });
 

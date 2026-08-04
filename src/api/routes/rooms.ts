@@ -729,6 +729,14 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
         // so the FE can render which slot each pending pick is for — one user
         // can hold multiple pending picks per tournament when winning multiple
         // slots in a single maintenance run (e.g. WG-VPXS max=2).
+        //
+        // v2.77.0 — the tournament filters mirror PickAlertService exactly
+        // (`is_active = 1` + the winner_picks gate, NULL = enabled per
+        // PickAwardGate's legacy default). Pre-fix this query had neither, so a
+        // placeholder left behind by an archived or gate-off tournament
+        // rendered an "Awaiting your pick" banner with no badge and no way to
+        // act on it — the modal can only target tournaments that still rotate.
+        // Badge and page must agree by construction.
         const pendingPicks = await db.all(`
             SELECT g.id as pick_slot_id, g.tournament_id, t.name as tournament_name,
                    g.picker_type, g.picker_designated_at,
@@ -738,6 +746,8 @@ router.get('/:roomId/pick-status', requireDiscordUser, async (req, res) => {
             LEFT JOIN games won ON won.id = g.won_game_id
             WHERE t.game_room_id = ? AND g.status = 'QUEUED'
               AND g.name = '[Pending Pick]' AND g.picker_discord_id = ?
+              AND t.is_active = 1
+              AND (t.winner_picks IS NULL OR t.winner_picks != 0)
             ORDER BY g.picker_designated_at ASC, g.rowid ASC
         `, roomId, discordId);
 

@@ -348,11 +348,15 @@ export class TimeoutManager {
 
             // Check if auto_pick is disabled
             if (tournament.auto_pick === 0) {
-                logInfo(`Auto-pick disabled for ${tournament.name}. Clearing picker slot without auto-selecting.`);
-                await db.run(
-                    'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL WHERE id = ?',
-                    game.id
-                );
+                // v2.77.0 — DELETE, don't orphan. Pre-fix this UPDATEd the
+                // placeholder to picker_discord_id = NULL and left it QUEUED:
+                // invisible to both the Picks page and the nav badge (both key
+                // on picker_discord_id) while still sitting at the head of the
+                // queue with queue_order = NULL, silently blocking the
+                // tournament. The pick is abandoned either way — mirror the
+                // "already at max active games" delete above.
+                logInfo(`Auto-pick disabled for ${tournament.name}. Removing the unfulfilled picker slot ${game.id}.`);
+                await db.run('DELETE FROM games WHERE id = ?', game.id);
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
                     const term = getTerminology(tournament.mode);
@@ -421,11 +425,11 @@ export class TimeoutManager {
             );
 
             if (eligible.length === 0) {
-                logWarn(`No eligible ${term.games} found for auto-selection in ${tournament.name}.`);
-                await db.run(
-                    'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL WHERE id = ?',
-                    game.id
-                );
+                // v2.77.0 — same orphan fix as the auto-pick-disabled branch:
+                // DELETE rather than leave a picker-less QUEUED row wedged at
+                // the head of the queue where nothing can see or clear it.
+                logWarn(`No eligible ${term.games} found for auto-selection in ${tournament.name}. Removing the unfulfilled picker slot ${game.id}.`);
+                await db.run('DELETE FROM games WHERE id = ?', game.id);
                 const channelId = await this.getChannelId(game.tournamentId);
                 if (channelId) {
                     const color = getTournamentColor(tournament.type);
@@ -492,11 +496,14 @@ export class TimeoutManager {
             }
 
         } catch (error) {
-            logError(`Auto-selection failed for slot ${game.id}:`, error);
-            await db.run(
-                'UPDATE games SET picker_discord_id = NULL, picker_type = NULL, picker_designated_at = NULL WHERE id = ?',
-                game.id
-            ).catch(() => {});
+            // v2.77.0 — a transient failure (iScored down, DB hiccup) must not
+            // cost the player their pick. Pre-fix this cleared
+            // picker_discord_id, which left the placeholder QUEUED and
+            // ownerless: gone from the Picks page and the badge, but still
+            // blocking the slot. The row is now left exactly as it was, so the
+            // player keeps seeing "Awaiting your pick" and the next timeout
+            // sweep can retry it.
+            logError(`Auto-selection failed for slot ${game.id} — leaving the picker slot intact for retry:`, error);
         }
     }
 }
