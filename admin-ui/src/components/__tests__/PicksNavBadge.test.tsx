@@ -57,6 +57,36 @@ function stubFetch(alerts: object | null, pickAwardEnabled = true, slug = 'rtx_p
   return calls;
 }
 
+/**
+ * Like {@link stubFetch}, but /pick-alerts answers from a mutable box so a
+ * test can flip the response between probes (v2.77.0 stale-badge cases).
+ */
+function stubFetchSequenced(box: { status: number; body: object }) {
+  const calls: string[] = [];
+  const fetchMock = vi.fn((url: string) => {
+    calls.push(url);
+    if (url.startsWith('/api/portal')) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'room-1', roomId: 'room-1', slug: 'rtx_pinball',
+          name: 'RTX Pinball', pick_award_enabled: true,
+        }),
+      });
+    }
+    if (url.includes('/pick-alerts')) {
+      return Promise.resolve({
+        ok: box.status >= 200 && box.status < 300,
+        status: box.status,
+        json: () => Promise.resolve(box.body),
+      });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+  });
+  vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+  return calls;
+}
+
 function renderLayout(path = '/rtx_pinball/stats') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -169,6 +199,50 @@ describe('Picks nav badge', () => {
 
     await waitFor(() => {
       expect(calls.filter(u => u.includes('/pick-alerts')).length).toBeGreaterThan(before);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // v2.77.0 stale-badge fix (M5). A non-ok probe used to leave the previous
+  // count painted forever. A 401 is different in kind from a 500: the token is
+  // dead, so whatever is on screen is unowned state and must go.
+  // -------------------------------------------------------------------------
+
+  it('clears a painted badge when the probe comes back 401 (dead token)', async () => {
+    signIn();
+    const box = { status: 200, body: { count: 3, urgent: false } };
+    stubFetchSequenced(box);
+
+    renderLayout();
+
+    const badge = await screen.findByTestId('nav-badge-count-picks');
+    expect(badge).toHaveTextContent('3');
+
+    box.status = 401;
+    box.body = { error: 'Discord login required' };
+    act(() => { window.dispatchEvent(new Event('arcaid_pick_alerts_changed')); });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('nav-badge-count-picks')).not.toBeInTheDocument();
+    });
+  });
+
+  it('keeps the last known count on a transient 500 — no flicker', async () => {
+    signIn();
+    const box = { status: 200, body: { count: 2, urgent: false } };
+    stubFetchSequenced(box);
+
+    renderLayout();
+
+    await screen.findByTestId('nav-badge-count-picks');
+
+    box.status = 500;
+    box.body = { error: 'Internal Server Error' };
+    act(() => { window.dispatchEvent(new Event('arcaid_pick_alerts_changed')); });
+
+    // Give the failed probe a chance to land before asserting nothing changed.
+    await waitFor(() => {
+      expect(screen.getByTestId('nav-badge-count-picks')).toHaveTextContent('2');
     });
   });
 

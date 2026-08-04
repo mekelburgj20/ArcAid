@@ -155,7 +155,18 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
       fetch(`/api/rooms/${resolvedRoomId}/pick-alerts`, {
         headers: { Authorization: `Bearer ${playerToken}` },
       })
-        .then(r => (r.ok ? r.json() : null))
+        .then(r => {
+          // v2.77.0 — a 401 means the token is dead (expired / logged out in
+          // another tab). Anything painted from the last successful probe is
+          // now unowned state, so clear it. Other failures (500, offline) are
+          // transient and the last known count is still the best guess:
+          // keeping it beats flickering the badge off and back on.
+          if (r.status === 401) {
+            if (!cancelled) setPickAlerts(null);
+            return null;
+          }
+          return r.ok ? r.json() : null;
+        })
         .then(data => {
           if (cancelled || !data) return;
           setPickAlerts({ count: data.count ?? 0, urgent: !!data.urgent });

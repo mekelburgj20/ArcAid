@@ -72,6 +72,33 @@ interface PickStatusData {
 }
 
 /**
+ * v2.77.0 — the Picks page reads the SAME endpoint the nav badge reads.
+ *
+ * The badge counted three states; the page rendered one of them. A player
+ * whose queue was empty in two gated tournaments got a count-2 badge and a
+ * page with nothing on it — an unclearable number. Rather than re-derive the
+ * states client-side (which is how they drifted apart in the first place), the
+ * page consumes `/pick-alerts` verbatim: every state the badge counts has a
+ * matching thing to look at here. Agreement by construction.
+ */
+interface PickAlertTournamentRef {
+  tournamentId: string;
+  tournamentName: string;
+}
+interface PickAlertIneligible extends PickAlertTournamentRef {
+  gameId: string;
+  gameName: string;
+  reason: 'cooldown';
+}
+interface PickAlertsData {
+  pendingPickCount: number;
+  emptyQueue: PickAlertTournamentRef[];
+  ineligible: PickAlertIneligible[];
+  count: number;
+  urgent: boolean;
+}
+
+/**
  * v2.2.10: URL param is a human-readable slug derived from the tournament
  * name (e.g. "Daily Grind" → "daily_grind"), not the UUID. The raw id is
  * still used internally for API calls — the slug is resolved to an id once
@@ -181,11 +208,30 @@ export default function Picks() {
 
   useEffect(() => { fetchPickStatus(); }, [fetchPickStatus]);
 
-  // Tells the nav (PublicLayout) to re-probe /pick-alerts. Fired only from
-  // write paths — the layout already probes on navigation, so calling this on
-  // mount would just double the request. Cross-component DOM event because
-  // PublicLayout renders Picks through an <Outlet /> and can't be passed props.
-  const refreshPickAlerts = () => window.dispatchEvent(new Event('arcaid_pick_alerts_changed'));
+  // Same probe the nav badge runs (see PickAlertsData above). Silent on
+  // failure — these drive supplementary banners, never the page's core data.
+  const [pickAlerts, setPickAlerts] = useState<PickAlertsData | null>(null);
+  const fetchPickAlerts = useCallback(() => {
+    if (!roomId || !playerToken) { setPickAlerts(null); return; }
+    fetch(`/api/rooms/${roomId}/pick-alerts`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => { if (data) setPickAlerts(data); })
+      .catch(() => {});
+  }, [roomId, playerToken]);
+
+  useEffect(() => { fetchPickAlerts(); }, [fetchPickAlerts]);
+
+  // Tells the nav (PublicLayout) to re-probe /pick-alerts, and re-probes for
+  // this page too so the banners clear in the same tick the badge does. Fired
+  // only from write paths — both surfaces already probe on mount/navigation.
+  // Cross-component DOM event because PublicLayout renders Picks through an
+  // <Outlet /> and can't be passed props.
+  const refreshPickAlerts = () => {
+    window.dispatchEvent(new Event('arcaid_pick_alerts_changed'));
+    fetchPickAlerts();
+  };
 
   const handlePickConfirm = async (tournamentId: string) => {
     if (!roomId || !playerToken) return;
@@ -264,6 +310,11 @@ export default function Picks() {
   const totalCount = data?.games.length ?? 0;
 
   const hasPendingPicks = (pickStatus?.pendingPicks.length ?? 0) > 0;
+  // Every badge state gets a rendering. `emptyQueue` becomes a soft banner;
+  // `ineligible` marks the queued row it refers to (the server only ever flags
+  // the head of a queue — that's the row that would actually activate next).
+  const emptyQueueAlerts = pickAlerts?.emptyQueue ?? [];
+  const ineligibleByGameId = new Map((pickAlerts?.ineligible ?? []).map(i => [i.gameId, i]));
 
   // Defense-in-depth (plan §3): when gate off the Picks page should not exist.
   // Sprint 7 already hides the nav tab; this covers direct-URL access.
@@ -379,6 +430,25 @@ export default function Picks() {
         </div>
       )}
 
+      {/* Empty-queue nudge (v2.77.0). The soft half of the badge: cyan, not
+          magenta — nothing is on a clock here, the player just has no next
+          pick lined up. One row per tournament so the copy can name it. */}
+      {discordUser && emptyQueueAlerts.length > 0 && (
+        <div
+          data-testid="picks-empty-queue-banner"
+          className="mb-4 rounded-lg bg-neon-cyan/5 border border-neon-cyan/25 divide-y divide-neon-cyan/10"
+        >
+          {emptyQueueAlerts.map(a => (
+            <div key={`eq-${a.tournamentId}`} className="flex items-start gap-2 px-4 py-2.5">
+              <Clock size={14} className="text-neon-cyan flex-shrink-0 mt-px" />
+              <p className="text-xs text-muted min-w-0">
+                Nothing queued for <span className="text-primary font-medium">{a.tournamentName}</span> — line up your next pick.
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Your Picks summary */}
       {discordUser && pickStatus && (pickStatus.pendingPicks.length > 0 || pickStatus.queuedGames.length > 0) && (
         <div className="mb-4 bg-surface border border-border rounded-lg overflow-hidden">
@@ -398,11 +468,25 @@ export default function Picks() {
                 <span className="text-xs text-neon-green font-medium flex-shrink-0">Awaiting your pick</span>
               </div>
             ))}
-            {pickStatus.queuedGames.map((q, idx) => (
+            {pickStatus.queuedGames.map((q, idx) => {
+              // v2.77.0 — the badge's (c) condition, made visible. Without the
+              // chip this row looks identical to a healthy one right up until
+              // maintenance silently skips it.
+              const inelig = ineligibleByGameId.get(q.id);
+              return (
               <div key={`queued-${q.id}`} className="flex items-center justify-between px-4 py-2.5 gap-2">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="text-[10px] text-faint w-4 text-center flex-shrink-0">{idx + 1}</span>
-                  <Clock size={14} className="text-neon-cyan flex-shrink-0" />
+                  <Clock size={14} className={`flex-shrink-0 ${inelig ? 'text-neon-amber' : 'text-neon-cyan'}`} />
+                  {inelig && (
+                    <span
+                      data-testid={`picks-cooldown-chip-${q.id}`}
+                      title="This pick is on cooldown and would be skipped at the next rotation."
+                      className="flex-shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-medium border border-neon-amber/40 bg-neon-amber/10 text-neon-amber"
+                    >
+                      On cooldown
+                    </span>
+                  )}
                   <span className="text-xs text-muted truncate flex-shrink-0">{q.tournament_name}</span>
                   <span className="text-xs text-primary font-medium truncate">{q.game_name}</span>
                 </div>
@@ -432,7 +516,8 @@ export default function Picks() {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
