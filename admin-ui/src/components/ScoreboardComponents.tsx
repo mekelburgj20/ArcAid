@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Plus, Minus, Camera, Upload } from 'lucide-react';
+import { Lock, Plus, Minus, Camera, Upload, BadgeCheck } from 'lucide-react';
 import QRCode from 'qrcode';
 import ScorePhotoModal from './ScorePhotoModal';
 import GameInfoPopup from './scoreboard/GameInfoPopup';
@@ -35,6 +35,13 @@ export interface RankedEntry {
   device?: string | null;
   /** @deprecated v2.58.0 — superseded by `engine` + `device`. */
   platform?: string | null;
+  /**
+   * v2.78.0 — true when an admin has verified this score (S23.7's
+   * verify/unverify loop, resolved at read time by
+   * `LeaderboardService.hydrate`). Not every endpoint that ships a
+   * `RankedEntry` resolves it — absent/undefined renders the same as false.
+   */
+  verified?: boolean;
 }
 
 /**
@@ -650,6 +657,11 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           </span>
                           <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={20} />
                           <span className={`truncate max-w-[10rem] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</span>
+                          {entry.verified && (
+                            <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
+                              <BadgeCheck size={12} />
+                            </span>
+                          )}
                         </div>
                         <span
                           className={`font-display font-bold mt-0.5 ${scoreColor}`}
@@ -687,6 +699,11 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
                           </span>
                           <PlayerAvatar username={playerName(entry)} discordUserId={entry.discord_user_id} avatarHash={entry.avatar_hash} avatarUrl={entry.avatar_url} size={20} />
                           <span className={`truncate max-w-[55%] ${isViewerRow ? 'text-neon-cyan font-medium' : isFill ? 'text-white' : ''}`} style={{ fontSize: '0.8125rem', ...scoreTextCSS }}>{playerName(entry)}</span>
+                          {entry.verified && (
+                            <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
+                              <BadgeCheck size={12} />
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span

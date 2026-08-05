@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Plus, Minus } from 'lucide-react';
+import { Lock, Plus, Minus, BadgeCheck } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -272,12 +272,19 @@ export default function BannerCard({
                       <div className="text-center">
                         {/* v2.13.16: PlayerNameLink opens quick-view modal on
                             click; modifier-click falls through to full page. */}
-                        <PlayerNameLink
-                          slug={slug}
-                          entry={entry}
-                          onClick={e => e.stopPropagation()}
-                          className="text-[11px] sb-fs-11 truncate text-secondary block no-underline hover:text-neon-cyan transition-colors"
-                        />
+                        <div className="flex items-center justify-center gap-1 min-w-0">
+                          <PlayerNameLink
+                            slug={slug}
+                            entry={entry}
+                            onClick={e => e.stopPropagation()}
+                            className="text-[11px] sb-fs-11 truncate text-secondary no-underline hover:text-neon-cyan transition-colors min-w-0"
+                          />
+                          {entry.verified && (
+                            <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
+                              <BadgeCheck size={11} />
+                            </span>
+                          )}
+                        </div>
                         <span
                           className={`text-xs font-bold tabular-nums whitespace-nowrap block ${scoreColor}`}
                           title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}

@@ -9,6 +9,7 @@ import { signToken } from '../api/auth.js';
 import { resolveActiveSubmitGame } from '../discord/commands/submitscore.js';
 import { ScoreHistoryService } from '../services/ScoreHistoryService.js';
 import { ScoreReportService } from '../services/ScoreReportService.js';
+import { LeaderboardService } from '../services/LeaderboardService.js';
 
 /**
  * S23 — Discord submit for standalone rooms, bulk score import, and the two
@@ -594,5 +595,97 @@ describe('S23.7 — verify / unverify', () => {
         const history = await ScoreHistoryService.getPlayerGameHistory(roomId, 'Verify Me', 'Player');
         expect(history[0].verified_at).toBeTruthy();
         expect(history[0].verified_by).toBeTruthy();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// v2.78.0 — verified checkmark on leaderboard rows (deferred S23.7 half)
+// ---------------------------------------------------------------------------
+
+describe('v2.78.0 — verified checkmark on leaderboard rows', () => {
+    async function seedScore(slug: string) {
+        const roomId = await createTestRoom(slug);
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId, { name: 'Verify Me' });
+        await createTestSubmission(gameId, { username: 'Player', discordUserId: 'disc-v', score: 1234 });
+        const db = await getDatabase();
+        const hist = await db.get('SELECT id FROM score_history WHERE game_room_id = ?', roomId);
+        return { roomId, gameId, historyId: hist.id as number };
+    }
+
+    it('leaderboard read shows verified: true after admin verify of the backing row', async () => {
+        const app = await createTestApp();
+        const { roomId, gameId, historyId } = await seedScore('s24-lb-verify-a');
+        const token = adminToken(roomId);
+
+        const before = await LeaderboardService.getForGame(gameId);
+        expect(before).toHaveLength(1);
+        expect(before[0]!.verified).toBeFalsy();
+
+        const verify = await request(app)
+            .post(`/api/rooms/${roomId}/score-history/${historyId}/verify`)
+            .set('Authorization', `Bearer ${token}`).send({});
+        expect(verify.status).toBe(200);
+
+        const after = await LeaderboardService.getForGame(gameId);
+        expect(after[0]!.verified).toBe(true);
+
+        // Also true through the page-level read path (getActiveLeaderboards),
+        // which hydrates rows from multiple games in one batched call.
+        const active = await LeaderboardService.getActiveLeaderboards(roomId);
+        const card = active.find(a => a.gameId === gameId);
+        expect(card?.rankings[0]?.verified).toBe(true);
+    });
+
+    it('reads verified: false again after unverify', async () => {
+        const app = await createTestApp();
+        const { roomId, gameId, historyId } = await seedScore('s24-lb-verify-b');
+        const token = adminToken(roomId);
+
+        await request(app)
+            .post(`/api/rooms/${roomId}/score-history/${historyId}/verify`)
+            .set('Authorization', `Bearer ${token}`).send({});
+        expect((await LeaderboardService.getForGame(gameId))[0]!.verified).toBe(true);
+
+        const unverify = await request(app)
+            .post(`/api/rooms/${roomId}/score-history/${historyId}/unverify`)
+            .set('Authorization', `Bearer ${token}`).send({});
+        expect(unverify.status).toBe(200);
+
+        const after = await LeaderboardService.getForGame(gameId);
+        expect(after[0]!.verified).toBeFalsy();
+    });
+
+    it('resolves verified state WITHOUT touching leaderboard_cache — no invalidation between verify and read', async () => {
+        const app = await createTestApp();
+        const { roomId, gameId, historyId } = await seedScore('s24-lb-verify-c');
+        const token = adminToken(roomId);
+        const db = await getDatabase();
+
+        // Populate the cache first, same as a normal page view would.
+        await LeaderboardService.recalculate(gameId);
+        const cachedBefore = await db.get(
+            'SELECT rankings, generated_at FROM leaderboard_cache WHERE game_id = ?', gameId,
+        );
+        expect(cachedBefore).toBeTruthy();
+
+        const verify = await request(app)
+            .post(`/api/rooms/${roomId}/score-history/${historyId}/verify`)
+            .set('Authorization', `Bearer ${token}`).send({});
+        expect(verify.status).toBe(200);
+
+        // The cached row itself is byte-identical — verify performed no
+        // DELETE/recalculate of leaderboard_cache. This is the whole point
+        // of resolving `verified` at read time instead of caching it.
+        const cachedAfter = await db.get(
+            'SELECT rankings, generated_at FROM leaderboard_cache WHERE game_id = ?', gameId,
+        );
+        expect(cachedAfter.rankings).toBe(cachedBefore.rankings);
+        expect(cachedAfter.generated_at).toBe(cachedBefore.generated_at);
+
+        // ...yet the very next read reflects the verify anyway, served from
+        // that same untouched cache row.
+        const rankings = await LeaderboardService.getForGame(gameId);
+        expect(rankings[0]!.verified).toBe(true);
     });
 });

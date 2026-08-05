@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Plus, Minus } from 'lucide-react';
+import { Plus, Minus, BadgeCheck } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -152,6 +152,15 @@ function PodiumSlot({
                   whiteSpace: 'nowrap',
                 }}>
                   {playerName(entry)}
+                </span>
+              )}
+              {entry.verified && (
+                <span
+                  style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--color-neon-green, #00ff88)', flexShrink: 0 }}
+                  title="Verified by an admin"
+                  aria-label="Verified score"
+                >
+                  <BadgeCheck size={11} />
                 </span>
               )}
             </div>
