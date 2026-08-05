@@ -717,7 +717,24 @@ export default function GlobalScoreboard() {
               </button>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-2 self-start lg:ml-auto lg:self-auto">
+          {/* v2.78.0 — `w-full` (was `self-start`) is load-bearing on mobile.
+              This div is a flex-column CHILD of the category-chips/controls row
+              above below `lg`, so `self-start` opted it out of the default
+              stretch-to-container width and let it size itself via
+              shrink-to-fit. Shrink-to-fit still takes the MAX-CONTENT
+              contribution of the sort-pills strip's `overflow-x-auto`
+              descendant (below) into account, so the row ballooned to the
+              pills' full unwrapped width — 89px past a 390px viewport, 159px
+              past 320px logged in — even though that inner div already
+              declared `max-w-full overflow-x-auto`: `max-w-full` was resolving
+              against this now-unbounded parent, not the viewport. An explicit
+              `w-full` here gives the parent a definite width again (bounded by
+              the page's own padding container), which is what lets the inner
+              `overflow-x-auto` actually contain the strip instead of the whole
+              page scrolling sideways. `lg:w-auto` restores the original
+              fit-content sizing at desktop, where `lg:ml-auto` still needs to
+              push a content-sized block to the row's right edge. */}
+          <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:ml-auto">
             {/* A5a — Top 6 / My Score. Hidden entirely when logged out: there is
                 no "my score" for an anonymous visitor, and a control that can
                 only ever mean one thing is worse than no control. Flips with no
