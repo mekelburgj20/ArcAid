@@ -6,7 +6,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
-## [2.77.0] — unreleased
+## [2.78.0] — unreleased
+
+**Verified checkmark on leaderboard rows + Global Scoreboard mobile overflow fix** (two
+small slots from the ROADMAP queue, 2026-08-04).
+
+### Verified checkmark on leaderboard rows (deferred from v2.73.0)
+
+- S23.7 shipped the admin verify/unverify loop (`score_history.verified_by`/`verified_at`)
+  but only surfaced the checkmark in GameDetail's history expand — the leaderboard-row
+  checkmark was deferred because pre-S24.1 it would have baked mutable state into
+  `leaderboard_cache` JSON. Now resolved at READ time, the S24.1 way: `LeaderboardService.hydrate`
+  attaches `verified: boolean` alongside `resolveProfiles` via one batched `score_history`
+  query per read, scoped by `loadWindows` to the EXACT window predicate `queryRankedRows`
+  filters on (`game_room_id` + `submitted_during_tournament_id` + `LOWER(game_name)`,
+  `orphaned_at IS NULL` — never `sh.game_id`, the v2.75.1 decay lesson). Rows match on
+  `(LOWER(iscored_username), score)`; verified when ANY matching event is verified. The cache
+  envelope and the verify/unverify routes are untouched — no invalidation anywhere, the flag
+  is fresh on the next read by construction (asserted by test: byte-identical cache blob
+  before/after verify, flag still flips).
+- FE: `BadgeCheck` icon (the S23.7 GameDetail idiom — `text-neon-green`, "Verified by an
+  admin" tooltip) renders as a `flex-shrink-0` icon beside the truncating player name in every
+  `RankedEntry` row renderer: `GameCard` (both layouts), `BannerCard`, `MinimalCard`,
+  `ScoreList` (Showcase ranks 4+), `ShowcasePodium` (top 3). Paths that don't route through
+  `hydrate` (e.g. `RoomScoresService` all-time rankings) leave the flag unset — `verified?` is
+  deliberately optional. Known follow-up: the legacy `AdminGameCard` variant on the admin
+  Leaderboard page doesn't render it.
+
+### Global Scoreboard control-strip overflow (ROADMAP "next small slot")
+
+- The sort/density strip overflowed narrow phones — measured 89px past a 390px viewport
+  logged-in (159px at 320px), the whole page scrolling sideways, exactly the ROADMAP's
+  "479px wide on a 390px phone". Root cause: the strip wrapper's `self-start` opted it out of
+  stretch width below `lg`, so it sized shrink-to-fit — which counts the sort-pill
+  `overflow-x-auto` descendant's MAX-CONTENT width, leaving the inner `max-w-full` with an
+  unbounded parent to resolve against (the v2.68 scroll container never engaged). Fix:
+  `w-full lg:w-auto` on the wrapper — the parent gets a definite viewport-bound width and the
+  pre-existing inner scroll container actually contains the pills. Zero page-level overflow at
+  320/390 × logged-in/out (measured); the strip scrolls within itself (461px content in a
+  356px box at 390px).
+
+Tests: backend 1446 → 1449, admin-ui 469 (green). No migration.
 
 **Picks badge honesty + Picks page mobile pass** (tester field report via the owner, 2026-08-03:
 a badge with nothing behind it on the page).
