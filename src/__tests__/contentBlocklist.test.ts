@@ -288,26 +288,24 @@ describe('chokepoint: PATCH /api/users/me/profile (display name)', () => {
     });
 });
 
-describe('chokepoint: POST /:roomId/submit/name-check (claim path pre-check)', () => {
-    it('400s with a coded error for a blocked name rather than crashing/500ing', async () => {
-        const app = await createApp();
+// v2.79.0 (login mandate) — the `POST /:roomId/submit/name-check` route was
+// removed with the guest submission flow, so the claim-path blocklist
+// chokepoint is now covered at the service seam the submit paths call.
+describe('chokepoint: RoomNameClaimService.checkAvailability (claim path pre-check)', () => {
+    it('throws the coded NAME_NOT_ALLOWED error for a blocked name', async () => {
         const roomId = await createTestRoom('bl-claim-room');
-        const res = await request(app)
-            .post(`/api/rooms/${roomId}/submit/name-check`)
-            .send({ name: 'towelhead' });
-        expect(res.status).toBe(400);
-        expect(res.body.code).toBe('NAME_NOT_ALLOWED');
-        expect(typeof res.body.error).toBe('string');
+        const { RoomNameClaimService } = await import('../services/RoomNameClaimService.js');
+        const claimant = RoomNameClaimService.buildClaimant({ discordUserId: 'bl-claim-user' });
+        await expect(RoomNameClaimService.checkAvailability(roomId, 'towelhead', claimant))
+            .rejects.toMatchObject({ code: 'NAME_NOT_ALLOWED' });
     });
 
     it('allows a clean name through', async () => {
-        const app = await createApp();
         const roomId = await createTestRoom('bl-claim-room-2');
-        const res = await request(app)
-            .post(`/api/rooms/${roomId}/submit/name-check`)
-            .send({ name: 'HighScorer' });
-        expect(res.status).toBe(200);
-        expect(res.body.available).toBe(true);
+        const { RoomNameClaimService } = await import('../services/RoomNameClaimService.js');
+        const claimant = RoomNameClaimService.buildClaimant({ discordUserId: 'bl-claim-user-2' });
+        const result = await RoomNameClaimService.checkAvailability(roomId, 'HighScorer', claimant);
+        expect(result.available).toBe(true);
     });
 });
 

@@ -631,7 +631,7 @@ export default function SubmissionSheet({
                                 <p className="text-xs text-muted leading-relaxed">
                                     {discordOnly
                                         ? 'This room requires Discord sign-in to submit scores.'
-                                        : 'This room requires login for score submissions.'} Log in to submit on <span className="text-primary font-medium">{target.gameName}</span>.
+                                        : 'Scores tie to your account, so submitting requires a login.'} Log in to submit on <span className="text-primary font-medium">{target.gameName}</span>.
                                 </p>
                             </div>
                         </div>

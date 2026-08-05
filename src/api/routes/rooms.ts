@@ -1649,46 +1649,10 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
     }
 });
 
-// v2.2.5 — pre-submit name availability check for the SubmissionSheet
-// collision prompt. Mirrors the resolution logic in RoomNameClaimService.resolveAndClaim
-// but doesn't persist anything, so the frontend can show a "name taken, try X"
-// prompt before the user commits to submission.
-router.post('/:roomId/submit/name-check', async (req, res) => {
-    try {
-        const roomId = req.params.roomId as string;
-        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-        if (!name) return res.status(400).json({ error: 'name is required' });
-
-        // Claimant identity: Discord if they're logged in (Authorization header
-        // decoded downstream on submit; here we parse ourselves since the route
-        // is public), else anon-token from x-user-id, else sessionless.
-        let discordUserId: string | undefined;
-        const authHeader = req.headers['authorization'];
-        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-        if (token) {
-            try {
-                const { verifyToken } = await import('../auth.js');
-                const payload = verifyToken(token);
-                if (payload?.discordId) discordUserId = payload.discordId;
-            } catch { /* ignore; fall through to anon */ }
-        }
-        const rawAnonHeader = req.headers['x-user-id'];
-        const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
-
-        const { RoomNameClaimService } = await import('../../services/RoomNameClaimService.js');
-        const claimant = RoomNameClaimService.buildClaimant({ discordUserId, anonToken });
-        const result = await RoomNameClaimService.checkAvailability(roomId, name, claimant);
-        res.json(result);
-    } catch (error) {
-        // S22 Phase 1 (v2.43.0) — blocklist rejection; SubmissionSheet's
-        // pre-submit prompt should render this as a message, not a crash.
-        if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
-            return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
-        }
-        logError('API Error (POST rooms/:roomId/submit/name-check):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
+// v2.79.0 (login mandate) — the v2.2.5 `POST /:roomId/submit/name-check`
+// pre-submit guest collision check was removed along with the SubmissionSheet
+// guest flow that was its only caller. `RoomNameClaimService.checkAvailability`
+// survives as a service method.
 
 // Score submission with photo upload (public, rate-limited)
 // v2.79.0 (login mandate) — every submitter must be logged in (Discord or Google).
