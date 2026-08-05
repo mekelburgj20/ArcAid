@@ -19,7 +19,9 @@ import { ScoreHistoryService } from '../services/ScoreHistoryService.js';
  * with no identity join). Two halves to the fix, both covered here:
  *
  *   1. WRITE — an authenticated submitter's posted `username` is discarded and
- *      resolved server-side. Guests are deliberately unchanged.
+ *      resolved server-side. v2.79.0 (login mandate): the "guest keeps their
+ *      free-text name" half is gone — the three room routes now require a
+ *      player token, so every submitter goes through this path.
  *   2. READ  — the history/community reads ship `display_name`, and the
  *      community leaderboard collapses a player's aliases into one rank.
  *
@@ -227,73 +229,82 @@ describe('username lock — an authenticated submit ignores the posted username'
     });
 });
 
-describe('username lock — the guest flow is deliberately unchanged', () => {
-    it('a guest keeps their free-text name on every room route', async () => {
+describe('v2.79.0 login mandate — guest submissions are rejected on every room route', () => {
+    it('a tokenless POST 401s on community-scores, submit-score, and freeplay-score', async () => {
         const app = await createTestApp();
-        const roomId = await createTestRoom('ul-guest', 'UL Guest');
-        const gameName = 'UL Guest Game';
+        const roomId = await createTestRoom('ul-mandate-guest', 'UL Mandate Guest');
+        const gameName = 'UL Mandate Guest Game';
         const ggId = await seedCatalogueGame(gameName);
 
         const community = await request(app)
             .post(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(gameName)}`)
             .send({ username: 'GuestyOne', score: 100, engine: 'real', device: 'real_cabinet' });
-        expect(community.status).toBe(201);
-        expect(community.body.displayName).toBe('GuestyOne');
+        expect(community.status).toBe(401);
+
+        const submit = await request(app)
+            .post(`/api/rooms/${roomId}/submit-score/${encodeURIComponent(gameName)}`)
+            .field('username', 'GuestyTwo')
+            .field('score', '150')
+            .field('engine', 'real')
+            .field('device', 'real_cabinet');
+        expect(submit.status).toBe(401);
 
         const freeplay = await request(app)
             .post(`/api/rooms/${roomId}/freeplay-score`)
             .field('globalGameId', ggId)
-            .field('username', 'GuestyTwo')
+            .field('username', 'GuestyThree')
+            .field('score', '200')
+            .field('engine', 'real')
+            .field('device', 'real_cabinet')
+            .attach('photo', VALID_PNG, { filename: 'score.png', contentType: 'image/png' });
+        expect(freeplay.status).toBe(401);
+
+        // No rows written by any of the three rejected attempts.
+        const db = await getDatabase();
+        const rows = await db.all(
+            `SELECT id FROM community_scores WHERE game_room_id = ?`, roomId,
+        );
+        expect(rows).toHaveLength(0);
+    });
+
+    it('a Google-namespaced token (google:* discordId) submits successfully on all three routes', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('ul-mandate-google', 'UL Mandate Google');
+        const gameName = 'UL Mandate Google Game';
+        const ggId = await seedCatalogueGame(gameName);
+        const googleUserId = 'google:123456789';
+        const token = signToken({ role: 'player', gameRoomIds: [roomId], discordId: googleUserId, username: 'GoogleUser', provider: 'google' });
+
+        const community = await request(app)
+            .post(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(gameName)}`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ score: 100, engine: 'real', device: 'real_cabinet' });
+        expect(community.status).toBe(201);
+
+        const submit = await request(app)
+            .post(`/api/rooms/${roomId}/submit-score/${encodeURIComponent(gameName)}`)
+            .set('Authorization', `Bearer ${token}`)
+            .field('score', '150')
+            .field('engine', 'real')
+            .field('device', 'real_cabinet');
+        expect(submit.status).toBe(201);
+
+        const freeplay = await request(app)
+            .post(`/api/rooms/${roomId}/freeplay-score`)
+            .set('Authorization', `Bearer ${token}`)
+            .field('globalGameId', ggId)
             .field('score', '200')
             .field('engine', 'real')
             .field('device', 'real_cabinet')
             .attach('photo', VALID_PNG, { filename: 'score.png', contentType: 'image/png' });
         expect(freeplay.status).toBe(201);
-        expect(freeplay.body.displayName).toBe('GuestyTwo');
-    });
 
-    it('a guest with no username still 400s on all three room routes', async () => {
-        const app = await createTestApp();
-        const roomId = await createTestRoom('ul-guest-noname', 'UL Guest No Name');
-        const gameName = 'UL Guest No Name Game';
-        const ggId = await seedCatalogueGame(gameName);
-
-        const community = await request(app)
-            .post(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(gameName)}`)
-            .send({ score: 100, engine: 'real', device: 'real_cabinet' });
-        expect(community.status).toBe(400);
-        expect(community.body.error).toMatch(/username is required/);
-
-        const submit = await request(app)
-            .post(`/api/rooms/${roomId}/submit-score/${encodeURIComponent(gameName)}`)
-            .field('score', '100')
-            .field('engine', 'real')
-            .field('device', 'real_cabinet');
-        expect(submit.status).toBe(400);
-        expect(submit.body.error).toMatch(/username is required/);
-
-        const freeplay = await request(app)
-            .post(`/api/rooms/${roomId}/freeplay-score`)
-            .field('globalGameId', ggId)
-            .field('score', '100')
-            .field('engine', 'real')
-            .field('device', 'real_cabinet')
-            .attach('photo', VALID_PNG, { filename: 'score.png', contentType: 'image/png' });
-        expect(freeplay.status).toBe(400);
-        expect(freeplay.body.error).toMatch(/username is required/);
-    });
-
-    it('a whitespace-only guest username is treated as absent (400), not stored blank', async () => {
-        const app = await createTestApp();
-        const roomId = await createTestRoom('ul-guest-blank', 'UL Guest Blank');
-        const gameName = 'UL Guest Blank Game';
-        await seedCatalogueGame(gameName);
-
-        const res = await request(app)
-            .post(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(gameName)}`)
-            .send({ username: '   ', score: 100, engine: 'real', device: 'real_cabinet' });
-        expect(res.status).toBe(400);
-        expect(res.body.error).toMatch(/username is required/);
+        const db = await getDatabase();
+        const rows = await db.all(
+            `SELECT submitted_by_user_id FROM community_scores WHERE game_room_id = ?`, roomId,
+        ) as Array<{ submitted_by_user_id: string }>;
+        expect(rows).toHaveLength(3);
+        expect(rows.every(r => r.submitted_by_user_id === googleUserId)).toBe(true);
     });
 });
 

@@ -943,16 +943,33 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
                 photoUrl = `/api/score-photos/${roomId}/${filename}`;
             }
 
+            // v2.79.0 (v2.54.0 deferral, settled) — the draft's `playerName` was
+            // typed by the user BEFORE they logged in, so it's exactly the kind
+            // of client-supplied name the username lock discards everywhere
+            // else. Resolve the caller's canonical room name server-side (same
+            // helper the direct room submit routes use) and write THAT as the
+            // score's name. The self-claim sweep below deliberately keeps using
+            // the typed `draft.playerName` as its match key — that's the name
+            // any pre-login anon identity would have been recorded under, so
+            // sweeping by the canonical name instead would miss the claim.
+            const { UserProfileService } = await import('../../services/UserProfileService.js');
+            const resolvedName = await UserProfileService.resolveSubmitName({
+                discordUserId: discordId,
+                roomId,
+                jwtUsername: req.user?.username ?? null,
+            });
+
             const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
-            await CommunityScoreService.submitScore(
+            const result = await CommunityScoreService.submitScore(
                 roomId,
                 gameName,
-                draft.playerName,
+                resolvedName,
                 draft.score,
                 discordId,
                 photoUrl ?? undefined,
                 { excludeFromGlobal: draft.excludeFromGlobal, platform, engine, device },
             );
+            const effectiveUsername = result.displayName;
 
             // Mirror submit-score route: upsert into submissions if an active/completed tournament game matches.
             const db = await getDatabase();
@@ -964,7 +981,7 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
                 LIMIT 1
             `, gameName, roomId);
             if (activeGame) {
-                const submissionId = `${activeGame.id}-${draft.playerName.toLowerCase()}`;
+                const submissionId = `${activeGame.id}-${effectiveUsername.toLowerCase()}`;
                 const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
                 if (!existing || draft.score > existing.score) {
                     await db.run(
@@ -974,7 +991,7 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
                             submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
                             engine, device
                          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
-                        submissionId, activeGame.id, discordId, draft.playerName, draft.score, photoUrl || null, new Date().toISOString(),
+                        submissionId, activeGame.id, discordId, effectiveUsername, draft.score, photoUrl || null, new Date().toISOString(),
                         roomId, activeGame.tournament_id || null, discordId,
                         platform, engine, device,
                     );
@@ -986,6 +1003,19 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
             // global target — derive mimeType from the draft's stored extension so
             // PNG/WebP drafts don't masquerade as JPEG after the OAuth round-trip.
             const { GlobalScoreService } = await import('../../services/GlobalScoreService.js');
+            // v2.79.0 (v2.54.0 deferral, settled) — same rationale as the
+            // tournament/freeplay branch above: `draft.playerName` was typed
+            // before login, so resolve the canonical name server-side instead.
+            // Unlike the direct `/global/scores` route, this does not
+            // additionally register the resolved name as a NEW `user_mappings`
+            // alias — that alias-claim dance is its own piece of logic and out
+            // of scope here; resolveSubmitName's JWT-username fallback still
+            // gives a stable, non-spoofable name.
+            const { UserProfileService } = await import('../../services/UserProfileService.js');
+            const resolvedGlobalName = await UserProfileService.resolveSubmitName({
+                discordUserId: discordId,
+                jwtUsername: req.user?.username ?? null,
+            });
             const draftExt = draft.photoPath ? path.extname(draft.photoPath).slice(1).toLowerCase() : '';
             const photoMimeType = photoBuffer
                 ? (draftExt === 'png' ? 'image/png'
@@ -995,7 +1025,7 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
             await GlobalScoreService.submit({
                 globalGameId: draft.target.globalGameId,
                 playerId: discordId,
-                iscoredUsername: draft.playerName,
+                iscoredUsername: resolvedGlobalName,
                 score: draft.score,
                 photoBuffer: photoBuffer ?? undefined,
                 photoMimeType,
@@ -1063,70 +1093,6 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
             return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
         }
         logError('API Error (POST /api/submission-drafts/:stateParam/commit):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-// Sprint 13 (plan §10.3) — commit a stored draft anonymously. Called when the
-// user cancels OAuth and chooses "Submit as guest" in the PendingSubmissionWatcher
-// modal. Tournament + freeplay targets go through CommunityScoreService without
-// a discordUserId; global targets are rejected (global submissions require auth).
-router.post('/submission-drafts/:stateParam/commit-as-guest', writeLimiter, async (req, res) => {
-    try {
-        const stateParam = req.params.stateParam as string;
-        const { SubmissionDraftService } = await import('../../services/SubmissionDraftService.js');
-        const draft = await SubmissionDraftService.get(stateParam);
-        if (!draft) return res.status(404).json({ error: 'draft not found or expired' });
-
-        if (draft.score === null || draft.score === undefined) return res.status(400).json({ error: 'draft missing score' });
-        if (!draft.playerName) return res.status(400).json({ error: 'draft missing player name' });
-        if (draft.target.kind === 'global') return res.status(400).json({ error: 'global submissions require Discord login' });
-
-        // v2.53.0 (ADR 0016) — same re-validation as the authenticated commit
-        // path above; this route previously wrote the staged values unchecked.
-        const { ScoreProvenanceService } = await import('../../services/ScoreProvenanceService.js');
-        const provenance = await ScoreProvenanceService.validateForRoomGame(
-            draft.target.roomId, draft.target.gameName, draft.engine, draft.device,
-        );
-        if (!provenance.ok) return res.status(400).json({ error: provenance.error });
-        const { engine, device, platform } = provenance;
-
-        const fs = await import('fs');
-        const path = await import('path');
-        const photoBuffer = draft.photoPath && fs.existsSync(draft.photoPath) ? fs.readFileSync(draft.photoPath) : null;
-
-        const roomId = draft.target.roomId;
-        const gameName = draft.target.gameName;
-
-        let photoUrl: string | null = null;
-        if (photoBuffer) {
-            const ext = path.extname(draft.photoPath!).slice(1) || 'jpg';
-            const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-            const dir = path.join(process.cwd(), 'data', 'score-photos', roomId);
-            fs.mkdirSync(dir, { recursive: true });
-            const outPath = path.join(dir, filename);
-            fs.writeFileSync(outPath, photoBuffer);
-            photoUrl = `/api/score-photos/${roomId}/${filename}`;
-        }
-
-        const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
-        await CommunityScoreService.submitScore(
-            roomId,
-            gameName,
-            draft.playerName,
-            draft.score,
-            undefined, // guest submission — no Discord user id
-            photoUrl ?? undefined,
-            { excludeFromGlobal: draft.excludeFromGlobal, platform, engine, device },
-        );
-
-        await SubmissionDraftService.consume(stateParam);
-        res.json({ ok: true });
-    } catch (error) {
-        if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
-            return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
-        }
-        logError('API Error (POST /api/submission-drafts/:stateParam/commit-as-guest):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

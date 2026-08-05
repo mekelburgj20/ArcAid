@@ -41,7 +41,11 @@ async function seedPlatformForGame(gameName: string) {
 }
 
 describe('POST /api/rooms/:roomId/community-scores/:gameName — attribution security', () => {
-    it('(a) guest POST with a spoofed discord_user_id in the body is NOT attributed to that id', async () => {
+    // v2.79.0 (login mandate) — the route now sits behind requireDiscordUser,
+    // so a tokenless guest POST (spoofed discord_user_id or not) never even
+    // reaches the handler; it 401s before any row is written. The spoofed-id
+    // scenario this test used to cover is exercised authed in (b)/(c) below.
+    it('(a) a tokenless POST 401s, even with a spoofed discord_user_id in the body, and writes no row', async () => {
         const app = await createTestApp();
         const roomId = await createTestRoom('wpc-guest', 'WPC Guest');
         const gameName = 'Guest Game';
@@ -51,21 +55,15 @@ describe('POST /api/rooms/:roomId/community-scores/:gameName — attribution sec
             .post(`/api/rooms/${roomId}/community-scores/${encodeURIComponent(gameName)}`)
             .send({ username: 'Guesty', score: 1000, platform: 'real', engine: 'real', device: 'real_cabinet', discord_user_id: 'someone-elses-id' });
 
-        expect(res.status).toBe(201);
+        expect(res.status).toBe(401);
 
         const db = await getDatabase();
         const row = await db.get(
-            `SELECT discord_user_id, submitted_by_user_id FROM community_scores
-             WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)`,
+            `SELECT id FROM community_scores WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)`,
             roomId, gameName,
         );
-        expect(row).toBeTruthy();
-        expect(row.discord_user_id).not.toBe('someone-elses-id');
-        expect(row.submitted_by_user_id).toBeFalsy();
+        expect(row).toBeFalsy();
 
-        // Guest fan-out gate: GlobalScoreService.fanOutFromRoomSubmission early-
-        // returns when normalizeSubmitterUserId is null, so no global_scores row
-        // should exist under the spoofed id (or at all, for this guest submission).
         const globalRow = await db.get(
             `SELECT id FROM global_scores WHERE player_id = ?`,
             'someone-elses-id',

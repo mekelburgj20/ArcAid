@@ -45,6 +45,13 @@ function freshIp(): string {
     return `10.0.${(n >> 8) & 0xff}.${n & 0xff}`;
 }
 
+// v2.79.0 (login mandate) — the three room submit routes now require a
+// player token; tests that exercise handler-internal logic (image
+// validation, score bounds) need one to get past requireDiscordUser.
+function playerToken(discordId: string, username: string, roomId: string) {
+    return signToken({ role: 'player', gameRoomIds: [roomId], discordId, username });
+}
+
 // Seed a comment row directly (bypasses the limiter/handler so authz tests don't
 // burn limiter budget) and returns its id.
 async function seedComment(roomId: string, gameName: string, userId: string): Promise<number> {
@@ -96,7 +103,7 @@ describe('S11 (d) — image upload magic-byte validation', () => {
         const res = await request(app)
             .post(`/api/rooms/${roomId}/submit-score/${encodeURIComponent(gameName)}`)
             .set('X-Forwarded-For', freshIp())
-            .field('username', 'Tester')
+            .set('Authorization', `Bearer ${playerToken('s11-upload-user', 'Tester', roomId)}`)
             .field('score', '5000')
             .field('engine', 'real').field('device', 'real_cabinet')
             // multer's fileFilter trusts the (spoofable) mimetype, so this text
@@ -143,7 +150,8 @@ describe('S11 (c) — score value bounds (MAX_SCORE = 1e15)', () => {
         const res = await request(app)
             .post(`/api/rooms/${roomId}/community-scores/game`)
             .set('X-Forwarded-For', freshIp())
-            .send({ username: 'Cheater', score: 9_000_000_000_000_000, platform: 'real', engine: 'real', device: 'real_cabinet' });
+            .set('Authorization', `Bearer ${playerToken('s11-cap-user', 'Cheater', roomId)}`)
+            .send({ score: 9_000_000_000_000_000, platform: 'real', engine: 'real', device: 'real_cabinet' });
 
         expect(res.status).toBe(400);
         expect(res.body.error).toBeTruthy();

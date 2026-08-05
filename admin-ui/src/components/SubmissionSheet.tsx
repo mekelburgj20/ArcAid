@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserX, UserCheck, Trophy } from 'lucide-react';
+import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserCheck, Trophy } from 'lucide-react';
 import NeonButton from './NeonButton';
 import OnScreenKeyboard from './OnScreenKeyboard';
 import ShareButton from './ShareButton';
@@ -23,7 +23,8 @@ import type { SubmitRank } from '../lib/api';
 import { formatScore } from '../lib/format';
 
 /**
- * Unified submission sheet (Sprint 3 + Sprint 10, plan §10 / §13 / §15).
+ * Unified submission sheet (Sprint 3 + Sprint 10, plan §10 / §13 / §15;
+ * login mandate v2.79.0).
  *
  * Targets (discriminated union):
  *   • tournament → POST /api/rooms/:roomId/submit-score/:gameName
@@ -32,14 +33,17 @@ import { formatScore } from '../lib/format';
  *
  * Sprint 10 additions:
  *   • Cooldown banner for locked tournament games (submission NOT blocked, §13).
- *   • Anonymous-collision claim prompt (§15): before an unauthenticated room
- *     submit, POST /submit/anonymous-check runs the nickname through the room's
- *     Discord guild. If a member matches, render the claim prompt so the user
- *     can log in (attributing the score) or continue as guest.
- *   • OAuth handoff: the "Log in" branch uploads the pending submission to
- *     /api/submission-drafts/:state (server-side, 5-min TTL) and stashes the
- *     state param in sessionStorage, then triggers Discord OAuth. On return,
- *     a PendingSubmissionWatcher re-mounts this sheet in auto-commit mode.
+ *
+ * v2.79.0 (login mandate) — every target now requires a logged-in player
+ * (Discord or Google); guest/anonymous submission is gone. When the viewer
+ * has no player token the sheet shows `loginRequired` immediately on mount,
+ * before the form ever renders — the same treatment `global` targets already
+ * got. That upfront gate means there's no longer a "typed a score, then got
+ * asked to log in" moment, so the old anonymous-collision claim prompt and
+ * its OAuth-handoff draft-save machinery are gone from this component too.
+ * The server-side draft/commit endpoints (`/api/submission-drafts/...`)
+ * still exist for `PendingSubmissionWatcher` to resolve any in-flight draft
+ * from before this change, but nothing in this file creates new ones.
  */
 
 export type SubmissionTarget =
@@ -86,6 +90,12 @@ export interface SubmissionSheetProps {
      * v2.35.0: true for BOTH REQUIRE_DISCORD_LOGIN values that require login
      * ('true' or 'discord') — callers should derive this via
      * `requiresAnyLogin()` from `lib/loginPolicy.ts`.
+     *
+     * v2.79.0 (login mandate): the sheet now gates on `!playerToken`
+     * unconditionally for every target — login is required room-wide
+     * regardless of REQUIRE_DISCORD_LOGIN. This prop is kept (unused inside
+     * the component) purely so existing callers don't need updating; it no
+     * longer changes behavior.
      */
     requireLogin?: boolean;
     /**
@@ -107,19 +117,11 @@ export interface SubmissionSheetProps {
 
 type Phase =
     | 'form'
-    | 'loginRequired'         // v2.0.1 — room requires login + viewer not authed
-    | 'checkingCollision'     // running anonymous-check / name-check
-    | 'claimPrompt'           // v2.0.0 Discord-guild-member nickname match
-    | 'nameCollisionPrompt'   // v2.2.5 — name is taken by another claimant in this room
+    | 'loginRequired'         // v2.0.1 — viewer not authed (v2.79.0: every target now gates this way)
     | 'submitting'
     | 'committingDraft'
     | 'success'
     | 'error';
-
-function canHaveAnonymousFlow(target: SubmissionTarget): boolean {
-    // Global submissions already require Discord login — no anonymous prompt.
-    return target.kind !== 'global';
-}
 
 function isCooldownLocked(target: SubmissionTarget): boolean {
     return target.kind === 'tournament' && !!target.gameStatus && target.gameStatus !== 'ACTIVE';
@@ -130,16 +132,11 @@ function photoRequired(target: SubmissionTarget): boolean {
     return !!target.requirePhoto;
 }
 
-function generateStateParam(): string {
-    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
-    return `st_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
-}
-
+// v2.79.0 (login mandate) — still exported for `PendingSubmissionWatcher`,
+// which resolves any draft created before this change; nothing in this file
+// creates new drafts anymore (that required the removed anonymous-collision
+// claim flow), so `generateStateParam` itself is gone.
 export const PENDING_SUBMISSION_STORAGE_KEY = 'arcaid_pending_submission';
-
-/** Guest-conversion CTA cadence — show the Discord login pitch on every Nth guest submit. */
-const GUEST_CTA_EVERY_N = 3;
-const GUEST_SUBMIT_COUNT_KEY = 'arcaid_guest_submit_count';
 
 /**
  * v2.53.0 (ADR 0016) — the player's last device choice, remembered across
@@ -157,7 +154,6 @@ export default function SubmissionSheet({
     initialPlayerName,
     commitDraftState,
     roomSlug,
-    requireLogin,
     discordOnly,
     discordEnabled,
 }: SubmissionSheetProps) {
@@ -167,8 +163,11 @@ export default function SubmissionSheet({
      * in `discordUser`/`playerToken`, the Google ids just carry a `google:`
      * prefix) submits under their canonical account name. The editable name
      * field is replaced with a read-only "Playing as …" chip, the client stops
-     * posting a name at all, and the server resolves it. Guests keep the
-     * free-text field — first-claim-wins per room is deliberate for them.
+     * posting a name at all, and the server resolves it.
+     *
+     * v2.79.0 (login mandate) — `isAuthedViewer` is now always true by the
+     * time the form phase renders (see the `phase` initializer below), since
+     * every submitter must be logged in; there is no longer a guest branch.
      */
     const isAuthedViewer = !!playerToken;
     const [playerName, setPlayerName] = useState(
@@ -231,22 +230,15 @@ export default function SubmissionSheet({
     const [device, setDevice] = useState<string>('');
     const [phase, setPhase] = useState<Phase>(() => {
         if (commitDraftState) return 'committingDraft';
-        // v2.0.1: pre-form login gate when room requires auth and viewer isn't authenticated.
-        if (requireLogin && !playerToken && target.kind !== 'global') return 'loginRequired';
+        // v2.79.0 (login mandate) — every target requires login now; gate
+        // upfront on mount, same treatment `global` targets already got (see
+        // the file-level doc comment). `discordOnly` still drives which login
+        // button(s) render and their copy, just not whether the gate applies.
+        if (!playerToken) return 'loginRequired';
         return 'form';
     });
-    const [matchedNickname, setMatchedNickname] = useState<string | null>(null);
     // S5 — submit-moment ranking shown on the persistent success card.
     const [submitRank, setSubmitRank] = useState<SubmitRank | null>(null);
-    // S5 — number of guest submits so far (drives the every-Nth login CTA).
-    const [guestCount, setGuestCount] = useState<number>(() => {
-        const raw = localStorage.getItem(GUEST_SUBMIT_COUNT_KEY);
-        const n = raw ? parseInt(raw, 10) : 0;
-        return Number.isFinite(n) ? n : 0;
-    });
-    // v2.2.5 — pre-submit name collision prompt state.
-    const [collisionRequested, setCollisionRequested] = useState<string>('');
-    const [collisionInput, setCollisionInput] = useState<string>('');
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [activeField, setActiveField] = useState<'name' | 'score' | null>(null);
     const [showKeyboard, setShowKeyboard] = useState(false);
@@ -378,27 +370,14 @@ export default function SubmissionSheet({
     };
 
     /**
-     * Ensure a persisted anon-id so first-claim-wins can key on it.
-     * Generated lazily on first submit, same UUID across page reloads.
+     * POST the score as the logged-in viewer. `phase` gates this behind
+     * `loginRequired` on mount (see the `phase` initializer above), so
+     * `playerToken` — and therefore `isAuthedViewer` — is always true by the
+     * time this can be called; the name field is never guest-editable.
      */
-    const ensureAnonId = (): string => {
-        let anonId = localStorage.getItem('arcaid_anon_id');
-        if (!anonId) {
-            anonId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-                ? crypto.randomUUID()
-                : `anon_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
-            localStorage.setItem('arcaid_anon_id', anonId);
-        }
-        return anonId;
-    };
-
-    /** POST score directly as-the-current-user (authenticated or anonymous). */
-    const submitScoreNow = async (overrideName?: string) => {
-        const trimmedName = (overrideName ?? playerName).trim();
+    const submitScoreNow = async () => {
         const scoreNum = parseInt(score, 10);
-        // v2.54.0: only a guest has a name to supply — an authed viewer's name
-        // comes from the server, so an empty local value must not block them.
-        if ((!trimmedName && !isAuthedViewer) || isNaN(scoreNum) || scoreNum < 0) return;
+        if (isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
         // v2.53.0: both provenance axes must be resolved — guard against a stray
         // click before the picker has settled.
@@ -415,20 +394,16 @@ export default function SubmissionSheet({
 
             let url = '';
             const headers: Record<string, string> = {};
-            headers['x-user-id'] = ensureAnonId();
             if (playerToken) headers.Authorization = `Bearer ${playerToken}`;
 
-            // v2.54.0 username lock: the name is only ever sent for a GUEST.
-            // An authed submitter's name is resolved server-side, so the client
-            // omits the field entirely rather than posting one the server will
-            // discard (the room submit schemas make `username` optional for
-            // exactly this, and the global schema no longer declares a name).
+            // v2.54.0 username lock: the name is resolved server-side for every
+            // authed submitter, so the client never posts one — the room submit
+            // schemas make `username` optional for exactly this, and the global
+            // schema doesn't declare the field at all.
             if (target.kind === 'tournament') {
-                if (!isAuthedViewer) formData.append('username', trimmedName);
                 if (excludeFromGlobal) formData.append('excludeGlobal', 'true');
                 url = `/api/rooms/${target.roomId}/submit-score/${encodeURIComponent(target.gameName)}`;
             } else if (target.kind === 'freeplay') {
-                if (!isAuthedViewer) formData.append('username', trimmedName);
                 formData.append('globalGameId', target.globalGameId);
                 if (excludeFromGlobal) formData.append('excludeGlobal', 'true');
                 url = `/api/rooms/${target.roomId}/freeplay-score`;
@@ -444,11 +419,11 @@ export default function SubmissionSheet({
                 throw new Error((data as { error?: string }).error || 'Submission failed');
             }
 
-            // v2.2.5: store the *resolved* display name (may differ from what was
-            // typed if the server auto-suffixed it) so the next session prefills
-            // with the sticky identity, not the now-stale request.
+            // v2.2.5: store the *resolved* display name (server-assigned for an
+            // authed submitter, possibly auto-suffixed) so the next session
+            // prefills with the sticky identity.
             const responseData = data as { displayName?: string; suffixed?: boolean; requested?: string; rank?: SubmitRank | null };
-            const resolvedName = responseData?.displayName || trimmedName;
+            const resolvedName = responseData?.displayName || playerName.trim();
             localStorage.setItem('arcaid-player-name', resolvedName);
             setPlayerName(resolvedName);
             // Remember the device so the next submission pre-selects it.
@@ -456,14 +431,6 @@ export default function SubmissionSheet({
             // S5: capture the submit-moment rank (best-effort; null when the BE
             // couldn't compute it — the card falls back to a plain success line).
             setSubmitRank(responseData?.rank ?? null);
-            // S5: count guest submits so the success card can pitch login every Nth time.
-            if (!playerToken) {
-                setGuestCount(prev => {
-                    const next = prev + 1;
-                    localStorage.setItem(GUEST_SUBMIT_COUNT_KEY, String(next));
-                    return next;
-                });
-            }
             setPhase('success');
             const successText = responseData?.suffixed && responseData.displayName && responseData.requested
                 ? `Submitted as ${responseData.displayName} — "${responseData.requested}" is already in use in this room.`
@@ -477,137 +444,15 @@ export default function SubmissionSheet({
         }
     };
 
-    /**
-     * v2.2.5 — pre-submit name availability check. If the name is taken by
-     * another claimant in this room, surface the collision prompt with the
-     * server's suggested alternative. Otherwise submit normally. Failures
-     * fall through to a direct submit (server will auto-suffix as fallback).
-     */
-    const runNameCheckThenSubmit = async (nameToUse: string) => {
-        if (!canHaveAnonymousFlow(target)) return submitScoreNow(nameToUse);
-        const trimmed = nameToUse.trim();
-        if (!trimmed) return;
-        const roomId = target.kind === 'tournament' || target.kind === 'freeplay' ? target.roomId : '';
-        if (!roomId) return submitScoreNow(nameToUse);
-        setPhase('checkingCollision');
-        setMessage(null);
-        try {
-            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-            headers['x-user-id'] = ensureAnonId();
-            if (playerToken) headers.Authorization = `Bearer ${playerToken}`;
-            const res = await fetch(`/api/rooms/${roomId}/submit/name-check`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({ name: trimmed }),
-            });
-            const data = await res.json().catch(() => ({ available: true }));
-            if (!res.ok || data?.available) {
-                return submitScoreNow(trimmed);
-            }
-            setCollisionRequested(trimmed);
-            setCollisionInput(typeof data.suggestion === 'string' && data.suggestion.length ? data.suggestion : `${trimmed}_2`);
-            setPhase('nameCollisionPrompt');
-        } catch {
-            // Name-check failure shouldn't block the submit — fall through.
-            return submitScoreNow(trimmed);
-        }
-    };
-
     const handleSubmitClick = async () => {
-        const trimmedName = playerName.trim();
         const scoreNum = parseInt(score, 10);
-        if ((!trimmedName && !isAuthedViewer) || isNaN(scoreNum) || scoreNum < 0) return;
+        if (isNaN(scoreNum) || scoreNum < 0) return;
         if (photoRequired(target) && !photoFile) return;
-
-        // v2.54.0 username lock: an authenticated viewer can no longer choose a
-        // name, so the pre-submit name-check/collision prompt (v2.2.5) is
-        // skipped — the server resolves their canonical name and any suffixing
-        // itself, and the success card reports the final name. Global
-        // submissions are always authenticated and never had the anonymous
-        // claim prompt either.
-        if (isAuthedViewer || !canHaveAnonymousFlow(target)) {
-            return submitScoreNow(trimmedName);
-        }
-
-        // Anonymous room submit: first check for a Discord-guild member matching
-        // this name (v2.0.0 claim prompt). If no guild match, fall through to
-        // the room-level name-availability check (v2.2.5).
-        setPhase('checkingCollision');
-        setMessage(null);
-        try {
-            const roomId = target.kind === 'tournament' || target.kind === 'freeplay' ? target.roomId : '';
-            const res = await fetch(`/api/rooms/${roomId}/submit/anonymous-check`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: trimmedName }),
-            });
-            const data = await res.json().catch(() => ({ match: false }));
-            if (data?.match && typeof data.serverNickname === 'string') {
-                setMatchedNickname(data.serverNickname);
-                setPhase('claimPrompt');
-                return;
-            }
-            // No guild match — run the room-level name-check.
-            return runNameCheckThenSubmit(trimmedName);
-        } catch {
-            // If the check fails we don't want to block the submission. Fall through
-            // to the name-check path; if that also fails, submitScoreNow handles it.
-            return runNameCheckThenSubmit(trimmedName);
-        }
-    };
-
-    /** Claim prompt "Log in" path: save draft server-side + sessionStorage, then OAuth. */
-    const handleLogInClaim = async () => {
-        if (!roomSlug) {
-            setPhase('error');
-            setMessage({ text: 'Login is unavailable for this submission surface.', type: 'error' });
-            return;
-        }
-        const trimmedName = playerName.trim();
-        const scoreNum = parseInt(score, 10);
-        const stateParam = generateStateParam();
-
-        try {
-            // Server-side draft (authoritative storage of the photo + fields)
-            const formData = new FormData();
-            formData.append('target', JSON.stringify(target));
-            formData.append('playerName', trimmedName);
-            formData.append('score', String(scoreNum));
-            if (photoFile) formData.append('photo', photoFile);
-            if (excludeFromGlobal) formData.append('excludeFromGlobal', 'true');
-            // v2.53.0: stash the chosen engine/device so the post-OAuth commit
-            // can replay them. Both commit endpoints re-validate the pair, so a
-            // draft that goes stale while the user is at Discord can't write an
-            // incoherent combination.
-            if (engine) formData.append('engine', engine);
-            if (device) formData.append('device', device);
-            const res = await fetch(`/api/submission-drafts/${encodeURIComponent(stateParam)}`, {
-                method: 'POST',
-                body: formData,
-            });
-            if (!res.ok) throw new Error('Could not save your score before logging in.');
-
-            // Client-side breadcrumb so the landing page can auto-resume without
-            // needing the stateParam on the URL. TTL is enforced server-side too.
-            sessionStorage.setItem(
-                PENDING_SUBMISSION_STORAGE_KEY,
-                JSON.stringify({
-                    stateParam,
-                    target,
-                    createdAt: Date.now(),
-                }),
-            );
-
-            // Return to the current URL with a marker so the watcher opens the sheet.
-            const returnUrl = new URL(window.location.href);
-            returnUrl.searchParams.set('submit-draft', stateParam);
-            localStorage.setItem('arcaid_player_return', returnUrl.pathname + returnUrl.search);
-            await loginWithDiscord(roomSlug, returnUrl.pathname + returnUrl.search);
-            // loginWithDiscord navigates away — no further UI updates needed.
-        } catch (err) {
-            setPhase('error');
-            setMessage({ text: err instanceof Error ? err.message : 'Login flow failed', type: 'error' });
-        }
+        // v2.79.0 (login mandate): every submitter is authed by the time the
+        // form can even render (see the `phase` initializer) — the server
+        // resolves the canonical name and any suffixing, and the success card
+        // reports the final name. No anonymous-collision check needed anymore.
+        return submitScoreNow();
     };
 
     const handleKeyPress = (key: string) => {
@@ -632,13 +477,13 @@ export default function SubmissionSheet({
 
     const needsPhoto = photoRequired(target);
     const cooldown = isCooldownLocked(target);
-    const submitting = phase === 'submitting' || phase === 'checkingCollision' || phase === 'committingDraft';
+    const submitting = phase === 'submitting' || phase === 'committingDraft';
     // v2.53.0: picker must be resolved AND both provenance axes chosen.
     const platformsResolved = submittablePlatforms !== null;
     const provenanceChosen = engine.trim() !== '' && device.trim() !== '';
-    // v2.54.0: the name gate applies to guests only — an authed viewer has no
-    // name field to fill in, and the server supplies the name regardless.
-    const canSubmit = (isAuthedViewer || !!playerName.trim()) && score && !isNaN(parseInt(score, 10)) && parseInt(score, 10) >= 0
+    // v2.79.0 (login mandate): every submitter is authed by the time the form
+    // renders — there's no guest name field to gate on anymore.
+    const canSubmit = score !== '' && !isNaN(parseInt(score, 10)) && parseInt(score, 10) >= 0
         && (!needsPhoto || !!photoFile) && platformsResolved && provenanceChosen && !submitting;
     const nameLabel = target.kind === 'global' ? 'Display Name' : 'Player Name';
 
@@ -710,29 +555,6 @@ export default function SubmissionSheet({
                                 )}
                                 {message?.type === 'success' && message.text !== 'Score submitted!' && (
                                     <p className="text-xs text-muted">{message.text}</p>
-                                )}
-                            </div>
-                        )}
-
-                        {/* S5 guest-conversion CTA — every Nth guest submit. */}
-                        {!playerToken && roomSlug && guestCount % GUEST_CTA_EVERY_N === 0 && (
-                            <div className="space-y-2">
-                                <NeonButton
-                                    onClick={() => loginWithDiscord(roomSlug)}
-                                    className="w-full inline-flex items-center justify-center gap-2"
-                                >
-                                    <LogIn size={16} /> Log in with Discord to claim your scores and get dethrone alerts
-                                </NeonButton>
-                                {/* v2.35.0 — Google option alongside the primary Discord CTA,
-                                    suppressed when the room requires Discord specifically. */}
-                                {!discordOnly && (
-                                    <button
-                                        type="button"
-                                        onClick={() => loginWithGoogle(roomSlug)}
-                                        className="w-full px-4 py-2 rounded border border-border text-muted text-sm hover:text-primary hover:border-border/80 transition-colors cursor-pointer"
-                                    >
-                                        or continue with Google
-                                    </button>
                                 )}
                             </div>
                         )}
@@ -845,92 +667,6 @@ export default function SubmissionSheet({
                             </button>
                         </div>
                     </div>
-                ) : phase === 'claimPrompt' ? (
-                    <div className="px-4 py-6 space-y-4">
-                        <div className="flex items-start gap-3">
-                            <div className="w-10 h-10 rounded-full bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan flex items-center justify-center flex-shrink-0">
-                                <LogIn size={18} />
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-sm text-primary font-display font-bold mb-1">
-                                    Is this you?
-                                </p>
-                                <p className="text-xs text-muted leading-relaxed">
-                                    <span className="text-neon-cyan font-medium">{matchedNickname}</span> is
-                                    already a member of this Discord server. Log in to claim this score so it
-                                    ties to your account, or continue as a guest and submit anonymously.
-                                </p>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 gap-2">
-                            <NeonButton onClick={handleLogInClaim} className="w-full inline-flex items-center justify-center gap-2">
-                                <LogIn size={16} /> Log in with Discord
-                            </NeonButton>
-                            <button
-                                type="button"
-                                onClick={() => runNameCheckThenSubmit(playerName)}
-                                className="w-full px-4 py-2 rounded border border-border text-muted text-sm hover:text-primary hover:border-border/80 transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
-                            >
-                                <UserX size={14} /> Continue as guest
-                            </button>
-                        </div>
-                    </div>
-                ) : phase === 'nameCollisionPrompt' ? (
-                    /* v2.2.5 — pre-submit collision prompt. Editable input
-                       pre-filled with the server's next-free suggestion; user
-                       can accept or type something else. "Submit" re-runs the
-                       check against whatever's currently in the field. */
-                    <div className="px-4 py-6 space-y-4">
-                        <div className="flex items-start gap-3">
-                            <div className="w-10 h-10 rounded-full bg-neon-amber/10 border border-neon-amber/30 text-neon-amber flex items-center justify-center flex-shrink-0">
-                                <AlertTriangle size={18} />
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-sm text-primary font-display font-bold mb-1">
-                                    Name already in use
-                                </p>
-                                <p className="text-xs text-muted leading-relaxed">
-                                    <span className="text-neon-amber font-medium">{collisionRequested}</span>{' '}
-                                    is taken in this room. Pick a different name to submit under, or accept
-                                    the suggestion below.
-                                </p>
-                            </div>
-                        </div>
-                        <div>
-                            <label className="text-xs text-faint block mb-1">Name</label>
-                            <input
-                                type="text"
-                                value={collisionInput}
-                                onChange={e => setCollisionInput(e.target.value)}
-                                className="w-full px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
-                                maxLength={100}
-                                autoFocus
-                            />
-                        </div>
-                        <div className="grid grid-cols-1 gap-2">
-                            <NeonButton
-                                onClick={() => {
-                                    const next = collisionInput.trim();
-                                    if (!next) return;
-                                    // Re-run the check with the edited name. If it's free,
-                                    // submits directly; if still taken, prompt refreshes
-                                    // with a new suggestion.
-                                    runNameCheckThenSubmit(next);
-                                }}
-                                disabled={!collisionInput.trim()}
-                                className="w-full"
-                            >
-                                Submit as {collisionInput.trim() || '—'}
-                            </NeonButton>
-                            <button
-                                type="button"
-                                onClick={() => setPhase('form')}
-                                className="w-full px-4 py-2 rounded border border-border text-muted text-sm hover:text-primary hover:border-border/80 transition-colors cursor-pointer"
-                            >
-                                Back
-                            </button>
-                        </div>
-                    </div>
                 ) : (
                     <>
                         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
@@ -945,66 +681,31 @@ export default function SubmissionSheet({
 
                             <div>
                                 <label className="text-xs text-faint block mb-1">{nameLabel}</label>
-                                {isAuthedViewer ? (
-                                    /* v2.54.0 username lock — read-only identity chip. The
-                                       name is fixed to the account; renames happen in Account
-                                       Settings, which is also the only place the global
-                                       display name is editable. The server may still resolve
-                                       a slightly different name (e.g. an existing suffixed
-                                       room claim) — the submit response carries the final
-                                       `displayName` and the success card shows it. */
-                                    <>
-                                        <div className="px-3 py-2 bg-raised border border-border/60 rounded text-sm flex items-center gap-2">
-                                            <UserCheck size={14} className="text-neon-cyan flex-shrink-0" />
-                                            <span className="text-muted">Playing as</span>
-                                            <span className="text-primary font-display font-bold truncate">
-                                                {playerName || discordUser?.username || 'you'}
-                                            </span>
-                                        </div>
-                                        <p className="text-[11px] text-faint mt-1">
-                                            Not you?{' '}
-                                            <Link
-                                                to="/account/settings"
-                                                className="text-neon-cyan hover:underline"
-                                            >
-                                                Change your display name in settings
-                                            </Link>
-                                            .
-                                        </p>
-                                    </>
-                                ) : (
-                                <div className="flex gap-1">
-                                    {/* On touch devices the in-app OnScreenKeyboard drives
-                                        input; inputMode='none' keeps the field focusable
-                                        (so handleKeyPress's nameRef.current?.focus() works)
-                                        while suppressing the native OS keyboard. type='text'
-                                        + onChange are retained so hardware keyboards and
-                                        paste still work on desktop and mobile. Mirrors the
-                                        score-field pattern below; gated on isTouchDevice so
-                                        desktop focus/toggle behavior is unchanged. */}
-                                    <input
-                                        ref={nameRef}
-                                        type="text"
-                                        inputMode={isTouchDevice ? 'none' : undefined}
-                                        value={playerName}
-                                        onChange={e => setPlayerName(e.target.value)}
-                                        onFocus={() => { setActiveField('name'); if (isTouchDevice) setShowKeyboard(true); }}
-                                        placeholder="Your name"
-                                        className="flex-1 px-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
-                                        maxLength={100}
-                                    />
-                                    {!isTouchDevice && (
-                                        <button
-                                            type="button"
-                                            onClick={() => { setActiveField('name'); setShowKeyboard(!showKeyboard); }}
-                                            className="px-2 text-muted hover:text-neon-cyan transition-colors cursor-pointer"
-                                            title="Toggle on-screen keyboard"
-                                        >
-                                            <Keyboard size={18} />
-                                        </button>
-                                    )}
+                                {/* v2.54.0 username lock (v2.79.0: unconditional — every
+                                    submitter is authed by the time this form renders).
+                                    Read-only identity chip: the name is fixed to the
+                                    account, renames happen in Account Settings. The
+                                    server may still resolve a slightly different name
+                                    (e.g. an existing suffixed room claim) — the submit
+                                    response carries the final `displayName` and the
+                                    success card shows it. */}
+                                <div className="px-3 py-2 bg-raised border border-border/60 rounded text-sm flex items-center gap-2">
+                                    <UserCheck size={14} className="text-neon-cyan flex-shrink-0" />
+                                    <span className="text-muted">Playing as</span>
+                                    <span className="text-primary font-display font-bold truncate">
+                                        {playerName || discordUser?.username || 'you'}
+                                    </span>
                                 </div>
-                                )}
+                                <p className="text-[11px] text-faint mt-1">
+                                    Not you?{' '}
+                                    <Link
+                                        to="/account/settings"
+                                        className="text-neon-cyan hover:underline"
+                                    >
+                                        Change your display name in settings
+                                    </Link>
+                                    .
+                                </p>
                             </div>
 
                             <div>
@@ -1165,7 +866,10 @@ export default function SubmissionSheet({
                                     />
                                     Submit privately (not shown on the public global scoreboard)
                                 </label>
-                            ) : playerToken ? (
+                            ) : (
+                                // v2.79.0 (login mandate): every room submitter is logged in
+                                // now, so this is always the "logged-in" checkbox — the old
+                                // guest note (scores never reach global) no longer applies.
                                 <label className="flex items-center gap-2 text-xs text-muted cursor-pointer">
                                     <input
                                         type="checkbox"
@@ -1175,28 +879,6 @@ export default function SubmissionSheet({
                                     />
                                     Don't post this score to the global Arcaid scoreboard
                                 </label>
-                            ) : (
-                                /* v2.2.0: guest scores never reach global. Replace the
-                                   exclude-from-global checkbox with a clear note + login CTA so
-                                   the user understands the consequence before they submit. */
-                                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-neon-cyan/5 border border-neon-cyan/20">
-                                    <UserX size={14} className="text-neon-cyan flex-shrink-0 mt-0.5" />
-                                    <div className="flex-1 text-xs text-muted leading-relaxed">
-                                        Submitting as a guest — this score posts to the room only.{' '}
-                                        {roomSlug ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => loginWithDiscord(roomSlug)}
-                                                className="text-neon-cyan hover:underline cursor-pointer bg-transparent border-0 p-0 inline"
-                                            >
-                                                Log in with Discord
-                                            </button>
-                                        ) : (
-                                            <span className="text-neon-cyan">Log in with Discord</span>
-                                        )}{' '}
-                                        to also include it on the global Arcaid leaderboard.
-                                    </div>
-                                </div>
                             )}
 
                             {message && (
@@ -1206,7 +888,7 @@ export default function SubmissionSheet({
                             )}
 
                             <NeonButton onClick={handleSubmitClick} disabled={!canSubmit} className="w-full">
-                                {phase === 'checkingCollision' ? 'Checking…' : submitting ? 'Submitting…' : 'Submit Score'}
+                                {submitting ? 'Submitting…' : 'Submit Score'}
                             </NeonButton>
                         </div>
 
