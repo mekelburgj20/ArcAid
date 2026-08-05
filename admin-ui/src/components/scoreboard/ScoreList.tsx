@@ -1,4 +1,4 @@
-import { Plus, Minus } from 'lucide-react';
+import { Plus, Minus, BadgeCheck } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -132,6 +132,17 @@ export default function ScoreList({
                   whiteSpace: 'nowrap',
                 }}>
                   {playerName(entry)}
+                </span>
+              )}
+
+              {/* Verified checkmark */}
+              {entry.verified && (
+                <span
+                  style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--color-neon-green, #00ff88)', flexShrink: 0 }}
+                  title="Verified by an admin"
+                  aria-label="Verified score"
+                >
+                  <BadgeCheck size={12} />
                 </span>
               )}
 

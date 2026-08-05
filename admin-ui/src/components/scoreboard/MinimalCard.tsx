@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock, Plus, Minus } from 'lucide-react';
+import { Lock, Plus, Minus, BadgeCheck } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
@@ -217,8 +217,13 @@ export default function MinimalCard({
                       slug={slug}
                       entry={entry}
                       onClick={e => e.stopPropagation()}
-                      className="flex-1 text-sm truncate text-secondary no-underline hover:text-neon-cyan transition-colors"
+                      className="flex-1 text-sm truncate text-secondary no-underline hover:text-neon-cyan transition-colors min-w-0"
                     />
+                    {entry.verified && (
+                      <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
+                        <BadgeCheck size={13} />
+                      </span>
+                    )}
                     <span
                       className={`text-sm font-bold tabular-nums whitespace-nowrap ${isViewerRow ? 'text-neon-cyan' : 'text-primary'}`}
                       title={formatScore(entry.score).endsWith('T') ? entry.score.toLocaleString() : undefined}

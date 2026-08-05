@@ -57,6 +57,16 @@ export interface RankedEntry {
      * prefers it over `avatar_hash`. Null for Discord-only and anonymous rows.
      */
     avatar_url?: string | null;
+    /**
+     * v2.78.0 — read-time verified-checkmark resolution (S23.7 shipped the
+     * admin verify/unverify loop; this is the deferred leaderboard-row
+     * surfacing). True when ANY `score_history` event at this row's
+     * `(iscored_username, score)` within the game's window has `verified_at`
+     * set. Optional because not every `RankedEntry` producer resolves it
+     * (e.g. `RoomScoresService`'s all-time page rankings) — only the paths
+     * that route through `LeaderboardService.hydrate` set it.
+     */
+    verified?: boolean;
 }
 
 /**
@@ -109,6 +119,19 @@ function parseCacheEnvelope(raw: string): CachedRankedRow[] | null {
     }
 }
 
+/**
+ * The score_history window a game's rows were drawn from — v2.78.0. Exactly
+ * the fields `queryRankedRows` filters on (minus `orphaned_at`, which is a
+ * constant `IS NULL`). Used ONLY to scope the verified-checkmark lookup in
+ * `resolveVerified` to the same window recalculate reads, so a row's
+ * verified flag can never disagree with the predicate that produced the row.
+ */
+interface ScoreWindow {
+    game_room_id: string | null;
+    tournament_id: string | null;
+    game_name: string;
+}
+
 export class LeaderboardService {
     /**
      * In-flight recalculations, keyed by game id — v2.74.0 (S24.3).
@@ -129,12 +152,17 @@ export class LeaderboardService {
     private static inFlightProvenance = new Map<string, Promise<CachedRankedRow[]>>();
 
     /**
-     * Attach display identity to identity-stable rows (v2.74.0, S24.1).
-     * Two batched queries for the whole batch — pass as many rows at once as
-     * possible (see `getActiveLeaderboards`, which hydrates a whole page).
+     * Attach display identity + verified state to identity-stable rows
+     * (v2.74.0 S24.1 for identity; v2.78.0 for `verified`). `windows` is
+     * index-aligned with `rows` — one game's window per row, since
+     * `getActiveLeaderboards` hydrates rows from many games in one call.
+     * Pass as many rows at once as possible (batched, not per-row/per-game).
      */
-    private static async hydrate(rows: CachedRankedRow[]): Promise<RankedEntry[]> {
-        const profiles = await resolveProfiles(rows);
+    private static async hydrate(rows: CachedRankedRow[], windows: Array<ScoreWindow | null>): Promise<RankedEntry[]> {
+        const [profiles, verifiedFlags] = await Promise.all([
+            resolveProfiles(rows),
+            this.resolveVerified(rows, windows),
+        ]);
         return rows.map((row, i) => {
             const profile = profiles[i]!;
             return {
@@ -148,7 +176,107 @@ export class LeaderboardService {
                 platform: row.platform,
                 engine: row.engine,
                 device: row.device,
+                verified: verifiedFlags[i]!,
             };
+        });
+    }
+
+    /**
+     * Batched `game_room_id`/`tournament_id`/`name` lookup for a set of game
+     * ids — the SAME `LEFT JOIN` `runRecalculate`/`runProvenanceQuery` use to
+     * build `gameMeta` before calling `queryRankedRows`. Reused verbatim here
+     * (rather than threading `gameMeta` through every call site) so the
+     * verified-lookup window can never drift from the window that produced
+     * the rows. One query regardless of how many games are involved —
+     * `getActiveLeaderboards` calls this once for a whole page.
+     */
+    private static async loadWindows(gameIds: string[]): Promise<Map<string, ScoreWindow>> {
+        const map = new Map<string, ScoreWindow>();
+        if (gameIds.length === 0) return map;
+        const db = await getDatabase();
+        const placeholders = gameIds.map(() => '?').join(',');
+        const rows = await db.all(`
+            SELECT g.id, g.name, g.tournament_id, t.game_room_id
+            FROM games g
+            LEFT JOIN tournaments t ON t.id = g.tournament_id
+            WHERE g.id IN (${placeholders})
+        `, ...gameIds);
+        for (const r of rows as any[]) {
+            map.set(r.id, {
+                game_room_id: r.game_room_id ?? null,
+                tournament_id: r.tournament_id ?? null,
+                game_name: r.name,
+            });
+        }
+        return map;
+    }
+
+    /**
+     * v2.78.0 — verified-checkmark read-time resolution (S23.7 shipped the
+     * verify/unverify loop; this is the deferred leaderboard-row surfacing
+     * that was blocked on S24.1's cache restructure).
+     *
+     * Mirrors the EXACT score_history window `queryRankedRows` filters on
+     * (`game_room_id`, `submitted_during_tournament_id`, `LOWER(game_name)`,
+     * `orphaned_at IS NULL`) so a row can never disagree with the predicate
+     * that produced it — a row only exists here if `queryRankedRows` already
+     * matched a score_history event at these exact (room, tournament, name)
+     * values, so the `=` comparisons below (not `IS`) are safe: a NULL
+     * `game_room_id`/`tournament_id` window would mean `queryRankedRows`
+     * itself matched zero rows for that game, and `windows[i]` is simply not
+     * consulted (rows.length is 0 for that game).
+     *
+     * Matches by `(LOWER(iscored_username), score)` within the window — the
+     * same key `queryRankedRows`'s `ROW_NUMBER` partitions collapse to — and
+     * is true when ANY score_history event at that key has `verified_at` set.
+     *
+     * Deliberately reads `score_history` at REQUEST time, never
+     * `leaderboard_cache` — see the `CachedRankedRow` doc comment for why
+     * verified state must never be baked into the cache JSON. ONE query for
+     * the whole batch, grouped over the distinct windows present.
+     */
+    private static async resolveVerified(
+        rows: CachedRankedRow[],
+        windows: Array<ScoreWindow | null>,
+    ): Promise<boolean[]> {
+        if (rows.length === 0) return [];
+        const db = await getDatabase();
+
+        const windowKey = (w: ScoreWindow) => `${w.game_room_id ?? ''}\u0000${w.tournament_id ?? ''}\u0000${w.game_name.toLowerCase()}`;
+        const uniqueWindows = new Map<string, ScoreWindow>();
+        for (const w of windows) {
+            if (w) uniqueWindows.set(windowKey(w), w);
+        }
+        if (uniqueWindows.size === 0) return rows.map(() => false);
+
+        const clauses: string[] = [];
+        const params: any[] = [];
+        for (const w of uniqueWindows.values()) {
+            clauses.push('(game_room_id = ? AND submitted_during_tournament_id = ? AND LOWER(game_name) = LOWER(?))');
+            params.push(w.game_room_id, w.tournament_id, w.game_name);
+        }
+
+        const verifiedRows = await db.all(`
+            SELECT game_room_id, submitted_during_tournament_id, LOWER(game_name) as game_name,
+                   LOWER(iscored_username) as uname, score,
+                   MAX(CASE WHEN verified_at IS NOT NULL THEN 1 ELSE 0 END) as is_verified
+            FROM score_history
+            WHERE orphaned_at IS NULL AND (${clauses.join(' OR ')})
+            GROUP BY game_room_id, submitted_during_tournament_id, LOWER(game_name), LOWER(iscored_username), score
+        `, ...params);
+
+        const verifiedSet = new Set<string>();
+        for (const r of verifiedRows as any[]) {
+            if (r.is_verified) {
+                verifiedSet.add(`${r.game_room_id ?? ''}\u0000${r.submitted_during_tournament_id ?? ''}\u0000${r.game_name}\u0000${r.uname}\u0000${r.score}`);
+            }
+        }
+
+        return rows.map((row, i) => {
+            const w = windows[i];
+            if (!w) return false;
+            const key = `${w.game_room_id ?? ''}\u0000${w.tournament_id ?? ''}\u0000${w.game_name.toLowerCase()}\u0000${row.iscored_username.toLowerCase()}\u0000${row.score}`;
+            return verifiedSet.has(key);
         });
     }
 
@@ -166,7 +294,9 @@ export class LeaderboardService {
      * canonical source for tournament card rankings is now score_history.
      */
     static async recalculate(gameId: string): Promise<RankedEntry[]> {
-        return this.hydrate(await this.recalculateRows(gameId));
+        const rows = await this.recalculateRows(gameId);
+        const window = (await this.loadWindows([gameId])).get(gameId) ?? null;
+        return this.hydrate(rows, rows.map(() => window));
     }
 
     /**
@@ -295,9 +425,9 @@ export class LeaderboardService {
         // A pre-S24.1 cache blob (bare array with names baked in) reads as
         // `null` and falls through to one recalculate, after which the row is
         // in the new shape. No migration needed — the cache is derived state.
-        if (rows) return this.hydrate(rows);
-
-        return this.hydrate(await this.recalculateRows(gameId));
+        const finalRows = rows ?? await this.recalculateRows(gameId);
+        const window = (await this.loadWindows([gameId])).get(gameId) ?? null;
+        return this.hydrate(finalRows, finalRows.map(() => window));
     }
 
     /**
@@ -345,7 +475,9 @@ export class LeaderboardService {
             .finally(() => { this.inFlightProvenance.delete(key); });
         if (!existing) this.inFlightProvenance.set(key, run);
 
-        return this.hydrate(await run);
+        const rows = await run;
+        const window = (await this.loadWindows([gameId])).get(gameId) ?? null;
+        return this.hydrate(rows, rows.map(() => window));
     }
 
     private static async runProvenanceQuery(
@@ -639,9 +771,17 @@ export class LeaderboardService {
             const cached = cacheMap.get(game.id);
             rowsByGame.set(game.id, cached ?? await this.recalculateRows(game.id));
         }
+        // v2.78.0: one batched window lookup for the whole page, feeding the
+        // verified-checkmark resolution inside `hydrate` — see `loadWindows`.
+        const windowByGame = await this.loadWindows(gameIds);
         const flatRows: CachedRankedRow[] = [];
-        for (const game of deduped) flatRows.push(...rowsByGame.get(game.id)!);
-        const flatHydrated = await this.hydrate(flatRows);
+        const flatWindows: Array<ScoreWindow | null> = [];
+        for (const game of deduped) {
+            const rows = rowsByGame.get(game.id)!;
+            const window = windowByGame.get(game.id) ?? null;
+            for (const row of rows) { flatRows.push(row); flatWindows.push(window); }
+        }
+        const flatHydrated = await this.hydrate(flatRows, flatWindows);
         const rankingsByGame = new Map<string, RankedEntry[]>();
         let cursor = 0;
         for (const game of deduped) {
