@@ -16,7 +16,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # Stage 3: Production Image
-FROM mcr.microsoft.com/playwright:v1.62.0-noble AS production
+FROM mcr.microsoft.com/playwright:v1.62.1-noble AS production
 
 # The Playwright noble base ships Node 24; pin it explicitly via NodeSource so the
 # app's runtime Node version is independent of the base image's bundled Node.
