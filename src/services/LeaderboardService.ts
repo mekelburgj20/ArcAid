@@ -242,7 +242,7 @@ export class LeaderboardService {
         if (rows.length === 0) return [];
         const db = await getDatabase();
 
-        const windowKey = (w: ScoreWindow) => `${w.game_room_id ?? ''} ${w.tournament_id ?? ''} ${w.game_name.toLowerCase()}`;
+        const windowKey = (w: ScoreWindow) => `${w.game_room_id ?? ''}\u0000${w.tournament_id ?? ''}\u0000${w.game_name.toLowerCase()}`;
         const uniqueWindows = new Map<string, ScoreWindow>();
         for (const w of windows) {
             if (w) uniqueWindows.set(windowKey(w), w);
@@ -268,14 +268,14 @@ export class LeaderboardService {
         const verifiedSet = new Set<string>();
         for (const r of verifiedRows as any[]) {
             if (r.is_verified) {
-                verifiedSet.add(`${r.game_room_id ?? ''} ${r.submitted_during_tournament_id ?? ''} ${r.game_name} ${r.uname} ${r.score}`);
+                verifiedSet.add(`${r.game_room_id ?? ''}\u0000${r.submitted_during_tournament_id ?? ''}\u0000${r.game_name}\u0000${r.uname}\u0000${r.score}`);
             }
         }
 
         return rows.map((row, i) => {
             const w = windows[i];
             if (!w) return false;
-            const key = `${w.game_room_id ?? ''} ${w.tournament_id ?? ''} ${w.game_name.toLowerCase()} ${row.iscored_username.toLowerCase()} ${row.score}`;
+            const key = `${w.game_room_id ?? ''}\u0000${w.tournament_id ?? ''}\u0000${w.game_name.toLowerCase()}\u0000${row.iscored_username.toLowerCase()}\u0000${row.score}`;
             return verifiedSet.has(key);
         });
     }
