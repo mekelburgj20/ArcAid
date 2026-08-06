@@ -10,7 +10,6 @@ import ProvenanceTags from '../components/ProvenanceTags';
 import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
-import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
 import { formatScore, scoreTitle } from '../lib/format';
 import { Search, Trophy, TrendingUp, Target, Medal, Plus, Minus, Clock, Lightbulb, MessageCircle, Trash2, ChevronDown, ChevronUp, History, Download, Play, BookOpen, ExternalLink, Flag, BadgeCheck } from 'lucide-react';
 import ReportProblemModal from '../components/ReportProblemModal';
@@ -278,10 +277,8 @@ export default function GameDetail() {
   const [communityBoard, setCommunityBoard] = useState<CommunityLeaderboardEntry[]>([]);
   const [communityHistory, setCommunityHistory] = useState<CommunityHistoryEntry[]>([]);
   const [submissionOpen, setSubmissionOpen] = useState(false);
-  // Room config for SubmissionSheet — photo + login requirements come from game-info/portal.
+  // Room config for SubmissionSheet — photo requirement comes from game-info/portal.
   const [requirePhoto, setRequirePhoto] = useState(false);
-  const [requireLogin, setRequireLogin] = useState(false);
-  const [discordOnlyLogin, setDiscordOnlyLogin] = useState(false);
   const [discordEnabled, setDiscordEnabled] = useState(true);
 
   // Comments/tips state
@@ -389,13 +386,11 @@ export default function GameDetail() {
     loadComments(roomId, name);
 
     // v2.0.1 — fetch room config so SubmissionSheet knows whether a photo is
-    // required and whether to show the login-required state upfront.
+    // required.
     fetch(`/api/rooms/${roomId}/scoreboard-config`)
       .then(r => r.ok ? r.json() : {})
       .then((cfg: Record<string, string>) => {
         setRequirePhoto(cfg.REQUIRE_SCORE_PHOTO === 'true');
-        setRequireLogin(requiresAnyLogin(cfg.REQUIRE_DISCORD_LOGIN));
-        setDiscordOnlyLogin(requiresDiscordOnly(cfg.REQUIRE_DISCORD_LOGIN));
         setDiscordEnabled(cfg.DISCORD_ENABLED !== 'false');
       })
       .catch(() => {});
@@ -1763,8 +1758,6 @@ export default function GameDetail() {
             requirePhoto,
           }}
           roomSlug={slug}
-          requireLogin={requireLogin}
-          discordOnly={discordOnlyLogin}
           discordEnabled={discordEnabled}
           onClose={() => setSubmissionOpen(false)}
           onSubmitted={() => {

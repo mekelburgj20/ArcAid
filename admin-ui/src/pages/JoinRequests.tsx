@@ -167,7 +167,12 @@ export default function JoinRequests() {
                 <div className="flex items-center gap-2 flex-shrink-0 text-xs">
                   {entry.status === 'approved' ? (
                     <span className="flex items-center gap-1 text-neon-green">
-                      <Check size={14} /> Approved
+                      <Check size={14} />
+                      {/* v2.80.0 — AUTO_APPROVE_GUILD_MEMBERS resolves the request
+                          instantly, tagging it 'auto:guild' instead of an admin's
+                          user id. Called out explicitly so this queue still reads
+                          as a full audit trail. */}
+                      {entry.resolvedBy === 'auto:guild' ? 'Auto-approved (Discord member)' : 'Approved'}
                     </span>
                   ) : (
                     <span className="flex items-center gap-1 text-neon-magenta">

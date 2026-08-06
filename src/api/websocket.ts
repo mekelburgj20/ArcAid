@@ -34,7 +34,7 @@ async function canJoinRoomChannel(socket: Socket, roomId: string): Promise<boole
         if (policy !== 'approval') return true;
         return RoomAccessService.canViewRoom(payload, roomId);
     } catch {
-        // Fail-open on infra failure (matches the HTTP gate + conditionalRequireDiscordUser).
+        // Fail-open on infra failure (matches the HTTP gate).
         return true;
     }
 }

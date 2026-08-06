@@ -5,7 +5,6 @@ import ScoreCardGrid from './ScoreCardGrid';
 import GameQuickView from './GameQuickView';
 import SubmissionSheet from './SubmissionSheet';
 import type { GameLeaderboard } from './ScoreboardComponents';
-import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
 import { catalogueImageFor } from '../lib/catalogueImage';
 import {
   GLOBAL_BANNER_TEXT,
@@ -230,8 +229,6 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
         <SubmissionSheet
           target={{ kind: 'freeplay', roomId, gameName: submissionTarget.gameName, globalGameId: submissionTarget.globalGameId }}
           roomSlug={slug}
-          requireLogin={requiresAnyLogin(config.REQUIRE_DISCORD_LOGIN)}
-          discordOnly={requiresDiscordOnly(config.REQUIRE_DISCORD_LOGIN)}
           discordEnabled={config.DISCORD_ENABLED !== 'false'}
           onClose={() => setSubmissionTarget(null)}
           onSubmitted={() => {

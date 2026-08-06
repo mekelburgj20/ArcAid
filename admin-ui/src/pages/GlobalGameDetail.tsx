@@ -16,7 +16,6 @@ import { resolveProvenance } from '../lib/provenanceDisplay';
 import { getCardCategoryLabel, getLegacyPlatformLabel, UNSPECIFIED_CATEGORY } from '../lib/scoreProvenance';
 import { formatScore } from '../lib/format';
 import { getPortal } from '../lib/portal';
-import { requiresAnyLogin, requiresDiscordOnly } from '../lib/loginPolicy';
 import { toCatalogueUrl } from '../lib/catalogueImage';
 
 interface GlobalGame {
@@ -150,9 +149,8 @@ export default function GlobalGameDetail() {
   // s20: confirm-before-delete for self-delete score, replacing native confirm().
   const [pendingDeleteScoreId, setPendingDeleteScoreId] = useState<string | null>(null);
   // v2.0.1: when navigated with ?from=<slug>, treat the Submit as a room-scoped
-  // freeplay submission (respects the room's REQUIRE_DISCORD_LOGIN) rather than
-  // a direct global submission (which always requires Discord login).
-  const [fromRoom, setFromRoom] = useState<{ id: string; requireLogin: boolean; discordOnly: boolean; discordEnabled: boolean } | null>(null);
+  // freeplay submission rather than a direct global submission.
+  const [fromRoom, setFromRoom] = useState<{ id: string; discordEnabled: boolean } | null>(null);
 
   // Rating state
   const [ratingInfo, setRatingInfo] = useState<{ avg_rating: number; rating_count: number; user_rating: number | null } | null>(null);
@@ -191,7 +189,7 @@ export default function GlobalGameDetail() {
   }, []);
 
   // v2.0.1 — when opened with ?from=<slug>, fetch the room so Submit can
-  // resolve to a freeplay target with that room's login requirement.
+  // resolve to a freeplay target scoped to that room.
   useEffect(() => {
     if (!fromSlug) { setFromRoom(null); return; }
     let cancelled = false;
@@ -204,8 +202,6 @@ export default function GlobalGameDetail() {
         if (cancelled) return;
         setFromRoom({
             id: roomId,
-            requireLogin: requiresAnyLogin(cfg.REQUIRE_DISCORD_LOGIN),
-            discordOnly: requiresDiscordOnly(cfg.REQUIRE_DISCORD_LOGIN),
             discordEnabled: cfg.DISCORD_ENABLED !== 'false',
         });
       } catch { /* ignore — fall back to global */ }
@@ -1088,8 +1084,6 @@ export default function GlobalGameDetail() {
               }
           }
           roomSlug={fromSlug || undefined}
-          requireLogin={fromRoom?.requireLogin}
-          discordOnly={fromRoom?.discordOnly}
           discordEnabled={fromRoom?.discordEnabled}
           onClose={() => setShowSubmit(false)}
           onSubmitted={() => {

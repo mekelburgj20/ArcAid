@@ -2172,6 +2172,16 @@ export async function initDatabase(): Promise<Database> {
         // NULL = unverified, which is every pre-existing row.
         { name: '136_score_history_verified_by', sql: `ALTER TABLE score_history ADD COLUMN verified_by TEXT` },
         { name: '137_score_history_verified_at', sql: `ALTER TABLE score_history ADD COLUMN verified_at TEXT` },
+        { name: '138_retire_require_discord_login', sql: `
+            -- v2.80.0 — REQUIRE_DISCORD_LOGIN is retired wholesale: login has
+            -- been mandatory for all score submissions unconditionally since
+            -- v2.79.0, making the per-room setting moot. Config-row cleanup
+            -- only — the orphan-on-flip machinery it used to drive is removed
+            -- in code (OrphanService.ts deleted); orphaned score rows and every
+            -- 'orphaned_at IS NULL' query filter are untouched (owner decision:
+            -- any further data cleanup is a separate, backed-up, eyeballed pass).
+            DELETE FROM game_room_settings WHERE key = 'REQUIRE_DISCORD_LOGIN';
+        ` },
     ];
 
     for (const migration of migrations) {

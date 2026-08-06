@@ -1113,9 +1113,21 @@ router.get('/global/config', async (_req, res) => {
 // Public room listing with stats
 router.get('/rooms', async (req, res) => {
     try {
-        const rooms = await GameRoomService.getPublic();
+        const allRooms = await GameRoomService.getPublic();
         const db = await getDatabase();
         const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+
+        // v2.80.0 — ROOM_LISTED (unlisted rooms). Default-on idiom: absent or
+        // 'true' stays listed, only an explicit 'false' drops it. This route is
+        // deliberately unauthenticated (see the security-review comment below)
+        // so an unlisted room is dropped for EVERY caller, not per-viewer — the
+        // room stays reachable via its direct URL (getBySlug/portal) and to its
+        // members (GET /api/me/rooms reads room_members, not this endpoint).
+        const listedFlags = await GameRoomSettingsService.getManyForRooms(
+            allRooms.map((r) => r.id),
+            ['ROOM_LISTED'],
+        );
+        const rooms = allRooms.filter((room) => listedFlags.get(room.id)?.ROOM_LISTED !== 'false');
 
         const enriched = await Promise.all(rooms.map(async (room) => {
             const logoUrl = room.logo_url || null;
