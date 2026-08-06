@@ -2,6 +2,9 @@ import { getDatabase } from '../database/database.js';
 import { logError } from '../utils/logger.js';
 import { RoomMembershipService } from './RoomMembershipService.js';
 import { BanService } from './BanService.js';
+import { GameRoomSettingsService } from './GameRoomSettingsService.js';
+import { IdentityLinkService } from './IdentityLinkService.js';
+import { isDiscordUserId } from '../utils/identityProvider.js';
 
 export type JoinRequestStatus = 'pending' | 'approved' | 'denied';
 
@@ -36,6 +39,10 @@ export class JoinRequestService {
         );
         if (existing) return 'pending';
 
+        // v2.80.0 — AUTO_APPROVE_GUILD_MEMBERS. Only reached for a genuinely
+        // new request (no existing membership/pending row, checked above).
+        if (await JoinRequestService.tryAutoApprove(roomId, userId)) return 'member';
+
         try {
             await db.run(
                 `INSERT INTO join_requests (game_room_id, user_id, status) VALUES (?, ?, 'pending')`,
@@ -48,6 +55,62 @@ export class JoinRequestService {
             logError('JoinRequestService.request (treated as idempotent race)', err);
         }
         return 'pending';
+    }
+
+    /**
+     * Auto-approve check (v2.80.0). Meaningful only when the room has both
+     * `AUTO_APPROVE_GUILD_MEMBERS='true'` and a `DISCORD_GUILD_ID` settings
+     * key (the settings-table key, not the `game_rooms.discord_guild_id`
+     * column). Resolves the requester to a Discord snowflake — token ids are
+     * already canonical for Discord logins and linked Google logins;
+     * `IdentityLinkService.resolveCanonical` covers the unlinked-Google-login
+     * case, and if that still doesn't resolve to a Discord id the check
+     * degrades to the manual queue. Any uncertainty (setting off, no guild
+     * configured, unresolved identity, gateway down, membership unknown)
+     * degrades to the manual queue too — this NEVER auto-denies.
+     *
+     * The row lands exactly where `approve()` leaves it (`status='approved'`,
+     * `resolved_at` set, membership granted via the same
+     * `RoomMembershipService.addMember(..., 'self_join')` call) so the admin
+     * "resolved" queue shows the audit trail. `resolved_by='auto:guild'`
+     * marks it as machine-resolved. The ban check already ran in the route
+     * (`requireNotBanned` gates the whole endpoint before `request()` is even
+     * called), so this does not re-check bans — it just keeps the write path
+     * consistent with `approve()`'s.
+     */
+    private static async tryAutoApprove(roomId: string, userId: string): Promise<boolean> {
+        try {
+            const enabled = await GameRoomSettingsService.get(roomId, 'AUTO_APPROVE_GUILD_MEMBERS');
+            if (enabled !== 'true') return false;
+
+            const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+            if (!guildId) return false;
+
+            let discordId = userId;
+            if (!isDiscordUserId(discordId)) {
+                discordId = await IdentityLinkService.resolveCanonical(userId);
+                if (!isDiscordUserId(discordId)) return false;
+            }
+
+            const { getDiscordClient } = await import('../discord/DiscordClient.js');
+            const client = getDiscordClient();
+            if (!client) return false;
+
+            const isMember = await client.isMemberOfGuild(guildId, discordId);
+            if (!isMember) return false;
+
+            const db = await getDatabase();
+            await db.run(
+                `INSERT INTO join_requests (game_room_id, user_id, status, resolved_at, resolved_by)
+                 VALUES (?, ?, 'approved', datetime('now'), 'auto:guild')`,
+                roomId, userId,
+            );
+            await RoomMembershipService.addMember(userId, roomId, 'self_join');
+            return true;
+        } catch (err) {
+            logError('JoinRequestService.tryAutoApprove', err);
+            return false;
+        }
     }
 
     /** Pending status for a user in a room, or null if none. Used by the
