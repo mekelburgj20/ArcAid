@@ -188,9 +188,9 @@ export const api = {
  * /freeplay-score, /global/scores, and /submission-drafts/:state/commit.
  *
  * These submits are issued via raw fetch inside SubmissionSheet.tsx (they need
- * FormData + the player Bearer + x-user-id anon header, which api.upload can't
- * supply — it injects the admin token), so this type is the single shared
- * home for the rank shape rather than a function return. Any field may be null:
+ * FormData + the player Bearer token, which api.upload can't supply — it
+ * injects the admin token), so this type is the single shared home for the
+ * rank shape rather than a function return. Any field may be null:
  * the helper returns an all-null object on failure, and gap/previousBest are
  * null when the submitter is rank #1 or it's their first-ever submission.
  */

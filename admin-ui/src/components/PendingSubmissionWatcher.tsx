@@ -10,23 +10,19 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
  * Sprint 10 + 13 — resumes or cancels a server-stored submission draft after
  * the user returns from Discord OAuth. Mounted at the top level of PublicLayout.
  *
- * Two modes, one watcher:
+ * v2.79.0 (login mandate) — `SubmissionSheet` no longer has an anonymous
+ * flow, so nothing in the app creates NEW drafts anymore (login is required
+ * before the form ever renders, with nothing typed yet to preserve across an
+ * OAuth round-trip). This watcher stays mounted only to resolve any draft
+ * that was already in flight when this change deployed:
  *   • ?submit-draft=<state>     — OAuth succeeded; open SubmissionSheet in
  *                                 auto-commit mode, POST /commit with the
  *                                 player token.
  *   • ?submit-cancelled=<state> — User clicked "Cancel" on Discord's OAuth
- *                                 screen (access_denied). Show a guest-or-discard
- *                                 modal; guest choice hits /commit-as-guest,
- *                                 discard calls DELETE on the draft.
- *
- * Flow:
- *   1. User submits anonymously, sees the collision prompt, clicks "Log in".
- *      SubmissionSheet stores the draft server-side, breadcrumbs `stateParam`
- *      in sessionStorage + `?submit-draft=<stateParam>` on the return URL.
- *   2. DiscordCallback lands the user at that URL on success, or rewrites it
- *      to `?submit-cancelled=<stateParam>` on access_denied.
- *   3. This watcher reads the query param (or sessionStorage fallback) and
- *      mounts the right UI.
+ *                                 screen (access_denied). Offer to discard the
+ *                                 saved draft (the "submit as guest" fallback
+ *                                 this used to offer called a route that's
+ *                                 gone now — every submission requires login).
  */
 
 interface LocalDraft {
@@ -53,7 +49,6 @@ export default function PendingSubmissionWatcher({ roomSlug }: { roomSlug?: stri
     const [commitDraft, setCommitDraft] = useState<ResolvedDraft | null>(null);
     const [cancelDraft, setCancelDraft] = useState<ResolvedDraft | null>(null);
     const [cancelBusy, setCancelBusy] = useState(false);
-    const [cancelError, setCancelError] = useState<string | null>(null);
 
     const stateParam = searchParams.get('submit-draft');
     const cancelledState = searchParams.get('submit-cancelled');
@@ -148,27 +143,6 @@ export default function PendingSubmissionWatcher({ roomSlug }: { roomSlug?: stri
         setSearchParams(next, { replace: true });
     };
 
-    const handleGuestSubmit = async () => {
-        if (!cancelDraft) return;
-        setCancelBusy(true);
-        setCancelError(null);
-        try {
-            const res = await fetch(
-                `/api/submission-drafts/${encodeURIComponent(cancelDraft.stateParam)}/commit-as-guest`,
-                { method: 'POST' },
-            );
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({ error: 'Guest submission failed.' }));
-                throw new Error(data.error || 'Guest submission failed.');
-            }
-            clearCancel();
-        } catch (err) {
-            setCancelError(err instanceof Error ? err.message : 'Guest submission failed.');
-        } finally {
-            setCancelBusy(false);
-        }
-    };
-
     const handleDiscard = async () => {
         if (!cancelDraft) return;
         setCancelBusy(true);
@@ -209,13 +183,10 @@ export default function PendingSubmissionWatcher({ roomSlug }: { roomSlug?: stri
                             <p>
                                 You cancelled the Discord login. Your score for{' '}
                                 <span className="text-primary font-medium">
-                                    {cancelDraft.target.kind === 'global' ? cancelDraft.target.gameName : cancelDraft.target.gameName}
+                                    {cancelDraft.target.gameName}
                                 </span>{' '}
-                                is still saved. Submit it as a guest instead?
+                                was not submitted — scores require login.
                             </p>
-                            {cancelError && (
-                                <p className="text-neon-amber">{cancelError}</p>
-                            )}
                         </div>
                         <div className="px-4 py-3 border-t border-border/30 flex items-center justify-end gap-2">
                             <button
@@ -225,14 +196,6 @@ export default function PendingSubmissionWatcher({ roomSlug }: { roomSlug?: stri
                                 className="px-3 py-1.5 text-xs rounded border border-border text-muted hover:text-neon-amber hover:border-neon-amber/40 transition-colors cursor-pointer disabled:opacity-50"
                             >
                                 Discard
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleGuestSubmit}
-                                disabled={cancelBusy}
-                                className="px-4 py-1.5 text-xs rounded border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20 transition-colors cursor-pointer disabled:opacity-50"
-                            >
-                                {cancelBusy ? 'Submitting…' : 'Submit as guest'}
                             </button>
                         </div>
                     </div>

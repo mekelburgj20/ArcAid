@@ -6,6 +6,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.79.0] — unreleased
+
+**Login mandate: no guest scores** (owner decision 2026-08-05 — "I'm putting my foot down";
+Phase 1 of the Identity & membership arc, see ROADMAP contract). Every web score submission
+now requires a logged-in player (Discord or Google). Guest/anonymous score submission is
+removed product-wide, regardless of any room's `REQUIRE_DISCORD_LOGIN` setting (the setting
+survives, vestigial for scores, until the Phase 2 membership model retires it).
+
+- **BE:** the three room submission endpoints (`/submit-score`, `/freeplay-score`,
+  `/community-scores`) switched `conditionalRequireDiscordUser` → `requireDiscordUser`
+  (which accepts both Discord snowflakes and namespaced `google:*` ids — verified against
+  the token-minting path); dead anon-token (`x-user-id`) attribution branches removed from
+  those handlers. Comments/ratings deliberately stay guest-allowed (out of scope; login-gating
+  them is a tracked follow-up).
+- **Removed routes:** `POST /submission-drafts/:stateParam/commit-as-guest` (the guest
+  landing after declining the OAuth claim prompt) and `POST /:roomId/submit/anonymous-check` +
+  `POST /:roomId/submit/name-check` (the guest collision-check pair — their only caller was
+  the deleted SubmissionSheet guest flow; `RoomNameClaimService.checkAvailability` survives
+  as a service method and its blocklist chokepoint test moved to the service seam).
+- **v2.54.0 username-lock deferral CLOSED:** the authed draft `commit` path now resolves the
+  score's display name server-side via `resolveSubmitName` (both room and global target
+  branches) instead of honoring the free-text name typed while a guest; the self-claim merge
+  sweep still keys off the typed draft name so pre-login anon identities are still claimed.
+  Known minor gap: unlike the direct `/global/scores` route, the global commit branch does
+  not additionally register the resolved name as a `user_mappings` alias.
+- **S11 item 2 verified closed:** `community-scores` derives attribution solely from the
+  token (`req.user`) — a spoofed `body.discord_user_id` is ignored (regression-tested).
+  With `requireDiscordUser` + `requireNotBanned` on every submit path, the ban-enforcement
+  anon-tier gap is closed **for scores** (iScored-synced scores remain name-only by nature —
+  external source; `/map-user`/merge remain their attribution path).
+- **FE:** SubmissionSheet's guest flow (claim prompt, name-collision prompt, anon submit)
+  is deleted — logged-out viewers get the same login-required panel Global submissions
+  already used (Discord + Google buttons); PendingSubmissionWatcher's "Submit as guest"
+  cancel option removed (endpoint gone), resume-draft path kept.
+- No migration. No stored data touched (`anon_room_claims`/`anonymous_identities` and all
+  existing guest scores remain).
+
 ## [2.78.0] — unreleased
 
 **Verified checkmark on leaderboard rows + Global Scoreboard mobile overflow fix** (two

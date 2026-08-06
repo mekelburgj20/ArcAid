@@ -381,8 +381,9 @@ export default function GlobalGameDetail() {
 
   const handleSubmitClick = () => {
     // v2.0.1 — when navigated from a room (?from=<slug>), let SubmissionSheet
-    // decide whether to require login based on the room's setting. Direct
-    // global submissions still need Discord auth upfront.
+    // render its own login-required state (v2.79.0: every submission needs
+    // login regardless of the room's setting, so the sheet gates on mount).
+    // Direct global submissions short-circuit here instead, same as before.
     if (!fromRoom && !playerToken) {
       handleLogin();
       return;

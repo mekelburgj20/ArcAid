@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
-import { requireAuth, requireRoomAccess, requireDiscordUser, conditionalRequireDiscordUser, optionalDiscordUser, roomVisibilityGate, requireNotBanned } from '../middleware.js';
+import { requireAuth, requireRoomAccess, requireDiscordUser, optionalDiscordUser, roomVisibilityGate, requireNotBanned } from '../middleware.js';
 import { validate } from '../validate.js';
 import { isProviderUserId } from '../../utils/identityProvider.js';
 import {
@@ -77,40 +77,33 @@ const roomAssetUpload = multer({
  * v2.54.0 username lock — shared by the three web submit handlers
  * (`/submit-score`, `/freeplay-score`, `/community-scores`).
  *
- * Authenticated submitter (`req.user.discordId`, which covers Google logins via
- * the namespaced `google:*` ids): the client-supplied name is DISCARDED and
- * `UserProfileService.resolveSubmitName` returns their canonical room name
- * (`room_members.display_name` → `user_profiles.display_name` → JWT `username`
- * claim → id). Renames go through Account Settings, not the score modal.
+ * v2.79.0 (login mandate): all three handlers now sit behind `requireDiscordUser`,
+ * so `req.user.discordId` is always present (covers Google logins too, via the
+ * namespaced `google:*` ids) — the guest/free-text branch this helper used to
+ * have is gone. The client-supplied name is DISCARDED and
+ * `UserProfileService.resolveSubmitName` returns the caller's canonical room
+ * name (`room_members.display_name` → `user_profiles.display_name` → JWT
+ * `username` claim → id). Renames go through Account Settings, not the score
+ * modal.
  *
- * Guest submitter: the posted name is returned unchanged — free-text names plus
- * first-claim-wins per room are deliberate for guests.
- *
- * Returns a discriminated union rather than `string | null`, matching the shape
- * `ensureProvenanceAllowed` established: a caller can only reach the resolved
- * name through `ok: true`, so a guest who sent no usable name cannot fall
- * through as "allowed with an empty name".
+ * Still returns a discriminated union (rather than a bare `string`) to match
+ * `ensureProvenanceAllowed`'s shape and keep callers' `if (!x.ok) return ...`
+ * pattern uniform.
  */
 async function resolveSubmitUsername(
     req: { user?: { discordId?: string; username?: string } },
     roomId: string,
-    postedUsername: string | undefined,
 ): Promise<{ ok: true; username: string } | { ok: false; error: string }> {
-    const discordUserId = req.user?.discordId;
-    if (discordUserId) {
-        const { UserProfileService } = await import('../../services/UserProfileService.js');
-        return {
-            ok: true,
-            username: await UserProfileService.resolveSubmitName({
-                discordUserId,
-                roomId,
-                jwtUsername: req.user?.username ?? null,
-            }),
-        };
-    }
-    const trimmed = typeof postedUsername === 'string' ? postedUsername.trim() : '';
-    if (!trimmed) return { ok: false, error: 'username is required' };
-    return { ok: true, username: trimmed };
+    const discordUserId = req.user!.discordId!;
+    const { UserProfileService } = await import('../../services/UserProfileService.js');
+    return {
+        ok: true,
+        username: await UserProfileService.resolveSubmitName({
+            discordUserId,
+            roomId,
+            jwtUsername: req.user?.username ?? null,
+        }),
+    };
 }
 
 /**
@@ -1602,20 +1595,20 @@ router.get('/:roomId/community-scores/:gameName/leaders', async (req, res) => {
     }
 });
 
-router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequireDiscordUser('roomId'), requireNotBanned, async (req, res) => {
+router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(CommunityScoreSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const gameName = decodeURIComponent(req.params.gameName as string);
         const roomId = req.params.roomId as string;
-        const { username, score, photo_url } = validationResult.data;
+        const { score, photo_url } = validationResult.data;
 
-        // v2.54.0 username lock — an authenticated submitter's name is resolved
-        // server-side and the client-supplied `username` is ignored entirely.
-        // Guests keep free-text names (first-claim-wins per room is by design),
-        // so they must still supply one.
-        const resolvedName = await resolveSubmitUsername(req, roomId, username);
+        // v2.79.0 (login mandate) — requireDiscordUser guarantees req.user.discordId
+        // here, so resolveSubmitUsername always takes the authed branch: the
+        // client-supplied `username` is ignored entirely and the canonical
+        // room name is resolved server-side (v2.54.0 username lock).
+        const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
         // v2.53.0: re-validate the engine/device pair server-side against the
@@ -1629,17 +1622,10 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequ
         if (!provenance.ok) return res.status(400).json({ error: provenance.error });
         const { engine, device, platform } = provenance;
 
-        // v2.2.0: anon-token plumbed for first-claim-wins.
-        const rawAnonHeader = req.headers['x-user-id'];
-        const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
-
         // Security: attribution derives from the verified token, never the
-        // request body — a guest could otherwise spoof discord_user_id to
-        // attribute a score (and its global fan-out) to any Discord user.
-        // conditionalRequireDiscordUser populates req.user when a valid player
-        // Bearer token is present; anonymous requests leave it undefined —
-        // matches the idiom used by the freeplay-score handler below.
-        const result = await CommunityScoreService.submitScore(roomId, gameName, resolvedName.username, score, req.user?.discordId, photo_url, { anonToken, platform, engine, device });
+        // request body — the request body doesn't even carry a discord_user_id
+        // field (see CommunityScoreSchema).
+        const result = await CommunityScoreService.submitScore(roomId, gameName, resolvedName.username, score, req.user!.discordId, photo_url, { platform, engine, device });
 
         // v2.2.2: sync to iScored when this matches an ACTIVE tournament game.
         // photo_url is a pre-existing URL (not an upload), so no persistentPhotoPath
@@ -1663,92 +1649,26 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, conditionalRequ
     }
 });
 
-// Sprint 10 / plan §15 — collision check for anonymous submissions.
-// Runs the typed name against the room's Discord guild and returns whether a
-// guild member maps to it. The SubmissionSheet uses the response to decide
-// whether to render the claim prompt before an unauthenticated submit.
-router.post('/:roomId/submit/anonymous-check', writeLimiter, async (req, res) => {
-    try {
-        const roomId = req.params.roomId as string;
-        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-        if (!name) return res.status(400).json({ error: 'name is required' });
-
-        const db = await getDatabase();
-        const room = await db.get('SELECT discord_guild_id FROM game_rooms WHERE id = ?', roomId);
-        if (!room) return res.status(404).json({ error: 'Room not found' });
-        if (!room.discord_guild_id) return res.json({ match: false });
-
-        const { resolveServerNickname } = await import('../../services/DiscordNicknameResolver.js');
-        const resolved = await resolveServerNickname(room.discord_guild_id, name);
-        if (!resolved) return res.json({ match: false });
-
-        res.json({
-            match: true,
-            serverNickname: resolved.serverNickname,
-            matchedField: resolved.matchedField,
-        });
-    } catch (error) {
-        logError('API Error (POST rooms/:roomId/submit/anonymous-check):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-// v2.2.5 — pre-submit name availability check for the SubmissionSheet
-// collision prompt. Mirrors the resolution logic in RoomNameClaimService.resolveAndClaim
-// but doesn't persist anything, so the frontend can show a "name taken, try X"
-// prompt before the user commits to submission.
-router.post('/:roomId/submit/name-check', async (req, res) => {
-    try {
-        const roomId = req.params.roomId as string;
-        const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-        if (!name) return res.status(400).json({ error: 'name is required' });
-
-        // Claimant identity: Discord if they're logged in (Authorization header
-        // decoded downstream on submit; here we parse ourselves since the route
-        // is public), else anon-token from x-user-id, else sessionless.
-        let discordUserId: string | undefined;
-        const authHeader = req.headers['authorization'];
-        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-        if (token) {
-            try {
-                const { verifyToken } = await import('../auth.js');
-                const payload = verifyToken(token);
-                if (payload?.discordId) discordUserId = payload.discordId;
-            } catch { /* ignore; fall through to anon */ }
-        }
-        const rawAnonHeader = req.headers['x-user-id'];
-        const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
-
-        const { RoomNameClaimService } = await import('../../services/RoomNameClaimService.js');
-        const claimant = RoomNameClaimService.buildClaimant({ discordUserId, anonToken });
-        const result = await RoomNameClaimService.checkAvailability(roomId, name, claimant);
-        res.json(result);
-    } catch (error) {
-        // S22 Phase 1 (v2.43.0) — blocklist rejection; SubmissionSheet's
-        // pre-submit prompt should render this as a message, not a crash.
-        if ((error as Error & { code?: string })?.code === 'NAME_NOT_ALLOWED') {
-            return res.status(400).json({ error: (error as Error).message, code: 'NAME_NOT_ALLOWED' });
-        }
-        logError('API Error (POST rooms/:roomId/submit/name-check):', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
+// v2.79.0 (login mandate) — the v2.2.5 `POST /:roomId/submit/name-check`
+// pre-submit guest collision check was removed along with the SubmissionSheet
+// guest flow that was its only caller. `RoomNameClaimService.checkAvailability`
+// survives as a service method.
 
 // Score submission with photo upload (public, rate-limited)
-// Discord login conditionally enforced via REQUIRE_DISCORD_LOGIN room setting.
-router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireDiscordUser('roomId'), requireNotBanned, roomAssetUpload.single('photo'), async (req, res) => {
+// v2.79.0 (login mandate) — every submitter must be logged in (Discord or Google).
+router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser, requireNotBanned, roomAssetUpload.single('photo'), async (req, res) => {
     try {
         const validationResult = validate(ScoreSubmissionSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const roomId = req.params.roomId as string;
         const gameName = decodeURIComponent(req.params.gameName as string);
-        const { username, score } = validationResult.data;
+        const { score } = validationResult.data;
         const excludeFromGlobal = req.body.excludeGlobal === 'true' || req.body.excludeGlobal === true;
 
         // v2.54.0 username lock — see the community-scores handler above.
-        // Authenticated submitters get their canonical name; the posted
-        // `username` is ignored.
-        const resolvedName = await resolveSubmitUsername(req, roomId, username);
+        // requireDiscordUser guarantees an authed submitter, so the posted
+        // `username` (if any) is ignored and the canonical name resolved.
+        const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
         // v2.53.0: engine/device validated + legacy platform derived (see the
@@ -1787,20 +1707,13 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
             photoUrl = `/api/score-photos/${roomId}/${filename}`;
         }
 
-        // v2.2.0: read the localStorage-derived anon token so guest claims are
-        // sticky-per-browser. The `x-user-id` header may be undefined for
-        // sessionless clients (curl, Discord-embed, etc.) — that's handled
-        // downstream as a no-claim resolution.
-        const rawAnonHeader = req.headers['x-user-id'];
-        const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
-
         // Save to community_scores + score_history. Fan-out to global_scores
         // is handled inside CommunityScoreService.submitScore (best-effort).
         // The service routes username through RoomNameClaimService and returns
         // the resolved displayName (possibly suffixed e.g. "Bob_2").
         const { CommunityScoreService } = await import('../../services/CommunityScoreService.js');
         const result = await CommunityScoreService.submitScore(
-            roomId, gameName, resolvedName.username, score, req.user?.discordId, photoUrl, { excludeFromGlobal, anonToken, platform, engine, device }
+            roomId, gameName, resolvedName.username, score, req.user!.discordId, photoUrl, { excludeFromGlobal, platform, engine, device }
         );
         const effectiveUsername = result.displayName;
 
@@ -1823,17 +1736,18 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
             const submissionId = `${activeGame.id}-${effectiveUsername.toLowerCase()}`;
             const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
             if (!existing || score > existing.score) {
-                const submittedByUserId = normalizeSubmitterUserId(req.user?.discordId);
-                const submittedByAnonymousName = submittedByUserId ? null : effectiveUsername;
+                // v2.79.0 (login mandate): every submitter is authed now, so
+                // submitted_by_user_id is always set — no anonymous fallback.
+                const submittedByUserId = normalizeSubmitterUserId(req.user!.discordId);
                 await db.run(
                     `INSERT OR REPLACE INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
                         submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
                         engine, device
-                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
                     submissionId, activeGame.id, 'COMMUNITY', effectiveUsername, score, photoUrl || null, new Date().toISOString(),
-                    roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName, platform,
+                    roomId, activeGame.tournament_id || null, submittedByUserId, platform,
                     engine, device,
                 );
                 const { LeaderboardService } = await import('../../services/LeaderboardService.js');
@@ -1872,7 +1786,8 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, conditionalRequireD
  * Saves to community_scores + score_history (room-scoped views) and fans out
  * to global_scores (subject to room GLOBAL_SCOREBOARD_ENABLED and user exclude_global).
  */
-router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUser('roomId'), requireNotBanned, roomAssetUpload.single('photo'), async (req, res) => {
+// v2.79.0 (login mandate) — every submitter must be logged in (Discord or Google).
+router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, requireNotBanned, roomAssetUpload.single('photo'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         // v2.5.0: switched from inline checks to FreeplayScoreSchema so all
@@ -1880,12 +1795,12 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         // `platform` field).
         const validationResult = validate(FreeplayScoreSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-        const { globalGameId, username, score, excludeGlobal: excludeFromGlobal } = validationResult.data;
+        const { globalGameId, score, excludeGlobal: excludeFromGlobal } = validationResult.data;
 
         // v2.54.0 username lock — see the community-scores handler above.
-        // Authenticated submitters get their canonical name; the posted
-        // `username` is ignored.
-        const resolvedName = await resolveSubmitUsername(req, roomId, username);
+        // requireDiscordUser guarantees an authed submitter, so the posted
+        // `username` (if any) is ignored and the canonical name resolved.
+        const resolvedName = await resolveSubmitUsername(req, roomId);
         if (!resolvedName.ok) return res.status(400).json({ error: resolvedName.error });
 
         // Photo is required for freeplay (no tournament cross-check, so evidence matters)
@@ -1930,10 +1845,6 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
         fs.writeFileSync(persistentPhotoPath, req.file.buffer);
         const photoUrl = `/api/score-photos/${roomId}/${filename}`;
 
-        // v2.2.0: anon-token plumbed for first-claim-wins (see tournament submit handler comment).
-        const rawAnonHeader = req.headers['x-user-id'];
-        const anonToken = typeof rawAnonHeader === 'string' && rawAnonHeader.trim() ? rawAnonHeader.trim() : null;
-
         // Save to community_scores (room-scoped) — uses the global_games.name for
         // consistent cross-referencing. CommunityScoreService will also fan-out to
         // global_scores via GlobalScoreService, respecting exclude_from_global.
@@ -1944,9 +1855,9 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             globalGame.name,
             resolvedName.username,
             score,
-            req.user?.discordId,
+            req.user!.discordId,
             photoUrl,
-            { excludeFromGlobal, anonToken, platform, engine, device }
+            { excludeFromGlobal, platform, engine, device }
         );
 
         // v2.2.0: use the resolved displayName (possibly suffixed) for activity
@@ -1979,18 +1890,19 @@ router.post('/:roomId/freeplay-score', writeLimiter, conditionalRequireDiscordUs
             const submissionId = `${activeGame.id}-${effectiveUsername.toLowerCase()}`;
             const existing = await db.get('SELECT score FROM submissions WHERE id = ?', submissionId);
             if (!existing || score > existing.score) {
+                // v2.79.0 (login mandate): every submitter is authed now, so
+                // submitted_by_user_id is always set — no anonymous fallback.
                 const { normalizeSubmitterUserId } = await import('../../services/SubmissionContextService.js');
-                const submittedByUserId = normalizeSubmitterUserId(req.user?.discordId);
-                const submittedByAnonymousName = submittedByUserId ? null : effectiveUsername;
+                const submittedByUserId = normalizeSubmitterUserId(req.user!.discordId);
                 await db.run(
                     `INSERT OR REPLACE INTO submissions (
                         id, game_id, discord_user_id, iscored_username, score, photo_url, timestamp,
                         submitted_from_room_id, submitted_during_tournament_id, submitted_by_user_id,
                         submitted_by_anonymous_name, merged_from_anonymous_identity_id, platform,
                         engine, device
-                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
                     submissionId, activeGame.id, 'COMMUNITY', effectiveUsername, score, photoUrl, new Date().toISOString(),
-                    roomId, activeGame.tournament_id || null, submittedByUserId, submittedByAnonymousName, platform,
+                    roomId, activeGame.tournament_id || null, submittedByUserId, platform,
                     engine, device,
                 );
                 const { LeaderboardService } = await import('../../services/LeaderboardService.js');
