@@ -14,6 +14,8 @@ interface DashboardData {
     tournament_type: string;
     game_name: string;
     start_date: string;
+    // v2.81.0 — small game-image icon for the "Active Now" card.
+    game_image_url?: string | null;
     leader_name?: string;
     leader_score?: number;
     next_rotation_at?: string | null;
@@ -230,7 +232,16 @@ export default function Dashboard() {
                     <TournamentBadge type={t.tournament_type} />
                     <StatusBadge status="ACTIVE" />
                   </div>
-                  <h3 className="font-bold text-lg mb-1">{t.game_name}</h3>
+                  <div className="flex items-start gap-2 mb-1 min-w-0">
+                    {t.game_image_url && (
+                      <img
+                        src={t.game_image_url}
+                        alt=""
+                        className="w-8 h-8 rounded object-cover flex-shrink-0"
+                      />
+                    )}
+                    <h3 className="font-bold text-lg break-words min-w-0">{t.game_name}</h3>
+                  </div>
                   <p className="text-muted text-sm mb-3">{t.tournament_name}</p>
                   <div className="grid grid-cols-2 gap-2 mb-3 text-xs">
                     <div className="bg-raised border border-border rounded px-2 py-1.5">
@@ -245,9 +256,16 @@ export default function Dashboard() {
                     </div>
                   </div>
                   {t.leader_name && (
-                    <div className="flex items-center justify-between pt-3 border-t border-border">
-                      <span className="text-muted text-sm">Leader: <span className="text-primary">{t.leader_name}</span></span>
-                      {t.leader_score != null && <ScoreDisplay score={t.leader_score} size="sm" />}
+                    <div className="pt-3 border-t border-border">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-muted text-sm flex-shrink-0">Leader:</span>
+                        <span className="text-primary text-sm text-right min-w-0 break-words">{t.leader_name}</span>
+                      </div>
+                      {t.leader_score != null && (
+                        <div className="flex justify-end mt-1">
+                          <ScoreDisplay score={t.leader_score} size="sm" />
+                        </div>
+                      )}
                     </div>
                   )}
                 </NeonCard>

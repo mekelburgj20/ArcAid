@@ -75,17 +75,22 @@ export class GameRoomService {
                 normalizeShortTag(data.short_tag),
             );
 
+            // iScored posture (v2.81.0): iScored is a tolerated legacy bridge
+            // (name-only sync, no login gate, spoofable names) — not promoted
+            // for new rooms. Every new room seeds ISCORED_ENABLED off; admins
+            // can opt back in later via Settings > Integrations.
+            await db.run(
+                `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+                id, 'ISCORED_ENABLED', 'false',
+            );
+
             // Standalone-room Phase 1 (v2.32.0): a pure-web room has no Discord
-            // guild and no iScored board, so both integrations start off. Admins
-            // can still flip them back on later via Settings > Integrations.
+            // guild, so it additionally starts with Discord off too. Admins can
+            // still flip it back on later via Settings > Integrations.
             if (data.mode === 'standalone') {
                 await db.run(
                     `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
                     id, 'DISCORD_ENABLED', 'false',
-                );
-                await db.run(
-                    `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
-                    id, 'ISCORED_ENABLED', 'false',
                 );
             }
 

@@ -189,7 +189,7 @@ const GLOBAL_CARD_TOGGLES: Record<string, { label: string; description: string; 
 const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
   'ISCORED_ENABLED': {
     label: 'iScored Integration',
-    description: 'When enabled, games are created and managed on iScored for this room. Toggle off to fully disconnect this room from iScored without touching credentials.',
+    description: 'Bridge to an external iScored board (legacy). Scores sync in by name only — they can\'t be verified, and anyone with access to your iScored board can post under any name. Synced scores appear in this room only, never on the Global Scoreboard. Toggle off to fully disconnect this room from iScored without touching credentials.',
     defaultOn: true,
   },
   'DISCORD_ENABLED': {
@@ -1442,7 +1442,7 @@ export default function Settings() {
             {category === 'iScored' && (
               <>
                 <div className="mb-3 px-3 py-2 rounded border border-neon-cyan/20 bg-neon-cyan/5 text-xs text-muted">
-                  Per-room iScored account. All three fields must be set together to override the server default — partial config is treated as disabled. The password is encrypted at rest. To disconnect this room from iScored entirely, toggle <strong>iScored Integration</strong> off in Integrations. Avoid swapping accounts mid-tournament — existing games still reference the old iScored IDs.
+                  Legacy external bridge — not required to run a room. Per-room iScored account. All three fields must be set together to override the server default — partial config is treated as disabled. The password is encrypted at rest. Synced scores are name-only (unverifiable) and stay local to this room; they never reach the Global Scoreboard. To disconnect this room from iScored entirely, toggle <strong>iScored Integration</strong> off in Integrations. Avoid swapping accounts mid-tournament — existing games still reference the old iScored IDs.
                 </div>
                 <IScoredCredentialsCheck />
               </>

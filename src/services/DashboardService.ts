@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import CronExpressionParser from 'cron-parser';
 import { logError } from '../utils/logger.js';
+import { normalizeImageUrl } from './LeaderboardService.js';
 
 interface ActiveTournamentInfo {
     tournament_id: string;
@@ -10,6 +11,10 @@ interface ActiveTournamentInfo {
     game_id: string | null;
     game_name: string | null;
     game_start_date: string | null;
+    // v2.81.0 — small game-image icon for the Room Admin Dashboard "Active
+    // Now" cards. Resolved the same way LeaderboardService.getActiveLeaderboards
+    // resolves imageUrl: name-matched against global_games (approved only).
+    game_image_url: string | null;
     leader_name: string | null;
     leader_score: number | null;
     participants: number;
@@ -50,10 +55,17 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
             t.cleanup_rule,
             g.id AS game_id,
             g.name AS game_name,
-            g.start_date AS game_start_date
+            g.start_date AS game_start_date,
+            COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url) AS game_image_url
         FROM tournaments t
         LEFT JOIN games g ON g.tournament_id = t.id AND g.status = 'ACTIVE'
+        LEFT JOIN global_games gg ON LOWER(gg.name) = LOWER(g.name) AND gg.status = 'approved'
         WHERE t.is_active = 1${roomFilter}
+        -- Same-name approved globals can coexist (different mfg/year/type —
+        -- see idx_global_games_identity), so the gg name-match can multiply
+        -- rows. Collapse back to one row per (tournament, active game) —
+        -- the pre-join cardinality. Mirrors getActiveLeaderboards' GROUP BY.
+        GROUP BY t.id, g.id
     `, ...roomParams);
 
     // For each active game, find the leader (top submission).
@@ -150,6 +162,7 @@ export async function getDashboardData(gameRoomId?: string): Promise<DashboardDa
             game_id: row.game_id || null,
             game_name: row.game_name || null,
             game_start_date: row.game_start_date || null,
+            game_image_url: normalizeImageUrl(row.game_image_url),
             leader_name: leaderName,
             leader_score: leaderScore,
             participants,
