@@ -6,6 +6,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.80.0] — unreleased
+
+**Membership & privacy model** (Phase 2 of the Identity & membership arc — owner-approved
+contract in ROADMAP, 2026-08-05). "Private" decomposes into orthogonal settings:
+
+### Added
+- **Unlisted rooms** — new per-room `ROOM_LISTED` toggle (default on). Off = the room is
+  dropped from the public room list (`GET /api/rooms`) for every caller, but stays fully
+  reachable by direct link: slug/portal resolution, room login, OG link previews, and a
+  member's own My Rooms list are all unaffected. "Link room" = unlisted + open policy.
+- **Auto-approve Discord server members** — new `AUTO_APPROVE_GUILD_MEMBERS` toggle on
+  approval rooms. A join request from a member of the room's linked Discord guild
+  (`DISCORD_GUILD_ID` setting) is approved instantly at Join-click time:
+  `JoinRequestService.tryAutoApprove` resolves the requester's identity (identity-link-aware,
+  so Google users with a linked Discord account pass), asks the bot via
+  `DiscordClient.isMemberOfGuild`, and on success writes the join-request row pre-resolved
+  (`resolved_by='auto:guild'` — the admin resolved queue labels it "Auto-approved (Discord
+  member)") plus the membership. Any uncertainty (setting off, no guild linked, unlinked
+  Google identity, gateway down, membership unknown) degrades to the manual approval queue —
+  never auto-deny. Membership persists after guild departure (no auto-revoke). The room join
+  gate drops live on instant approval (portal cache invalidated + refetched).
+
+### Removed
+- **`REQUIRE_DISCORD_LOGIN` retired wholesale.** Login has been unconditionally mandatory for
+  score submissions since v2.79.0, making the per-room setting moot. Deleted: the
+  `conditionalRequireDiscordUser` middleware (zero route consumers since v2.79.0), the
+  portal's `require_discord_login` field, the scoreboard-config `REQUIRE_DISCORD_LOGIN` key,
+  the settings flip side-effect plumbing + `OrphanService` (its only entry point), the
+  room-create seeding, and the FE login-policy lib + `requireLogin`/`discordOnly` prop
+  threading across the five score surfaces. Rooms can no longer restrict login to Discord
+  only — both providers (Discord + Google) work everywhere. Migration 138 deletes stored
+  setting rows. Existing orphaned score rows and every `orphaned_at IS NULL` query filter are
+  deliberately untouched (owner decision: any data cleanup is a separate, backed-up, eyeballed
+  pass).
+
+### Notes
+- Kiosk-on-approval-rooms limitation unchanged. The member-picker admin-add rider is
+  deferred (separable). Comments/ratings remain guest-allowed (login-gating them is a
+  tracked follow-up).
+
 ## [2.79.0] — unreleased
 
 **Login mandate: no guest scores** (owner decision 2026-08-05 — "I'm putting my foot down";
