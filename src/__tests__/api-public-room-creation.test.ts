@@ -4,6 +4,7 @@ import request from 'supertest';
 import { setupTestDb, createTestRoom } from './helpers.js';
 import { signToken } from '../api/auth.js';
 import { getDatabase } from '../database/database.js';
+import { GameRoomService } from '../services/GameRoomService.js';
 
 async function createTestApp() {
     await setupTestDb();
@@ -59,6 +60,27 @@ describe('POST /api/rooms (public self-serve room creation)', () => {
         const map = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
         expect(map.DISCORD_ENABLED).toBe('false');
         expect(map.ISCORED_ENABLED).toBe('false');
+    });
+
+    it('seeds ISCORED_ENABLED=false for the non-standalone (super-admin) create path too (v2.81.0)', async () => {
+        // The public self-serve route above always passes mode: 'standalone',
+        // which seeds both DISCORD_ENABLED and ISCORED_ENABLED off. The
+        // super-admin route (POST /api/admin/rooms) calls GameRoomService.create
+        // with no mode — as of v2.81.0 iScored is opt-in for ALL new rooms
+        // regardless of mode, so ISCORED_ENABLED must still land false here,
+        // while DISCORD_ENABLED is untouched (connected-mode rooms keep Discord
+        // on by default).
+        await setupTestDb();
+        const room = await GameRoomService.create({ name: 'Connected Room', slug: 'connected_room_v281' });
+
+        const db = await getDatabase();
+        const settings = await db.all(
+            `SELECT key, value FROM game_room_settings WHERE game_room_id = ? ORDER BY key`,
+            room.id,
+        );
+        const map = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
+        expect(map.ISCORED_ENABLED).toBe('false');
+        expect(map.DISCORD_ENABLED).toBeUndefined();
     });
 
     it('rejects a reserved slug', async () => {
