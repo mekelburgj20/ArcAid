@@ -261,6 +261,46 @@ describe('PublicLayout', () => {
       await waitFor(() => expect(screen.getByText('Request pending')).toBeInTheDocument());
     });
 
+    // v2.80.0 — AUTO_APPROVE_GUILD_MEMBERS can resolve a join-request straight
+    // to 'member' instead of 'pending'. The portal's viewer_status is cached
+    // per-slug (lib/portal.ts), so PublicLayout must invalidate + re-fetch it
+    // after an auto-approve — otherwise the gate would stay up until reload.
+    it('signed-in non-member, auto-approved: gate drops and room renders without a page reload', async () => {
+      signInAs('user-4', 'Justin');
+      let portalCalls = 0;
+      const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+        if (url.startsWith('/api/portal')) {
+          portalCalls += 1;
+          const viewer_status = portalCalls === 1 ? 'none' : 'member';
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              id: 'room-4', roomId: 'room-4', slug: 'approval_room_auto', name: 'Approval Room',
+              pick_award_enabled: false, join_policy: 'approval', viewer_status,
+            }),
+          });
+        }
+        if (init?.method === 'POST' && url.includes('join-request')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'member' }) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+      vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+      renderAt('/approval_room_auto/child');
+      const btn = await screen.findByText('Request to join');
+      fireEvent.click(btn);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+        '/api/me/rooms/room-4/join-request',
+        expect.objectContaining({ method: 'POST' }),
+      ));
+      // Gate drops and the child route mounts — no manual reload needed.
+      await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-4'));
+      expect(screen.queryByText('This room requires approval to join')).toBeNull();
+      expect(portalCalls).toBeGreaterThanOrEqual(2);
+    });
+
     it('a member sees the room normally, not the gate', async () => {
       // Distinct slug from the other two tests in this block — lib/portal.ts
       // caches settled portal promises per-slug for the SPA session, so

@@ -115,7 +115,7 @@ const DEAD_KEYS = new Set(['GAME_ROOM_NAME', 'GAME_ROOM_SLUG']);
 
 // Saving a change to any of these asks for explicit confirmation first — each
 // flips how players reach or use the room.
-const DANGEROUS_KEYS = ['REQUIRE_DISCORD_LOGIN', 'ISCORED_ENABLED', 'DISCORD_ENABLED', 'GLOBAL_SCOREBOARD_ENABLED', 'JOIN_POLICY'];
+const DANGEROUS_KEYS = ['ISCORED_ENABLED', 'DISCORD_ENABLED', 'GLOBAL_SCOREBOARD_ENABLED', 'JOIN_POLICY'];
 
 // D2 (standalone rooms, v2.32.0) — same default-on semantics as
 // SetupChecklist.tsx's isFlagOn: missing/undefined reads as enabled, matching
@@ -211,6 +211,15 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
     description: 'When enabled, scores submitted in this room are also fanned out to the Global Scoreboard at arcaid.app/scoreboard. Players can still opt out per-score.',
     defaultOn: true,
   },
+  // v2.80.0 — room-listing toggle (membership & privacy model, Phase 2).
+  // Default-on: unlisted rooms are still fully reachable by direct link (see
+  // JOIN_POLICY below for the separate "who can view" axis) — this only
+  // governs whether the room surfaces on the landing page / room lists.
+  'ROOM_LISTED': {
+    label: 'Listed on Arcaid',
+    description: 'Show this room on the Arcaid landing page and room lists. Turn off to make it unlisted — reachable only by direct link.',
+    defaultOn: true,
+  },
   // v2.56.0 — 'ENABLE_GAME_PICK_AWARD' was removed. It ANDed with each
   // tournament's "Winner picks next game" setting but was absent (→ off) for
   // most rooms and never referenced by TournamentForm, so the tournament form
@@ -218,26 +227,9 @@ const TOGGLE_SETTINGS: Record<string, { label: string; description: string; defa
   // Winner-picks is now per-tournament only; do not reintroduce it here.
 };
 
-// REQUIRE_DISCORD_LOGIN — v2.35.0: gained a third value ('discord') alongside
-// the pre-existing 'false'/'true' now that Google is a second login provider.
-// Rendered as a dedicated 3-option select (not a boolean toggle) since it's
-// no longer a simple on/off. Kept out of TOGGLE_SETTINGS so settingChanged's
-// boolean-compare branch doesn't apply to it (falls through to plain string
-// compare, which is correct for a 3-value key).
-const REQUIRE_LOGIN_KEY = 'REQUIRE_DISCORD_LOGIN';
-const REQUIRE_LOGIN_META = {
-  label: 'Require login for score submissions',
-  description: "Guests can submit: anyone may submit scores anonymously. Login required (any): players must sign in with Discord OR Google before submitting. Discord login required: only Discord sign-in is accepted (needed for DM notifications, /pick-game, and role-based room admin). Anonymous scores already in this room are hidden from every leaderboard whenever login is required; switching back to guests-allowed restores them. Existing anonymous rows are preserved either way — they are simply orphaned, not deleted.",
-};
-const REQUIRE_LOGIN_OPTIONS: { value: string; label: string }[] = [
-  { value: 'false', label: 'Guests can submit' },
-  { value: 'true', label: 'Login required (any)' },
-  { value: 'discord', label: 'Discord login required' },
-];
-
-// v2.39.0 — approval rooms. Rendered as its own 2-option select beside
-// REQUIRE_DISCORD_LOGIN, same pattern (kept out of TOGGLE_SETTINGS/boolean
-// diffing since it reads more naturally as a named policy than an on/off).
+// v2.39.0 — approval rooms. Rendered as its own 2-option select (kept out of
+// TOGGLE_SETTINGS/boolean diffing since it reads more naturally as a named
+// policy than an on/off).
 const JOIN_POLICY_KEY = 'JOIN_POLICY';
 const JOIN_POLICY_META = {
   label: 'Room visibility',
@@ -247,6 +239,15 @@ const JOIN_POLICY_OPTIONS: { value: string; label: string }[] = [
   { value: 'open', label: 'Open — anyone can view and join' },
   { value: 'approval', label: 'Approval required — invisible to non-members until approved' },
 ];
+
+// v2.80.0 — auto-approve join requests from members of the room's linked
+// Discord guild. Rendered beside JOIN_POLICY (only meaningful when policy is
+// 'approval'); a plain boolean toggle otherwise, default off.
+const AUTO_APPROVE_GUILD_KEY = 'AUTO_APPROVE_GUILD_MEMBERS';
+const AUTO_APPROVE_GUILD_META = {
+  label: 'Auto-approve Discord server members',
+  description: "When someone from this room's linked Discord server requests to join, approve them instantly. Requires the Discord Guild ID setting; anyone the bot can't verify still lands in the manual approval queue.",
+};
 
 // Every boolean on/off toggle key → its default-when-absent value, aggregated
 // from the toggle maps + the two inline toggles. Used by the dirty diff so a
@@ -261,6 +262,7 @@ const TOGGLE_DEFAULTS: Record<string, boolean> = {
   ...Object.fromEntries(Object.entries(TOGGLE_SETTINGS).map(([k, v]) => [k, !!v.defaultOn])),
   SCOREBOARD_MOBILE_VERTICAL: true,
   SCOREBOARD_LOGO_ENABLED: true,
+  [AUTO_APPROVE_GUILD_KEY]: false,
 };
 
 // True iff key k differs between two settings snapshots. Boolean toggles compare
@@ -746,7 +748,6 @@ export default function Settings() {
     if (changedDangerous.length > 0) {
       const labelFor = (k: string) =>
         TOGGLE_SETTINGS[k]?.label
-        || (k === REQUIRE_LOGIN_KEY ? REQUIRE_LOGIN_META.label : null)
         || (k === JOIN_POLICY_KEY ? JOIN_POLICY_META.label : null)
         || k;
       const labels = changedDangerous.map(labelFor).join(', ');
@@ -820,10 +821,10 @@ export default function Settings() {
     ...Object.keys(SCOREBOARD_TOGGLES),
     ...Object.keys(KIOSK_TOGGLES),
     ...Object.keys(TOGGLE_SETTINGS),
-    // v2.35.0 — rendered as its own 3-option select, not a boolean toggle.
-    REQUIRE_LOGIN_KEY,
     // v2.39.0 — rendered as its own 2-option select, not a boolean toggle.
     JOIN_POLICY_KEY,
+    // v2.80.0 — rendered as a conditional toggle beside JOIN_POLICY.
+    AUTO_APPROVE_GUILD_KEY,
     // Scoreboard branding (managed in inline card)
     'SCOREBOARD_BG_URL', 'SCOREBOARD_BG_MODE', 'SCOREBOARD_BG_OPACITY',
     'LOGO_URL', 'LOGO_POSITION', 'LOGO_MAX_HEIGHT', 'SCOREBOARD_LOGO_ENABLED',
@@ -1087,23 +1088,6 @@ export default function Settings() {
             </div>
           );
         })}
-        {/* v2.35.0 — REQUIRE_DISCORD_LOGIN 3-option select (Google login added
-            a third value, so this is no longer a simple boolean toggle). */}
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-primary">{REQUIRE_LOGIN_META.label}</p>
-            <p className="text-xs text-muted">{REQUIRE_LOGIN_META.description}</p>
-          </div>
-          <select
-            value={settings[REQUIRE_LOGIN_KEY] || 'false'}
-            onChange={e => handleChange(REQUIRE_LOGIN_KEY, e.target.value)}
-            className={`${inputClass} w-auto min-w-[190px]`}
-          >
-            {REQUIRE_LOGIN_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
         {/* v2.39.0 — JOIN_POLICY 2-option select (approval rooms). */}
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -1120,6 +1104,37 @@ export default function Settings() {
             ))}
           </select>
         </div>
+        {/* v2.80.0 — AUTO_APPROVE_GUILD_MEMBERS: only meaningful when
+            JOIN_POLICY is 'approval'. Enabled/disabled off the current
+            (unsaved) select value so flipping JOIN_POLICY live-updates it. */}
+        {(() => {
+          const approvalSelected = (settings[JOIN_POLICY_KEY] || 'open') === 'approval';
+          const autoApproveOn = settings[AUTO_APPROVE_GUILD_KEY] === 'true';
+          return (
+            <div className={`flex items-center justify-between gap-4 ${approvalSelected ? '' : 'opacity-50'}`}>
+              <div>
+                <p className="text-sm font-medium text-primary">{AUTO_APPROVE_GUILD_META.label}</p>
+                <p className="text-xs text-muted">
+                  {AUTO_APPROVE_GUILD_META.description}
+                  {!approvalSelected && ' (Only applies when Room visibility is set to "Approval required".)'}
+                </p>
+              </div>
+              <button
+                onClick={() => handleChange(AUTO_APPROVE_GUILD_KEY, autoApproveOn ? 'false' : 'true')}
+                disabled={!approvalSelected}
+                className={`relative w-12 h-6 rounded-full transition-colors border-none ${
+                  approvalSelected ? 'cursor-pointer' : 'cursor-not-allowed'
+                } ${autoApproveOn && approvalSelected ? 'bg-neon-cyan' : 'bg-raised border border-border'}`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-primary transition-transform ${
+                    autoApproveOn && approvalSelected ? 'translate-x-6' : ''
+                  }`}
+                />
+              </button>
+            </div>
+          );
+        })()}
       </div>
       </NeonCard>
     </div>

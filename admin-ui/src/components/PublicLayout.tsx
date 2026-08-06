@@ -5,7 +5,7 @@ import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useMyRooms } from '../hooks/useMyRooms';
 import { useToast } from './Toast';
-import { getPortal, type Portal } from '../lib/portal';
+import { getPortal, invalidatePortal, type Portal } from '../lib/portal';
 import { navSectionForPath, type NavSection } from '../lib/navSections';
 import { getTitleStyleClass } from './ScoreboardComponents';
 import { RoomContext } from '../contexts/RoomContext';
@@ -193,6 +193,26 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
     if (!resolvedRoomId) return;
     const ok = await leaveRoom(resolvedRoomId);
     toast(ok ? `Left ${roomName}.` : 'Could not leave this room — try again.', ok ? 'info' : 'error');
+  };
+
+  // v2.80.0 — AUTO_APPROVE_GUILD_MEMBERS can resolve a join-request straight
+  // to 'member'. `portal.viewer_status` (which `isGated` above is derived
+  // from) came from the cached `getPortal` fetch and won't pick that up on
+  // its own — invalidate + re-resolve so the gate drops without a full page
+  // reload. 'pending' needs no portal change; RoomJoinGate tracks that itself.
+  const handleRequestJoin = async (): Promise<'pending' | 'member' | null> => {
+    if (!resolvedRoomId) return null;
+    const status = await requestJoin(resolvedRoomId);
+    if (status === 'member' && slug) {
+      invalidatePortal(slug);
+      try {
+        setPortal(await getPortal(slug));
+      } catch {
+        // best-effort — RoomJoinGate still reflects 'member' locally even if
+        // the re-fetch fails, so the user isn't stuck on a stale error.
+      }
+    }
+    return status;
   };
 
   // Sprint 7 nav: Lobby | Scores | Picks* | Stats | Global
@@ -406,7 +426,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             discordUser={discordUser}
             onLoginDiscord={() => slug && loginWithDiscord(slug, location.pathname + location.search)}
             onLoginGoogle={() => slug && loginWithGoogle(slug, location.pathname + location.search)}
-            onRequestJoin={() => requestJoin(resolvedRoomId)}
+            onRequestJoin={handleRequestJoin}
           />
         ) : (
           /* v2.13.16 — PlayerQuickViewProvider so PlayerNameLink calls from

@@ -83,34 +83,10 @@ export interface SubmissionSheetProps {
     /** Slug of the room the user is on — needed to kick off Discord OAuth. */
     roomSlug?: string;
     /**
-     * v2.0.1: when true and the viewer has no player token, the sheet renders
-     * a login-required state immediately instead of the form. Saves the user
-     * from typing name+score+photo only to be rejected server-side.
-     *
-     * v2.35.0: true for BOTH REQUIRE_DISCORD_LOGIN values that require login
-     * ('true' or 'discord') — callers should derive this via
-     * `requiresAnyLogin()` from `lib/loginPolicy.ts`.
-     *
-     * v2.79.0 (login mandate): the sheet now gates on `!playerToken`
-     * unconditionally for every target — login is required room-wide
-     * regardless of REQUIRE_DISCORD_LOGIN. This prop is kept (unused inside
-     * the component) purely so existing callers don't need updating; it no
-     * longer changes behavior.
-     */
-    requireLogin?: boolean;
-    /**
-     * v2.35.0 (Google login) — true when the room's REQUIRE_DISCORD_LOGIN is
-     * specifically 'discord' (not just 'true'): only the Discord login option
-     * is offered, with copy explaining why. Callers should derive this via
-     * `requiresDiscordOnly()` from `lib/loginPolicy.ts`.
-     */
-    discordOnly?: boolean;
-    /**
      * v2.35.0 (Google login) — true when the room's DISCORD_ENABLED !== 'false'.
      * Drives the one-line "Sign in with Discord to get DM notifications and
-     * tournament picks" nudge shown under the login buttons when both
-     * providers are offered. Undefined/omitted = nudge not shown (caller
-     * doesn't have this cheaply at hand).
+     * tournament picks" nudge shown under the login buttons. Undefined/omitted
+     * = nudge not shown (caller doesn't have this cheaply at hand).
      */
     discordEnabled?: boolean;
 }
@@ -154,7 +130,6 @@ export default function SubmissionSheet({
     initialPlayerName,
     commitDraftState,
     roomSlug,
-    discordOnly,
     discordEnabled,
 }: SubmissionSheetProps) {
     const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
@@ -232,8 +207,7 @@ export default function SubmissionSheet({
         if (commitDraftState) return 'committingDraft';
         // v2.79.0 (login mandate) — every target requires login now; gate
         // upfront on mount, same treatment `global` targets already got (see
-        // the file-level doc comment). `discordOnly` still drives which login
-        // button(s) render and their copy, just not whether the gate applies.
+        // the file-level doc comment).
         if (!playerToken) return 'loginRequired';
         return 'form';
     });
@@ -629,9 +603,7 @@ export default function SubmissionSheet({
                                     Log in to submit a score
                                 </p>
                                 <p className="text-xs text-muted leading-relaxed">
-                                    {discordOnly
-                                        ? 'This room requires Discord sign-in to submit scores.'
-                                        : 'Scores tie to your account, so submitting requires a login.'} Log in to submit on <span className="text-primary font-medium">{target.gameName}</span>.
+                                    Scores tie to your account, so submitting requires a login. Log in to submit on <span className="text-primary font-medium">{target.gameName}</span>.
                                 </p>
                             </div>
                         </div>
@@ -643,17 +615,15 @@ export default function SubmissionSheet({
                             >
                                 <LogIn size={16} /> Log in with Discord
                             </NeonButton>
-                            {!discordOnly && (
-                                <button
-                                    type="button"
-                                    onClick={() => roomSlug && loginWithGoogle(roomSlug)}
-                                    disabled={!roomSlug}
-                                    className="w-full px-4 py-2 rounded border border-border bg-surface text-primary text-sm font-medium hover:bg-raised hover:border-border/80 transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
-                                >
-                                    <LogIn size={16} /> Log in with Google
-                                </button>
-                            )}
-                            {!discordOnly && discordEnabled && (
+                            <button
+                                type="button"
+                                onClick={() => roomSlug && loginWithGoogle(roomSlug)}
+                                disabled={!roomSlug}
+                                className="w-full px-4 py-2 rounded border border-border bg-surface text-primary text-sm font-medium hover:bg-raised hover:border-border/80 transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
+                            >
+                                <LogIn size={16} /> Log in with Google
+                            </button>
+                            {discordEnabled && (
                                 <p className="text-[11px] text-faint text-center">
                                     Sign in with Discord to get DM notifications and tournament picks.
                                 </p>

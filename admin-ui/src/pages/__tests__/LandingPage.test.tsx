@@ -218,6 +218,31 @@ describe('LandingPage', () => {
       confirmSpy.mockRestore();
     });
 
+    // v2.80.0 — AUTO_APPROVE_GUILD_MEMBERS can resolve the join-request
+    // straight to 'member' (server-side auto-approve). That must NOT land in
+    // the session `pendingRequests` set — the card shouldn't show "Request
+    // pending" for a request that already succeeded.
+    it('signed-in, non-member card auto-approved to "member": no pending state shown', async () => {
+      signInAs('user-1', 'Justin');
+      const APPROVAL_ROOM = { ...PUBLIC_ROOM_2, join_policy: 'approval' };
+      const fetchMock = mockFetch({ rooms: [PUBLIC_ROOM_1, APPROVAL_ROOM], meRooms: [], joinRequestStatus: 'member' });
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      renderLanding();
+      await waitFor(() => expect(screen.getByText('Other Room')).toBeInTheDocument());
+
+      const requestBtn = screen.getByLabelText('Add Other Room to My Game Rooms');
+      fireEvent.click(requestBtn);
+
+      expect(confirmSpy).toHaveBeenCalled();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+        '/api/me/rooms/room-2/join-request',
+        expect.objectContaining({ method: 'POST' }),
+      ));
+      // Never shows a pending badge for an already-resolved auto-approve.
+      expect(screen.queryByLabelText('Request pending for Other Room')).not.toBeInTheDocument();
+      confirmSpy.mockRestore();
+    });
+
     it('signed-in, declines the confirm dialog: no request sent', async () => {
       signInAs('user-1', 'Justin');
       const APPROVAL_ROOM = { ...PUBLIC_ROOM_2, join_policy: 'approval' };
