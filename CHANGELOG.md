@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.81.0] — unreleased
+
+**iScored posture + Dashboard game icons** (owner-requested 2026-08-06).
+
+### Changed
+- **iScored is opt-in for all new rooms.** Every newly created room now seeds
+  `ISCORED_ENABLED='false'` (previously only standalone rooms did); admins flip one toggle in
+  Settings > Integrations to opt in. Existing rooms are untouched. The iScored settings copy
+  now frames the integration honestly as a legacy external bridge: name-only sync,
+  unverifiable, room-local (never on the Global Scoreboard), and spoofable by anyone with
+  access to the iScored board. Standing stance: tolerated legacy bridge — don't promote,
+  don't break.
+- **Room Admin Dashboard "Active Now" cards** now show a small (32px) game image icon beside
+  the game title, resolved from the approved catalogue the same way public leaderboard cards
+  resolve art (with a dedup guard so same-name catalogue entries can't duplicate cards).
+  Owner-reviewed layout revisions rode along: game titles wrap fully instead of truncating
+  with an ellipsis, and the Leader block is restructured — "Leader:" left-aligned, username
+  right-aligned, score right-aligned directly beneath the username.
+
 ## [2.80.0] — unreleased
 
 **Membership & privacy model** (Phase 2 of the Identity & membership arc — owner-approved
