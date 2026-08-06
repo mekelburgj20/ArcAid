@@ -154,7 +154,6 @@ router.get('/:roomId/portal', async (req, res) => {
 
         const uiTheme = await GameRoomSettingsService.get(room.id, 'UI_THEME');
         const adminTheme = await GameRoomSettingsService.get(room.id, 'ADMIN_THEME');
-        const requireDiscordLogin = await GameRoomSettingsService.get(room.id, 'REQUIRE_DISCORD_LOGIN');
         const { RoomAccessService } = await import('../../services/RoomAccessService.js');
         const joinPolicy = await RoomAccessService.getJoinPolicy(room.id);
         const authHeader = req.headers['authorization'];
@@ -169,7 +168,6 @@ router.get('/:roomId/portal', async (req, res) => {
             logo_url: room.logo_url || null,
             ui_theme: uiTheme || 'dark',
             admin_theme: adminTheme || 'dark',
-            require_discord_login: requireDiscordLogin === 'true',
             join_policy: joinPolicy,
             viewer_status: viewerStatus,
         });
@@ -197,16 +195,10 @@ router.get('/:roomId/scoreboard-config', async (req, res) => {
         }
         const allSettings = await GameRoomSettingsService.getAll(roomId);
         const config: Record<string, string> = {};
-        // v2.35.0 (Google login) — REQUIRE_DISCORD_LOGIN and DISCORD_ENABLED are
-        // explicit inclusions (not prefix-matched like the rest of this list).
-        // Pre-existing bug found while wiring D4/nudge support: FE call sites
-        // (Scoreboard.tsx, GlobalScoresView.tsx, RoomScoresView.tsx,
-        // GlobalGameDetail.tsx, GameDetail.tsx) all read `config.REQUIRE_DISCORD_LOGIN`
-        // from THIS endpoint's response to decide SubmissionSheet's `requireLogin`
-        // prop, but the key was never in the SCOREBOARD_/LOGO_/KIOSK_/GLOBAL_CARD_
-        // prefix allowlist — so it silently read as `undefined` and the
-        // "login required" hint never activated from these public surfaces.
-        const EXPLICIT_KEYS = ['REQUIRE_DISCORD_LOGIN', 'DISCORD_ENABLED'];
+        // DISCORD_ENABLED is an explicit inclusion (not prefix-matched like the
+        // rest of this list) — FE call sites read `config.DISCORD_ENABLED` from
+        // THIS endpoint's response for Discord-integration-aware UI.
+        const EXPLICIT_KEYS = ['DISCORD_ENABLED'];
         for (const [key, value] of Object.entries(allSettings)) {
             if (key.startsWith('SCOREBOARD_') || key.startsWith('LOGO_') || key.startsWith('KIOSK_') || key.startsWith('GLOBAL_CARD_') || EXPLICIT_KEYS.includes(key)) {
                 config[key] = value;
@@ -2275,7 +2267,7 @@ router.post('/:roomId/games/:gameName/comments', guestContentLimiter, optionalDi
         const gameName = decodeURIComponent(req.params.gameName as string);
         const roomId = req.params.roomId as string;
         // S11 item (b): prefer the logged-in Discord identity (populated by
-        // conditionalRequireDiscordUser when a Bearer token is present) so the
+        // optionalDiscordUser when a Bearer token is present) so the
         // author can later delete via their token. Fall back to the guest anon
         // header, then the 'anon' sentinel for fully-anonymous guests.
         const userId = req.user?.discordId || (req.headers['x-user-id'] as string) || 'anon';
@@ -2302,7 +2294,7 @@ router.delete('/:roomId/games/:gameName/comments/:id', guestContentLimiter, opti
 
         // Tiered authz mirroring the score-history delete (rooms.ts:995):
         //   super_admin → any comment; room_admin → any comment in their room;
-        //   author → only their own. conditionalRequireDiscordUser populated
+        //   author → only their own. optionalDiscordUser populated
         //   req.user for logged-in viewers; guests fall through with req.user
         //   undefined and can only match as author via their anon x-user-id.
         const isSuper = req.user?.role === 'super_admin';

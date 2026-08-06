@@ -75,17 +75,6 @@ export class GameRoomService {
                 normalizeShortTag(data.short_tag),
             );
 
-            // v2.2.0: new rooms get safe-by-default identity. REQUIRE_DISCORD_LOGIN=true
-            // means walk-up web submitters must authenticate, which closes the
-            // anonymous-name collision surface entirely. Existing rooms are unaffected;
-            // admins can opt out per-room via Settings if they want kiosk/guest play.
-            // NOTE: kept true for standalone rooms too — Discord OAuth is a global
-            // IdP and works fine with no guild attached.
-            await db.run(
-                `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
-                id, 'REQUIRE_DISCORD_LOGIN', 'true',
-            );
-
             // Standalone-room Phase 1 (v2.32.0): a pure-web room has no Discord
             // guild and no iScored board, so both integrations start off. Admins
             // can still flip them back on later via Settings > Integrations.

@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken, TokenPayload } from './auth.js';
-import { providerOfUserId } from '../utils/identityProvider.js';
 import { RoomAccessService } from '../services/RoomAccessService.js';
 import { BanService } from '../services/BanService.js';
 import { logError } from '../utils/logger.js';
@@ -68,78 +67,12 @@ export function requireRoomAccess(paramName: string = 'roomId') {
 }
 
 /**
- * Conditional Discord login: enforced when the room's REQUIRE_DISCORD_LOGIN
- * setting is 'true' or 'discord'. Otherwise passes through untouched
- * (submissions remain anonymous-friendly).
- *
- * Three-value domain (Google-login contract, v2.35.0):
- *   - 'false'   — guests allowed, no login required.
- *   - 'true'    — any logged-in provider accepted (Discord OR Google). This
- *                 is a deliberate semantics broadening from the pre-Google
- *                 behavior (previously 'true' meant Discord specifically,
- *                 because Discord was the only provider) — existing Discord
- *                 users are unaffected, Google users are newly allowed.
- *   - 'discord' — provider must be Discord specifically. Rooms that rely on
- *                 Discord-integrated features (DMs, /pick-game, role-based
- *                 admin) opt into this to keep the Discord guarantee.
- *
- * When enforced, attaches req.user with discordId present.
- * Falls back to open access on setting-lookup errors (fail-open on infra
- * failure, not auth failure).
- */
-export function conditionalRequireDiscordUser(roomIdParam = 'roomId') {
-    return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-        const roomId = (req.params as any)[roomIdParam];
-        if (!roomId) return next();
-
-        let required = 'false';
-        try {
-            const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
-            required = (await GameRoomSettingsService.get(roomId, 'REQUIRE_DISCORD_LOGIN')) || 'false';
-        } catch {
-            // Setting lookup failed — fall through to optional-auth path below (fail-open).
-        }
-
-        const authHeader = req.headers['authorization'];
-        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-
-        // v2.2.5: always try to decode the token when present, regardless of the
-        // REQUIRE_DISCORD_LOGIN setting. Previously this middleware `return next()`'d
-        // without looking at Authorization when the room was guest-allowed, which
-        // meant a logged-in user's submission silently fell through as COMMUNITY.
-        // Result: their score didn't fan out to Global and the avatar join failed.
-        // Now: token present → decode + attach to req.user so downstream handlers
-        // can attribute correctly. Token missing → only block when login is required.
-        if (token) {
-            const payload = verifyToken(token);
-            if (payload?.discordId) req.user = payload;
-        }
-
-        if (required === 'true' || required === 'discord') {
-            if (!req.user?.discordId) {
-                res.status(401).json({ error: required === 'discord' ? 'Discord login required for this room' : 'Login required for this room' });
-                return;
-            }
-            if (required === 'discord') {
-                const provider = req.user.provider ?? providerOfUserId(req.user.discordId);
-                if (provider !== 'discord') {
-                    res.status(401).json({ error: 'Discord login required for this room' });
-                    return;
-                }
-            }
-        }
-
-        next();
-    };
-}
-
-/**
  * Optional Discord identity — decode a Bearer token when present and attach the
- * payload to `req.user`, but NEVER block. Unlike `conditionalRequireDiscordUser`,
- * this ignores the room's `REQUIRE_DISCORD_LOGIN` setting: it's for the low-stakes
- * social routes (game comments/tips) that must stay open to guests even in
- * login-required rooms, while still recognizing a token-bearing author/admin when
- * the client does send one.
+ * payload to `req.user`, but NEVER block. Login is mandatory for all score
+ * submissions unconditionally as of v2.79.0 (see `requireAuth`/`requireDiscordUser`
+ * on those routes); this middleware is for the low-stakes social routes (game
+ * comments/tips) that must stay open to guests regardless, while still
+ * recognizing a token-bearing author/admin when the client does send one.
  */
 export function optionalDiscordUser(req: Request, _res: Response, next: NextFunction): void {
     const authHeader = req.headers['authorization'];
@@ -187,9 +120,8 @@ export function requireDiscordUser(req: Request, res: Response, next: NextFuncti
  * 'open' policy (or the setting absent): next() immediately, zero extra
  * queries beyond the settings read. 'approval' policy: decode the Bearer
  * token independently (requireAuth hasn't run yet at this point in the
- * chain — mirrors conditionalRequireDiscordUser's decode pattern) and defer
- * to RoomAccessService.canViewRoom, the same check the WebSocket join
- * handlers use. Guests (no token) and non-members always 403.
+ * chain) and defer to RoomAccessService.canViewRoom, the same check the
+ * WebSocket join handlers use. Guests (no token) and non-members always 403.
  *
  * S22 Phase 2 (v2.44.0) — a suspension check runs FIRST, ahead of the
  * approval-policy check: suspension blocks everyone except super-admins,
@@ -219,8 +151,7 @@ export async function roomVisibilityGate(req: Request, res: Response, next: Next
     try {
         policy = await RoomAccessService.getJoinPolicy(roomId);
     } catch {
-        // Fail-open on infra failure, not auth failure — matches
-        // conditionalRequireDiscordUser's fail-open-on-lookup-error contract.
+        // Fail-open on infra failure, not auth failure.
         return next();
     }
     if (policy !== 'approval') return next();
@@ -239,8 +170,8 @@ export async function roomVisibilityGate(req: Request, res: Response, next: Next
  * bannable — nothing to check). Otherwise consults `BanService.isIdentityBanned`
  * (the ONE link-graph-aware ban predicate — see BanService's doc comment) and
  * 403s with the exact string used at login (`auth.ts`'s ACCOUNT_BANNED path)
- * when banned. Composes AFTER `requireDiscordUser` / `conditionalRequireDiscordUser`
- * / `optionalDiscordUser`, same as `requireRoomAccess`.
+ * when banned. Composes AFTER `requireDiscordUser` / `optionalDiscordUser`,
+ * same as `requireRoomAccess`.
  *
  * v2.49.0 (room-tier bans) — auto-reads `req.params.roomId` (absent on
  * pure-global routes) and passes it through, so every room-shaped route
@@ -262,8 +193,7 @@ export async function requireNotBanned(req: Request, res: Response, next: NextFu
             return;
         }
     } catch (err) {
-        // Fail-open on infra failure, not auth failure — matches
-        // conditionalRequireDiscordUser's fail-open-on-lookup-error contract.
+        // Fail-open on infra failure, not auth failure.
         // L1 hardening (S22 follow-ups) — fail-open must not be SILENT: a
         // sustained DB outage here would otherwise let bans go unenforced
         // with no signal in the logs.

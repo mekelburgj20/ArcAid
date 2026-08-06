@@ -237,8 +237,8 @@ describe('S11 (b) — comment-delete authorization tiers', () => {
         const app = await createTestApp();
         const roomId = await createTestRoom('s11-cd-roomadmin', 'S11 CD RoomAdmin');
         const commentId = await seedComment(roomId, gameName, `someone-${crypto.randomUUID()}`);
-        // conditionalRequireDiscordUser only attaches req.user when the token
-        // carries a discordId, so an admin moderating comments must be Discord-authed.
+        // optionalDiscordUser only attaches req.user when the token carries a
+        // discordId, so an admin moderating comments must be Discord-authed.
         const token = signToken({ role: 'room_admin', gameRoomIds: [roomId], discordId: `ra-${crypto.randomUUID()}` });
 
         const res = await request(app)
@@ -343,21 +343,17 @@ describe('S11 (b) — comment-delete authorization tiers', () => {
     });
 });
 
-describe('S11 regression — comments stay open to guests in login-required rooms', () => {
-    // S11 briefly gated the comment routes on conditionalRequireDiscordUser, which
-    // enforces REQUIRE_DISCORD_LOGIN — but the comment form sends no Bearer token,
-    // so in a login-required room the routes 401'd for everyone. optionalDiscordUser
-    // decodes a token if present but never blocks; comments must stay guest-open.
-    async function loginRequiredRoom(slug: string, name: string): Promise<string> {
-        const roomId = await createTestRoom(slug, name);
-        const { GameRoomSettingsService } = await import('../services/GameRoomSettingsService.js');
-        await GameRoomSettingsService.set(roomId, 'REQUIRE_DISCORD_LOGIN', 'true');
-        return roomId;
-    }
-
-    it('a guest can POST a comment even when the room requires Discord login', async () => {
+describe('S11 regression — comments stay open to guests unconditionally', () => {
+    // S11 briefly gated the comment routes behind a login-required check — but
+    // the comment form sends no Bearer token, so login-required rooms 401'd for
+    // everyone. optionalDiscordUser decodes a token if present but never blocks;
+    // comments must stay guest-open regardless of the room. (The room-level
+    // login-required setting this regression originally guarded against was
+    // retired in v2.80.0 — login is unconditionally mandatory for score
+    // submissions as of v2.79.0, but comments were never gated on it.)
+    it('a guest can POST a comment', async () => {
         const app = await createTestApp();
-        const roomId = await loginRequiredRoom('s11-cmt-guest', 'S11 Comment Guest');
+        const roomId = await createTestRoom('s11-cmt-guest', 'S11 Comment Guest');
         const res = await request(app)
             .post(`/api/rooms/${roomId}/games/game/comments`)
             .set('X-Forwarded-For', freshIp())
@@ -366,9 +362,9 @@ describe('S11 regression — comments stay open to guests in login-required room
         expect(res.status).toBe(201);
     });
 
-    it('a guest can GET comments in a login-required room (viewing not blocked)', async () => {
+    it('a guest can GET comments (viewing not blocked)', async () => {
         const app = await createTestApp();
-        const roomId = await loginRequiredRoom('s11-cmt-view', 'S11 Comment View');
+        const roomId = await createTestRoom('s11-cmt-view', 'S11 Comment View');
         await seedComment(roomId, 'game', `someone-${crypto.randomUUID()}`);
         const res = await request(app)
             .get(`/api/rooms/${roomId}/games/game/comments`)
@@ -378,9 +374,9 @@ describe('S11 regression — comments stay open to guests in login-required room
         expect(res.body.length).toBe(1);
     });
 
-    it('community-scores STILL requires login in a login-required room (score gate intact)', async () => {
+    it('community-scores requires login (score gate intact, unconditional post-v2.79.0)', async () => {
         const app = await createTestApp();
-        const roomId = await loginRequiredRoom('s11-score-gate', 'S11 Score Gate');
+        const roomId = await createTestRoom('s11-score-gate', 'S11 Score Gate');
         const res = await request(app)
             .post(`/api/rooms/${roomId}/community-scores/game`)
             .set('X-Forwarded-For', freshIp())

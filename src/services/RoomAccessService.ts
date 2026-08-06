@@ -12,8 +12,7 @@ export type JoinPolicy = 'open' | 'approval';
  * Single source of truth for the HTTP visibility gate (`roomVisibilityGate`
  * in middleware.ts) AND the WebSocket join handlers (websocket.ts) so the two
  * enforcement points can never drift. Both decode a Bearer/auth token
- * independently (mirroring `conditionalRequireDiscordUser`'s pattern) and
- * pass the resulting payload in here.
+ * independently and pass the resulting payload in here.
  */
 export class RoomAccessService {
     /** `'open'` is also the default when the setting is absent. */

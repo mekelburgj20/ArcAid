@@ -989,7 +989,8 @@ export class TournamentEngine {
 
         // --- Winner resolution: local DB is canonical (v2.2.1) ---
         // Previously iScored was the primary source and local DB was the fallback.
-        // That broke rooms where REQUIRE_DISCORD_LOGIN=false: guest scores live in
+        // That broke rooms with anonymous submissions (pre-v2.79.0, before login
+        // became mandatory for all score submissions): those scores live in
         // `submissions` but may never reach iScored (iScored can reject them —
         // seen "Access Denied" on a 99.9B submission), so the bot would announce
         // whoever was on top in iScored, not whoever was on top in the room.
