@@ -123,6 +123,9 @@ describe('MyStats', () => {
     const fireLink = screen.getByText('Fire!');
     expect(fireLink).toHaveClass('break-words');
     expect(fireLink).not.toHaveClass('truncate');
+
+    // v2.83.0 — the room-scope-only explainer must NOT render in All scope.
+    expect(screen.queryByText(/Scores set in this room that are your overall personal best/)).toBeNull();
   });
 
   it('scope pills render one per member room and switching refetches with ?scope=<roomId>', async () => {
@@ -153,6 +156,9 @@ describe('MyStats', () => {
     ));
     await waitFor(() => expect(screen.queryByText('Cosmic Cart Racing')).not.toBeInTheDocument());
     expect(screen.getByText('Fire!')).toBeInTheDocument();
+
+    // v2.83.0 — room-scope-only explainer appears after switching off "All".
+    expect(screen.getByText('Scores set in this room that are your overall personal best across all rooms and Global.')).toBeInTheDocument();
   });
 
   it('renders an empty state when there are no personal bests', async () => {

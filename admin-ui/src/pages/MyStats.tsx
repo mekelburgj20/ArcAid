@@ -135,14 +135,27 @@ export default function MyStats() {
                 <p className="text-xs text-faint mt-1">Submit a score in a room to see it here.</p>
               </div>
             ) : (
-              // showRoomCaption only in the cross-room "All" scope — a
-              // single-room scope already has that context from the pill.
-              <PersonalBestsSection
-                personalBests={data.personalBests}
-                rankHeader="Rank"
-                showRoomCaption={scope === 'all'}
-                wrapTitles
-              />
+              <>
+                {/* v2.83.0 owner semantics revision — room scope only: room
+                    scope now shows a filtered subset (games where THIS
+                    room's board is the player's overall best across every
+                    room + Global), which reads as "missing games" without
+                    this explainer. All scope needs no explainer — every game
+                    is shown there by definition. */}
+                {scope !== 'all' && (
+                  <p className="text-xs text-faint mb-3">
+                    Scores set in this room that are your overall personal best across all rooms and Global.
+                  </p>
+                )}
+                {/* showRoomCaption only in the cross-room "All" scope — a
+                    single-room scope already has that context from the pill. */}
+                <PersonalBestsSection
+                  personalBests={data.personalBests}
+                  rankHeader="Rank"
+                  showRoomCaption={scope === 'all'}
+                  wrapTitles
+                />
+              </>
             )}
           </>
         )}

@@ -289,7 +289,14 @@ describe('GET /api/me/stats?scope=<roomId> — membership gate', () => {
         expect(res.status).toBe(403);
     });
 
-    it('excludes the direct-Global leg when scoped to a room', async () => {
+    it('excludes a game whose only board is direct-Global when scoped to a room', async () => {
+        // v2.83.0: the mechanism changed (the Global leg is now ALWAYS
+        // fetched, even in room scope — see collapseToOverallBests), but the
+        // observable result here is unchanged: a game the viewer only has a
+        // direct-Global score for shares no game-name key with anything on
+        // this room's board, so `collapseToOverallBests` never emits a row
+        // for it in room scope (a room-scope row must be `source: 'room'`
+        // with a matching `room_id`).
         const app = await createTestApp();
         const roomId = await createTestRoom('stats-scoped-noglobal', 'Scoped No Global Room');
         const viewer = 'D-SCOPED-1';
@@ -312,6 +319,114 @@ describe('GET /api/me/stats?scope=<roomId> — membership gate', () => {
         expect(res.body.personalBests).toHaveLength(1);
         expect(res.body.personalBests[0].source).toBe('room');
         expect(res.body.overview.totalScores).toBe(1);
+    });
+});
+
+describe('GET /api/me/stats — v2.83.0 cross-board overall-best collapse', () => {
+    it('All scope: the same game in two rooms collapses to ONE row on the higher-scoring room', async () => {
+        const app = await createTestApp();
+        const roomLo = await createTestRoom('stats-collapse-lo', 'Low Room');
+        const roomHi = await createTestRoom('stats-collapse-hi', 'High Room');
+        const viewer = 'D-COLLAPSE-1';
+
+        await insertHistoryScore({
+            gameRoomId: roomLo, gameName: 'Medieval Madness', username: 'V', score: 500_000,
+            submittedByUserId: viewer, createdAt: '2026-01-01 00:00:00',
+        });
+        await insertHistoryScore({
+            gameRoomId: roomHi, gameName: 'Medieval Madness', username: 'V', score: 900_000,
+            submittedByUserId: viewer, createdAt: '2026-01-02 00:00:00',
+        });
+
+        const token = playerToken(viewer);
+        const res = await request(app).get('/api/me/stats').set('Authorization', `Bearer ${token}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.personalBests).toHaveLength(1);
+        expect(res.body.personalBests[0].room_id).toBe(roomHi);
+        expect(res.body.personalBests[0].best_score).toBe(900_000);
+        expect(res.body.overview.gamesWithBest).toBe(1);
+    });
+
+    it('Room scope: the lower-scoring room excludes the game entirely; the higher-scoring room includes it', async () => {
+        const app = await createTestApp();
+        const roomLo = await createTestRoom('stats-collapse-lo2', 'Low Room 2');
+        const roomHi = await createTestRoom('stats-collapse-hi2', 'High Room 2');
+        const viewer = 'D-COLLAPSE-2';
+        await RoomMembershipService.addMember(viewer, roomLo, 'self_join');
+        await RoomMembershipService.addMember(viewer, roomHi, 'self_join');
+
+        await insertHistoryScore({
+            gameRoomId: roomLo, gameName: 'Medieval Madness', username: 'V', score: 500_000, submittedByUserId: viewer,
+        });
+        await insertHistoryScore({
+            gameRoomId: roomHi, gameName: 'Medieval Madness', username: 'V', score: 900_000, submittedByUserId: viewer,
+        });
+
+        const token = playerToken(viewer);
+
+        const loRes = await request(app).get(`/api/me/stats?scope=${roomLo}`).set('Authorization', `Bearer ${token}`);
+        expect(loRes.status).toBe(200);
+        expect(loRes.body.personalBests).toHaveLength(0);
+        expect(loRes.body.overview.gamesWithBest).toBe(0);
+
+        const hiRes = await request(app).get(`/api/me/stats?scope=${roomHi}`).set('Authorization', `Bearer ${token}`);
+        expect(hiRes.status).toBe(200);
+        expect(hiRes.body.personalBests).toHaveLength(1);
+        expect(hiRes.body.personalBests[0].room_id).toBe(roomHi);
+        expect(hiRes.body.overview.gamesWithBest).toBe(1);
+    });
+
+    it('Room scope: a tie across two rooms counts as a match in BOTH room scopes', async () => {
+        const app = await createTestApp();
+        const roomA = await createTestRoom('stats-collapse-tie-a', 'Tie Room A');
+        const roomB = await createTestRoom('stats-collapse-tie-b', 'Tie Room B');
+        const viewer = 'D-COLLAPSE-TIE-1';
+        await RoomMembershipService.addMember(viewer, roomA, 'self_join');
+        await RoomMembershipService.addMember(viewer, roomB, 'self_join');
+
+        await insertHistoryScore({
+            gameRoomId: roomA, gameName: 'Twilight Zone', username: 'V', score: 700_000, submittedByUserId: viewer,
+        });
+        await insertHistoryScore({
+            gameRoomId: roomB, gameName: 'Twilight Zone', username: 'V', score: 700_000, submittedByUserId: viewer,
+        });
+
+        const token = playerToken(viewer);
+
+        const aRes = await request(app).get(`/api/me/stats?scope=${roomA}`).set('Authorization', `Bearer ${token}`);
+        expect(aRes.body.personalBests).toHaveLength(1);
+        expect(aRes.body.personalBests[0].room_id).toBe(roomA);
+
+        const bRes = await request(app).get(`/api/me/stats?scope=${roomB}`).set('Authorization', `Bearer ${token}`);
+        expect(bRes.body.personalBests).toHaveLength(1);
+        expect(bRes.body.personalBests[0].room_id).toBe(roomB);
+    });
+
+    it('a direct-Global best beats a room best: All shows the GLOBAL row, room scope excludes the game entirely', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('stats-collapse-global-beats', 'Global Beats Room');
+        const viewer = 'D-COLLAPSE-GLOBAL-1';
+        await RoomMembershipService.addMember(viewer, roomId, 'self_join');
+
+        await insertHistoryScore({
+            gameRoomId: roomId, gameName: 'Cosmic Cart Racing', username: 'V', score: 400, submittedByUserId: viewer,
+        });
+        await insertGlobalGame({ id: 'gg-collapse-1', name: 'Cosmic Cart Racing' });
+        await insertGlobalScore({
+            id: 'gs-collapse-1', globalGameId: 'gg-collapse-1', playerId: viewer,
+            submittedByUserId: viewer, score: 900, originType: 'global',
+        });
+
+        const token = playerToken(viewer);
+
+        const allRes = await request(app).get('/api/me/stats').set('Authorization', `Bearer ${token}`);
+        expect(allRes.body.personalBests).toHaveLength(1);
+        expect(allRes.body.personalBests[0].source).toBe('global');
+        expect(allRes.body.personalBests[0].best_score).toBe(900);
+
+        const roomRes = await request(app).get(`/api/me/stats?scope=${roomId}`).set('Authorization', `Bearer ${token}`);
+        expect(roomRes.body.personalBests).toHaveLength(0);
     });
 });
 
