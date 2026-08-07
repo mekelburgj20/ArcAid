@@ -9,6 +9,7 @@ import {
 } from '../utils/engineCategorySql.js';
 import { CARD_CATEGORY_ORDER } from '../utils/scoreProvenance.js';
 import { resolveProfiles } from './PlayerProfileResolver.js';
+import type { IdentityCandidates } from './IdentityCandidateService.js';
 
 /**
  * The card category expression, for queries that alias `global_scores` as `gs`.
@@ -1235,6 +1236,160 @@ export class GlobalLeaderboardService {
             out[cardId(row.global_game_id, row.category ?? null)] = { rank: row.rank, score: row.score };
         }
         return out;
+    }
+
+    /**
+     * v2.82.0 (My Stats v1, Identity arc Phase 3, WS1 decision 3) — the
+     * Global leg of the "My Stats" Personal Bests list: this person's best
+     * score on every global game they've submitted a DIRECT Global score to.
+     *
+     * ## Direct-only, never fan-out
+     *
+     * `global_scores` holds two populations: scores submitted straight to the
+     * Global Scoreboard (`origin_type = 'global'`, `origin_game_room_id NULL`
+     * — see `GlobalScoreService.submit`'s direct callers in `global.ts`) and
+     * MIRROR COPIES of room submissions (`origin_type = 'game_room'`,
+     * `origin_game_room_id` set to the source room — see
+     * `GlobalScoreService.fanOutFromRoomSubmission`). The My Stats contract
+     * says direct-Global bests appear in the "All" scope with a "Global"
+     * provenance chip; the room-originated copy of the SAME score already
+     * appears as that room's Personal Best row via
+     * `StatsService.getPersonalBestsForIdentities`. Including fan-out rows
+     * here would show every room best a second time under "Global". Verified
+     * against the two write paths directly: `origin_game_room_id IS NULL` is
+     * exactly the direct-submission predicate — fan-out ALWAYS sets it.
+     *
+     * ## Owner resolution + multi-alias collapse
+     *
+     * Mirrors `getViewerCardRanks` above: `owner_id` resolves via
+     * `COALESCE(submitted_by_user_id, <user_mappings lookup when player_id
+     * LIKE 'iscored:%'>, player_id)`, and the `user_mappings` lookup stays a
+     * scalar subquery (not a LEFT JOIN) for the same reason documented there
+     * — a join under a window function could fan out a row and shift ranks
+     * below it. Best-per-player collapses `global_game_id` categories
+     * together (unlike `getViewerCardRanks`, which keeps per-category cards
+     * separate) — My Stats shows one Global row per game, not one per card.
+     *
+     * The multi-alias trap is identical to
+     * `StatsService.getPersonalBestsForIdentities` (see its doc comment):
+     * this person's several `owner_id`s fold onto ONE `canonical_key` via a
+     * `CASE` BEFORE the best-per-player collapse and the `RANK()`/`COUNT()`
+     * partition, so two aliases scoring on the same game still produce ONE
+     * row and count as ONE competitor in `total_players`.
+     */
+    static async getDirectBestsForIdentities(candidates: IdentityCandidates): Promise<Array<{
+        game_name: string;
+        global_game_id: string;
+        best_score: number;
+        rank: number;
+        total_players: number;
+        achieved_at: string;
+    }>> {
+        const db = await getDatabase();
+        const { playerKeys, canonicalKey } = candidates;
+        const placeholders = playerKeys.map(() => '?').join(', ');
+
+        const rows = await db.all(`
+            WITH scoped AS (
+                SELECT
+                    gs.global_game_id,
+                    gs.score,
+                    gs.submitted_at,
+                    COALESCE(
+                        gs.submitted_by_user_id,
+                        CASE WHEN gs.player_id LIKE 'iscored:%' THEN (
+                            SELECT um.discord_user_id FROM user_mappings um
+                            WHERE LOWER(um.iscored_username) = LOWER(gs.iscored_username)
+                            LIMIT 1
+                        ) END,
+                        gs.player_id
+                    ) AS player_key
+                FROM global_scores gs
+                WHERE gs.deleted_at IS NULL
+                  AND gs.orphaned_at IS NULL
+                  AND gs.origin_game_room_id IS NULL
+                  -- Direct submits CAN set excludeFromGlobal (global.ts direct
+                  -- photo-submit path) — those rows never reach the public
+                  -- board, so they must not shape ranks here either, or the
+                  -- rank shown on My Stats disagrees with the board it links
+                  -- to. Matches getViewerCardRanks' global-scope filter. Side
+                  -- effect (deliberate): the viewer's own excluded scores
+                  -- don't appear as Global bests — they asked for exclusion.
+                  AND gs.exclude_from_global = 0
+            ),
+            canon AS (
+                SELECT *, CASE WHEN player_key IN (${placeholders}) THEN ? ELSE player_key END AS canonical_key
+                FROM scoped
+            ),
+            player_games AS (
+                SELECT DISTINCT global_game_id FROM canon WHERE canonical_key = ?
+            ),
+            board AS (
+                SELECT c.* FROM canon c
+                JOIN player_games pg ON pg.global_game_id = c.global_game_id
+            ),
+            best_per_player AS (
+                SELECT global_game_id, canonical_key, score, submitted_at,
+                       ROW_NUMBER() OVER (PARTITION BY global_game_id, canonical_key ORDER BY score DESC, submitted_at ASC) AS rn
+                FROM board
+            ),
+            top AS (
+                SELECT global_game_id, canonical_key, score AS best_score, submitted_at AS achieved_at
+                FROM best_per_player WHERE rn = 1
+            ),
+            ranked AS (
+                SELECT global_game_id, canonical_key, best_score, achieved_at,
+                       RANK() OVER (PARTITION BY global_game_id ORDER BY best_score DESC) AS rank,
+                       COUNT(*) OVER (PARTITION BY global_game_id) AS total_players
+                FROM top
+            )
+            SELECT COALESCE(gg.display_name, gg.name) AS game_name, r.global_game_id, r.best_score, r.rank, r.total_players, r.achieved_at
+            FROM ranked r
+            JOIN global_games gg ON gg.id = r.global_game_id
+            WHERE r.canonical_key = ?
+            ORDER BY r.rank ASC, game_name ASC
+            LIMIT 1000
+        `, ...playerKeys, canonicalKey, canonicalKey, canonicalKey);
+
+        return rows as Array<{
+            game_name: string;
+            global_game_id: string;
+            best_score: number;
+            rank: number;
+            total_players: number;
+            achieved_at: string;
+        }>;
+    }
+
+    /**
+     * v2.82.0 (My Stats v1, WS1 decision 4) — count of direct-Global
+     * `global_scores` events (see `getDirectBestsForIdentities` above for the
+     * direct-vs-fan-out predicate) attributable to any of this person's
+     * candidate identities. A plain count, not a rank — same "no
+     * double-counting trap" reasoning as `StatsService.countScoresForIdentities`.
+     */
+    static async countDirectScoresForIdentities(playerKeys: string[]): Promise<number> {
+        const db = await getDatabase();
+        const placeholders = playerKeys.map(() => '?').join(', ');
+
+        const row = await db.get<{ cnt: number }>(`
+            SELECT COUNT(*) AS cnt
+            FROM global_scores gs
+            WHERE gs.deleted_at IS NULL
+              AND gs.orphaned_at IS NULL
+              AND gs.origin_game_room_id IS NULL
+              AND COALESCE(
+                    gs.submitted_by_user_id,
+                    CASE WHEN gs.player_id LIKE 'iscored:%' THEN (
+                        SELECT um.discord_user_id FROM user_mappings um
+                        WHERE LOWER(um.iscored_username) = LOWER(gs.iscored_username)
+                        LIMIT 1
+                    ) END,
+                    gs.player_id
+              ) IN (${placeholders})
+        `, ...playerKeys);
+
+        return row?.cnt ?? 0;
     }
 
     /**

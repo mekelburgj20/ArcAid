@@ -106,6 +106,16 @@ Now that anyone can create a public room (v2.33.0) and pick their own room name/
 
 Accountability foundation already shipped: room creation requires login, is capped (3/user), rate-limited, and kill-switchable (v2.33.0) — identity friction is the strongest deterrent.
 
+### Picks page: filters + tags + search, and a suspected eligibility bug (user-asked 2026-08-06, explore in a dedicated session)
+
+Two parts, captured verbatim from the owner; neither built yet:
+
+1. **Feature — help players pick games.** The Picks page should let players filter the pick list (e.g. "show me all FX games"), the game cards should display engine + platform/device tags, and there should be search by title, manufacturer, etc. Data exists: `global_games.platforms` holds engine ids and `features` holds availability facts (post-v2.62.0 taxonomy), manufacturer/year are catalogue columns, and room tags UNION in via `RoomGameTagsService`. Design questions for the session: which surface (web Picks page pick-list modal? the queue sheet?), chip rendering reuse from the catalogue/scoreboard tag components, and whether Discord `/pick-game` autocomplete gets any of it.
+
+2. **Suspected bug — ineligible games in the pick list.** Owner report: "games appear in the pick list that aren't right for the tournament configurations." Two hypotheses to test FIRST in the session before assuming a defect:
+   - **Working-as-designed surprise:** ADR 0009's orthogonal semantics — `excluded` ("Not allowed on") filters *submittable platforms only* and deliberately does NOT remove games from eligibility; only `required` ("Must be available on") gates game eligibility. A game available on an excluded platform still qualifies if it satisfies `required` on another platform. This reads as "wrong game in the list" to anyone expecting excluded→ineligible.
+   - **Real defect candidates:** eligibility divergence across the pick surfaces — web pick-game, Discord activate/pick autocomplete, and autopick each apply `passesplatformRules` + room-tag UNION + cooldown revalidation separately; check they all use the same read-time legacy-rule lift (`parseTournamentRules`) and the same effective-platforms UNION. Repro needed: get the specific tournament + game the owner saw, dump its `platform_rules` JSON and the game's platforms/features/tags, and walk `passesplatformRules` by hand.
+
 ### Brand casing: "Arcaid" not "ArcAid" (decision 2026-07-25)
 
 Standardize prose/UI strings on "Arcaid" (logo wordmark is stylized all-caps ARCAID — unaffected). Sweep UI strings + docs in a cleanup pass; new text uses "Arcaid" from now on. Domain/repo/package names untouched.

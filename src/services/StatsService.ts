@@ -1,6 +1,7 @@
 import { getDatabase } from '../database/database.js';
 import { AchievementService } from './AchievementService.js';
 import { isProviderUserId } from '../utils/identityProvider.js';
+import type { IdentityCandidates } from './IdentityCandidateService.js';
 
 /**
  * v2.4.0 note on pinned games:
@@ -807,6 +808,145 @@ export class StatsService {
         `, ...roomParams, playerKey, playerKey);
 
         return rows;
+    }
+
+    /**
+     * v2.82.0 (My Stats v1, Identity arc Phase 3, WS1 decision 2) — PUBLIC
+     * sibling of `getPersonalBests` above for the cross-room "My Stats" page.
+     * Same doctrine (see that method's comment for the full `(game_room_id,
+     * LOWER(game_name))` keying rationale, the `score_history`-not-`submissions`
+     * source-of-truth reasoning, and why `game_id` is unusable) — this comment
+     * only covers what's DIFFERENT.
+     *
+     * ## Multi-alias rank correctness (the recon-flagged trap)
+     *
+     * `getPersonalBests` takes ONE `playerKey` because a room-scoped page only
+     * ever has one identity to resolve (`resolvedDiscordId` or the synthetic
+     * `iscored:<name>` fallback). My Stats resolves a whole
+     * `IdentityCandidateService.forUser()` candidate set — a Discord user may
+     * hold several iScored aliases, each producing its OWN `player_key` via
+     * the three-leg expression below. Filtering with a bare
+     * `player_key IN (candidates.playerKeys)` would rank each alias as a
+     * SEPARATE competitor on the same game — the same person's two aliases
+     * would occupy two rows AND get double-counted in `total_players`.
+     *
+     * The fix: fold every row whose `player_key` is one of this person's
+     * candidates onto ONE `canonical_key` (`candidates.canonicalKey`) INSIDE
+     * the query, via a `CASE` expression, BEFORE the best-per-player collapse
+     * and the `RANK()`/`COUNT()` window functions partition on it. Every
+     * other player's `player_key` passes through the `CASE` unchanged, so
+     * their ranks are untouched. One person = one competitor; a regression
+     * test (two aliases of the viewer scoring on the same game -> ONE row,
+     * `total_players` counting them once) guards this — see
+     * `identity-candidate-service.test.ts` / the My Stats route tests.
+     *
+     * Rows additionally carry `room_id`/`room_slug`/`room_name` (the FE has
+     * no room context to fall back on, unlike the room-scoped
+     * `PlayerDetail` page) via a join on `game_rooms`, excluding suspended
+     * rooms (`suspended_at IS NULL` — a suspended room's leaderboard is
+     * inaccessible everywhere else, so a personal best surviving here would
+     * be a leak).
+     *
+     * `gameRoomId` narrows to one room (My Stats `scope=<roomId>`); omitted
+     * runs across every room the candidate set has ever scored in (`scope=all`).
+     */
+    static async getPersonalBestsForIdentities(candidates: IdentityCandidates, gameRoomId?: string) {
+        const db = await getDatabase();
+        const { playerKeys, canonicalKey } = candidates;
+
+        const roomWhere = gameRoomId ? 'AND sh.game_room_id = ?' : '';
+        const roomParams = gameRoomId ? [gameRoomId] : [];
+        const candidatePlaceholders = playerKeys.map(() => '?').join(', ');
+
+        const rows = await db.all(`
+            WITH scoped AS (
+                SELECT sh.game_room_id AS game_room_id, LOWER(sh.game_name) AS game_key,
+                       sh.game_name AS game_name, sh.score AS score, sh.created_at AS timestamp,
+                       COALESCE(sh.submitted_by_user_id, um.discord_user_id, 'iscored:' || LOWER(sh.iscored_username)) AS player_key
+                FROM score_history sh
+                LEFT JOIN user_mappings um ON um.iscored_username = sh.iscored_username COLLATE NOCASE
+                WHERE sh.orphaned_at IS NULL
+                ${roomWhere}
+            ),
+            -- Multi-alias collapse (see method doc comment above): every row
+            -- belonging to ANY of this person's candidate player_keys folds
+            -- onto ONE canonical_key. Every other player's player_key passes
+            -- through unchanged.
+            canon AS (
+                SELECT *, CASE WHEN player_key IN (${candidatePlaceholders}) THEN ? ELSE player_key END AS canonical_key
+                FROM scoped
+            ),
+            player_games AS (
+                SELECT DISTINCT game_room_id, game_key FROM canon WHERE canonical_key = ?
+            ),
+            board AS (
+                SELECT c.*
+                FROM canon c
+                JOIN player_games pg
+                  ON pg.game_room_id = c.game_room_id AND pg.game_key = c.game_key
+            ),
+            game_names AS (
+                SELECT game_room_id, game_key, MAX(game_name) AS game_name
+                FROM board
+                GROUP BY game_room_id, game_key
+            ),
+            best_per_player AS (
+                SELECT game_room_id, game_key, canonical_key, score, timestamp,
+                       ROW_NUMBER() OVER (PARTITION BY game_room_id, game_key, canonical_key ORDER BY score DESC, timestamp DESC) AS rn
+                FROM board
+            ),
+            top AS (
+                SELECT game_room_id, game_key, canonical_key, score AS best_score, timestamp AS achieved_at
+                FROM best_per_player WHERE rn = 1
+            ),
+            ranked AS (
+                SELECT game_room_id, game_key, canonical_key, best_score, achieved_at,
+                       RANK() OVER (PARTITION BY game_room_id, game_key ORDER BY best_score DESC) AS room_rank,
+                       COUNT(*) OVER (PARTITION BY game_room_id, game_key) AS total_players
+                FROM top
+            )
+            SELECT gn.game_name AS game_name, r.best_score, r.room_rank, r.total_players, r.achieved_at,
+                   gr.id AS room_id, gr.slug AS room_slug, gr.name AS room_name
+            FROM ranked r
+            JOIN game_names gn ON gn.game_room_id = r.game_room_id AND gn.game_key = r.game_key
+            JOIN game_rooms gr ON gr.id = r.game_room_id AND gr.suspended_at IS NULL
+            WHERE r.canonical_key = ?
+            ORDER BY r.room_rank ASC, gn.game_name ASC
+            -- Same backstop rationale as getPersonalBests: this is a
+            -- completeness bound for the FE's client-side search, not a
+            -- paging boundary.
+            LIMIT 1000
+        `, ...roomParams, ...playerKeys, canonicalKey, canonicalKey, canonicalKey);
+
+        return rows;
+    }
+
+    /**
+     * v2.82.0 (My Stats v1, WS1 decision 4) — total `score_history` events
+     * attributable to any of this person's candidate identities. Unlike
+     * `getPersonalBestsForIdentities` above, this is a plain count of rows,
+     * not a rank — there is no double-counting trap here, because counting
+     * "how many events did any of my aliases produce" is exactly what a bare
+     * `player_key IN (playerKeys)` filter computes correctly (the trap in the
+     * ranking query is about collapsing MULTIPLE rows into ONE competitor;
+     * a count has no such collapse to get wrong).
+     */
+    static async countScoresForIdentities(playerKeys: string[], gameRoomId?: string): Promise<number> {
+        const db = await getDatabase();
+        const roomWhere = gameRoomId ? 'AND sh.game_room_id = ?' : '';
+        const roomParams = gameRoomId ? [gameRoomId] : [];
+        const placeholders = playerKeys.map(() => '?').join(', ');
+
+        const row = await db.get<{ cnt: number }>(`
+            SELECT COUNT(*) AS cnt
+            FROM score_history sh
+            LEFT JOIN user_mappings um ON um.iscored_username = sh.iscored_username COLLATE NOCASE
+            WHERE sh.orphaned_at IS NULL
+              AND COALESCE(sh.submitted_by_user_id, um.discord_user_id, 'iscored:' || LOWER(sh.iscored_username)) IN (${placeholders})
+              ${roomWhere}
+        `, ...playerKeys, ...roomParams);
+
+        return row?.cnt ?? 0;
     }
 
     /**

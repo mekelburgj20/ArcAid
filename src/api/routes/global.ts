@@ -292,6 +292,132 @@ router.delete('/me/rooms/:roomId', requireDiscordUser, async (req, res) => {
     }
 });
 
+// --- My Stats (v2.82.0 — Identity arc Phase 3) ---
+
+/**
+ * A room-leg Personal Best row (`StatsService.getPersonalBestsForIdentities`)
+ * or a Global-leg row (`GlobalLeaderboardService.getDirectBestsForIdentities`),
+ * normalized to one shape the FE renders without branching on `source`.
+ */
+interface MyStatsBestRow {
+    source: 'room' | 'global';
+    game_name: string;
+    best_score: number;
+    rank: number;
+    total_players: number;
+    achieved_at: string;
+    room_id?: string;
+    room_slug?: string;
+    room_name?: string;
+    global_game_id?: string;
+}
+
+/**
+ * Merges the room-leg and Global-leg bests into ONE deterministically ordered
+ * list — the FE never re-sorts (plan decision 4). Interleave rule: primary
+ * key `rank` ascending, secondary key `game_name` ascending (locale compare).
+ * A tie on BOTH (e.g. a room best and a direct-Global best of the same game,
+ * both ranked #1 in their own board) is broken by array position — room rows
+ * are concatenated before Global rows below, and `Array.prototype.sort` is
+ * stable in Node, so that relative order survives the sort. This is the ONE
+ * ordering rule for the combined list; neither leg's own SQL `ORDER BY` is
+ * re-applied on top of it.
+ */
+function combineMyStatsBests(
+    roomBests: Array<{ game_name: string; best_score: number; room_rank: number; total_players: number; achieved_at: string; room_id: string; room_slug: string; room_name: string }>,
+    globalBests: Array<{ game_name: string; best_score: number; rank: number; total_players: number; achieved_at: string; global_game_id: string }>,
+): MyStatsBestRow[] {
+    const combined: MyStatsBestRow[] = [
+        ...roomBests.map((b): MyStatsBestRow => ({
+            source: 'room',
+            game_name: b.game_name,
+            best_score: b.best_score,
+            rank: b.room_rank,
+            total_players: b.total_players,
+            achieved_at: b.achieved_at,
+            room_id: b.room_id,
+            room_slug: b.room_slug,
+            room_name: b.room_name,
+        })),
+        ...globalBests.map((b): MyStatsBestRow => ({
+            source: 'global',
+            game_name: b.game_name,
+            best_score: b.best_score,
+            rank: b.rank,
+            total_players: b.total_players,
+            achieved_at: b.achieved_at,
+            global_game_id: b.global_game_id,
+        })),
+    ];
+    combined.sort((a, b) => {
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        return a.game_name.localeCompare(b.game_name);
+    });
+    return combined;
+}
+
+/**
+ * GET /api/me/stats?scope=all|<roomId> — My Stats v1 (Identity arc Phase 3).
+ *
+ * `scope` omitted or `'all'` -> every room the identity has scored in, PLUS
+ * the direct-Global leg (contract: "direct-Global bests appear in All with a
+ * 'Global' provenance chip" — no separate Global scope). `scope=<roomId>` ->
+ * that room only, Global leg excluded, and gated behind
+ * `RoomMembershipService.isMember` — a non-member 403s rather than leaking a
+ * room the viewer can't otherwise see (approval/suspended rooms).
+ *
+ * Identity = `IdentityCandidateService.forUser(tokenId)` — the token's own
+ * id expanded through the login-identity link graph AND its `user_mappings`
+ * iScored aliases. Unlinked room display-name claims are deliberately NOT
+ * included (contract: beta-acceptable).
+ */
+router.get('/me/stats', requireDiscordUser, async (req, res) => {
+    try {
+        const tokenId = req.user!.discordId!;
+        const scope = typeof req.query.scope === 'string' && req.query.scope ? req.query.scope : 'all';
+        const isAllScope = scope === 'all';
+
+        const { RoomMembershipService } = await import('../../services/RoomMembershipService.js');
+
+        if (!isAllScope) {
+            const isMember = await RoomMembershipService.isMember(tokenId, scope);
+            if (!isMember) {
+                res.status(403).json({ error: 'Not a member of this room' });
+                return;
+            }
+        }
+
+        const { IdentityCandidateService } = await import('../../services/IdentityCandidateService.js');
+        const { StatsService } = await import('../../services/StatsService.js');
+
+        const candidates = await IdentityCandidateService.forUser(tokenId);
+        const roomScopeId = isAllScope ? undefined : scope;
+
+        const [roomBests, globalBests, memberRooms, roomScoreCount, globalScoreCount] = await Promise.all([
+            StatsService.getPersonalBestsForIdentities(candidates, roomScopeId),
+            isAllScope ? GlobalLeaderboardService.getDirectBestsForIdentities(candidates) : Promise.resolve([]),
+            RoomMembershipService.listRoomsForUser(tokenId),
+            StatsService.countScoresForIdentities(candidates.playerKeys, roomScopeId),
+            isAllScope ? GlobalLeaderboardService.countDirectScoresForIdentities(candidates.playerKeys) : Promise.resolve(0),
+        ]);
+
+        const personalBests = combineMyStatsBests(roomBests as any, globalBests as any);
+
+        res.json({
+            scope,
+            overview: {
+                gamesWithBest: personalBests.length,
+                memberRooms: memberRooms.length,
+                totalScores: roomScoreCount + globalScoreCount,
+            },
+            personalBests,
+        });
+    } catch (error) {
+        logError('API Error (GET /api/me/stats):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // v2.39.0 — approval rooms. Request to join an 'approval'-policy room.
 // 400 for 'open' rooms (they use the plain self-join POST above instead).
 // Idempotent: already-member -> 200 {status:'member'}; existing pending
