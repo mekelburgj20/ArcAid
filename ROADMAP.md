@@ -106,6 +106,26 @@ Now that anyone can create a public room (v2.33.0) and pick their own room name/
 
 Accountability foundation already shipped: room creation requires login, is capped (3/user), rate-limited, and kill-switchable (v2.33.0) — identity friction is the strongest deterrent.
 
+### Private tournaments — player-to-player challenges without a game room (user-asked 2026-08-07, needs a design session; multi-day arc)
+
+Owner's spec, captured verbatim-in-substance:
+
+- **Creation is a couple of clicks**: pick Game, Device/Engine config, tournament duration/period (+ anything else relevant). No game room required — "Let's see who can beat me on Medieval Madness."
+- **Output = a shareable link** the creator sends via Discord/messaging/etc. The link preview should include a picture of the table/game (OG image). The tournament is stored on the creator's profile under "Private Tournaments."
+- **Challenge back**: after a winner is decided, the winner gets a "Challenge back" affordance — pick a (new) game, and Arcaid notifies ALL participants of the previous tournament; the winner gets a shareable link too.
+- **Rematch**: at game end, every NON-winner gets a 'Rematch' option — same game, invites all previous participants. First-click-wins semantics: if player X already initiated a rematch, later clickers are told X already started one and are handed X's link (no duplicate rematch tournaments).
+
+Design questions for the session (not decisions):
+- **Data model**: room-less tournaments (new nullable `game_room_id` semantics on tournaments — heavy, the engine assumes rooms everywhere) vs. auto-created hidden personal "rooms" (reuses ALL existing machinery: unlisted rooms shipped v2.80.0, tournament engine, leaderboards; needs creation-cap/cleanup thinking) vs. a new lightweight `private_tournaments` table + dedicated boards. The hidden-room route likely cheapest to pilot but decide deliberately.
+- **Identity**: post-login-mandate everyone's authenticated — participants = logged-in users who opened the link and submitted. Participation set = who scored (or who accepted?).
+- **Link + OG preview**: ogMeta machinery exists (`src/api/ogMeta.ts`, UA-gated bot injection) — needs a new route pattern for private-tournament links with the game image.
+- **Notifications** ("Arcaid manages the notification"): channel cascade — Discord DM when reachable (`DiscordReachabilityService`), web push (`/me/push-subscriptions` exists), else in-app. Rematch/challenge-back fan-out needs opt-out thinking (NotificationService prefs are default-off today).
+- **Abuse/caps**: creation caps + rate limits (mirror the room-creation caps from v2.33.0); blocklist on any free-text.
+
+### Admin Leaderboard design page: edit controls obscure game titles (user-reported UX bug 2026-08-07, small/medium slot)
+
+On the room-admin Leaderboard page, hovering a game card reveals the edit button cluster (Name / Notes / Style / Scores / delete) overlaid on the card's top area — directly over the game title (screenshot reviewed in-session: "Mask, The" barely visible behind buttons; neighboring card's title fully hidden). On mobile the buttons are ALWAYS visible (no hover state), so titles can never be read. Fix direction (owner dislikes the overlay as such): move the edit controls out of the title area entirely — candidates: pin them to the card's bottom edge, a compact kebab/gear menu in a corner, or a dedicated controls strip below the art. Mobile must not obscure content at rest. This is the same legacy `AdminGameCard` that still owes the v2.78.0 verified-checkmark follow-up — natural to fix both in one pass.
+
 ### Picks page: filters + tags + search, and a suspected eligibility bug (user-asked 2026-08-06, explore in a dedicated session)
 
 Two parts, captured verbatim from the owner; neither built yet:

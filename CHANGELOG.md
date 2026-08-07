@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.83.0] — unreleased
+
+**My Stats: overall-best semantics** (owner revision 2026-08-07 after using v2.82.0).
+
+### Changed
+- Personal Bests on `/my-stats` now means "your single best per game, and where you set it."
+  **All scope**: one row per distinct game across all rooms + direct-Global (name-keyed;
+  cross-board tie goes to the earliest achieved), carrying the winning board's room logo or
+  Global Scoreboard chip and that board's rank. **Room scope**: only games where this room's
+  board holds (or ties) your overall best across everywhere — a "where am I most competitive"
+  view, with an explainer line on the page. Games played in a room whose best lives elsewhere
+  no longer appear in that room's scope. The "Games with a best" tile counts accordingly
+  (distinct games in All; overall-bests-set-here in room scope). Implemented as a pure
+  post-processing collapse (`collapseToOverallBests`) over the unchanged v2.82.0 SQL legs;
+  room player pages (PlayerDetail) keep room-local bests unchanged.
+
 ## [2.82.0] — unreleased
 
 **My Stats v1** (Phase 3 of the Identity & membership arc — closes the owner-approved contract,

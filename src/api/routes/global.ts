@@ -316,60 +316,150 @@ interface MyStatsBestRow {
     global_game_id?: string;
 }
 
+export type MyStatsRoomBestRaw = { game_name: string; best_score: number; room_rank: number; total_players: number; achieved_at: string; room_id: string; room_slug: string; room_name: string; room_logo_url: string | null };
+export type MyStatsGlobalBestRaw = { game_name: string; best_score: number; rank: number; total_players: number; achieved_at: string; global_game_id: string };
+
 /**
- * Merges the room-leg and Global-leg bests into ONE deterministically ordered
- * list — the FE never re-sorts (plan decision 4). Interleave rule: primary
- * key `rank` ascending, secondary key `game_name` ascending (locale compare).
- * A tie on BOTH (e.g. a room best and a direct-Global best of the same game,
- * both ranked #1 in their own board) is broken by array position — room rows
- * are concatenated before Global rows below, and `Array.prototype.sort` is
- * stable in Node, so that relative order survives the sort. This is the ONE
- * ordering rule for the combined list; neither leg's own SQL `ORDER BY` is
- * re-applied on top of it.
+ * Cross-board game identity: `LOWER(game_name)` — the name-keying doctrine
+ * used everywhere else in this repo (catalogue dedup step 4, room game tags,
+ * `RoomScoresService`, etc.). Accepted trade-off: two same-named catalogue
+ * twins (e.g. two distinct "Medieval Madness" global_games rows) collapse
+ * onto one Personal Bests row instead of two. No normalization beyond
+ * lowercase — this is intentionally the cheap/consistent version, not
+ * `normalizeGameName`'s punctuation-aware fold.
  */
-function combineMyStatsBests(
-    roomBests: Array<{ game_name: string; best_score: number; room_rank: number; total_players: number; achieved_at: string; room_id: string; room_slug: string; room_name: string; room_logo_url: string | null }>,
-    globalBests: Array<{ game_name: string; best_score: number; rank: number; total_players: number; achieved_at: string; global_game_id: string }>,
-): MyStatsBestRow[] {
-    const combined: MyStatsBestRow[] = [
-        ...roomBests.map((b): MyStatsBestRow => ({
-            source: 'room',
-            game_name: b.game_name,
-            best_score: b.best_score,
-            rank: b.room_rank,
-            total_players: b.total_players,
-            achieved_at: b.achieved_at,
-            room_id: b.room_id,
-            room_slug: b.room_slug,
-            room_name: b.room_name,
-            room_logo_url: b.room_logo_url,
-        })),
-        ...globalBests.map((b): MyStatsBestRow => ({
-            source: 'global',
-            game_name: b.game_name,
-            best_score: b.best_score,
-            rank: b.rank,
-            total_players: b.total_players,
-            achieved_at: b.achieved_at,
-            global_game_id: b.global_game_id,
-        })),
-    ];
-    combined.sort((a, b) => {
-        if (a.rank !== b.rank) return a.rank - b.rank;
-        return a.game_name.localeCompare(b.game_name);
-    });
-    return combined;
+function myStatsGameKey(gameName: string): string {
+    return gameName.toLowerCase();
 }
 
 /**
- * GET /api/me/stats?scope=all|<roomId> — My Stats v1 (Identity arc Phase 3).
+ * v2.83.0 (owner semantics revision, 2026-08-07) — Personal Bests is no
+ * longer "every board you've ever set a best on"; it's "your single best per
+ * game, and where you set it." Reworked from the v2.82.0 `combineMyStatsBests`
+ * merge-and-sort into an actual cross-board collapse, computed in TypeScript
+ * over the (bounded ≤1000+1000 row) SQL leg outputs — the two legs' SQL is
+ * untouched, this is purely a post-processing step.
  *
- * `scope` omitted or `'all'` -> every room the identity has scored in, PLUS
- * the direct-Global leg (contract: "direct-Global bests appear in All with a
- * 'Global' provenance chip" — no separate Global scope). `scope=<roomId>` ->
- * that room only, Global leg excluded, and gated behind
- * `RoomMembershipService.isMember` — a non-member 403s rather than leaking a
- * room the viewer can't otherwise see (approval/suspended rooms).
+ * **All scope:** one row per distinct game across every board (every room's
+ * board + the direct-Global board) — the row for the board where the
+ * player's best on that game is highest. A tie across boards (same max score
+ * on 2+ boards) is broken by earliest `achieved_at`, matching the repo's
+ * `score DESC, created_at ASC` recompute doctrine used elsewhere (e.g.
+ * `insertHistoryScore`/wipe-recompute paths).
+ *
+ * **Room scope:** a game appears ONLY if this room's own board-best for that
+ * game equals the overall max across every board (ties count as a match —
+ * if two boards share the max, both claim the game). A game whose overall
+ * best lives on a different board (another room, or direct-Global) is
+ * excluded entirely, even though the player has scored it in this room too.
+ * The emitted row is still this room's own row (its own rank/total_players
+ * on its own board), not the winning board's row.
+ *
+ * Exported for direct unit testing — this is the one place the new semantics
+ * live, and it needs to be verifiable without a DB.
+ */
+export function collapseToOverallBests(
+    roomBests: MyStatsRoomBestRaw[],
+    globalBests: MyStatsGlobalBestRaw[],
+    scope: 'all' | string,
+): MyStatsBestRow[] {
+    type Candidate = MyStatsBestRow & { _key: string };
+
+    const roomRows: Candidate[] = roomBests.map((b): Candidate => ({
+        source: 'room',
+        game_name: b.game_name,
+        best_score: b.best_score,
+        rank: b.room_rank,
+        total_players: b.total_players,
+        achieved_at: b.achieved_at,
+        room_id: b.room_id,
+        room_slug: b.room_slug,
+        room_name: b.room_name,
+        room_logo_url: b.room_logo_url,
+        _key: myStatsGameKey(b.game_name),
+    }));
+    const globalRows: Candidate[] = globalBests.map((b): Candidate => ({
+        source: 'global',
+        game_name: b.game_name,
+        best_score: b.best_score,
+        rank: b.rank,
+        total_players: b.total_players,
+        achieved_at: b.achieved_at,
+        global_game_id: b.global_game_id,
+        _key: myStatsGameKey(b.game_name),
+    }));
+
+    const byKey = new Map<string, Candidate[]>();
+    for (const row of [...roomRows, ...globalRows]) {
+        const bucket = byKey.get(row._key);
+        if (bucket) bucket.push(row);
+        else byKey.set(row._key, [row]);
+    }
+
+    const results: MyStatsBestRow[] = [];
+
+    for (const rows of byKey.values()) {
+        let overallMax = -Infinity;
+        for (const r of rows) if (r.best_score > overallMax) overallMax = r.best_score;
+
+        if (scope === 'all') {
+            // Single winning row: highest score, ties broken by earliest
+            // achieved_at (SQLite datetime strings sort lexically, so plain
+            // string comparison matches the SQL-side doctrine exactly).
+            let winner: Candidate | undefined;
+            for (const r of rows) {
+                if (r.best_score !== overallMax) continue;
+                if (!winner || r.achieved_at < winner.achieved_at) winner = r;
+            }
+            if (winner) {
+                const { _key, ...row } = winner;
+                results.push(row);
+            }
+        } else {
+            // Room scope: emit every row belonging to THIS room whose own
+            // board-best ties the overall max. (At most one such row per
+            // game — the SQL leg already collapses to one row per
+            // (room, game) — but the filter is written generally.)
+            for (const r of rows) {
+                if (r.source !== 'room' || r.room_id !== scope) continue;
+                if (r.best_score !== overallMax) continue;
+                const { _key, ...row } = r;
+                results.push(row);
+            }
+        }
+    }
+
+    // Same ordering rule as the v2.82.0 merge: rank ASC, then game_name ASC.
+    // The FE never re-sorts.
+    results.sort((a, b) => {
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        return a.game_name.localeCompare(b.game_name);
+    });
+    return results;
+}
+
+/**
+ * GET /api/me/stats?scope=all|<roomId> — My Stats (v2.83.0 owner semantics
+ * revision, Identity arc Phase 3).
+ *
+ * `scope` omitted or `'all'` -> one row per distinct game across EVERY board
+ * (every room's board + the direct-Global board), showing the player's
+ * single best score anywhere and the board it was set on (contract:
+ * "direct-Global bests appear in All with a 'Global' provenance chip" — no
+ * separate Global scope). `scope=<roomId>` -> only games where THIS room's
+ * board-best ties the overall best across every board — a game whose best
+ * lives elsewhere is excluded entirely, even if the player has also scored
+ * it in this room. Gated behind `RoomMembershipService.isMember` — a
+ * non-member 403s rather than leaking a room the viewer can't otherwise see
+ * (approval/suspended rooms).
+ *
+ * Both SQL legs are ALWAYS fetched UNSCOPED (no `gameRoomId` filter) —
+ * room scope still needs the full cross-board picture to know where each
+ * game's overall best actually lives; `collapseToOverallBests` does the
+ * scope-specific filtering afterward. `totalScores` in the overview keeps
+ * its OLD room-filtered/direct-only behavior (unchanged by this revision) —
+ * it counts raw score EVENTS, not distinct-game bests, so the collapse does
+ * not apply to it.
  *
  * Identity = `IdentityCandidateService.forUser(tokenId)` — the token's own
  * id expanded through the login-identity link graph AND its `user_mappings`
@@ -399,14 +489,17 @@ router.get('/me/stats', requireDiscordUser, async (req, res) => {
         const roomScopeId = isAllScope ? undefined : scope;
 
         const [roomBests, globalBests, memberRooms, roomScoreCount, globalScoreCount] = await Promise.all([
-            StatsService.getPersonalBestsForIdentities(candidates, roomScopeId),
-            isAllScope ? GlobalLeaderboardService.getDirectBestsForIdentities(candidates) : Promise.resolve([]),
+            // Always unscoped — the collapse needs every room's board to
+            // determine where the overall best lives, even in room scope.
+            StatsService.getPersonalBestsForIdentities(candidates),
+            GlobalLeaderboardService.getDirectBestsForIdentities(candidates),
             RoomMembershipService.listRoomsForUser(tokenId),
+            // totalScores tile: unchanged room-filter / direct-only behavior.
             StatsService.countScoresForIdentities(candidates.playerKeys, roomScopeId),
             isAllScope ? GlobalLeaderboardService.countDirectScoresForIdentities(candidates.playerKeys) : Promise.resolve(0),
         ]);
 
-        const personalBests = combineMyStatsBests(roomBests as any, globalBests as any);
+        const personalBests = collapseToOverallBests(roomBests as MyStatsRoomBestRaw[], globalBests as MyStatsGlobalBestRaw[], scope);
 
         res.json({
             scope,
