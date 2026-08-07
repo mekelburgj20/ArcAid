@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.82.0] — unreleased
+
+**My Stats v1** (Phase 3 of the Identity & membership arc — closes the owner-approved contract,
+ROADMAP 2026-08-05).
+
+### Added
+- **My Stats page** (`/my-stats`), reachable from the account menu only (owner decision: no
+  global-nav item). Scope selector `All | <each member room>` — no separate "Global" scope;
+  direct-Global bests appear in All with a "Global Scoreboard" provenance chip. Contents:
+  three overview tiles (games with a best, member rooms, scores posted) + the searchable
+  Personal Bests table. Room rows show the room's logo (text fallback when none) and link to
+  the game in that room; Global rows link to the global game page. Titles wrap fully
+  (no-ellipsis doctrine). Login-gated with the standard Discord/Google panel.
+- **`GET /api/me/stats?scope=all|<roomId>`** — identity = the token id expanded through the
+  identity-link graph (`BanService.expandIdentityCandidates` precedent) plus all
+  `user_mappings` iScored aliases, via the new `IdentityCandidateService`. Rankings fold every
+  alias onto ONE canonical competitor inside the SQL (a bare `IN` filter would double-count a
+  multi-alias player — regression-tested). Room leg follows the v2.75.1 `(game_room_id,
+  LOWER(game_name))` doctrine; Global leg is DIRECT submissions only (fan-out copies excluded
+  via `origin_game_room_id IS NULL`; `exclude_from_global` rows excluded so ranks match the
+  public board). Room-scoped requests require membership (403 otherwise). Unlinked room
+  display names deliberately excluded (contract: beta-acceptable).
+- `PersonalBestsSection` extracted to a shared component (PlayerDetail renders unchanged) with
+  opt-in `wrapTitles`, per-row links, room-logo captions, and the provenance chip.
+
 ## [2.81.0] — unreleased
 
 **iScored posture + Dashboard game icons** (owner-requested 2026-08-06).
