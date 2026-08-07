@@ -106,11 +106,17 @@ describe('GET /api/me/stats — auth', () => {
 });
 
 describe('GET /api/me/stats — single-identity happy path', () => {
-    it('returns the room-scoped personal best with room identity + overview counts', async () => {
+    it('returns the room-scoped personal best with room identity (incl. logo) + overview counts', async () => {
         const app = await createTestApp();
         const roomId = await createTestRoom('stats-happy', 'Stats Happy Room');
         const viewer = 'D-HAPPY-1';
         const token = playerToken(viewer);
+
+        // Owner revision (screenshot review) — room leg carries room_logo_url
+        // so the FE can render the room's logo in place of the text caption.
+        // createTestRoom doesn't set one, so set it directly.
+        const db = await getDatabase();
+        await db.run(`UPDATE game_rooms SET logo_url = ? WHERE id = ?`, 'https://example.com/happy-room-logo.png', roomId);
 
         await insertHistoryScore({
             gameRoomId: roomId, gameName: 'Solo Game', username: 'Solo', score: 1000,
@@ -131,10 +137,29 @@ describe('GET /api/me/stats — single-identity happy path', () => {
         expect(best.room_id).toBe(roomId);
         expect(best.room_slug).toBe('stats-happy');
         expect(best.room_name).toBe('Stats Happy Room');
+        expect(best.room_logo_url).toBe('https://example.com/happy-room-logo.png');
 
         expect(res.body.overview.gamesWithBest).toBe(1);
         expect(res.body.overview.memberRooms).toBe(0);
         expect(res.body.overview.totalScores).toBe(1);
+    });
+
+    it('room_logo_url is null when the room has no logo set', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('stats-happy-nologo', 'Stats Happy No-Logo Room');
+        const viewer = 'D-HAPPY-2';
+        const token = playerToken(viewer);
+
+        await insertHistoryScore({
+            gameRoomId: roomId, gameName: 'Solo Game 2', username: 'Solo', score: 500,
+            submittedByUserId: viewer,
+        });
+
+        const res = await request(app).get('/api/me/stats').set('Authorization', `Bearer ${token}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.personalBests).toHaveLength(1);
+        expect(res.body.personalBests[0].room_logo_url).toBeNull();
     });
 });
 

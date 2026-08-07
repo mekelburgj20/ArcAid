@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, LayoutGrid, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown, Link2, BookmarkPlus, BookmarkCheck } from 'lucide-react';
+import { Building2, LayoutGrid, User as UserIcon, Users, Settings2, Settings as SettingsIcon, LogOut, ChevronDown, Link2, BookmarkPlus, BookmarkCheck, BarChart3 } from 'lucide-react';
 import { isGoogleUserId } from '../lib/identityProvider';
 
 interface DiscordUser {
@@ -191,6 +191,20 @@ export default function UserMenu({ user, showScoreboardPrefs, hasAdminToken, slu
             >
               <Building2 size={14} />
               My Rooms
+            </Link>
+            {/* v2.82.0 — My Stats (Identity arc Phase 3). Entry point is this
+                menu ONLY (no global-nav item, per plan). Unconditional —
+                every signed-in viewer has a My Stats page even with zero
+                scores yet (empty state handles that). */}
+            <Link
+              role="menuitem"
+              tabIndex={-1}
+              to="/my-stats"
+              onClick={() => setOpen(false)}
+              className={menuItemClass}
+            >
+              <BarChart3 size={14} />
+              My Stats
             </Link>
             <Link
               role="menuitem"

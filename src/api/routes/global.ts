@@ -309,6 +309,10 @@ interface MyStatsBestRow {
     room_id?: string;
     room_slug?: string;
     room_name?: string;
+    /** Room leg only (owner revision, screenshot review) — FE shows this in
+     *  place of the `room_name` text caption when present, nullable when the
+     *  room has no logo. Never set on global rows. */
+    room_logo_url?: string | null;
     global_game_id?: string;
 }
 
@@ -324,7 +328,7 @@ interface MyStatsBestRow {
  * re-applied on top of it.
  */
 function combineMyStatsBests(
-    roomBests: Array<{ game_name: string; best_score: number; room_rank: number; total_players: number; achieved_at: string; room_id: string; room_slug: string; room_name: string }>,
+    roomBests: Array<{ game_name: string; best_score: number; room_rank: number; total_players: number; achieved_at: string; room_id: string; room_slug: string; room_name: string; room_logo_url: string | null }>,
     globalBests: Array<{ game_name: string; best_score: number; rank: number; total_players: number; achieved_at: string; global_game_id: string }>,
 ): MyStatsBestRow[] {
     const combined: MyStatsBestRow[] = [
@@ -338,6 +342,7 @@ function combineMyStatsBests(
             room_id: b.room_id,
             room_slug: b.room_slug,
             room_name: b.room_name,
+            room_logo_url: b.room_logo_url,
         })),
         ...globalBests.map((b): MyStatsBestRow => ({
             source: 'global',

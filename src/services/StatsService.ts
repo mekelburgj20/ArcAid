@@ -840,12 +840,13 @@ export class StatsService {
      * `total_players` counting them once) guards this — see
      * `identity-candidate-service.test.ts` / the My Stats route tests.
      *
-     * Rows additionally carry `room_id`/`room_slug`/`room_name` (the FE has
-     * no room context to fall back on, unlike the room-scoped
+     * Rows additionally carry `room_id`/`room_slug`/`room_name`/`room_logo_url`
+     * (the FE has no room context to fall back on, unlike the room-scoped
      * `PlayerDetail` page) via a join on `game_rooms`, excluding suspended
      * rooms (`suspended_at IS NULL` — a suspended room's leaderboard is
      * inaccessible everywhere else, so a personal best surviving here would
-     * be a leak).
+     * be a leak). `room_logo_url` is nullable — FE falls back to the room-name
+     * text caption when a room has no logo (owner revision, screenshot review).
      *
      * `gameRoomId` narrows to one room (My Stats `scope=<roomId>`); omitted
      * runs across every room the candidate set has ever scored in (`scope=all`).
@@ -906,7 +907,7 @@ export class StatsService {
                 FROM top
             )
             SELECT gn.game_name AS game_name, r.best_score, r.room_rank, r.total_players, r.achieved_at,
-                   gr.id AS room_id, gr.slug AS room_slug, gr.name AS room_name
+                   gr.id AS room_id, gr.slug AS room_slug, gr.name AS room_name, gr.logo_url AS room_logo_url
             FROM ranked r
             JOIN game_names gn ON gn.game_room_id = r.game_room_id AND gn.game_key = r.game_key
             JOIN game_rooms gr ON gr.id = r.game_room_id AND gr.suspended_at IS NULL

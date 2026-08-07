@@ -79,6 +79,9 @@ import Friends from './pages/Friends';
 // Pages — Account
 import AccountSettings from './pages/AccountSettings';
 
+// Pages — Stats (v2.82.0, My Stats)
+import MyStats from './pages/MyStats';
+
 // Pages — Legal (static, public)
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
@@ -196,6 +199,9 @@ function App() {
 
         {/* My Rooms (global, requires Discord login) */}
         <Route path="/my-rooms" element={<ViewerAuthProvider><MyRooms /></ViewerAuthProvider>} />
+
+        {/* My Stats (global, requires Discord login; v2.82.0) */}
+        <Route path="/my-stats" element={<ViewerAuthProvider><MyStats /></ViewerAuthProvider>} />
 
         {/* Create Room (global, requires Discord login) */}
         <Route path="/create-room" element={<ViewerAuthProvider><CreateRoom /></ViewerAuthProvider>} />
