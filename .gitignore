@@ -21,6 +21,15 @@ assets/*.png
 # Allow logo assets
 !admin-ui/public/*.png
 
+# Runtime image/asset data (importer downloads, user uploads)
+data/catalogue-images/
+data/iscored-styles/
+data/score-photos/
+data/styles/
+
+# Editor
+.vscode/
+
 # OS Files
 .DS_Store
 Thumbs.db
