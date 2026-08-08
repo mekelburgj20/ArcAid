@@ -160,7 +160,9 @@ export default function LandingPage() {
       <div className="border-b border-border bg-surface/80 backdrop-blur-sm relative z-40">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <BrandWordmark />
+            {/* noLink: this page IS `/` — BrandWordmark's default self-link
+                would be a no-op navigation to the current page. */}
+            <BrandWordmark noLink />
           </div>
           <div className="flex items-center gap-3">
             {/* Super-admin login is intentionally NOT linked here — it's reached

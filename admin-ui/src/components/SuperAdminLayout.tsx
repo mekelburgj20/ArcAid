@@ -81,7 +81,9 @@ export default function SuperAdminLayout() {
         <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer p-0">
           {sidebarOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
-        <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-9 w-auto" />
+        <Link to="/" className="flex items-center no-underline">
+          <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-9 w-auto" />
+        </Link>
       </div>
 
       {/* Sidebar overlay (mobile) */}
@@ -97,7 +99,11 @@ export default function SuperAdminLayout() {
         md:translate-x-0
       `}>
         <div className="p-5 border-b border-border flex items-center gap-3">
-          <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-14 w-auto" />
+          {/* Wordmark links back to the landing page — the only escape from
+              the super-admin shell besides editing the URL by hand. */}
+          <Link to="/" className="flex items-center no-underline">
+            <img src="/arcaid-logo-wide-v2.png" alt="Arcaid" className="h-14 w-auto" />
+          </Link>
           <span className="text-faint text-xs">Super Admin</span>
         </div>
         <nav className="flex-1 py-2 flex flex-col gap-0.5 overflow-y-auto">

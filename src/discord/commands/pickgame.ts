@@ -12,6 +12,7 @@ import {
     emptyTournamentRules, type TournamentRules,
 } from '../../utils/platformRules.js';
 import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
+import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
 import { BanService } from '../../services/BanService.js';
 import { v4 as uuidv4 } from 'uuid';
 // TODO(§8): gate /mystery-award when that command is authored (Q6 — out of scope for Sprint 5).
@@ -90,9 +91,11 @@ export const pickgame: Command = {
 
             let choices = rows;
 
-            // Filter by tournament mode
+            // Filter by tournament mode. `catalogueTypeMatchesTournamentMode`
+            // bridges tournament.mode ('videogame') against global_games.type
+            // ('video_game' | 'arcade') — see src/utils/tournamentMode.ts.
             if (tournamentMode) {
-                choices = choices.filter(r => r.mode === tournamentMode);
+                choices = choices.filter(r => catalogueTypeMatchesTournamentMode(r.mode, tournamentMode));
             }
 
             // Filter by platform rules
