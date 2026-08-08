@@ -545,8 +545,17 @@ export default function GameLibrary() {
       const info = await api.post<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`${prefix}/ratings/${encodeURIComponent(gameName)}`, { rating });
       setCommunityRatings(prev => ({ ...prev, [gameName]: { avg_rating: info.avg_rating, rating_count: info.rating_count } }));
       setUserRatings(prev => ({ ...prev, [gameName]: rating }));
-    } catch {
-      toast('Failed to save rating', 'error');
+    } catch (err) {
+      // v2.86.0 — ratings now require a Discord/Google-linked identity
+      // (requireDiscordUser). A password/local-admin token has no discordId
+      // and gets rejected server-side with this exact message — surface a
+      // clear reason instead of the generic failure toast.
+      const message = err instanceof Error ? err.message : '';
+      if (message === 'Discord login required') {
+        toast('Discord or Google login required to rate', 'error');
+      } else {
+        toast('Failed to save rating', 'error');
+      }
     }
   };
 

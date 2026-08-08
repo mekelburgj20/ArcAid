@@ -565,11 +565,18 @@ async function sendRatingFollowUp(
         const rating = parseInt(ratingStr || '0', 10);
         if (rating < 1 || rating > 5) return;
 
-        // Save the rating
+        // Save the rating. v2.86.0: ratings are room-scoped (migration 139) —
+        // skip the save if this game somehow has no room (RatingService now
+        // requires a roomId; BanService above tolerates null, RatingService
+        // does not).
         try {
-            const { RatingService } = await import('../../services/RatingService.js');
-            await RatingService.setRating(gameName, interaction.user.id, rating);
-            logInfo(`Game rated: ${interaction.user.tag} gave ${gameName} ${rating} stars`);
+            if (gameRoomId) {
+                const { RatingService } = await import('../../services/RatingService.js');
+                await RatingService.setRating(gameRoomId, gameName, interaction.user.id, rating);
+                logInfo(`Game rated: ${interaction.user.tag} gave ${gameName} ${rating} stars`);
+            } else {
+                logError('Skipping rating save: no game_room_id for game', gameName);
+            }
         } catch (err) {
             logError('Error saving rating:', err);
         }

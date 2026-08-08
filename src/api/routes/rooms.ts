@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
-import { requireAuth, requireRoomAccess, requireDiscordUser, optionalDiscordUser, roomVisibilityGate, requireNotBanned } from '../middleware.js';
+import { requireAuth, requireRoomAccess, requireDiscordUser, optionalDiscordUser, optionalUser, roomVisibilityGate, requireNotBanned } from '../middleware.js';
 import { validate } from '../validate.js';
 import { isProviderUserId } from '../../utils/identityProvider.js';
 import {
@@ -2343,18 +2343,20 @@ router.get('/:roomId/games/:gameName/comments', optionalDiscordUser, async (req,
     }
 });
 
-router.post('/:roomId/games/:gameName/comments', guestContentLimiter, optionalDiscordUser, requireNotBanned, async (req, res) => {
+// v2.86.0 — comments now require Discord login (closes anonymous spam +
+// the banned-user anon bypass; see requireNotBanned's per-submit doc for why
+// an anonymous writer was never bannable). Author is the token's discordId
+// ONLY — the x-user-id/'anon' fallback that used to attribute guest posts is
+// gone, since a request can no longer reach this handler without a Discord
+// identity.
+router.post('/:roomId/games/:gameName/comments', guestContentLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
         const validationResult = validate(GameCommentSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         const { CommentService } = await import('../../services/CommentService.js');
         const gameName = decodeURIComponent(req.params.gameName as string);
         const roomId = req.params.roomId as string;
-        // S11 item (b): prefer the logged-in Discord identity (populated by
-        // optionalDiscordUser when a Bearer token is present) so the
-        // author can later delete via their token. Fall back to the guest anon
-        // header, then the 'anon' sentinel for fully-anonymous guests.
-        const userId = req.user?.discordId || (req.headers['x-user-id'] as string) || 'anon';
+        const userId = req.user!.discordId!;
         const { display_name, type, body } = validationResult.data;
         const comment = await CommentService.addComment(roomId, gameName, userId, display_name, type, body);
         res.status(201).json(comment);
@@ -2364,7 +2366,13 @@ router.post('/:roomId/games/:gameName/comments', guestContentLimiter, optionalDi
     }
 });
 
-router.delete('/:roomId/games/:gameName/comments/:id', guestContentLimiter, optionalDiscordUser, async (req, res) => {
+// v2.86.0 — uses `optionalUser` (not `optionalDiscordUser`) so a
+// password/local-admin token (no discordId) still populates req.user and can
+// hit the super_admin/room_admin authz tiers below. The author-match tier
+// still reads the x-user-id header for legacy anon-authored rows (comments
+// posted before login became mandatory) — those authors keep delete rights
+// on their own old comments.
+router.delete('/:roomId/games/:gameName/comments/:id', guestContentLimiter, optionalUser, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const { CommentService } = await import('../../services/CommentService.js');
@@ -3122,11 +3130,19 @@ router.post('/:roomId/scores/import-csv-commit', requireAuth, requireRoomAccess(
 });
 
 // Ratings
-router.get('/:roomId/ratings', async (req, res) => {
+// v2.86.0 — room-scoped (migration 139): a game's rating aggregate no longer
+// bleeds across rooms sharing a name. Reads stay open; "your rating"
+// personalization prefers the Bearer token's identity (votes are keyed on
+// discordId now), falling back to x-user-id for tokenless callers — without
+// the token path, a Discord-authed admin rating from the library page (whose
+// api.ts client sends the admin token + an anon uuid) would never see their
+// own stars again after a reload.
+router.get('/:roomId/ratings', optionalDiscordUser, async (req, res) => {
     try {
-        const ratings = await RatingService.getAllRatings();
-        const userId = (req.headers['x-user-id'] as string) || '';
-        const userRatings = userId ? await RatingService.getUserRatings(userId) : {};
+        const roomId = req.params.roomId as string;
+        const ratings = await RatingService.getAllRatings(roomId);
+        const userId = req.user?.discordId || (req.headers['x-user-id'] as string) || '';
+        const userRatings = userId ? await RatingService.getUserRatings(roomId, userId) : {};
         res.json({ ratings, userRatings });
     } catch (error) {
         logError('API Error (GET rooms/:roomId/ratings):', error);
@@ -3134,11 +3150,12 @@ router.get('/:roomId/ratings', async (req, res) => {
     }
 });
 
-router.get('/:roomId/ratings/:gameName', async (req, res) => {
+router.get('/:roomId/ratings/:gameName', optionalDiscordUser, async (req, res) => {
     try {
+        const roomId = req.params.roomId as string;
         const gameName = decodeURIComponent(req.params.gameName as string);
-        const userId = (req.headers['x-user-id'] as string) || '';
-        const info = await RatingService.getGameRating(gameName, userId || undefined);
+        const userId = req.user?.discordId || (req.headers['x-user-id'] as string) || '';
+        const info = await RatingService.getGameRating(roomId, gameName, userId || undefined);
         res.json(info);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/ratings/:gameName):', error);
@@ -3146,15 +3163,18 @@ router.get('/:roomId/ratings/:gameName', async (req, res) => {
     }
 });
 
-router.post('/:roomId/ratings/:gameName', guestContentLimiter, async (req, res) => {
+// v2.86.0 — requires Discord login; voter is the token's discordId, not the
+// client-supplied x-user-id (which made rating ballot-stuffing trivial —
+// clear localStorage, vote again).
+router.post('/:roomId/ratings/:gameName', guestContentLimiter, requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
+        const roomId = req.params.roomId as string;
         const gameName = decodeURIComponent(req.params.gameName as string);
-        const userId = (req.headers['x-user-id'] as string) || '';
+        const userId = req.user!.discordId!;
         const rating = Number(req.body?.rating);
-        if (!userId) return res.status(400).json({ error: 'x-user-id header required' });
         if (!rating || rating < 1 || rating > 5) return res.status(400).json({ error: 'Rating must be 1-5' });
-        await RatingService.setRating(gameName, userId, rating);
-        const info = await RatingService.getGameRating(gameName, userId);
+        await RatingService.setRating(roomId, gameName, userId, rating);
+        const info = await RatingService.getGameRating(roomId, gameName, userId);
         res.json(info);
     } catch (error) {
         logError('API Error (POST rooms/:roomId/ratings/:gameName):', error);

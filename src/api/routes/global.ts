@@ -2705,13 +2705,27 @@ router.get('/global/ratings', async (req, res) => {
 /**
  * GET /api/global/games/:id/comments — get comments/tips for a global game.
  * Query params: ?type=comment|tip
+ *
+ * v2.86.0 — identity masking mirrors the room comment GET
+ * (rooms.ts's `/:roomId/games/:gameName/comments`): raw `discord_user_id`
+ * exposed every author's id to any caller, which the DELETE route trusted
+ * for author-only authorization — a stranger could read an id here and
+ * replay it there. Null out every row's `discord_user_id` except the
+ * caller's own (when a Bearer token is present); the FE's delete-button gate
+ * (`discordUser?.discordId === c.discord_user_id`) still works because the
+ * caller's own id survives the mask.
  */
-router.get('/global/games/:id/comments', async (req, res) => {
+router.get('/global/games/:id/comments', optionalDiscordUser, async (req, res) => {
     try {
         const globalGameId = req.params.id as string;
         const type = req.query.type as 'comment' | 'tip' | undefined;
         const comments = await GlobalCommentService.getComments(globalGameId, type);
-        res.json(comments);
+        const callerId = req.user?.discordId;
+        const masked = (comments as any[]).map(c => ({
+            ...c,
+            discord_user_id: callerId && c.discord_user_id === callerId ? c.discord_user_id : null,
+        }));
+        res.json(masked);
     } catch (error) {
         logError('API Error (GET /api/global/games/:id/comments):', error);
         res.status(500).json({ error: 'Internal Server Error' });
@@ -2745,14 +2759,25 @@ router.post('/global/games/:id/comments', writeLimiter, requireDiscordUser, requ
 });
 
 /**
- * DELETE /api/global/games/:id/comments/:commentId — delete own comment. Requires Discord login.
+ * DELETE /api/global/games/:id/comments/:commentId — delete own comment, or
+ * any comment if super_admin. Requires Discord login.
+ *
+ * v2.86.0: added (1) a super_admin moderation bypass — this route previously
+ * had no admin tier at all, unlike its room-comment counterpart; and (2) a
+ * scope check that the comment's `global_game_id` actually matches the `:id`
+ * path param (404 on mismatch) — previously any authenticated author could
+ * delete their own comment by id regardless of which game's URL they hit,
+ * i.e. `:id` was accepted but never verified against the comment row.
  */
 router.delete('/global/games/:id/comments/:commentId', requireDiscordUser, requireNotBanned, async (req, res) => {
     try {
+        const globalGameId = req.params.id as string;
         const commentId = parseInt(req.params.commentId as string, 10);
         const comment = await GlobalCommentService.getCommentById(commentId);
         if (!comment) return res.status(404).json({ error: 'Comment not found' });
-        if (comment.discord_user_id !== req.user!.discordId) {
+        if (comment.global_game_id !== globalGameId) return res.status(404).json({ error: 'Comment not found' });
+        const isSuper = req.user!.role === 'super_admin';
+        if (!isSuper && comment.discord_user_id !== req.user!.discordId) {
             return res.status(403).json({ error: 'Not authorized' });
         }
         await GlobalCommentService.deleteComment(commentId);
