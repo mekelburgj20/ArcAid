@@ -45,6 +45,7 @@ import {
     emptyTournamentRules, type TournamentRules,
 } from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
+import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
@@ -654,7 +655,7 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
         // filter: tournament mode, then platform rules over catalogue ∪ room
         // tags with `features` carrying the device axis (ADR 0016 §4).
         const libraryGames = catalogueRows.filter((r: any) => {
-            if (tournament.mode && r.mode !== tournament.mode) return false;
+            if (!catalogueTypeMatchesTournamentMode(r.mode, tournament.mode)) return false;
             const cataloguePlatforms = parsePlatformsList(r.platforms || '[]');
             const tags = tagMap.get(String(r.name).toLowerCase()) ?? [];
             return passesplatformRules(
@@ -908,8 +909,10 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         );
         if (!gameLibEntry) return res.status(404).json({ error: `Game "${gameName}" not found in the catalogue` });
 
-        // 3. Check mode match
-        if (gameLibEntry.mode !== tournament.mode) {
+        // 3. Check mode match. `catalogueTypeMatchesTournamentMode` bridges the
+        //    tournament-mode vocabulary ('videogame') against the catalogue-type
+        //    vocabulary ('video_game' | 'arcade') — see src/utils/tournamentMode.ts.
+        if (!catalogueTypeMatchesTournamentMode(gameLibEntry.mode, tournament.mode)) {
             return res.status(400).json({ error: `Game mode "${gameLibEntry.mode}" does not match tournament mode "${tournament.mode}"` });
         }
 

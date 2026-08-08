@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity, Wrench, Palette, MessageSquare, Users, UserCheck, UsersRound } from 'lucide-react';
+import { Home, Settings as SettingsIcon, Trophy, Library, LogOut, Clock, BarChart3, Medal, Menu, X, Crown, HelpCircle, Activity, Wrench, Palette, MessageSquare, Users, UserCheck, UsersRound, ArrowLeft } from 'lucide-react';
 import { api, isAuthenticated, setToken } from '../lib/api';
 import { getPortal } from '../lib/portal';
 import { RoomContext } from '../contexts/RoomContext';
@@ -97,6 +97,10 @@ export default function RoomAdminLayout() {
 
   const basePath = `/${slug}/admin`;
   const navItems: Array<{ path: string; label: string; icon: React.ReactNode; badge?: number } | 'separator'> = [
+    // v2.87.0 — room-admin nav escape: the only way out of `/:slug/admin/*`
+    // was editing the URL by hand. This jumps to the public room.
+    { path: `/${slug}`, label: 'View Public Room', icon: <ArrowLeft size={18} /> },
+    'separator',
     { path: `${basePath}/dashboard`, label: 'Dashboard', icon: <Home size={18} /> },
     'separator',
     { path: `${basePath}/tournaments`, label: 'Tournaments', icon: <Trophy size={18} /> },

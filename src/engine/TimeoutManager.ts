@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { computePickDeadline, isPickWindowExpired, pickWindowFallback, pickPromptPushBody, pickFallbackPhrase, DEFAULT_RUNNERUP_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
+import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
 
 export class TimeoutManager {
     private static instance: TimeoutManager;
@@ -398,7 +399,10 @@ export class TimeoutManager {
             }
             const gameLevelRules = hasGameLevelPlatformRules(platformRules);
             const modeAndPlatformMatches = libraryGames.filter(g => {
-                if (g.mode !== tournament.mode) return false;
+                // `catalogueTypeMatchesTournamentMode` bridges tournament.mode
+                // ('videogame') against global_games.type ('video_game' |
+                // 'arcade') — see src/utils/tournamentMode.ts.
+                if (!catalogueTypeMatchesTournamentMode(g.mode, tournament.mode)) return false;
                 // v2.6.x: `excluded` is a submission-level filter only; the
                 // game-level gate checks `required` exclusively against
                 // catalogue ∪ room tags. v2.60.0 (ADR 0016 P2): both axes, via

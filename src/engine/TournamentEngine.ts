@@ -20,6 +20,7 @@ import { UNKNOWN } from '../utils/scoreProvenance.js';
 import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
 import { AchievementService } from '../services/AchievementService.js';
 import { isProviderUserId } from '../utils/identityProvider.js';
+import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
 
 /**
  * Outcome of a single maintenance run, surfaced to the S10 maintenance-run
@@ -1558,7 +1559,10 @@ export class TournamentEngine {
         // no longer disagree with the pick/activate paths about what qualifies.
         const gameLevelRules = hasGameLevelPlatformRules(platformRules);
         const eligible = libraryGames.filter((g: any) => {
-            if (g.mode !== tournamentRow.mode) return false;
+            // `catalogueTypeMatchesTournamentMode` bridges tournamentRow.mode
+            // ('videogame') against global_games.type ('video_game' |
+            // 'arcade') — see src/utils/tournamentMode.ts.
+            if (!catalogueTypeMatchesTournamentMode(g.mode, tournamentRow.mode)) return false;
             if (!gameLevelRules) return true;
             const cataloguePlatforms = parsePlatformsList(g.platforms || '[]');
             const tags = tagMap.get(g.name.toLowerCase()) || [];

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useTheme } from './ThemeProvider';
 
 /**
@@ -45,13 +46,26 @@ const LIGHT_SRC = '/arcaid-logo-light-v1.png';
  * (1.60 ratio) grows from a rather small 103px to 141px wide, which it wanted
  * anyway. The two ratios differ, so the marks share a height, not a width.
  */
-export default function BrandWordmark({ className = 'h-[88px] w-auto' }: { className?: string }) {
+/**
+ * `noLink` (v2.87.0): by default the wordmark navigates to `/` — the landing
+ * page — so it doubles as a "back to landing" affordance on every surface
+ * that renders it (room admin, super admin, global scoreboard). Pass
+ * `noLink` on a page that IS `/` already (LandingPage) to avoid a
+ * self-referential link, or on any surface that must not navigate.
+ */
+export default function BrandWordmark({ className = 'h-[88px] w-auto', noLink = false }: { className?: string; noLink?: boolean }) {
     const { globalPageTheme } = useTheme();
-    return (
+    const img = (
         <img
             src={globalPageTheme === 'light' ? LIGHT_SRC : DARK_SRC}
             alt="Arcaid"
             className={className}
         />
+    );
+    if (noLink) return img;
+    return (
+        <Link to="/" className="inline-flex items-center no-underline">
+            {img}
+        </Link>
     );
 }

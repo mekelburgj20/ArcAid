@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.87.0] — unreleased
+
+**Launch polish batch: room-admin nav escape, Arcaid brand casing sweep, videogame tournament-mode normalization.**
+
+### Added
+- **Room-admin nav escape (owner-asked 2026-07-31).** `BrandWordmark` (`admin-ui/src/components/BrandWordmark.tsx`) now links to `/` by default — the only way out of `/admin/*` or `/:slug/admin/*` was editing the URL by hand. New `noLink` opt-out prop for the one surface that's already `/` (`LandingPage`, to avoid a self-link); `GlobalScoreboard`'s pre-existing wrapping `<Link>` was dropped in favor of the component's own. `SuperAdminLayout`'s sidebar + mobile-bar wordmarks (plain `<img>`, not the shared component) got the same `<Link to="/">` treatment. `RoomAdminLayout` additionally gained an explicit "View Public Room" nav item (`/:slug`) at the top of its sidebar, styled identically to the existing nav items.
+- **`src/utils/tournamentMode.ts`** — `catalogueTypeMatchesTournamentMode(catalogueType, tournamentMode)` bridges `tournaments.mode` (`'pinball' | 'videogame'`) against `global_games.type` (`'pinball' | 'video_game' | 'arcade'`): `'videogame'` accepts both `'video_game'` and `'arcade'`; every other mode keeps exact-match behavior.
+
+### Fixed
+- **`videogame` tournament-mode / catalogue-type mismatch (found 2026-08-07).** Every eligibility site compared `tournaments.mode` against `global_games.type` with a raw `===`/`!==`, and `'videogame'` never equals `'video_game'` or `'arcade'` as a string — a videogame-mode tournament's Picks list, Discord `/pick-game` autocomplete, and autopick all silently returned zero games. Fixed at five sites via the new helper: `POST /:roomId/pick-game` and `GET /:roomId/game-availability/:tournamentId` (`src/api/routes/rooms.ts`), the Discord `/pick-game` autocomplete (`src/discord/commands/pickgame.ts`), `TimeoutManager`'s pick-timeout fallback autopick (`src/engine/TimeoutManager.ts`), and `TournamentEngine.autoPickAndActivate` (`src/engine/TournamentEngine.ts` — a fifth site found during the sweep, not in the original four). A pre-existing test (`game-availability-enrichment.test.ts`) had accidentally masked this by seeding the tournament mode as the literal string `'video_game'` instead of the real `'videogame'`; corrected to seed the real value and assert both `video_game` and `arcade` catalogue games are listed.
+
+### Chore
+- Brand casing sweep for "Arcaid" (never "ArcAid", decision 2026-07-25): grepped `admin-ui/src`, `admin-ui/public/manifest.json`, `src/discord/`, and `src/api/ogMeta.ts` case-sensitively for "ArcAid". No user-visible strings needed a fix — `manifest.json` and `index.html` were already "Arcaid"; the only two hits were in a non-rendered smoke-test assertion string, left as-is.
+
 ## [2.86.0] — unreleased
 
 **Comments & ratings require login + admin comment moderation + room-scoped ratings.**

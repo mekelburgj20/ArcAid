@@ -184,15 +184,25 @@ describe('game-availability filters by tournament mode', () => {
         expect(names).not.toContain('Video Entry');
     });
 
-    it('is a filter, not a blanket drop — the other mode lists the other games', async () => {
+    // v2.87.0 — tournaments store the literal mode 'videogame' (see
+    // src/types/index.ts's TournamentMode), NOT 'video_game'. Before the
+    // tournamentMode helper this endpoint compared the two strings raw and
+    // NEVER matched, so every videogame-mode tournament's Picks list came
+    // back with zero games — this test previously (wrongly) seeded the
+    // tournament mode as 'video_game', which accidentally string-matched the
+    // catalogue type and hid the bug. Both 'video_game' and 'arcade'
+    // catalogue types qualify a 'videogame'-mode tournament.
+    it('is a filter, not a blanket drop — a videogame-mode tournament lists video_game and arcade catalogue games', async () => {
         const roomId = await createTestRoom(`ga-mode2-${++seq}`);
         await seedCatalogue('Pinball Entry', { platforms: ['vpx'] });
         await seedCatalogue('Video Entry', { platforms: ['nes'], type: 'video_game' });
+        await seedCatalogue('Arcade Entry', { platforms: ['arcade'], type: 'arcade' });
 
-        const tournamentId = await seedTournament(roomId, {}, 'video_game');
+        const tournamentId = await seedTournament(roomId, {}, 'videogame');
         const names = (await availability(roomId, tournamentId)).games.map((g: any) => g.name);
 
         expect(names).toContain('Video Entry');
+        expect(names).toContain('Arcade Entry');
         expect(names).not.toContain('Pinball Entry');
     });
 });
