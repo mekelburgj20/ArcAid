@@ -11,7 +11,7 @@
 
 ### A. Owner actions — no code, clicks + config (~half a day total)
 
-- [ ] **Configure + field-test the Global Arcaid Discord server** (shipped inert v2.72.0). Steps in ROADMAP "Global Arcaid Discord server": convert the test server, set `GLOBAL_DISCORD_GUILD_ID` (+ optional invite URL) in Global Settings, grant the bot Create Invite, test the connect flow from a Discord-less room.
+- [x] **Configure + field-test the Global Arcaid Discord server** — ✅ DONE 2026-08-08. New "Arcaid" server created (community-enabled: announcements + support forum + showcase + general), bot invited with Create Invite, `GLOBAL_DISCORD_GUILD_ID` + permanent `GLOBAL_DISCORD_INVITE_URL` set via Global Settings. Field test passed: amber → one-click connect → green "Enabled (Arcaid community server)". Demo server retained as dev/staging. (shipped inert v2.72.0). Steps in ROADMAP "Global Arcaid Discord server": convert the test server, set `GLOBAL_DISCORD_GUILD_ID` (+ optional invite URL) in Global Settings, grant the bot Create Invite, test the connect flow from a Discord-less room.
 - [ ] **Run the Dedup Audit on prod** (pending since v2.21.0). `/admin/catalogue` → Dedup Audit. Reports whether re-syncs re-planted stripped IPDB links; Strip All remediates in-app.
 - [ ] **Hand-delete the two pre-v2.10 iScored orphans** — Paranormal (95735) and Attack from Mars (95586), visible on iScored under mekelburgj@gmail.com with no local rows. iScored admin UI, two deletes.
 - [ ] **Backup restore drill** — actually restore a backup once, off-hours, before real users depend on the data. (From TEST_KNOWN_ROUGH_EDGES.md — the first restore should not be during an incident.)
