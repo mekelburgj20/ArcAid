@@ -274,6 +274,134 @@
  * resolves the CSS variables at runtime.
  */
 
+/*
+ * .sb-theme-scope — render a subtree under a DIFFERENT theme than the page.
+ *
+ * v2.86.0. The room-admin Leaderboard page is a WYSIWYG mirror of the public
+ * scoreboard, but /:slug/admin/* runs on the ADMIN's personal theme while the
+ * public page runs on the ROOM's public_theme. Themes are plain class
+ * selectors that only set custom properties, so a theme re-scopes cleanly on a
+ * subtree: <div class="sb-theme-scope theme-light"> makes everything inside
+ * render in Light no matter what <html> is wearing.
+ *
+ * The catch is the DEFAULT (dark) theme, which has no class of its own — its
+ * values are the @theme block above, emitted at :root. A bare wrapper would
+ * therefore inherit whatever theme <html> is wearing. This class restates
+ * those defaults so "no theme class" means dark HERE too.
+ *
+ * It is applied ALONGSIDE the room's theme class and deliberately declares
+ * nothing the .theme-* rules below do not: equal specificity plus earlier
+ * source order means any .theme-* class on the same element wins every
+ * property it names, and this block supplies only the rest.
+ *
+ * GENERATED, and locked by admin-ui/src/__tests__/themeScopeParity.test.ts:
+ * the property list is exactly the set the .theme-* rules below override, and
+ * every value is byte-identical to its @theme default. Do not hand-edit — add
+ * the token to @theme and re-run the test, which prints the correct block.
+ */
+.sb-theme-scope {
+  /* Non-custom properties some themes set on the element itself. Listed
+     first, and overridden by any .theme-* class that names them. */
+  color-scheme: dark;
+  text-shadow: none;
+  background-image: none;
+  background-repeat: repeat;
+  --color-border: oklch(35% 0.02 255);
+  --color-border-glow: oklch(58% 0.233 277.117);
+  --color-brand-delta: #ff2e63;
+  --color-deep: oklch(21.15% 0.012 254.09);
+  --color-faint: oklch(45% 0.015 255);
+  --color-medal-bronze: #cd7f32;
+  --color-medal-silver: #c0c0c0;
+  --color-muted: oklch(70% 0.02 255);
+  --color-neon-amber: oklch(82% 0.189 84.429);
+  --color-neon-blue: oklch(74% 0.16 232.661);
+  --color-neon-coral: oklch(71% 0.194 13.428);
+  --color-neon-cyan: oklch(74% 0.16 232.661);
+  --color-neon-green: oklch(76% 0.177 163.223);
+  --color-neon-magenta: oklch(65% 0.241 354.308);
+  --color-neon-purple: oklch(58% 0.233 277.117);
+  --color-primary: oklch(97.807% 0.029 256.847);
+  --color-raised: oklch(25.33% 0.016 252.42);
+  --color-surface: oklch(23.26% 0.014 253.1);
+  --sb-art-btn-bg: rgba(0, 0, 0, 0.55);
+  --sb-art-btn-border: rgba(255, 255, 255, 0.15);
+  --sb-art-meta: rgba(255, 255, 255, 0.62);
+  --sb-art-meta-strong: rgba(255, 255, 255, 0.82);
+  --sb-art-scrim: linear-gradient(180deg, rgba(0, 0, 0, 0.05) 40%, rgba(16, 18, 26, 0.95) 100%);
+  --sb-art-scrim-top: linear-gradient(180deg, rgba(4, 6, 12, 0.92) 0%, rgba(4, 6, 12, 0.80) 30%, rgba(4, 6, 12, 0.52) 58%, rgba(4, 6, 12, 0.20) 82%, transparent 100%);
+  --sb-art-title: oklch(100% 0 0);
+  --sb-art-title-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 2px 12px rgba(0, 0, 0, 0.8);
+  --sb-card-footer-bg: rgba(0, 0, 0, 0.26);
+  --sb-card-footer-border: rgba(255, 255, 255, 0.10);
+  --sb-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --sb-card-shadow-strong: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --sb-cat-border: color-mix(in oklab, var(--color-neon-magenta) 38%, transparent);
+  --sb-cat-muted-border: rgba(255, 255, 255, 0.28);
+  --sb-cat-muted-fg: rgba(255, 255, 255, 0.72);
+  --sb-hero-border: color-mix(in oklab, var(--color-neon-cyan) 40%, transparent);
+  --sb-hero-champ-bg: color-mix(in oklab, var(--sb-hero-gold) 10%, transparent);
+  --sb-hero-champ-border: color-mix(in oklab, var(--sb-hero-gold) 32%, transparent);
+  --sb-hero-frame: color-mix(in oklab, var(--sb-hero-gold) 70%, transparent);
+  --sb-hero-frame-glow: 0 0 30px color-mix(in oklab, var(--sb-hero-gold) 20%, transparent), 0 6px 22px rgba(0, 0, 0, 0.45);
+  --sb-hero-glow: 0 0 40px color-mix(in oklab, var(--color-neon-cyan) 13%, transparent);
+  --sb-hero-gold: #ffcf47;
+  --sb-hero-ribbon-bg: linear-gradient(180deg, #ffe488 0%, #f5b82b 55%, #c68a10 100%);
+  --sb-hero-ribbon-fg: #2a1c00;
+  --sb-hero-score-glow: 0 0 10px color-mix(in oklab, var(--color-neon-amber) 33%, transparent);
+  --sb-hero-scrim: linear-gradient(90deg, rgba(16, 18, 26, 0.95) 10%, rgba(16, 18, 26, 0.5) 55%, transparent 100%);
+  --sb-hero-surface: linear-gradient( 135deg, color-mix(in oklab, var(--sb-hero-gold) 7%, var(--color-surface)) 0%, var(--color-surface) 62%);
+  --sb-hero-sweep: #fff3c4;
+  --sb-kbd-bg: rgba(255, 255, 255, 0.08);
+  --sb-kbd-border: rgba(255, 255, 255, 0.15);
+  --sb-motto-fg: rgba(255, 255, 255, 0.72);
+  --sb-motto-shadow: 0 0 12px rgba(91, 200, 245, 0.35), 0 1px 6px rgba(0, 0, 0, 0.9);
+  --sb-neon-arcade_style: #ffb020;
+  --sb-neon-border-mix: 72%;
+  --sb-neon-ghost: color-mix(in oklab, var(--gg-neon) 45%, #ffffff);
+  --sb-neon-glow: 0 0 14px color-mix(in oklab, var(--gg-neon) 26%, transparent);
+  --sb-neon-glow-hover: 0 0 22px color-mix(in oklab, var(--gg-neon) 42%, transparent);
+  --sb-neon-none: #97a2b5;
+  --sb-neon-real: #ff2e63;
+  --sb-neon-simulation: #35d6e8;
+  --sb-neon-unspecified: #97a2b5;
+  --sb-neon-video: #00ff88;
+  --sb-palette-field-bg: rgba(0, 0, 0, 0.55);
+  --sb-palette-row-sel: color-mix(in oklab, var(--color-neon-cyan) 10%, transparent);
+  --sb-palette-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --sb-palette-strip-bg: rgba(0, 0, 0, 0.25);
+  --sb-pill-bg: rgba(0, 0, 0, 0.58);
+  --sb-rail-bg: linear-gradient(180deg, color-mix(in oklab, var(--color-neon-amber) 6%, transparent) 0%, transparent 100%);
+  --sb-rail-border: color-mix(in oklab, var(--color-neon-amber) 19%, transparent);
+  --sb-row-bronze-bg: color-mix(in oklab, var(--color-medal-bronze) 12%, transparent);
+  --sb-row-bronze-border: color-mix(in oklab, var(--color-medal-bronze) 35%, transparent);
+  --sb-row-gold-bg: color-mix(in oklab, var(--color-neon-amber) 12%, transparent);
+  --sb-row-gold-border: color-mix(in oklab, var(--color-neon-amber) 35%, transparent);
+  --sb-row-next-bg: color-mix(in oklab, var(--color-neon-amber) 8%, transparent);
+  --sb-row-next-border: color-mix(in oklab, var(--color-neon-amber) 27%, transparent);
+  --sb-row-silver-bg: color-mix(in oklab, var(--color-medal-silver) 10%, transparent);
+  --sb-row-silver-border: color-mix(in oklab, var(--color-medal-silver) 25%, transparent);
+  --sb-row-you-bg: color-mix(in oklab, var(--color-neon-cyan) 12%, transparent);
+  --sb-row-you-border: color-mix(in oklab, var(--color-neon-cyan) 33%, transparent);
+  --sb-ticker-art-bg: rgba(255, 255, 255, 0.03);
+  --sb-ticker-art-icon: rgba(255, 255, 255, 0.15);
+  --sb-ticker-art-l1: 12%;
+  --sb-ticker-art-l2: 8%;
+  --sb-ticker-art-sat: 30%;
+  --sb-ticker-band: linear-gradient(180deg, transparent 0%, rgba(139, 92, 246, 0.07) 30%, rgba(139, 92, 246, 0.04) 70%, transparent 100%);
+  --sb-ticker-card-bg: rgba(18, 18, 24, 0.95);
+  --sb-ticker-card-border: rgba(255, 255, 255, 0.06);
+  --sb-ticker-card-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --sb-ticker-card-shadow-hover: 0 6px 24px rgba(139, 92, 246, 0.2);
+  --sb-ticker-cta-bg: linear-gradient(135deg, rgba(139, 92, 246, 0.5), rgba(236, 72, 153, 0.5));
+  --sb-ticker-cta-bg-hover: linear-gradient(135deg, rgba(139, 92, 246, 0.7), rgba(236, 72, 153, 0.7));
+  --sb-ticker-cta-border: rgba(139, 92, 246, 0.4);
+  --sb-ticker-cta-fg: #ffffff;
+  --sb-ticker-edge: rgba(255, 255, 255, 0.06);
+  --sb-ticker-score-fg: #fbbf24;
+  --sb-title-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
 /* Light theme (daisyUI-inspired clean light) */
 .theme-light {
   color-scheme: light;
