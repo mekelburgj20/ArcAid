@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.86.0] — unreleased
+
+**Comments & ratings require login + admin comment moderation + room-scoped ratings.**
+
+### Changed
+- **Game comments and ratings now require Discord login to write.** Closes three holes: anonymous comment spam, rating ballot-stuffing (the client-supplied `x-user-id` header was previously the entire voter identity, trivially reset by clearing localStorage), and the banned-user anonymous bypass (a banned identity is only enforceable once it's identifiable — an anonymous writer was never bannable). Viewing comments/ratings stays open to guests; only POST is gated (`requireDiscordUser` + `requireNotBanned`, room comment POST and room rating POST). Author/voter identity is now the token's `discordId` only — the guest `x-user-id`/`'anon'` fallback on comment authorship is removed.
+- **Room-scoped ratings (migration 139).** `game_ratings` gains `game_room_id`; the same game name in two different rooms now keeps independent rating aggregates (previously ratings keyed on `game_name` alone, so a rating on "Medieval Madness" in one room bled into every other room's aggregate for a same-named game). `RatingService`'s four methods all take `roomId`. Existing rows backfill onto the same default room the legacy `/api/ratings` alias resolves to.
+- **Admin comment moderation on the public game page.** `GameDetail.tsx`'s comment/tip delete control now shows for `super_admin` and the room's `room_admin`, not just the comment's author — mirrors the score-history delete gate. Works for password/local-admin logins too: the room comment DELETE route now uses a new `optionalUser` middleware (decodes any valid token, not just Discord-identity ones) so a password-authenticated admin's `req.user.role` still authorizes moderation.
+- **Global comment GET now masks identity.** `GET /api/global/games/:id/comments` previously returned every row's raw `discord_user_id`; it now nulls out every author id except the caller's own (mirrors the room comment GET's existing mask), closing the same replay gap the room route was already closed against.
+- **Global comment DELETE gained a super_admin bypass and a scope check.** Previously author-only with no admin tier at all, and the `:id` path param (the global game) was never verified against the comment's actual `global_game_id` — any authenticated author could delete their own comment regardless of which game's URL they hit.
+
+### Fixed
+- Room ratings' `RatingService` used to accept a `userId` derived from a client-controlled header with no server-side identity check — anyone could vote unlimited times by rotating the header value.
+
+### Migration
+- `139_game_ratings_room_scope` — rebuilds `game_ratings` with `game_room_id NOT NULL` + `UNIQUE(game_room_id, game_name, user_id)`, backfilling existing rows onto the install's default room (oldest `game_rooms` row); drops rows if no room exists.
+
 ## [2.85.1] — unreleased
 
 **Hotfix: admin controls strip now paints above QR codes** (owner-reported on prod ~1h after v2.85.0).

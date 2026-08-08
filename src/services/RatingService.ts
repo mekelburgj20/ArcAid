@@ -10,31 +10,36 @@ export interface GameRatingInfo {
 export class RatingService {
     /**
      * Set or update a user's rating for a game.
+     *
+     * v2.86.0 (migration 139) — room-scoped: the same game name in two
+     * different rooms now keeps independent aggregates. `game_ratings`
+     * carries `game_room_id` and the UNIQUE constraint is
+     * `(game_room_id, game_name, user_id)`.
      */
-    static async setRating(gameName: string, userId: string, rating: number): Promise<void> {
+    static async setRating(roomId: string, gameName: string, userId: string, rating: number): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            `INSERT INTO game_ratings (game_name, user_id, rating, updated_at)
-             VALUES (?, ?, ?, datetime('now'))
-             ON CONFLICT(game_name, user_id) DO UPDATE SET rating = excluded.rating, updated_at = datetime('now')`,
-            gameName, userId, rating
+            `INSERT INTO game_ratings (game_room_id, game_name, user_id, rating, updated_at)
+             VALUES (?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(game_room_id, game_name, user_id) DO UPDATE SET rating = excluded.rating, updated_at = datetime('now')`,
+            roomId, gameName, userId, rating
         );
     }
 
     /**
-     * Get a single game's rating info for a specific user.
+     * Get a single game's rating info for a specific user, scoped to a room.
      */
-    static async getGameRating(gameName: string, userId?: string): Promise<GameRatingInfo> {
+    static async getGameRating(roomId: string, gameName: string, userId?: string): Promise<GameRatingInfo> {
         const db = await getDatabase();
         const agg = await db.get(
-            `SELECT AVG(rating) as avg_rating, COUNT(*) as rating_count FROM game_ratings WHERE game_name = ?`,
-            gameName
+            `SELECT AVG(rating) as avg_rating, COUNT(*) as rating_count FROM game_ratings WHERE game_room_id = ? AND game_name = ?`,
+            roomId, gameName
         );
         let userRating: number | null = null;
         if (userId) {
             const row = await db.get(
-                `SELECT rating FROM game_ratings WHERE game_name = ? AND user_id = ?`,
-                gameName, userId
+                `SELECT rating FROM game_ratings WHERE game_room_id = ? AND game_name = ? AND user_id = ?`,
+                roomId, gameName, userId
             );
             if (row) userRating = row.rating;
         }
@@ -47,13 +52,14 @@ export class RatingService {
     }
 
     /**
-     * Get ratings for all games (bulk, for game library view).
+     * Get ratings for all games in a room (bulk, for game library view).
      * Returns a map of game_name → { avg_rating, rating_count }.
      */
-    static async getAllRatings(): Promise<Record<string, { avg_rating: number; rating_count: number }>> {
+    static async getAllRatings(roomId: string): Promise<Record<string, { avg_rating: number; rating_count: number }>> {
         const db = await getDatabase();
         const rows = await db.all(
-            `SELECT game_name, AVG(rating) as avg_rating, COUNT(*) as rating_count FROM game_ratings GROUP BY game_name`
+            `SELECT game_name, AVG(rating) as avg_rating, COUNT(*) as rating_count FROM game_ratings WHERE game_room_id = ? GROUP BY game_name`,
+            roomId
         );
         const map: Record<string, { avg_rating: number; rating_count: number }> = {};
         for (const r of rows) {
@@ -66,13 +72,13 @@ export class RatingService {
     }
 
     /**
-     * Get all ratings by a specific user (for showing their stars in the library).
+     * Get all ratings by a specific user in a room (for showing their stars in the library).
      */
-    static async getUserRatings(userId: string): Promise<Record<string, number>> {
+    static async getUserRatings(roomId: string, userId: string): Promise<Record<string, number>> {
         const db = await getDatabase();
         const rows = await db.all(
-            `SELECT game_name, rating FROM game_ratings WHERE user_id = ?`,
-            userId
+            `SELECT game_name, rating FROM game_ratings WHERE game_room_id = ? AND user_id = ?`,
+            roomId, userId
         );
         const map: Record<string, number> = {};
         for (const r of rows) {

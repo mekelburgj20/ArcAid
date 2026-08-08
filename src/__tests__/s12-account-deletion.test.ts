@@ -221,7 +221,8 @@ async function seedWorld(): Promise<SeedContext> {
         roomId, user1,
     );
     await db.run(
-        `INSERT INTO game_ratings (game_name, user_id, rating) VALUES ('S12 Game', ?, 5)`, user1,
+        `INSERT INTO game_ratings (game_room_id, game_name, user_id, rating) VALUES (?, 'S12 Game', ?, 5)`,
+        roomId, user1,
     );
     await db.run(
         `INSERT INTO global_game_comments (global_game_id, discord_user_id, display_name, type, body)
@@ -357,7 +358,10 @@ async function seedWorld(): Promise<SeedContext> {
          VALUES ('S12 Game', ?, ?, 'PlayerTwo', 'comment', 'p2 comment')`,
         roomId, user2,
     );
-    await db.run(`INSERT INTO game_ratings (game_name, user_id, rating) VALUES ('S12 Game', ?, 3)`, user2);
+    await db.run(
+        `INSERT INTO game_ratings (game_room_id, game_name, user_id, rating) VALUES (?, 'S12 Game', ?, 3)`,
+        roomId, user2,
+    );
     await db.run(
         `INSERT INTO room_members (user_id, room_id, source, display_name) VALUES (?, ?, 'submission', 'PlayerTwo')`,
         user2, roomId,

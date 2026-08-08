@@ -4,7 +4,6 @@ import StarRating from '../components/StarRating';
 import Sparkline from '../components/Sparkline';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ShareButton from '../components/ShareButton';
-import { api } from '../lib/api';
 import PlayerNameLink from '../components/PlayerNameLink';
 import ProvenanceTags from '../components/ProvenanceTags';
 import { getEngineCategoryLabel, getEngineDisplay } from '../lib/scoreProvenance';
@@ -211,10 +210,22 @@ export default function GameDetail() {
   // just-submitted row stands out + scrolls into view. Matched case-insensitively
   // against the row's iscored_username (which equals the resolved name stored).
   const highlightName = (searchParams.get('highlight') || '').toLowerCase();
-  const { playerToken } = useViewerAuth();
+  const { playerToken, loginWithDiscord } = useViewerAuth();
   const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
   const { roomId, roomName } = useRoom();
   const { toast } = useToast();
+  // v2.86.0 — comments now require login; mirrors GlobalGameDetail's
+  // handleLogin (returns the player to this same game page after OAuth).
+  const handleLogin = useCallback(() => {
+    if (slug) loginWithDiscord(slug);
+  }, [slug, loginWithDiscord]);
+  // v2.86.0 — same admin detection `canDeleteScoreHistory`/`canVerifyScoreHistory`
+  // use, applied to comment/tip moderation: super_admin or a room_admin of
+  // THIS room can delete any comment, not just their own.
+  const canModerateComments = !!viewerClaims && !!roomId && (
+    viewerClaims.role === 'super_admin' ||
+    (viewerClaims.role === 'room_admin' && viewerClaims.gameRoomIds.includes(roomId))
+  );
   const [reportOpen, setReportOpen] = useState(false);
   // s20: confirm-before-delete for score-history rows, replacing native confirm().
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState<ScoreHistoryEntry | null>(null);
@@ -314,9 +325,21 @@ export default function GameDetail() {
       .catch(() => {})
       .finally(() => setLoading(false));
 
-    api.get<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`/ratings/${encodeURIComponent(name)}`)
-      .then(setRatingInfo)
-      .catch(() => {});
+    // v2.86.0 — room-scoped ratings (migration 139): read via raw fetch
+    // against the room-prefixed endpoint, not api.ts's legacy `/ratings`
+    // alias (which resolved to a single install-wide default room and
+    // attaches the admin token / a different anon id than ratings now key
+    // on). Send the viewer's discordId as x-user-id when logged in so "your
+    // rating" reflects correctly — rating POSTs now key `user_id` on
+    // discordId, the same identity a vote is written under.
+    {
+      const ratingHeaders: Record<string, string> = {};
+      if (viewerClaims?.discordId) ratingHeaders['x-user-id'] = viewerClaims.discordId;
+      fetch(`/api/rooms/${roomId}/ratings/${encodeURIComponent(name)}`, { headers: ratingHeaders })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data) setRatingInfo(data); })
+        .catch(() => {});
+    }
 
     fetch(`/api/rooms/${roomId}/leaderboard`)
       .then(r => r.ok ? r.json() : [])
@@ -630,12 +653,27 @@ export default function GameDetail() {
     }
   };
 
+  // v2.86.0 — ratings require Discord login; raw fetch (not api.ts) so a
+  // rejected vote doesn't trigger api.ts's admin-token-refresh/redirect path,
+  // which is the wrong behavior on a public player page.
   const handleRate = async (rating: number) => {
-    if (!name) return;
+    if (!name || !roomId || !playerToken) return;
     try {
-      const info = await api.post<{ avg_rating: number; rating_count: number; user_rating: number | null }>(`/ratings/${encodeURIComponent(name)}`, { rating });
+      const res = await fetch(`/api/rooms/${roomId}/ratings/${encodeURIComponent(name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
+        body: JSON.stringify({ rating }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast(err.error || 'Failed to save rating', 'error');
+        return;
+      }
+      const info = await res.json();
       setRatingInfo(info);
-    } catch {}
+    } catch {
+      toast('Failed to save rating', 'error');
+    }
   };
 
   const togglePlayerHistory = (playerUsername: string) => {
@@ -762,9 +800,16 @@ export default function GameDetail() {
           )}
           {ratingInfo && (
             <div className="flex items-center gap-2 mt-1">
-              <StarRating rating={ratingInfo.user_rating || 0} onRate={handleRate} size="md" />
+              <StarRating rating={ratingInfo.user_rating || 0} onRate={playerToken ? handleRate : undefined} size="md" />
               {ratingInfo.rating_count > 0 && (
                 <span className="text-sm text-white/60">{ratingInfo.avg_rating} avg ({ratingInfo.rating_count} rating{ratingInfo.rating_count !== 1 ? 's' : ''})</span>
+              )}
+              {/* v2.86.0 — ratings require login; read-only stars above with a
+                  subtle CTA instead of the interactive onRate handler. */}
+              {!playerToken && (
+                <button onClick={handleLogin} className="text-xs text-white/50 hover:text-white/80 underline transition-colors">
+                  Log in to rate
+                </button>
               )}
             </div>
           )}
@@ -1296,45 +1341,52 @@ export default function GameDetail() {
 
         {activeTab === 'tips' && (
           <>
-            {/* Post a comment/tip */}
-            <div className="bg-surface border border-border rounded-lg p-4 mb-6">
-              <form onSubmit={handleSubmitComment}>
-                <div className="flex gap-2 mb-3">
-                  <input
-                    type="text"
-                    placeholder="Your name"
-                    value={commentDisplayName}
-                    onChange={e => setCommentDisplayName(e.target.value)}
-                    className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50 w-40"
-                  />
-                  <select
-                    value={commentType}
-                    onChange={e => setCommentType(e.target.value as 'comment' | 'tip')}
-                    className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary focus:outline-none focus:border-neon-cyan/50"
-                  >
-                    <option value="comment">Comment</option>
-                    <option value="tip">Pro Tip</option>
-                  </select>
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder={commentType === 'tip' ? 'Share a pro tip...' : 'Leave a comment...'}
-                    value={commentBody}
-                    onChange={e => setCommentBody(e.target.value)}
-                    maxLength={500}
-                    className="flex-1 bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!commentDisplayName.trim() || !commentBody.trim() || commentSubmitting}
-                    className="px-4 py-2 bg-neon-cyan/15 border border-neon-cyan/40 text-neon-cyan rounded-lg text-sm font-medium hover:bg-neon-cyan/25 transition-colors disabled:opacity-40"
-                  >
-                    Post
-                  </button>
-                </div>
-              </form>
-            </div>
+            {/* Post a comment/tip — v2.86.0: requires login (mirrors
+                GlobalGameDetail's playerToken gate). */}
+            {playerToken ? (
+              <div className="bg-surface border border-border rounded-lg p-4 mb-6">
+                <form onSubmit={handleSubmitComment}>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      placeholder="Your name"
+                      value={commentDisplayName}
+                      onChange={e => setCommentDisplayName(e.target.value)}
+                      className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50 w-40"
+                    />
+                    <select
+                      value={commentType}
+                      onChange={e => setCommentType(e.target.value as 'comment' | 'tip')}
+                      className="bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary focus:outline-none focus:border-neon-cyan/50"
+                    >
+                      <option value="comment">Comment</option>
+                      <option value="tip">Pro Tip</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder={commentType === 'tip' ? 'Share a pro tip...' : 'Leave a comment...'}
+                      value={commentBody}
+                      onChange={e => setCommentBody(e.target.value)}
+                      maxLength={500}
+                      className="flex-1 bg-raised border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!commentDisplayName.trim() || !commentBody.trim() || commentSubmitting}
+                      className="px-4 py-2 bg-neon-cyan/15 border border-neon-cyan/40 text-neon-cyan rounded-lg text-sm font-medium hover:bg-neon-cyan/25 transition-colors disabled:opacity-40"
+                    >
+                      Post
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <div className="text-xs text-muted mb-6">
+                <button onClick={handleLogin} className="text-neon-cyan hover:underline">Log in with Discord</button> to leave tips and comments.
+              </div>
+            )}
 
             {/* Pro Tips */}
             {tips.length > 0 && (
@@ -1353,12 +1405,14 @@ export default function GameDetail() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
-                        {isOwnComment(tip) && (
+                        {/* v2.86.0 — admins (super_admin, or room_admin of
+                            this room) can moderate any tip, not just their own. */}
+                        {(isOwnComment(tip) || canModerateComments) && (
                           <button onClick={() => handleDeleteComment(tip.id)} className="text-faint hover:text-neon-coral transition-colors">
                             <Trash2 size={14} />
                           </button>
                         )}
-                        {!!viewerClaims?.discordId && !isOwnComment(tip) && (
+                        {!!viewerClaims?.discordId && !isOwnComment(tip) && !canModerateComments && (
                           <button onClick={() => setFlagTarget(tip)} title="Report this tip" className="text-faint hover:text-neon-magenta transition-colors">
                             <Flag size={14} />
                           </button>
@@ -1387,12 +1441,14 @@ export default function GameDetail() {
                         <p className="text-sm text-muted">{comment.body}</p>
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
-                        {isOwnComment(comment) && (
+                        {/* v2.86.0 — admins (super_admin, or room_admin of
+                            this room) can moderate any comment, not just their own. */}
+                        {(isOwnComment(comment) || canModerateComments) && (
                           <button onClick={() => handleDeleteComment(comment.id)} className="text-faint hover:text-neon-coral transition-colors">
                             <Trash2 size={14} />
                           </button>
                         )}
-                        {!!viewerClaims?.discordId && !isOwnComment(comment) && (
+                        {!!viewerClaims?.discordId && !isOwnComment(comment) && !canModerateComments && (
                           <button onClick={() => setFlagTarget(comment)} title="Report this comment" className="text-faint hover:text-neon-magenta transition-colors">
                             <Flag size={14} />
                           </button>

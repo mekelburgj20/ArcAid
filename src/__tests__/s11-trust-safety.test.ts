@@ -267,6 +267,44 @@ describe('S11 (b) — comment-delete authorization tiers', () => {
         expect(await db.get('SELECT id FROM game_comments WHERE id = ?', commentId)).toBeUndefined();
     });
 
+    // v2.86.0 — the DELETE route uses `optionalUser` (not `optionalDiscordUser`)
+    // specifically so a password/local-admin token — no `discordId`, identity
+    // carried in `localAdminId` instead — still populates req.user and hits
+    // the super_admin/room_admin authz tiers. Comment POST now requires a
+    // Discord identity, but moderation (DELETE) must keep working for every
+    // admin login method.
+    it('a password/local-admin token (no discordId) can delete a comment as room_admin', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('s11-cd-localadmin-ra', 'S11 CD LocalAdmin RoomAdmin');
+        const commentId = await seedComment(roomId, gameName, `someone-${crypto.randomUUID()}`);
+        const token = signToken({ role: 'room_admin', gameRoomIds: [roomId], localAdminId: `la-${crypto.randomUUID()}` });
+
+        const res = await request(app)
+            .delete(`/api/rooms/${roomId}/games/${gameName}/comments/${commentId}`)
+            .set('X-Forwarded-For', freshIp())
+            .set('Authorization', `Bearer ${token}`);
+
+        expect(res.status).toBe(200);
+        const db = await getDatabase();
+        expect(await db.get('SELECT id FROM game_comments WHERE id = ?', commentId)).toBeUndefined();
+    });
+
+    it('a password/local-admin token (no discordId) can delete a comment as super_admin', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom('s11-cd-localadmin-sa', 'S11 CD LocalAdmin SuperAdmin');
+        const commentId = await seedComment(roomId, gameName, `someone-${crypto.randomUUID()}`);
+        const token = signToken({ role: 'super_admin', gameRoomIds: [], localAdminId: `la-${crypto.randomUUID()}` });
+
+        const res = await request(app)
+            .delete(`/api/rooms/${roomId}/games/${gameName}/comments/${commentId}`)
+            .set('X-Forwarded-For', freshIp())
+            .set('Authorization', `Bearer ${token}`);
+
+        expect(res.status).toBe(200);
+        const db = await getDatabase();
+        expect(await db.get('SELECT id FROM game_comments WHERE id = ?', commentId)).toBeUndefined();
+    });
+
     it('a logged-in user can delete a comment they posted via the API (token identity)', async () => {
         const app = await createTestApp();
         const roomId = await createTestRoom('s11-cd-loggedin', 'S11 CD LoggedIn');
@@ -343,15 +381,13 @@ describe('S11 (b) — comment-delete authorization tiers', () => {
     });
 });
 
-describe('S11 regression — comments stay open to guests unconditionally', () => {
-    // S11 briefly gated the comment routes behind a login-required check — but
-    // the comment form sends no Bearer token, so login-required rooms 401'd for
-    // everyone. optionalDiscordUser decodes a token if present but never blocks;
-    // comments must stay guest-open regardless of the room. (The room-level
-    // login-required setting this regression originally guarded against was
-    // retired in v2.80.0 — login is unconditionally mandatory for score
-    // submissions as of v2.79.0, but comments were never gated on it.)
-    it('a guest can POST a comment', async () => {
+describe('S11 regression (v2.86.0 update) — comment viewing stays open to guests, posting no longer does', () => {
+    // v2.86.0 supersedes the old "comments stay open to guests unconditionally"
+    // regression guard: comments/ratings now require Discord login (closes
+    // anonymous spam and the banned-user anon bypass — see
+    // ban-enforcement.test.ts's inverted "anonymous ... passes the ban gate"
+    // case). Viewing (GET) stays open to everyone; only POST is gated.
+    it('a guest (no Bearer token) cannot POST a comment', async () => {
         const app = await createTestApp();
         const roomId = await createTestRoom('s11-cmt-guest', 'S11 Comment Guest');
         const res = await request(app)
@@ -359,7 +395,7 @@ describe('S11 regression — comments stay open to guests unconditionally', () =
             .set('X-Forwarded-For', freshIp())
             .set('x-user-id', `guest-${crypto.randomUUID()}`)
             .send({ display_name: 'Guest', type: 'comment', body: 'hi' });
-        expect(res.status).toBe(201);
+        expect(res.status).toBe(401);
     });
 
     it('a guest can GET comments (viewing not blocked)', async () => {

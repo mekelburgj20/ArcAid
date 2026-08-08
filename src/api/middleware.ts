@@ -85,6 +85,32 @@ export function optionalDiscordUser(req: Request, _res: Response, next: NextFunc
 }
 
 /**
+ * Optional identity — decode ANY valid Bearer token (regardless of whether it
+ * carries a Discord identity) and attach it to `req.user`, but NEVER block.
+ *
+ * Differs from `optionalDiscordUser` above, which silently drops a valid
+ * token that lacks `discordId`. That's the right behavior for a route gating
+ * on Discord identity specifically (e.g. comment/rating authorship, since
+ * only a Discord-linked identity can author one post-v2.86.0), but wrong for
+ * a route that ALSO needs to recognize a password/local-admin token
+ * (`localAdminId` set, no `discordId`) — otherwise a room_admin or
+ * super_admin who logged in with a password loses their moderation
+ * privileges on that route. Used on the room comment DELETE route so
+ * `req.user.role`-based admin authz works for every login method, while the
+ * author-match fallback there still reads `req.user?.discordId` /
+ * `x-user-id` for guest and Discord-authenticated authors.
+ */
+export function optionalUser(req: Request, _res: Response, next: NextFunction): void {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (token) {
+        const payload = verifyToken(token);
+        if (payload) req.user = payload;
+    }
+    next();
+}
+
+/**
  * Validates JWT and confirms the user has a Discord identity (any role).
  * Used for public features that require Discord login (e.g. game picking).
  */

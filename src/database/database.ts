@@ -2182,6 +2182,47 @@ export async function initDatabase(): Promise<Database> {
             -- any further data cleanup is a separate, backed-up, eyeballed pass).
             DELETE FROM game_room_settings WHERE key = 'REQUIRE_DISCORD_LOGIN';
         ` },
+        { name: '139_game_ratings_room_scope', handler: async (db) => {
+            // v2.86.0 — game_ratings had no game_room_id column, so ratings
+            // keyed on game_name alone: a "Medieval Madness" rating in Room A
+            // averaged into the same aggregate as a same-named game in Room B.
+            // Rebuild onto (game_room_id, game_name, user_id).
+            //
+            // Backfill target: the SAME default room the legacy /api/ratings
+            // alias resolves to (server.ts's getDefaultRoomId — the oldest
+            // game_rooms row). Every pre-migration rating was written either
+            // through that alias or a room UI that, pre-this-feature, behaved
+            // identically across rooms, so the oldest room is the correct
+            // historical owner. If no room exists yet, there's nothing to
+            // backfill onto — the rows are dropped (mirrors migration 095's
+            // precedent of accepting historical data loss on a table rebuild
+            // when there's no principled owner to assign).
+            const defaultRoom = await db.get(`SELECT id FROM game_rooms ORDER BY created_at ASC LIMIT 1`) as { id: string } | undefined;
+            await db.exec(`
+                CREATE TABLE game_ratings_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_room_id TEXT NOT NULL,
+                    game_name TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(game_room_id, game_name, user_id),
+                    FOREIGN KEY (game_room_id) REFERENCES game_rooms (id) ON DELETE CASCADE
+                );
+            `);
+            if (defaultRoom?.id) {
+                await db.run(
+                    `INSERT INTO game_ratings_new (id, game_room_id, game_name, user_id, rating, created_at, updated_at)
+                     SELECT id, ?, game_name, user_id, rating, created_at, updated_at FROM game_ratings`,
+                    defaultRoom.id
+                );
+            }
+            await db.exec(`
+                DROP TABLE game_ratings;
+                ALTER TABLE game_ratings_new RENAME TO game_ratings;
+            `);
+        } },
     ];
 
     for (const migration of migrations) {

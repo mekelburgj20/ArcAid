@@ -504,13 +504,17 @@ describe('requireNotBanned middleware — per-submit route gating', () => {
         expect(res.body.error).toBe('This account is banned.');
     });
 
-    it('anonymous (no Authorization header) request passes through the ban gate — comment is created', async () => {
+    // v2.86.0 — the anon bypass this test used to prove (guests were never
+    // bannable because they were never identifiable) is now closed: comments
+    // require Discord login, so an anonymous request 401s at requireDiscordUser
+    // before it ever reaches the ban gate this describe block exercises.
+    it('anonymous (no Authorization header) request is rejected before the ban gate — login is required to comment', async () => {
         const app = await createTestApp();
         const roomId = await createTestRoom('mw-comments-anon-room');
         const res = await request(app)
             .post(`/api/rooms/${roomId}/games/${encodeURIComponent('Some Game')}/comments`)
             .send({ display_name: 'Guest', type: 'comment', body: 'hello from a guest' });
-        expect(res.status).toBe(201);
+        expect(res.status).toBe(401);
     });
 
     it('a non-banned logged-in user passes through the ban gate (control)', async () => {
