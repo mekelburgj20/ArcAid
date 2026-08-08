@@ -1,35 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Search, Plus } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { getSocket } from '../lib/websocket';
 import { useRoom } from '../contexts/RoomContext';
 import { useViewerAuth, useViewerHeaders, usePlayerHeaders } from '../contexts/ViewerAuthContext';
 import { useTheme } from '../components/ThemeProvider';
 import type { ThemeId } from '../components/ThemeProvider';
-import type { GameLeaderboard, RankingGroupData, RankedEntry } from '../components/ScoreboardComponents';
-import {
-  GameCard,
-  RankingGroupCard,
-  RankingsColumn,
-  RankingsRow,
-  getTitleStyleClass,
-  getTitleSizeClass,
-} from '../components/ScoreboardComponents';
-import CardRouter from '../components/scoreboard/CardRouter';
+import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
+import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
+import type { LeaderboardWithViewer } from '../components/scoreboard/ScoreboardSurface';
+import { tournamentCardTitleLink, tournamentCardTitleClick } from '../components/scoreboard/tournamentCardTitle';
 import RoomScoresView from '../components/RoomScoresView';
 import GlobalScoresView from '../components/GlobalScoresView';
 import GameQuickView from '../components/GameQuickView';
-import HorizontalScrollNav from '../components/HorizontalScrollNav';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
-import { deriveCardProps } from '../lib/scoreboardConfig';
-import { deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../lib/scoreboardConfig';
 import { TAB_LABELS, tabSubtitle } from '../lib/scoresCopy';
-
-
-interface LeaderboardWithViewer extends GameLeaderboard {
-  viewerEntry?: RankedEntry | null;
-}
 
 export default function Scoreboard() {
   const { slug } = useParams<{ slug: string }>();
@@ -43,21 +29,6 @@ export default function Scoreboard() {
   // v2.13.12 — game quick-view modal triggered by title click on tournament cards.
   // RoomScoresView / GlobalScoresView own their own modal state for their tabs.
   const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
-  const handleTitleClick = (lb: GameLeaderboard) => (e: React.MouseEvent) => {
-    // v2.13.13 — defensive: skip when the click originated on a nested
-    // interactive element (e.g., the GameInfoPopup "i" icon button that sits
-    // inside the title Link). React's stopPropagation in those children
-    // doesn't always prevent the parent's onClick from firing in production
-    // builds; closest('button') is a more reliable bail.
-    if ((e.target as HTMLElement).closest('button')) return;
-    // Plain left-click → open modal. Middle/ctrl/cmd/shift-click falls through
-    // to the underlying <Link href> so the user can open the full page in a
-    // new tab.
-    if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-      e.preventDefault();
-      setQuickViewLb(lb);
-    }
-  };
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [roomConfig, setRoomConfig] = useState<Record<string, string>>({});
   const [tournamentSearch, setTournamentSearch] = useState('');
@@ -200,436 +171,102 @@ export default function Scoreboard() {
     };
   }, [roomId, playerToken]);
 
-  // New style/theme config
-  const newConfig = deriveScoreboardConfig(config, roomName);
-  const useNewCards = !!config.SCOREBOARD_STYLE; // explicit style = new system
-
-  // Legacy config (used when SCOREBOARD_STYLE not set)
-  const legacyProps = deriveCardProps(config, roomName);
-  const {
-    maxScores, hideEmpty, titleHidden, titleText, titleStyle, titleSize,
-    zoom, bgUrl, bgMode, logoUrl, logoPosition, logoMaxHeight,
-    layout: legacyLayout, cardWidth: legacyCardWidth, rankingsPosition, requirePhoto,
-    cardOpacity, bgOpacity, scoreColumns, qrMode,
-    headerStyle, bgFill, bgSize, wheelScale, gameColumns, globalStyles,
-    glassOpacity, gameTitleStyle, gameTitleEnhance, scoreStyle,
-  } = legacyProps;
-  const layout = useNewCards ? newConfig.layout : legacyLayout;
-
-  const cardWidth = useNewCards ? getCardWidth(newConfig.style) : legacyCardWidth;
   const viewerUsername = discordUser?.username || undefined;
-  const isBanner = useNewCards && newConfig.style === 'banner';
-
-  // Effective layout: Banner always horizontal scroll; others respect setting
-  // Mobile always forces vertical via CSS
-  const effectiveLayout = isBanner ? 'scroll' : layout;
-
-  const trimmedTournamentSearch = tournamentSearch.trim().toLowerCase();
-  const visibleLeaderboards = leaderboards
-    .filter(lb => !hideEmpty || lb.rankings.length > 0)
-    .filter(lb => !trimmedTournamentSearch || (lb.displayName || lb.gameName).toLowerCase().includes(trimmedTournamentSearch));
-
-  // When sticky is off (default), rankings render inline with game cards
-  const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
-  // QR codes above game cards add extra height — rankings card needs matching top margin
-  const hasQrTop = useNewCards && (newConfig.qrMode === 'all') && newConfig.qrPosition === 'top-right';
-  const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
-  // v2.13.3: bottom-center QR overhangs below the card. The reservation must
-  // live on the LAYOUT ITEM (flex/grid wrapper), not the card's inner div —
-  // marginBottom on a height:100% child escapes its parent's border-box, so
-  // the QR's overhang area was rendered outside the scrollable region and
-  // unreachable even at max scroll. Moving the margin up one level makes flex
-  // line cross-size and grid track sizing include the QR space.
-  const cardMarginBottom = useNewCards
-    ? qrBottomMetrics(newConfig.qrSize, newConfig.qrMode !== 'disabled', newConfig.qrPosition, newConfig.qrOverlapPx).overhang
-    : 0;
-
-  // Measure header height so bg image can start below it
-  const headerRef = useRef<HTMLDivElement>(null);
-  const [headerHeight, setHeaderHeight] = useState(0);
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setHeaderHeight(el.offsetHeight));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const bgBehindTitle = useNewCards ? newConfig.bgBehindTitle : false;
-  const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
-
-  // Plan §10 / Sprint 3: Tournament-tab cards now link to game detail like All Games.
-  // v2.13.12 — append &tab=tournaments so the GameDetail back link returns to
-  // the Tournaments tab (rather than the All Games default).
-  const linkForTournamentCard = (lb: GameLeaderboard) =>
-    lb.globalGameId
-      ? `/games/${lb.globalGameId}?from=${encodeURIComponent(slug || '')}&tab=tournaments`
-      : `/${slug || ''}/games/${encodeURIComponent(lb.gameName)}?tab=tournaments`;
+  // Not a rendering derivation — the surface owns every one of those. This one
+  // feeds SubmissionSheet, which is page-owned.
+  const requirePhoto = config.REQUIRE_SCORE_PHOTO === 'true';
 
   return (
-    <div className={`h-full flex flex-col overflow-hidden relative ${newConfig.mobileVertical ? 'scoreboard-mobile-vertical' : ''}`}>
-      {/* Background image layer with opacity control — offset below header unless fill-entire */}
-      {bgUrl && (
-        <div
-          className="absolute pointer-events-none"
-          style={{
-            top: bgBehindTitle ? 0 : headerHeight,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundImage: `url(${bgUrl})`,
-            backgroundSize: effectiveBgSize,
-            backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
-            backgroundPosition: 'center top',
-            opacity: bgOpacity,
-          }}
-        />
-      )}
-
-      {/* Score flash overlay */}
-      {flash && (
-        <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
-      )}
-
-      {/* Score toast notification */}
-      {scoreToast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-slideDown">
-          <div className="bg-surface border border-neon-cyan/40 rounded-lg shadow-lg px-6 py-3 text-sm text-primary">
-            <span className="text-neon-cyan font-bold">{scoreToast.player}</span>
-            {' '}posted{' '}
-            <span className="text-neon-cyan font-bold">{scoreToast.score.toLocaleString()}</span>
-            {' '}on{' '}
-            <span className="text-neon-cyan font-bold">{scoreToast.game}</span>!
-          </div>
-        </div>
-      )}
-
-      <style>{`
-        @keyframes slideDown {
-          from { opacity: 0; transform: translate(-50%, -100%); }
-          to { opacity: 1; transform: translate(-50%, 0); }
-        }
-        .animate-slideDown {
-          animation: slideDown 0.3s ease-out forwards;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .animate-slideDown {
-            animation: none;
-          }
-        }
-        /* v2.13.14 — scrollbar hidden; HorizontalScrollNav provides edge-hover
-           arrow controls instead. overscroll-behavior-x kept so horizontal
-           overscroll doesn't trigger browser swipe-back navigation. */
-        .scoreboard-hscroll-layout {
-          scrollbar-width: none;
-          overscroll-behavior-x: contain;
-        }
-        .scoreboard-hscroll-layout::-webkit-scrollbar { display: none; }
-        .scoreboard-hscroll-nobar {
-          scrollbar-width: none;
-        }
-        .scoreboard-hscroll-nobar::-webkit-scrollbar { display: none; }
-        /* Mobile: scale + vertical mode */
-        @media (max-width: 640px) {
-          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 1); }
-          .scoreboard-mobile-vertical .scoreboard-hscroll-layout {
-            overflow-x: hidden !important;
-          }
-          .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div {
-            flex-direction: column !important;
-            align-items: center !important;
-          }
-          .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div > div {
-            flex-shrink: 1 !important;
-            max-width: 100% !important;
-          }
-          .scoreboard-mobile-vertical .scoreboard-grid-layout {
-            grid-template-columns: 1fr !important;
-            justify-items: center;
-          }
-          .scoreboard-mobile-vertical .scoreboard-grid-layout > div {
-            max-width: 100%;
-          }
-          /* S21 — true mobile card layout: cards render at full width (no
-             fixed-px cap) at natural type scale. Applies to the layout
-             wrapper AND the card component's own inner width (BannerCard/
-             ShowcaseCard/MinimalCard/RankingGroupCard all set an explicit
-             px width on an inner element that a wrapper-only override can't
-             reach). */
-          .scoreboard-mobile-vertical .scoreboard-card-slot {
-            width: 100% !important;
-            max-width: 100% !important;
-          }
-          /* S21 — SCOREBOARD_ZOOM (legacy TV zoom) must not apply on phones;
-             mirrors the mobile-scale mechanism above. */
-          .scoreboard-page-zoom {
-            zoom: 100% !important;
-          }
-          /* S21 — mobile type floors. Viewport-only (not gated behind
-             .scoreboard-mobile-vertical — readability at natural scale
-             applies regardless of the vertical-stacking toggle). Class name
-             encodes the ORIGINAL desktop px size; see ScoreList.tsx,
-             BannerCard.tsx, ShowcaseCard.tsx for call sites. */
-          .sb-fs-9  { font-size: 11px !important; }
-          .sb-fs-10 { font-size: 11px !important; }
-          .sb-fs-11 { font-size: 12px !important; }
-          .sb-fs-12 { font-size: 13px !important; }
-          .sb-fs-13 { font-size: 14px !important; }
-        }
-      `}</style>
-
-      {/* Scrollable content — zoom applied here so it doesn't break the flex height chain */}
-      <div
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scoreboard-page-zoom"
-        style={{
-          ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
-          // S14: reserve room for the fixed-bottom lobby ticker so it doesn't
-          // cover the last row of cards.
-          paddingBottom: roomId ? 40 : undefined,
-        }}
-      >
-      {/* Header zone — bg image starts below this unless fill-entire mode */}
-      <div
-        ref={headerRef}
-        className="px-4 sm:px-6 pt-6 relative z-[1]"
-      >
-      {!titleHidden && (
-        <div className="text-center mb-4 overflow-hidden">
-          <div className={`inline-flex items-center gap-4 max-w-full ${
-            logoPosition === 'above' || logoPosition === 'below' ? 'flex-col' : 'flex-row'
-          }`}>
-            {logoUrl && (logoPosition === 'left' || logoPosition === 'above') && (
-              <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain flex-shrink-0" />
+    <>
+      <ScoreboardSurface
+        config={config}
+        roomName={roomName}
+        roomId={roomId}
+        slug={slug || ''}
+        leaderboards={leaderboards}
+        rankingGroups={rankingGroups}
+        viewerUsername={viewerUsername}
+        onSubmitScore={(lb) => setSelectedGame(lb)}
+        titleLinkTo={tournamentCardTitleLink(slug || '')}
+        titleLinkOnClick={tournamentCardTitleClick(setQuickViewLb)}
+        searchFilter={tournamentSearch}
+        // S14: reserve room for the fixed-bottom lobby ticker so it doesn't
+        // cover the last row of cards.
+        scrollPaddingBottom={roomId ? 40 : undefined}
+        overlays={
+          <>
+            {/* Score flash overlay */}
+            {flash && (
+              <div className="fixed inset-0 bg-neon-cyan/5 pointer-events-none z-40 animate-pulse" />
             )}
-            <p className={`font-display text-muted ${getTitleSizeClass(titleSize)} uppercase tracking-widest ${getTitleStyleClass(titleStyle)} min-w-0`}>
-              {titleText}
-            </p>
-            {logoUrl && (logoPosition === 'right' || logoPosition === 'below') && (
-              <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain flex-shrink-0" />
-            )}
-          </div>
-        </div>
-      )}
-      {titleHidden && logoUrl && (
-        <div className="text-center mb-4 overflow-hidden">
-          <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto max-w-full" />
-        </div>
-      )}
 
-      {/* Tab toggle — Tournaments | Room Scores | Global (F2 3-tab unification) */}
-      <div className="flex justify-center gap-1 pb-1" role="tablist" aria-label="Leaderboard tabs">
-        {/* s20: outer button carries the ≥44px hit area; inner span keeps the
-            original compact tab-chip visual. */}
-        {(['tournaments', 'room', 'global'] as const).map(t => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => selectTab(t)}
-            className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
-          >
-            <span className={`px-3 py-1 text-xs rounded-lg border transition-colors ${
-              tab === t
-                ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
-                : 'border-border/50 text-muted hover:text-primary'
-            }`}>
-              {TAB_LABELS[t]}
-            </span>
-          </button>
-        ))}
-      </div>
-      <p className="text-center text-[11px] text-faint pb-3">{tabSubtitle(tab, roomName)}</p>
-
-      </div>
-
-      {tab === 'room' ? (
-        <RoomScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
-      ) : tab === 'global' ? (
-        <GlobalScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
-      ) : (
-      <>
-      {/* Tournament search (reserved slot matches All Games tab for layout stability) */}
-      <div className="px-4 sm:px-6">
-        <div className="max-w-md mx-auto mb-4">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input
-              type="text"
-              placeholder="Search active games..."
-              value={tournamentSearch}
-              onChange={e => setTournamentSearch(e.target.value)}
-              className="w-full pl-10 pr-3 py-2 rounded-lg border border-border/50 bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan/40 text-sm"
-              aria-label="Search active games"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Game cards */}
-      <div className="px-4 sm:px-6 pb-6 scoreboard-mobile-scale" style={{ '--mobile-scale': newConfig.mobileScale } as React.CSSProperties}>
-
-      {/* Rankings: top position (only when sticky/separate) */}
-      {!inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
-        <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} />
-      )}
-
-      {/* Main content area */}
-      <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row gap-6 items-stretch lg:items-start' : 'flex-col gap-6'}`}>
-
-        {/* Rankings: left position (only when sticky/separate) */}
-        {!inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
-          <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
-        )}
-
-        {/* Game leaderboards */}
-        {visibleLeaderboards.length === 0 ? (
-          <div className="flex-1 text-center py-24">
-            <p className="text-muted font-display">
-              {trimmedTournamentSearch
-                ? `No active games match "${tournamentSearch.trim()}".`
-                : 'Waiting for active games...'}
-            </p>
-          </div>
-        ) : effectiveLayout === 'grid' ? (
-          /* Grid layout — responsive rows, mobile forces single column via CSS */
-          <div className="flex-1 min-w-0">
-            <div
-              className={`scoreboard-grid-layout grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
-              style={{
-                ...(useNewCards ? { gap: newConfig.cardSpacing } : {}),
-                ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : {}),
-              }}
-            >
-              {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="relative group/card scoreboard-card-slot" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
-                  {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
-                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
-                    <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
-                      <Plus size={16} />
-                    </span>
-                  </button>
-                  {useNewCards ? (
-                    <CardRouter
-                      lb={lb} slug={slug || ''} roomId={roomId}
-                      style={newConfig.style} theme={newConfig.theme}
-                      maxScores={newConfig.maxScores} minScores={newConfig.minScores}
-                      showTimer={newConfig.showTimer}
-                      cardBgFill={newConfig.cardBgFill}
-                      titleFontSize={newConfig.titleFontSize || undefined}
-                      viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
-                      qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
-                      qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx}
-                      gameTitleStyle={newConfig.gameTitleStyle}
-                      onSubmitScore={(lb) => setSelectedGame(lb)}
-                      titleLinkTo={linkForTournamentCard(lb)} titleLinkOnClick={handleTitleClick(lb)}
-                    />
-                  ) : (
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
-                  )}
+            {/* Score toast notification */}
+            {scoreToast && (
+              <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 animate-slideDown">
+                <div className="bg-surface border border-neon-cyan/40 rounded-lg shadow-lg px-6 py-3 text-sm text-primary">
+                  <span className="text-neon-cyan font-bold">{scoreToast.player}</span>
+                  {' '}posted{' '}
+                  <span className="text-neon-cyan font-bold">{scoreToast.score.toLocaleString()}</span>
+                  {' '}on{' '}
+                  <span className="text-neon-cyan font-bold">{scoreToast.game}</span>!
                 </div>
-              ))}
-              {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
-                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : effectiveLayout === 'vertical' ? (
-          /* Vertical scroll — single column centered */
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
-              {visibleLeaderboards.map(lb => (
-                <div key={lb.gameId} className="relative group/card scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
-                  {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
-                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-0 right-0 z-20 w-11 h-11 inline-flex items-center justify-center bg-transparent border-0 cursor-pointer rounded-full group/submit focus:outline-none">
-                    <span className="w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan group-hover/submit:bg-neon-cyan/20 group-focus/submit:bg-neon-cyan/20 flex items-center justify-center transition-colors backdrop-blur-sm">
-                      <Plus size={16} />
-                    </span>
-                  </button>
-                  {useNewCards ? (
-                    <CardRouter
-                      lb={lb} slug={slug || ''} roomId={roomId}
-                      style={newConfig.style} theme={newConfig.theme}
-                      maxScores={newConfig.maxScores} minScores={newConfig.minScores}
-                      showTimer={newConfig.showTimer}
-                      cardBgFill={newConfig.cardBgFill}
-                      titleFontSize={newConfig.titleFontSize || undefined}
-                      viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
-                      qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
-                      qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx}
-                      gameTitleStyle={newConfig.gameTitleStyle}
-                      onSubmitScore={(lb) => setSelectedGame(lb)}
-                      titleLinkTo={linkForTournamentCard(lb)} titleLinkOnClick={handleTitleClick(lb)}
-                    />
-                  ) : (
-                    <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
-                  )}
-                </div>
-              ))}
-              {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
-                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          /* Horizontal scroll (default for Banner, also available for others) */
-          <div className="flex-1 min-w-0">
-            <HorizontalScrollNav className="-mx-4 sm:-mx-6 scoreboard-hscroll-layout">
-              <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
-                {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="flex-shrink-0 relative group/card scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>
-                    {/* v2.2.8: overlay Link removed — title is a Link inside CardRouter instead. */}
-                    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedGame(lb); }} aria-label={`Submit score for ${lb.displayName || lb.gameName}`} title="Submit score" className="absolute top-2 right-2 z-20 w-9 h-9 rounded-full bg-surface/90 border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/20 focus:bg-neon-cyan/20 flex items-center justify-center transition-colors cursor-pointer backdrop-blur-sm">
-                      <Plus size={16} />
-                    </button>
-                    {useNewCards ? (
-                      <CardRouter
-                        lb={lb} slug={slug || ''} roomId={roomId}
-                        style={newConfig.style} theme={newConfig.theme}
-                        maxScores={newConfig.maxScores} minScores={newConfig.minScores}
-                        showTimer={newConfig.showTimer}
-                        cardBgFill={newConfig.cardBgFill}
-                        titleFontSize={newConfig.titleFontSize || undefined}
-                        viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
-                        qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
-                        qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx}
-                        gameTitleStyle={newConfig.gameTitleStyle}
-                        onSubmitScore={(lb) => setSelectedGame(lb)}
-                        titleLinkTo={linkForTournamentCard(lb)} titleLinkOnClick={handleTitleClick(lb)}
-                      />
-                    ) : (
-                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} onSubmitScore={(lb) => setSelectedGame(lb)} cardOpacity={cardOpacity} scoreColumns={scoreColumns} viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry} qrMode={qrMode === 'all' ? 'all' : 'disabled'} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
-                    )}
-                  </div>
-                ))}
-                {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                  <div key={`rank-${group.id}`} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, marginBottom: cardMarginBottom || undefined }}>
-                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
-                  </div>
-                ))}
               </div>
-            </HorizontalScrollNav>
+            )}
+          </>
+        }
+        headerExtras={
+          <>
+            {/* Tab toggle — Tournaments | Room Scores | Global (F2 3-tab unification) */}
+            <div className="flex justify-center gap-1 pb-1" role="tablist" aria-label="Leaderboard tabs">
+              {/* s20: outer button carries the ≥44px hit area; inner span keeps the
+                  original compact tab-chip visual. */}
+              {(['tournaments', 'room', 'global'] as const).map(t => (
+                <button
+                  key={t}
+                  role="tab"
+                  aria-selected={tab === t}
+                  onClick={() => selectTab(t)}
+                  className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
+                >
+                  <span className={`px-3 py-1 text-xs rounded-lg border transition-colors ${
+                    tab === t
+                      ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
+                      : 'border-border/50 text-muted hover:text-primary'
+                  }`}>
+                    {TAB_LABELS[t]}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="text-center text-[11px] text-faint pb-3">{tabSubtitle(tab, roomName)}</p>
+          </>
+        }
+        aboveCards={
+          /* Tournament search (reserved slot matches All Games tab for layout stability) */
+          <div className="px-4 sm:px-6">
+            <div className="max-w-md mx-auto mb-4">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                <input
+                  type="text"
+                  placeholder="Search active games..."
+                  value={tournamentSearch}
+                  onChange={e => setTournamentSearch(e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 rounded-lg border border-border/50 bg-surface text-primary placeholder:text-muted focus:outline-none focus:border-neon-cyan/40 text-sm"
+                  aria-label="Search active games"
+                />
+              </div>
+            </div>
           </div>
-        )}
-
-        {/* Rankings: right position (only when sticky/separate) */}
-        {!inlineRankings && rankingsPosition === 'right' && rankingGroups.length > 0 && (
-          <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
-        )}
-      </div>
-
-      {/* Rankings: bottom position (only when sticky/separate) */}
-      {!inlineRankings && rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
-        <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} />
-      )}
-
-      </div>{/* end game cards */}
-      </>
-      )}
-      </div>{/* end scrollable */}
+        }
+        contentOverride={
+          tab === 'room' ? (
+            <RoomScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
+          ) : tab === 'global' ? (
+            <GlobalScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
+          ) : undefined
+        }
+      />
 
       {/* v2.13.12 — game quick-view modal (lightweight preview triggered by
           title click on tournament cards). Falls through to GameDetail via
@@ -676,6 +313,6 @@ export default function Scoreboard() {
           }}
         />
       )}
-    </div>
+    </>
   );
 }

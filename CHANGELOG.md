@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.85.0] — unreleased
+
+**Admin Leaderboard: controls off the titles + WYSIWYG scoreboard mirror** (owner-reported UX bug 2026-08-07 + owner mandate 2026-08-08: "admins see exactly the same scoreboard the players see").
+
+### Changed
+- **The room-admin Leaderboard page now renders the public scoreboard's exact surface.** The public page's entire render block (page-local `<style>` incl. the mobile-scale/vertical/zoom classes, title/logo header, bg layer with opacity + header-offset, grid/vertical/scroll layouts, banner-forces-scroll rule, `HorizontalScrollNav`, QR overhang reservation, rankings placement with style/sticky/opacity, legacy-GameCard-vs-CardRouter dispatch with the full prop set) was extracted into **`components/scoreboard/ScoreboardSurface.tsx`**; `Scoreboard.tsx` and `Leaderboard.tsx` both consume it, with all config derivation (`deriveScoreboardConfig`/`deriveCardProps`/`getCardWidth`/`qrBottomMetrics`) owned by the surface so callers cannot diverge. Public page verified behavior-identical (parity test asserts the admin card's outerHTML equals the public one). Closes ~40 documented divergences: admin previously rendered a players-never-see `AdminGameCard` on the no-style path (now DELETED), dropped QR/timer/title-style/score-expand props, lacked vertical layout + banner-forces-scroll + mobile scaling entirely, re-implemented `deriveCardProps` with drift, and ignored `SCOREBOARD_LOGO_ENABLED`/`SCOREBOARD_BG_OPACITY`/`SCOREBOARD_CARD_OPACITY`. Admin mirrors a fresh anonymous viewer (room defaults); submit `+` buttons omitted (overlay-positioned — no layout shift). Kiosk untouched (still on its own copy — follow-up).
+- **Room public theme on the admin surface.** The admin page renders in the admin's personal theme, but the embedded scoreboard now renders under the room's `public_theme` via a subtree theme scope: new generated `.sb-theme-scope` class in `index.css` restates the default-theme tokens (the dark default has no class), so `sb-theme-scope theme-<room>` re-scopes every themed token for the surface only. `themeScopeParity.test.ts` regenerates the block from `@theme` and fails on drift.
+- **Edit controls moved off the card titles.** The hover overlay (always-visible on touch, covering titles — and silently duplicating the legacy card's own inline cluster) is deleted; one always-visible `AdminControlsStrip` (Name / Notes / Style / Scores / Remove) renders as a flush rounded bar under every card in every layout branch, borrowing the card's tournament border color. Buttons keyboard-focusable; trash gained an accessible name.
+- **Title interaction parity:** admin card titles are the same links the public page renders — plain click opens `GameQuickView`, modified clicks open the full game page — via shared factories extracted to `components/scoreboard/tournamentCardTitle.ts` (both pages import the same functions).
+- Admin page now listens for `game:rotated` (previously stale after rotations).
+
+### Added
+- **Verified checkmark on the admin Leaderboard** (deferred v2.78.0 follow-up) — arrives structurally: the admin page now renders the public cards, which already show it.
+- First test coverage for the admin Leaderboard page: `LeaderboardAdminControls.test.tsx` (strip/no-overlay/theme-scope, 8 tests) + `ScoreboardWysiwygParity.test.tsx` (17 tests asserting the WYSIWYG contract per style, incl. title-element parity guards proven to fail on prop removal).
+
+**Found, not fixed (ROADMAP):** the public legacy `GameCard` truncates long titles with an ellipsis — a pre-existing violation of the no-ellipsis rule on the no-style path only (Banner/Showcase/Minimal wrap). Left untouched because the public look is this pass's spec; needs its own small player-facing change.
+
 ## [2.84.0] — unreleased
 
 **Picks page: filters, tags & search** (owner-asked 2026-08-06, ROADMAP dedicated-session item; the companion "suspected eligibility bug" resolved as working-as-designed — the owner's tournament re-save upgraded its stored legacy rules to the two-axis shape).
