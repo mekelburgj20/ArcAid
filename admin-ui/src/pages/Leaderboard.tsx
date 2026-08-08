@@ -12,6 +12,7 @@ import NeonButton from '../components/NeonButton';
 import GameQuickView from '../components/GameQuickView';
 import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
 import { tournamentCardTitleLink, tournamentCardTitleClick } from '../components/scoreboard/tournamentCardTitle';
+import { ADMIN_CARD_CHROME_Z_INDEX } from '../components/scoreboard/cardStacking';
 import { getTournamentBorderColor } from '../components/ScoreboardComponents';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
 
@@ -426,7 +427,14 @@ export default function Leaderboard() {
  *  this strip attaches to now comes from the public rendering path, where radii
  *  vary by style and theme (8px on banner/minimal, 16-20px on the showcase
  *  themes). Flush is correct at ANY radius, and the strip still reads as part
- *  of the card above it via the matching tournament-coloured border. */
+ *  of the card above it via the matching tournament-coloured border.
+ *
+ *  v2.85.1 — the strip also has to out-rank the card's bottom-anchored QR
+ *  overlay, which hangs down across exactly this band and was covering (and
+ *  swallowing the clicks for) the Name/Style buttons. Hence the explicit
+ *  `ADMIN_CARD_CHROME_Z_INDEX`; see `cardStacking.ts` for the stacking-context
+ *  analysis. The QR stays visible behind the strip, which is what the owner
+ *  asked for — an admin needs to SEE the QR, not scan it. */
 function AdminControlsStrip({ lb, onStyleClick, onEditDisplayName, onDeleteGame, onEditNotes, onManageScores }: {
   lb: GameLeaderboard;
   onStyleClick: (lb: GameLeaderboard) => void;
@@ -436,10 +444,14 @@ function AdminControlsStrip({ lb, onStyleClick, onEditDisplayName, onDeleteGame,
   onManageScores: (lb: GameLeaderboard) => void;
 }) {
   const borderColor = getTournamentBorderColor(lb.tournamentType);
+  // The z-index is inline rather than a Tailwind class so it can be read back
+  // and compared numerically against the card's QR overlay at runtime — see
+  // `cardStacking.ts` and the stacking test in LeaderboardAdminControls.
   return (
     <div
       data-testid="admin-card-controls"
-      className={`relative z-10 flex-shrink-0 min-w-0 flex flex-wrap items-center justify-center gap-1 border-2 ${borderColor} bg-raised px-2 mt-1 py-1.5 rounded-lg`}
+      style={{ zIndex: ADMIN_CARD_CHROME_Z_INDEX }}
+      className={`relative flex-shrink-0 min-w-0 flex flex-wrap items-center justify-center gap-1 border-2 ${borderColor} bg-raised px-2 mt-1 py-1.5 rounded-lg`}
     >
       <NeonButton variant="ghost" onClick={() => onEditDisplayName(lb)} className="text-[10px] px-1.5 py-0.5" title="Edit display name">
         <Pencil size={11} /> Name

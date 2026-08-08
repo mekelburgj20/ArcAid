@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.85.1] — unreleased
+
+**Hotfix: admin controls strip now paints above QR codes** (owner-reported on prod ~1h after v2.85.0).
+
+### Fixed
+- On the admin Leaderboard, a bottom-center-positioned QR code's overhang painted OVER the controls strip and swallowed its clicks (browser hit-test confirmed: the Notes button's click landed on the QR `<canvas>`). Root cause: QR overlay (`z-index: 15`) and strip (`z-10`) shared one stacking context — `position: relative` + `z-index: auto` on the card root doesn't isolate. Fix: new `components/scoreboard/cardStacking.ts` states the coupling from both ends (`CARD_QR_Z_INDEX = 15`, `ADMIN_CARD_CHROME_Z_INDEX = 20`); the strip carries the inline z-index. QR stays fully visible behind the strip (admins see the design; scanning it on the admin page is a non-goal — owner decision). Public page untouched by construction (no strip there). Regression test asserts strip-z > QR-z AND that no ancestor establishes an intervening stacking context (the numeric compare is meaningless otherwise); new harness case `pair7-qr-bottom` covers bottom-center QR — the original QR pair used the default top-right position, which is why this escaped.
+
 ## [2.85.0] — unreleased
 
 **Admin Leaderboard: controls off the titles + WYSIWYG scoreboard mirror** (owner-reported UX bug 2026-08-07 + owner mandate 2026-08-08: "admins see exactly the same scoreboard the players see").
