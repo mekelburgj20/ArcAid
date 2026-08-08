@@ -42,6 +42,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import {
     passesplatformRules, parsePlatformsList, parseTournamentRules,
     hasAnyPlatformRules, legacyPlatformsForEngine, deviceMatchTokens,
+    emptyTournamentRules, type TournamentRules,
 } from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
@@ -511,10 +512,29 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
         const lookbackString = lookbackDate.toISOString();
 
         // Get all approved catalogue games filtered by tournament platform rules.
-        let platformFilter = '';
-        const platformParams: string[] = [];
+        //
+        // v2.84.0 — the SQL is a PRE-filter; `passesplatformRules` below is the
+        // authority. Parity with POST /pick-game and the Discord `/pick-game`
+        // autocomplete, both of which gate on catalogue platforms ∪ the room's
+        // game tags: a tag lives in `room_game_tags`, outside `global_games`, so
+        // a game qualifying ONLY through a tag cannot be expressed in the
+        // catalogue WHERE clause. Before this, such a game was missing from the
+        // web Picks list even though picking it succeeded.
+        //
+        // The `required` clauses therefore go into `requiredFilter` (widened by
+        // the room's tagged game names below, so SQL can only ever return a
+        // SUPERSET of the JS answer), while `excludedFilter` stays applied
+        // unconditionally — `excluded` is a submission-level filter that
+        // `passesplatformRules` deliberately ignores (ADR 0009), and this
+        // endpoint's long-standing quirk of hiding excluded-platform games is
+        // preserved exactly.
+        let rules: TournamentRules = emptyTournamentRules();
+        let requiredFilter = '';
+        let excludedFilter = '';
+        const requiredParams: string[] = [];
+        const excludedParams: string[] = [];
         try {
-            const rules = parseTournamentRules(tournament);
+            rules = parseTournamentRules(tournament);
             // v2.58.0 (ADR 0016) — exact JSON membership instead of `LIKE '%p%'`.
             //
             // `gg.platforms` is a JSON array, and raw substring matching read it
@@ -550,12 +570,12 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                 WHERE LOWER(je.value) IN (${tokens.map(() => '?').join(',')})
             )`;
             /** One rule token → its match clause, plus the params it binds. */
-            const clauseFor = (sets: Array<[string, string[]]>): string | null => {
+            const clauseFor = (sets: Array<[string, string[]]>, params: string[]): string | null => {
                 const parts: string[] = [];
                 for (const [column, tokens] of sets) {
                     if (tokens.length === 0) continue;
                     parts.push(membership(column, tokens));
-                    platformParams.push(...tokens);
+                    params.push(...tokens);
                 }
                 return parts.length > 0 ? `(${parts.join(' OR ')})` : null;
             };
@@ -569,15 +589,15 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                 if (values.length === 0) return;
                 const clauses: string[] = [];
                 for (const v of values) {
-                    const clause = clauseFor(sets(v));
+                    const clause = clauseFor(sets(v), requiredParams);
                     if (clause) clauses.push(clause);
                 }
-                if (clauses.length > 0) platformFilter += ` AND (${clauses.join(' OR ')})`;
+                if (clauses.length > 0) requiredFilter += ` AND (${clauses.join(' OR ')})`;
             };
             const addExcluded = (values: string[], sets: (v: string) => Array<[string, string[]]>) => {
                 for (const v of values) {
-                    const clause = clauseFor(sets(v));
-                    if (clause) platformFilter += ` AND NOT ${clause}`;
+                    const clause = clauseFor(sets(v), excludedParams);
+                    if (clause) excludedFilter += ` AND NOT ${clause}`;
                 }
             };
             addRequired(rules.engines.required, engineSets);
@@ -586,13 +606,61 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             addExcluded(rules.devices.excluded, deviceSets);
         } catch { /* no platform filtering */ }
 
-        const libraryGames = await db.all(`
-            SELECT MIN(gg.name) AS name
+        // This room's per-game tag map (name-keyed, ONE query — the same batched
+        // helper the Discord autocomplete and autopick use). Feeds both the
+        // eligibility union and the `room_tags` field on every row.
+        const tagMap = await RoomGameTagsService.getTagMapByGameNameForRoom(roomId);
+        // Stored catalogue paths → public HTTP URLs. The one helper every other
+        // image-shipping read path uses (LeaderboardService, RoomScoresService,
+        // DashboardService, ogMeta) — never re-derive the mapping locally.
+        const { normalizeImageUrl } = await import('../../services/LeaderboardService.js');
+
+        // Widen the candidate set by the room's tagged game names so a game that
+        // qualifies only through a tag survives the SQL pre-filter and reaches
+        // the JS gate. Skipped when there are no `required` clauses (everything
+        // already matches) or the room has no tags.
+        let candidateFilter = requiredFilter;
+        const candidateParams: string[] = [...requiredParams];
+        if (requiredFilter && tagMap.size > 0) {
+            const taggedNames = [...tagMap.keys()];
+            candidateFilter = ` AND ((1 = 1${requiredFilter}) OR LOWER(gg.name) IN (${taggedNames.map(() => '?').join(',')}))`;
+            candidateParams.push(...taggedNames);
+        }
+
+        // `MIN(...)` per column mirrors the Discord autocomplete / autopick
+        // catalogue read (pickgame.ts, TimeoutManager): the GROUP BY collapses
+        // catalogue variants of one name and a single row has to stand for it.
+        //
+        // `MIN(COALESCE(local_image_path, wheel_image_path, image_url))` applies
+        // the catalogue's image precedence per ROW first, so the winning value
+        // is one row's art rather than a mix — and, MIN skipping NULLs, a
+        // variant that HAS art still supplies it for the whole name group.
+        const catalogueRows = await db.all(`
+            SELECT MIN(gg.name) AS name,
+                   MIN(gg.id) AS global_game_id,
+                   MIN(gg.type) AS mode,
+                   MIN(gg.manufacturer) AS manufacturer,
+                   MIN(gg.year) AS year,
+                   MIN(gg.platforms) AS platforms,
+                   MIN(gg.features) AS features,
+                   MIN(COALESCE(gg.local_image_path, gg.wheel_image_path, gg.image_url)) AS image_url
             FROM global_games gg
-            WHERE gg.status = 'approved'${platformFilter}
+            WHERE gg.status = 'approved'${candidateFilter}${excludedFilter}
             GROUP BY LOWER(gg.name)
             ORDER BY name
-        `, ...platformParams);
+        `, ...candidateParams, ...excludedParams);
+
+        // The authoritative gate — identical to pickgame.ts's autocomplete
+        // filter: tournament mode, then platform rules over catalogue ∪ room
+        // tags with `features` carrying the device axis (ADR 0016 §4).
+        const libraryGames = catalogueRows.filter((r: any) => {
+            if (tournament.mode && r.mode !== tournament.mode) return false;
+            const cataloguePlatforms = parsePlatformsList(r.platforms || '[]');
+            const tags = tagMap.get(String(r.name).toLowerCase()) ?? [];
+            return passesplatformRules(
+                [...cataloguePlatforms, ...tags], rules, parsePlatformsList(r.features || '[]'),
+            );
+        });
 
         // Get recently played games in this tournament within the lookback window
         const recentGames = await db.all(`
@@ -658,6 +726,20 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
             const highScore = highScoreMap.get(key) ||
                 [...highScoreMap.entries()].find(([k]) => k.startsWith(key + ' ') || key.startsWith(k + ' '))?.[1];
 
+            // Catalogue metadata + this room's tags, so the Picks page can
+            // render tag chips, filter/search entirely client-side, and open a
+            // GameQuickView (which needs the catalogue id and its art). Purely
+            // additive — every pre-existing field keeps its name and meaning.
+            const meta = {
+                global_game_id: lg.global_game_id,
+                image_url: normalizeImageUrl(lg.image_url),
+                manufacturer: lg.manufacturer ?? null,
+                year: lg.year ?? null,
+                platforms: parsePlatformsList(lg.platforms || '[]'),
+                features: parsePlatformsList(lg.features || '[]'),
+                room_tags: tagMap.get(key) ?? [],
+            };
+
             if (recent) {
                 const playedDate = new Date(recent.playedDate);
                 const availableDate = new Date(playedDate);
@@ -675,6 +757,7 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                     winnerScore: recent.winnerScore,
                     allTimeHigh: highScore?.score ?? null,
                     allTimeHighPlayer: highScore?.player ?? null,
+                    ...meta,
                 };
             }
 
@@ -689,6 +772,7 @@ router.get('/:roomId/game-availability/:tournamentId', async (req, res) => {
                 winnerScore: null,
                 allTimeHigh: highScore?.score ?? null,
                 allTimeHighPlayer: highScore?.player ?? null,
+                ...meta,
             };
         });
 

@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.84.0] — unreleased
+
+**Picks page: filters, tags & search** (owner-asked 2026-08-06, ROADMAP dedicated-session item; the companion "suspected eligibility bug" resolved as working-as-designed — the owner's tournament re-save upgraded its stored legacy rules to the two-axis shape).
+
+### Added
+- **Picks page player filtering** (`Picks.tsx`): engine filter pills (single-select `All | <engines present>`, derived from each game's `platforms ∪ room_tags`, hidden when the tournament spans only one engine); per-game platform chips + `manufacturer · year` line on desktop rows and mobile cards; search widened from title-only to title / manufacturer / year / platform-label matching, with an "X of Y games" count line while any filter is active. Availability cards, engine pill, and search compose as AND.
+- **Title click → quick-view popup**: game titles open `GameQuickView` (artwork, self-fetched `manufacturer · year · platform` subtitle, single All-Time High stat + player, View-full-info + Global Scoreboard links) instead of navigating — scroll position and active filters survive close. Ctrl/cmd/shift/middle-click still opens the full detail page in a new tab. `GameQuickView` gained an additive presentational mode (`QuickViewTarget` structural prop + optional `highlightStat`; `rankings` now optional) — the three existing call sites are behaviorally unchanged; a stat-less game shows no body section rather than a false "No scores yet".
+- **`GET /:roomId/game-availability/:tournamentId` rows enriched** (additive, 10 → 17 keys): `manufacturer`, `year`, `platforms`, `features`, `room_tags`, `global_game_id`, `image_url` (normalized via the `LeaderboardService.normalizeImageUrl` precedence `local → wheel → image_url`). Envelope + existing fields byte-compatible (MysteryAwardPage unaffected).
+
+### Fixed
+- **Web pick-list eligibility parity.** The availability endpoint previously applied neither the room-tag UNION nor the tournament-mode filter that `POST /pick-game` and the Discord `/pick-game` autocomplete both apply — so the web list could show a game that picking would then reject, and omit a game qualifying only via room tags. The SQL platform filter is now a superset pre-filter (required-clause branch widened with the room's tagged names) and the authoritative gate is the same JS `passesplatformRules([...platforms, ...room_tags], rules, features)` + mode check the Discord path uses. The endpoint's deliberate stricter-excluded behavior (ADR 0009 divergence, test-pinned) is preserved.
+
+### Changed
+- `PlatformChips` extracted from `GameLibrary.tsx` to `admin-ui/src/components/PlatformChips.tsx` (render there byte-identical). New `uniformStyle` mode used on Picks renders room tags in the same cyan family as platform chips, deduped by label — the amber room-vs-catalogue provenance treatment stays admin-only.
+- Picks Pick buttons moved to `neon-purple` (page-unique; theme-token, all 16 themes); mobile game rows became separated bordered cards with the Pick button centered at the card foot; cooldown durations carry a muted "cooldown" caption.
+
+**Found, not fixed (ROADMAP):** `tournaments.mode` (`videogame`) never string-matches `global_games.type` (`video_game`/`arcade`) at ANY pick surface (web, Discord, autopick) — pre-existing; video-game tournaments have always matched zero catalogue games. The new parity filter makes this visible as an empty web list instead of a silently-wrong one.
+
 ## [2.83.0] — unreleased
 
 **My Stats: overall-best semantics** (owner revision 2026-08-07 after using v2.82.0).
