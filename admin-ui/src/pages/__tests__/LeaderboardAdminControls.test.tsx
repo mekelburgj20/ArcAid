@@ -215,6 +215,66 @@ describe('Leaderboard admin card controls (legacy card path)', () => {
     });
   });
 
+  /**
+   * v2.85.1 — a bottom-anchored QR overlay hangs down across the strip's band.
+   * It used to paint (and hit-test) ABOVE the strip, hiding the Name/Style
+   * buttons and eating their clicks: nothing between the two creates a
+   * stacking context, so the QR's z-index simply beat the strip's.
+   *
+   * jsdom computes no paint order, so this asserts the thing paint order is
+   * DERIVED from — the two z-indexes and the absence of an isolating ancestor
+   * between them. That is precisely the pair a future change would break, from
+   * either side. The visual result was verified by screenshot; see the branch
+   * report.
+   */
+  it('paints the controls strip above the card QR overlay', async () => {
+    stubFetch({
+      SCOREBOARD_STYLE: 'banner',
+      SCOREBOARD_QR_MODE: 'all',
+      SCOREBOARD_QR_POSITION: 'bottom-center',
+    });
+    const { container } = renderLeaderboard();
+
+    const strip = await screen.findByTestId('admin-card-controls');
+
+    // The QR overlay is the absolutely-positioned box carrying its own
+    // z-index; it is the only such box inside the card.
+    const qr = container.querySelector('canvas')?.parentElement as HTMLElement;
+    expect(qr, 'expected a QR overlay to render for this config').toBeTruthy();
+    expect(qr.style.position).toBe('absolute');
+
+    const qrZ = Number(qr.style.zIndex);
+    const stripZ = Number(strip.style.zIndex);
+    expect(Number.isFinite(qrZ) && qrZ > 0).toBe(true);
+    expect(Number.isFinite(stripZ) && stripZ > 0).toBe(true);
+    expect(stripZ).toBeGreaterThan(qrZ);
+
+    // ...and the comparison is meaningful only while the two share a stacking
+    // context. Any ancestor between the QR and the strip that established one
+    // would trap the QR and make the numbers unrelated — fine for THIS bug,
+    // but it would mean this test had stopped testing anything.
+    const column = strip.parentElement as HTMLElement;
+    expect(column.contains(qr)).toBe(true);
+    for (let el = qr.parentElement; el && el !== column; el = el.parentElement) {
+      expect(el.style.zIndex, `${el.className} must not establish a stacking context`).toBe('');
+      expect(el.style.isolation ?? '').not.toBe('isolate');
+    }
+  });
+
+  it('keeps the QR visible rather than hiding it behind the strip', async () => {
+    // The owner's requirement is specifically that the QR still RENDERS — an
+    // admin previews what the card looks like with one. Fixing the overlap by
+    // suppressing the QR on admin would be the wrong fix.
+    stubFetch({
+      SCOREBOARD_STYLE: 'banner',
+      SCOREBOARD_QR_MODE: 'all',
+      SCOREBOARD_QR_POSITION: 'bottom-center',
+    });
+    const { container } = renderLeaderboard();
+    await screen.findByTestId('admin-card-controls');
+    expect(container.querySelectorAll('canvas')).toHaveLength(1);
+  });
+
   it('flags a verified score and only a verified score', async () => {
     stubFetch();
     renderLeaderboard();

@@ -136,6 +136,27 @@ Both parts closed:
 1. **Feature SHIPPED** — engine filter pills + platform/room-tag chips + manufacturer·year line + multi-field search on the Picks page, plus title-click GameQuickView popup (presentational mode) that preserves scroll/filters. The `game-availability` endpoint rows are enriched 10→17 keys (additive). Design calls made in-session: the pick list itself is the surface (no modal browser); chips via the extracted shared `PlatformChips`; Discord `/pick-game` autocomplete parity deliberately deferred (typed autocomplete already filters naturally). See CHANGELOG v2.84.0.
 2. **Suspected bug RESOLVED as working-as-designed (owner-confirmed 2026-08-07)** — the owner's tournament predated the two-axis rules shape; re-saving it upgraded the stored legacy rules and the list corrected itself (the documented read-time-lift + re-save-to-upgrade behavior). BUT the investigation surfaced two REAL divergences, both fixed in v2.84.0: the web availability list applied neither the room-tag UNION nor the tournament-mode filter that `POST /pick-game` + Discord autocomplete apply. The web list now routes through the same `passesplatformRules` gate. Remove this entry on a future sweep.
 
+### Scores page header: compress vertical space, spread controls horizontally (owner-asked 2026-08-08, screenshots reviewed in-session)
+
+**Goal (owner, verbatim in substance): bring the score cards as high up the page as possible — fully visible on landing without scrolling — by spreading the header elements (text, chips, search) horizontally instead of stacking them.** Applies identically to all three Scores tabs (Tournaments / Room Scores / Global).
+
+Owner's concrete spec: left-align the "Search active games" bar; bring the Tournaments/Room Scores/Global chips down onto the SAME row as the search bar (horizontally adjacent, vertically centered). Owner is open to suggestions beyond that.
+
+Current vertical stack per screenshots: room logo+title header → centered tab chips → subtitle line ("Active competitions" / "Every score set in <room>" / "Top scores across every Arcaid room") → centered search bar → tab-specific extras (Room Scores: Recent/A–Z/Most-played sort chips + "18 games · Manage the game library" line; Global: full-width "Global Scoreboard" banner row + count line) → cards. That's 4-6 stacked rows before content.
+
+Suggestions to bring to the session (Fable, 2026-08-08):
+- One control row: search left, tab chips center/right on the same line; the subtitle line becomes redundant (the active chip already names the view) — drop it or tuck it as a muted inline caption; keep copy available as a tooltip if wanted.
+- Room Scores tab: fold the sort chips + game-count + "Manage the game library →" into the right side of the same row (wraps to a second row only on narrow widths).
+- Global tab: the full-width "Global Scoreboard" banner row collapses to a right-aligned "See the full Global Scoreboard →" link on the control row.
+- The room logo+title header is the single biggest vertical consumer — out of the owner's stated scope, but worth asking: shrink it, or offer an admin "compact header" toggle.
+- Mobile: the single row wraps (chips row + search row) — never horizontal page scroll.
+
+Implementation note: post-v2.85.0 this chrome is `Scoreboard.tsx` page-level content injected into `ScoreboardSurface` slots (`headerExtras`/`aboveCards`), with the logo/title header inside the surface — one edit point, and the admin Leaderboard (WYSIWYG) inherits automatically. Room/Global tab sub-chrome lives in `RoomScoresView`/`GlobalScoresView`. Kiosk unaffected. Screenshot-loop feature; small/medium slot.
+
+### Ranking-card styling: admin-applied backgrounds (owner-asked 2026-08-08)
+
+Let room admins style the Rank Card (ranking-group) cards the way game cards can be styled — specifically: apply a background image to a ranking card if they desire. Context for the session that picks this up: game cards get backgrounds via the style-catalogue overlay (`bg_style_id`/`catalogue_style_id` on `games` + `game_room_game_library`, resolved as `effectiveBgId = bgStyleId || catalogueStyleId`), but `RankingGroupCard` has NO style hook at all — its four treatments (`SCOREBOARD_RANKINGS_STYLE`: match-scoreboard / plaque / compact / sidebar) are layout variants, not skins. Design questions: where the style assignment lives (`ranking_groups` column vs a room-settings JSON key vs reusing the style-catalogue picker UI from the admin Leaderboard's new Style button), whether it's per-ranking-group or one room-wide setting, and how a bg interacts with each of the four treatments (sidebar/compact are small — bg may only make sense on match-scoreboard/plaque). The admin Leaderboard is WYSIWYG as of v2.85.0, so whatever ships is instantly previewable there. Small/medium slot once designed.
+
 ### Brand casing: "Arcaid" not "ArcAid" (decision 2026-07-25)
 
 Standardize prose/UI strings on "Arcaid" (logo wordmark is stylized all-caps ARCAID — unaffected). Sweep UI strings + docs in a cleanup pass; new text uses "Arcaid" from now on. Domain/repo/package names untouched.
