@@ -1,14 +1,24 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Star, Crosshair, X } from 'lucide-react';
+import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Star, Crosshair, X, Search } from 'lucide-react';
 import MysteryAward from '../components/MysteryAward';
 import PickGameModal from '../components/PickGameModal';
 import LoginButtons from '../components/LoginButtons';
+import PlatformChips from '../components/PlatformChips';
+import GameQuickView from '../components/GameQuickView';
 import { MysteryAwardIcon } from '../assets/icons/ThemedIcons';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useToast } from '../components/Toast';
 import { getPortal } from '../lib/portal';
+import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
+import {
+  UNKNOWN,
+  enginesFromLegacyPlatforms,
+  getEngineShortLabel,
+  getLegacyPlatformLabel,
+  isCanonicalEngine,
+} from '../lib/scoreProvenance';
 
 interface GameAvailabilityEntry {
   name: string;
@@ -21,6 +31,59 @@ interface GameAvailabilityEntry {
   winnerScore: number | null;
   allTimeHigh: number | null;
   allTimeHighPlayer: string | null;
+  /** Catalogue metadata (v2.84.0) — additive, absent on responses from an older server. */
+  manufacturer?: string | null;
+  year?: number | null;
+  /** Catalogue engine ids (post-v2.62 taxonomy; legacy ids still possible on old rows). */
+  platforms?: string[];
+  /** Availability facts (`atgames`, `vr`, `vpxs`, …) — carried but not rendered, see note below. */
+  features?: string[];
+  /** This room's per-game tags (ADR 0008). */
+  room_tags?: string[];
+  /** Catalogue identity — powers the quick-view popup's metadata fetch + Global Scoreboard link. */
+  global_game_id?: string | null;
+  /** Catalogue artwork, already normalized server-side. */
+  image_url?: string | null;
+}
+
+/**
+ * The engine ids a game denotes, over catalogue platforms ∪ room tags.
+ *
+ * Canonical engine ids pass through untouched (ADR 0016 hazard H-B: running
+ * `fx` through the LEGACY alias table would re-legacy it to `pinball_fx`);
+ * anything else folds through the legacy map. Tokens that denote no engine —
+ * device-only ids like `atgames`, and room-invented tags — contribute nothing,
+ * which is correct for a filter that is explicitly on the ENGINE axis.
+ */
+function engineIdsFor(g: GameAvailabilityEntry): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [...(g.platforms ?? []), ...(g.room_tags ?? [])]) {
+    const token = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+    if (!token) continue;
+    const engines = isCanonicalEngine(token) ? [token] : enginesFromLegacyPlatforms([token]);
+    for (const e of engines) {
+      if (!e || e === UNKNOWN || seen.has(e)) continue;
+      seen.add(e);
+      out.push(e);
+    }
+  }
+  return out;
+}
+
+/**
+ * The chip labels a row renders — so search matches what the eye sees.
+ *
+ * Tags contribute BOTH spellings: the short form the uniform-style chip
+ * actually renders (`getLegacyPlatformLabel`) and the long catalogue name
+ * (`getPlatformDisplay`), so a player typing either "VPX" or "Visual Pinball X"
+ * lands on the same rows. For an unrecognised free-form tag the two agree.
+ */
+function chipLabelsFor(g: GameAvailabilityEntry): string[] {
+  return [
+    ...normalizePlatformList(g.platforms ?? []).map(p => getLegacyPlatformLabel(p)),
+    ...(g.room_tags ?? []).filter(Boolean).flatMap(t => [getLegacyPlatformLabel(t), getPlatformDisplay(t)]),
+  ];
 }
 
 interface TournamentInfo {
@@ -129,7 +192,24 @@ export default function Picks() {
   const [roomLogoUrl, setRoomLogoUrl] = useState<string>('');
   const [filter, setFilter] = useState<'all' | 'available' | 'cooldown'>('all');
   const [search, setSearch] = useState('');
+  /** Engine-axis pill filter. `'all'` = no engine restriction. */
+  const [engineFilter, setEngineFilter] = useState<string>('all');
   const [showPicker, setShowPicker] = useState(false);
+  /**
+   * Quick-view popup subject. Same idiom as Scoreboard/RoomScoresView: the
+   * title stays a real <Link> (focusable, Enter-activatable, ctrl/middle-click
+   * still opens the full page in a new tab) and only a plain left-click is
+   * intercepted. Because it's a popup rather than a navigation, closing it
+   * leaves scroll position and every active filter exactly as they were.
+   */
+  const [quickView, setQuickView] = useState<GameAvailabilityEntry | null>(null);
+  const handleTitleClick = (game: GameAvailabilityEntry) => (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      e.preventDefault();
+      setQuickView(game);
+    }
+  };
 
   // Pick game state
   const { discordUser, playerToken, loginWithDiscord, loginWithGoogle } = useViewerAuth();
@@ -298,12 +378,61 @@ export default function Picks() {
     } catch { fetchPickStatus(); }
   };
 
-  const filteredGames = data?.games.filter(g => {
-    if (filter === 'available' && !g.available) return false;
-    if (filter === 'cooldown' && g.available) return false;
-    if (search && !g.name.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  }) ?? [];
+  /**
+   * Per-game derived index: the engine ids it denotes and one lowercase
+   * haystack covering everything the row shows (name, manufacturer, year, and
+   * its chip labels). Built once per payload so typing doesn't re-fold the
+   * taxonomy for every keystroke × game.
+   *
+   * `features` is deliberately NOT in the haystack: those tokens aren't
+   * rendered as chips, and matching on something invisible makes the result
+   * list look wrong.
+   */
+  const gameIndex = useMemo(() => {
+    const index = new Map<string, { engines: string[]; haystack: string }>();
+    for (const g of data?.games ?? []) {
+      index.set(g.name, {
+        engines: engineIdsFor(g),
+        haystack: [
+          g.name,
+          g.manufacturer ?? '',
+          g.year != null ? String(g.year) : '',
+          ...chipLabelsFor(g),
+        ].join(' ').toLowerCase(),
+      });
+    }
+    return index;
+  }, [data]);
+
+  /**
+   * Distinct engines present in THIS tournament's list. One pill each, plus
+   * "All". Hidden entirely below two options — a lone pill filters nothing.
+   */
+  const engineOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const entry of gameIndex.values()) {
+      for (const e of entry.engines) seen.add(e);
+    }
+    return [...seen]
+      .map(id => ({ id, label: getEngineShortLabel(id) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [gameIndex]);
+
+  // Switching tournaments can drop the engine the pill selected. Falling back
+  // to 'all' beats rendering an empty list under a pill that no longer exists.
+  const activeEngine = engineOptions.some(e => e.id === engineFilter) ? engineFilter : 'all';
+
+  const filteredGames = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (data?.games ?? []).filter(g => {
+      if (filter === 'available' && !g.available) return false;
+      if (filter === 'cooldown' && g.available) return false;
+      const entry = gameIndex.get(g.name);
+      if (activeEngine !== 'all' && !(entry?.engines ?? []).includes(activeEngine)) return false;
+      if (q && !(entry?.haystack ?? g.name.toLowerCase()).includes(q)) return false;
+      return true;
+    });
+  }, [data, filter, activeEngine, search, gameIndex]);
 
   const availableCount = data?.games.filter(g => g.available).length ?? 0;
   const cooldownCount = data?.games.filter(g => !g.available).length ?? 0;
@@ -585,14 +714,60 @@ export default function Picks() {
         </button>
       </div>
 
-      {/* Search */}
-      <input
-        type="text"
-        placeholder="Search games..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-sm text-primary placeholder:text-faint mb-4 focus:outline-none focus:border-neon-cyan/50"
-      />
+      {/* Search — matches name, manufacturer, year and the row's chip labels,
+          so "Bally", "1992" and "VPX" all find something. */}
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Search by title, manufacturer, year, platform..."
+          aria-label="Search games"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full bg-surface border border-border rounded-lg pl-9 pr-4 py-2 text-sm text-primary placeholder:text-faint focus:outline-none focus:border-neon-cyan/50"
+        />
+      </div>
+
+      {/* Engine pills. Single-select, ANDed with the availability cards above
+          and the search below. One engine means nothing to choose between, so
+          the row doesn't render at all. */}
+      {engineOptions.length > 1 && (
+        <div data-testid="picks-engine-pills" className="flex items-center gap-2 flex-wrap mb-3">
+          <button
+            onClick={() => setEngineFilter('all')}
+            aria-pressed={activeEngine === 'all'}
+            className={`px-3 py-1 text-[10px] rounded-full border cursor-pointer transition-colors ${
+              activeEngine === 'all'
+                ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
+                : 'border-border text-muted hover:text-primary'
+            }`}
+          >
+            All
+          </button>
+          {engineOptions.map(opt => (
+            <button
+              key={opt.id}
+              onClick={() => setEngineFilter(activeEngine === opt.id ? 'all' : opt.id)}
+              aria-pressed={activeEngine === opt.id}
+              className={`px-3 py-1 text-[10px] rounded-full border cursor-pointer transition-colors ${
+                activeEngine === opt.id
+                  ? 'bg-neon-cyan/20 border-neon-cyan text-neon-cyan'
+                  : 'border-border text-muted hover:text-primary'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Only while something is narrowing the list — the three cards above
+          already state the unfiltered totals. */}
+      {(search.trim() !== '' || activeEngine !== 'all') && (
+        <p className="text-faint text-xs mb-3">
+          {filteredGames.length} of {totalCount} games
+        </p>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -600,10 +775,14 @@ export default function Picks() {
         </div>
       ) : filteredGames.length === 0 ? (
         <div className="text-center py-16 text-muted">
-          {data ? 'No games match your search.' : 'No game library configured for this tournament.'}
+          {data ? 'No games match your filters.' : 'No game library configured for this tournament.'}
         </div>
       ) : (
-        <div className="bg-surface border border-border rounded-lg overflow-hidden">
+        // Phones get a stack of discrete cards (each with its own panel +
+        // border, separated by a real gap) because a single tall panel with
+        // hairline dividers read as one undifferentiated block. sm+ keeps the
+        // original single panel with row dividers.
+        <div className="flex flex-col gap-3 sm:block sm:gap-0 sm:bg-surface sm:border sm:border-border sm:rounded-lg sm:overflow-hidden">
           {/* Header */}
           <div className={`hidden sm:grid gap-2 px-4 py-2 border-b border-border/50 text-[10px] text-faint uppercase tracking-wider ${
             discordUser ? 'grid-cols-[1fr_100px_110px_140px_120px_60px]' : 'grid-cols-[1fr_100px_110px_140px_120px]'
@@ -618,30 +797,44 @@ export default function Picks() {
           {filteredGames.map((game) => (
             <div
               key={game.name}
-              className="border-b border-border/20 last:border-0"
+              className="sm:border-b sm:border-border/20 sm:last:border-0"
             >
               {/* Desktop row */}
               <div className={`hidden sm:grid gap-2 px-4 py-3 items-center ${
                 discordUser ? 'grid-cols-[1fr_100px_110px_140px_120px_60px]' : 'grid-cols-[1fr_100px_110px_140px_120px]'
               }`}>
-                <div className="flex items-center gap-2 min-w-0">
+                {/* Title never ellipsizes — it wraps. Manufacturer/year and the
+                    platform chips sit under it as quiet identity context. */}
+                <div className="flex flex-col gap-1 min-w-0">
                   <Link
                     to={`/${slug}/games/${encodeURIComponent(game.name)}`}
-                    className="font-medium text-sm truncate no-underline text-primary hover:text-neon-cyan transition-colors"
+                    onClick={handleTitleClick(game)}
+                    className="font-medium text-sm break-words leading-tight no-underline text-primary hover:text-neon-cyan transition-colors"
                   >
                     {game.name}
                   </Link>
+                  {(game.manufacturer || game.year != null) && (
+                    <span className="text-[11px] text-muted break-words leading-tight">
+                      {[game.manufacturer, game.year].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                  <PlatformChips platforms={game.platforms ?? []} roomTags={game.room_tags} dense uniformStyle emptyFallback={null} />
                 </div>
-                <div className="flex items-center justify-center gap-1.5">
+                {/* A bare "12d" doesn't say what the number counts — the
+                    caption names it without stealing the number's weight. */}
+                <div className="flex flex-col items-center justify-center">
                   {game.available ? (
-                    <>
+                    <div className="flex items-center gap-1.5">
                       <CheckCircle size={14} className="text-neon-green flex-shrink-0" />
                       <span className="text-neon-green text-xs font-medium">Available</span>
-                    </>
+                    </div>
                   ) : (
                     <>
-                      <Clock size={14} className="text-neon-amber flex-shrink-0" />
-                      <span className="text-neon-amber text-xs font-medium">{game.daysUntilAvailable}d</span>
+                      <div className="flex items-center gap-1.5">
+                        <Clock size={14} className="text-neon-amber flex-shrink-0" />
+                        <span className="text-neon-amber text-xs font-medium">{game.daysUntilAvailable}d</span>
+                      </div>
+                      <span className="text-faint text-[10px] leading-tight">cooldown</span>
                     </>
                   )}
                 </div>
@@ -683,7 +876,7 @@ export default function Picks() {
                     {game.available ? (
                       <button
                         onClick={() => setPickTarget(game.name)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20 transition-colors cursor-pointer"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border border-neon-purple/40 bg-neon-purple/10 text-neon-purple hover:bg-neon-purple/20 transition-colors cursor-pointer"
                       >
                         <Crosshair size={12} />
                         Pick
@@ -696,24 +889,36 @@ export default function Picks() {
               </div>
 
               {/* Mobile card */}
-              <div className="sm:hidden px-4 py-3">
+              <div className="sm:hidden bg-surface border border-border rounded-lg px-4 py-3">
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <Link
-                    to={`/${slug}/games/${encodeURIComponent(game.name)}`}
-                    className="font-medium text-sm no-underline text-primary hover:text-neon-cyan transition-colors leading-tight"
-                  >
-                    {game.name}
-                  </Link>
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <Link
+                      to={`/${slug}/games/${encodeURIComponent(game.name)}`}
+                      onClick={handleTitleClick(game)}
+                      className="font-medium text-sm break-words no-underline text-primary hover:text-neon-cyan transition-colors leading-tight"
+                    >
+                      {game.name}
+                    </Link>
+                    {(game.manufacturer || game.year != null) && (
+                      <span className="text-[11px] text-muted break-words leading-tight">
+                        {[game.manufacturer, game.year].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
+                    <PlatformChips platforms={game.platforms ?? []} roomTags={game.room_tags} dense uniformStyle emptyFallback={null} />
+                  </div>
+                  <div className="flex flex-col items-end flex-shrink-0">
                     {game.available ? (
-                      <>
+                      <div className="flex items-center gap-1">
                         <CheckCircle size={14} className="text-neon-green" />
                         <span className="text-neon-green text-xs font-medium">Available</span>
-                      </>
+                      </div>
                     ) : (
                       <>
-                        <Clock size={14} className="text-neon-amber" />
-                        <span className="text-neon-amber text-xs font-medium">{game.daysUntilAvailable}d</span>
+                        <div className="flex items-center gap-1">
+                          <Clock size={14} className="text-neon-amber" />
+                          <span className="text-neon-amber text-xs font-medium">{game.daysUntilAvailable}d</span>
+                        </div>
+                        <span className="text-faint text-[10px] leading-tight">cooldown</span>
                       </>
                     )}
                   </div>
@@ -732,19 +937,44 @@ export default function Picks() {
                     <p className="text-primary truncate">{game.winnerName || '--'}</p>
                   </div>
                 </div>
+                {/* Centered on the card's bottom edge — it's the card's one
+                    action, so it reads as a footer rather than another inline
+                    detail competing with the stats grid above it. */}
                 {discordUser && game.available && (
-                  <button
-                    onClick={() => setPickTarget(game.name)}
-                    className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20 transition-colors cursor-pointer"
-                  >
-                    <Crosshair size={12} />
-                    Pick Game
-                  </button>
+                  <div className="mt-3 pt-3 border-t border-border/40 flex justify-center">
+                    <button
+                      onClick={() => setPickTarget(game.name)}
+                      className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded text-[11px] font-medium border border-neon-purple/40 bg-neon-purple/10 text-neon-purple hover:bg-neon-purple/20 transition-colors cursor-pointer"
+                    >
+                      <Crosshair size={12} />
+                      Pick Game
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* Peek at a game to confirm it's the one you meant, then close and pick
+          up exactly where you left off — no navigation, so scroll position and
+          the active filters survive. */}
+      {quickView && (
+        <GameQuickView
+          lb={{
+            gameName: quickView.name,
+            imageUrl: quickView.image_url ?? null,
+            globalGameId: quickView.global_game_id ?? null,
+          }}
+          slug={slug || ''}
+          highlightStat={{
+            label: 'All-Time High',
+            value: quickView.allTimeHigh ?? null,
+            player: quickView.allTimeHighPlayer,
+          }}
+          onClose={() => setQuickView(null)}
+        />
       )}
 
       {showPicker && data && (

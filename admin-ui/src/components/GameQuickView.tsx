@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, ExternalLink } from 'lucide-react';
-import type { GameLeaderboard } from './ScoreboardComponents';
+import { X, ExternalLink, Star } from 'lucide-react';
+import type { RankedEntry } from './ScoreboardComponents';
 import { PlayerAvatar, playerName } from './ScoreboardComponents';
 import { getLegacyPlatformLabel } from '../lib/scoreProvenance';
 
@@ -22,16 +22,52 @@ interface GlobalGameMeta {
   platforms: string[];
 }
 
+/**
+ * What this popup actually reads off its subject.
+ *
+ * v2.84.0 — deliberately NOT `GameLeaderboard`. The component only ever
+ * touched these five fields, so widening the prop to the structural minimum
+ * lets a caller that has no leaderboard at all (the Picks availability list)
+ * open the same popup. `GameLeaderboard` still satisfies this interface
+ * structurally, so the three original call sites pass exactly what they always
+ * did and are unaffected.
+ */
+export interface QuickViewTarget {
+  gameName: string;
+  imageUrl?: string | null;
+  tournamentName?: string | null;
+  globalGameId?: string | null;
+  rankings?: RankedEntry[];
+}
+
+/** A single headline figure shown in place of the top-10 list. */
+export interface QuickViewStat {
+  label: string;
+  /** `null` renders no body at all — see the `highlightStat` prop note. */
+  value: number | null;
+  player?: string | null;
+}
+
 interface Props {
-  lb: GameLeaderboard;
+  lb: QuickViewTarget;
   slug: string;
   /** Tab the user came from. Threaded into "View full info" and "Global Scoreboard"
    *  links so GameDetail's back link returns to the correct tab. */
   fromTab?: string | null;
+  /**
+   * Presentational mode (v2.84.0). Passing this AT ALL replaces the top-10
+   * score list with one compact stat — for callers that know a single figure
+   * about the game but hold no leaderboard.
+   *
+   * A `null` value renders no body section rather than the list's "No scores
+   * yet" copy: that message means "this leaderboard is empty", which would be
+   * a claim this caller never made and cannot support.
+   */
+  highlightStat?: QuickViewStat;
   onClose: () => void;
 }
 
-export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
+export default function GameQuickView({ lb, slug, fromTab, highlightStat, onClose }: Props) {
   const [meta, setMeta] = useState<GlobalGameMeta | null>(null);
   const backdropMouseDown = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -105,7 +141,7 @@ export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
     ? `/games/${lb.globalGameId}?from=${encodeURIComponent(slug)}${fromTab ? `&tab=${fromTab}` : ''}`
     : null;
 
-  const topScores = lb.rankings.slice(0, 10);
+  const topScores = (lb.rankings ?? []).slice(0, 10);
 
   const subtitleParts: string[] = [];
   if (meta?.manufacturer) subtitleParts.push(meta.manufacturer);
@@ -166,7 +202,23 @@ export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
           )}
         </div>
 
-        {/* Top scores */}
+        {/* Body: one headline stat in presentational mode, else the top-10. */}
+        {highlightStat !== undefined ? (
+          highlightStat.value != null && (
+            <div className="px-5 py-4">
+              <p className="text-[10px] uppercase tracking-wider text-faint">{highlightStat.label}</p>
+              <div className="flex items-baseline gap-2 mt-1.5">
+                <Star size={14} className="text-neon-amber flex-shrink-0 self-center" />
+                <span className="font-display text-xl font-bold text-neon-amber tabular-nums">
+                  {highlightStat.value.toLocaleString()}
+                </span>
+                {highlightStat.player && (
+                  <span className="text-sm text-muted truncate min-w-0">{highlightStat.player}</span>
+                )}
+              </div>
+            </div>
+          )
+        ) : (
         <div className="px-5 py-3">
           {topScores.length === 0 ? (
             <p className="text-sm text-faint text-center py-6">No scores yet</p>
@@ -207,6 +259,7 @@ export default function GameQuickView({ lb, slug, fromTab, onClose }: Props) {
             ))
           )}
         </div>
+        )}
 
         {/* Footer links */}
         <div className="px-5 py-3 border-t border-border flex flex-col gap-2">

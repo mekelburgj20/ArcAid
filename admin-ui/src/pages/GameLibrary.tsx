@@ -10,6 +10,7 @@ import StarRating from '../components/StarRating';
 import StylePicker from '../components/StylePicker';
 import GameInfoModal from '../components/GameInfoModal';
 import RAGameSearch, { type RAImportResult } from '../components/RAGameSearch';
+import PlatformChips from '../components/PlatformChips';
 import { getPlatformDisplay, normalizePlatformList } from '../lib/platforms';
 // ADR 0016 catalogue phase §6 — `global_games.platforms` is an ENGINE list, so
 // catalogue chips render through the provenance helper the rest of the app
@@ -85,25 +86,6 @@ function getMatchReason(g: GameRow, query: string): { field: string; value: stri
     return { field: 'platform', value: g.platforms };
   }
   return null;
-}
-
-function PlatformChips({ platforms: raw, roomTags }: { platforms: string; roomTags?: string[] }) {
-  // Catalogue platforms render in cyan; per-room tags (custom platforms,
-  // ADR 0008) render in amber so they're visually distinct from the global
-  // catalogue's truth.
-  const list = normalizePlatformList(parsePlatforms(raw));
-  const tags = (roomTags ?? []).filter(t => t && t.length > 0);
-  if (list.length === 0 && tags.length === 0) return <span className="text-faint text-sm">None</span>;
-  return (
-    <div className="flex gap-1 flex-wrap">
-      {list.map(p => (
-        <span key={`p-${p}`} className="text-xs px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">{getLegacyPlatformLabel(p)}</span>
-      ))}
-      {tags.map(t => (
-        <span key={`t-${t}`} className="text-xs px-1.5 py-0.5 rounded bg-neon-amber/10 text-neon-amber border border-neon-amber/40" title="Room-only tag">{getPlatformDisplay(t)}</span>
-      ))}
-    </div>
-  );
 }
 
 interface TournamentOption {
@@ -1651,7 +1633,7 @@ export default function GameLibrary() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <PlatformChips platforms={g.platforms} roomTags={g.room_tags} />
+                        <PlatformChips platforms={parsePlatforms(g.platforms)} roomTags={g.room_tags} />
                       </td>
                       {room && (
                         <td className="px-4 py-3">
