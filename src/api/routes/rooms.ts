@@ -3131,14 +3131,17 @@ router.post('/:roomId/scores/import-csv-commit', requireAuth, requireRoomAccess(
 
 // Ratings
 // v2.86.0 — room-scoped (migration 139): a game's rating aggregate no longer
-// bleeds across rooms sharing a name. Reads stay open (x-user-id is still the
-// best-effort identity for "your rating" on an anonymous GET); the write
-// path below requires Discord login.
-router.get('/:roomId/ratings', async (req, res) => {
+// bleeds across rooms sharing a name. Reads stay open; "your rating"
+// personalization prefers the Bearer token's identity (votes are keyed on
+// discordId now), falling back to x-user-id for tokenless callers — without
+// the token path, a Discord-authed admin rating from the library page (whose
+// api.ts client sends the admin token + an anon uuid) would never see their
+// own stars again after a reload.
+router.get('/:roomId/ratings', optionalDiscordUser, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const ratings = await RatingService.getAllRatings(roomId);
-        const userId = (req.headers['x-user-id'] as string) || '';
+        const userId = req.user?.discordId || (req.headers['x-user-id'] as string) || '';
         const userRatings = userId ? await RatingService.getUserRatings(roomId, userId) : {};
         res.json({ ratings, userRatings });
     } catch (error) {
@@ -3147,11 +3150,11 @@ router.get('/:roomId/ratings', async (req, res) => {
     }
 });
 
-router.get('/:roomId/ratings/:gameName', async (req, res) => {
+router.get('/:roomId/ratings/:gameName', optionalDiscordUser, async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const gameName = decodeURIComponent(req.params.gameName as string);
-        const userId = (req.headers['x-user-id'] as string) || '';
+        const userId = req.user?.discordId || (req.headers['x-user-id'] as string) || '';
         const info = await RatingService.getGameRating(roomId, gameName, userId || undefined);
         res.json(info);
     } catch (error) {
