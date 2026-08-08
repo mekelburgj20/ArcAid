@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import ScoreCardGrid from './ScoreCardGrid';
@@ -7,7 +7,6 @@ import SubmissionSheet from './SubmissionSheet';
 import type { GameLeaderboard } from './ScoreboardComponents';
 import { catalogueImageFor } from '../lib/catalogueImage';
 import {
-  GLOBAL_BANNER_TEXT,
   GLOBAL_SEE_FULL_LABEL,
   GLOBAL_SEARCH_PLACEHOLDER,
   globalEmpty,
@@ -47,6 +46,9 @@ interface GlobalScoresViewProps {
   config: Record<string, string>;
   roomName: string;
   viewerUsername?: string;
+  /** Owner-asked header compression (2026-08-08) — see RoomScoresView's copy
+   *  of this doc comment; same mechanism. */
+  tabSwitcher?: ReactNode;
 }
 
 const PAGE_SIZE = 30;
@@ -90,7 +92,7 @@ function globalRowToLeaderboard(g: GlobalTopGame): GameLeaderboard {
   };
 }
 
-export default function GlobalScoresView({ roomId, slug, config, roomName, viewerUsername }: GlobalScoresViewProps) {
+export default function GlobalScoresView({ roomId, slug, config, roomName, viewerUsername, tabSwitcher }: GlobalScoresViewProps) {
   const [rows, setRows] = useState<GlobalTopGame[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -175,16 +177,14 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
 
   return (
     <div className="px-4 sm:px-6 pb-6">
-      {/* Cross-link banner (locked decision #3 — bounded lens, full browsing lives on /scoreboard) */}
-      <div className="max-w-3xl mx-auto mb-4 flex items-center justify-between gap-3 flex-wrap px-4 py-2.5 rounded-lg border border-border/50 bg-surface/60">
-        <span className="text-xs text-muted">{GLOBAL_BANNER_TEXT}</span>
-        <Link to="/scoreboard" className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline flex-shrink-0">
-          {GLOBAL_SEE_FULL_LABEL}
-        </Link>
-      </div>
-
-      <div className="max-w-md mx-auto mb-2">
-        <div className="relative">
+      {/* One control row (owner-asked header compression, 2026-08-08): search
+          left; running total + the cross-link (locked decision #3 — bounded
+          lens, full browsing lives on /scoreboard) + the shared tab chips on
+          the right. The old full-width banner row is gone — same link,
+          folded onto this row. flex-wrap throughout so narrow viewports
+          stack instead of scrolling horizontally. */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="text"
@@ -195,13 +195,19 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
             aria-label={GLOBAL_SEARCH_PLACEHOLDER}
           />
         </div>
-      </div>
 
-      {!loading && total > 0 && (
-        <p className="text-center text-[11px] text-faint mb-4">
-          Showing {rows.length.toLocaleString()} of {total.toLocaleString()} games with global scores
-        </p>
-      )}
+        <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+          {!loading && total > 0 && (
+            <span className="text-[11px] text-faint whitespace-nowrap">
+              Showing {rows.length.toLocaleString()} of {total.toLocaleString()} games with global scores
+            </span>
+          )}
+          <Link to="/scoreboard" className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline whitespace-nowrap">
+            {GLOBAL_SEE_FULL_LABEL}
+          </Link>
+          {tabSwitcher}
+        </div>
+      </div>
 
       <ScoreCardGrid
         cards={cards}

@@ -15,7 +15,45 @@ import GlobalScoresView from '../components/GlobalScoresView';
 import GameQuickView from '../components/GameQuickView';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
-import { TAB_LABELS, tabSubtitle } from '../lib/scoresCopy';
+import { TAB_LABELS } from '../lib/scoresCopy';
+
+type ScoresTab = 'tournaments' | 'room' | 'global';
+
+/**
+ * Tournaments | Room Scores | Global tab chips (F2 3-tab unification).
+ *
+ * Owner-asked header compression (2026-08-08) — hoisted out of `headerExtras` so it can render on
+ * the SAME control row as each tab's search bar instead of always sitting up
+ * in the measured title/logo zone. `aboveCards` renders it for the
+ * Tournaments tab; `RoomScoresView`/`GlobalScoresView` receive the same
+ * element as a `tabSwitcher` prop so their own control rows carry it too —
+ * one definition, three call sites, byte-identical chips everywhere.
+ */
+function TabSwitcher({ tab, onSelect }: { tab: ScoresTab; onSelect: (next: ScoresTab) => void }) {
+  return (
+    <div className="flex items-center gap-1" role="tablist" aria-label="Leaderboard tabs">
+      {/* s20: outer button carries the ≥44px hit area; inner span keeps the
+          original compact tab-chip visual. */}
+      {(['tournaments', 'room', 'global'] as const).map(t => (
+        <button
+          key={t}
+          role="tab"
+          aria-selected={tab === t}
+          onClick={() => onSelect(t)}
+          className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
+        >
+          <span className={`px-3 py-1 text-xs rounded-lg border transition-colors whitespace-nowrap ${
+            tab === t
+              ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
+              : 'border-border/50 text-muted hover:text-primary'
+          }`}>
+            {TAB_LABELS[t]}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function Scoreboard() {
   const { slug } = useParams<{ slug: string }>();
@@ -214,38 +252,16 @@ export default function Scoreboard() {
             )}
           </>
         }
-        headerExtras={
-          <>
-            {/* Tab toggle — Tournaments | Room Scores | Global (F2 3-tab unification) */}
-            <div className="flex justify-center gap-1 pb-1" role="tablist" aria-label="Leaderboard tabs">
-              {/* s20: outer button carries the ≥44px hit area; inner span keeps the
-                  original compact tab-chip visual. */}
-              {(['tournaments', 'room', 'global'] as const).map(t => (
-                <button
-                  key={t}
-                  role="tab"
-                  aria-selected={tab === t}
-                  onClick={() => selectTab(t)}
-                  className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
-                >
-                  <span className={`px-3 py-1 text-xs rounded-lg border transition-colors ${
-                    tab === t
-                      ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
-                      : 'border-border/50 text-muted hover:text-primary'
-                  }`}>
-                    {TAB_LABELS[t]}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <p className="text-center text-[11px] text-faint pb-3">{tabSubtitle(tab, roomName)}</p>
-          </>
-        }
         aboveCards={
-          /* Tournament search (reserved slot matches All Games tab for layout stability) */
-          <div className="px-4 sm:px-6">
-            <div className="max-w-md mx-auto mb-4">
-              <div className="relative">
+          /* Owner-asked header compression (2026-08-08): search bar and the
+             Tournaments/Room Scores/Global chips share one row instead of the
+             chips sitting up in the measured title zone and the search bar
+             stacking below on its own line + a now-redundant subtitle. Left-
+             aligned search, chips pushed right (wraps below on narrow
+             viewports via flex-wrap — never horizontal scroll). */
+          <div className="px-4 sm:px-6 mb-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
                 <input
                   type="text"
@@ -256,14 +272,17 @@ export default function Scoreboard() {
                   aria-label="Search active games"
                 />
               </div>
+              <div className="sm:ml-auto">
+                <TabSwitcher tab={tab} onSelect={selectTab} />
+              </div>
             </div>
           </div>
         }
         contentOverride={
           tab === 'room' ? (
-            <RoomScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
+            <RoomScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} tabSwitcher={<TabSwitcher tab={tab} onSelect={selectTab} />} />
           ) : tab === 'global' ? (
-            <GlobalScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
+            <GlobalScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} tabSwitcher={<TabSwitcher tab={tab} onSelect={selectTab} />} />
           ) : undefined
         }
       />

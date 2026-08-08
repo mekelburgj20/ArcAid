@@ -9,17 +9,6 @@ export const TAB_LABELS = {
   global: 'Global',
 } as const;
 
-export function tabSubtitle(tab: 'tournaments' | 'room' | 'global', roomName: string): string {
-  switch (tab) {
-    case 'tournaments':
-      return 'Active competitions';
-    case 'room':
-      return `Every score set in ${roomName}`;
-    case 'global':
-      return 'Top scores across every Arcaid room';
-  }
-}
-
 export const ROOM_SCORES_SEARCH_PLACEHOLDER = "Search this room's games";
 
 export const ROOM_SORT_LABELS = {
@@ -38,8 +27,6 @@ export function roomScoresEmpty(o: { roomName: string }): { title: string; body:
 export function roomScoresSearchEmpty(q: string): string {
   return `No games match "${q}".`;
 }
-
-export const GLOBAL_BANNER_TEXT = 'Global Scoreboard — top scores across every Arcaid room';
 
 export const GLOBAL_SEE_FULL_LABEL = 'See the full Global Scoreboard →';
 
