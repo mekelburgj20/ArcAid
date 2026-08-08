@@ -1,6 +1,7 @@
 # ArcAid — Roadmap
 
 > See SPRINT_STATUS.md for live progress; CHANGELOG.md for shipped versions.
+> **Launch triage: see LAUNCH.md** — the prioritized launch-gate / fast-follow / post-launch index over this backlog.
 
 ---
 
