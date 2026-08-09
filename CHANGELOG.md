@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.94.0] — unreleased
+
+**Ban follow-throughs: content cascade + moderation DM (ROADMAP §C, last two "not started" bullets).**
+
+### Added
+- **Ban → content cascade with per-ban choice.** Both ban forms (super-admin Reports "Bans" tab, room-admin members page) gain a content-action selector: **Hide (default) / Delete / Leave visible** for the banned user's existing scores and comments. Room bans cascade only that room's content; global bans cascade everywhere (`global_game_comments` swept by global bans only). Scores hide via the existing `orphaned_at` pattern; comments gained `hidden_at` (migration 142) filtered at the public read sites. Cache invalidation + `leaderboard:updated` follow the admin wipe-player precedent. Every touched row is recorded in `ban_content_actions` (migration 141).
+- **Lifting a ban restores exactly the rows that ban's cascade HID** (returns/toasts `restoredCount`) — deliberate divergence from the membership precedent: content soft-hide exists FOR reversibility. Deleted rows are never restorable (stated in the UI copy).
+- **Ban → Discord DM** (`BanNotificationService`): scope + reason + expiry, best-effort, deliberately BYPASSES notification opt-outs (moderation action; follows the OpsAlert direct-DM precedent). Resolves a DM-able Discord id across the identity-link graph, so banning a `google:*` alias with a linked Discord still notifies; google-only identities skip silently; DM failure never fails the ban. Cascade + DM run post-commit with failure logging (no nested transactions — known SQLite constraint).
+
 ## [2.93.0] — unreleased
 
 **Member-picker admin add (membership & privacy arc rider).**

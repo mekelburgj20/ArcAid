@@ -159,6 +159,9 @@ export default function RoomAdminMembers() {
   const [banTarget, setBanTarget] = useState<MemberEntry | null>(null);
   const [banDurationDays, setBanDurationDays] = useState('');
   const [banReason, setBanReason] = useState('');
+  // Ban → content cascade (ROADMAP "Player Self-Service + Moderation" §C).
+  // Default mirrors the server default (ScoreReportService.ban/banUser).
+  const [banContentAction, setBanContentAction] = useState<'hide' | 'delete' | 'leave'>('hide');
   const [banning, setBanning] = useState(false);
   const [unbanTarget, setUnbanTarget] = useState<RoomBanRow | null>(null);
   const [unbanning, setUnbanning] = useState(false);
@@ -199,6 +202,7 @@ export default function RoomAdminMembers() {
     setBanTarget(entry);
     setBanDurationDays('');
     setBanReason('');
+    setBanContentAction('hide');
   };
 
   const handleBan = async () => {
@@ -209,6 +213,7 @@ export default function RoomAdminMembers() {
         discordUserId: banTarget.userId,
         durationDays: banDurationDays ? parseInt(banDurationDays, 10) : null,
         reason: banReason.trim() || undefined,
+        contentAction: banContentAction,
       });
       toast(`${banTarget.displayName} banned from this room`, 'success');
       setBanTarget(null);
@@ -225,8 +230,15 @@ export default function RoomAdminMembers() {
     if (!roomId || !unbanTarget) return;
     setUnbanning(true);
     try {
-      await api.post(`/rooms/${roomId}/admin/bans/${unbanTarget.id}/lift`, {});
-      toast('Ban lifted', 'success');
+      const result = await api.post<{ success: boolean; restoredCount: number }>(
+        `/rooms/${roomId}/admin/bans/${unbanTarget.id}/lift`, {}
+      );
+      toast(
+        result.restoredCount > 0
+          ? `Ban lifted — ${result.restoredCount} hidden row${result.restoredCount === 1 ? '' : 's'} restored`
+          : 'Ban lifted',
+        'success'
+      );
       setUnbanTarget(null);
       refresh();
     } catch (err) {
@@ -349,6 +361,48 @@ export default function RoomAdminMembers() {
               maxLength={500}
               className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50 mb-4"
             />
+            <label className="block text-xs text-faint mb-1">Their existing scores &amp; comments in this room</label>
+            <div className="space-y-1.5 mb-4">
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="banContentAction"
+                  className="mt-1"
+                  checked={banContentAction === 'hide'}
+                  onChange={() => setBanContentAction('hide')}
+                />
+                <span>
+                  <span className="text-primary">Hide their existing content</span>
+                  <span className="block text-xs text-faint">Removed from public view; restored automatically if this ban is lifted.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="banContentAction"
+                  className="mt-1"
+                  checked={banContentAction === 'delete'}
+                  onChange={() => setBanContentAction('delete')}
+                />
+                <span>
+                  <span className="text-primary">Delete</span>
+                  <span className="block text-xs text-faint">Permanently removed; NOT restored if this ban is lifted.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="banContentAction"
+                  className="mt-1"
+                  checked={banContentAction === 'leave'}
+                  onChange={() => setBanContentAction('leave')}
+                />
+                <span>
+                  <span className="text-primary">Leave visible</span>
+                  <span className="block text-xs text-faint">No change — their existing scores and comments stay up.</span>
+                </span>
+              </label>
+            </div>
             <div className="flex justify-end gap-3">
               <NeonButton variant="ghost" onClick={() => setBanTarget(null)} disabled={banning}>Cancel</NeonButton>
               <NeonButton variant="danger" onClick={handleBan} disabled={banning}>

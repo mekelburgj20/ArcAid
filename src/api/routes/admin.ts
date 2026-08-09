@@ -1442,7 +1442,7 @@ router.post('/score-reports/:reportId/ban', async (req, res) => {
     try {
         const validationResult = validate(BanActionSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-        const { durationDays, reason } = validationResult.data;
+        const { durationDays, reason, contentAction } = validationResult.data;
 
         const reportId = req.params.reportId as string;
         const report = await ScoreReportService.getById(reportId);
@@ -1474,6 +1474,7 @@ router.post('/score-reports/:reportId/ban', async (req, res) => {
             (req.user!.discordId || req.user!.username || 'admin'),
             durationDays ?? null,
             reason,
+            contentAction ?? 'hide',
         );
         if (typeof ok === 'object') return res.status(400).json({ error: ok.error });
         if (!ok) return res.status(404).json({ error: 'Report not found' });
@@ -1619,7 +1620,7 @@ router.post('/bans', async (req, res) => {
     try {
         const validationResult = validate(CreateBanSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-        const { discordUserId, durationDays, reason } = validationResult.data;
+        const { discordUserId, durationDays, reason, contentAction } = validationResult.data;
 
         // S22 Phase 2 (v2.44.0) — same guard as the score-report ban route
         // (m6, S22 Phase 1): an `iscored:*` synthetic id has no login
@@ -1657,7 +1658,9 @@ router.post('/bans', async (req, res) => {
             discordUserId,
             (req.user!.discordId || req.user!.username || 'admin'),
             durationDays ?? null,
-            reason
+            reason,
+            null,
+            contentAction ?? 'hide',
         );
         res.status(201).json(ban);
     } catch (error) {
@@ -1669,9 +1672,9 @@ router.post('/bans', async (req, res) => {
 /** POST /api/admin/bans/:banId/lift */
 router.post('/bans/:banId/lift', async (req, res) => {
     try {
-        const ok = await ScoreReportService.lift(req.params.banId as string, (req.user!.discordId || req.user!.username || 'admin'));
-        if (!ok) return res.status(404).json({ error: 'Ban not found or already lifted' });
-        res.json({ success: true });
+        const result = await ScoreReportService.lift(req.params.banId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        if (!result.lifted) return res.status(404).json({ error: 'Ban not found or already lifted' });
+        res.json({ success: true, restoredCount: result.restoredCount });
     } catch (error) {
         logError('API Error (POST /api/admin/bans/:banId/lift):', error);
         res.status(500).json({ error: 'Internal Server Error' });
