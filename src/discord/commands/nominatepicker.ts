@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { logError } from '../../utils/logger.js';
@@ -8,6 +8,10 @@ export const nominatepicker: Command = {
     data: new SlashCommandBuilder()
         .setName('nominate-picker')
         .setDescription('Manually assign picker rights.')
+        // Admin-only (RTX demo follow-up, 2026-08-09): reassigning picker
+        // rights is a moderation action — without this flag any guild member
+        // could grab the pick for themselves. Same gate as activate-game etc.
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addStringOption(option => option.setName('tournament-id').setDescription('ID of the tournament').setRequired(true))
         .addUserOption(option => option.setName('user').setDescription('The user to nominate').setRequired(true)),
     async execute(interaction: ChatInputCommandInteraction) {
