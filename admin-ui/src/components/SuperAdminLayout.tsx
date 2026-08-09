@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Home, Settings as SettingsIcon, LogOut, HardDrive, Activity, Menu, X, DoorOpen, Palette, Globe, ClipboardList, Flag } from 'lucide-react';
 import { api, isAuthenticated, getTokenRole, setToken } from '../lib/api';
 import LoadingState from './LoadingState';
+import UpdateNudgeBanner from './UpdateNudgeBanner';
 
 export default function SuperAdminLayout() {
   const location = useLocation();
@@ -76,6 +77,8 @@ export default function SuperAdminLayout() {
 
   return (
     <div className="flex min-h-screen scanlines">
+      {/* Stale-PWA "new version available" nudge — fixed position. */}
+      <UpdateNudgeBanner />
       {/* Mobile top bar */}
       <div className="fixed top-0 left-0 right-0 z-30 bg-surface border-b border-border flex items-center gap-3 px-4 py-3 md:hidden">
         <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer p-0">

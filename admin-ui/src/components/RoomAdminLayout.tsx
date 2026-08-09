@@ -5,6 +5,7 @@ import { api, isAuthenticated, setToken } from '../lib/api';
 import { getPortal } from '../lib/portal';
 import { RoomContext } from '../contexts/RoomContext';
 import LoadingState from './LoadingState';
+import UpdateNudgeBanner from './UpdateNudgeBanner';
 
 interface Room {
   id: string;
@@ -131,6 +132,8 @@ export default function RoomAdminLayout() {
   return (
     <RoomContext.Provider value={{ roomId: room.id, roomSlug: room.slug, roomName: room.name }}>
       <div className="flex min-h-screen scanlines">
+        {/* Stale-PWA "new version available" nudge — fixed position. */}
+        <UpdateNudgeBanner />
         {/* Mobile top bar */}
         <div className="fixed top-0 left-0 right-0 z-30 bg-surface border-b border-border flex items-center gap-3 px-4 py-3 md:hidden">
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-muted hover:text-primary bg-transparent border-0 cursor-pointer p-0">

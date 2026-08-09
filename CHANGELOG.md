@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.92.0] — unreleased
+
+**Stale-PWA update nudge + `DISCORD_CLIENT_SECRET` encrypted at rest.**
+
+### Added
+- **"A new version of Arcaid is available — tap to refresh" banner.** Baseline-at-boot design off `GET /api/version` (first fetch sets the baseline, so it never fires on first load); re-checks on tab-visible + a 15-min interval; silent on fetch failure; dismiss persists per-version in localStorage. Mounted in the three layouts (public, room admin, super admin); kiosk deliberately excluded (unattended display, no one to tap). New `lib/updateNudge.ts` (pure compare logic) + `hooks/useUpdateNudge.ts` + `UpdateNudgeBanner.tsx`, 17 tests.
+
+### Changed
+- **`DISCORD_CLIENT_SECRET` is now encrypted at rest** — added to `ENCRYPTED_SETTING_KEYS`. No bespoke migration needed: `runSecretsMigration()` (boot step between `initDatabase` and `loadSettingsToEnv`) generically re-encrypts legacy plaintext rows for every allowlisted key — the same mechanism the other six secrets already use; the prod plaintext row converts on first boot of this release. 8 new tests cover plaintext→encrypted round-trip, idempotency, absent-row no-op, keyless-install fail-fast/no-brick, and settings-UI masking.
+
 ## [2.91.0] — unreleased
 
 **Unlinked-player affordances (S14 field-testing follow-up).**

@@ -57,6 +57,17 @@ export const ENCRYPTED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
     // (`?y=<key>`), so it can leak through any logged URL; `RAApiClient`
     // scrubs it on every log path, and this keeps the stored copy at rest.
     'RA_API_KEY',
+    // Discord OAuth client secret. Deliberately left OUT of the allowlist when
+    // GOOGLE_CLIENT_SECRET was added (Google login shipped with a fresh,
+    // never-plaintext row; prod's existing DISCORD_CLIENT_SECRET row was
+    // plaintext, and adding the key here alone — with no migration — would
+    // have made the next read throw). `runSecretsMigration()` in
+    // `secretsMigration.ts` (called from `index.ts` right after
+    // `initDatabase()`, before `loadSettingsToEnv()`) generically re-encrypts
+    // any legacy plaintext row for every key in this Set on every boot — the
+    // same mechanism every other key above already relies on — so adding the
+    // key here is the entire fix; no bespoke one-off migration needed.
+    'DISCORD_CLIENT_SECRET',
 ]);
 
 export function isEncryptedKey(key: string): boolean {
