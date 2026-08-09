@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.89.0] — unreleased
+
+**Ranking-card backgrounds (owner-designed 2026-08-09, screenshot-loop approved).**
+
+### Added
+- **Room admins can apply a style-catalogue background image to each ranking group's card.** Design (owner): per-group assignment (`ranking_groups.bg_style_id`, migration 140 — ALTER-added, pseudo-FK caveat noted in the migration), set via a "Style" button on ranking cards on the admin Leaderboard (reuses `StylePicker`; `PUT`/`DELETE /:roomId/ranking-groups/:id/style`), rendered on the full-size treatments only (match-scoreboard + plaque, with the same darkening overlay game cards use for legibility) — compact/sidebar deliberately unchanged. Presentation-only: `setBgStyle` never touches `ranking_groups_cache` (bg is not a `computeRankings` input; test pins `generated_at` unchanged). `StyleCatalogueService.delete()` now also nulls `ranking_groups.bg_style_id` referencing the deleted style. `ScoreboardSurface` gained `renderUnderRankingCard` (the ranking-card twin of the game cards' under-card admin-strip hook), threaded through `RankingsRow`/`RankingsColumn` across all six ranking render sites.
+
 ## [2.88.1] — unreleased
 
 **Global Settings: RA + operator-alert config fields were unreachable.**
