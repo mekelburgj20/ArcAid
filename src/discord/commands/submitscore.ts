@@ -429,6 +429,7 @@ export const submitscore: Command = {
                             gameName: fanOut.gameName,
                             playerName: username!,
                             score,
+                            engine,
                             originRoomSlug: room?.slug || null,
                             originRoomName: room?.name || null,
                         });
