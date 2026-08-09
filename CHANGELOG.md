@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.95.1] — unreleased
+
+**Hotfix: device picker could silently submit a tournament-excluded device (RTX demo field report, 2026-08-09).**
+
+### Fixed
+- **SubmissionSheet's remembered-device restore validated against the UNFILTERED device list** while the dropdown renders the exclusion-aware one. A player whose remembered device is excluded by the current tournament (last submit on PC → AtGames-only tournament) got `device='pc'` in state while the `<select>` — lacking that option — visually fell back to the first option ("AtGames Cabinet"). Submit sent PC, server correctly bounced with "PC is not allowed for this tournament"; actively re-picking any option fixed it (real change event). The auto-select effect now uses the same `allowedDevicesForEngine` list the dropdown renders (+ exclusions in the effect deps), so an excluded remembered device falls through to the explicit "Choose the device…" placeholder instead. Follow-up: SubmissionSheet has no component test harness — a device-picker regression test wants one (tracked).
+
 ## [2.95.0] — unreleased
 
 **Explicit audit-log sweep across admin writes (ROADMAP §C audit doctrine, deferred cleanup executed).**

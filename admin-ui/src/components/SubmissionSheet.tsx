@@ -6,7 +6,6 @@ import OnScreenKeyboard from './OnScreenKeyboard';
 import ShareButton from './ShareButton';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import {
-    devicesForEngineAndPlatforms,
     enginesFromLegacyPlatforms,
     getDeviceDisplay,
     getEngineDisplay,
@@ -284,7 +283,17 @@ export default function SubmissionSheet({
      */
     useEffect(() => {
         if (!engine) return;
-        const options = devicesForEngineAndPlatforms(engine, submittablePlatforms ?? [], gameFeatures);
+        // MUST be the same exclusion-aware list the dropdown renders
+        // (`deviceOptions` above). Pre-v2.95.1 this used the UNFILTERED
+        // `devicesForEngineAndPlatforms`, so a remembered device the
+        // tournament EXCLUDES (e.g. last submit was on PC, this tournament
+        // is AtGames-only) passed the membership check and became the
+        // submitted value while the <select> — whose option list lacks it —
+        // visually fell back to the first option. The player saw "AtGames
+        // Cabinet", the server received "pc", and the submit bounced with
+        // "PC is not allowed for this tournament" (RTX demo field report,
+        // 2026-08-09).
+        const options = allowedDevicesForEngine(engine, submittablePlatforms ?? [], gameFeatures, excludedProvenance.devices);
         if (options.length === 0) return;
         setDevice(prev => {
             if (prev && options.includes(prev)) return prev;
@@ -293,7 +302,7 @@ export default function SubmissionSheet({
             if (remembered && options.includes(remembered)) return remembered;
             return '';
         });
-    }, [engine, submittablePlatforms, gameFeatures]);
+    }, [engine, submittablePlatforms, gameFeatures, excludedProvenance]);
 
     // Sprint 10 OAuth-return flow: commit a server-stored draft and close.
     useEffect(() => {
