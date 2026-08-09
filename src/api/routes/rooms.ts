@@ -4571,7 +4571,7 @@ router.post('/:roomId/admin/bans', requireAuth, requireRoomAccess('roomId'), req
     try {
         const validationResult = validate(CreateBanSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
-        const { discordUserId, durationDays, reason } = validationResult.data;
+        const { discordUserId, durationDays, reason, contentAction } = validationResult.data;
         const roomId = req.params.roomId as string;
 
         // Same guard as the global ban routes (admin.ts) — an iscored:*
@@ -4653,7 +4653,7 @@ router.post('/:roomId/admin/bans', requireAuth, requireRoomAccess('roomId'), req
                 return res.status(409).json({ error: 'That player is already banned from this room.' });
             }
 
-            ban = await ScoreReportService.ban(discordUserId, actorLabel, durationDays ?? null, reason, roomId);
+            ban = await ScoreReportService.ban(discordUserId, actorLabel, durationDays ?? null, reason, roomId, contentAction ?? 'hide');
 
             // Decision 1 — banning strips membership immediately (they're no
             // longer a member; lifting the ban does NOT auto-restore it, they
@@ -4709,8 +4709,8 @@ router.post('/:roomId/admin/bans/:banId/lift', requireAuth, requireRoomAccess('r
             return res.status(404).json({ error: 'Ban not found in this room' });
         }
         const actorLabel = req.user!.discordId || req.user!.username || 'admin';
-        const ok = await ScoreReportService.lift(banId, actorLabel);
-        if (!ok) return res.status(404).json({ error: 'Ban not found or already lifted' });
+        const result = await ScoreReportService.lift(banId, actorLabel);
+        if (!result.lifted) return res.status(404).json({ error: 'Ban not found or already lifted' });
 
         // v2.49.0 fix-round (#2) — explicit audit call, see header comment.
         await AuditService.log({
@@ -4718,12 +4718,12 @@ router.post('/:roomId/admin/bans/:banId/lift', requireAuth, requireRoomAccess('r
             action: 'room.unban',
             target_type: 'user',
             target_id: ban.discord_user_id,
-            details: JSON.stringify({ roomId, banId }),
+            details: JSON.stringify({ roomId, banId, restoredCount: result.restoredCount }),
             ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
             correlation_id: req.correlationId || '',
         });
 
-        res.json({ success: true });
+        res.json({ success: true, restoredCount: result.restoredCount });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admin/bans/:banId/lift):', error);
         res.status(500).json({ error: 'Internal Server Error' });

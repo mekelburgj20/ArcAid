@@ -2232,6 +2232,41 @@ export async function initDatabase(): Promise<Database> {
         // is app-level only (StyleCatalogueService.delete() nulls this column
         // out alongside the games/library columns when a style is deleted).
         { name: '140_ranking_groups_bg_style', sql: `ALTER TABLE ranking_groups ADD COLUMN bg_style_id TEXT` },
+        // --- Ban → content cascade (ROADMAP "Player Self-Service + Moderation" §C) ---
+        // Records every row a ban's content cascade touched, so lifting the
+        // ban can restore EXACTLY those rows and no others. `action` is
+        // 'hide' (orphaned_at/hidden_at set — restorable on lift) or 'delete'
+        // (row hard-deleted — NOT restorable; the row here is kept forever as
+        // the audit trail proving the deletion happened). `row_id` is TEXT
+        // because `submissions.id` is a string key (`${gameId}-${username}`)
+        // while every other cascaded table uses an INTEGER AUTOINCREMENT id —
+        // SQLite's column-affinity coercion makes a TEXT-bound parameter
+        // compare correctly against an INTEGER-affinity id column, so this is
+        // safe to use uniformly across all five tables it can name.
+        { name: '141_ban_content_actions', sql: `
+            CREATE TABLE IF NOT EXISTS ban_content_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ban_id TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                row_id TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('hide', 'delete')),
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (ban_id) REFERENCES user_bans (id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_ban_content_actions_ban ON ban_content_actions(ban_id);
+        ` },
+        // Comments have no soft-delete/hide concept pre-existing (unlike the
+        // score tables, which already carry `orphaned_at` for this exact
+        // pattern — see the OrphanService-era column). `hidden_at` mirrors
+        // `orphaned_at`'s semantics: NULL = visible, set = hidden from every
+        // public read. Read sites: CommentService.getComments,
+        // GlobalCommentService.getComments.
+        { name: '142_comment_hidden_at', sql: `
+            ALTER TABLE game_comments ADD COLUMN hidden_at TEXT;
+            ALTER TABLE global_game_comments ADD COLUMN hidden_at TEXT;
+            CREATE INDEX IF NOT EXISTS idx_game_comments_hidden ON game_comments(hidden_at);
+            CREATE INDEX IF NOT EXISTS idx_global_game_comments_hidden ON global_game_comments(hidden_at);
+        ` },
     ];
 
     for (const migration of migrations) {

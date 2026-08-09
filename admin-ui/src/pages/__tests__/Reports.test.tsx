@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Reports from '../Reports';
 
@@ -214,6 +214,43 @@ describe('Reports page', () => {
     expect(screen.getAllByText('Lift')).toHaveLength(1);
     // The add-ban form is present.
     expect(screen.getByText('Ban an identity')).toBeInTheDocument();
+  });
+
+  // Ban → content cascade (ROADMAP "Player Self-Service + Moderation" §C).
+  it('Bans tab add-ban form defaults content-action to Hide, and sends the chosen action in the POST body', async () => {
+    const fetchMock = mockFetch({ bans: [] });
+    renderReports();
+    await waitFor(() => expect(screen.getByText('No pending room reports.')).toBeInTheDocument());
+
+    screen.getByText('Bans').click();
+    await waitFor(() => expect(screen.getByText('Ban an identity')).toBeInTheDocument());
+
+    // Three radios: Hide (default) / Delete / Leave visible.
+    const radios = screen.getAllByRole('radio') as HTMLInputElement[];
+    expect(radios).toHaveLength(3);
+    expect(radios[0].checked).toBe(true);
+    expect(radios[1].checked).toBe(false);
+    expect(radios[2].checked).toBe(false);
+    expect(screen.getByText('Hide their existing content')).toBeInTheDocument();
+    expect(screen.getByText('Delete')).toBeInTheDocument();
+    expect(screen.getByText('Leave visible')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('123456789012345678'), { target: { value: 'discord-new-target' } });
+    fireEvent.click(radios[1]); // switch to Delete
+    fireEvent.click(screen.getByText('Ban Identity'));
+
+    await waitFor(() => {
+      const postCall = fetchMock.mock.calls.find(
+        (call) => (call[0] as string).includes('/admin/bans') && (call[1] as RequestInit | undefined)?.method === 'POST'
+      );
+      expect(postCall).toBeTruthy();
+    });
+    const postCall = fetchMock.mock.calls.find(
+      (call) => (call[0] as string).includes('/admin/bans') && (call[1] as RequestInit | undefined)?.method === 'POST'
+    )!;
+    const body = JSON.parse((postCall[1] as RequestInit).body as string);
+    expect(body.discordUserId).toBe('discord-new-target');
+    expect(body.contentAction).toBe('delete');
   });
 
   it('Bans tab hides the "Show resolved" toggle (bans are not pending/resolved-shaped)', async () => {

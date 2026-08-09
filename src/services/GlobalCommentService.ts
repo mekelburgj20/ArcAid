@@ -63,6 +63,7 @@ export class GlobalCommentService {
             FROM global_game_comments gc
             LEFT JOIN user_mappings um ON um.discord_user_id = gc.discord_user_id
             WHERE gc.global_game_id = ?
+              AND gc.hidden_at IS NULL
             ${typeFilter}
             GROUP BY gc.id
             ORDER BY gc.created_at DESC

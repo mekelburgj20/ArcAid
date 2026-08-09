@@ -518,6 +518,9 @@ export const ResolveContentReportSchema = z.object({
 export const BanActionSchema = z.object({
     durationDays: z.number().int().min(1).max(3650).nullable().optional(),
     reason: z.string().trim().max(500).optional(),
+    /** Ban → content cascade (ROADMAP "Player Self-Service + Moderation"
+     *  §C). Omitted defaults to 'hide' in ScoreReportService.ban/banUser. */
+    contentAction: z.enum(['hide', 'delete', 'leave']).optional(),
 });
 
 /** POST /admin/bans body — BanActionSchema plus the target identity. */

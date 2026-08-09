@@ -51,6 +51,7 @@ export class CommentService {
             SELECT id, user_id, display_name, type, body, created_at
             FROM game_comments
             WHERE game_room_id = ? AND LOWER(game_name) = LOWER(?)
+              AND hidden_at IS NULL
             ${typeFilter}
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?

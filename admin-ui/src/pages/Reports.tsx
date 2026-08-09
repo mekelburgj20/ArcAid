@@ -239,6 +239,9 @@ export default function Reports() {
   const [banFormId, setBanFormId] = useState('');
   const [banFormDuration, setBanFormDuration] = useState('');
   const [banFormReason, setBanFormReason] = useState('');
+  // Ban → content cascade (ROADMAP "Player Self-Service + Moderation" §C).
+  // Default mirrors the server default (ScoreReportService.ban/banUser).
+  const [banFormContentAction, setBanFormContentAction] = useState<'hide' | 'delete' | 'leave'>('hide');
   const [addingBan, setAddingBan] = useState(false);
 
   const contentType = tab === 'rooms' ? 'room' : tab === 'names' ? 'player_name' : null;
@@ -446,8 +449,13 @@ export default function Reports() {
   const handleLiftBan = async (ban: BanRow) => {
     setActingOn(ban.id);
     try {
-      await api.post(`/admin/bans/${ban.id}/lift`, {});
-      toast('Ban lifted', 'success');
+      const result = await api.post<{ success: boolean; restoredCount: number }>(`/admin/bans/${ban.id}/lift`, {});
+      toast(
+        result.restoredCount > 0
+          ? `Ban lifted — ${result.restoredCount} hidden row${result.restoredCount === 1 ? '' : 's'} restored`
+          : 'Ban lifted',
+        'success'
+      );
       await refresh();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to lift ban', 'error');
@@ -467,11 +475,13 @@ export default function Reports() {
         discordUserId: id,
         durationDays: banFormDuration ? parseInt(banFormDuration, 10) : null,
         reason: banFormReason.trim() || undefined,
+        contentAction: banFormContentAction,
       });
       toast('Identity banned', 'success');
       setBanFormId('');
       setBanFormDuration('');
       setBanFormReason('');
+      setBanFormContentAction('hide');
       await refresh();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to ban identity', 'error');
@@ -555,6 +565,50 @@ export default function Reports() {
                     maxLength={500}
                     className="w-full bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:outline-none focus:border-neon-cyan/50"
                   />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-faint block mb-1">Their existing scores &amp; comments</label>
+                <div className="space-y-1.5">
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="banFormContentAction"
+                      className="mt-1"
+                      checked={banFormContentAction === 'hide'}
+                      onChange={() => setBanFormContentAction('hide')}
+                    />
+                    <span>
+                      <span className="text-primary">Hide their existing content</span>
+                      <span className="block text-xs text-faint">Removed from public view; restored automatically if this ban is lifted.</span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="banFormContentAction"
+                      className="mt-1"
+                      checked={banFormContentAction === 'delete'}
+                      onChange={() => setBanFormContentAction('delete')}
+                    />
+                    <span>
+                      <span className="text-primary">Delete</span>
+                      <span className="block text-xs text-faint">Permanently removed; NOT restored if this ban is lifted.</span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="banFormContentAction"
+                      className="mt-1"
+                      checked={banFormContentAction === 'leave'}
+                      onChange={() => setBanFormContentAction('leave')}
+                    />
+                    <span>
+                      <span className="text-primary">Leave visible</span>
+                      <span className="block text-xs text-faint">No change — their existing scores and comments stay up.</span>
+                    </span>
+                  </label>
                 </div>
               </div>
               <NeonButton variant="danger" onClick={handleAddBan} disabled={addingBan || !banFormId.trim()}>

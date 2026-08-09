@@ -2,9 +2,19 @@ import crypto from 'crypto';
 import { getDatabase } from '../database/database.js';
 import { GlobalScoreService } from './GlobalScoreService.js';
 import { BanService } from './BanService.js';
-import { logInfo } from '../utils/logger.js';
+import { BanNotificationService } from './BanNotificationService.js';
+import { isDiscordUserId } from '../utils/identityProvider.js';
+import { deleteScorePhotoFiles } from '../utils/scorePhotoCleanup.js';
+import { logInfo, logError } from '../utils/logger.js';
 
 export type ReportResolution = 'dismissed' | 'deleted' | 'banned';
+
+/**
+ * Ban → content cascade (ROADMAP "Player Self-Service + Moderation" §C).
+ * Chosen per ban-create call: 'hide' (default, soft — reversible on lift),
+ * 'delete' (hard — NOT reversible), 'leave' (no action).
+ */
+export type BanContentAction = 'hide' | 'delete' | 'leave';
 
 export interface ScoreReport {
     id: string;
@@ -232,7 +242,8 @@ export class ScoreReportService {
         reportId: string,
         adminDiscordId: string,
         durationDays: number | null,
-        banReason?: string
+        banReason?: string,
+        contentAction: BanContentAction = 'hide',
     ): Promise<boolean | { error: string }> {
         const report = await this.getById(reportId);
         if (!report) return false;
@@ -259,6 +270,7 @@ export class ScoreReportService {
             playerId!, adminDiscordId, durationDays, banReason || report.reason || undefined,
             // A room report bans within that room; a global report bans globally.
             report.score_source === 'room_history' ? report.game_room_id : null,
+            contentAction,
         );
         await this.removeReportedScore(report, adminDiscordId, false);
         await this.resolveAllForScore(report.score_id, report.score_source, adminDiscordId, 'banned');
@@ -314,6 +326,23 @@ export class ScoreReportService {
      * `gameRoomId` omitted/null → global ban (pre-v2.49 shape, unaffected).
      * Passed → a room-tier ban (v2.49.0, room-bans contract) that only bites
      * inside that room — see `BanService.isIdentityBanned`'s doc comment.
+     *
+     * `contentAction` (ban → content cascade, ROADMAP §C) — 'hide' (default),
+     * 'delete', or 'leave'. Applied as a follow-on AFTER the ban row commits,
+     * not inside a new transaction: the room-ban route (rooms.ts) already
+     * wraps this call in its own `BEGIN...COMMIT` on the same shared
+     * connection, and this driver/DB has no true nested-transaction support
+     * (a known flake source — see CLAUDE.md's "BE nested-transaction family"
+     * note) — issuing another BEGIN here would either error or silently
+     * merge into the outer one depending on call site, which is exactly the
+     * kind of inconsistency to avoid. Piggybacking as sequential statements
+     * on the same connection means the room-ban path still gets the cascade
+     * INSIDE that route's transaction "for free" (same connection, same
+     * uncommitted transaction), while the global-ban path (admin.ts, no
+     * surrounding transaction) gets it as an immediately-following statement.
+     * Either way, a cascade failure is caught and logged here so it can never
+     * fail the ban itself — the ban row is the source of truth for
+     * enforcement; the cascade is best-effort cleanup on top of it.
      */
     static async ban(
         discordUserId: string,
@@ -321,6 +350,7 @@ export class ScoreReportService {
         durationDays: number | null,
         reason?: string,
         gameRoomId?: string | null,
+        contentAction: BanContentAction = 'hide',
     ): Promise<UserBan> {
         const db = await getDatabase();
         const id = crypto.randomUUID();
@@ -340,14 +370,42 @@ export class ScoreReportService {
         // cached "not banned" result is keyed separately and would otherwise
         // stay stale for up to 10s (see BanService.clearCache doc comment).
         BanService.clearCache();
+
+        // Full identity-link expansion (same graph enforcement checks) so the
+        // cascade and DM catch content/DM-ability under a linked alias too —
+        // banning a `google:*` id whose linked Discord account authored the
+        // scores/comments must still hide them, and DM the Discord side.
+        const candidates = await BanService.expandIdentityCandidates(discordUserId);
+
+        try {
+            await this.applyBanContentCascade(id, candidates, gameRoomId ?? null, contentAction);
+        } catch (err) {
+            logError(`ScoreReportService.ban: content cascade failed for ban ${id} (non-fatal — ban still applied):`, err);
+        }
+
+        try {
+            await this.sendBanNotification(candidates, gameRoomId ?? null, reason, expiresAt);
+        } catch (err) {
+            logError(`ScoreReportService.ban: DM failed for ban ${id} (non-fatal — ban still applied):`, err);
+        }
+
         return (await db.get('SELECT * FROM user_bans WHERE id = ?', id)) as UserBan;
     }
 
     /**
      * Lift an active ban (set lifted_at). Doesn't delete the row — we keep the
      * history so a repeat offender's record is visible.
+     *
+     * Also restores every row this ban's cascade HID (action='hide' in
+     * `ban_content_actions`) — deliberate design call: the room-ban precedent
+     * ("lifting does not auto-restore membership", rooms.ts decision 1)
+     * applies to MEMBERSHIP, not content. Content soft-hide exists FOR
+     * reversibility, so restoring it on lift is the whole point of choosing
+     * 'hide' over 'delete' in the first place. Rows the cascade DELETED are
+     * never restored (gone for good) — `restoredCount` only ever counts the
+     * hidden rows that came back.
      */
-    static async lift(banId: string, liftedBy: string): Promise<boolean> {
+    static async lift(banId: string, liftedBy: string): Promise<{ lifted: boolean; restoredCount: number }> {
         const db = await getDatabase();
         const ban = await db.get<{ discord_user_id: string }>(
             'SELECT discord_user_id FROM user_bans WHERE id = ?', banId
@@ -363,7 +421,234 @@ export class ScoreReportService {
         // cache-freshness rationale as `ban()`: an unban must also take
         // effect immediately, across every linked-alias cache key.
         if (changed && ban?.discord_user_id) BanService.clearCache();
-        return changed;
+        if (!changed) return { lifted: false, restoredCount: 0 };
+
+        let restoredCount = 0;
+        try {
+            restoredCount = await this.restoreBanContentActions(banId);
+        } catch (err) {
+            logError(`ScoreReportService.lift: content restore failed for ban ${banId} (non-fatal — ban still lifted):`, err);
+        }
+        return { lifted: true, restoredCount };
+    }
+
+    /** Tables the content cascade can touch, and which "hidden" column each
+     *  uses. Allowlist — `table_name` is only ever written by our own
+     *  cascade code below, but names are still validated against this map
+     *  before being interpolated into SQL (table names can't be bound
+     *  parameters). */
+    private static readonly HIDEABLE_TABLES: Record<string, 'orphaned_at' | 'hidden_at'> = {
+        submissions: 'orphaned_at',
+        community_scores: 'orphaned_at',
+        score_history: 'orphaned_at',
+        game_comments: 'hidden_at',
+        global_game_comments: 'hidden_at',
+    };
+
+    /**
+     * Ban → content cascade (ROADMAP §C). Hides/deletes/leaves-alone every
+     * row across the five content tables that belongs to one of
+     * `identityCandidates` (the full identity-link-expanded set), scoped to
+     * `gameRoomId` when set (room ban) or everywhere when null (global ban).
+     *
+     * Score tables (submissions/community_scores/score_history) are matched
+     * on `submitted_by_user_id` — the normalized login-identity column every
+     * web submission path writes (see CLAUDE.md's identity-layer doctrine).
+     * `game_comments` is room-scoped content and is swept by BOTH a room ban
+     * (that room only) and a global ban (every room) — `global_game_comments`
+     * has no room dimension at all, so it's only ever swept by a global ban.
+     */
+    private static async applyBanContentCascade(
+        banId: string,
+        identityCandidates: string[],
+        gameRoomId: string | null,
+        action: BanContentAction,
+    ): Promise<void> {
+        if (action === 'leave' || identityCandidates.length === 0) return;
+        const db = await getDatabase();
+        const placeholders = identityCandidates.map(() => '?').join(', ');
+
+        const scoreTables: Array<{ table: 'submissions' | 'community_scores' | 'score_history'; roomColumn: string }> = [
+            { table: 'submissions', roomColumn: 'submitted_from_room_id' },
+            { table: 'community_scores', roomColumn: 'game_room_id' },
+            { table: 'score_history', roomColumn: 'game_room_id' },
+        ];
+
+        for (const { table, roomColumn } of scoreTables) {
+            const roomClause = gameRoomId ? `AND ${roomColumn} = ?` : '';
+            const params: unknown[] = gameRoomId ? [...identityCandidates, gameRoomId] : [...identityCandidates];
+            const rows = await db.all<Array<Record<string, unknown>>>(
+                `SELECT * FROM ${table}
+                 WHERE submitted_by_user_id IN (${placeholders})
+                   AND orphaned_at IS NULL
+                   ${roomClause}`,
+                ...params,
+            );
+            if (rows.length === 0) continue;
+
+            const touchedGames = new Map<string, string>(); // gameId -> roomId
+            for (const row of rows) {
+                const rowId = row.id as string | number;
+                if (action === 'hide') {
+                    await db.run(`UPDATE ${table} SET orphaned_at = datetime('now') WHERE id = ?`, rowId);
+                    await db.run(
+                        `INSERT INTO ban_content_actions (ban_id, table_name, row_id, action) VALUES (?, ?, ?, 'hide')`,
+                        banId, table, String(rowId),
+                    );
+                } else {
+                    // delete
+                    if (table === 'score_history' && row.game_id) {
+                        // Tombstone so the iScored sync poller doesn't
+                        // re-import this score on its next tick — same
+                        // pattern as ScoreHistoryService.deleteEvent /
+                        // the admin "wipe player" route.
+                        await db.run(
+                            `INSERT INTO deleted_score_suppressions
+                                (game_id, iscored_username_lower, suppressed_score, deleted_at, deleted_by_user_id)
+                             VALUES (?, LOWER(?), ?, datetime('now'), ?)
+                             ON CONFLICT(game_id, iscored_username_lower) DO UPDATE SET
+                                suppressed_score = MAX(suppressed_score, excluded.suppressed_score),
+                                deleted_at = datetime('now'),
+                                deleted_by_user_id = excluded.deleted_by_user_id`,
+                            row.game_id, row.iscored_username, row.score, banId,
+                        );
+                    }
+                    if (typeof row.photo_url === 'string' || row.photo_url === null) {
+                        deleteScorePhotoFiles([row.photo_url as string | null]);
+                    }
+                    await db.run(`DELETE FROM ${table} WHERE id = ?`, rowId);
+                    await db.run(
+                        `INSERT INTO ban_content_actions (ban_id, table_name, row_id, action) VALUES (?, ?, ?, 'delete')`,
+                        banId, table, String(rowId),
+                    );
+                }
+                if (row.game_id) {
+                    const roomForRow = gameRoomId ?? (row[roomColumn] as string | null);
+                    if (roomForRow) touchedGames.set(row.game_id as string, roomForRow);
+                }
+            }
+
+            // Cache invalidation + broadcast — mirrors the admin "wipe
+            // player" precedent (DELETE rooms/:roomId/admin/games/:gameId/submissions/:submissionId).
+            if (touchedGames.size > 0) {
+                const { LeaderboardService } = await import('./LeaderboardService.js');
+                const { emitLeaderboardUpdated } = await import('../api/websocket.js');
+                for (const [gameId, roomId] of touchedGames) {
+                    await LeaderboardService.invalidate(gameId);
+                    emitLeaderboardUpdated(roomId, { gameId });
+                }
+            }
+        }
+
+        // game_comments — room-scoped content, swept by both ban tiers.
+        await this.cascadeCommentTable(
+            db, banId, 'game_comments', 'user_id', identityCandidates, placeholders,
+            gameRoomId ? 'AND game_room_id = ?' : '', gameRoomId ? [...identityCandidates, gameRoomId] : [...identityCandidates],
+            action,
+        );
+
+        // global_game_comments — not room-scoped at all; only a GLOBAL ban touches it.
+        if (!gameRoomId) {
+            await this.cascadeCommentTable(
+                db, banId, 'global_game_comments', 'discord_user_id', identityCandidates, placeholders,
+                '', [...identityCandidates],
+                action,
+            );
+        }
+    }
+
+    private static async cascadeCommentTable(
+        db: Awaited<ReturnType<typeof getDatabase>>,
+        banId: string,
+        table: 'game_comments' | 'global_game_comments',
+        userColumn: string,
+        _identityCandidates: string[],
+        placeholders: string,
+        extraClause: string,
+        params: unknown[],
+        action: BanContentAction,
+    ): Promise<void> {
+        const rows = await db.all<Array<{ id: number }>>(
+            `SELECT id FROM ${table} WHERE ${userColumn} IN (${placeholders}) AND hidden_at IS NULL ${extraClause}`,
+            ...params,
+        );
+        for (const row of rows) {
+            if (action === 'hide') {
+                await db.run(`UPDATE ${table} SET hidden_at = datetime('now') WHERE id = ?`, row.id);
+                await db.run(
+                    `INSERT INTO ban_content_actions (ban_id, table_name, row_id, action) VALUES (?, ?, ?, 'hide')`,
+                    banId, table, String(row.id),
+                );
+            } else {
+                await db.run(`DELETE FROM ${table} WHERE id = ?`, row.id);
+                await db.run(
+                    `INSERT INTO ban_content_actions (ban_id, table_name, row_id, action) VALUES (?, ?, ?, 'delete')`,
+                    banId, table, String(row.id),
+                );
+            }
+        }
+    }
+
+    /**
+     * Restore every row a lifted ban's cascade HID. 'delete' actions are
+     * never touched — not restorable by design (the row is gone). Rows are
+     * restored via the SAME allowlisted column map the cascade used to hide
+     * them, so a hide on `game_comments` clears `hidden_at` and a hide on
+     * `score_history` clears `orphaned_at`, etc.
+     */
+    private static async restoreBanContentActions(banId: string): Promise<number> {
+        const db = await getDatabase();
+        const rows = await db.all<Array<{ table_name: string; row_id: string }>>(
+            `SELECT table_name, row_id FROM ban_content_actions WHERE ban_id = ? AND action = 'hide'`,
+            banId,
+        );
+        let restored = 0;
+        for (const row of rows) {
+            const column = this.HIDEABLE_TABLES[row.table_name];
+            if (!column) continue; // defensive — should never happen, allowlist is closed
+            const result = await db.run(
+                `UPDATE ${row.table_name} SET ${column} = NULL WHERE id = ?`,
+                row.row_id,
+            );
+            if ((result.changes ?? 0) > 0) restored++;
+        }
+        // The tracking rows have served their purpose (row is restored) —
+        // remove them so a hypothetical future ban on the same identity
+        // can't misinterpret them as belonging to ITS cascade. 'delete'
+        // action rows for this ban are untouched — they stay forever as the
+        // non-restorable audit trail.
+        await db.run(`DELETE FROM ban_content_actions WHERE ban_id = ? AND action = 'hide'`, banId);
+        return restored;
+    }
+
+    /**
+     * Ban → Discord DM (ROADMAP §C). Best-effort, never throws (caller
+     * already wraps this in try/catch as defense-in-depth, but
+     * `BanNotificationService.sendBanDM` itself never throws either).
+     *
+     * Walks the identity-link-expanded candidate set for a DM-able Discord
+     * id — a ban placed on a `google:*` id whose linked Discord account is
+     * reachable still gets notified there. No Discord identity anywhere in
+     * the graph → silently skipped (no DM channel exists).
+     */
+    private static async sendBanNotification(
+        identityCandidates: string[],
+        gameRoomId: string | null,
+        reason: string | undefined,
+        expiresAt: string | null,
+    ): Promise<void> {
+        const dmTarget = identityCandidates.find(isDiscordUserId);
+        if (!dmTarget) {
+            logInfo(`ScoreReportService.ban: no Discord identity to DM among [${identityCandidates.join(', ')}] — skipped.`);
+            return;
+        }
+        let scopeLabel = 'all of Arcaid';
+        if (gameRoomId) {
+            const db = await getDatabase();
+            const room = await db.get<{ name: string }>('SELECT name FROM game_rooms WHERE id = ?', gameRoomId);
+            scopeLabel = room?.name ? `the "${room.name}" room` : 'this room';
+        }
+        await BanNotificationService.sendBanDM({ discordUserId: dmTarget, scopeLabel, reason, expiresAt });
     }
 
     /**
