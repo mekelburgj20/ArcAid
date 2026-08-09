@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.93.0] — unreleased
+
+**Member-picker admin add (membership & privacy arc rider).**
+
+### Changed
+- **Adding a room admin is now a searchable name+avatar picker over the room roster** (`MemberAdminPicker` component, `PlayerAvatar` idiom, existing-admins excluded), replacing the plain `<select>` from v2.39.0 — provider-agnostic end-to-end, so a `google:*` member is promotable exactly like a Discord member (the BE `admins/discord` endpoint + admin-only roster already supported this; the picker UX was the missing piece). The "Advanced: paste a username or ID" fallback stays — it remains the only way to grant admin to someone who hasn't joined the room yet. 7 new component tests incl. the google:* promote payload.
+
 ## [2.92.0] — unreleased
 
 **Stale-PWA update nudge + `DISCORD_CLIENT_SECRET` encrypted at rest.**

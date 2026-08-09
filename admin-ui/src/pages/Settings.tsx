@@ -15,6 +15,7 @@ import type { PresetDefinition } from '../components/PresetSelector';
 import StyleThemePicker from '../components/scoreboard/StyleThemePicker';
 import ScoreboardPreview from '../components/ScoreboardPreview';
 import ImageCropper from '../components/ImageCropper';
+import MemberAdminPicker from '../components/MemberAdminPicker';
 import { resizeImageToMaxBox } from '../lib/imageResize';
 import { getTitleStyleClass, getTitleSizeClass } from '../components/ScoreboardComponents';
 
@@ -466,10 +467,10 @@ export default function Settings() {
   const [deleteAdminTarget, setDeleteAdminTarget] = useState<LocalAdmin | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   // v2.39.0 — member picker (replaces raw-ID pasting as the primary add-admin
-  // flow; the manual input below stays as an "advanced" fallback).
+  // flow; the manual input below stays as an "advanced" fallback). The picker
+  // UI itself lives in <MemberAdminPicker> (member-picker admin add rider) —
+  // names + avatars, provider-agnostic (works for `google:*` ids too).
   const [roomMembers, setRoomMembers] = useState<RoomMember[]>([]);
-  const [pickedMemberId, setPickedMemberId] = useState('');
-  const [addingPickedMember, setAddingPickedMember] = useState(false);
 
   // Branding upload state
   const [bgUrl, setBgUrl] = useState('');
@@ -500,25 +501,6 @@ export default function Settings() {
       const data = await api.get<RoomMember[]>(`/rooms/${room.roomId}/admin/members`);
       setRoomMembers(data);
     } catch {}
-  };
-
-  // v2.39.0 — member picker: add the selected room member as a Discord admin
-  // directly by their (provider-agnostic, works for Discord OR google:* ids
-  // since v2.35.0) raw user id — skips the username-lookup flow entirely
-  // since we already have the id from the members list.
-  const handleAddPickedMember = async () => {
-    if (!pickedMemberId) return;
-    setAddingPickedMember(true);
-    try {
-      await api.post(`/rooms/${room.roomId}/admins/discord`, { discord_user_id: pickedMemberId });
-      toast('Admin added.', 'success');
-      setPickedMemberId('');
-      fetchAdmins();
-    } catch (err: any) {
-      toast(err.message || 'Failed to add admin', 'error');
-    } finally {
-      setAddingPickedMember(false);
-    }
   };
 
   const handleInvite = async () => {
@@ -905,31 +887,18 @@ export default function Settings() {
         <div className="border border-border rounded p-4 space-y-4 mb-6">
           {/* v2.39.0 — member picker (primary flow): room members are already
               known to us, so pick from the list rather than typing a
-              username/ID. Excludes users already listed as Discord admins. */}
-          {roomMembers.filter(m => !discordAdmins.some(a => a.discord_user_id === m.userId)).length > 0 && (
-            <div>
-              <label className="text-xs text-faint block mb-1">Add from room members</label>
-              <div className="flex gap-2">
-                <select
-                  value={pickedMemberId}
-                  onChange={e => setPickedMemberId(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">Select a member…</option>
-                  {roomMembers
-                    .filter(m => !discordAdmins.some(a => a.discord_user_id === m.userId))
-                    .map(m => (
-                      <option key={m.userId} value={m.userId}>
-                        {m.displayName || m.userId}
-                      </option>
-                    ))}
-                </select>
-                <NeonButton onClick={handleAddPickedMember} disabled={addingPickedMember || !pickedMemberId}>
-                  {addingPickedMember ? 'Adding...' : 'Add as Admin'}
-                </NeonButton>
-              </div>
-            </div>
-          )}
+              username/ID. Excludes users already listed as Discord admins.
+              Names + avatars, provider-agnostic (member-picker admin add rider). */}
+          <MemberAdminPicker
+            roomId={room.roomId}
+            members={roomMembers}
+            excludeIds={new Set(discordAdmins.map(a => a.discord_user_id))}
+            onAdded={(member) => {
+              toast(`${member.displayName || 'Admin'} added.`, 'success');
+              fetchAdmins();
+            }}
+            onError={(message) => toast(message, 'error')}
+          />
 
           <div>
             <label className="text-xs text-faint block mb-1">Advanced: paste a username or ID</label>
