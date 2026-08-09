@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.88.0] — unreleased
+
+**Scores page header compression (owner-asked 2026-08-08, screenshot-loop approved) + GameCard title wrap + SetupWizard removal.**
+
+### Changed
+- **Scores page header compressed to one control row (all three tabs).** The stacked centered rows (tab chips → subtitle line → search → tab-specific extras) collapse into a single `grid-cols-[1fr_auto_1fr]` control row: search left, Tournaments/Room Scores/Global chips true-centered, tab-specific extras right-aligned (Room Scores: Recent/A–Z/Most-played sort chips + game count + "Manage the game library →"; Global: results count + "See the full Global Scoreboard →", replacing the full-width banner row). The redundant subtitle line is gone (`scoresCopy.ts` lost `tabSubtitle`/`GLOBAL_BANNER_TEXT`). First card row now starts 199px from the viewport top vs 270px before (measured, tournaments desktop). Below `sm` the grid stacks (search → chips → extras) with zero horizontal page overflow. Room logo/title header untouched; score cards untouched; admin Leaderboard inherits via the shared `ScoreboardSurface` slots; kiosk unaffected.
+
+### Fixed
+- **Legacy `GameCard` no longer ellipsizes long game titles (no-ellipsis rule).** All four header-style title variants swap `truncate` for a 2-line clamp with word-break (mirroring `BannerCard`/`ShowcaseCard`'s `titleClampStyle`) and a reserved min-height so short-title siblings don't jump. The before-screenshot caught a real pre-existing bug this fixes: the non-shrinking truncated title visually bled past its card border into the neighboring card.
+
+### Removed
+- **`admin-ui/src/pages/SetupWizard.tsx`** — orphaned (unrouted, zero importers) first-boot wizard from the single-instance era. Its flow contradicted the current stack twice over: it set the admin password through a legacy `/auth/login` hack predating the multi-room auth model, and it demanded iScored credentials up front against the "iScored is optional — don't promote" doctrine (new rooms default it off since v2.81.0). A future self-host onboarding would be rebuilt Discord-OAuth-first; nothing to salvage.
+
 ## [2.87.0] — unreleased
 
 **Launch polish batch: room-admin nav escape, Arcaid brand casing sweep, videogame tournament-mode normalization.**
