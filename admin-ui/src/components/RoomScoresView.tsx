@@ -168,13 +168,16 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
 
   return (
     <div className="px-4 sm:px-6 pb-6">
-      {/* One control row (owner-asked header compression, 2026-08-08): search
-          left, sort chips + running total + browse link + the shared tab
-          chips folded onto the right. flex-wrap on both the row and the
-          right-side group so narrow viewports stack instead of ever
-          scrolling horizontally. */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
+      {/* One control row (owner-asked header compression, 2026-08-08; revised
+          for true chip centering per owner feedback). 3-column grid — left
+          (search), center (shared tab chips, centered against the FULL row
+          width via two equal 1fr side tracks, not just leftover flex space),
+          right (sort chips + running total + browse link). Collapses to one
+          stacked column below `sm`; the right group keeps its own
+          `flex-wrap` so a narrow right track never forces horizontal
+          scroll. */}
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-3 mb-4">
+        <div className="relative min-w-0 max-w-sm">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="text"
@@ -186,7 +189,11 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+        <div className="min-w-0 flex justify-center">
+          {tabSwitcher}
+        </div>
+
+        <div className="min-w-0 flex flex-wrap items-center gap-3 justify-start sm:justify-end">
           {/* Sort chips (ROOM_SORT_LABELS — server-side sort param). */}
           <div className="flex items-center gap-1.5">
             {(Object.keys(ROOM_SORT_LABELS) as RoomSort[]).map(key => (
@@ -212,8 +219,6 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
               {browseLabel}
             </Link>
           </div>
-
-          {tabSwitcher}
         </div>
       </div>
 

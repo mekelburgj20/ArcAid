@@ -177,14 +177,15 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
 
   return (
     <div className="px-4 sm:px-6 pb-6">
-      {/* One control row (owner-asked header compression, 2026-08-08): search
-          left; running total + the cross-link (locked decision #3 — bounded
-          lens, full browsing lives on /scoreboard) + the shared tab chips on
-          the right. The old full-width banner row is gone — same link,
-          folded onto this row. flex-wrap throughout so narrow viewports
-          stack instead of scrolling horizontally. */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
+      {/* One control row (owner-asked header compression, 2026-08-08; revised
+          for true chip centering per owner feedback). 3-column grid — left
+          (search), center (shared tab chips, centered against the FULL row
+          width, not just leftover flex space), right (running total + the
+          cross-link — locked decision #3, bounded lens, full browsing lives
+          on /scoreboard). The old full-width banner row is gone — same link,
+          folded onto this row. Collapses to one stacked column below `sm`. */}
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-3 mb-4">
+        <div className="relative min-w-0 max-w-sm">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="text"
@@ -196,7 +197,11 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+        <div className="min-w-0 flex justify-center">
+          {tabSwitcher}
+        </div>
+
+        <div className="min-w-0 flex flex-wrap items-center gap-3 justify-start sm:justify-end">
           {!loading && total > 0 && (
             <span className="text-[11px] text-faint whitespace-nowrap">
               Showing {rows.length.toLocaleString()} of {total.toLocaleString()} games with global scores
@@ -205,7 +210,6 @@ export default function GlobalScoresView({ roomId, slug, config, roomName, viewe
           <Link to="/scoreboard" className="text-xs text-neon-cyan hover:text-neon-cyan/80 no-underline whitespace-nowrap">
             {GLOBAL_SEE_FULL_LABEL}
           </Link>
-          {tabSwitcher}
         </div>
       </div>
 

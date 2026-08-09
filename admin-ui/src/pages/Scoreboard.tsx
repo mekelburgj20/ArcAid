@@ -253,15 +253,21 @@ export default function Scoreboard() {
           </>
         }
         aboveCards={
-          /* Owner-asked header compression (2026-08-08): search bar and the
-             Tournaments/Room Scores/Global chips share one row instead of the
-             chips sitting up in the measured title zone and the search bar
-             stacking below on its own line + a now-redundant subtitle. Left-
-             aligned search, chips pushed right (wraps below on narrow
-             viewports via flex-wrap — never horizontal scroll). */
+          /* Owner-asked header compression (2026-08-08), revised per owner
+             feedback on the first pass: the Tournaments/Room Scores/Global
+             chips must be TRULY centered on the row (centered against the
+             full row width), not just pushed into leftover flex space. A
+             3-column grid (`1fr auto 1fr`) does that — left/right tracks are
+             equal width, so the auto-sized center track sits dead-center
+             regardless of how much content is in the side tracks. Tournaments
+             has no right-side content, so only two grid items are rendered;
+             the empty 1fr third track still reserves the space, which is
+             exactly what keeps the chips centered. Collapses to one column
+             (stacked rows, search then chips) below `sm` — same
+             never-horizontal-scroll guarantee as the flex-wrap it replaces. */
           <div className="px-4 sm:px-6 mb-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-3">
+              <div className="relative min-w-0 max-w-sm">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
                 <input
                   type="text"
@@ -272,7 +278,7 @@ export default function Scoreboard() {
                   aria-label="Search active games"
                 />
               </div>
-              <div className="sm:ml-auto">
+              <div className="min-w-0 flex justify-center">
                 <TabSwitcher tab={tab} onSelect={selectTab} />
               </div>
             </div>
