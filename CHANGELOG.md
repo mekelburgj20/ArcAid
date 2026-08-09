@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.95.2] — unreleased
+
+**RTX demo follow-ups: picker-command admin gating + Room Scores card backgrounds + lock visibility.**
+
+### Fixed
+- **`/nominate-picker` and `/pause-pick` are now admin-gated** (`setDefaultMemberPermissions(Administrator)`, the gate every other admin command already carried) — previously ANY guild member could reassign picker rights or inject a game into the lineup. Commands re-register on boot; the gate applies as soon as this release deploys.
+- **Room Scores cards now show their style-catalogue background** (admins' demo report). Root cause: `RoomScoresService.resolveCardChrome` only read the `game_room_game_library` overlay, but the admin Leaderboard Style button writes per-game styles onto the `games` row — so a Style-button background showed on the Tournaments tab and silently vanished on Room Scores. Games-row overlay now wins over the library overlay (same doctrine as Tournaments), covering active + pinned games; test pins all three resolution cases.
+- **Lock indicator is visible from across the room** (admins' demo report): bigger + heavier stroke on all four card families, and ShowcaseCard's lock now uses the semantic warning amber instead of the per-theme decorative accent that made it invisible on some themes.
+
 ## [2.95.1] — unreleased
 
 **Hotfix: device picker could silently submit a tournament-excluded device (RTX demo field report, 2026-08-09).**
