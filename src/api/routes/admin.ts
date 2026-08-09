@@ -97,8 +97,24 @@ router.put('/rooms/:roomId', async (req, res) => {
 
 router.delete('/rooms/:roomId', async (req, res) => {
     try {
-        const deleted = await GameRoomService.delete(req.params.roomId as string);
+        const roomId = req.params.roomId as string;
+        const room = await GameRoomService.getById(roomId);
+        const deleted = await GameRoomService.delete(roomId);
         if (!deleted) return res.status(404).json({ error: 'Room not found' });
+
+        // Explicit audit write — the app-level auditLog middleware is mounted
+        // BEFORE this router's requireAuth sets req.user, so it never fires
+        // here (see ROADMAP.md "Audit"). Destructive op, so it gets one.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'room.delete',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ name: room?.name ?? null, slug: room?.slug ?? null }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/admin/rooms/:roomId):', error);
@@ -124,6 +140,18 @@ router.post('/rooms/:roomId/suspend', async (req, res) => {
         const actor = req.user!.discordId || req.user!.localAdminId || 'admin';
         await GameRoomService.suspend(roomId, actor, validationResult.data.reason ?? null);
         logInfo(`Room suspended: ${room.name} (${room.slug}) by ${actor}`);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor,
+            action: 'room.suspend',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ name: room.name, slug: room.slug, reason: validationResult.data.reason ?? null }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/rooms/:roomId/suspend):', error);
@@ -139,7 +167,20 @@ router.post('/rooms/:roomId/unsuspend', async (req, res) => {
         if (!room) return res.status(404).json({ error: 'Room not found' });
 
         await GameRoomService.unsuspend(roomId);
-        logInfo(`Room unsuspended: ${room.name} (${room.slug}) by ${req.user!.discordId || req.user!.localAdminId || 'admin'}`);
+        const actor = req.user!.discordId || req.user!.localAdminId || 'admin';
+        logInfo(`Room unsuspended: ${room.name} (${room.slug}) by ${actor}`);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor,
+            action: 'room.unsuspend',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ name: room.name, slug: room.slug }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/rooms/:roomId/unsuspend):', error);
@@ -195,6 +236,19 @@ router.post('/super-admins', async (req, res) => {
         }
 
         await AdminService.addSuperAdmin(resolvedId, username || input.trim());
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        // Identity op (granting server-wide super-admin) — always logged.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'superadmin.add',
+            target_type: 'super_admin',
+            target_id: resolvedId,
+            details: JSON.stringify({ username: username || input.trim() }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/super-admins):', error);
@@ -204,8 +258,21 @@ router.post('/super-admins', async (req, res) => {
 
 router.delete('/super-admins/:discordId', async (req, res) => {
     try {
-        const deleted = await AdminService.removeSuperAdmin(req.params.discordId as string);
+        const targetId = req.params.discordId as string;
+        const deleted = await AdminService.removeSuperAdmin(targetId);
         if (!deleted) return res.status(404).json({ error: 'Super admin not found' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'superadmin.remove',
+            target_type: 'super_admin',
+            target_id: targetId,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/admin/super-admins/:discordId):', error);
@@ -293,6 +360,20 @@ router.post('/backups/:name/restore', async (req, res) => {
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
         await restoreBackup(validationResult.data.name);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        // Most destructive op in the admin surface (replaces the live DB); logged
+        // before the response since the process restarts moments later.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'backup.restore',
+            target_type: 'backup',
+            target_id: validationResult.data.name,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true, message: `Backup "${validationResult.data.name}" restored. Restarting...` });
 
         serverEvents.emit('restart');
@@ -344,12 +425,25 @@ router.get('/backups/:name/download', async (req, res) => {
 // DELETE /api/admin/backups/:name — permanently remove a backup directory (its DB
 // + any bundled assets). Its absence let old backups pile up until prod hit 100%
 // disk (2026-07-04 incident). Super-admin gated by the router-level requireAuth +
-// requireSuperAdmin; auto-audited by the admin auditMiddleware.
+// requireSuperAdmin. NOT auto-audited — the app-level auditLog middleware is
+// mounted before this router's own auth sets req.user (see ROADMAP.md
+// "Audit"), so it never fires here; audited explicitly below instead.
 router.delete('/backups/:name', async (req, res) => {
     try {
         const validationResult = validate(BackupRestoreParamsSchema, { name: req.params.name as string });
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
         await deleteBackup(validationResult.data.name);
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'backup.delete',
+            target_type: 'backup',
+            target_id: validationResult.data.name,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true, message: `Backup "${validationResult.data.name}" deleted.` });
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
@@ -415,6 +509,19 @@ router.put('/backups/config', async (req, res) => {
 
         if (Object.keys(toSave).length > 0) {
             await SettingsService.saveMany(toSave);
+
+            // Explicit audit write — auditMiddleware does NOT fire on router
+            // routes. Settings change: keys only, never values (none of these
+            // are secrets, but this mirrors the doctrine for /settings below).
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+                action: 'backup.config_update',
+                target_type: 'settings',
+                target_id: 'backup',
+                details: JSON.stringify({ keys: Object.keys(toSave) }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
         }
 
         // Trigger Scheduler to re-register the backup cron with the new config.
@@ -533,6 +640,20 @@ router.post('/settings', async (req, res) => {
         }
 
         const { needsRestart } = await SettingsService.saveMany(settings);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        // Global settings can include secrets (ENCRYPTED_SETTING_KEYS) — log the
+        // KEYS changed only, never the values, so a secret's plaintext can never
+        // leak into audit_log.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'settings.update',
+            target_type: 'settings',
+            target_id: 'global',
+            details: JSON.stringify({ keys: Object.keys(settings) }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
 
         // Hot-invalidate the high-value notification flag cache so a super-admin
         // toggle takes effect immediately instead of after the 10s TTL.
@@ -806,8 +927,14 @@ router.post('/catalogue/sync-ra-masterlist', async (_req, res) => {
 router.get('/ra-catalogue/search', raSearchHandler);
 
 /**
- * Super-admin twin of the RA import (contract §3). Auto-audited by the
- * app-level `auditLog` middleware on a 2xx POST, like every admin write.
+ * Super-admin twin of the RA import (contract §3). NOT auto-audited — the
+ * app-level `auditLog` middleware is mounted before this router's own auth
+ * sets req.user, so it never fires on any router route (see ROADMAP.md
+ * "Audit"; a prior version of this comment claimed otherwise). `raImportHandler`
+ * is shared across three mount points (super-admin here, room-admin in
+ * rooms.ts, public) with different auth — left out of the explicit-audit sweep
+ * since none of the three callers has a single well-defined "admin actor" to
+ * attribute a catalogue-wide write to; tracked as a gap, not silently fixed.
  */
 router.post('/ra-catalogue/import/:raGameId', raImportHandler);
 
@@ -953,6 +1080,18 @@ router.post('/catalogue/games/merge', async (req, res) => {
         const { targetId, sourceId } = req.body;
         if (!targetId || !sourceId) return res.status(400).json({ error: 'targetId and sourceId required' });
         const result = await GlobalGameService.merge(targetId, sourceId);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'catalogue.merge',
+            target_type: 'global_game',
+            target_id: targetId,
+            details: JSON.stringify({ sourceId, scoresMoved: result.scoresMoved }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true, scoresMoved: result.scoresMoved });
     } catch (error) {
         logError('API Error (POST /api/admin/catalogue/games/merge):', error);
@@ -970,6 +1109,21 @@ router.post('/catalogue/merge-ipdb-duplicates', async (req, res) => {
     try {
         const dryRun = req.query.dry === 'true' || req.body?.dry === true;
         const result = await GlobalGameService.mergeIpdbDuplicates({ dryRun });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        // Skip the dry-run preview (no mutation) — only the destructive run.
+        if (!dryRun) {
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+                action: 'catalogue.merge_ipdb_duplicates',
+                target_type: 'global_game',
+                target_id: 'bulk',
+                details: JSON.stringify(result),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+        }
+
         res.json({ success: true, dryRun, ...result });
     } catch (error) {
         logError('API Error (POST /api/admin/catalogue/merge-ipdb-duplicates):', error);
@@ -1151,6 +1305,19 @@ router.post('/catalogue/dedup-audit/strip', async (req, res) => {
             stripped++;
         }
 
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        if (stripped > 0) {
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+                action: 'catalogue.dedup_strip',
+                target_type: 'global_game',
+                target_id: 'bulk',
+                details: JSON.stringify({ stripped, skipped, ids }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+        }
+
         res.json({ stripped, skipped, results });
     } catch (error) {
         logError('API Error (POST /api/admin/catalogue/dedup-audit/strip):', error);
@@ -1160,8 +1327,21 @@ router.post('/catalogue/dedup-audit/strip', async (req, res) => {
 
 router.delete('/catalogue/games/:id', async (req, res) => {
     try {
-        const deleted = await GlobalGameService.delete(req.params.id as string);
+        const gameId = req.params.id as string;
+        const deleted = await GlobalGameService.delete(gameId);
         if (!deleted) return res.status(404).json({ error: 'Game not found' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'catalogue.delete',
+            target_type: 'global_game',
+            target_id: gameId,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/admin/catalogue/games/:id):', error);
@@ -1268,8 +1448,21 @@ router.post('/catalogue/pending/:gameId/reject', async (req, res) => {
             `UPDATE global_games SET status = 'rejected', reviewed_by = ? WHERE id = ?`,
             reviewerId, gameId,
         );
-        // Note: the auditLog middleware automatically captures actor + IP +
-        // correlation_id + sanitized request body (which includes `reason`).
+
+        // Explicit audit write — the app-level auditLog middleware is mounted
+        // BEFORE this router's requireAuth sets req.user, so it never fires
+        // here (a prior version of this comment claimed otherwise — wrong,
+        // see ROADMAP.md "Audit").
+        await AuditService.log({
+            actor: reviewerId,
+            action: 'catalogue.pending_reject',
+            target_type: 'global_game',
+            target_id: gameId,
+            details: JSON.stringify({ reason: reason || null }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ ok: true, gameId, status: 'rejected', reason: reason || null });
     } catch (error) {
         logError('API Error (POST /api/admin/catalogue/pending/:gameId/reject):', error);
@@ -1300,7 +1493,21 @@ router.post('/catalogue/pending/:gameId/merge_into/:targetGameId', async (req, r
             return res.status(400).json({ error: 'Target must be an approved game' });
         }
         const result = await GlobalGameService.merge(targetGameId, gameId);
-        // auditLog middleware records the merge automatically with full body.
+
+        // Explicit audit write — the app-level auditLog middleware is mounted
+        // BEFORE this router's requireAuth sets req.user, so it never fires
+        // here (a prior version of this comment claimed otherwise — wrong,
+        // see ROADMAP.md "Audit").
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'catalogue.pending_merge',
+            target_type: 'global_game',
+            target_id: targetGameId,
+            details: JSON.stringify({ mergedFrom: gameId, scoresMoved: result.scoresMoved }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ ok: true, mergedFrom: gameId, mergedInto: targetGameId, scoresMoved: result.scoresMoved });
     } catch (error) {
         logError('API Error (POST /api/admin/catalogue/pending/:gameId/merge_into/:targetGameId):', error);
@@ -1404,8 +1611,19 @@ router.get('/score-reports', async (req, res) => {
 /** POST /api/admin/score-reports/:reportId/dismiss */
 router.post('/score-reports/:reportId/dismiss', async (req, res) => {
     try {
-        const ok = await ScoreReportService.dismiss(req.params.reportId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        const reportId = req.params.reportId as string;
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        const ok = await ScoreReportService.dismiss(reportId, actor);
         if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'score_report.dismiss', target_type: 'score_report', target_id: reportId,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/score-reports/:reportId/dismiss):', error);
@@ -1416,8 +1634,19 @@ router.post('/score-reports/:reportId/dismiss', async (req, res) => {
 /** POST /api/admin/score-reports/:reportId/soft-delete */
 router.post('/score-reports/:reportId/soft-delete', async (req, res) => {
     try {
-        const ok = await ScoreReportService.softDeleteScore(req.params.reportId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        const reportId = req.params.reportId as string;
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        const ok = await ScoreReportService.softDeleteScore(reportId, actor);
         if (!ok) return res.status(404).json({ error: 'Report not found' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'score_report.soft_delete', target_type: 'score_report', target_id: reportId,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/score-reports/:reportId/soft-delete):', error);
@@ -1428,8 +1657,19 @@ router.post('/score-reports/:reportId/soft-delete', async (req, res) => {
 /** POST /api/admin/score-reports/:reportId/hard-delete */
 router.post('/score-reports/:reportId/hard-delete', async (req, res) => {
     try {
-        const ok = await ScoreReportService.hardDeleteScore(req.params.reportId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        const reportId = req.params.reportId as string;
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        const ok = await ScoreReportService.hardDeleteScore(reportId, actor);
         if (!ok) return res.status(404).json({ error: 'Report not found' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'score_report.hard_delete', target_type: 'score_report', target_id: reportId,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/score-reports/:reportId/hard-delete):', error);
@@ -1469,15 +1709,25 @@ router.post('/score-reports/:reportId/ban', async (req, res) => {
             }
         }
 
+        const actor = req.user!.discordId || req.user!.username || 'admin';
         const ok = await ScoreReportService.banUser(
             reportId,
-            (req.user!.discordId || req.user!.username || 'admin'),
+            actor,
             durationDays ?? null,
             reason,
             contentAction ?? 'hide',
         );
         if (typeof ok === 'object') return res.status(400).json({ error: ok.error });
         if (!ok) return res.status(404).json({ error: 'Report not found' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'score_report.ban', target_type: 'score_report', target_id: reportId,
+            details: JSON.stringify({ durationDays: durationDays ?? null, reason: reason ?? null }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/score-reports/:reportId/ban):', error);
@@ -1527,8 +1777,18 @@ router.post('/reports/:id/dismiss', async (req, res) => {
     try {
         const id = parseInt(req.params.id as string, 10);
         if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid report id' });
-        const ok = await ContentReportService.dismiss(id, (req.user!.discordId || req.user!.username || 'admin'));
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        const ok = await ContentReportService.dismiss(id, actor);
         if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'content_report.dismiss', target_type: 'content_report', target_id: String(id),
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/reports/:id/dismiss):', error);
@@ -1544,10 +1804,20 @@ router.post('/reports/:id/resolve', async (req, res) => {
         const validationResult = validate(ResolveContentReportSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
 
+        const actor = req.user!.discordId || req.user!.username || 'admin';
         const ok = await ContentReportService.resolve(
-            id, (req.user!.discordId || req.user!.username || 'admin'), validationResult.data.resolution,
+            id, actor, validationResult.data.resolution,
         );
         if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'content_report.resolve', target_type: 'content_report', target_id: String(id),
+            details: JSON.stringify({ resolution: validationResult.data.resolution }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/reports/:id/resolve):', error);
@@ -1578,8 +1848,18 @@ router.post('/comment-reports/:id/dismiss', async (req, res) => {
     try {
         const id = parseInt(req.params.id as string, 10);
         if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid report id' });
-        const ok = await CommentReportService.dismiss(id, (req.user!.discordId || req.user!.username || 'admin'));
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        const ok = await CommentReportService.dismiss(id, actor);
         if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'comment_report.dismiss', target_type: 'comment_report', target_id: String(id),
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/comment-reports/:id/dismiss):', error);
@@ -1592,8 +1872,18 @@ router.post('/comment-reports/:id/remove', async (req, res) => {
     try {
         const id = parseInt(req.params.id as string, 10);
         if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid report id' });
-        const ok = await CommentReportService.remove(id, (req.user!.discordId || req.user!.username || 'admin'));
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        const ok = await CommentReportService.remove(id, actor);
         if (!ok) return res.status(404).json({ error: 'Report not found or already resolved' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'comment_report.remove', target_type: 'comment_report', target_id: String(id),
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/comment-reports/:id/remove):', error);
@@ -1654,14 +1944,24 @@ router.post('/bans', async (req, res) => {
             }
         }
 
+        const actor = req.user!.discordId || req.user!.username || 'admin';
         const ban = await ScoreReportService.ban(
             discordUserId,
-            (req.user!.discordId || req.user!.username || 'admin'),
+            actor,
             durationDays ?? null,
             reason,
             null,
             contentAction ?? 'hide',
         );
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'user.ban', target_type: 'user', target_id: discordUserId,
+            details: JSON.stringify({ durationDays: durationDays ?? null, reason: reason ?? null }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.status(201).json(ban);
     } catch (error) {
         logError('API Error (POST /api/admin/bans):', error);
@@ -1672,8 +1972,19 @@ router.post('/bans', async (req, res) => {
 /** POST /api/admin/bans/:banId/lift */
 router.post('/bans/:banId/lift', async (req, res) => {
     try {
-        const result = await ScoreReportService.lift(req.params.banId as string, (req.user!.discordId || req.user!.username || 'admin'));
+        const banId = req.params.banId as string;
+        const actor = req.user!.discordId || req.user!.username || 'admin';
+        const result = await ScoreReportService.lift(banId, actor);
         if (!result.lifted) return res.status(404).json({ error: 'Ban not found or already lifted' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: 'user.unban', target_type: 'ban', target_id: banId,
+            details: JSON.stringify({ restoredCount: result.restoredCount }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true, restoredCount: result.restoredCount });
     } catch (error) {
         logError('API Error (POST /api/admin/bans/:banId/lift):', error);
@@ -1713,6 +2024,18 @@ router.patch('/users/:userId/display-name', async (req, res) => {
         const { GlobalLeaderboardService } = await import('../../services/GlobalLeaderboardService.js');
         await LeaderboardService.invalidateAll();
         await GlobalLeaderboardService.invalidateAll();
+
+        // Explicit audit write — auditMiddleware does NOT fire on router
+        // routes. Moderation-relevant: overrides another user's identity.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'user.display_name_override',
+            target_type: 'user',
+            target_id: userId,
+            details: JSON.stringify({ displayName: next }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
 
         res.json({ display_name: next });
     } catch (error) {
@@ -1755,8 +2078,19 @@ router.get('/global-scores/deleted', async (req, res) => {
 /** POST /api/admin/global-scores/:scoreId/restore */
 router.post('/global-scores/:scoreId/restore', async (req, res) => {
     try {
-        const ok = await GlobalScoreService.restore(req.params.scoreId as string);
+        const scoreId = req.params.scoreId as string;
+        const ok = await GlobalScoreService.restore(scoreId);
         if (!ok) return res.status(404).json({ error: 'Score not found' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'global_score.restore', target_type: 'global_score', target_id: scoreId,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST /api/admin/global-scores/:scoreId/restore):', error);
@@ -1767,11 +2101,23 @@ router.post('/global-scores/:scoreId/restore', async (req, res) => {
 /** DELETE /api/admin/global-scores/:scoreId?hard=true */
 router.delete('/global-scores/:scoreId', async (req, res) => {
     try {
+        const scoreId = req.params.scoreId as string;
         const hard = req.query.hard === 'true' || req.query.hard === '1';
+        const actor = req.user!.discordId || req.user!.username || 'admin';
         const ok = hard
-            ? await GlobalScoreService.hardDelete(req.params.scoreId as string)
-            : await GlobalScoreService.softDelete(req.params.scoreId as string, (req.user!.discordId || req.user!.username || 'admin'));
+            ? await GlobalScoreService.hardDelete(scoreId)
+            : await GlobalScoreService.softDelete(scoreId, actor);
         if (!ok) return res.status(404).json({ error: 'Score not found' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor, action: hard ? 'global_score.hard_delete' : 'global_score.soft_delete',
+            target_type: 'global_score', target_id: scoreId,
+            details: '{}',
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE /api/admin/global-scores/:scoreId):', error);

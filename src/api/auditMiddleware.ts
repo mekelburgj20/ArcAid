@@ -2,6 +2,22 @@ import { Request, Response, NextFunction } from 'express';
 import { AuditService } from '../services/AuditService.js';
 
 /**
+ * DEAD IN PRODUCTION (2026-08 audit-log sweep) — no longer mounted by
+ * `startApiServer` (src/api/server.ts). This middleware requires `req.user`
+ * to already be set, but every real mount point in server.ts wired it
+ * BEFORE the routers' own requireAuth/requireDiscordUser ran (`app.use('/api/',
+ * auditLog)` preceded `app.use('/api/rooms', roomsRouter)` etc.), so it
+ * early-returned on every single request and audited NOTHING, ever — see
+ * ROADMAP.md "Audit" for the incident writeup. Every admin write that needs
+ * an audit trail now calls `AuditService.log` explicitly at its call site
+ * (grep `AuditService.log` in admin.ts/rooms.ts/global.ts for the pattern).
+ *
+ * Kept (not deleted) only because `src/__tests__/room-suspension.test.ts`
+ * imports it directly to exercise a hand-wired app that puts requireAuth
+ * before this middleware — a configuration that fixes the underlying bug but
+ * that production does not use. Do not mount this in server.ts again without
+ * fixing the ordering; prefer the explicit-call pattern instead.
+ *
  * Middleware that logs admin write operations (POST, PUT, DELETE) to the audit log.
  * Must be mounted after requireAuth (needs req.user) and correlationId middleware.
  */

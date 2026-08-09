@@ -10,7 +10,6 @@ import { getDatabase } from '../database/database.js';
 import { logInfo, logError } from '../utils/logger.js';
 import { authLimiter, generalLimiter, ogPreviewLimiter } from './rateLimit.js';
 import { correlationId } from './correlationId.js';
-import { auditLog } from './auditMiddleware.js';
 import { maybeBuildOgShell, isPreviewBot } from './ogMeta.js';
 
 // Route modules
@@ -139,8 +138,13 @@ export function startApiServer(port: number = 3001) {
     app.use('/api/', generalLimiter);
     app.use('/api/auth', authLimiter);
 
-    // --- Audit Logging (write operations by authenticated users) ---
-    app.use('/api/', auditLog);
+    // Audit Logging note: the app-level `auditLog` middleware (formerly
+    // mounted here) was removed in the 2026-08 audit-log sweep. It is mounted
+    // BEFORE every router's own requireAuth/requireDiscordUser sets req.user,
+    // so it early-returned on every single request and never audited
+    // anything in production (see ROADMAP.md "Audit" and
+    // src/api/auditMiddleware.ts). Every admin write that needs an audit
+    // trail now calls `AuditService.log` explicitly at its call site.
 
     // --- Mount Routers ---
     app.use('/api/auth', authRouter);

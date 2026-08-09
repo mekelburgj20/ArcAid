@@ -1465,6 +1465,22 @@ router.delete('/:roomId/score-history/:historyId', requireDiscordUser, async (re
                 historyId,
                 actor: isSuper ? 'super_admin' : 'room_admin',
             }).catch(() => {});
+
+            // Explicit audit write — auditMiddleware does NOT fire on router
+            // routes. Same self-delete exclusion as the RoomEventService call
+            // above — only an admin acting on someone else's score is a
+            // moderation event worth the audit trail.
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || 'admin',
+                action: 'score.delete',
+                target_type: 'score_history',
+                target_id: String(historyId),
+                details: JSON.stringify({
+                    roomId, gameName: row.game_name, player: row.iscored_username, score: row.score,
+                }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
         }
 
         res.json({ success: true });
@@ -2409,6 +2425,23 @@ router.delete('/:roomId/games/:gameName/comments/:id', guestContentLimiter, opti
             return res.status(403).json({ error: 'Not authorized' });
         }
         await CommentService.deleteComment(commentId);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router
+        // routes. Only when an admin acted on someone else's comment; a
+        // self-delete is mundane (mirrors the score-history delete pattern
+        // this route's authz is explicitly modeled on).
+        if ((isSuper || isRoomAdmin) && !isAuthor) {
+            await AuditService.log({
+                actor: req.user?.discordId || req.user?.username || 'admin',
+                action: 'comment.delete',
+                target_type: 'comment',
+                target_id: String(commentId),
+                details: JSON.stringify({ roomId, gameRoomId: comment.game_room_id, author: comment.user_id }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+        }
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/games/:gameName/comments/:id):', error);
@@ -2437,8 +2470,12 @@ router.get('/:roomId/game_library/search', requireAuth, requireRoomAccess('roomI
 // Room-admin surface. The handler bodies are shared with the super-admin and
 // public twins (see src/api/raCatalogueHandlers.ts) — only the middleware
 // differs. Search is a read of our own cached master list; the import WRITES
-// to the shared catalogue and is auto-audited by the app-level `auditLog` on
-// a 2xx POST.
+// to the shared catalogue. NOT auto-audited — the app-level `auditLog`
+// middleware is mounted before this router's requireAuth sets req.user (see
+// ROADMAP.md "Audit"; a prior version of this comment claimed otherwise).
+// Left out of the explicit-audit sweep since `raImportHandler` is shared
+// across three mount points with different auth (see the matching note in
+// admin.ts) — tracked as a gap, not silently fixed here.
 router.get('/:roomId/ra-catalogue/search', requireAuth, requireRoomAccess('roomId'), raSearchHandler);
 router.post(
     '/:roomId/ra-catalogue/import/:raGameId',
@@ -3310,6 +3347,20 @@ router.post('/:roomId/settings', requireAuth, requireRoomAccess('roomId'), requi
         const { RoomEventService } = await import('../../services/RoomEventService.js');
         RoomEventService.log(roomId, 'settings_change', { keys: Object.keys(validationResult.data) }).catch(() => {});
 
+        // Explicit audit write — auditMiddleware does NOT fire on router
+        // routes. Room settings can include secrets (ENCRYPTED_SETTING_KEYS,
+        // e.g. ISCORED_PASSWORD) — log the KEYS changed only, never the
+        // values, mirroring the global /admin/settings doctrine.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'room.settings_update',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ keys: Object.keys(validationResult.data) }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/settings):', error);
@@ -3361,7 +3412,11 @@ router.put('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId'),
 // S7 — focused pause/resume toggle. Flips tournaments.is_active and reloads the
 // Scheduler (which registers/removes the maintenance cron). Preferred over PUT
 // so the FE pause button doesn't round-trip the whole config (no clobber of a
-// concurrent edit). Audit is automatic (PATCH → target_type 'tournament').
+// concurrent edit). NOT auto-audited — the app-level auditLog middleware is
+// mounted before this router's requireAuth sets req.user (see ROADMAP.md
+// "Audit"; a prior version of this comment claimed otherwise). Left
+// unaudited deliberately — pause/resume is frequent and reversible, unlike
+// the sibling DELETE below.
 router.patch('/:roomId/tournaments/:id/active', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
@@ -3406,9 +3461,25 @@ router.delete('/:roomId/tournaments/:id', requireAuth, requireRoomAccess('roomId
                 games: blockers.map((g: any) => ({ id: g.id, name: g.name, status: g.status })),
             });
         }
-        await TournamentService.delete(req.params.id as string);
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.id as string;
+        const tournament = await db.get('SELECT name FROM tournaments WHERE id = ?', tournamentId);
+        await TournamentService.delete(tournamentId);
         const { Scheduler } = await import('../../engine/Scheduler.js');
         await Scheduler.getInstance().reload();
+
+        // Explicit audit write — auditMiddleware does NOT fire on router
+        // routes. Destructive op, unlike the reversible pause/resume PATCH above.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'tournament.delete',
+            target_type: 'tournament',
+            target_id: tournamentId,
+            details: JSON.stringify({ roomId, name: tournament?.name ?? null }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/tournaments/:id):', error);
@@ -3623,11 +3694,24 @@ router.post('/:roomId/iscored/validate', requireAuth, requireRoomAccess('roomId'
 // Game deactivation
 router.post('/:roomId/games/:id/deactivate', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
+        const roomId = req.params.roomId as string;
         const gameId = req.params.id as string;
         const { TournamentEngine } = await import('../../engine/TournamentEngine.js');
         const engine = TournamentEngine.getInstance();
         const dbOnly = req.body?.dbOnly === true;
         const result = await engine.deactivateGame(gameId, dbOnly);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'game.deactivate',
+            target_type: 'game',
+            target_id: gameId,
+            details: JSON.stringify({ roomId, ...result }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true, ...result });
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Internal Server Error';
@@ -3751,6 +3835,18 @@ router.delete('/:roomId/games/:id', requireAuth, requireRoomAccess('roomId'), as
                 tournamentName: deactivateResult.tournamentName,
                 iscoredStatus: deactivateResult.iscoredStatus,
             });
+
+            // Explicit audit write — auditMiddleware does NOT fire on router routes.
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+                action: 'game.deactivate',
+                target_type: 'game',
+                target_id: gameId,
+                details: JSON.stringify({ roomId, ...deactivateResult }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+
             return res.json({ success: true, action: 'deactivated', ...deactivateResult, games });
         }
 
@@ -3762,6 +3858,17 @@ router.delete('/:roomId/games/:id', requireAuth, requireRoomAccess('roomId'), as
             tournamentName: result.tournamentName,
             iscoredStatus: result.iscoredStatus,
             scoresOrphaned: result.scoresOrphaned,
+        });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'game.delete',
+            target_type: 'game',
+            target_id: gameId,
+            details: JSON.stringify({ roomId, ...result }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
         });
 
         res.json({ success: true, action: 'deleted', ...result });
@@ -4008,9 +4115,12 @@ router.delete('/:roomId/ranking-groups/:id/style', requireAuth, requireRoomAcces
 // when the caller is super_admin (`includeGlobalIdentity`). A room_admin rename
 // runs ONLY the four room-scoped score-table statements.
 //
-// Audit: automatic — auditLog wraps res.json for 2xx POST and maps /merge-player
-// → target_type 'player' (auditMiddleware). Dry-run (?dryRun=true | body dryRun)
-// runs the gathering SELECTs only — no writes.
+// Audit: NOT automatic — the app-level auditLog middleware is mounted before
+// this router's requireAuth sets req.user, so it never fires here (see
+// ROADMAP.md "Audit"; a prior version of this comment claimed otherwise).
+// Explicit AuditService.log call below on commit; dry-run
+// (?dryRun=true | body dryRun) runs the gathering SELECTs only — no writes,
+// so it is NOT audited.
 router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
@@ -4186,6 +4296,17 @@ router.post('/:roomId/admin/merge-player', requireAuth, requireRoomAccess('roomI
 
         logInfo(`Renamed player '${fromUsername}' -> '${toUsername}' in room ${roomId}: ${total} records updated (global identity: ${globalIdentityUpdated})`);
 
+        // Explicit audit write — see header comment above.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'player.merge',
+            target_type: 'player',
+            target_id: toUsername,
+            details: JSON.stringify({ roomId, fromUsername, toUsername, total, globalIdentityUpdated }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({
             success: true,
             submissionsUpdated,
@@ -4254,6 +4375,20 @@ router.post('/:roomId/admins/local', requireAuth, requireRoomAccess('roomId'), a
         if (existing) return res.status(409).json({ error: 'Username already exists for this room' });
 
         const admin = await AdminService.createLocalAdmin(roomId, username, password, display_name);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router
+        // routes. Identity op (grants room-admin credentials) — never logs
+        // the password.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'admin.local_add',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ username, displayName: display_name ?? null }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true, admin });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admins/local):', error);
@@ -4264,11 +4399,24 @@ router.post('/:roomId/admins/local', requireAuth, requireRoomAccess('roomId'), a
 // Delete local admin
 router.delete('/:roomId/admins/local/:id', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
+        const roomId = req.params.roomId as string;
         const admin = await AdminService.getLocalAdminById(req.params.id as string);
-        if (!admin || admin.game_room_id !== (req.params.roomId as string)) {
+        if (!admin || admin.game_room_id !== roomId) {
             return res.status(404).json({ error: 'Local admin not found in this room' });
         }
         await AdminService.deleteLocalAdmin(req.params.id as string);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'admin.local_remove',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ username: admin.username }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admins/local/:id):', error);
@@ -4283,11 +4431,25 @@ router.post('/:roomId/admins/local/:id/reset-password', requireAuth, requireRoom
         if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
             return res.status(400).json({ error: 'Password must be at least 8 characters' });
         }
+        const roomId = req.params.roomId as string;
         const admin = await AdminService.getLocalAdminById(req.params.id as string);
-        if (!admin || admin.game_room_id !== (req.params.roomId as string)) {
+        if (!admin || admin.game_room_id !== roomId) {
             return res.status(404).json({ error: 'Local admin not found in this room' });
         }
         await AdminService.resetLocalAdminPassword(req.params.id as string, newPassword);
+
+        // Explicit audit write — auditMiddleware does NOT fire on router
+        // routes. Security-sensitive — never logs the password itself.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'admin.local_reset_password',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ username: admin.username }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admins/local/:id/reset-password):', error);
@@ -4332,6 +4494,18 @@ router.post('/:roomId/admins/discord', requireAuth, requireRoomAccess('roomId'),
         }
 
         await AdminService.addRoomDiscordAdmin(roomId, resolvedId, role || 'admin');
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'admin.discord_add',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ discordUserId: resolvedId, role: role || 'admin' }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admins/discord):', error);
@@ -4342,10 +4516,22 @@ router.post('/:roomId/admins/discord', requireAuth, requireRoomAccess('roomId'),
 // Remove Discord admin from room
 router.delete('/:roomId/admins/discord/:discordId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
-        const deleted = await AdminService.removeRoomDiscordAdmin(
-            req.params.roomId as string, req.params.discordId as string
-        );
+        const roomId = req.params.roomId as string;
+        const targetDiscordId = req.params.discordId as string;
+        const deleted = await AdminService.removeRoomDiscordAdmin(roomId, targetDiscordId);
         if (!deleted) return res.status(404).json({ error: 'Discord admin not found in this room' });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'admin.discord_remove',
+            target_type: 'room',
+            target_id: roomId,
+            details: JSON.stringify({ discordUserId: targetDiscordId }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (DELETE rooms/:roomId/admins/discord/:discordId):', error);
@@ -5030,6 +5216,22 @@ router.delete('/:roomId/admin/games/:gameId/submissions/:submissionId', requireA
             historyRowsRemoved: historyDelete.changes ?? 0,
         }).catch(() => {});
 
+        // Explicit audit write — auditMiddleware does NOT fire on router
+        // routes. "Wipe player from game" — the reference moderation action
+        // for this endpoint family (CLAUDE.md "Per-row score moderation").
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || 'admin',
+            action: 'submission.wipe',
+            target_type: 'submission',
+            target_id: submissionId,
+            details: JSON.stringify({
+                roomId, gameId, player: submission.iscored_username, score: submission.score,
+                historyRowsRemoved: historyDelete.changes ?? 0,
+            }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         logInfo(`Admin deleted submission ${submissionId} (${submission.iscored_username}: ${submission.score}) from game ${gameId}; ${historyDelete.changes ?? 0} history rows removed, ${photosDeleted} photo(s) unlinked`);
         res.json({ success: true });
     } catch (error) {
@@ -5088,7 +5290,9 @@ router.get('/:roomId/admin/games/:gameId/suppressions', requireAuth, requireRoom
 // DELETE targets BOTH columns to clear exactly one row (game_id alone would wipe
 // every tombstone for the game). Once gone, the sync poller re-imports the
 // player's iScored score on its next ~30s cycle (subject to the score > existing
-// check). Auto-audited by the global auditLog on 2xx.
+// check). NOT auto-audited — the app-level auditLog middleware is mounted
+// before this router's requireAuth sets req.user (see ROADMAP.md "Audit"; a
+// prior version of this comment claimed otherwise); audited explicitly below.
 router.delete('/:roomId/admin/games/:gameId/suppressions/:username', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
@@ -5116,6 +5320,18 @@ router.delete('/:roomId/admin/games/:gameId/suppressions/:username', requireAuth
 
         const { RoomEventService } = await import('../../services/RoomEventService.js');
         RoomEventService.log(roomId, 'score_suppression_cleared', { gameId, player: username }).catch(() => {});
+
+        // Explicit audit write — see header comment above. Reverses a prior
+        // moderation action (un-suppresses a deleted score).
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'submission.unsuppress',
+            target_type: 'game',
+            target_id: gameId,
+            details: JSON.stringify({ roomId, player: username }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
 
         res.json({ success: true });
     } catch (error) {
@@ -5365,6 +5581,21 @@ router.post('/:roomId/admin/identity/merge', requireAuth, requireRoomAccess('roo
                 movedRows: out.movedRows,
                 reason: reason ?? null,
             }).catch(() => {});
+
+            // Explicit audit write — auditMiddleware does NOT fire on router
+            // routes. Identity operation.
+            await AuditService.log({
+                actor: adminId,
+                action: 'identity.merge',
+                target_type: 'player',
+                target_id: targetUserId,
+                details: JSON.stringify({
+                    roomId, mergeId: out.mergeId, anonymousIdentityId, movedRows: out.movedRows, reason: reason ?? null,
+                }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+
             res.status(201).json(out);
         } catch (err) {
             if (err instanceof Error && (err as Error & { code?: string }).code === 'MERGE_CONFLICT') {
@@ -5395,6 +5626,18 @@ router.post('/:roomId/admin/identity/:mergeId/reverse', requireAuth, requireRoom
             stayingRows: out.staying,
             reason: reason ?? null,
         }).catch(() => {});
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: adminId,
+            action: 'identity.reverse',
+            target_type: 'player',
+            target_id: String(mergeId),
+            details: JSON.stringify({ roomId, returnedRows: out.returned, stayingRows: out.staying, reason: reason ?? null }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         res.json(out);
     } catch (error) {
         const msg = error instanceof Error ? error.message : 'reverse failed';
@@ -5686,6 +5929,20 @@ router.delete('/:roomId/admin/game-states/:gameId', requireAuth, requireRoomAcce
             deletedFromIScored: parsed.deleteFromIScored && !!game.iscored_id,
         });
 
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'game.delete',
+            target_type: 'game',
+            target_id: gameId,
+            details: JSON.stringify({
+                roomId, gameName: game.name, status: game.status,
+                deletedFromIScored: parsed.deleteFromIScored && !!game.iscored_id, force: !!parsed.force,
+            }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
         logInfo(`Admin deleted game: ${game.name} (status: ${game.status}, room: ${roomId})`);
         res.json({ success: true });
     } catch (error: any) {
@@ -5750,6 +6007,17 @@ router.delete('/:roomId/admin/games/:gameId', requireAuth, requireRoomAccess('ro
             status: game.status,
             hadIScored: !!game.iscored_id,
             scoresRetained: true,
+        });
+
+        // Explicit audit write — auditMiddleware does NOT fire on router routes.
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || req.user!.localAdminId || 'admin',
+            action: 'game.remove',
+            target_type: 'game',
+            target_id: gameId,
+            details: JSON.stringify({ roomId, gameName: game.name, status: game.status, scoresRetained: true }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
         });
 
         logInfo(`Admin removed game from leaderboard: ${game.name} (status: ${game.status}, room: ${roomId}, scores retained)`);
