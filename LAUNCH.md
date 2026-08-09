@@ -37,16 +37,16 @@
 
 Owner-asked polish and small correctness items, in rough priority order:
 
-- [ ] **Scores page header compression** (owner-asked 2026-08-08; screenshot-loop; small/medium) — ROADMAP entry has the spec + suggestions.
+- [x] **Scores page header compression** — ✅ SHIPPED v2.88.0 (PR #178, 2026-08-08; owner approved shots incl. one alignment revision: chips true-centered, extras right-aligned). One control row on all three tabs; cards start 199px from top vs 270px. Cards/room-header untouched.
 - [ ] **Ranking-card backgrounds** (owner-asked 2026-08-08; needs mini-design session) — ROADMAP entry.
-- [ ] **Public legacy `GameCard` title wrap** (no-ellipsis rule violation; small player-facing fix).
+- [x] **Public legacy `GameCard` title wrap** — ✅ SHIPPED v2.88.0 (PR #178). 2-line clamp on all four header-style variants; also fixed truncated titles bleeding across the card border into the neighbor card.
 - [ ] **Global Scoreboard `score:new:global` per-card bump** — optimistic bump hits every category card; widen the socket payload with the engine.
 - [ ] **Kiosk → `ScoreboardSurface` migration** (medium) — kills the last scoreboard render copy.
 - [ ] **Unlinked-player affordances** (~0.5d) — disabled Follow + honest copy + room_members fallback in the name-typed stat resolvers.
 - [ ] **Stale-PWA "new version available — tap to refresh" nudge** off `/api/version` (field report 2026-08-06; build if it recurs, or proactively for launch traffic).
 - [ ] **Encrypt `DISCORD_CLIENT_SECRET` at rest** — do path (b): one-time migration that re-writes through `encryptSecret()` BEFORE adding to the allowlist (ROADMAP entry has the trap).
 - [ ] **Settings.tsx FE test gap** — the newer toggles (ROOM_LISTED, AUTO_APPROVE_GUILD_MEMBERS, iScored posture) have no FE test file.
-- [ ] **`SetupWizard.tsx` decision** — orphaned/unrouted; re-route or delete.
+- [x] **`SetupWizard.tsx` decision** — ✅ DELETED v2.88.0 (PR #178). Zero importers; legacy-era flow (password-via-login hack, mandatory upfront iScored creds against doctrine). A future self-host onboarding gets rebuilt OAuth-first.
 - [ ] **Member-picker admin add** — replaces ID-pasting for adding room admins (Google users can't know their ID); deferred rider from v2.80.0.
 - [ ] **Ban follow-throughs** — ban → content cascade (soft-hide) and ban → Discord DM (both "not started" in ROADMAP §C).
 - [ ] **Explicit `AuditService.log` sweep** — the blanket auditMiddleware audits nothing on router routes (documented v2.49.0); admin writes that claim auto-audit mostly aren't. Moderation accountability wants this early.
