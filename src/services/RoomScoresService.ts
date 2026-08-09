@@ -285,11 +285,22 @@ export class RoomScoresService {
     }
 
     /**
-     * Batched style/image resolution for card chrome: game_room_game_library
-     * (per-room style overlay) → global_games (approved catalogue match) →
-     * style_catalogue (has_background/has_header flags). Ported verbatim from
-     * the old `/:roomId/community-leaderboards` handler (rooms.ts), batched
-     * via IN(...) over all game names on the page instead of per-game N+1.
+     * Batched style/image resolution for card chrome: `games` row overlay
+     * (active/pinned games in this room — the admin Leaderboard page's
+     * per-game Style button writes here via `StyleCatalogueService.
+     * assignImageToGame`) → `game_room_game_library` (per-room library-wide
+     * style overlay, written via `assignImageToLibrary`) → `global_games`
+     * (approved catalogue match) → `style_catalogue` (has_background/
+     * has_header flags). The `games`-row overlay takes precedence over the
+     * library overlay — same doctrine as `LeaderboardService.
+     * getActiveLeaderboards`, which is the Tournaments tab's card source and
+     * reads style columns straight off `games` (it doesn't even consult
+     * `game_room_game_library`). Pre-fix, this method only ever read the
+     * library row, so a game styled via the per-game Style button (which
+     * writes `games.bg_style_id`, not the library) rendered no background on
+     * the Room Scores tab while showing one correctly on Tournaments.
+     * Batched via IN(...) over all game names on the page instead of
+     * per-game N+1.
      */
     private static async resolveCardChrome(roomId: string, gameNames: string[]): Promise<Map<string, CardChrome>> {
         const result = new Map<string, CardChrome>();
@@ -307,6 +318,18 @@ export class RoomScoresService {
         const roomLibByName = new Map<string, any>();
         for (const r of roomLibRows) roomLibByName.set((r.game_name as string).toLowerCase(), r);
 
+        // Active/pinned `games` rows for this room — the per-game Style
+        // button's write target. `games.status = 'ACTIVE'` covers both
+        // tournament-active games AND pinned games (pinned rows are created
+        // with status 'ACTIVE' and tournament_id NULL — see gameCreation.ts).
+        const gamesRows = await db.all(`
+            SELECT name, catalogue_style_id, logo_style_id, bg_style_id, style_header_disabled, global_game_id
+            FROM games
+            WHERE game_room_id = ? AND status = 'ACTIVE' AND LOWER(name) IN (${placeholders})
+        `, roomId, ...lowerNames);
+        const gamesRowByName = new Map<string, any>();
+        for (const g of gamesRows) gamesRowByName.set((g.name as string).toLowerCase(), g);
+
         const catalogueRows = await db.all(`
             SELECT id, name, local_image_path, wheel_image_path, image_url, display_name
             FROM global_games
@@ -321,6 +344,10 @@ export class RoomScoresService {
             if (roomLib?.bg_style_id) styleIds.add(roomLib.bg_style_id);
             if (roomLib?.logo_style_id) styleIds.add(roomLib.logo_style_id);
             if (roomLib?.catalogue_style_id) styleIds.add(roomLib.catalogue_style_id);
+            const gamesRow = gamesRowByName.get(name);
+            if (gamesRow?.bg_style_id) styleIds.add(gamesRow.bg_style_id);
+            if (gamesRow?.logo_style_id) styleIds.add(gamesRow.logo_style_id);
+            if (gamesRow?.catalogue_style_id) styleIds.add(gamesRow.catalogue_style_id);
         }
         const styleById = new Map<string, any>();
         if (styleIds.size > 0) {
@@ -335,12 +362,18 @@ export class RoomScoresService {
 
         for (const name of lowerNames) {
             const roomLib = roomLibByName.get(name);
+            const gamesRow = gamesRowByName.get(name);
             const catalogueGame = catalogueByName.get(name);
 
-            const catalogueStyleId = roomLib?.catalogue_style_id || null;
-            const logoStyleId = roomLib?.logo_style_id || null;
-            const bgStyleId = roomLib?.bg_style_id || null;
-            const styleHeaderDisabled = !!(roomLib?.style_header_disabled);
+            // `games`-row overlay wins whenever it carries ANY style
+            // assignment; otherwise fall back to the library overlay.
+            const gamesRowHasOverlay = !!(gamesRow?.catalogue_style_id || gamesRow?.logo_style_id || gamesRow?.bg_style_id);
+            const overlaySource = gamesRowHasOverlay ? gamesRow : roomLib;
+
+            const catalogueStyleId = overlaySource?.catalogue_style_id || null;
+            const logoStyleId = overlaySource?.logo_style_id || null;
+            const bgStyleId = overlaySource?.bg_style_id || null;
+            const styleHeaderDisabled = !!(overlaySource?.style_header_disabled);
 
             let bgHasBg: number | null = null, logoHasHeader: number | null = null, catHasBg: number | null = null, catHasHeader: number | null = null;
             if (bgStyleId && styleById.has(bgStyleId)) bgHasBg = styleById.get(bgStyleId).has_background;
@@ -350,7 +383,7 @@ export class RoomScoresService {
                 catHasHeader = styleById.get(catalogueStyleId).has_header;
             }
 
-            const globalGameId = roomLib?.global_game_id || catalogueGame?.id || null;
+            const globalGameId = gamesRow?.global_game_id || roomLib?.global_game_id || catalogueGame?.id || null;
             const imageUrl = normalizeImageUrl(
                 catalogueGame?.local_image_path || catalogueGame?.wheel_image_path || catalogueGame?.image_url || null
             );

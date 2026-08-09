@@ -320,6 +320,80 @@ describe('GET /api/rooms/:roomId/room-scores', () => {
 
         expect(res.status).toBe(404);
     });
+
+    /**
+     * RTX demo bug fix (2026-08-09): a game's card background on Room Scores
+     * must resolve the same way it does on Tournaments — `games`-row style
+     * overrides (written by the admin Leaderboard page's per-game Style
+     * button via `StyleCatalogueService.assignImageToGame`) take precedence
+     * over the `game_room_game_library` overlay (written via
+     * `assignImageToLibrary`). Pre-fix, `RoomScoresService.resolveCardChrome`
+     * only ever consulted the library row, so a game styled through the
+     * per-game button rendered no background on this tab.
+     */
+    it('(l) card bg resolution: games-row style wins over library overlay, library-only still works, neither ships none', async () => {
+        const app = await createTestApp();
+        const roomId = await createTestRoom();
+        const db = await getDatabase();
+
+        await db.run(
+            `INSERT INTO style_catalogue (id, name, has_background, has_header) VALUES (?, ?, 1, 0)`,
+            'style-games-row', 'Games Row Style',
+        );
+        await db.run(
+            `INSERT INTO style_catalogue (id, name, has_background, has_header) VALUES (?, ?, 1, 0)`,
+            'style-library', 'Library Style',
+        );
+
+        // Game A: an active `games` row with its own bg_style_id, PLUS a
+        // library row with a DIFFERENT bg_style_id — games row must win.
+        const tId = await createTestTournament(roomId);
+        const gameId = await createTestGame(tId, { name: 'Bg Game A' });
+        await db.run(
+            `UPDATE games SET game_room_id = ?, bg_style_id = ? WHERE id = ?`,
+            roomId, 'style-games-row', gameId,
+        );
+        await db.run(
+            `INSERT INTO game_room_game_library (game_room_id, game_name, bg_style_id) VALUES (?, ?, ?)`,
+            roomId, 'Bg Game A', 'style-library',
+        );
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Bg Game A', iscoredUsername: 'PlayerA',
+            submittedByUserId: 'DPLAYERA', score: 100,
+        });
+
+        // Game B: no `games` row at all (pure freeplay name) — library-only
+        // overlay must still resolve.
+        await db.run(
+            `INSERT INTO game_room_game_library (game_room_id, game_name, bg_style_id) VALUES (?, ?, ?)`,
+            roomId, 'Bg Game B', 'style-library',
+        );
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Bg Game B', iscoredUsername: 'PlayerB',
+            submittedByUserId: 'DPLAYERB', score: 100,
+        });
+
+        // Game C: neither a styled `games` row nor a library overlay — no bg.
+        await insertScoreHistoryRow({
+            gameRoomId: roomId, gameName: 'Bg Game C', iscoredUsername: 'PlayerC',
+            submittedByUserId: 'DPLAYERC', score: 100,
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomId}/room-scores`);
+        expect(res.status).toBe(200);
+
+        const cardA = res.body.data.find((c: any) => c.gameName === 'Bg Game A');
+        expect(cardA.bgStyleId).toBe('style-games-row');
+        expect(cardA.bgHasBg).toBe(1);
+
+        const cardB = res.body.data.find((c: any) => c.gameName === 'Bg Game B');
+        expect(cardB.bgStyleId).toBe('style-library');
+        expect(cardB.bgHasBg).toBe(1);
+
+        const cardC = res.body.data.find((c: any) => c.gameName === 'Bg Game C');
+        expect(cardC.bgStyleId).toBeNull();
+        expect(cardC.bgHasBg).toBeNull();
+    });
 });
 
 /**
