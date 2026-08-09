@@ -45,11 +45,11 @@ Owner-asked polish and small correctness items, in rough priority order:
 - [x] **Unlinked-player affordances** — ✅ SHIPPED v2.91.0 (PR #183, 2026-08-09). Disabled Follow + tooltip, distinct friend-add errors (`PLAYER_UNLINKED`), admin hint → /map-user. NOTE: the resolver fallback half was ALREADY SHIPPED in v2.23.2 (stale item) — regression test added instead.
 - [x] **Stale-PWA "tap to refresh" nudge** — ✅ SHIPPED v2.92.0 (PR #184, 2026-08-09). Baseline-at-boot off `/api/version`, tab-visible + 15-min re-checks, per-version dismiss, all three layouts (kiosk deliberately excluded).
 - [x] **Encrypt `DISCORD_CLIENT_SECRET` at rest** — ✅ SHIPPED v2.92.0 (PR #184). Allowlist entry only — the generic `runSecretsMigration()` boot pass (which already served the other six secrets) re-encrypted prod's plaintext row on first boot; verified live: stored row `enc:v1:`-prefixed AND bot logged in cleanly after (decrypt path proven). The ROADMAP's bespoke-migration plan was unnecessary.
-- [ ] **Settings.tsx FE test gap** — the newer toggles (ROOM_LISTED, AUTO_APPROVE_GUILD_MEMBERS, iScored posture) have no FE test file.
+- [x] **Settings.tsx FE test gap** — ✅ SHIPPED (PR #186, 2026-08-09, test-only). 19 tests: ROOM_LISTED/JOIN_POLICY/auto-approve/iScored posture; the `[mask]` secret round-trip proven safe-by-BE-design and pinned.
 - [x] **`SetupWizard.tsx` decision** — ✅ DELETED v2.88.0 (PR #178). Zero importers; legacy-era flow (password-via-login hack, mandatory upfront iScored creds against doctrine). A future self-host onboarding gets rebuilt OAuth-first.
-- [ ] **Member-picker admin add** — replaces ID-pasting for adding room admins (Google users can't know their ID); deferred rider from v2.80.0.
-- [ ] **Ban follow-throughs** — ban → content cascade (soft-hide) and ban → Discord DM (both "not started" in ROADMAP §C).
-- [ ] **Explicit `AuditService.log` sweep** — the blanket auditMiddleware audits nothing on router routes (documented v2.49.0); admin writes that claim auto-audit mostly aren't. Moderation accountability wants this early.
+- [x] **Member-picker admin add** — ✅ SHIPPED v2.93.0 (PR #187, 2026-08-09). Searchable name+avatar picker over the admin roster; `google:*` members promotable; paste-ID fallback kept for not-yet-members. (A plain `<select>` picker already existed from v2.39.0 — the item's premise was half-stale; the names+avatars+search UX was the missing piece.)
+- [x] **Ban follow-throughs** — ✅ SHIPPED v2.94.0 (PR #188, 2026-08-09). Per-ban content cascade Hide(default)/Delete/Leave (migrations 141 `ban_content_actions` + 142 `hidden_at`); lift restores exactly what the ban hid (owner-blessed design call); moderation DM bypasses opt-outs, identity-link-aware, never fails the ban.
+- [x] **Explicit `AuditService.log` sweep** — ✅ SHIPPED v2.95.0 (PR #189, 2026-08-09). ~48 admin writes audit explicitly (settings = keys never values); dead blanket mount REMOVED + regression-tested; 6 false "auto-audited" comments fixed. Residual: shared `raImportHandler` un-audited (3 mounts/3 auth models — comments corrected instead).
 
 ---
 
