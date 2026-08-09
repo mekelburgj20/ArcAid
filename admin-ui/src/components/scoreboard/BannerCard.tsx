@@ -200,7 +200,7 @@ export default function BannerCard({
               lb.tournamentName
             )}
             {lb.gameStatus === 'COMPLETED' && (
-              <Lock size={11} className="text-neon-amber flex-shrink-0" />
+              <Lock size={14} strokeWidth={2.5} className="text-neon-amber flex-shrink-0" />
             )}
           </p>
         )}

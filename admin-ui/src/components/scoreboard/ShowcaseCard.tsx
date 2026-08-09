@@ -298,7 +298,14 @@ export default function ShowcaseCard({
                 );
               })()}
               {lb.gameStatus === 'COMPLETED' && (
-                <Lock size={12} style={{ color: theme.badgeColor, flexShrink: 0 }} />
+                // RTX demo feedback (2026-08-09): was theme.badgeColor, a
+                // per-theme decorative accent (green/purple/etc, not
+                // contrast-tuned for warning semantics) — too subtle on
+                // several themes. `--color-neon-amber` is the app-wide
+                // warning/lock idiom (see ScoreboardComponents.tsx /
+                // BannerCard.tsx / MinimalCard.tsx) and is per-theme
+                // contrast-tuned, unlike a raw hex.
+                <Lock size={15} strokeWidth={2.5} style={{ color: 'var(--color-neon-amber)', flexShrink: 0 }} />
               )}
               {showTimer && countdown && (
                 <span className="sb-fs-9" style={{
