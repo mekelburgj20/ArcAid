@@ -38,9 +38,9 @@
 Owner-asked polish and small correctness items, in rough priority order:
 
 - [x] **Scores page header compression** — ✅ SHIPPED v2.88.0 (PR #178, 2026-08-08; owner approved shots incl. one alignment revision: chips true-centered, extras right-aligned). One control row on all three tabs; cards start 199px from top vs 270px. Cards/room-header untouched.
-- [ ] **Ranking-card backgrounds** (owner-asked 2026-08-08; needs mini-design session) — ROADMAP entry.
+- [x] **Ranking-card backgrounds** — ✅ SHIPPED v2.89.0 (PR #180, 2026-08-09; design session held in-chat, shots approved). Per-group `bg_style_id` (migration 140), Style button on admin Leaderboard ranking cards (reuses StylePicker), renders on match-scoreboard+plaque only with the game-card legibility overlay. Presentation-only — no rankings recompute. Prod-verified.
 - [x] **Public legacy `GameCard` title wrap** — ✅ SHIPPED v2.88.0 (PR #178). 2-line clamp on all four header-style variants; also fixed truncated titles bleeding across the card border into the neighbor card.
-- [ ] **Global Scoreboard `score:new:global` per-card bump** — optimistic bump hits every category card; widen the socket payload with the engine.
+- [x] **Global Scoreboard `score:new:global` per-card bump** — ✅ SHIPPED v2.89.1 (PR #181, 2026-08-09). Payload carries the score's engine; client bumps only the matching category card (claim cards take the bump; engine-less payloads fall back to bump-all + self-heal).
 - [ ] **Kiosk → `ScoreboardSurface` migration** (medium) — kills the last scoreboard render copy.
 - [ ] **Unlinked-player affordances** (~0.5d) — disabled Follow + honest copy + room_members fallback in the name-typed stat resolvers.
 - [ ] **Stale-PWA "new version available — tap to refresh" nudge** off `/api/version` (field report 2026-08-06; build if it recurs, or proactively for launch traffic).
