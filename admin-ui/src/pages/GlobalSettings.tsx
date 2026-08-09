@@ -28,9 +28,13 @@ const GLOBAL_KEYS = [
   'OG_META_ENABLED',
   'GLOBAL_DISCORD_GUILD_ID',
   'GLOBAL_DISCORD_INVITE_URL',
+  'RA_USERNAME',
+  'RA_API_KEY',
+  'OPS_ALERT_ENABLED',
+  'OPS_ALERT_DISCORD_USER_ID',
 ];
 
-const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'GOOGLE_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET', 'WEB_PUSH_VAPID_PRIVATE_KEY'];
+const SENSITIVE_KEYS = ['DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_SECRET', 'GOOGLE_CLIENT_SECRET', 'JWT_SECRET', 'OPDB_API_KEY', 'TWITCH_CLIENT_SECRET', 'WEB_PUSH_VAPID_PRIVATE_KEY', 'RA_API_KEY'];
 
 const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   DISCORD_BOT_TOKEN: { label: 'Discord Bot Token', description: 'Bot token from the Discord Developer Portal.' },
@@ -59,6 +63,10 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
     label: 'Arcaid Community Invite Link',
     description: 'Optional https:// invite link to the same server, shown as a manual-join fallback next to the one-click button. Set this if the bot lacks the "Create Invite" permission, or simply to give players who prefer joining themselves a way to do it.',
   },
+  RA_USERNAME: { label: 'RetroAchievements Username', description: 'Username of the RetroAchievements account whose API key is used for the console-game catalogue integration. Register free at https://retroachievements.org.' },
+  RA_API_KEY: { label: 'RetroAchievements API Key', description: 'Web API Key from RetroAchievements (Settings → Keys). Enables on-demand console-game import: players can add missing console games to the catalogue from the Global Scoreboard search. Encrypted at rest.' },
+  OPS_ALERT_ENABLED: { label: 'Operator Alerts Enabled', description: 'Set to "true" to DM a super-admin after repeated consecutive iScored sync failures for an account (debounced once per outage). Leave blank/false to keep alerts off.' },
+  OPS_ALERT_DISCORD_USER_ID: { label: 'Operator Alert Discord User ID', description: 'Discord user ID that receives the operator-alert DMs. Required for alerts to fire; the bot must share a server with this user.' },
 };
 
 interface SuperAdmin {

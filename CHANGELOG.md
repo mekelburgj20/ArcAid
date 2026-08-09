@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.88.1] — unreleased
+
+**Global Settings: RA + operator-alert config fields were unreachable.**
+
+### Fixed
+- **`RA_USERNAME` / `RA_API_KEY` had no input fields on Global Settings** — the v2.68.0 RA integration's own error copy (and the ROADMAP runbook) said "set them under Global Settings → Configuration", but `GlobalSettings.tsx`'s `GLOBAL_KEYS` catalog never gained the entries, so the feature was un-configurable from the UI (surfaced by the owner attempting the RA runbook, 2026-08-09). Both fields added with labels/descriptions; `RA_API_KEY` marked sensitive (masked input; it was already on the BE encryption allowlist). Same audit found `OPS_ALERT_ENABLED` / `OPS_ALERT_DISCORD_USER_ID` (v2.15.0, ships-inert operator alerts) equally stranded — added too. The settings POST endpoint always accepted arbitrary keys; this was FE-catalog-only.
+
 ## [2.88.0] — unreleased
 
 **Scores page header compression (owner-asked 2026-08-08, screenshot-loop approved) + GameCard title wrap + SetupWizard removal.**
