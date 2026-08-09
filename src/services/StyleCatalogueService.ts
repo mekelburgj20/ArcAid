@@ -195,6 +195,8 @@ export class StyleCatalogueService {
         await db.run('UPDATE games SET bg_style_id = NULL WHERE bg_style_id = ?', id);
         await db.run('UPDATE game_room_game_library SET logo_style_id = NULL WHERE logo_style_id = ?', id);
         await db.run('UPDATE game_room_game_library SET bg_style_id = NULL WHERE bg_style_id = ?', id);
+        // v2.9x (ranking-card backgrounds) — same cleanup for ranking_groups.
+        await db.run('UPDATE ranking_groups SET bg_style_id = NULL WHERE bg_style_id = ?', id);
 
         logInfo(`Style deleted: ${id}`);
         return true;

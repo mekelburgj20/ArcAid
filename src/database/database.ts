@@ -2223,6 +2223,15 @@ export async function initDatabase(): Promise<Database> {
                 ALTER TABLE game_ratings_new RENAME TO game_ratings;
             `);
         } },
+        // --- Ranking-card backgrounds (owner-designed 2026-08-09) ---
+        // Mirrors games.bg_style_id / game_room_game_library.bg_style_id
+        // (migrations 023/025): a nullable pointer into style_catalogue,
+        // ALTER-ADD only. Same pseudo-FK caveat as those columns and every
+        // other ALTER-added column in this file — SQLite can't add an
+        // enforced FOREIGN KEY via ALTER TABLE, so referential integrity here
+        // is app-level only (StyleCatalogueService.delete() nulls this column
+        // out alongside the games/library columns when a style is deleted).
+        { name: '140_ranking_groups_bg_style', sql: `ALTER TABLE ranking_groups ADD COLUMN bg_style_id TEXT` },
     ];
 
     for (const migration of migrations) {

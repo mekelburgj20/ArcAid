@@ -69,6 +69,11 @@ export interface ScoreboardSurfaceProps {
   /** Admin controls strip. Rendered inside each card slot, directly under the
    *  card, in EVERY layout branch. */
   renderUnderCard?: (lb: GameLeaderboard) => ReactNode;
+  /** v2.9x (ranking-card backgrounds) — same idea as `renderUnderCard`, but
+   *  for ranking-group cards (a structurally separate render path — see
+   *  RankingGroupCard/RankingsRow/RankingsColumn). Rendered under every
+   *  ranking card in EVERY layout branch, inline or sticky. */
+  renderUnderRankingCard?: (group: RankingGroupData['group']) => ReactNode;
 
   /** Free-text game-name filter (public search box). */
   searchFilter?: string;
@@ -111,6 +116,7 @@ export default function ScoreboardSurface({
   titleLinkTo,
   titleLinkOnClick,
   renderUnderCard,
+  renderUnderRankingCard,
   searchFilter,
   overlays,
   headerExtras,
@@ -223,6 +229,20 @@ export default function ScoreboardSurface({
       </div>
     ) : renderCard(lb)
   );
+
+  /** Same idea as `renderSlotContent`, for the inline-rankings render sites
+   *  (grid/vertical/horizontal). RankingsRow/RankingsColumn (the
+   *  top/left/right/bottom, non-inline positions) take `renderUnderCard`
+   *  directly as a prop instead — see the call sites below. */
+  const renderRankingSlot = (group: RankingGroupData['group'], rankings: RankingGroupData['rankings']) => {
+    const card = <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />;
+    return renderUnderRankingCard ? (
+      <div className="flex flex-col h-full min-w-0">
+        {card}
+        {renderUnderRankingCard(group)}
+      </div>
+    ) : card;
+  };
 
   /** The `+` submit affordance. Absolutely positioned in every branch, so
    *  omitting it (admin) cannot shift anything around it. */
@@ -400,7 +420,7 @@ export default function ScoreboardSurface({
 
       {/* Rankings: top position (only when sticky/separate) */}
       {!inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
-        <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} />
+        <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} renderUnderCard={renderUnderRankingCard} />
       )}
 
       {/* Main content area */}
@@ -408,7 +428,7 @@ export default function ScoreboardSurface({
 
         {/* Rankings: left position (only when sticky/separate) */}
         {!inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
-          <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
+          <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} renderUnderCard={renderUnderRankingCard} />
         )}
 
         {/* Game leaderboards */}
@@ -439,7 +459,7 @@ export default function ScoreboardSurface({
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                 <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
-                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
+                  {renderRankingSlot(group, rankings)}
                 </div>
               ))}
             </div>
@@ -457,7 +477,7 @@ export default function ScoreboardSurface({
               ))}
               {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                 <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
-                  <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
+                  {renderRankingSlot(group, rankings)}
                 </div>
               ))}
             </div>
@@ -476,7 +496,7 @@ export default function ScoreboardSurface({
                 ))}
                 {inlineRankings && rankingGroups.map(({ group, rankings }) => (
                   <div key={`rank-${group.id}`} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, marginBottom: cardMarginBottom || undefined }}>
-                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
+                    {renderRankingSlot(group, rankings)}
                   </div>
                 ))}
               </div>
@@ -486,13 +506,13 @@ export default function ScoreboardSurface({
 
         {/* Rankings: right position (only when sticky/separate) */}
         {!inlineRankings && rankingsPosition === 'right' && rankingGroups.length > 0 && (
-          <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
+          <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} renderUnderCard={renderUnderRankingCard} />
         )}
       </div>
 
       {/* Rankings: bottom position (only when sticky/separate) */}
       {!inlineRankings && rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
-        <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} />
+        <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} renderUnderCard={renderUnderRankingCard} />
       )}
 
       </div>{/* end game cards */}

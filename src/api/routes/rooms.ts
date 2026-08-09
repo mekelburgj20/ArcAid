@@ -15,6 +15,7 @@ import {
     CreateLocalAdminSchema,
     AssignStyleSchema,
     AssignImageSchema,
+    AssignRankingGroupStyleSchema,
     StyleUploadSchema,
     CommunityScoreSchema,
     ScoreSubmissionSchema,
@@ -3940,6 +3941,55 @@ router.post('/:roomId/ranking-groups/:id/recompute', requireAuth, requireRoomAcc
         res.json({ success: true, count: rankings.length });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/ranking-groups/:id/recompute):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Ranking-group card background (v2.9x, owner-designed 2026-08-09) ---
+// Mirrors the game-style PUT+DELETE pair above. A ranking group has no
+// header/logo — just one background-image slot — so this is deliberately
+// narrower than AssignImageSchema (no imageType).
+
+// Assign a background style to a ranking group
+router.put('/:roomId/ranking-groups/:id/style', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(AssignRankingGroupStyleSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+        const { styleId } = validationResult.data;
+
+        // Verify the group belongs to this room before touching it.
+        const db = await getDatabase();
+        const group = await db.get(
+            `SELECT id FROM ranking_groups WHERE id = ? AND game_room_id = ?`,
+            req.params.id as string, req.params.roomId as string
+        );
+        if (!group) return res.status(404).json({ error: 'Ranking group not found in this room' });
+
+        const { RankingService } = await import('../../services/RankingService.js');
+        const result = await RankingService.setBgStyle(req.params.id as string, styleId);
+        if (!result.ok) return res.status(400).json({ error: result.error });
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/ranking-groups/:id/style):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Clear the background style from a ranking group
+router.delete('/:roomId/ranking-groups/:id/style', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const group = await db.get(
+            `SELECT id FROM ranking_groups WHERE id = ? AND game_room_id = ?`,
+            req.params.id as string, req.params.roomId as string
+        );
+        if (!group) return res.status(404).json({ error: 'Ranking group not found in this room' });
+
+        const { RankingService } = await import('../../services/RankingService.js');
+        await RankingService.setBgStyle(req.params.id as string, null);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/ranking-groups/:id/style):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

@@ -45,6 +45,11 @@ export default function Leaderboard() {
   const [config, setConfig] = useState<Record<string, string>>({});
   const [styleTarget, setStyleTarget] = useState<GameLeaderboard | null>(null);
   const [libraryHasDefault, setLibraryHasDefault] = useState(false);
+  /** v2.9x (ranking-card backgrounds) — Style picker target for a ranking
+   *  GROUP card, kept separate from `styleTarget` (games): ranking groups
+   *  have no default-in-library concept and no header/logo, just one
+   *  background slot. */
+  const [rankingStyleTarget, setRankingStyleTarget] = useState<RankingGroupData['group'] | null>(null);
   const [displayNameTarget, setDisplayNameTarget] = useState<GameLeaderboard | null>(null);
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [displayNameSaving, setDisplayNameSaving] = useState(false);
@@ -202,6 +207,9 @@ export default function Leaderboard() {
             onEditNotes={handleEditNotes}
             onManageScores={setManageScoresTarget}
           />
+        )}
+        renderUnderRankingCard={group => (
+          <RankingAdminControlsStrip group={group} onStyleClick={setRankingStyleTarget} />
         )}
       />
 
@@ -400,6 +408,34 @@ export default function Leaderboard() {
           }}
         />
       )}
+
+      {/* Style Picker for ranking-group cards (v2.9x). No showDefaultOption
+          (ranking groups have no library-default concept) and no
+          showImageTypeSelector (no header/logo — just the one background
+          slot), so onSelect's imageType/setAsDefault args are always
+          undefined here. */}
+      {rankingStyleTarget && (
+        <StylePicker
+          currentStyleId={rankingStyleTarget.bg_style_id ?? null}
+          onClose={() => setRankingStyleTarget(null)}
+          onSelect={async (styleId) => {
+            const target = rankingStyleTarget;
+            try {
+              if (styleId) {
+                await api.put(`/rooms/${room.roomId}/ranking-groups/${target.id}/style`, { styleId });
+                toast('Background applied', 'success');
+              } else {
+                await api.delete(`/rooms/${room.roomId}/ranking-groups/${target.id}/style`);
+                toast('Background removed', 'success');
+              }
+              loadRankings();
+            } catch (err) {
+              toast(err instanceof Error ? err.message : 'Failed to update background', 'error');
+            }
+            setRankingStyleTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -467,6 +503,31 @@ function AdminControlsStrip({ lb, onStyleClick, onEditDisplayName, onDeleteGame,
       </NeonButton>
       <NeonButton variant="ghost" onClick={() => onDeleteGame(lb)} className="text-[10px] px-1.5 py-0.5 text-red-400/60 hover:text-red-400" title="Remove game" aria-label="Remove game">
         <Trash2 size={11} />
+      </NeonButton>
+    </div>
+  );
+}
+
+/** v2.9x (ranking-card backgrounds) — the ranking-GROUP-card counterpart of
+ *  `AdminControlsStrip` above. A ranking card carries none of the
+ *  game-specific affordances (no display name, notes, per-score management,
+ *  or delete-from-here — groups are managed on the Rankings admin page), so
+ *  this is deliberately a single-button strip: just the Style control that
+ *  opens the same `StylePicker` used for game backgrounds. Same flush,
+ *  always-visible, z-stacked band as the game strip — see the doc comment
+ *  on `AdminControlsStrip` for the layout/QR rationale, unchanged here. */
+function RankingAdminControlsStrip({ group, onStyleClick }: {
+  group: RankingGroupData['group'];
+  onStyleClick: (group: RankingGroupData['group']) => void;
+}) {
+  return (
+    <div
+      data-testid="ranking-admin-card-controls"
+      style={{ zIndex: ADMIN_CARD_CHROME_Z_INDEX }}
+      className="relative flex-shrink-0 min-w-0 flex flex-wrap items-center justify-center gap-1 border-2 border-border bg-raised px-2 mt-1 py-1.5 rounded-lg"
+    >
+      <NeonButton variant={group.bg_style_id ? 'secondary' : 'ghost'} onClick={() => onStyleClick(group)} className="text-[10px] px-1.5 py-0.5" title="Change card background">
+        Style
       </NeonButton>
     </div>
   );
