@@ -217,6 +217,10 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
 
   // WP2 — S14 social loops: Follow + Compare.
   const canFollow = !!discordUser?.discordId && !!stats?.discordUserId && discordUser.discordId !== stats.discordUserId;
+  // (a) Unlinked-player affordance — mirrors PlayerDetail.tsx: a logged-in
+  // viewer looking at a player who has no Discord identity previously saw no
+  // Follow button at all. Show a disabled one with an explanatory tooltip.
+  const showDisabledFollow = !!discordUser?.discordId && !!stats && !stats.discordUserId;
   const isFollowing = !!stats?.discordUserId && friendIds.has(stats.discordUserId);
   const compareIdentifier = entry.iscored_username;
   // Pre-fill side B with the viewer's Discord SNOWFLAKE — the compare
@@ -364,6 +368,18 @@ function PlayerQuickViewModal({ slug, entry, fromTab, onClose }: OpenArgs & { on
               >
                 {isFollowing ? <UserCheck size={14} /> : <UserPlus size={14} />}
                 {isFollowing ? 'Following' : 'Follow'}
+              </button>
+            )}
+            {!canFollow && showDisabledFollow && (
+              <button
+                type="button"
+                disabled
+                title="This player hasn't linked Discord yet"
+                aria-label="Follow — unavailable, this player hasn't linked Discord yet"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded border border-border text-sm text-faint cursor-not-allowed opacity-60"
+              >
+                <UserPlus size={14} />
+                Follow
               </button>
             )}
             <Link

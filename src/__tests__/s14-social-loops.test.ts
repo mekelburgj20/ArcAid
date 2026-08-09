@@ -169,6 +169,65 @@ describe('POST /api/me/friends', () => {
         expect(row).toBeTruthy();
         expect(row.status).toBe('active');
     });
+
+    // Unlinked-player affordances (ROADMAP, S14 field-testing follow-up), part
+    // (b) — FriendsService.addFriend now distinguishes "no such player
+    // anywhere" from "this name belongs to a real player who just hasn't
+    // linked Discord yet", mirroring the room_members fallback used by the
+    // enhanced-stats resolvers below.
+    it('returns 404 "No player found" when the name matches nobody at all', async () => {
+        const app = await createTestApp();
+        const followerId = '100000000000000009';
+
+        const res = await request(app)
+            .post('/api/me/friends')
+            .set('Authorization', `Bearer ${playerToken(followerId)}`)
+            .send({ discordUsername: 'NobodyEverHeardOf' });
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toMatch(/No player found/i);
+        expect(res.body.error).not.toMatch(/linked a Discord/i);
+    });
+
+    it('returns distinct 404 copy when the name is a room_members claim only (unlinked)', async () => {
+        const app = await createTestApp();
+        const db = await getDatabase();
+        const roomId = await createTestRoom();
+        const followerId = '100000000000000010';
+        const unlinkedUser = '100000000000000011';
+        await db.run(
+            `INSERT INTO room_members (user_id, room_id, source, display_name) VALUES (?, ?, 'submission', ?)`,
+            unlinkedUser, roomId, 'UnlinkedNick'
+        );
+
+        const res = await request(app)
+            .post('/api/me/friends')
+            .set('Authorization', `Bearer ${playerToken(followerId)}`)
+            .send({ discordUsername: 'UnlinkedNick' });
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toMatch(/hasn't linked a Discord account/i);
+    });
+
+    it('returns distinct 404 copy when the name only has a submissions row (pure iScored sync, unlinked)', async () => {
+        const app = await createTestApp();
+        const db = await getDatabase();
+        const followerId = '100000000000000012';
+
+        await db.run(
+            `INSERT INTO submissions (id, game_id, discord_user_id, iscored_username, score, timestamp)
+             VALUES (?, NULL, 'SYSTEM', ?, 1000, ?)`,
+            'sub-unlinked-friend-test', 'PureSyncName', new Date().toISOString()
+        );
+
+        const res = await request(app)
+            .post('/api/me/friends')
+            .set('Authorization', `Bearer ${playerToken(followerId)}`)
+            .send({ discordUsername: 'PureSyncName' });
+
+        expect(res.status).toBe(404);
+        expect(res.body.error).toMatch(/hasn't linked a Discord account/i);
+    });
 });
 
 // ===========================================================================
@@ -420,6 +479,35 @@ describe('GET /:roomId/stats/compare', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.discordUserId).toBe(webNative);
+    });
+
+    // Unlinked-player affordances (d) — the room_members fallback is
+    // room-scoped by construction (`WHERE room_id = ?`); this is the
+    // regression test proving a claim in one room can't leak into another
+    // room's resolution of the same display name.
+    it('a room_members claim in room A does not leak into room B\'s resolution of the same name', async () => {
+        const app = await createTestApp();
+        const db = await getDatabase();
+        const roomA = await createTestRoom('room-a-leak-test', 'Room A');
+        const roomB = await createTestRoom('room-b-leak-test', 'Room B');
+        const roomAOwner = '200000000000000050';
+
+        // 'SharedName' is claimed in room A only.
+        await db.run(
+            `INSERT INTO room_members (user_id, room_id, source, display_name) VALUES (?, ?, 'submission', ?)`,
+            roomAOwner, roomA, 'SharedName'
+        );
+        // An unrelated, unattributed synced score under the same name in room B.
+        await insertScoreHistoryRow({
+            gameRoomId: roomB, gameName: 'Whirlwind', iscoredUsername: 'SharedName',
+            submittedByUserId: null, score: 500, source: 'sync',
+        });
+
+        const res = await request(app).get(`/api/rooms/${roomB}/stats/enhanced/player/SharedName`);
+
+        expect(res.status).toBe(200);
+        // Must NOT resolve to room A's claimant — room B has no claim for this name.
+        expect(res.body.discordUserId).toBeNull();
     });
 });
 
