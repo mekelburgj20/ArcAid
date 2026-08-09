@@ -5,6 +5,19 @@
 
 ---
 
+## RTX demo feedback (2026-08-09, admins' notes + owner clarifications)
+
+Captured verbatim-in-substance from the first outside-admin demo. Triage tags: [BUG] fix now · [QUICK] small slot · [FEATURE] design+build · [SECURITY] fix now.
+
+- **[SECURITY] `/nominate-picker` + `/pause-pick` lack the Administrator permission flag** (found answering the owner's pass-pick question, same day) — any guild member can reassign picker rights or inject a game into the lineup; every other admin command carries `setDefaultMemberPermissions(Administrator)`. Two-line fix + command re-registration on next boot.
+- **[BUG] Room Scores game card missing its card background image** — the Room Scores tab's cards don't render the style-catalogue background that the Tournaments view's cards show. Investigate the name-keyed card path's style-overlay resolution.
+- **[QUICK] Lock symbol more visible by default** — the locked-game indicator is too subtle at default styling.
+- **[FEATURE] Dynasty rule (RTX house rule, owner-specified 2026-08-09):** the previous game's winner, if they win again immediately, is BLOCKED from picking the next table — pick passes onward (runner-up, or see picker-flexibility below). Build as a per-tournament configurable option (default off — winner-picks-next stays the default semantic). Needs: "previous winner" tracked per slot lineage, block applied at picker designation, clear announce copy ("X won again — dynasty rule passes the pick to Y").
+- **[FEATURE] Pick-queue nudge before tournament end (admins asked; owner asked same day pre-demo):** ~2 hours before a tournament's rotation, notify the current 1st AND 2nd place players to make sure they have a pick queued (they're the likely picker + runner-up). Rides existing notification plumbing (new type or turnToPick sibling; Discord DM + web push; opt-in defaults per existing doctrine). Consider only firing when the player's queue is empty.
+- **[FEATURE] Picker flexibility cluster:** (a) winner/dynasty-blocked player may nominate who picks instead (today `/nominate-picker` is conceptually admin-only — and see SECURITY above); (b) make nominations a queueable list; (c) player self-serve "forfeit my pick" (skips their window instead of waiting out the timeout). Design these together — they all touch picker designation.
+- **[FEATURE] Ranking scores ticker on the tournament view:** ranking standings 'scroll' across the tournament view (marquee/ticker); clicking takes the viewer to the full ranking leaderboard.
+- **[FEATURE] Stats page love:** better filter results; key in on specific tournament durations (e.g. by week). Scope with owner when picked up.
+
 ## Open Followups
 
 - **Kiosk scoreboard copy — ✅ SHIPPED v2.90.0 (PR #182, 2026-08-09)** — kiosk renders through `ScoreboardSurface` (net −149 lines; zero layout deltas across banner/showcase/ticker parity shots; ticker/attract/toast/scanline chrome stayed page-level; 3 new default-off surface props: `zoomPercent`/`qrKioskOnlyEnabled`/`kioskHeaderSpacing`). Micro-deltas documented in CHANGELOG v2.90.0.
