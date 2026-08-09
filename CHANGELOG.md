@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.89.1] — unreleased
+
+**Global Scoreboard live-score bump targets the right category card.**
+
+### Fixed
+- **`score:new:global` bumped every category card of a game (ADR 0016 P4 residual, logged v2.59.0).** The socket payload now carries the score's canonical `engine`; the client resolves it via `engineCardCategory` and bumps only the matching per-category card. A zero-score claim card (no category yet) takes the bump — that score is what opens its board. A payload without `engine` (older server mid-deploy) falls back to the old bump-all behavior and self-heals on the next fetch. Emitters updated: web global submit (`global.ts`) and Discord `/submit-score` fan-out.
+
 ## [2.89.0] — unreleased
 
 **Ranking-card backgrounds (owner-designed 2026-08-09, screenshot-loop approved).**

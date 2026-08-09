@@ -17,7 +17,7 @@ import GlobalScoreboardTitle from '../components/GlobalScoreboardTitle';
 import RAGameSearch, { type RAImportResult } from '../components/RAGameSearch';
 import { GRID_CLASS } from '../lib/globalGrid';
 import { formatScore } from '../lib/format';
-import { CARD_CATEGORY_ORDER, getCardCategoryLabel } from '../lib/scoreProvenance';
+import { CARD_CATEGORY_ORDER, getCardCategoryLabel, engineCardCategory } from '../lib/scoreProvenance';
 
 /**
  * v2.55.0: the card itself — and the row/score shapes it reads — now live in
@@ -369,14 +369,23 @@ export default function GlobalScoreboard() {
   // WebSocket — show a toast and bump the matching card's stats optimistically
   useEffect(() => {
     const socket = getSocket();
-    const handler = (data: { globalGameId: string; gameName: string; playerName: string; score: number }) => {
+    const handler = (data: { globalGameId: string; gameName: string; playerName: string; score: number; engine?: string | null }) => {
       setToast({ player: data.playerName, game: data.gameName, score: data.score });
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
       toastTimerRef.current = window.setTimeout(() => setToast(null), 5000);
 
-      setGames(prev => prev.map(g => g.global_game_id === data.globalGameId
-        ? { ...g, score_count: g.score_count + 1, top_score: Math.max(g.top_score || 0, data.score), last_submitted_at: new Date().toISOString() }
-        : g));
+      // P4 made rows per-category boards, so a game can hold several cards.
+      // Target the bump at the ONE card whose category matches the score's
+      // engine. A card with no category yet (zero-score claim card) takes the
+      // bump — this score is what opens its board. No engine on the event
+      // (older server mid-deploy) falls back to bumping every card of the
+      // game; the next fetch corrects it.
+      const scoreCategory = data.engine ? engineCardCategory(data.engine) : null;
+      setGames(prev => prev.map(g => {
+        if (g.global_game_id !== data.globalGameId) return g;
+        if (scoreCategory && g.category && g.category !== scoreCategory) return g;
+        return { ...g, score_count: g.score_count + 1, top_score: Math.max(g.top_score || 0, data.score), last_submitted_at: new Date().toISOString() };
+      }));
       // A5a — this is what the live indicator counts from. A score landing
       // anywhere on the global board resets the clock, which is the honest
       // reading of "updated Ns ago" for a page that shows every room.

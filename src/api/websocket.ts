@@ -145,6 +145,14 @@ export function emitScoreNewGlobal(data: {
     gameName: string;
     playerName: string;
     score: number;
+    /**
+     * v2.89.x — the score's canonical engine id, so the Global Scoreboard's
+     * optimistic bump can target the ONE per-category card the score belongs
+     * to (P4 split games into per-category boards; without this the client
+     * bumped every card of the game). Optional: clients treat a missing
+     * engine as "bump all cards" (pre-P4 behavior, self-heals on next fetch).
+     */
+    engine?: string | null;
     originRoomSlug?: string | null;
     originRoomName?: string | null;
 }) {

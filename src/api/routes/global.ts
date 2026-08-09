@@ -2330,6 +2330,7 @@ router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNo
                 gameName: game.display_name || game.name,
                 playerName: iscoredUsername,
                 score,
+                engine,
             });
 
             // Submit-moment rank ("you are #N of M"). Best-effort, computed
