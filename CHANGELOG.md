@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.90.0] — unreleased
+
+**Kiosk renders through the shared ScoreboardSurface (v2.85.0 follow-up; screenshot-parity approved).**
+
+### Changed
+- **`KioskScoreboard.tsx` no longer keeps its own clone of the scoreboard card surface** (the last duplicated renderer; net −149 lines incl. the duplicate `<style>` block). Kiosk now consumes `ScoreboardSurface` like the public Scoreboard and admin Leaderboard, inheriting all future card work automatically. Kiosk chrome stays page-level: ticker, attract-mode auto-scroll, TV score toast, scanlines, polling/socket behavior, approval-room gate. `ScoreboardSurface` gained three default-off props kiosk needs: `zoomPercent` (KIOSK_ZOOM), `qrKioskOnlyEnabled` (the `SCOREBOARD_QR_MODE='kiosk-only'` case), `kioskHeaderSpacing` (historical mb-8 header spacing). Programmatic before/after layout diff across banner/showcase/ticker scenes at 1920×1080: zero deltas; `ScoreboardWysiwygParity` green (public/admin untouched). Two documented micro-deltas: legacy-card rooms with QR mode `all` now show the QR on kiosk (old kiosk never wired QR to legacy cards — oversight unified), and a room bg image now scrolls with overflowing content instead of staying viewport-pinned.
+
 ## [2.89.1] — unreleased
 
 **Global Scoreboard live-score bump targets the right category card.**

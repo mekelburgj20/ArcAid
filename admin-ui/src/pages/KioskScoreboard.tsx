@@ -2,19 +2,32 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import type { GameLeaderboard, RankingGroupData } from '../components/ScoreboardComponents';
 import { Flame, TrendingUp, Target, Trophy, Gamepad2, Star, Users, Hourglass } from 'lucide-react';
-import {
-  GameCard,
-  RankingGroupCard,
-  RankingsColumn,
-  RankingsRow,
-  getTitleStyleClass,
-  getTitleSizeClass,
-} from '../components/ScoreboardComponents';
-import CardRouter from '../components/scoreboard/CardRouter';
-import { deriveCardProps, deriveScoreboardConfig, getCardWidth, qrBottomMetrics } from '../lib/scoreboardConfig';
+import ScoreboardSurface from '../components/scoreboard/ScoreboardSurface';
+import { deriveCardProps, deriveScoreboardConfig } from '../lib/scoreboardConfig';
 import { getSocket } from '../lib/websocket';
 import { getPortal } from '../lib/portal';
 
+/**
+ * v2.90.0 — kiosk migration onto the shared `ScoreboardSurface` (the same
+ * component the public Scoreboard and admin Leaderboard render through). Prior
+ * to this the kiosk kept a near-verbatim hand clone of the whole card-grid
+ * surface, including its own `<style>` block, which had already drifted from
+ * the public page in several small ways (see the three surface props below).
+ *
+ * What stays HERE (page-level, kiosk-only chrome — not the surface's job):
+ *   - Room/config resolution, the approval-room gate, the KIOSK_ENABLED gate.
+ *   - Data fetching + polling (KIOSK_REFRESH_SECONDS) + the room socket join
+ *     and its score:new / leaderboard:updated handlers.
+ *   - The TV-scaled score toast (passed into the surface's `overlays` slot).
+ *   - The lobby-feed ticker (icons, item list, distance-based scroll speed).
+ *   - The attract-mode auto-scroll ping-pong over the horizontal card rail.
+ *   - The scanline overlay.
+ *
+ * What the surface now owns (deleted from here): card rendering
+ * (CardRouter/GameCard), rankings rendering, the title/logo header zone + its
+ * own height measurement, the background-image layer, QR/layout/zoom
+ * derivation, and the duplicated `<style>` block.
+ */
 export default function KioskScoreboard() {
   const { slug } = useParams<{ slug: string }>();
   const [leaderboards, setLeaderboards] = useState<GameLeaderboard[]>([]);
@@ -108,51 +121,6 @@ export default function KioskScoreboard() {
     };
   }, [roomId, loadData]);
 
-  // New style/theme config
-  const newConfig = deriveScoreboardConfig(config, roomName);
-  const useNewCards = !!config.SCOREBOARD_STYLE;
-
-  // Legacy config
-  const legacyProps = deriveCardProps(config, roomName);
-  const {
-    maxScores, hideEmpty, titleHidden, titleText, titleStyle, titleSize,
-    bgUrl, bgMode, logoUrl, logoPosition, logoMaxHeight,
-    layout: legacyLayout, cardWidth: legacyCardWidth, rankingsPosition,
-    cardOpacity, bgOpacity,
-    headerStyle, bgFill, bgSize, wheelScale, gameColumns, globalStyles,
-    glassOpacity, gameTitleStyle, gameTitleEnhance, scoreStyle,
-  } = legacyProps;
-  const layout = useNewCards ? newConfig.layout : legacyLayout;
-
-  const cardWidth = useNewCards ? getCardWidth(newConfig.style) : legacyCardWidth;
-  const isBanner = useNewCards && newConfig.style === 'banner';
-  const effectiveLayout = isBanner ? 'scroll' : layout;
-  const visibleLeaderboards = (useNewCards ? newConfig.hideEmpty : hideEmpty) ? leaderboards.filter(lb => lb.rankings.length > 0) : leaderboards;
-  const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
-  const hasQrTop = useNewCards && (newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all') && newConfig.qrPosition === 'top-right';
-  const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
-  // s21 — bottom-anchored QRs straddle the card's bottom edge; the overhang must
-  // be reserved on the layout item or it gets clipped (the hscroll container's
-  // overflow-x:auto also clips vertically). Scoreboard.tsx has carried this
-  // reservation since v2.13.3; the kiosk page never got it — QRs rendered cut off.
-  const cardMarginBottom = useNewCards
-    ? qrBottomMetrics(newConfig.qrSize, newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all', newConfig.qrPosition, newConfig.qrOverlapPx).overhang
-    : 0;
-
-  // Measure header height so bg image can start below it
-  const headerRef = useRef<HTMLDivElement>(null);
-  const [headerHeight, setHeaderHeight] = useState(0);
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setHeaderHeight(el.offsetHeight));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const bgBehindTitle = useNewCards ? newConfig.bgBehindTitle : false;
-  const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
-
   const TICKER_ICONS: Record<string, typeof Flame> = {
     new_high_score: Flame, rank_change: TrendingUp, score_posted: Target,
     tournament_results: Trophy, tournament_active: Gamepad2,
@@ -185,14 +153,33 @@ export default function KioskScoreboard() {
     track.style.setProperty('--ticker-duration', `${seconds}s`);
   }, [tickerItems]);
 
+  // v2.90.0 — the horizontal-scroll card rail now lives inside
+  // ScoreboardSurface (wrapped in HorizontalScrollNav), so there's no ref
+  // handed down to attach to directly. `rootRef` scopes a DOM query to this
+  // page's own subtree instead of touching the shared surface/nav components
+  // for a kiosk-only ref. `effectiveLayout`/`visibleCount` mirror (just
+  // enough of) the surface's own layout derivation SOLELY to know when that
+  // DOM region appears/changes — not used for any rendering here. If the
+  // surface's layout-selection formula ever changes, update this shadow copy
+  // too (deriveScoreboardConfig / deriveCardProps stay the shared source of
+  // truth either way).
+  const rootRef = useRef<HTMLDivElement>(null);
+  const newConfig = deriveScoreboardConfig(config, roomName);
+  const legacyProps = deriveCardProps(config, roomName);
+  const useNewCards = !!config.SCOREBOARD_STYLE;
+  const isBanner = useNewCards && newConfig.style === 'banner';
+  const layout = useNewCards ? newConfig.layout : legacyProps.layout;
+  const effectiveLayout = isBanner ? 'scroll' : layout;
+  const hideEmpty = useNewCards ? newConfig.hideEmpty : legacyProps.hideEmpty;
+  const visibleCount = hideEmpty ? leaderboards.filter(lb => lb.rankings.length > 0).length : leaderboards.length;
+
   // Kiosk attract mode — when the horizontal card row overflows the screen
   // (typical once Kiosk Zoom is raised for TV distance), slowly ping-pong the
   // row so every card gets screen time. Room toggle KIOSK_AUTO_SCROLL
   // (default on); skipped under prefers-reduced-motion; pauses on user input.
-  const hscrollRef = useRef<HTMLDivElement>(null);
   const autoScrollEnabled = config.KIOSK_AUTO_SCROLL !== 'false';
   useEffect(() => {
-    const el = hscrollRef.current;
+    const el = rootRef.current?.querySelector<HTMLDivElement>('.scoreboard-hscroll-layout');
     if (!el || !autoScrollEnabled) return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
@@ -236,7 +223,7 @@ export default function KioskScoreboard() {
       el.removeEventListener('touchstart', onInteract);
       el.removeEventListener('pointerdown', onInteract);
     };
-  }, [autoScrollEnabled, effectiveLayout, visibleLeaderboards.length]);
+  }, [autoScrollEnabled, effectiveLayout, visibleCount]);
 
   // Guard: wait for config to load, then check if kiosk is enabled
   if (!configLoaded) {
@@ -267,183 +254,42 @@ export default function KioskScoreboard() {
   }
 
   return (
-    <div className={`min-h-screen bg-deep text-primary relative ${newConfig.mobileVertical ? 'scoreboard-mobile-vertical' : ''}`}>
-      {/* S4: live score toast (TV-scaled) */}
-      {scoreToast && (
-        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
-          <div className="bg-surface border-2 border-neon-cyan/50 rounded-2xl shadow-2xl px-10 py-6 text-center">
-            <div className="text-2xl font-bold text-neon-cyan tracking-wider uppercase">New Score</div>
-            <div className="text-4xl font-extrabold text-primary mt-2">{scoreToast.player}</div>
-            <div className="text-2xl text-primary/85 mt-2">
-              <span className="text-neon-cyan font-bold">{scoreToast.score.toLocaleString()}</span> — {scoreToast.game}
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Background image layer — offset below header unless fill-entire */}
-      {bgUrl && (
-        <div
-          className="fixed pointer-events-none"
-          style={{
-            top: bgBehindTitle ? 0 : headerHeight,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundImage: `url(${bgUrl})`,
-            backgroundSize: effectiveBgSize,
-            backgroundRepeat: bgMode === 'repeat' ? 'repeat' : 'no-repeat',
-            backgroundPosition: 'center top',
-            opacity: bgOpacity,
-          }}
-        />
-      )}
-      <div
-        className="px-4 sm:px-6 py-6 relative scoreboard-page-zoom"
-        style={{
-          // S21 — kiosk pages zoom by kioskZoom (TV/distance tuning), not the
-          // legacy SCOREBOARD_ZOOM directly. deriveScoreboardConfig's fallback
-          // chain (KIOSK_ZOOM -> SCOREBOARD_ZOOM -> 100) means existing TVs
-          // with only SCOREBOARD_ZOOM set keep their current zoom untouched.
-          ...(newConfig.kioskZoom !== 100 ? { zoom: `${newConfig.kioskZoom}%` } : {}),
-          minHeight: '100vh',
-          paddingBottom: feedEvents.length > 0 ? 60 : undefined,
-        }}
-      >
-        {/* Title — solid background by default when bg image is set */}
-        <div
-          ref={headerRef}
-          className="relative z-[1]"
-        >
-        {!titleHidden && (
-          <div className="text-center mb-8 overflow-hidden">
-            <div className={`inline-flex items-center gap-4 max-w-full ${
-              logoPosition === 'above' || logoPosition === 'below' ? 'flex-col' : 'flex-row'
-            }`}>
-              {logoUrl && (logoPosition === 'left' || logoPosition === 'above') && (
-                <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain flex-shrink-0" />
-              )}
-              <p className={`font-display text-muted ${getTitleSizeClass(titleSize)} uppercase tracking-widest ${getTitleStyleClass(titleStyle)} min-w-0`}>
-                {titleText}
-              </p>
-              {logoUrl && (logoPosition === 'right' || logoPosition === 'below') && (
-                <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain flex-shrink-0" />
-              )}
-            </div>
-          </div>
-        )}
-        {titleHidden && logoUrl && (
-          <div className="text-center mb-8">
-            <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto" />
-          </div>
-        )}
-        </div>
-
-        {/* S21 (Q4) — top/bottom RankingsRow now share the same mobile-scale +
-            vertical-forcing CSS scope as the main content area (previously
-            only the main content div carried scoreboard-mobile-scale, so
-            top/bottom rankings were inconsistent with left/right rankings
-            and with the Scoreboard page, where the whole zone was already
-            one wrapper). The scale var lives on this outer wrapper only —
-            it must NOT also be applied to the inner "Main content area" div
-            below, or zoom would compound (nested zoom multiplies). */}
-        <div className="scoreboard-mobile-scale" style={{ '--mobile-scale': newConfig.mobileScale } as React.CSSProperties}>
-        {/* Rankings: top position (only when sticky/separate) */}
-        {!inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} />
-        )}
-
-        {/* Main content area */}
-        <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row gap-6 items-stretch lg:items-start' : 'flex-col gap-6'}`}>
-
-          {/* Rankings: left position (only when sticky/separate) */}
-          {!inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
-          )}
-
-          {/* Game leaderboards */}
-          {visibleLeaderboards.length === 0 ? (
-            <div className="flex-1 text-center py-24">
-              <p className="text-muted font-display">Waiting for active games...</p>
-            </div>
-          ) : effectiveLayout === 'grid' ? (
-            <div className="flex-1 min-w-0">
-              <div
-                className={`scoreboard-grid-layout grid ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${!useNewCards && gameColumns === '2' ? 'grid-cols-1 md:grid-cols-2' : ''}`}
-                style={{
-                  ...(useNewCards ? { gap: newConfig.cardSpacing } : {}),
-                  ...(useNewCards || gameColumns !== '2' ? { gridTemplateColumns: `repeat(auto-fill, minmax(min(${Math.round(cardWidth * 0.7)}px, 100%), 1fr))` } : {}),
-                }}
-              >
-                {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="scoreboard-card-slot" style={{ ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
-                    {useNewCards ? (
-                      <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx} gameTitleStyle={newConfig.gameTitleStyle} />
-                    ) : (
-                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
-                    )}
-                  </div>
-                ))}
-                {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                  <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ overflow: 'visible', minWidth: 0, marginBottom: cardMarginBottom || undefined }}>
-                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : effectiveLayout === 'vertical' ? (
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-col items-center" style={{ gap: useNewCards ? newConfig.cardSpacing : 20 }}>
-                {visibleLeaderboards.map(lb => (
-                  <div key={lb.gameId} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
-                    {useNewCards ? (
-                      <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx} gameTitleStyle={newConfig.gameTitleStyle} />
-                    ) : (
-                      <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
-                    )}
-                  </div>
-                ))}
-                {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                  <div key={`rank-${group.id}`} className="scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, maxWidth: '100%', marginBottom: cardMarginBottom || undefined }}>
-                    <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 min-w-0">
-              <div ref={hscrollRef} className="-mx-4 sm:-mx-6 overflow-x-auto scoreboard-hscroll-layout">
-                <div className={`flex pb-2 px-4 sm:px-6 ${useNewCards ? '' : 'gap-3 sm:gap-5'} ${isBanner ? 'scoreboard-banner-scroll' : ''}`} style={useNewCards ? { gap: newConfig.cardSpacing } : undefined}>
-                  {visibleLeaderboards.map(lb => (
-                    <div key={lb.gameId} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, ...(!useNewCards && headerStyle === 'wheel' ? { paddingTop: '2.5rem' } : {}), marginBottom: cardMarginBottom || undefined }}>
-                      {useNewCards ? (
-                        <CardRouter lb={lb} slug={slug || ''} roomId={roomId} style={newConfig.style} theme={newConfig.theme} maxScores={newConfig.maxScores} minScores={newConfig.minScores} showTimer={newConfig.showTimer} cardBgFill={newConfig.cardBgFill} titleFontSize={newConfig.titleFontSize || undefined} qrMode={newConfig.qrMode === 'kiosk-only' || newConfig.qrMode === 'all' ? 'enabled' : 'disabled'} qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx} gameTitleStyle={newConfig.gameTitleStyle} />
-                      ) : (
-                        <GameCard lb={lb} slug={slug || ''} maxScores={maxScores} roomId={roomId} cardOpacity={cardOpacity} headerStyle={headerStyle} globalStyles={globalStyles} wheelScale={wheelScale} bgFill={bgFill} bgSize={bgSize} cardWidth={cardWidth} glassOpacity={glassOpacity} gameTitleStyle={gameTitleStyle} gameTitleEnhance={gameTitleEnhance} scoreStyle={scoreStyle} />
-                      )}
-                    </div>
-                  ))}
-                  {inlineRankings && rankingGroups.map(({ group, rankings }) => (
-                    <div key={`rank-${group.id}`} className="flex-shrink-0 scoreboard-card-slot" style={{ width: `min(${cardWidth}px, calc(100vw - 2rem))`, marginBottom: cardMarginBottom || undefined }}>
-                      <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={newConfig.style} showcaseThemeName={newConfig.theme} rankingsStyle={newConfig.rankingsStyle} qrTopPad={rankQrTopPad} />
-                    </div>
-                  ))}
+    <div ref={rootRef} className="min-h-screen bg-deep text-primary relative">
+      <ScoreboardSurface
+        embedded
+        config={config}
+        roomName={roomName}
+        roomId={roomId}
+        slug={slug || ''}
+        leaderboards={leaderboards}
+        rankingGroups={rankingGroups}
+        // S21 — kiosk pages zoom by kioskZoom (TV/distance tuning), not the
+        // legacy SCOREBOARD_ZOOM directly. deriveScoreboardConfig's fallback
+        // chain (KIOSK_ZOOM -> SCOREBOARD_ZOOM -> 100) means existing TVs
+        // with only SCOREBOARD_ZOOM set keep their current zoom untouched.
+        zoomPercent={newConfig.kioskZoom}
+        // "Kiosk only" QR mode exists so the submit QR can appear on the TV
+        // without also appearing on the public page.
+        qrKioskOnlyEnabled
+        // Preserves the kiosk's historical (larger) header spacing.
+        kioskHeaderSpacing
+        // s21 — bottom-anchored ticker; reserve room so it doesn't cover the
+        // last row of cards (mirrors Scoreboard.tsx's own ticker reservation).
+        scrollPaddingBottom={feedEvents.length > 0 ? 60 : undefined}
+        overlays={
+          scoreToast && (
+            <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
+              <div className="bg-surface border-2 border-neon-cyan/50 rounded-2xl shadow-2xl px-10 py-6 text-center">
+                <div className="text-2xl font-bold text-neon-cyan tracking-wider uppercase">New Score</div>
+                <div className="text-4xl font-extrabold text-primary mt-2">{scoreToast.player}</div>
+                <div className="text-2xl text-primary/85 mt-2">
+                  <span className="text-neon-cyan font-bold">{scoreToast.score.toLocaleString()}</span> — {scoreToast.game}
                 </div>
               </div>
             </div>
-          )}
-
-          {/* Rankings: right position (only when sticky/separate) */}
-          {!inlineRankings && rankingsPosition === 'right' && rankingGroups.length > 0 && (
-            <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} />
-          )}
-        </div>
-
-        {/* Rankings: bottom position (only when sticky/separate) */}
-        {!inlineRankings && rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
-          <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} />
-        )}
-        </div>
-      </div>
+          )
+        }
+      />
 
       {/* Lobby feed ticker */}
       {tickerItems.length > 0 && (
@@ -471,14 +317,6 @@ export default function KioskScoreboard() {
       )}
 
       <style>{`
-        /* Kiosk display is non-interactive — hide the scrollbar entirely
-           (scrolling still works for auto-scroll and incidental touch). The
-           public Scoreboard page keeps its own visible thin-scrollbar copy. */
-        .scoreboard-hscroll-layout {
-          scrollbar-width: none;
-          overscroll-behavior-x: contain;
-        }
-        .scoreboard-hscroll-layout::-webkit-scrollbar { display: none; }
         @keyframes kiosk-ticker-scroll {
           from { transform: translateX(0); }
           to { transform: translateX(-50%); }
@@ -491,29 +329,6 @@ export default function KioskScoreboard() {
             animation: none;
             overflow-x: auto;
           }
-        }
-        @media (max-width: 640px) {
-          .scoreboard-mobile-scale { zoom: var(--mobile-scale, 1); }
-          .scoreboard-mobile-vertical .scoreboard-hscroll-layout { overflow-x: hidden !important; }
-          .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div { flex-direction: column !important; align-items: center !important; }
-          .scoreboard-mobile-vertical .scoreboard-hscroll-layout > div > div { flex-shrink: 1 !important; max-width: 100% !important; }
-          .scoreboard-mobile-vertical .scoreboard-grid-layout { grid-template-columns: 1fr !important; justify-items: center; }
-          .scoreboard-mobile-vertical .scoreboard-grid-layout > div { max-width: 100%; }
-          /* S21 — true mobile card layout: see matching comment in Scoreboard.tsx */
-          .scoreboard-mobile-vertical .scoreboard-card-slot {
-            width: 100% !important;
-            max-width: 100% !important;
-          }
-          /* S21 — kiosk zoom must not apply on phones (Q2 gate). */
-          .scoreboard-page-zoom {
-            zoom: 100% !important;
-          }
-          /* S21 — mobile type floors; see matching comment in Scoreboard.tsx */
-          .sb-fs-9  { font-size: 11px !important; }
-          .sb-fs-10 { font-size: 11px !important; }
-          .sb-fs-11 { font-size: 12px !important; }
-          .sb-fs-12 { font-size: 13px !important; }
-          .sb-fs-13 { font-size: 14px !important; }
         }
       `}</style>
 

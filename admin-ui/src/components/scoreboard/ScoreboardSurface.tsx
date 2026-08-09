@@ -102,6 +102,32 @@ export interface ScoreboardSurfaceProps {
    * identical either way — this only swaps the outer height/scroll chrome.
    */
   embedded?: boolean;
+
+  /**
+   * Kiosk-surface migration additions (KioskScoreboard.tsx). Three narrow,
+   * deliberately optional overrides — all default to the existing public/admin
+   * behaviour untouched — for the handful of things the kiosk display needs
+   * that genuinely differ from the public page, rather than forking the
+   * surface. See KioskScoreboard.tsx for the call site and rationale.
+   */
+  /** Overrides the page-zoom percentage (default: `SCOREBOARD_ZOOM`, i.e. the
+   *  same `zoom` the public page/admin use). Kiosk zooms by `KIOSK_ZOOM`
+   *  (falling back to `SCOREBOARD_ZOOM`) instead — a distance-tuning control
+   *  the public page has no use for. */
+  zoomPercent?: number;
+  /** When true, `SCOREBOARD_QR_MODE === 'kiosk-only'` is ALSO treated as
+   *  "QR enabled" (normally only `'all'` is) for the new-cards (Style+Theme)
+   *  render path. `'kiosk-only'` exists specifically so a room can show the
+   *  submit QR on the TV display without also putting it on the public page a
+   *  player may already be viewing on their phone — the public page and admin
+   *  preview must keep treating it as disabled, hence opt-in. */
+  qrKioskOnlyEnabled?: boolean;
+  /** When true, uses the kiosk's historical header spacing (mb-8 instead of
+   *  mb-4 under the title/logo, and skips the overflow-hidden/max-w-full
+   *  refinement on the title-hidden+logo-only variant) instead of the
+   *  public-page default. Preserves kiosk's existing pixel layout, which
+   *  predates and diverged slightly from the public page's header zone. */
+  kioskHeaderSpacing?: boolean;
 }
 
 export default function ScoreboardSurface({
@@ -125,6 +151,9 @@ export default function ScoreboardSurface({
   scrollPaddingBottom,
   themeClass,
   embedded = false,
+  zoomPercent,
+  qrKioskOnlyEnabled = false,
+  kioskHeaderSpacing = false,
 }: ScoreboardSurfaceProps) {
   // New style/theme config
   const newConfig = deriveScoreboardConfig(config, roomName);
@@ -157,7 +186,8 @@ export default function ScoreboardSurface({
   // When sticky is off (default), rankings render inline with game cards
   const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
   // QR codes above game cards add extra height — rankings card needs matching top margin
-  const hasQrTop = useNewCards && (newConfig.qrMode === 'all') && newConfig.qrPosition === 'top-right';
+  const qrEnabled = newConfig.qrMode === 'all' || (qrKioskOnlyEnabled && newConfig.qrMode === 'kiosk-only');
+  const hasQrTop = useNewCards && qrEnabled && newConfig.qrPosition === 'top-right';
   const rankQrTopPad = hasQrTop ? newConfig.qrSize + 4 : 0;
   // v2.13.3: bottom-center QR overhangs below the card. The reservation must
   // live on the LAYOUT ITEM (flex/grid wrapper), not the card's inner div —
@@ -194,7 +224,7 @@ export default function ScoreboardSurface({
         cardBgFill={newConfig.cardBgFill}
         titleFontSize={newConfig.titleFontSize || undefined}
         viewerUsername={viewerUsername} viewerEntry={lb.viewerEntry}
-        qrMode={newConfig.qrMode === 'all' ? 'all' : 'disabled'}
+        qrMode={qrEnabled ? 'all' : 'disabled'}
         qrSize={newConfig.qrSize} qrPosition={newConfig.qrPosition} qrOverlapPx={newConfig.qrOverlapPx}
         gameTitleStyle={newConfig.gameTitleStyle}
         onSubmitScore={onSubmitScore}
@@ -373,7 +403,7 @@ export default function ScoreboardSurface({
           ? 'scoreboard-page-zoom'
           : 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden scoreboard-page-zoom'}
         style={{
-          ...(zoom !== 100 ? { zoom: `${zoom}%` } : {}),
+          ...((zoomPercent ?? zoom) !== 100 ? { zoom: `${zoomPercent ?? zoom}%` } : {}),
           // S14: reserve room for the fixed-bottom lobby ticker so it doesn't
           // cover the last row of cards.
           paddingBottom: scrollPaddingBottom,
@@ -385,7 +415,7 @@ export default function ScoreboardSurface({
         className="px-4 sm:px-6 pt-6 relative z-[1]"
       >
       {!titleHidden && (
-        <div className="text-center mb-4 overflow-hidden">
+        <div className={`text-center ${kioskHeaderSpacing ? 'mb-8' : 'mb-4'} overflow-hidden`}>
           <div className={`inline-flex items-center gap-4 max-w-full ${
             logoPosition === 'above' || logoPosition === 'below' ? 'flex-col' : 'flex-row'
           }`}>
@@ -402,9 +432,15 @@ export default function ScoreboardSurface({
         </div>
       )}
       {titleHidden && logoUrl && (
-        <div className="text-center mb-4 overflow-hidden">
-          <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto max-w-full" />
-        </div>
+        kioskHeaderSpacing ? (
+          <div className="text-center mb-8">
+            <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto" />
+          </div>
+        ) : (
+          <div className="text-center mb-4 overflow-hidden">
+            <img src={logoUrl} alt="" style={{ maxHeight: `${logoMaxHeight}px` }} className="object-contain mx-auto max-w-full" />
+          </div>
+        )
       )}
 
       {headerExtras}
