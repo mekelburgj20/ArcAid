@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.95.0] — unreleased
+
+**Explicit audit-log sweep across admin writes (ROADMAP §C audit doctrine, deferred cleanup executed).**
+
+### Changed
+- **~48 admin write routes across `admin.ts`/`rooms.ts` now call `AuditService.log` explicitly** (moderation actions, destructive deletes, settings saves logging KEYS never values, identity ops, admin add/remove) — closing the long-documented gap where the blanket `auditLog` middleware audited NOTHING in production (mounted before router auth, so `req.user` was never set). Six misleading "auto-audited" code comments corrected. Deliberate skips (cosmetic/high-frequency/player-self writes) are inventoried in PR #189. The dead `app.use('/api/', auditLog)` mount is REMOVED (middleware file marked dead, kept for a test harness that wires it correctly); a regression test proves no phantom audit rows.
+- Known residual: the shared `raImportHandler` (3 mount points, different auth models) has no audit call — comments corrected rather than forcing artificial single-actor attribution; tracked as future work.
+
 ## [2.94.0] — unreleased
 
 **Ban follow-throughs: content cascade + moderation DM (ROADMAP §C, last two "not started" bullets).**
