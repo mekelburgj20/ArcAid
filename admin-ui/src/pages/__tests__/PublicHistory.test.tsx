@@ -124,13 +124,14 @@ describe('PublicHistory', () => {
     mockFetch(ROWS);
     renderHistory();
 
-    await waitFor(() => expect(screen.getAllByText('DG').length).toBeGreaterThan(0));
-
-    // Index 0 is the mobile list's row (the filter `<option>`s also read "DG",
-    // hence scoping to the row). `ml-auto` on the badge's slot is what makes
-    // the tags line up down the list rather than starting at a
-    // name-length-dependent offset; the badge keeps its own no-shrink/no-wrap.
-    const mobileRow = screen.getAllByRole('link', { name: /Daily Grind — WHO dunnit scores/ })[0]!;
+    // Wait on the LINK, not on 'DG' text — the filter `<option>`s also read
+    // "DG" and render synchronously, so a text-based waitFor can pass before
+    // the fetched rows exist and the link query then races the mock fetch
+    // (flaked on a slow CI runner, 2026-08-09). Index 0 is the mobile list's
+    // row. `ml-auto` on the badge's slot is what makes the tags line up down
+    // the list rather than starting at a name-length-dependent offset; the
+    // badge keeps its own no-shrink/no-wrap.
+    const mobileRow = (await screen.findAllByRole('link', { name: /Daily Grind — WHO dunnit scores/ }))[0]!;
     const mobileBadge = within(mobileRow).getByText('DG');
     expect(mobileBadge.parentElement).toHaveClass('ml-auto');
     expect(mobileBadge).toHaveClass('flex-shrink-0');
