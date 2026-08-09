@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, type ReactNode } from 'react';
+import { useEffect, useState, useRef, type ReactNode, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus, Camera, Upload, BadgeCheck } from 'lucide-react';
 import QRCode from 'qrcode';
@@ -431,6 +431,20 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   const titleEnhanceClass = gameTitleEnhance ? 'bg-black/50 px-2 py-0.5 rounded inline-block' : '';
   const titleBacklitClass = gameTitleStyle === 'backlit' ? 'bg-black/40 px-2 py-0.5 rounded inline-block' : '';
 
+  // No-ellipsis rule (repo-wide): titles wrap instead of truncating. Mirrors
+  // BannerCard/ShowcaseCard's titleClampStyle — 2-line clamp (no "...") with a
+  // reserved min-height so short-title cards in the same grid row don't jump
+  // when a sibling wraps. Font size is fixed at 0.875rem (14px) in every
+  // GameCard header variant, so the box height is a constant here (those two
+  // cards compute it from a variable titleFontSize prop GameCard doesn't have).
+  const titleBoxMinHeight = 14 * 1.2 * 2;
+  const titleClampStyle: CSSProperties = {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: 2,
+    overflow: 'hidden',
+  };
+
   // Score entry style: glass uses panels, other styles use text effects with no panel
   const useGlassScores = scoreStyle === 'glass';
   const scoreTextCSS = (() => {
@@ -474,8 +488,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           </div>
           <div className="min-w-0 flex-1">
             {(
-              <h3 className={`font-display font-bold leading-tight truncate ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass} flex items-center gap-1`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
-                {displayText}
+              <h3 className={`font-display font-bold leading-tight ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass} flex items-center gap-1`} style={{ fontSize: '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight, ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
+                <span style={titleClampStyle}>{displayText}</span>
                 <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
               </h3>
             )}
@@ -508,10 +522,10 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             <div className="w-full text-center px-4 pb-2 pt-1 relative">
               {(
                 <h3
-                  className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass} flex items-center justify-center gap-1`}
-                  style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
+                  className={`font-display font-bold leading-tight ${titleEnhanceClass} ${titleBacklitClass} flex items-center justify-center gap-1`}
+                  style={{ fontSize: '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight, ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
                 >
-                  {displayText}
+                  <span style={titleClampStyle}>{displayText}</span>
                   <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
                 </h3>
               )}
@@ -544,10 +558,10 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
           <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
             {(
               <h3
-                className={`font-display font-bold leading-tight truncate ${titleEnhanceClass} ${titleBacklitClass} flex items-center gap-1`}
-                style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
+                className={`font-display font-bold leading-tight ${titleEnhanceClass} ${titleBacklitClass} flex items-center gap-1`}
+                style={{ fontSize: '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight, ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}
               >
-                {displayText}
+                <span style={titleClampStyle}>{displayText}</span>
                 <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
               </h3>
             )}
@@ -568,8 +582,8 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
             onClick={onSubmitScore ? () => onSubmitScore(lb) : undefined}
           >
             {(
-              <h3 className={`font-display font-bold leading-tight truncate px-5 ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass} flex items-center justify-center gap-1`} style={{ fontSize: '0.875rem', ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
-                {displayText}
+              <h3 className={`font-display font-bold leading-tight px-5 ${isFill ? 'text-white' : ''} ${titleEnhanceClass} ${titleBacklitClass} flex items-center justify-center gap-1`} style={{ fontSize: '0.875rem', overflowWrap: 'break-word', wordBreak: 'break-word', minHeight: titleBoxMinHeight, ...titleStyleCSS, ...(globalStyles?.enabled && globalStyles.cssTitle ? { color: globalStyles.cssTitle } : {}) }}>
+                <span style={titleClampStyle}>{displayText}</span>
                 <GameInfoPopup externalUrl={lb.externalUrl} notes={lb.notes} roomId={roomId} gameName={lb.gameName} globalGameId={lb.globalGameId} size={13} />
               </h3>
             )}

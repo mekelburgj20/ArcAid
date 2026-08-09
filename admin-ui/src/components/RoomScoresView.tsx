@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import ScoreCardGrid from './ScoreCardGrid';
@@ -34,6 +34,12 @@ interface RoomScoresViewProps {
   config: Record<string, string>;
   roomName: string;
   viewerUsername?: string;
+  /** Owner-asked header compression (2026-08-08) — the shared Tournaments/
+   *  Room Scores/Global tab chips, rendered by the page (`Scoreboard.tsx`) so
+   *  every tab's control row shares one definition. Folded into the right
+   *  side of this view's own search/sort/count row instead of sitting above
+   *  it in the page's measured title zone. */
+  tabSwitcher?: ReactNode;
 }
 
 const PAGE_SIZE = 48;
@@ -57,7 +63,7 @@ function decodeViewerClaims(token: string | null): { role: string; gameRoomIds: 
   }
 }
 
-export default function RoomScoresView({ roomId, slug, config, roomName, viewerUsername }: RoomScoresViewProps) {
+export default function RoomScoresView({ roomId, slug, config, roomName, viewerUsername, tabSwitcher }: RoomScoresViewProps) {
   const [rows, setRows] = useState<RoomScoreCard[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -162,8 +168,16 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
 
   return (
     <div className="px-4 sm:px-6 pb-6">
-      <div className="max-w-md mx-auto mb-2">
-        <div className="relative">
+      {/* One control row (owner-asked header compression, 2026-08-08; revised
+          for true chip centering per owner feedback). 3-column grid — left
+          (search), center (shared tab chips, centered against the FULL row
+          width via two equal 1fr side tracks, not just leftover flex space),
+          right (sort chips + running total + browse link). Collapses to one
+          stacked column below `sm`; the right group keeps its own
+          `flex-wrap` so a narrow right track never forces horizontal
+          scroll. */}
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-3 mb-4">
+        <div className="relative min-w-0 max-w-sm">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="text"
@@ -174,32 +188,38 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
             aria-label={ROOM_SCORES_SEARCH_PLACEHOLDER}
           />
         </div>
-      </div>
 
-      {/* Sort chips (ROOM_SORT_LABELS — server-side sort param). */}
-      <div className="max-w-md mx-auto mb-2 flex items-center justify-center gap-1.5">
-        {(Object.keys(ROOM_SORT_LABELS) as RoomSort[]).map(key => (
-          <button
-            key={key}
-            onClick={() => setSort(key)}
-            className={`px-3 py-1 rounded-full text-xs border transition-colors cursor-pointer ${
-              sort === key
-                ? 'border-neon-cyan/60 text-neon-cyan bg-neon-cyan/10'
-                : 'border-border/50 text-muted hover:text-primary'
-            }`}
-            aria-pressed={sort === key}
-          >
-            {ROOM_SORT_LABELS[key]}
-          </button>
-        ))}
-      </div>
+        <div className="min-w-0 flex justify-center">
+          {tabSwitcher}
+        </div>
 
-      {/* Small persistent muted browse link (F5 (b)) + running total (F3 pagination fix). */}
-      <div className="max-w-md mx-auto mb-4 flex items-center justify-center gap-3 text-[11px] text-faint">
-        {!loading && total > 0 && <span>{total.toLocaleString()} game{total === 1 ? '' : 's'}</span>}
-        <Link to={browseHref} className="text-muted hover:text-primary transition-colors no-underline">
-          {browseLabel}
-        </Link>
+        <div className="min-w-0 flex flex-wrap items-center gap-3 justify-start sm:justify-end">
+          {/* Sort chips (ROOM_SORT_LABELS — server-side sort param). */}
+          <div className="flex items-center gap-1.5">
+            {(Object.keys(ROOM_SORT_LABELS) as RoomSort[]).map(key => (
+              <button
+                key={key}
+                onClick={() => setSort(key)}
+                className={`px-3 py-1 rounded-full text-xs border transition-colors cursor-pointer whitespace-nowrap ${
+                  sort === key
+                    ? 'border-neon-cyan/60 text-neon-cyan bg-neon-cyan/10'
+                    : 'border-border/50 text-muted hover:text-primary'
+                }`}
+                aria-pressed={sort === key}
+              >
+                {ROOM_SORT_LABELS[key]}
+              </button>
+            ))}
+          </div>
+
+          {/* Running total (F3 pagination fix) + persistent muted browse link (F5 (b)). */}
+          <div className="flex items-center gap-3 text-[11px] text-faint whitespace-nowrap">
+            {!loading && total > 0 && <span>{total.toLocaleString()} game{total === 1 ? '' : 's'}</span>}
+            <Link to={browseHref} className="text-muted hover:text-primary transition-colors no-underline">
+              {browseLabel}
+            </Link>
+          </div>
+        </div>
       </div>
 
       <ScoreCardGrid

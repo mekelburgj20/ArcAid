@@ -15,7 +15,45 @@ import GlobalScoresView from '../components/GlobalScoresView';
 import GameQuickView from '../components/GameQuickView';
 import SubmissionSheet from '../components/SubmissionSheet';
 import ScoreboardPreferencesModal from '../components/ScoreboardPreferencesModal';
-import { TAB_LABELS, tabSubtitle } from '../lib/scoresCopy';
+import { TAB_LABELS } from '../lib/scoresCopy';
+
+type ScoresTab = 'tournaments' | 'room' | 'global';
+
+/**
+ * Tournaments | Room Scores | Global tab chips (F2 3-tab unification).
+ *
+ * Owner-asked header compression (2026-08-08) — hoisted out of `headerExtras` so it can render on
+ * the SAME control row as each tab's search bar instead of always sitting up
+ * in the measured title/logo zone. `aboveCards` renders it for the
+ * Tournaments tab; `RoomScoresView`/`GlobalScoresView` receive the same
+ * element as a `tabSwitcher` prop so their own control rows carry it too —
+ * one definition, three call sites, byte-identical chips everywhere.
+ */
+function TabSwitcher({ tab, onSelect }: { tab: ScoresTab; onSelect: (next: ScoresTab) => void }) {
+  return (
+    <div className="flex items-center gap-1" role="tablist" aria-label="Leaderboard tabs">
+      {/* s20: outer button carries the ≥44px hit area; inner span keeps the
+          original compact tab-chip visual. */}
+      {(['tournaments', 'room', 'global'] as const).map(t => (
+        <button
+          key={t}
+          role="tab"
+          aria-selected={tab === t}
+          onClick={() => onSelect(t)}
+          className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
+        >
+          <span className={`px-3 py-1 text-xs rounded-lg border transition-colors whitespace-nowrap ${
+            tab === t
+              ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
+              : 'border-border/50 text-muted hover:text-primary'
+          }`}>
+            {TAB_LABELS[t]}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function Scoreboard() {
   const { slug } = useParams<{ slug: string }>();
@@ -214,38 +252,22 @@ export default function Scoreboard() {
             )}
           </>
         }
-        headerExtras={
-          <>
-            {/* Tab toggle — Tournaments | Room Scores | Global (F2 3-tab unification) */}
-            <div className="flex justify-center gap-1 pb-1" role="tablist" aria-label="Leaderboard tabs">
-              {/* s20: outer button carries the ≥44px hit area; inner span keeps the
-                  original compact tab-chip visual. */}
-              {(['tournaments', 'room', 'global'] as const).map(t => (
-                <button
-                  key={t}
-                  role="tab"
-                  aria-selected={tab === t}
-                  onClick={() => selectTab(t)}
-                  className="min-h-11 min-w-11 inline-flex items-center justify-center cursor-pointer"
-                >
-                  <span className={`px-3 py-1 text-xs rounded-lg border transition-colors ${
-                    tab === t
-                      ? 'bg-neon-cyan/10 border-neon-cyan/40 text-neon-cyan'
-                      : 'border-border/50 text-muted hover:text-primary'
-                  }`}>
-                    {TAB_LABELS[t]}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <p className="text-center text-[11px] text-faint pb-3">{tabSubtitle(tab, roomName)}</p>
-          </>
-        }
         aboveCards={
-          /* Tournament search (reserved slot matches All Games tab for layout stability) */
-          <div className="px-4 sm:px-6">
-            <div className="max-w-md mx-auto mb-4">
-              <div className="relative">
+          /* Owner-asked header compression (2026-08-08), revised per owner
+             feedback on the first pass: the Tournaments/Room Scores/Global
+             chips must be TRULY centered on the row (centered against the
+             full row width), not just pushed into leftover flex space. A
+             3-column grid (`1fr auto 1fr`) does that — left/right tracks are
+             equal width, so the auto-sized center track sits dead-center
+             regardless of how much content is in the side tracks. Tournaments
+             has no right-side content, so only two grid items are rendered;
+             the empty 1fr third track still reserves the space, which is
+             exactly what keeps the chips centered. Collapses to one column
+             (stacked rows, search then chips) below `sm` — same
+             never-horizontal-scroll guarantee as the flex-wrap it replaces. */
+          <div className="px-4 sm:px-6 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-3">
+              <div className="relative min-w-0 max-w-sm">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
                 <input
                   type="text"
@@ -256,14 +278,17 @@ export default function Scoreboard() {
                   aria-label="Search active games"
                 />
               </div>
+              <div className="min-w-0 flex justify-center">
+                <TabSwitcher tab={tab} onSelect={selectTab} />
+              </div>
             </div>
           </div>
         }
         contentOverride={
           tab === 'room' ? (
-            <RoomScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
+            <RoomScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} tabSwitcher={<TabSwitcher tab={tab} onSelect={selectTab} />} />
           ) : tab === 'global' ? (
-            <GlobalScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} />
+            <GlobalScoresView roomId={roomId} slug={slug || ''} config={config} roomName={roomName} viewerUsername={viewerUsername} tabSwitcher={<TabSwitcher tab={tab} onSelect={selectTab} />} />
           ) : undefined
         }
       />
