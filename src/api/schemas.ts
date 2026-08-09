@@ -227,6 +227,14 @@ export const AssignImageSchema = z.object({
     imageType: z.enum(['logo', 'background', 'both']),
 });
 
+// Ranking-card backgrounds (owner-designed 2026-08-09) — a ranking group has
+// no header/logo concept, just one background image slot. PUT to set,
+// DELETE (no body) to clear, mirroring AssignStyleSchema/games' PUT+DELETE
+// pair rather than accepting a nullable styleId in the body.
+export const AssignRankingGroupStyleSchema = z.object({
+    styleId: z.string().min(1),
+});
+
 export const StyleUploadSchema = z.object({
     name: z.string().min(1).max(200),
     author: z.string().min(1).max(100),

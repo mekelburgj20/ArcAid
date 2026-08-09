@@ -13,6 +13,13 @@ export interface RankingGroup {
     is_active: boolean;
     created_at: string;
     tournament_ids: string[];
+    /** v2.9x (ranking-card backgrounds) — nullable pointer into
+     *  style_catalogue, presentation-only (never read by computeRankings). */
+    bg_style_id: string | null;
+    /** has_background flag of the resolved style, joined in for the FE gate
+     *  (a style might exist but only carry a header/logo image). Null when
+     *  bg_style_id is unset. */
+    bg_has_bg: number | null;
 }
 
 export interface OverallRanking {
@@ -73,9 +80,22 @@ export class RankingService {
      */
     static async getAll(gameRoomId?: string): Promise<RankingGroup[]> {
         const db = await getDatabase();
+        // LEFT JOIN style_catalogue for bg_has_bg — same shape as
+        // LeaderboardService's sc_bg join for games.bg_style_id.
         const groups = gameRoomId
-            ? await db.all(`SELECT * FROM ranking_groups WHERE game_room_id = ? ORDER BY name`, gameRoomId)
-            : await db.all(`SELECT * FROM ranking_groups ORDER BY name`);
+            ? await db.all(
+                `SELECT rg.*, sc.has_background as bg_has_bg
+                 FROM ranking_groups rg
+                 LEFT JOIN style_catalogue sc ON rg.bg_style_id = sc.id
+                 WHERE rg.game_room_id = ? ORDER BY rg.name`,
+                gameRoomId
+            )
+            : await db.all(
+                `SELECT rg.*, sc.has_background as bg_has_bg
+                 FROM ranking_groups rg
+                 LEFT JOIN style_catalogue sc ON rg.bg_style_id = sc.id
+                 ORDER BY rg.name`
+            );
         const result: RankingGroup[] = [];
         for (const g of groups) {
             const tournamentRows = await db.all(
@@ -92,6 +112,8 @@ export class RankingService {
                 is_active: !!g.is_active,
                 created_at: g.created_at,
                 tournament_ids: tournamentRows.map((r: any) => r.tournament_id),
+                bg_style_id: g.bg_style_id || null,
+                bg_has_bg: g.bg_has_bg ?? null,
             });
         }
         return result;
@@ -102,7 +124,13 @@ export class RankingService {
      */
     static async getById(id: string): Promise<RankingGroup | null> {
         const db = await getDatabase();
-        const g = await db.get('SELECT * FROM ranking_groups WHERE id = ?', id);
+        const g = await db.get(
+            `SELECT rg.*, sc.has_background as bg_has_bg
+             FROM ranking_groups rg
+             LEFT JOIN style_catalogue sc ON rg.bg_style_id = sc.id
+             WHERE rg.id = ?`,
+            id
+        );
         if (!g) return null;
         const tournamentRows = await db.all(
             'SELECT tournament_id FROM ranking_group_tournaments WHERE ranking_group_id = ?',
@@ -118,6 +146,8 @@ export class RankingService {
             is_active: !!g.is_active,
             created_at: g.created_at,
             tournament_ids: tournamentRows.map((r: any) => r.tournament_id),
+            bg_style_id: g.bg_style_id || null,
+            bg_has_bg: g.bg_has_bg ?? null,
         };
     }
 
@@ -192,6 +222,29 @@ export class RankingService {
     static async setActive(id: string, active: boolean): Promise<void> {
         const db = await getDatabase();
         await db.run('UPDATE ranking_groups SET is_active = ? WHERE id = ?', active ? 1 : 0, id);
+    }
+
+    /**
+     * Set (or clear, when styleId is null) the background-image style for a
+     * ranking group's card. Presentation-only — deliberately does NOT touch
+     * `ranking_groups_cache` or call invalidate()/computeRankings(). Unlike
+     * `update()` (which changes rank_method/tournament_ids/best_n/min_games —
+     * inputs computeRankings actually consumes, so it must invalidate), a
+     * background image never feeds computeDataWatermark or computeRankings;
+     * bouncing the cache here would just force a needless recompute on the
+     * next read for a change nobody's ranking numbers depend on.
+     */
+    static async setBgStyle(id: string, styleId: string | null): Promise<{ ok: boolean; error?: string }> {
+        const db = await getDatabase();
+        if (styleId) {
+            const style = await db.get('SELECT id, has_background FROM style_catalogue WHERE id = ?', styleId);
+            if (!style) return { ok: false, error: 'Style not found' };
+            if (!style.has_background) return { ok: false, error: 'This style does not have a background image' };
+        }
+        const result = await db.run('UPDATE ranking_groups SET bg_style_id = ? WHERE id = ?', styleId, id);
+        if ((result.changes ?? 0) === 0) return { ok: false, error: 'Ranking group not found' };
+        logInfo(`Ranking group ${id} background style ${styleId ? `set to ${styleId}` : 'cleared'}`);
+        return { ok: true };
     }
 
     /**

@@ -89,6 +89,14 @@ export interface RankingGroupData {
     /** v2.31.0 — underlying tournaments (id/name/type) for colored chips.
      *  Optional: absent on stale/cached responses predating this field. */
     tournaments?: { id: string; name: string; type: string }[];
+    /** v2.9x (ranking-card backgrounds, owner-designed 2026-08-09) — admin-
+     *  assigned style_catalogue id for this group's card background. Snake
+     *  case like the rest of `group` (unlike GameLeaderboard, which is
+     *  camelCase) — this whole object is a passthrough of the BE row shape. */
+    bg_style_id?: string | null;
+    /** has_background flag of the resolved style; null/undefined when no
+     *  style is assigned or the style lacks a background image. */
+    bg_has_bg?: number | null;
   };
   rankings: Array<{
     rank: number;
@@ -946,6 +954,16 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
     ? SHOWCASE_THEMES[showcaseThemeName || DEFAULT_SHOWCASE_THEME] ?? SHOWCASE_THEMES[DEFAULT_SHOWCASE_THEME]
     : undefined;
 
+  // v2.9x (ranking-card backgrounds) — admin-assigned background image, same
+  // resolution shape as GameCard's effectiveBgId (bg_has_bg gates the case
+  // where a style exists but only carries a header/logo image). Ranking
+  // groups have no catalogue_style_id fallback — just this one slot.
+  // Rendered ONLY on the 'match' (showcase/minimal/banner) and 'plaque'
+  // treatments below; 'compact' and 'sidebar' are deliberately unchanged
+  // (owner call — those are chrome-less/dense layouts, not image cards).
+  const effectiveRankBgId = (group.bg_style_id && group.bg_has_bg !== 0) ? group.bg_style_id : null;
+  const rankBgUrl = effectiveRankBgId ? `/api/styles/images/backgrounds/${effectiveRankBgId}.png` : null;
+
   const rankColor = (rank: number) =>
     rank === 1 ? 'text-neon-amber' : rank === 2 ? 'text-neon-cyan' : rank === 3 ? 'text-neon-green' : 'text-faint';
 
@@ -1045,6 +1063,17 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
           flexDirection: 'column',
           height: '100%',
         }}>
+            {/* v2.9x — background image + darkening overlay, same treatment
+                as game cards' cardBgFill mode (see BannerCard.tsx/
+                ShowcaseCard.tsx). Plaque has no game-card counterpart of its
+                own, so 55% matches the showcase/minimal darkness rather than
+                banner's lighter 50%. */}
+            {rankBgUrl && (
+              <>
+                <div className="absolute inset-0 z-0" style={{ backgroundImage: `url(${rankBgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+                <div className="absolute inset-0 z-0 bg-black/55" />
+              </>
+            )}
             {cardOpacity != null && cardOpacity < 1 && (
               <div className="absolute inset-0" style={{ background: tokens.bg, opacity: cardOpacity }} />
             )}
@@ -1341,6 +1370,14 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
           flexDirection: 'column',
           height: '100%',
         }}>
+          {/* v2.9x — background image + darkening overlay, matching
+              ShowcaseCard.tsx's cardBgFill treatment (rgba(0,0,0,0.55)). */}
+          {rankBgUrl && (
+            <>
+              <div className="absolute inset-0 z-0" style={{ backgroundImage: `url(${rankBgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+              <div className="absolute inset-0 z-0" style={{ background: 'rgba(0,0,0,0.55)' }} />
+            </>
+          )}
           {cardOpacity != null && cardOpacity < 1 && (
             <div className="absolute inset-0" style={{ background: `${border}22`, opacity: cardOpacity }} />
           )}
@@ -1388,6 +1425,14 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
           flexDirection: 'column',
           height: '100%',
         }}>
+          {/* v2.9x — background image + darkening overlay, matching
+              MinimalCard.tsx's cardBgFill treatment (bg-black/55). */}
+          {rankBgUrl && (
+            <>
+              <div className="absolute inset-0 z-0" style={{ backgroundImage: `url(${rankBgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+              <div className="absolute inset-0 z-0 bg-black/55" />
+            </>
+          )}
           {cardOpacity != null && cardOpacity < 1 && (
             <div className="absolute inset-0 bg-raised" style={{ opacity: cardOpacity }} />
           )}
@@ -1415,6 +1460,14 @@ export function RankingGroupCard({ group, rankings, cardOpacity, scoreboardStyle
           so the accent tint carries through here too. */}
       <div className="relative border-2 rounded-lg overflow-hidden flex flex-col flex-1" style={{ borderColor: RANKING_CARD_GRADIENT_BORDER }}>
         <div className="absolute inset-0" style={{ background: RANKING_CARD_GRADIENT_BG }} />
+        {/* v2.9x — background image + darkening overlay, matching
+            BannerCard.tsx's cardBgFill treatment (bg-black/50). */}
+        {rankBgUrl && (
+          <>
+            <div className="absolute inset-0 z-0" style={{ backgroundImage: `url(${rankBgUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+            <div className="absolute inset-0 z-0 bg-black/50" />
+          </>
+        )}
         <div className="px-4 py-3 text-center border-b border-border/30 relative">
           <h3 className="font-display font-bold leading-tight" style={{ fontSize: '0.875rem' }}>OVERALL RANKINGS</h3>
           <p className="text-[11px] uppercase tracking-wider mt-0.5 text-muted">{group.name}</p>
@@ -1439,9 +1492,13 @@ interface RankingsProps {
    *  card. As of v2.13.10 the column/row width is *not* affected by this; the
    *  ranking card always occupies the same slot dimensions as a game card. */
   rankingsStyle?: RankingsCardStyle;
+  /** v2.9x (ranking-card backgrounds) — admin controls strip slot, mirroring
+   *  ScoreboardSurface's `renderUnderCard` for game cards. Undefined on the
+   *  public page (no admin chrome); the admin Leaderboard page supplies it. */
+  renderUnderCard?: (group: RankingGroupData['group']) => ReactNode;
 }
 
-export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky, rankingsStyle }: RankingsProps) {
+export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, sticky, rankingsStyle, renderUnderCard }: RankingsProps) {
   // Match Showcase card paddingTop so Rankings aligns with card frames, not identifier images
   const topPad = scoreboardStyle === 'showcase' ? 42 : 0;
   // Match width to the current card style (same for all rankings styles — they fill the slot)
@@ -1451,14 +1508,17 @@ export function RankingsColumn({ rankingGroups, cardOpacity, scoreboardStyle, sh
     <div className={`w-full flex-shrink-0 ${sticky ? 'lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto' : ''}`} style={{ ...(topPad ? { paddingTop: topPad } : {}), maxWidth: colWidth }}>
       <div className="flex flex-col gap-5">
         {rankingGroups.map(({ group, rankings }) => (
-          <RankingGroupCard key={group.id} group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} rankingsStyle={rankingsStyle} />
+          <div key={group.id} className={renderUnderCard ? 'flex flex-col min-w-0' : undefined}>
+            <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} rankingsStyle={rankingsStyle} />
+            {renderUnderCard?.(group)}
+          </div>
         ))}
       </div>
     </div>
   );
 }
 
-export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, rankingsStyle }: RankingsProps) {
+export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showcaseThemeName, rankingsStyle, renderUnderCard }: RankingsProps) {
   const cardW = scoreboardStyle === 'showcase' || scoreboardStyle === 'minimal' ? 380
     : scoreboardStyle === 'banner' ? 280 : 320;
   return (
@@ -1467,6 +1527,7 @@ export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showc
         {rankingGroups.map(({ group, rankings }) => (
           <div key={group.id} className="flex-shrink-0" style={{ width: cardW }}>
             <RankingGroupCard group={group} rankings={rankings} cardOpacity={cardOpacity} scoreboardStyle={scoreboardStyle} showcaseThemeName={showcaseThemeName} rankingsStyle={rankingsStyle} />
+            {renderUnderCard?.(group)}
           </div>
         ))}
       </div>
