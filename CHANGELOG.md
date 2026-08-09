@@ -16,6 +16,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 ### Changed
 - **`DISCORD_CLIENT_SECRET` is now encrypted at rest** — added to `ENCRYPTED_SETTING_KEYS`. No bespoke migration needed: `runSecretsMigration()` (boot step between `initDatabase` and `loadSettingsToEnv`) generically re-encrypts legacy plaintext rows for every allowlisted key — the same mechanism the other six secrets already use; the prod plaintext row converts on first boot of this release. 8 new tests cover plaintext→encrypted round-trip, idempotency, absent-row no-op, keyless-install fail-fast/no-brick, and settings-UI masking.
 
+## [2.91.0] — unreleased
+
+**Unlinked-player affordances (S14 field-testing follow-up).**
+
+### Added
+- **Disabled Follow affordance.** A player with no Discord identity now shows a disabled Follow button ("This player hasn't linked Discord yet") on the room player page and the player quick-view modal, instead of the button silently not rendering. Signal is the existing `discordUserId === null` from the enhanced-stats endpoint — no API change.
+- **Distinct friend-add errors.** `FriendsService.addFriend` distinguishes "No player found by that name" from "<name> exists but hasn't linked a Discord account yet" (existence checked across `room_members` nickname claims ∪ `submissions` names; `err.code='PLAYER_UNLINKED'` → 404 with the specific copy).
+- **Admin hint on unlinked players.** Room/super admins viewing an unlinked player's page get a muted hint pointing at `/map-user` and the identity merge tool (same playerToken-claims admin detection as GameDetail's score moderation).
+
+### Notes
+- The fourth ROADMAP part (name-typed stat resolvers falling back from `user_mappings` to `room_members`) turned out to be ALREADY SHIPPED in v2.23.2 (PR #77) — this release adds a cross-room-isolation regression test for it instead of duplicate code; the ROADMAP entry was stale.
+
 ## [2.90.0] — unreleased
 
 **Kiosk renders through the shared ScoreboardSurface (v2.85.0 follow-up; screenshot-parity approved).**

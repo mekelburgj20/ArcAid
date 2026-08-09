@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Flame, Trophy, Target, Medal, UserPlus, UserCheck, GitCompare, Flag } from 'lucide-react';
 import ShareButton from '../components/ShareButton';
@@ -7,6 +7,31 @@ import { PersonalBestsSection, type PersonalBestRow } from '../components/Person
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { useRoom } from '../contexts/RoomContext';
 import { formatScore, scoreTitle } from '../lib/format';
+
+/** Decode a player JWT and pull the role + gameRoomIds claims. Mirrors
+ *  GameDetail.tsx's decodeViewerClaims (not shared — that helper isn't
+ *  exported; same duplication precedent as RoomScoresView.tsx). Used here
+ *  only for the unlinked-player admin hint (part c). Returns null on
+ *  missing/invalid token. */
+function decodeViewerClaims(token: string | null): {
+  role: 'player' | 'room_admin' | 'super_admin';
+  gameRoomIds: string[];
+  discordId: string | null;
+} | null {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return {
+      role: (payload.role as 'player' | 'room_admin' | 'super_admin') || 'player',
+      gameRoomIds: Array.isArray(payload.gameRoomIds) ? payload.gameRoomIds : [],
+      discordId: (payload.discordId as string) || null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 interface Achievements {
   tournamentWins: number;
@@ -69,6 +94,8 @@ export default function PlayerDetail() {
   const { roomId } = useRoom();
   // S22 Phase 1 (v2.43.0) — discreet, signed-in-only "report this name" affordance.
   const [showReportName, setShowReportName] = useState(false);
+  // Unlinked-player affordances (ROADMAP, S14 field-testing follow-up).
+  const viewerClaims = useMemo(() => decodeViewerClaims(playerToken), [playerToken]);
 
   useEffect(() => {
     if (!id || !roomId) return;
@@ -144,8 +171,20 @@ export default function PlayerDetail() {
   }
 
   const displayName = stats.iscoredUsername || `Player ${stats.discordUserId.slice(-4)}`;
+  const isPlayerUnlinked = !stats.discordUserId;
   const canFollow = !!discordUser?.discordId && !!stats.discordUserId && discordUser.discordId !== stats.discordUserId;
+  // (a) Unlinked-player affordance — a viewer who's logged in but viewing an
+  // unmapped iScored alias previously saw no Follow button at all (silent
+  // no-op). Show a disabled one instead, with a tooltip explaining why.
+  const showDisabledFollow = !!discordUser?.discordId && isPlayerUnlinked;
   const isFollowing = !!stats.discordUserId && friendIds.has(stats.discordUserId);
+  // (c) Admin hint — same admin-detection pattern as GameDetail's
+  // canDeleteScoreHistory (decoded playerToken claims): super_admin, or
+  // room_admin scoped to this room.
+  const isRoomAdminHere = !!viewerClaims && !!roomId && (
+    viewerClaims.role === 'super_admin' ||
+    (viewerClaims.role === 'room_admin' && viewerClaims.gameRoomIds.includes(roomId))
+  );
   const compareIdentifier = id || stats.iscoredUsername || stats.discordUserId;
   // Snowflake, not username — the compare resolver only accepts a Discord
   // snowflake or an iscored_username (check-agent catch).
@@ -199,6 +238,18 @@ export default function PlayerDetail() {
               {isFollowing ? 'Following' : 'Follow'}
             </button>
           )}
+          {!canFollow && showDisabledFollow && (
+            <button
+              type="button"
+              disabled
+              title="This player hasn't linked Discord yet"
+              aria-label="Follow — unavailable, this player hasn't linked Discord yet"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-xs font-medium text-faint cursor-not-allowed opacity-60"
+            >
+              <UserPlus size={14} />
+              Follow
+            </button>
+          )}
           <Link
             to={compareHref}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border text-xs font-medium text-muted hover:text-primary hover:border-neon-cyan/40 no-underline transition-colors"
@@ -224,6 +275,14 @@ export default function PlayerDetail() {
             </button>
           )}
         </div>
+
+        {/* (c) Admin hint — visible only to room/super admins, and only when
+            this player has no Discord identity to link Follow/merge tools to. */}
+        {isRoomAdminHere && isPlayerUnlinked && (
+          <p className="text-faint text-[11px] mt-2">
+            Admin: link this player's alias with <code>/map-user</code> on Discord, or the identity merge tool.
+          </p>
+        )}
       </div>
 
       {showReportName && (
