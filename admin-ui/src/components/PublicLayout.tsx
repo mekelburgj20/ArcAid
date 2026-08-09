@@ -19,6 +19,7 @@ import { PlayerQuickViewProvider } from '../contexts/PlayerQuickViewContext';
 import ReportContentModal from './ReportContentModal';
 import TourController from './TourController';
 import NotificationNudgeBanner from './NotificationNudgeBanner';
+import UpdateNudgeBanner from './UpdateNudgeBanner';
 
 interface PublicLayoutProps {
   gameRoomName?: string;
@@ -265,6 +266,9 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
 
   return (
     <div className="h-[100dvh] bg-deep text-primary relative flex flex-col overflow-hidden">
+      {/* Stale-PWA "new version available" nudge — fixed position, renders
+          regardless of room load state (portal loading/error/gated). */}
+      <UpdateNudgeBanner />
       {/* Sprint 10 — resumes an anonymous submission draft after Discord OAuth. */}
       <PendingSubmissionWatcher roomSlug={slug} />
       {/* Public Nav Bar */}
