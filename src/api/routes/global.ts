@@ -201,7 +201,15 @@ router.post('/me/friends', requireDiscordUser, requireNotBanned, async (req, res
         }
         res.status(201).json(result);
     } catch (error: any) {
-        if (error?.message?.includes('Could not find')) {
+        // (b) unlinked-player affordances — FriendsService.addFriend distinguishes
+        // "no such player" (addFriendById's legacy "Could not find" + addFriend's
+        // "No player found") from "player exists but hasn't linked Discord"
+        // (marked via error.code, since both still read as 404 to the client).
+        if (
+            error?.code === 'PLAYER_UNLINKED' ||
+            error?.message?.includes('Could not find') ||
+            error?.message?.includes('No player found')
+        ) {
             return res.status(404).json({ error: error.message });
         }
         if (error?.message?.includes('Cannot add yourself')) {

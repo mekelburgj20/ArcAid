@@ -38,7 +38,28 @@ export class FriendsService {
             const { resolveDiscordUserId } = await import('../utils/discord.js');
             const resolved = await resolveDiscordUserId(friendDiscordUsername);
             if (!resolved) {
-                throw new Error(`Could not find user "${friendDiscordUsername}"`);
+                // Unlinked-player affordances (ROADMAP, S14 field-testing follow-up),
+                // part (b) — distinguish "no such player anywhere" from "this name
+                // belongs to a real player who just hasn't linked Discord yet", the
+                // same distinction the enhanced-stats resolvers can make (they fall
+                // back from user_mappings to room_members). This endpoint has no room
+                // scope, so the existence check spans any room's nickname claim plus
+                // any score ever submitted under the name — lookup-only, no writes.
+                const exists = await db.get(
+                    `SELECT 1 AS found FROM room_members WHERE LOWER(display_name) = LOWER(?)
+                     UNION
+                     SELECT 1 AS found FROM submissions WHERE LOWER(iscored_username) = LOWER(?)
+                     LIMIT 1`,
+                    friendDiscordUsername, friendDiscordUsername
+                );
+                if (exists) {
+                    const err: Error & { code?: string } = new Error(
+                        `${friendDiscordUsername} exists but hasn't linked a Discord account yet — they can't be followed until they log in and link.`
+                    );
+                    err.code = 'PLAYER_UNLINKED';
+                    throw err;
+                }
+                throw new Error(`No player found by that name "${friendDiscordUsername}"`);
             }
             friendUserId = resolved;
         }
