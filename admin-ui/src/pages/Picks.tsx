@@ -360,12 +360,21 @@ export default function Picks() {
     return roomMembers.filter(m => /^\d{5,25}$/.test(m.userId) && m.userId !== discordUser?.discordId);
   }, [roomMembers, discordUser]);
 
-  // Best-effort name+avatar resolution for a stored nominee id — falls back
-  // to the raw <@id> rendering (below) when the roster hasn't loaded yet or
-  // the id isn't a current room member.
+  // Names the server resolved from typed-username nominations this session
+  // (`nomineeDisplayName` on the PUT response) — lets a guild-member-but-not-
+  // room-member nominee render by name instead of <@id>. Session-local only;
+  // a reload falls back to the roster/<@id> path.
+  const [resolvedNominees, setResolvedNominees] = useState<Record<string, string>>({});
+
+  // Best-effort name+avatar resolution for a stored nominee id — roster
+  // first, then this session's server-resolved names; falls back to the raw
+  // <@id> rendering (below) when neither knows the id.
   const resolveNominee = (id: string | null): PickableMember | null => {
-    if (!id || !roomMembers) return null;
-    return roomMembers.find(m => m.userId === id) ?? null;
+    if (!id) return null;
+    const fromRoster = roomMembers?.find(m => m.userId === id) ?? null;
+    if (fromRoster) return fromRoster;
+    const name = resolvedNominees[id];
+    return name ? { userId: id, displayName: name, avatarHash: null, avatarUrl: null } : null;
   };
 
   // Prefill: an existing 'nominate' disposition needs the roster to resolve a
@@ -399,6 +408,9 @@ export default function Picks() {
       const result = await res.json();
       if (!res.ok) { toast(result.error || 'Failed to save', 'error'); return; }
       setDisposition(result.disposition);
+      if (result.disposition?.nomineeDiscordId && result.disposition?.nomineeDisplayName) {
+        setResolvedNominees(prev => ({ ...prev, [result.disposition.nomineeDiscordId]: result.disposition.nomineeDisplayName }));
+      }
       setShowNomineeInput(false);
       setNomineeInput('');
       toast('Saved — applies to your next win only.', 'success');
@@ -421,14 +433,14 @@ export default function Picks() {
   };
 
   const handleNomineeSubmit = () => {
-    // Accepts a raw Discord snowflake or a pasted <@id>/<@!id> mention.
+    // Accepts a raw Discord snowflake, a pasted <@id>/<@!id> mention, or a
+    // typed username/@handle — the server resolves non-numeric input against
+    // the room's linked guild (field report 2026-08-10: '@chuckribbits' was
+    // rejected client-side even though the caption promised "@mention").
     const match = nomineeInput.trim().match(/^<@!?(\d+)>$/);
-    const id = (match ? match[1] : nomineeInput.trim());
-    if (!/^\d{5,25}$/.test(id)) {
-      toast('Enter a valid Discord user ID (or paste an @mention).', 'error');
-      return;
-    }
-    saveDisposition({ disposition: 'nominate', nomineeDiscordId: id });
+    const value = (match ? match[1] : nomineeInput.trim());
+    if (!value) return;
+    saveDisposition({ disposition: 'nominate', nomineeDiscordId: value });
   };
 
   const handlePickConfirm = async (tournamentId: string) => {
@@ -763,16 +775,16 @@ export default function Picks() {
               <div>
                 <p className="text-[11px] text-faint mb-1">
                   {nomineeCandidates.length > 0
-                    ? 'Not in the list? Paste their Discord ID or @mention'
-                    : 'Anyone in the Discord server — paste their Discord ID or @mention'}
+                    ? 'Not in the list? Enter their Discord username or ID'
+                    : 'Anyone in the Discord server — enter their Discord username or ID'}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <input
                     type="text"
                     value={nomineeInput}
                     onChange={(e) => setNomineeInput(e.target.value)}
-                    placeholder="Discord user ID or @mention"
-                    aria-label="Nominee Discord user ID"
+                    placeholder="Discord username or ID"
+                    aria-label="Nominee Discord username or ID"
                     className="flex-1 min-w-[200px] bg-bg border border-border rounded-lg px-3 py-1.5 text-xs text-primary placeholder:text-faint focus:outline-none focus:border-neon-purple/50"
                   />
                   <button

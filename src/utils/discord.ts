@@ -123,14 +123,21 @@ export async function sendDirectMessage(
     }
 }
 
+export interface ResolvedDiscordMember {
+    id: string;
+    /** global_name ?? username for a searched match; null when the input was
+     *  already a numeric ID (no lookup performed, so no name to report). */
+    displayName: string | null;
+}
+
 /**
- * Resolves a Discord username to a user ID by searching guild members.
- * Accepts a numeric ID (returned as-is) or a username/handle (searched in the guild).
- * Returns the numeric user ID or null if not found.
+ * Resolves a Discord username to a guild member (ID + display name) by
+ * searching guild members. Accepts a numeric ID (returned as-is, no lookup)
+ * or a username/handle (searched in the guild). Returns null if not found.
  */
-export async function resolveDiscordUserId(input: string, guildId?: string): Promise<string | null> {
+export async function resolveDiscordMember(input: string, guildId?: string): Promise<ResolvedDiscordMember | null> {
     // If it's already a numeric ID, return as-is
-    if (isDiscordUserId(input)) return input;
+    if (isDiscordUserId(input)) return { id: input, displayName: null };
 
     // A `google:<sub>` id has no Discord identity to resolve — it feeds
     // Discord-channel operations (mentions, guild lookups), so return null
@@ -156,11 +163,20 @@ export async function resolveDiscordUserId(input: string, guildId?: string): Pro
             m.user.username.toLowerCase() === lower ||
             (m.user.global_name && m.user.global_name.toLowerCase() === lower)
         );
-        return match?.user.id ?? null;
+        return match ? { id: match.user.id, displayName: match.user.global_name ?? match.user.username } : null;
     } catch (err) {
         logError(`Failed to resolve Discord username "${input}" in guild ${guildId}:`, err);
         return null;
     }
+}
+
+/**
+ * Resolves a Discord username to a user ID by searching guild members.
+ * Accepts a numeric ID (returned as-is) or a username/handle (searched in the guild).
+ * Returns the numeric user ID or null if not found.
+ */
+export async function resolveDiscordUserId(input: string, guildId?: string): Promise<string | null> {
+    return (await resolveDiscordMember(input, guildId))?.id ?? null;
 }
 
 /**

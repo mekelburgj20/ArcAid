@@ -1,5 +1,15 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import crypto from 'crypto';
+
+// The self-service PUT resolves typed-username nominees via
+// `resolveDiscordMember` (v2.98.1 field-report fix). Mock ONLY that export —
+// everything else in utils/discord stays real (no-ops without a bot token),
+// so the resolution-matrix tests above are unaffected.
+const resolveDiscordMemberMock = vi.hoisted(() => vi.fn());
+vi.mock('../utils/discord.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../utils/discord.js')>();
+    return { ...actual, resolveDiscordMember: resolveDiscordMemberMock };
+});
 import { setupTestDb, createTestRoom, createTestTournament, createTestGame } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { TournamentEngine } from '../engine/TournamentEngine.js';
@@ -437,5 +447,91 @@ describe('Next-win disposition — self-service route', () => {
 
         const res = await request(app).get(`/api/rooms/${roomId}/tournaments/${tournamentId}/pick-disposition`);
         expect(res.status).toBe(401);
+    });
+
+    // ------------------------------------------------------------------
+    // Typed-username nominees (v2.98.1 field report: '@chuckribbits' was
+    // rejected even though the caption promised "@mention" support).
+    // Player route ONLY — the admin on-behalf route deliberately accepts
+    // raw ids (its Discord twin gets real user options from the client).
+    // ------------------------------------------------------------------
+
+    it('typed-username nominee resolves against the linked guild, stores the id, ships the display name', async () => {
+        const request = (await import('supertest')).default;
+        const { signToken } = await import('../api/auth.js');
+        const app = await createApp();
+
+        const { roomId, tournamentId } = await setupTournament();
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-nwd');
+        resolveDiscordMemberMock.mockReset().mockResolvedValue({ id: '444455556666777788', displayName: 'ChuckRibbits' });
+        const playerToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'W19' });
+
+        const res = await request(app)
+            .put(`/api/rooms/${roomId}/tournaments/${tournamentId}/pick-disposition`)
+            .set('Authorization', `Bearer ${playerToken}`)
+            .send({ disposition: 'nominate', nomineeDiscordId: '@chuckribbits' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.disposition).toEqual({ disposition: 'nominate', nomineeDiscordId: '444455556666777788', nomineeDisplayName: 'ChuckRibbits' });
+        expect(resolveDiscordMemberMock).toHaveBeenCalledWith('@chuckribbits', 'guild-nwd');
+        const stored = await PickDispositionService.get(tournamentId, 'W19');
+        expect(stored?.nominee_discord_id).toBe('444455556666777788');
+    });
+
+    it('unresolvable typed-username nominee 400s (hard gate — an unresolved name would DM nobody)', async () => {
+        const request = (await import('supertest')).default;
+        const { signToken } = await import('../api/auth.js');
+        const app = await createApp();
+
+        const { roomId, tournamentId } = await setupTournament();
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-nwd');
+        resolveDiscordMemberMock.mockReset().mockResolvedValue(null);
+        const playerToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'W20' });
+
+        const res = await request(app)
+            .put(`/api/rooms/${roomId}/tournaments/${tournamentId}/pick-disposition`)
+            .set('Authorization', `Bearer ${playerToken}`)
+            .send({ disposition: 'nominate', nomineeDiscordId: '@nobody-here' });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/Couldn't find a Discord member/);
+        expect(await PickDispositionService.get(tournamentId, 'W20')).toBeNull();
+    });
+
+    it('typed-username nominee with no linked guild 400s without calling the resolver', async () => {
+        const request = (await import('supertest')).default;
+        const { signToken } = await import('../api/auth.js');
+        const app = await createApp();
+
+        const { roomId, tournamentId } = await setupTournament();
+        resolveDiscordMemberMock.mockReset();
+        const playerToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'W21' });
+
+        const res = await request(app)
+            .put(`/api/rooms/${roomId}/tournaments/${tournamentId}/pick-disposition`)
+            .set('Authorization', `Bearer ${playerToken}`)
+            .send({ disposition: 'nominate', nomineeDiscordId: '@someone' });
+
+        expect(res.status).toBe(400);
+        expect(resolveDiscordMemberMock).not.toHaveBeenCalled();
+    });
+
+    it('numeric nominee ids still pass through untouched (no resolver call)', async () => {
+        const request = (await import('supertest')).default;
+        const { signToken } = await import('../api/auth.js');
+        const app = await createApp();
+
+        const { roomId, tournamentId } = await setupTournament();
+        resolveDiscordMemberMock.mockReset();
+        const playerToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'W22' });
+
+        const res = await request(app)
+            .put(`/api/rooms/${roomId}/tournaments/${tournamentId}/pick-disposition`)
+            .set('Authorization', `Bearer ${playerToken}`)
+            .send({ disposition: 'nominate', nomineeDiscordId: '555566667777888899' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.disposition).toEqual({ disposition: 'nominate', nomineeDiscordId: '555566667777888899' });
+        expect(resolveDiscordMemberMock).not.toHaveBeenCalled();
     });
 });
