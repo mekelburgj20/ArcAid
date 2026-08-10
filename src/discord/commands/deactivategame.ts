@@ -43,6 +43,32 @@ export const deactivategame: Command = {
         const gameId = interaction.options.getString('game', true);
 
         try {
+            const db = await getDatabase();
+
+            // Drift-audit fix — the same guild-scoping gap its siblings
+            // (activate-game, pick-game, submit-score, force-maintenance) got
+            // fixed for in v2.44.0 M1: `game` autocomplete lists ALL active
+            // games regardless of the invoking guild, so the guild-level gate
+            // can't catch a game belonging to a DIFFERENT room. Also rejects a
+            // room that's Discord-disabled/approval-gated or linked to a
+            // DIFFERENT guild — see discordWriteTarget.ts.
+            const gameRow = await db.get(
+                `SELECT g.id, t.game_room_id FROM games g LEFT JOIN tournaments t ON g.tournament_id = t.id WHERE g.id = ?`,
+                gameId,
+            );
+            if (gameRow?.game_room_id) {
+                const { validateDiscordWriteTarget } = await import('../../utils/discordWriteTarget.js');
+                const targetCheck = await validateDiscordWriteTarget(gameRow.game_room_id, interaction.guildId);
+                if (!targetCheck.allowed) {
+                    await interaction.editReply(
+                        targetCheck.denial === 'suspended'
+                            ? 'This room has been suspended pending review. Game deactivation is disabled.'
+                            : "That game belongs to a room this server isn't linked to."
+                    );
+                    return;
+                }
+            }
+
             const engine = TournamentEngine.getInstance();
             const result = await engine.deactivateGame(gameId);
 

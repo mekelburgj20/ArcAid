@@ -39,11 +39,18 @@ export const forcemaintenance: Command = {
             // S22 Phase 2 (v2.44.0, M1 fix) — autocomplete lists ALL active
             // tournaments regardless of the invoking guild, so the guild-level
             // suspension gate can't catch a tournament belonging to a
-            // DIFFERENT, suspended room.
+            // DIFFERENT, suspended room. Drift-audit fix: also rejects a room
+            // that's Discord-disabled/approval-gated or linked to a DIFFERENT
+            // guild — see discordWriteTarget.ts.
             if (row?.game_room_id) {
-                const { RoomAccessService } = await import('../../services/RoomAccessService.js');
-                if (await RoomAccessService.isSuspended(row.game_room_id)) {
-                    await interaction.editReply(`**${name}**'s room has been suspended pending review. Maintenance is disabled.`);
+                const { validateDiscordWriteTarget } = await import('../../utils/discordWriteTarget.js');
+                const targetCheck = await validateDiscordWriteTarget(row.game_room_id, interaction.guildId);
+                if (!targetCheck.allowed) {
+                    await interaction.editReply(
+                        targetCheck.denial === 'suspended'
+                            ? `**${name}**'s room has been suspended pending review. Maintenance is disabled.`
+                            : "That tournament belongs to a room this server isn't linked to."
+                    );
                     return;
                 }
             }

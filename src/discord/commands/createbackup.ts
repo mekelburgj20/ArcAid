@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { Command } from './index.js';
 import { BackupManager } from '../../engine/BackupManager.js';
 import { logError } from '../../utils/logger.js';
@@ -6,7 +6,11 @@ import { logError } from '../../utils/logger.js';
 export const createbackup: Command = {
     data: new SlashCommandBuilder()
         .setName('create-backup')
-        .setDescription('Trigger BackupManager via Discord.'),
+        .setDescription('Trigger BackupManager via Discord.')
+        // Admin-only (drift audit fix): triggering a full DB+asset backup on
+        // demand shouldn't be open to any guild member. Same gate as
+        // activate-game / nominate-picker.
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ ephemeral: true });
         try {

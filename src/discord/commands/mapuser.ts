@@ -2,6 +2,7 @@ import { ChatInputCommandInteraction, SlashCommandBuilder, PermissionFlagsBits }
 import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { logInfo, logError } from '../../utils/logger.js';
+import { BanService } from '../../services/BanService.js';
 
 export const mapuser: Command = {
     data: new SlashCommandBuilder()
@@ -18,6 +19,16 @@ export const mapuser: Command = {
                 .setRequired(false)
         ) as SlashCommandBuilder,
     async execute(interaction: ChatInputCommandInteraction) {
+        // Drift-audit fix — self-service write commands check bans inline
+        // (no Express middleware chain for Discord commands); /map-user
+        // was missing it. Global-only check: the mapping isn't room-scoped,
+        // so there's no room to re-check against once the target is known.
+        const banCheck = await BanService.isIdentityBanned(interaction.user.id);
+        if (banCheck.banned) {
+            await interaction.reply({ content: 'This account is banned.', ephemeral: true });
+            return;
+        }
+
         const iscoredName = interaction.options.getString('iscored_name', true);
         const targetUser = interaction.options.getUser('discord_user') || interaction.user;
 

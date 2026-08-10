@@ -156,11 +156,18 @@ export const pickgame: Command = {
             }
 
             // S22 Phase 2 (v2.44.0, M1 fix) — same rationale as activategame.ts:
-            // tournament name resolution isn't guild-scoped.
+            // tournament name resolution isn't guild-scoped. Drift-audit fix:
+            // also rejects a room that's Discord-disabled/approval-gated or
+            // linked to a DIFFERENT guild — see discordWriteTarget.ts.
             if (tournament.game_room_id) {
-                const { RoomAccessService } = await import('../../services/RoomAccessService.js');
-                if (await RoomAccessService.isSuspended(tournament.game_room_id)) {
-                    await interaction.editReply('This room has been suspended pending review. Game picking is disabled.');
+                const { validateDiscordWriteTarget } = await import('../../utils/discordWriteTarget.js');
+                const targetCheck = await validateDiscordWriteTarget(tournament.game_room_id, interaction.guildId);
+                if (!targetCheck.allowed) {
+                    await interaction.editReply(
+                        targetCheck.denial === 'suspended'
+                            ? 'This room has been suspended pending review. Game picking is disabled.'
+                            : "That game belongs to a room this server isn't linked to."
+                    );
                     return;
                 }
 
@@ -239,19 +246,22 @@ export const pickgame: Command = {
                 // mirrors this); otherwise it dangles as a stale QUEUED row.
                 await interaction.editReply(`Creating **${gameName}** on iScored... This may take a moment.`);
 
+                // Create game on iScored if credentials available (per-room → env
+                // fallback); iScored-disabled rooms activate without a synced game
+                // (v2.81.0 standalone-room default — mirrors activategame.ts and the
+                // web /pick-game route in rooms.ts).
+                let iscoredId: string | undefined;
                 const { getIScoredCredsForRoom } = await import('../../utils/iscoredCreds.js');
                 const creds = await getIScoredCredsForRoom(tournament.game_room_id);
-                if (!creds) {
-                    await interaction.editReply('No iScored credentials configured for this tournament. Cannot activate.');
-                    return;
+                if (creds) {
+                    const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
+                    iscoredId = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
+                        const id = await client.createGame(gameName, styleId);
+                        await client.setGameTags(id, tournament.type);
+                        await client.setGameStatus(id, { locked: false, hidden: false });
+                        return id;
+                    });
                 }
-                const { IScoredSessionRegistry } = await import('../../engine/IScoredSessionRegistry.js');
-                const iscoredId = await IScoredSessionRegistry.getInstance().withSession(creds, async (client) => {
-                    const id = await client.createGame(gameName, styleId);
-                    await client.setGameTags(id, tournament.type);
-                    await client.setGameStatus(id, { locked: false, hidden: false });
-                    return id;
-                });
 
                 await db.exec('BEGIN TRANSACTION');
                 try {

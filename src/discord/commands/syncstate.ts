@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { Command } from './index.js';
 import { logError, logInfo, logWarn } from '../../utils/logger.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
@@ -12,7 +12,10 @@ import { UNKNOWN } from '../../utils/scoreProvenance.js';
 export const syncstate: Command = {
     data: new SlashCommandBuilder()
         .setName('sync-state')
-        .setDescription('Manually trigger iScored reconciliation and score sync.'),
+        .setDescription('Manually trigger iScored reconciliation and score sync.')
+        // Admin-only (drift audit fix): forcing a full iScored reconcile is a
+        // moderation/ops action. Same gate as activate-game / nominate-picker.
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ ephemeral: true });
 

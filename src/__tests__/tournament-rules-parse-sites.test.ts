@@ -137,12 +137,20 @@ function fakeAutocomplete(tournamentName: string, focused = 'game_name') {
     };
 }
 
+/** Fixed guild id used by `fakeCommand` interactions — pair with
+ *  `seedRoom`'s room via `GameRoomSettingsService.set(roomId,
+ *  'DISCORD_GUILD_ID', FAKE_COMMAND_GUILD_ID)` so the drift-audit fix #4
+ *  cross-room write guard (`validateDiscordWriteTarget`) doesn't refuse
+ *  these interactions before the platform-rules gate under test even runs. */
+const FAKE_COMMAND_GUILD_ID = 'guild-tournament-rules-parse-sites';
+
 /** Minimal stand-in for a Discord slash-command interaction. */
 function fakeCommand(tournamentName: string, gameName: string) {
     const replies: any[] = [];
     return {
         replies,
         interaction: {
+            guildId: FAKE_COMMAND_GUILD_ID,
             options: {
                 getString: (n: string) => (n === 'tournament' ? tournamentName : gameName),
             },
@@ -198,6 +206,7 @@ describe('site 1: pickgame autocomplete', () => {
 describe('site 2: /activate-game', () => {
     it('refuses a game that fails the tournament `required` rule', async () => {
         const roomId = await seedRoom('ag-block');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', FAKE_COMMAND_GUILD_ID);
         await seedTournament(roomId, 'AG Block', ATGAMES_ONLY);
 
         const { activategame } = await import('../discord/commands/activategame.js');
@@ -212,6 +221,7 @@ describe('site 2: /activate-game', () => {
 
     it('activates a game that satisfies the rule', async () => {
         const roomId = await seedRoom('ag-allow');
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', FAKE_COMMAND_GUILD_ID);
         const tournamentId = await seedTournament(roomId, 'AG Allow', ATGAMES_ONLY);
 
         const { activategame } = await import('../discord/commands/activategame.js');
