@@ -53,6 +53,11 @@ export interface TournamentFormState {
   eligibilityDays: number;
   winnerPickWindowMin: number;
   runnerupPickWindowMin: number;
+  /** Next-win disposition (ROADMAP, locked 2026-08-09) — default ON = today's
+   *  behavior (a winner may take the same slot back-to-back). OFF blocks
+   *  their own 'use-my-queue' path on a repeat win; nominate/forfeit via
+   *  `/my-pick` still work either way. */
+  allowDynasty: boolean;
   platformRules: PlatformRules;
   cleanupRule: CleanupRule;
   schedule: { cron: string; timezone: string };
@@ -79,6 +84,7 @@ export const defaultFormState: TournamentFormState = {
   eligibilityDays: 120,
   winnerPickWindowMin: 60,
   runnerupPickWindowMin: 30,
+  allowDynasty: true,
   platformRules: { ...defaultPlatformRules },
   cleanupRule: { ...defaultCleanupRule },
   schedule: { cron: '0 0 * * *', timezone: 'America/Chicago' },
@@ -562,6 +568,13 @@ export default function TournamentFormFields({ state, set, platforms }: Tourname
           )}
           {!state.winnerPicks && !state.autoPick && (
             <p className="text-xs text-neon-magenta ml-6">An admin must manually activate games after completion.</p>
+          )}
+          {state.winnerPicks && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={state.allowDynasty} onChange={e => set('allowDynasty', e.target.checked)} className="accent-neon-cyan" />
+              <span className="text-sm text-muted">Allow Dynasty (a back-to-back winner keeps pick rights)</span>
+              <InfoTip text="When off, a winner who also won the previous round can't pick again — their pick passes on (they can still nominate or forfeit via /my-pick)." />
+            </label>
           )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
             <div>

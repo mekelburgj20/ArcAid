@@ -177,3 +177,32 @@ describe('TournamentFormFields platform section', () => {
     expect(screen.getByText(/can't be both required and not allowed/)).toBeTruthy();
   });
 });
+
+/**
+ * Next-win disposition (ROADMAP, locked 2026-08-09) — the "Allow Dynasty"
+ * checkbox lives in the Game Rotation section, grouped with the other
+ * winner-picks settings (same conditional-visibility pattern as the pick
+ * windows: no winner-picks flow, no dynasty rule to configure).
+ */
+describe('TournamentFormFields — Allow Dynasty checkbox', () => {
+  it('defaults to CHECKED (matches the backend default of allow_dynasty=1)', () => {
+    expect(defaultFormState.allowDynasty).toBe(true);
+    render(<Harness platforms={WHO_DUNNIT} />);
+    const checkbox = screen.getByLabelText(/Allow Dynasty/) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it('toggling it off flips state.allowDynasty', () => {
+    render(<Harness platforms={WHO_DUNNIT} />);
+    const checkbox = screen.getByLabelText(/Allow Dynasty/) as HTMLInputElement;
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it('is hidden entirely when "Winner picks next game" is off — nothing to configure', () => {
+    render(<Harness platforms={WHO_DUNNIT} />);
+    const winnerPicksToggle = screen.getByLabelText(/Winner picks next game/);
+    fireEvent.click(winnerPicksToggle);
+    expect(screen.queryByLabelText(/Allow Dynasty/)).toBeNull();
+  });
+});
