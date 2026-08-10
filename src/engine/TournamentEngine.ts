@@ -21,6 +21,7 @@ import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
 import { AchievementService } from '../services/AchievementService.js';
 import { isProviderUserId } from '../utils/identityProvider.js';
 import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
+import { trackBackground } from '../utils/backgroundTasks.js';
 import { PickDispositionService } from '../services/PickDispositionService.js';
 import { resolveSubmissionPlayerId } from '../utils/submissionAttribution.js';
 import { tournamentUrlSlug } from '../utils/tournamentSlug.js';
@@ -1421,8 +1422,13 @@ export class TournamentEngine {
 
                 // Onboarding hook (nominate only, nominee not yet a room
                 // member) — fire-and-forget, never blocks slot creation.
+                // trackBackground per the v2.24.1 doctrine: UNTRACKED
+                // fire-and-forget chains are the known nested-transaction
+                // test-flake family (they outlive the test's DB reset).
                 if (onboardingNominee) {
-                    this.announceNomineeOnboarding(onboardingNominee, tournamentRow, channelId, term).catch(() => {});
+                    trackBackground(
+                        this.announceNomineeOnboarding(onboardingNominee, tournamentRow, channelId, term)
+                    ).catch(() => {});
                 }
 
                 // Public pick prompt on the lobby feed. This branch is
