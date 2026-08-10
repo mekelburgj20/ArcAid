@@ -171,4 +171,86 @@ describe('MemberAdminPicker', () => {
     await waitFor(() => expect(onError).toHaveBeenCalledWith('Boom'));
     expect(onAdded).not.toHaveBeenCalled();
   });
+
+  describe('select mode (onSelect)', () => {
+    it('calls onSelect with the clicked member and issues no POST', async () => {
+      const fetchMock = vi.fn(() => ok({ success: true }));
+      vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+      const onSelect = vi.fn();
+
+      render(
+        <MemberAdminPicker
+          members={[member({ userId: '123456789012345678', displayName: 'ChuckRibbits' })]}
+          excludeIds={new Set()}
+          onSelect={onSelect}
+        />,
+      );
+
+      fireEvent.click(screen.getByText('ChuckRibbits'));
+
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: '123456789012345678', displayName: 'ChuckRibbits' }),
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('does not call onAdded when onSelect is provided', async () => {
+      const fetchMock = vi.fn(() => ok({ success: true }));
+      vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+      const onSelect = vi.fn();
+      const onAdded = vi.fn();
+
+      render(
+        <MemberAdminPicker
+          members={[member({ userId: 'discord-1', displayName: 'ChuckRibbits' })]}
+          excludeIds={new Set()}
+          onSelect={onSelect}
+          onAdded={onAdded}
+        />,
+      );
+
+      fireEvent.click(screen.getByText('ChuckRibbits'));
+
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onAdded).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('still respects excludeIds and search filtering in select mode', () => {
+      const members = [
+        member({ userId: 'discord-1', displayName: 'AlreadyExcluded' }),
+        member({ userId: 'discord-2', displayName: 'PickMe' }),
+      ];
+      const onSelect = vi.fn();
+
+      render(
+        <MemberAdminPicker
+          members={members}
+          excludeIds={new Set(['discord-1'])}
+          onSelect={onSelect}
+        />,
+      );
+
+      expect(screen.queryByText('AlreadyExcluded')).not.toBeInTheDocument();
+      expect(screen.getByText('PickMe')).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Search room members'), { target: { value: 'nope' } });
+      expect(screen.getByText(/No members match/)).toBeInTheDocument();
+    });
+
+    it('applies label/copy overrides without touching default-mode text', () => {
+      const onSelect = vi.fn();
+      render(
+        <MemberAdminPicker
+          members={[member({ userId: 'discord-1', displayName: 'ChuckRibbits' })]}
+          excludeIds={new Set()}
+          onSelect={onSelect}
+          label="Pick a nominee"
+        />,
+      );
+      expect(screen.getByText('Pick a nominee')).toBeInTheDocument();
+      expect(screen.queryByText('Add from room members')).not.toBeInTheDocument();
+    });
+  });
 });

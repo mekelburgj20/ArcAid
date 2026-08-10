@@ -31,19 +31,47 @@ export interface PickableMember {
 }
 
 interface MemberAdminPickerProps {
-  roomId: string;
+  /**
+   * Required for the default (admin-add) mode — the POST target. Not read
+   * when `onSelect` is provided, since that mode never calls the endpoint
+   * itself; kept optional so select-mode callers don't need a room id at all.
+   */
+  roomId?: string;
   /** Full room roster — filtering out existing admins happens in here. */
   members: PickableMember[];
   /** Canonical ids of members who are already admins of this room. */
   excludeIds: Set<string>;
-  /** Called after a successful add, with the member that was promoted. */
-  onAdded: (member: PickableMember) => void;
+  /**
+   * Called after a successful add, with the member that was promoted.
+   * Required in default mode; unused (and not called) when `onSelect` is set.
+   */
+  onAdded?: (member: PickableMember) => void;
   /** Called on a failed add — parent decides how to surface it (toast, etc). */
   onError?: (message: string) => void;
+  /**
+   * Select-mode escape hatch (Picks nominee upgrade). When provided, clicking
+   * a member calls this instead of POSTing `/rooms/:roomId/admins/discord` —
+   * the component becomes a pure picker and the caller owns what "picking"
+   * means (e.g. filling a nominee field). `roomId`/`onAdded` are ignored in
+   * this mode.
+   */
+  onSelect?: (member: PickableMember) => void;
+  /**
+   * Copy overrides — the defaults are Settings.tsx's admin-add wording;
+   * select-mode callers (e.g. the Picks nominee picker) pass their own so the
+   * empty/label text matches what "picking" means there. Omitting any of
+   * these keeps the exact original string (default-mode byte-identical).
+   */
+  label?: string;
+  emptyMembersText?: string;
+  allExcludedText?: string;
 }
 
 export default function MemberAdminPicker({
-  roomId, members, excludeIds, onAdded, onError,
+  roomId, members, excludeIds, onAdded, onError, onSelect,
+  label = 'Add from room members',
+  emptyMembersText = 'No room members yet — use the advanced field below once someone has joined.',
+  allExcludedText = 'Every current room member is already an admin.',
 }: MemberAdminPickerProps) {
   const [query, setQuery] = useState('');
   const [addingId, setAddingId] = useState<string | null>(null);
@@ -60,12 +88,16 @@ export default function MemberAdminPicker({
   }, [pickable, query]);
 
   const handlePick = async (member: PickableMember) => {
+    if (onSelect) {
+      onSelect(member);
+      return;
+    }
     if (addingId) return;
     setAddingId(member.userId);
     try {
       await api.post(`/rooms/${roomId}/admins/discord`, { discord_user_id: member.userId });
       setQuery('');
-      onAdded(member);
+      onAdded?.(member);
     } catch (err) {
       onError?.(err instanceof Error ? err.message : 'Failed to add admin');
     } finally {
@@ -76,7 +108,7 @@ export default function MemberAdminPicker({
   if (members.length === 0) {
     return (
       <p className="text-faint text-sm" data-testid="member-admin-picker-empty">
-        No room members yet — use the advanced field below once someone has joined.
+        {emptyMembersText}
       </p>
     );
   }
@@ -84,14 +116,14 @@ export default function MemberAdminPicker({
   if (pickable.length === 0) {
     return (
       <p className="text-faint text-sm" data-testid="member-admin-picker-empty">
-        Every current room member is already an admin.
+        {allExcludedText}
       </p>
     );
   }
 
   return (
     <div data-testid="member-admin-picker">
-      <label className="text-xs text-faint block mb-1">Add from room members</label>
+      <label className="text-xs text-faint block mb-1">{label}</label>
       <div className="relative mb-2">
         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
         <input
