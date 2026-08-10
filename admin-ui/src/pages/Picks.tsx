@@ -330,12 +330,15 @@ export default function Picks() {
    * name to display) and cached for the page's lifetime. `null` = not fetched
    * yet, `[]` = fetched-empty-or-failed; both render as "no picker, free-text
    * only" so a fetch failure degrades silently (no error chrome — the
-   * free-text fallback always works).
+   * free-text fallback always works). The Bearer token matters on
+   * 'approval'-policy rooms: roomVisibilityGate 403s tokenless requests
+   * there, and the disposition control only renders for signed-in viewers,
+   * so the token is always available here.
    */
   const [roomMembers, setRoomMembers] = useState<PickableMember[] | null>(null);
   const fetchRoomMembers = useCallback(() => {
     if (!roomId || roomMembers !== null) return;
-    fetch(`/api/rooms/${roomId}/members`)
+    fetch(`/api/rooms/${roomId}/members`, playerToken ? { headers: { Authorization: `Bearer ${playerToken}` } } : undefined)
       .then(r => (r.ok ? r.json() : []))
       .then((data: unknown) => {
         const list: Array<Record<string, unknown>> = Array.isArray(data) ? data : [];
@@ -347,7 +350,7 @@ export default function Picks() {
         })));
       })
       .catch(() => setRoomMembers([]));
-  }, [roomId, roomMembers]);
+  }, [roomId, roomMembers, playerToken]);
 
   // Nominable candidates: Discord-snowflake ids only (google:* identities
   // can't be Discord-nominated — the server nominates via Discord DM/mention)
