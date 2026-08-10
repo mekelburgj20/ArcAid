@@ -191,6 +191,21 @@ export class LobbyFeedGenerator {
                     .catch(() => {}),
             );
 
+            // Rotation-readiness nudge, event trigger (b) — ROADMAP "Next-win
+            // disposition + dynasty option + rotation-readiness nudge". This is
+            // the shared fan-out point for ALL score submission paths
+            // (community/freeplay web submits, the Discord /submit-score
+            // command, and iScored sync), so hooking it here covers every
+            // trigger-(b) source in one place rather than duplicating the
+            // check at each call site. No-ops instantly unless `gameName`
+            // matches a tournament's currently ACTIVE slot within an hour of
+            // its next rotation AND this submit put `discordUserId` in 1st.
+            trackBackground(
+                import('./RotationNudgeService.js')
+                    .then(({ RotationNudgeService }) => RotationNudgeService.evaluateSubmitter(gameRoomId, gameName, discordUserId))
+                    .catch(() => {}),
+            );
+
             // Friend score events + notifications (fire-and-forget, targeted per user)
             //
             // v2.70.0 privacy guard — following is global, rooms are not. A

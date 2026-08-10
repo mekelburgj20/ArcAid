@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.96.0] — unreleased
+
+**Next-win disposition: nominate/forfeit your pick, the Dynasty option, and the rotation-readiness nudge (RTX demo feedback, owner-designed).**
+
+### Added
+- **Tri-state "next win" disposition** per player per tournament (migration 143 `picker_dispositions`): use-my-queue (default, absence of a row) / nominate a guild member / forfeit to runner-up. One-shot — consumed at the rotation it applies to. Set via Discord `/my-pick` (nominate/forfeit/clear/status, with tournament autocomplete) or the Picks page "If I win next…" control; admins can set any player's disposition on their behalf (`/nominate-picker` extended with designate/set/clear subcommands + web admin endpoints, all audit-logged) — covers "the winner said it in chat".
+- **Resolution at winner designation** (`TournamentEngine.resolveNextPicker`): nominate → nominee becomes the picker with the full standard window/reminders/timeout chain; forfeit → runner-up designated immediately (no timeout wait). **Nominee onboarding hook:** a nominee who isn't a room member yet gets a tournament-channel @mention — "you have next pick" — with a direct log-in-and-pick link (guild-wide nominees are deliberate: an onboarding surface). The normal queue path's window/reminder/timeout semantics are untouched — this routes around them.
+- **"Allow Dynasty" tournament option** (`tournaments.allow_dynasty`, default ON = today's behavior; checkbox in the tournament form's Game Rotation section, shown only when winner-picks is on). When OFF: a back-to-back winner can't take the pick themselves — nominate/forfeit still honored; no disposition → pick passes to the runner-up immediately with announce copy naming the dynasty rule.
+- **Rotation-readiness nudge** (`rotationReady` notification type — high-value umbrella + web-push eligible): (a) T-1h sweep before the next rotation nudges the current top 3 who lack BOTH a queued game and a disposition; (b) event-driven — a final-hour score submit that lands the submitter in 1st triggers the same check. Deduped one-per-player-per-rotation (`rotation_nudges`). Winner/runner-up attribution extracted to a shared `submissionAttribution` helper (was duplicated across /list-winners and the pivot path).
+
 ## [2.95.2] — unreleased
 
 **RTX demo follow-ups: picker-command admin gating + Room Scores card backgrounds + lock visibility.**

@@ -3,43 +3,140 @@ import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
 import { logError } from '../../utils/logger.js';
 import { PickAwardGate, PICK_AWARD_DISABLED_REPLY } from '../../services/PickAwardGate.js';
+import { PickDispositionService, SelfNominationError } from '../../services/PickDispositionService.js';
+import { AuditService } from '../../services/AuditService.js';
+
+async function resolveTournament(db: any, tournamentId: string) {
+    return db.get('SELECT id, name, game_room_id FROM tournaments WHERE id = ?', tournamentId);
+}
 
 export const nominatepicker: Command = {
     data: new SlashCommandBuilder()
         .setName('nominate-picker')
-        .setDescription('Manually assign picker rights.')
+        .setDescription('Manually assign picker rights, or queue a disposition on a player\'s behalf.')
         // Admin-only (RTX demo follow-up, 2026-08-09): reassigning picker
         // rights is a moderation action — without this flag any guild member
         // could grab the pick for themselves. Same gate as activate-game etc.
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-        .addStringOption(option => option.setName('tournament-id').setDescription('ID of the tournament').setRequired(true))
-        .addUserOption(option => option.setName('user').setDescription('The user to nominate').setRequired(true)),
+        .addSubcommand(sub =>
+            sub.setName('designate')
+                .setDescription('Immediately assign picker rights for the current pending pick slot.')
+                .addStringOption(option => option.setName('tournament-id').setDescription('ID of the tournament').setRequired(true))
+                .addUserOption(option => option.setName('user').setDescription('The user to designate').setRequired(true))
+        )
+        .addSubcommand(sub =>
+            sub.setName('set')
+                .setDescription("Set a player's next-win disposition on their behalf (\"winner said it in chat\").")
+                .addStringOption(option => option.setName('tournament-id').setDescription('ID of the tournament').setRequired(true))
+                .addUserOption(option => option.setName('for-user').setDescription('The player whose pick this affects').setRequired(true))
+                .addStringOption(option =>
+                    option.setName('disposition').setDescription('What happens to their next win').setRequired(true)
+                        .addChoices(
+                            { name: 'Nominate someone else', value: 'nominate' },
+                            { name: 'Forfeit to runner-up', value: 'forfeit' },
+                        )
+                )
+                .addUserOption(option => option.setName('nominee').setDescription('Required when disposition = nominate').setRequired(false))
+        )
+        .addSubcommand(sub =>
+            sub.setName('clear')
+                .setDescription("Clear a player's next-win disposition (back to using their own queue).")
+                .addStringOption(option => option.setName('tournament-id').setDescription('ID of the tournament').setRequired(true))
+                .addUserOption(option => option.setName('for-user').setDescription('The player whose disposition to clear').setRequired(true))
+        ) as SlashCommandBuilder,
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply({ ephemeral: true });
+        const subcommand = interaction.options.getSubcommand();
         const tournamentId = interaction.options.getString('tournament-id', true);
-        const nominatedUser = interaction.options.getUser('user', true);
         const db = await getDatabase();
 
         try {
-            // Pick-award gate (plan §8) — short-circuit with exact reply string.
-            const tournament = await db.get('SELECT game_room_id FROM tournaments WHERE id = ?', tournamentId);
+            const tournament = await resolveTournament(db, tournamentId);
             const pickEnabled = await PickAwardGate.isEnabled(tournament?.game_room_id ?? null, tournamentId);
             if (!pickEnabled) {
                 await interaction.editReply(PICK_AWARD_DISABLED_REPLY);
                 return;
             }
 
-            await db.run(`
-                UPDATE games
-                SET picker_discord_id = ?, picker_type = 'WINNER', picker_designated_at = ?
-                WHERE tournament_id = ? AND status = 'QUEUED'
-                LIMIT 1
-            `, nominatedUser.id, new Date().toISOString(), tournamentId);
+            if (subcommand === 'designate') {
+                const nominatedUser = interaction.options.getUser('user', true);
+                await db.run(`
+                    UPDATE games
+                    SET picker_discord_id = ?, picker_type = 'WINNER', picker_designated_at = ?
+                    WHERE tournament_id = ? AND status = 'QUEUED'
+                    LIMIT 1
+                `, nominatedUser.id, new Date().toISOString(), tournamentId);
 
-            await interaction.editReply(`You have successfully nominated ${nominatedUser.toString()} to pick the next game for the tournament.`);
-            
-            if (interaction.channel && 'send' in interaction.channel) {
-                await interaction.channel.send(`${interaction.user.toString()} has nominated ${nominatedUser.toString()} to pick the next game!`);
+                await AuditService.log({
+                    actor: interaction.user.id,
+                    action: 'pick_disposition.designate',
+                    target_type: 'tournament',
+                    target_id: tournamentId,
+                    details: JSON.stringify({ designatedUser: nominatedUser.id }),
+                    ip_address: 'discord',
+                    correlation_id: interaction.id,
+                });
+
+                await interaction.editReply(`You have successfully nominated ${nominatedUser.toString()} to pick the next game for the tournament.`);
+                if (interaction.channel && 'send' in interaction.channel) {
+                    await interaction.channel.send(`${interaction.user.toString()} has nominated ${nominatedUser.toString()} to pick the next game!`).catch(() => {});
+                }
+                return;
+            }
+
+            if (subcommand === 'set') {
+                const forUser = interaction.options.getUser('for-user', true);
+                const disposition = interaction.options.getString('disposition', true) as 'nominate' | 'forfeit';
+                const nominee = interaction.options.getUser('nominee', false);
+
+                if (disposition === 'nominate' && !nominee) {
+                    await interaction.editReply('A nominee is required when disposition = nominate.');
+                    return;
+                }
+
+                try {
+                    await PickDispositionService.set(tournamentId, forUser.id, disposition, nominee?.id ?? null);
+                } catch (err) {
+                    if (err instanceof SelfNominationError) {
+                        await interaction.editReply(`${forUser.toString()} can't be nominated as their own nominee.`);
+                        return;
+                    }
+                    throw err;
+                }
+
+                await AuditService.log({
+                    actor: interaction.user.id,
+                    action: 'pick_disposition.set',
+                    target_type: 'tournament',
+                    target_id: tournamentId,
+                    details: JSON.stringify({ forUser: forUser.id, disposition, nominee: nominee?.id ?? null }),
+                    ip_address: 'discord',
+                    correlation_id: interaction.id,
+                });
+
+                const desc = disposition === 'nominate'
+                    ? `if ${forUser.toString()} wins the current slot, the pick goes to ${nominee!.toString()} instead (one-shot, applies to their next win only).`
+                    : `if ${forUser.toString()} wins the current slot, their pick is forfeited straight to the runner-up (one-shot, applies to their next win only).`;
+                await interaction.editReply(`Set: ${desc}`);
+                return;
+            }
+
+            if (subcommand === 'clear') {
+                const forUser = interaction.options.getUser('for-user', true);
+                await PickDispositionService.clear(tournamentId, forUser.id);
+
+                await AuditService.log({
+                    actor: interaction.user.id,
+                    action: 'pick_disposition.clear',
+                    target_type: 'tournament',
+                    target_id: tournamentId,
+                    details: JSON.stringify({ forUser: forUser.id }),
+                    ip_address: 'discord',
+                    correlation_id: interaction.id,
+                });
+
+                await interaction.editReply(`Cleared ${forUser.toString()}'s disposition — back to using their own queue.`);
+                return;
             }
         } catch (error) {
             logError('Error in nominate-picker command:', error);

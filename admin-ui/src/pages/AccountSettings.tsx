@@ -59,6 +59,7 @@ const NOTIF_TYPES: { key: string; label: string; helper: string }[] = [
   { key: 'tournamentStarting', label: 'Tournament Starting', helper: 'When a tournament you can join is about to begin.' },
   { key: 'rankDethroned', label: 'Rank Dethroned', helper: 'When someone knocks you off a #1 spot.' },
   { key: 'friendScore', label: 'Friend Score', helper: 'When a player you follow posts a new score.' },
+  { key: 'rotationReady', label: 'Rotation Ready', helper: "When you're in the running and the next rotation is about an hour away." },
 ];
 
 // PushManager.subscribe wants the VAPID public key as raw bytes, but the

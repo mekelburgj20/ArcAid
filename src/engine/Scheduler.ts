@@ -96,6 +96,9 @@ export class Scheduler {
         // Tournament starting notifications (every 15 minutes)
         this.startTournamentStartingNotifier();
 
+        // Rotation-readiness nudge sweep (every 15 minutes)
+        this.startRotationReadinessNudge();
+
         // S9: scheduled DB+assets backup (driven by global settings)
         await this.startBackupCron();
     }
@@ -441,6 +444,45 @@ export class Scheduler {
 
         this.tasks.set('__tournament_starting_notifier__', task);
         logInfo('Tournament starting notifier scheduled (every 15 minutes).');
+    }
+
+    /**
+     * Rotation-readiness nudge, T-1h sweep trigger (a) — ROADMAP "Next-win
+     * disposition + dynasty option + rotation-readiness nudge". Every 15
+     * minutes, evaluates every active tournament (RotationNudgeService itself
+     * no-ops instantly for anything not within an hour of its next rotation),
+     * nudging the current top 3 on each ACTIVE slot who lack both a queued
+     * game and a stored disposition. Dedup lives in `rotation_nudges`
+     * (RotationNudgeService), not here — this cron may re-evaluate the same
+     * tournament many times inside one hour window and that's fine.
+     *
+     * Deliberately its own lightweight cron rather than folded into
+     * `startTournamentStartingNotifier` — that notifier answers "is the
+     * tournament about to fire at all" (room-wide recipients, no standings);
+     * this one answers "are the people actually in contention ready", which
+     * needs per-tournament active-slot standings that notifier has no reason
+     * to load.
+     */
+    private startRotationReadinessNudge(): void {
+        const task = cron.schedule('*/15 * * * *', async () => {
+            try {
+                const db = await getDatabase();
+                const tournaments = await db.all(
+                    `SELECT id, name, cadence, game_room_id FROM tournaments WHERE is_active = 1 AND cadence IS NOT NULL`,
+                );
+                const { RotationNudgeService } = await import('../services/RotationNudgeService.js');
+                for (const t of tournaments) {
+                    await RotationNudgeService.evaluateTournament(t).catch((error) => {
+                        logError(`Rotation readiness nudge error for tournament ${t.id}:`, error);
+                    });
+                }
+            } catch (error) {
+                logError('Rotation readiness nudge sweep error:', error);
+            }
+        });
+
+        this.tasks.set('__rotation_readiness_nudge__', task);
+        logInfo('Rotation readiness nudge sweep scheduled (every 15 minutes).');
     }
 
     /**

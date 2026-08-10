@@ -15,28 +15,38 @@ export interface NotificationPrefs {
     tournamentStarting: boolean;
     rankDethroned: boolean;
     friendScore: boolean;
+    /** Next-win disposition rotation-readiness nudge (v2.9x) — "get your pick
+     *  ready, rotation is coming up". Under the NOTIFY_HIGH_VALUE_DEFAULT_ON
+     *  umbrella (see HIGH_VALUE_TYPES below) since it's time-sensitive. */
+    rotationReady: boolean;
 }
 
 export type NotificationType = keyof NotificationPrefs;
 
-/** The five per-type opt-in keys — the ONLY keys external writers may set. */
+/** The six per-type opt-in keys — the ONLY keys external writers may set. */
 export const PREF_TYPE_KEYS: readonly NotificationType[] = [
     'tournamentWin',
     'turnToPick',
     'tournamentStarting',
     'rankDethroned',
     'friendScore',
+    'rotationReady',
 ];
 
 /**
  * High-value retention types. These draw from an INDEPENDENT rate-limit budget
  * from the "chatty" types (turnToPick/friendScore/tournamentStarting) so a flood
- * of cosmetic DMs can never starve a dethrone/win notification — and they are
- * the only two types eligible for the `NOTIFY_HIGH_VALUE_DEFAULT_ON` flag flip.
+ * of cosmetic DMs can never starve a dethrone/win/rotation-ready notification —
+ * and they are the only types eligible for the `NOTIFY_HIGH_VALUE_DEFAULT_ON`
+ * flag flip. `rotationReady` joined in v2.9x (next-win disposition) — it's
+ * time-sensitive in the same way turnToPick is, but unlike turnToPick it fires
+ * BEFORE the player has any standing obligation, so it rides the "worth
+ * defaulting on" tier rather than the plain opt-in one.
  */
 const HIGH_VALUE_TYPES: ReadonlySet<NotificationType> = new Set<NotificationType>([
     'rankDethroned',
     'tournamentWin',
+    'rotationReady',
 ]);
 
 type NotifClass = 'high' | 'chatty';
@@ -64,6 +74,10 @@ export const WEB_PUSH_TYPES: ReadonlySet<NotificationType> = new Set<Notificatio
     // DM's opening sentence. Membership in this set was never the missing
     // piece; a body worth reading was.
     'turnToPick',
+    // v2.9x (next-win disposition) — the rotation-readiness nudge fires
+    // within an hour of the slot rotating, same "worth waking up your phone
+    // for" reasoning as turnToPick.
+    'rotationReady',
 ]);
 
 /** Notification-tray titles per push-eligible type; body carries the detail. */
@@ -71,6 +85,7 @@ const PUSH_TITLES: Partial<Record<NotificationType, string>> = {
     tournamentWin: '\u{1F3C6} You won the tournament!',
     rankDethroned: '\u{1F451} You’ve been dethroned!',
     turnToPick: '\u{1F3AE} Your turn to pick!',
+    rotationReady: '\u{23F0} Rotation soon — get your pick ready!',
 };
 
 /**
@@ -353,6 +368,7 @@ export class NotificationService {
             tournamentStarting: false,
             rankDethroned: false,
             friendScore: false,
+            rotationReady: false,
         };
         try {
             const db = await getDatabase();
