@@ -66,7 +66,7 @@ const RANKINGS_STYLE_OPTIONS: { value: 'match' | 'plaque' | 'compact' | 'sidebar
   { value: 'plaque', label: 'Plaque', description: 'Tall, narrow hall-of-fame frame. Reads as its own object.' },
   { value: 'compact', label: 'Compact List', description: 'Text-only, no card chrome. Quietest option.' },
   { value: 'sidebar', label: 'Sidebar Block', description: 'Narrow column, abbreviated scores. Best beside the grid.' },
-  { value: 'ticker', label: 'Scrolling Ticker', description: 'Full-width marquee strip cycling every group’s top standings. Click a group to open its full standings page. No card background styles (it’s a text strip, not a card).' },
+  { value: 'ticker', label: 'Scrolling Ticker', description: 'Full-width marquee strip cycling every group’s top standings, shown at the very top of the scoreboard above the room header (the position setting doesn’t apply). Click a group to open its full standings page. No card background styles (it’s a text strip, not a card).' },
 ];
 
 export default function Rankings() {

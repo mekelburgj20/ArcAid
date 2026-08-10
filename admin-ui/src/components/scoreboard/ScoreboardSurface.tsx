@@ -193,7 +193,8 @@ export default function ScoreboardSurface({
   // A marquee strip can't be a sidebar column — left/right degrade to bottom
   // ("degrade sensibly" per the design spec). top/bottom pass through as-is;
   // any other value (including the 'left' default) also degrades to bottom.
-  const tickerPosition = tickerMode && rankingsPosition === 'top' ? 'top' : 'bottom';
+  // Ticker has exactly ONE position (top of the scoreboard, above the room
+  // header) — the rankings position setting is ignored for this treatment.
 
   // When sticky is off (default), rankings render inline with game cards
   const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0 && !tickerMode;
@@ -426,6 +427,14 @@ export default function ScoreboardSurface({
         ref={headerRef}
         className="px-4 sm:px-6 pt-6 relative z-[1]"
       >
+      {/* Rankings ticker — owner placement (2026-08-10): the ONE ticker
+          position is the very top of the scoreboard, under the nav and above
+          the room logo/title. Inside the measured header zone deliberately so
+          the bg-image offset math includes the strip. The rankings POSITION
+          setting does not apply to the ticker treatment. */}
+      {tickerMode && (
+        <RankingsTicker rankingGroups={rankingGroups} slug={slug} />
+      )}
       {!titleHidden && (
         <div className={`text-center ${kioskHeaderSpacing ? 'mb-8' : 'mb-4'} overflow-hidden`}>
           <div className={`inline-flex items-center gap-4 max-w-full ${
@@ -465,12 +474,6 @@ export default function ScoreboardSurface({
 
       {/* Game cards */}
       <div className="px-4 sm:px-6 pb-6 scoreboard-mobile-scale" style={{ '--mobile-scale': newConfig.mobileScale } as React.CSSProperties}>
-
-      {/* Rankings: ticker, top-degraded position — full-width strip, replaces
-          every other rankings render site in this branch entirely. */}
-      {tickerMode && tickerPosition === 'top' && (
-        <RankingsTicker rankingGroups={rankingGroups} slug={slug} />
-      )}
 
       {/* Rankings: top position (only when sticky/separate) */}
       {!tickerMode && !inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
@@ -567,12 +570,6 @@ export default function ScoreboardSurface({
       {/* Rankings: bottom position (only when sticky/separate) */}
       {!tickerMode && !inlineRankings && rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
         <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} renderUnderCard={renderUnderRankingCard} />
-      )}
-
-      {/* Rankings: ticker, bottom-degraded position (left/right/unset all
-          land here — see tickerPosition above). */}
-      {tickerMode && tickerPosition === 'bottom' && (
-        <RankingsTicker rankingGroups={rankingGroups} slug={slug} />
       )}
 
       </div>{/* end game cards */}
