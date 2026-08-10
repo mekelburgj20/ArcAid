@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, type ReactNode, type CSSProperties } from 'react';
+import { useEffect, useState, useRef, useMemo, type ReactNode, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, Plus, Minus, Camera, Upload, BadgeCheck } from 'lucide-react';
 import QRCode from 'qrcode';
@@ -862,7 +862,7 @@ export function GameCard({ lb, slug, maxScores: maxScoresProp, roomId, onSubmitS
   );
 }
 
-export type RankingsCardStyle = 'match' | 'plaque' | 'compact' | 'sidebar';
+export type RankingsCardStyle = 'match' | 'plaque' | 'compact' | 'sidebar' | 'ticker';
 
 // ── D4: theme-derived gradient for banner/minimal ranking-card backgrounds ──
 // Verified against admin-ui/src/index.css: `--color-surface` and
@@ -1531,6 +1531,113 @@ export function RankingsRow({ rankingGroups, cardOpacity, scoreboardStyle, showc
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * v2.9x — the "ticker" treatment for SCOREBOARD_RANKINGS_STYLE (RTX demo
+ * request: rankings should be able to "scroll" across the tournament view).
+ *
+ * Structurally distinct from `RankingGroupCard`/`RankingsRow`/`RankingsColumn`
+ * (which render one card per ranking group): this is a single full-width
+ * marquee strip that cycles EVERY group's top standings as one continuous
+ * scroll. `ScoreboardSurface` renders it INSTEAD of the row/column/inline
+ * card paths when `rankingsStyle === 'ticker'` — see the `tickerMode` branch
+ * there. Ranking-card background styles (v2.89.0) do not apply here; there is
+ * no card to paint one on.
+ *
+ * NOT the same component as `components/ScoreboardTicker.tsx` (the S14
+ * lobby-feed activity marquee shown at the bottom of every public Scoreboard
+ * tab) — same marquee mechanics (doubled track, distance-based duration,
+ * pause-on-hover, reduced-motion-safe), different data source and different
+ * mount point. Keep them separate; a shared name would be actively confusing
+ * given both can be visible on the same page at once.
+ *
+ * Each ranking group is one clickable segment (group name + top-N standings)
+ * linking to the full standings page at `/:slug/rankings/:groupId` — see
+ * `pages/RankingsFullStandings.tsx`.
+ */
+export function RankingsTicker({ rankingGroups, slug, topN = 5 }: {
+  rankingGroups: RankingGroupData[];
+  /** Room slug for the click-through link. Omitted → segments render as
+   *  plain (non-clickable) text, e.g. in an admin preview with no public URL. */
+  slug?: string;
+  /** Standings shown per group segment before the marquee repeats. Default 5
+   *  (tighter than the RANKINGS_TOP_N=10 card treatments — a strip reads best
+   *  short). */
+  topN?: number;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  const segments = useMemo(() => rankingGroups
+    .filter(({ rankings }) => rankings.length > 0)
+    .map(({ group, rankings }) => {
+      const methodInfo = METHOD_LABELS[group.rank_method] || { label: group.rank_method, scoreLabel: 'Score' };
+      const unit = group.rank_method === 'average_rank' ? '' : ` ${methodInfo.scoreLabel === 'Points' ? 'pts' : methodInfo.scoreLabel}`;
+      const entries = rankings.slice(0, topN).map(entry => {
+        const score = group.rank_method === 'average_rank' ? entry.total_points.toFixed(2) : entry.total_points.toLocaleString();
+        return `${entry.rank}. ${playerName(entry)} ${score}${unit}`;
+      });
+      return { id: group.id, name: group.name, text: entries.join('   ·   ') };
+    }), [rankingGroups, topN]);
+
+  // Distance-based duration (same idiom as ScoreboardTicker.tsx s21): the
+  // animation travels half the doubled track width, so a fixed duration
+  // would crawl with few groups and race with many.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const distance = track.scrollWidth / 2;
+    const seconds = Math.min(120, Math.max(20, distance / 55));
+    track.style.setProperty('--rankings-ticker-duration', `${seconds}s`);
+  }, [segments]);
+
+  if (segments.length === 0) return null;
+
+  const renderSegment = (seg: { id: string; name: string; text: string }, key: string) => {
+    const inner = (
+      <span className="inline-flex items-center gap-2.5 text-xs sm:text-sm whitespace-nowrap">
+        <span className="font-display font-bold uppercase tracking-wider text-neon-cyan">{seg.name}</span>
+        <span className="text-primary/85">{seg.text}</span>
+      </span>
+    );
+    return slug ? (
+      <Link key={key} to={`/${slug}/rankings/${seg.id}`} className="inline-flex items-center px-6 hover:opacity-80 transition-opacity no-underline">
+        {inner}
+      </Link>
+    ) : (
+      <span key={key} className="inline-flex items-center px-6">{inner}</span>
+    );
+  };
+
+  return (
+    <div className="w-full rounded-lg border border-border/40 bg-deep/60 mb-6 rankings-ticker-strip" style={{ overflow: 'hidden' }}>
+      <div ref={trackRef} className="rankings-ticker-track flex items-center h-11">
+        {/* Doubled for a seamless loop, same as ScoreboardTicker.tsx */}
+        {[...segments, ...segments].map((seg, i) => renderSegment(seg, `${seg.id}-${i}`))}
+      </div>
+      <style>{`
+        @keyframes rankings-ticker-scroll {
+          from { transform: translateX(0); }
+          to { transform: translateX(-50%); }
+        }
+        .rankings-ticker-track {
+          width: max-content;
+          animation: rankings-ticker-scroll var(--rankings-ticker-duration, 40s) linear infinite;
+        }
+        .rankings-ticker-strip:hover .rankings-ticker-track {
+          animation-play-state: paused;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .rankings-ticker-track {
+            animation: none;
+          }
+          .rankings-ticker-strip {
+            overflow-x: auto !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

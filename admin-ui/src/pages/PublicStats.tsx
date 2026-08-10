@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import PlayerNameLink from '../components/PlayerNameLink';
-import { Trophy, Flame, Users, Gamepad2, Zap, Clock, History } from 'lucide-react';
+import { Trophy, Flame, Users, Gamepad2, Zap, Clock, History, X } from 'lucide-react';
 import { useRoom } from '../contexts/RoomContext';
+import { STATS_RANGE_PRESETS, presetToRange, weekInputToRange, type StatsRangePreset } from '../lib/statsWindow';
 
 interface PlayerSummary {
   discord_user_id: string;
@@ -29,6 +30,11 @@ interface StatsOverview {
   activePlayersWeek: number;
   hottestGame: { name: string; submissions: number } | null;
   latestSubmission: { iscored_username: string; display_name: string | null; score: number; game_name: string; created_at: string } | null;
+}
+
+interface TournamentOption {
+  id: string;
+  type: string;
 }
 
 type View = 'players' | 'games';
@@ -61,20 +67,60 @@ export default function PublicStats() {
   const [params, setParams] = useSearchParams();
   const view: View = params.get('view') === 'games' ? 'games' : 'players';
 
+  // v2.9x — tournament-type + time-window filters. URL-stated (shareable,
+  // survives reload): `type` is a single tournament type (e.g. "DG") or
+  // absent for "all types"; `week` (an <input type="week"> value, e.g.
+  // "2026-W32") takes precedence over `range` when both are present, since a
+  // specific-week pick is a more deliberate choice than a leftover preset.
+  // Absent `range` defaults to "all" — today's unfiltered behavior.
+  const typeFilter = params.get('type') || '';
+  const weekFilter = params.get('week') || '';
+  const rangeFilter = (params.get('range') as StatsRangePreset) || 'all';
+
   const [players, setPlayers] = useState<PlayerSummary[]>([]);
   const [games, setGames] = useState<GameActivity[]>([]);
   const [overview, setOverview] = useState<StatsOverview | null>(null);
+  const [tournamentTypes, setTournamentTypes] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const { roomId } = useRoom();
 
+  // Distinct tournament types for the chip row. Fetched once per room — the
+  // set of types rarely changes and this endpoint is already public/cheap
+  // (Rankings.tsx uses the same one for its tournament picker).
+  useEffect(() => {
+    if (!roomId) return;
+    fetch(`/api/rooms/${roomId}/tournaments`)
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: TournamentOption[]) => {
+        const types = Array.from(new Set((rows || []).map(t => t.type).filter(Boolean))).sort();
+        setTournamentTypes(types);
+      })
+      .catch(() => {});
+  }, [roomId]);
+
+  // `week` wins over `range` (see comment above); `weekInputToRange` returning
+  // null for a malformed/partial value (e.g. mid-typing) falls back to "all"
+  // rather than sending a bad `from`/`to` to the BE.
+  const dateWindow = useMemo(() => {
+    if (weekFilter) return weekInputToRange(weekFilter) ?? {};
+    return presetToRange(rangeFilter);
+  }, [weekFilter, rangeFilter]);
+
+  const filtersActive = !!typeFilter || !!weekFilter || rangeFilter !== 'all';
+
   useEffect(() => {
     if (!roomId) return;
     setLoading(true);
+    const qs = new URLSearchParams();
+    if (typeFilter) qs.set('type', typeFilter);
+    if (dateWindow.from) qs.set('from', dateWindow.from);
+    if (dateWindow.to) qs.set('to', dateWindow.to);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
     (async () => {
       const [playersRes, gamesRes, overviewRes] = await Promise.all([
-        fetch(`/api/rooms/${roomId}/stats/enhanced/players`).then(r => r.ok ? r.json() : []),
-        fetch(`/api/rooms/${roomId}/stats/games-activity`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/rooms/${roomId}/stats/enhanced/players${suffix}`).then(r => r.ok ? r.json() : []),
+        fetch(`/api/rooms/${roomId}/stats/games-activity${suffix}`).then(r => r.ok ? r.json() : []),
         fetch(`/api/rooms/${roomId}/stats/overview`).then(r => r.ok ? r.json() : null),
       ]);
       setPlayers(playersRes || []);
@@ -83,12 +129,42 @@ export default function PublicStats() {
     })()
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [roomId]);
+  }, [roomId, typeFilter, dateWindow.from, dateWindow.to]);
 
   const setView = (v: View) => {
     const next = new URLSearchParams(params);
     if (v === 'games') next.set('view', 'games');
     else next.delete('view');
+    setParams(next, { replace: true });
+  };
+
+  const setTypeFilter = (type: string) => {
+    const next = new URLSearchParams(params);
+    if (type) next.set('type', type);
+    else next.delete('type');
+    setParams(next, { replace: true });
+  };
+
+  const setRangePreset = (preset: StatsRangePreset) => {
+    const next = new URLSearchParams(params);
+    next.delete('week'); // a preset click overrides any specific-week pick
+    if (preset === 'all') next.delete('range');
+    else next.set('range', preset);
+    setParams(next, { replace: true });
+  };
+
+  const setWeekFilter = (week: string) => {
+    const next = new URLSearchParams(params);
+    if (week) { next.set('week', week); next.delete('range'); }
+    else next.delete('week');
+    setParams(next, { replace: true });
+  };
+
+  const clearFilters = () => {
+    const next = new URLSearchParams(params);
+    next.delete('type');
+    next.delete('range');
+    next.delete('week');
     setParams(next, { replace: true });
   };
 
@@ -186,6 +262,67 @@ export default function PublicStats() {
           onChange={e => setSearch(e.target.value)}
           className="bg-raised border border-border rounded px-3 py-2 text-sm text-primary placeholder-faint focus:border-neon-cyan focus:outline-none w-full sm:w-60"
         />
+      </div>
+
+      {/* v2.9x — tournament-type + time-window filters. Applies to both
+          Players and Games views (composes: type AND window). URL-stated —
+          see the param handling above. */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-4 flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-faint mr-1">Type</span>
+          <button
+            onClick={() => setTypeFilter('')}
+            className={`px-2.5 py-1 rounded-full text-xs border transition-colors cursor-pointer ${
+              !typeFilter ? 'border-neon-cyan bg-neon-cyan/15 text-neon-cyan' : 'border-border text-muted hover:text-primary hover:border-primary/40'
+            }`}
+          >
+            All
+          </button>
+          {tournamentTypes.map(t => (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              className={`px-2.5 py-1 rounded-full text-xs border transition-colors cursor-pointer ${
+                typeFilter === t ? 'border-neon-cyan bg-neon-cyan/15 text-neon-cyan' : 'border-border text-muted hover:text-primary hover:border-primary/40'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-faint mr-1">Period</span>
+          {STATS_RANGE_PRESETS.map(p => (
+            <button
+              key={p.value}
+              onClick={() => setRangePreset(p.value)}
+              className={`px-2.5 py-1 rounded-full text-xs border transition-colors cursor-pointer ${
+                !weekFilter && rangeFilter === p.value ? 'border-neon-cyan bg-neon-cyan/15 text-neon-cyan' : 'border-border text-muted hover:text-primary hover:border-primary/40'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+          <label className="flex items-center gap-1.5 ml-1">
+            <span className="text-[10px] uppercase tracking-wider text-faint">or week</span>
+            <input
+              type="week"
+              value={weekFilter}
+              onChange={e => setWeekFilter(e.target.value)}
+              aria-label="Specific week"
+              className="bg-raised border border-border rounded px-2 py-1 text-xs text-primary focus:border-neon-cyan focus:outline-none"
+            />
+          </label>
+          {filtersActive && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-faint hover:text-primary transition-colors cursor-pointer"
+            >
+              <X size={11} />
+              Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">

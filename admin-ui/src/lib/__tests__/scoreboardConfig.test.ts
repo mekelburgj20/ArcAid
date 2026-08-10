@@ -102,6 +102,8 @@ describe('deriveScoreboardConfig', () => {
       expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'plaque' }).rankingsStyle).toBe('plaque');
       expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'compact' }).rankingsStyle).toBe('compact');
       expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'sidebar' }).rankingsStyle).toBe('sidebar');
+      // v2.9x — "ticker" treatment (full-width scrolling marquee strip).
+      expect(deriveScoreboardConfig({ SCOREBOARD_RANKINGS_STYLE: 'ticker' }).rankingsStyle).toBe('ticker');
     });
 
     it('falls back to "match" for an unrecognized value', () => {

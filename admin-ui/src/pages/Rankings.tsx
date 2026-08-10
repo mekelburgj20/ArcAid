@@ -61,11 +61,12 @@ const inputClass = "w-full px-3 py-2 bg-raised border border-border rounded text
 /** v2.13.9 — ranking-card display styles. Persisted to game_room_settings
  *  under SCOREBOARD_RANKINGS_STYLE; the renderer in RankingGroupCard branches
  *  on this. Same option set is mirrored in ScoreboardPreferencesModal. */
-const RANKINGS_STYLE_OPTIONS: { value: 'match' | 'plaque' | 'compact' | 'sidebar'; label: string; description: string }[] = [
+const RANKINGS_STYLE_OPTIONS: { value: 'match' | 'plaque' | 'compact' | 'sidebar' | 'ticker'; label: string; description: string }[] = [
   { value: 'match', label: 'Match Leaderboard', description: 'Mirror the leaderboard card style. Legacy default.' },
   { value: 'plaque', label: 'Plaque', description: 'Tall, narrow hall-of-fame frame. Reads as its own object.' },
   { value: 'compact', label: 'Compact List', description: 'Text-only, no card chrome. Quietest option.' },
   { value: 'sidebar', label: 'Sidebar Block', description: 'Narrow column, abbreviated scores. Best beside the grid.' },
+  { value: 'ticker', label: 'Scrolling Ticker', description: 'Full-width marquee strip cycling every group’s top standings. Click a group to open its full standings page. No card background styles (it’s a text strip, not a card).' },
 ];
 
 export default function Rankings() {
@@ -261,7 +262,7 @@ export default function Rankings() {
             Players can override this for themselves in Display Preferences.
           </p>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
           {RANKINGS_STYLE_OPTIONS.map(opt => {
             const isActive = rankingsStyle === opt.value;
             return (
