@@ -234,6 +234,26 @@ export const submitscore: Command = {
             }
             const game = resolved.game;
 
+            // Drift-audit fix: resolveActiveSubmitGame's name lookup isn't
+            // guild-scoped either (see its doc comment), so a game whose room
+            // is Discord-disabled/approval-gated or linked to a DIFFERENT
+            // guild than this interaction must also be rejected — see
+            // discordWriteTarget.ts. (Its 'suspended' branch is redundant
+            // with the check resolveActiveSubmitGame already made above, but
+            // harmless — this call is the one that also covers (b)/(c).)
+            if (game.game_room_id) {
+                const { validateDiscordWriteTarget } = await import('../../utils/discordWriteTarget.js');
+                const targetCheck = await validateDiscordWriteTarget(game.game_room_id, interaction.guildId);
+                if (!targetCheck.allowed) {
+                    await interaction.editReply(
+                        targetCheck.denial === 'suspended'
+                            ? 'This room has been suspended pending review. Score submission is disabled.'
+                            : "That game belongs to a room this server isn't linked to."
+                    );
+                    return;
+                }
+            }
+
             // v2.49.0 (room-tier bans) — the initial ban check above (before
             // the game/room was known) can only see GLOBAL bans. Now that the
             // game's room is resolved, re-check room-aware so a room-scoped

@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.97.1] — unreleased
+
+**Discord drift-audit fix batch — 9 findings from the systematic slash-command ↔ web audit (owner concern, pre-RTX-demo).**
+
+### Fixed
+- **`/pick-game` worked only with iScored credentials** — fatal for standalone rooms (the default since v2.81.0): a winning player couldn't pick via Discord at all. Now iScored-optional, matching `/activate-game` and the web pick path.
+- **`/create-backup` and `/sync-state` had no admin gate** — any guild member could trigger a full backup or iScored reconciliation. Both now carry the Administrator permission flag.
+- **Ban-cascade leaks in four read queries** (`/list-winners`, `/my-stats` ×2, `/view-stats` recent-results): raw `submissions` reads without `orphaned_at IS NULL` could resurface ban-hidden scores. All filtered now.
+- **Cross-room write bypass**: the four write commands (`/submit-score`, `/pick-game`, `/activate-game`, `/force-maintenance`) validated only suspension at execute time — a user in an unrelated guild could write into Discord-disabled or private approval rooms. New shared `validateDiscordWriteTarget` guard: suspended → excluded-room list → invoking guild must match the room's linked guild (env fallback preserved, deny-by-default). Also applied to `/deactivate-game` (which had no re-check at all).
+- **`/setup` retired** — it wrote to the pre-multi-room GLOBAL settings table (`DISCORD_ANNOUNCEMENT_CHANNEL_ID` leaked cross-tenant as the env fallback; `DISCORD_ADMIN_ROLE_ID` has had zero readers since Discord-native permission gating). Config subcommands now reply with a pointer to the web admin Settings; `view` reads the correct per-room values.
+- Drift: `/activate-game` autocomplete gains the tournament-mode filter; `/reorder-lineup` scoped to the invoking guild's rooms (was reordering every room's lineup); `/map-user` gains the standard ban check.
+
 ## [2.97.0] — unreleased
 
 **Ranking ticker + Stats filters (the last two RTX demo feature asks; shots approved incl. two placement revisions).**

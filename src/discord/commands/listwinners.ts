@@ -41,9 +41,9 @@ export const listwinners: Command = {
             for (let i = 0; i < completedGames.length; i++) {
                 const game = completedGames[i];
                 const winner = await db.get(`
-                    SELECT iscored_username, score 
-                    FROM submissions 
-                    WHERE game_id = ?
+                    SELECT iscored_username, score
+                    FROM submissions
+                    WHERE game_id = ? AND orphaned_at IS NULL
                     ORDER BY score DESC
                     LIMIT 1
                 `, game.id);

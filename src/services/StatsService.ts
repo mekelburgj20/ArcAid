@@ -79,7 +79,7 @@ export class StatsService {
         const gamesPlayed = await db.get(`
             SELECT COUNT(DISTINCT game_id) as total
             FROM submissions s
-            WHERE discord_user_id = ? ${gameIdFilter}
+            WHERE discord_user_id = ? AND s.orphaned_at IS NULL ${gameIdFilter}
         `, discordUserId, ...roomParams);
 
         // Total wins (games where they had the highest score)
@@ -90,8 +90,9 @@ export class StatsService {
                 JOIN games g ON s.game_id = g.id
                 ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
                 WHERE g.status IN ('COMPLETED', 'ARCHIVED')
-                AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id)
+                AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id AND s2.orphaned_at IS NULL)
                 AND s.discord_user_id = ?
+                AND s.orphaned_at IS NULL
                 ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             )
         `, discordUserId, ...roomParams);
@@ -100,7 +101,7 @@ export class StatsService {
         const scoreStats = await db.get(`
             SELECT AVG(score) as avg_score, MAX(score) as best_score
             FROM submissions s
-            WHERE discord_user_id = ? ${gameIdFilter}
+            WHERE discord_user_id = ? AND s.orphaned_at IS NULL ${gameIdFilter}
         `, discordUserId, ...roomParams);
 
         // Best game (game where they got their highest score)
@@ -110,6 +111,7 @@ export class StatsService {
             JOIN games g ON s.game_id = g.id
             ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE s.discord_user_id = ?
+            AND s.orphaned_at IS NULL
             ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY s.score DESC
             LIMIT 1
@@ -122,6 +124,7 @@ export class StatsService {
             JOIN games g ON s.game_id = g.id
             ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE s.discord_user_id = ?
+            AND s.orphaned_at IS NULL
             ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY s.timestamp DESC
             LIMIT 10
@@ -160,7 +163,7 @@ export class StatsService {
         const gamesPlayed = await db.get(`
             SELECT COUNT(DISTINCT game_id) as total
             FROM submissions s
-            WHERE LOWER(iscored_username) = LOWER(?) ${gameIdFilter}
+            WHERE LOWER(iscored_username) = LOWER(?) AND s.orphaned_at IS NULL ${gameIdFilter}
         `, username, ...roomParams);
 
         const wins = await db.get(`
@@ -170,8 +173,9 @@ export class StatsService {
                 JOIN games g ON s.game_id = g.id
                 ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
                 WHERE g.status IN ('COMPLETED', 'ARCHIVED')
-                AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id)
+                AND s.score = (SELECT MAX(s2.score) FROM submissions s2 WHERE s2.game_id = s.game_id AND s2.orphaned_at IS NULL)
                 AND LOWER(s.iscored_username) = LOWER(?)
+                AND s.orphaned_at IS NULL
                 ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             )
         `, username, ...roomParams);
@@ -179,7 +183,7 @@ export class StatsService {
         const scoreStats = await db.get(`
             SELECT AVG(score) as avg_score, MAX(score) as best_score
             FROM submissions s
-            WHERE LOWER(iscored_username) = LOWER(?) ${gameIdFilter}
+            WHERE LOWER(iscored_username) = LOWER(?) AND s.orphaned_at IS NULL ${gameIdFilter}
         `, username, ...roomParams);
 
         const bestGame = await db.get(`
@@ -188,6 +192,7 @@ export class StatsService {
             JOIN games g ON s.game_id = g.id
             ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE LOWER(s.iscored_username) = LOWER(?)
+            AND s.orphaned_at IS NULL
             ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY s.score DESC
             LIMIT 1
@@ -199,6 +204,7 @@ export class StatsService {
             JOIN games g ON s.game_id = g.id
             ${gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : ''}
             WHERE LOWER(s.iscored_username) = LOWER(?)
+            AND s.orphaned_at IS NULL
             ${gameRoomId ? 'AND t.game_room_id = ?' : ''}
             ORDER BY s.timestamp DESC
             LIMIT 10
@@ -296,6 +302,7 @@ export class StatsService {
                 SELECT game_id, iscored_username, score,
                        ROW_NUMBER() OVER (PARTITION BY game_id ORDER BY score DESC) AS rn
                 FROM submissions
+                WHERE orphaned_at IS NULL
             ) s ON s.game_id = g.id AND s.rn = 1
             WHERE g.name = ? COLLATE NOCASE AND g.status IN ('COMPLETED', 'ARCHIVED')
             ${gameRoomId ? 'AND t.game_room_id = ?' : ''}

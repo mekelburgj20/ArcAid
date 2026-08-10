@@ -1,7 +1,6 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder, PermissionFlagsBits, ChannelType } from 'discord.js';
 import { Command } from './index.js';
 import { getDatabase } from '../../database/database.js';
-import { logInfo } from '../../utils/logger.js';
 
 export const setup: Command = {
     data: new SlashCommandBuilder()
@@ -36,35 +35,57 @@ export const setup: Command = {
         const subcommand = interaction.options.getSubcommand();
         const db = await getDatabase();
 
-        if (subcommand === 'announcement-channel') {
-            const channel = interaction.options.getChannel('channel', true);
-            await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'DISCORD_ANNOUNCEMENT_CHANNEL_ID', channel.id);
-            process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID = channel.id;
-            logInfo(`User ${interaction.user.tag} set announcement channel to: #${channel.name} (${channel.id})`);
-            await interaction.reply(`Announcement channel set to <#${channel.id}>.`);
-        }
-
-        else if (subcommand === 'admin-role') {
-            const role = interaction.options.getRole('role', true);
-            await db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'DISCORD_ADMIN_ROLE_ID', role.id);
-            process.env.DISCORD_ADMIN_ROLE_ID = role.id;
-            logInfo(`User ${interaction.user.tag} set admin role to: @${role.name} (${role.id})`);
-            await interaction.reply(`Admin role set to <@&${role.id}>.`);
+        // Drift-audit fix (2026-08): `/setup announcement-channel` and
+        // `/setup admin-role` wrote to the GLOBAL `settings` table + a live
+        // `process.env` mutation — dead weight since the multi-room migration
+        // moved Discord config to per-room `game_room_settings`
+        // (`DISCORD_ANNOUNCEMENT_CHANNEL_ID` via the web admin's Settings →
+        // Discord page), and an active footgun: running this command would
+        // silently change behavior for EVERY room sharing the env fallback,
+        // not just the invoking server's room. Admin role is separately
+        // obsolete — Discord's own permission system
+        // (`setDefaultMemberPermissions`) gates admin commands now, not a
+        // configurable role. Retired to a signpost rather than deleted, to
+        // avoid Discord command re-registration edge cases.
+        if (subcommand === 'announcement-channel' || subcommand === 'admin-role') {
+            await interaction.reply({
+                content: '⚠️ /setup is retired — configure Discord settings per room in the web admin: Settings → Discord (https://arcaid.app/<your-room>/admin/settings). '
+                    + 'The admin-role setting is obsolete (Discord\'s own permission system gates admin commands now).',
+                ephemeral: true,
+            });
         }
 
         else if (subcommand === 'view') {
-            const settings = await db.all('SELECT key, value FROM settings WHERE key IN (?, ?)',
-                'DISCORD_ANNOUNCEMENT_CHANNEL_ID', 'DISCORD_ADMIN_ROLE_ID'
-            );
+            const guildId = interaction.guildId;
+            if (!guildId) {
+                await interaction.reply({ content: 'This command only works inside a server.', ephemeral: true });
+                return;
+            }
 
-            const map = new Map(settings.map((s: any) => [s.key, s.value]));
-            const channelId = map.get('DISCORD_ANNOUNCEMENT_CHANNEL_ID') || process.env.DISCORD_ANNOUNCEMENT_CHANNEL_ID;
-            const roleId = map.get('DISCORD_ADMIN_ROLE_ID') || process.env.DISCORD_ADMIN_ROLE_ID;
+            const rows = await db.all(
+                `SELECT game_room_id FROM game_room_settings WHERE key = 'DISCORD_GUILD_ID' AND value = ?`,
+                guildId,
+            ) as Array<{ game_room_id: string }>;
 
-            let msg = '**Arcaid Configuration**\n\n';
-            msg += `**Announcement Channel:** ${channelId ? `<#${channelId}>` : '*Not set*'}\n`;
-            msg += `**Admin Role:** ${roleId ? `<@&${roleId}>` : '*Not set*'}\n`;
-            msg += `\n*Pick windows and other settings are managed in the Admin UI → Settings.*\n`;
+            if (rows.length === 0) {
+                await interaction.reply({
+                    content: 'No Arcaid room is linked to this Discord server yet. Configure Discord settings per room in the web admin: Settings → Discord.',
+                    ephemeral: true,
+                });
+                return;
+            }
+
+            const { GameRoomSettingsService } = await import('../../services/GameRoomSettingsService.js');
+            const { GameRoomService } = await import('../../services/GameRoomService.js');
+
+            let msg = '**Arcaid Configuration** (per-room, read from the web admin\'s Settings → Discord)\n';
+            for (const row of rows) {
+                const room = await GameRoomService.getById(row.game_room_id);
+                const channelId = await GameRoomSettingsService.get(row.game_room_id, 'DISCORD_ANNOUNCEMENT_CHANNEL_ID');
+                msg += `\n**Room:** ${room?.name ?? row.game_room_id}\n`;
+                msg += `**Announcement Channel:** ${channelId ? `<#${channelId}>` : '*Not set*'}\n`;
+            }
+            msg += '\n*Admin role is obsolete — Discord\'s own permission system gates admin commands. Manage more settings in the web admin.*\n';
 
             await interaction.reply(msg);
         }

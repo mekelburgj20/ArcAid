@@ -7,6 +7,7 @@ import { TournamentEngine } from '../../engine/TournamentEngine.js';
 // IScoredClient construction is owned by IScoredSessionRegistry.
 import { getTournamentColor } from '../../utils/discord.js';
 import { passesplatformRules, parsePlatformsList, parseTournamentRules, hasAnyPlatformRules } from '../../utils/platformRules.js';
+import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
 
 export const activategame: Command = {
     data: new SlashCommandBuilder()
@@ -38,10 +39,26 @@ export const activategame: Command = {
                 .slice(0, 25);
             await interaction.respond(filtered.map((name: string) => ({ name, value: name })));
         } else if (focusedOption.name === 'game_name') {
+            // Filter by tournament mode, same as /pick-game's autocomplete
+            // (catalogueTypeMatchesTournamentMode bridges tournament.mode
+            // against global_games.type — see src/utils/tournamentMode.ts).
+            const selectedTournamentName = interaction.options.getString('tournament');
+            let tournamentMode: string | null = null;
+            if (selectedTournamentName) {
+                const tournamentRow = await db.get("SELECT mode FROM tournaments WHERE name = ? COLLATE NOCASE", selectedTournamentName);
+                if (tournamentRow) {
+                    tournamentMode = tournamentRow.mode;
+                }
+            }
+
             const rows = await db.all(
-                `SELECT name FROM global_games WHERE status = 'approved' GROUP BY LOWER(name) ORDER BY name`
+                `SELECT name, MIN(type) AS mode FROM global_games WHERE status = 'approved' GROUP BY LOWER(name) ORDER BY name`
             );
-            const filtered = rows
+            let choices = rows;
+            if (tournamentMode) {
+                choices = choices.filter(r => catalogueTypeMatchesTournamentMode(r.mode, tournamentMode as string));
+            }
+            const filtered = choices
                 .map(r => r.name)
                 .filter((name: string) => name.toLowerCase().includes(focusedOption.value.toLowerCase()))
                 .slice(0, 25);
@@ -68,10 +85,18 @@ export const activategame: Command = {
             // NOT guild-scoped (autocomplete lists ALL active tournaments), so
             // the guild-level suspension gate (DiscordClient.ts) can't catch a
             // same-named tournament belonging to a DIFFERENT, suspended room.
+            // Drift-audit fix: also rejects when the resolved room is
+            // Discord-disabled/approval-gated or linked to a DIFFERENT guild
+            // than the one this interaction came from — see discordWriteTarget.ts.
             if (tournament.game_room_id) {
-                const { RoomAccessService } = await import('../../services/RoomAccessService.js');
-                if (await RoomAccessService.isSuspended(tournament.game_room_id)) {
-                    await interaction.editReply('This room has been suspended pending review. Game activation is disabled.');
+                const { validateDiscordWriteTarget } = await import('../../utils/discordWriteTarget.js');
+                const targetCheck = await validateDiscordWriteTarget(tournament.game_room_id, interaction.guildId);
+                if (!targetCheck.allowed) {
+                    await interaction.editReply(
+                        targetCheck.denial === 'suspended'
+                            ? 'This room has been suspended pending review. Game activation is disabled.'
+                            : "That game belongs to a room this server isn't linked to."
+                    );
                     return;
                 }
             }
