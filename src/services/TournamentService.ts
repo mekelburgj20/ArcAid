@@ -48,11 +48,15 @@ export class TournamentService {
         eligibility_days?: number;
         winner_pick_window_min?: number;
         runnerup_pick_window_min?: number;
+        /** Next-win disposition (v2.9x) — default ON = today's behavior (a
+         *  winner may win the same slot back-to-back). OFF blocks their
+         *  'use-my-queue' path only; nominate/forfeit still honored. */
+        allow_dynasty?: boolean;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO tournaments (id, name, type, mode, cadence, platform_rules, guild_id, discord_channel_id, discord_role_id, is_active, display_order, max_active_games, cleanup_rule, game_room_id, winner_picks, auto_pick, eligibility_days, winner_pick_window_min, runnerup_pick_window_min, allow_dynasty)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             data.id, data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence),
             // ADR 0016 P2 §2 — every writer emits the two-axis shape. Normalising
@@ -66,7 +70,8 @@ export class TournamentService {
             (data.auto_pick ?? true) ? 1 : 0,
             data.eligibility_days ?? 120,
             data.winner_pick_window_min ?? 60,
-            data.runnerup_pick_window_min ?? 30
+            data.runnerup_pick_window_min ?? 30,
+            (data.allow_dynasty ?? true) ? 1 : 0
         );
         // v2.56.0: the room-scoped gate is now "any tournament in this room has
         // winner-picks on", so CREATE can flip it (a room's first winner-picks
@@ -96,10 +101,11 @@ export class TournamentService {
         eligibility_days?: number;
         winner_pick_window_min?: number;
         runnerup_pick_window_min?: number;
+        allow_dynasty?: boolean;
     }): Promise<void> {
         const db = await getDatabase();
         await db.run(
-            `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?
+            `UPDATE tournaments SET name = ?, type = ?, mode = ?, cadence = ?, platform_rules = ?, guild_id = ?, discord_channel_id = ?, discord_role_id = ?, is_active = ?, display_order = ?, max_active_games = ?, cleanup_rule = ?, game_room_id = ?, winner_picks = ?, auto_pick = ?, eligibility_days = ?, winner_pick_window_min = ?, runnerup_pick_window_min = ?, allow_dynasty = ?
              WHERE id = ?`,
             data.name, data.type, data.mode || 'pinball',
             JSON.stringify(data.cadence),
@@ -115,6 +121,7 @@ export class TournamentService {
             data.eligibility_days ?? 120,
             data.winner_pick_window_min ?? 60,
             data.runnerup_pick_window_min ?? 30,
+            (data.allow_dynasty ?? true) ? 1 : 0,
             id
         );
         // Sprint 13: winner_picks may have flipped — bust cached PickAwardGate

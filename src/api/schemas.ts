@@ -72,6 +72,10 @@ export const CreateTournamentSchema = z.object({
     eligibility_days: z.number().int().min(1).max(365).default(120),
     winner_pick_window_min: z.number().int().min(1).max(1440).default(60),
     runnerup_pick_window_min: z.number().int().min(1).max(1440).default(30),
+    // Next-win disposition (v2.9x) — default ON = today's behavior (the same
+    // winner may take the slot back-to-back). OFF blocks their 'use-my-queue'
+    // path only; nominate/forfeit dispositions still honored either way.
+    allow_dynasty: z.boolean().default(true),
     cleanup_rule: z.discriminatedUnion('mode', [
         z.object({ mode: z.literal('immediate') }),
         z.object({ mode: z.literal('retain'), count: z.number().int().min(0).max(50) }),
@@ -336,6 +340,23 @@ export const GlobalScoreSubmissionSchema = z.object({
 export const PickGameSchema = z.object({
     tournamentId: z.string().min(1),
     gameName: z.string().min(1).max(200),
+});
+
+/**
+ * Next-win disposition (ROADMAP, locked 2026-08-09) — the Picks page's
+ * "If I win next…" control body. `nominee` required only when
+ * disposition = 'nominate' (checked in the route, not here, since Zod's
+ * declarative `refine` reporting is worse than a plain 400 with a clear
+ * message).
+ */
+export const SetPickDispositionSchema = z.object({
+    disposition: z.enum(['nominate', 'forfeit']),
+    nomineeDiscordId: z.string().min(1).optional(),
+});
+
+/** Admin on-behalf variant — same shape, plus the target player. */
+export const AdminSetPickDispositionSchema = SetPickDispositionSchema.extend({
+    forUserId: z.string().min(1),
 });
 
 /**

@@ -13,7 +13,7 @@ import { IScoredCreds } from '../utils/iscoredCreds.js';
 import { GameRoomSettingsService } from '../services/GameRoomSettingsService.js';
 import { PickAwardGate } from '../services/PickAwardGate.js';
 import { emitGameRotated, emitPickerAssigned } from '../api/websocket.js';
-import { computePickDeadline, pickWindowFallback, pickPromptPushBody, pickFallbackPhrase, DEFAULT_WINNER_PICK_WINDOW_MIN } from '../utils/pickWindow.js';
+import { computePickDeadline, pickWindowFallback, pickPromptPushBody, pickFallbackPhrase, DEFAULT_WINNER_PICK_WINDOW_MIN, DEFAULT_RUNNERUP_PICK_WINDOW_MIN, windowMinForPicker } from '../utils/pickWindow.js';
 import { RoomEventService } from '../services/RoomEventService.js';
 import { parsePlatformsList, parseTournamentRules, passesplatformRules, hasGameLevelPlatformRules } from '../utils/platformRules.js';
 import { UNKNOWN } from '../utils/scoreProvenance.js';
@@ -21,6 +21,9 @@ import { MaintenanceRunService } from '../services/MaintenanceRunService.js';
 import { AchievementService } from '../services/AchievementService.js';
 import { isProviderUserId } from '../utils/identityProvider.js';
 import { catalogueTypeMatchesTournamentMode } from '../utils/tournamentMode.js';
+import { PickDispositionService } from '../services/PickDispositionService.js';
+import { resolveSubmissionPlayerId } from '../utils/submissionAttribution.js';
+import { tournamentUrlSlug } from '../utils/tournamentSlug.js';
 
 /**
  * Outcome of a single maintenance run, surfaced to the S10 maintenance-run
@@ -1328,13 +1331,23 @@ export class TournamentEngine {
             // got one pick prompt). Scoping by won_game_id lets each slot win
             // emit its own picker slot + DM, while a re-run of maintenance for
             // the same (tournament, winner, won_game) still no-ops.
+            //
+            // Next-win disposition (v2.9x): the guard is keyed on won_game_id
+            // ALONE (dropped the picker_discord_id leg) because the actual
+            // picker for a given won slot can now be someone OTHER than the
+            // winner (a nominee or the runner-up via forfeit/dynasty) —
+            // won_game_id already uniquely identifies "the slot this
+            // placeholder rewards", so it's a sufficient re-run guard on its
+            // own, and checking against `winnerId` specifically would miss an
+            // already-created nominee/runner-up slot and double-consume the
+            // winner's one-shot disposition on the re-run.
             if (winnerId) {
                 const existingPickerSlot = await db.get(
-                    `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND picker_discord_id = ? AND won_game_id = ?`,
-                    tournamentId, winnerId, activeGame.id
+                    `SELECT id FROM games WHERE tournament_id = ? AND status = 'QUEUED' AND name = '[Pending Pick]' AND won_game_id = ?`,
+                    tournamentId, activeGame.id
                 );
                 if (existingPickerSlot) {
-                    logInfo(`   -> Winner <@${winnerId}> already has a pending pick slot for game ${activeGame.name}. Skipping duplicate.`);
+                    logInfo(`   -> Game ${activeGame.name} already has a pending pick slot. Skipping duplicate.`);
                     return;
                 }
             }
@@ -1360,34 +1373,60 @@ export class TournamentEngine {
                 await sendChannelEmbed(channelId, embed);
             }
 
+            // Next-win disposition resolution (nominate/forfeit/dynasty) —
+            // ROADMAP "Next-win disposition + dynasty option + rotation-
+            // readiness nudge" (locked 2026-08-09). Only meaningful when the
+            // pick-award flow would otherwise hand W the pick; resolves to
+            // null when W's own queue path is blocked (forfeit / dynasty) and
+            // no eligible runner-up could be found, in which case this falls
+            // through to the same auto-pick/manual-wait branch as "no winner
+            // found" below — see resolveNextPicker's docstring.
+            const pickerResolution = (winnerPicks && winnerId)
+                ? await this.resolveNextPicker(db, tournamentRow, activeGame, winnerId, winnerIscoredName, winnerLabel)
+                : null;
+
             if (!winnerPicks && autoPick) {
                 // Skip pick windows — immediately auto-select and activate
                 logInfo(`   -> No ${term.game} queued. winner_picks=off, auto_pick=on — auto-selecting immediately.`);
                 await this.autoPickAndActivate(db, tournamentRow, tournamentId, activeGame, client, term, channelId);
-            } else if (winnerPicks && winnerId) {
-                // Current behavior: give winner a pick window
-                logInfo(`   -> No ${term.game} queued for this slot. Creating picker slot for timeout tracking.`);
+            } else if (winnerPicks && pickerResolution) {
+                const { pickerId, pickerType, pickerLabel, announceExtra, onboardingNominee } = pickerResolution;
+                // Current behavior: give the resolved picker a pick window —
+                // either the winner (today's default), a nominee (full WINNER
+                // window/reminders/timeout chain), or the runner-up
+                // (forfeit / dynasty-block, immediate — no wait for a WINNER
+                // window that was never granted).
+                logInfo(`   -> No ${term.game} queued for this slot. Creating picker slot (${pickerType}) for timeout tracking.`);
                 const winnerPickWindowMin = tournamentRow.winner_pick_window_min ?? DEFAULT_WINNER_PICK_WINDOW_MIN;
+                const runnerUpPickWindowMin = tournamentRow.runnerup_pick_window_min ?? DEFAULT_RUNNERUP_PICK_WINDOW_MIN;
+                const pickWindowMin = windowMinForPicker(pickerType, { winnerWindowMin: winnerPickWindowMin, runnerUpWindowMin: runnerUpPickWindowMin });
                 const slotId = uuidv4();
                 // Captured once and reused for the row, the ticker payload, the
                 // lobby-feed countdown and (v2.70.0) the web-push body so all
                 // four describe the same instant as the one TimeoutManager
                 // enforces against.
                 const pickerDesignatedAt = new Date().toISOString();
-                const pickDeadline = computePickDeadline(pickerDesignatedAt, winnerPickWindowMin);
+                const pickDeadline = computePickDeadline(pickerDesignatedAt, pickWindowMin);
                 // A WINNER window expiring pivots to the runner-up; it does NOT
                 // auto-pick. Resolved once here so the feed and the push tell
-                // the player the same true thing.
-                const pickFallback = pickWindowFallback('WINNER', activeGame.id);
+                // the player the same true thing. A RUNNER_UP row (forfeit /
+                // dynasty) has no further pivot — its own expiry auto-picks.
+                const pickFallback = pickWindowFallback(pickerType, activeGame.id);
                 await db.run(
                     `INSERT INTO games (id, tournament_id, name, status, picker_discord_id, picker_type, picker_designated_at, reminder_count, won_game_id, game_room_id)
-                     VALUES (?, ?, ?, 'QUEUED', ?, 'WINNER', ?, 0, ?, ?)`,
-                    slotId, tournamentId, '[Pending Pick]', winnerId, pickerDesignatedAt, activeGame.id, tournamentRow.game_room_id ?? null
+                     VALUES (?, ?, ?, 'QUEUED', ?, ?, ?, 0, ?, ?)`,
+                    slotId, tournamentId, '[Pending Pick]', pickerId, pickerType, pickerDesignatedAt, activeGame.id, tournamentRow.game_room_id ?? null
                 );
-                logInfo(`   -> Created picker slot for winner (pick window active).`);
+                logInfo(`   -> Created picker slot for ${pickerType === 'WINNER' ? 'winner/nominee' : 'runner-up'} (pick window active).`);
+
+                // Onboarding hook (nominate only, nominee not yet a room
+                // member) — fire-and-forget, never blocks slot creation.
+                if (onboardingNominee) {
+                    this.announceNomineeOnboarding(onboardingNominee, tournamentRow, channelId, term).catch(() => {});
+                }
 
                 // Public pick prompt on the lobby feed. This branch is
-                // specifically the one where the winner must pick BY HAND —
+                // specifically the one where the picker must pick BY HAND —
                 // when the queue already held an eligible game the rotation
                 // path activates it and never reaches here, so no prompt is
                 // emitted for an auto-filled slot.
@@ -1402,16 +1441,17 @@ export class TournamentEngine {
                         LobbyFeedService.emit({
                             gameRoomId: tournamentRow.game_room_id,
                             type: 'pick_prompt',
-                            title: `${winnerLabel}, pick the next ${term.game} for ${tournamentRow.name}`,
-                            playerId: winnerId!,
+                            title: `${pickerLabel}, pick the next ${term.game} for ${tournamentRow.name}`,
+                            playerId: pickerId,
                             tournamentId,
                             metadata: {
                                 deadline: pickDeadline.toISOString(),
-                                windowMin: winnerPickWindowMin,
-                                pickerType: 'WINNER',
+                                windowMin: pickWindowMin,
+                                pickerType,
                                 fallback: pickFallback,
-                                pickerName: winnerLabel,
+                                pickerName: pickerLabel,
                                 tournamentName: tournamentRow.name,
+                                reasonNote: announceExtra,
                             },
                         }).catch(() => {});
                     }).catch(() => {});
@@ -1419,10 +1459,13 @@ export class TournamentEngine {
 
                 if (channelId) {
                     const color = getTournamentColor(tournamentRow.type);
-                    const winnerMention = await formatUserMention(winnerId, winnerLabel, tournamentRow.game_room_id);
+                    const pickerMention = await formatUserMention(pickerId, pickerLabel, tournamentRow.game_room_id);
+                    const desc = announceExtra
+                        ? `${announceExtra} ${pickerMention} has **${pickWindowMin} minutes** to use \`/pick-game\` to select the next ${term.game} for this slot.`
+                        : `${pickerMention} — you won **${activeGame.name}**! Use \`/pick-game\` within **${pickWindowMin} minutes** to select the next ${term.game} for this slot.`;
                     const embed = new EmbedBuilder()
                         .setTitle(`Pick Needed — ${activeGame.name}`)
-                        .setDescription(`${winnerMention} — you won **${activeGame.name}**! Use \`/pick-game\` within **${winnerPickWindowMin} minutes** to select the next ${term.game} for this slot.`)
+                        .setDescription(desc)
                         .setColor(color)
                         .setFooter({ text: tournamentRow.name })
                         .setTimestamp();
@@ -1431,11 +1474,11 @@ export class TournamentEngine {
 
                 emitPickerAssigned({
                     tournamentName: tournamentRow.name,
-                    pickerName: winnerLabel,
+                    pickerName: pickerLabel,
                     deadline: pickDeadline.toISOString(),
                 });
 
-                // Notify winner it's their turn to pick. Per-slot DM — when a
+                // Notify the picker it's their turn to pick. Per-slot DM — when a
                 // user wins multiple slots in one maintenance run, they get one
                 // turn-to-pick DM per won game so they know exactly which slot
                 // each pick fulfills.
@@ -1453,10 +1496,13 @@ export class TournamentEngine {
                 import('../services/NotificationService.js').then(({ NotificationService }) => {
                     db.get('SELECT slug FROM game_rooms WHERE id = ?', tournamentRow.game_room_id).then((r: any) => {
                         const link = r?.slug ? NotificationService.buildLink(r.slug, '/picks') : '';
+                        const message = announceExtra
+                            ? `${announceExtra} It's your turn to pick the next ${term.game} for **${tournamentRow.name}**. You have **${pickWindowMin} minutes** to use \`/pick-game\` or pick from the web, or ${pickFallbackPhrase(pickFallback)}.${link ? `\n${link}` : ''}`
+                            : `You won **${activeGame.name}** in **${tournamentRow.name}** — it's your turn to pick the next ${term.game} for that slot. You have **${pickWindowMin} minutes** to use \`/pick-game\` or pick from the web, or ${pickFallbackPhrase(pickFallback)}.${link ? `\n${link}` : ''}`;
                         NotificationService.notify({
-                            userId: winnerId!,
+                            userId: pickerId,
                             type: 'turnToPick',
-                            message: `You won **${activeGame.name}** in **${tournamentRow.name}** — it's your turn to pick the next ${term.game} for that slot. You have **${winnerPickWindowMin} minutes** to use \`/pick-game\` or pick from the web, or ${pickFallbackPhrase(pickFallback)}.${link ? `\n${link}` : ''}`,
+                            message,
                             pushBody: pickPromptPushBody(tournamentRow.name, pickDeadline, pickFallback),
                             roomId: tournamentRow.game_room_id,
                             tournamentId,
@@ -1502,6 +1548,186 @@ export class TournamentEngine {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Resolves who actually gets the pick for this slot's next rotation —
+     * the "next-win disposition" chokepoint (ROADMAP, locked 2026-08-09).
+     *
+     * Only called when `winnerPicks && winnerId` (the branch that would
+     * otherwise hand the winner a picker slot). Order:
+     *   1. Dynasty check — if `tournaments.allow_dynasty = 0` AND the winner
+     *      also won the immediately-previous COMPLETED slot in this
+     *      tournament, their own 'use-my-queue' path is blocked (nominate/
+     *      forfeit are unaffected by this check).
+     *   2. Consume (read + one-shot delete) the winner's disposition row.
+     *   3. 'nominate' → the nominee becomes picker with the FULL winner
+     *      window/reminders/timeout chain (picker_type stays 'WINNER' — the
+     *      nominee inherits the standard chain, they just aren't the one who
+     *      scored). 'forfeit' → runner-up immediately (picker_type
+     *      'RUNNER_UP', no wait for the winner's window to expire).
+     *   4. No disposition + not blocked → today's behavior (return the
+     *      winner as picker, announceExtra null).
+     *   5. No disposition + blocked → runner-up immediately, dynasty-named
+     *      announce copy.
+     *
+     * Returns null when a runner-up SHOULD be designated (forfeit or
+     * dynasty-block) but none can be resolved (no 2nd-place submission, or no
+     * Discord mapping for it) — mirrors `TimeoutManager.pivotToRunnerUp`'s own
+     * fallback: the caller degrades to auto-pick/manual-wait exactly as it
+     * does today for "no winner found", rather than silently handing the
+     * disqualified winner their pick back.
+     */
+    private async resolveNextPicker(
+        db: any,
+        tournamentRow: any,
+        activeGame: Game,
+        winnerId: string,
+        winnerIscoredName: string | null,
+        winnerLabel: string,
+    ): Promise<{
+        pickerId: string;
+        pickerType: 'WINNER' | 'RUNNER_UP';
+        pickerLabel: string;
+        pickerIscoredName: string | null;
+        announceExtra: string | null;
+        onboardingNominee: string | null;
+    } | null> {
+        // --- 1. Dynasty check ---
+        let dynastyBlocked = false;
+        if (tournamentRow.allow_dynasty === 0) {
+            const prevGame = await db.get(
+                `SELECT id FROM games WHERE tournament_id = ? AND status = 'COMPLETED' AND id != ?
+                 ORDER BY end_date DESC LIMIT 1`,
+                tournamentRow.id, activeGame.id,
+            );
+            if (prevGame) {
+                const prevWinnerRow = await db.get(
+                    `SELECT iscored_username, discord_user_id, submitted_by_user_id FROM submissions
+                     WHERE game_id = ? ORDER BY score DESC LIMIT 1`,
+                    prevGame.id,
+                );
+                const prevWinnerId = await resolveSubmissionPlayerId(db, prevWinnerRow);
+                if (prevWinnerId && prevWinnerId === winnerId) {
+                    dynastyBlocked = true;
+                }
+            }
+        }
+
+        // --- 2. Consume the winner's disposition (one-shot) ---
+        const disposition = await PickDispositionService.consume(tournamentRow.id, winnerId);
+
+        const resolveRunnerUp = async (): Promise<{ id: string; label: string; iscoredName: string | null } | null> => {
+            const row = await db.get(
+                `SELECT iscored_username, discord_user_id, submitted_by_user_id FROM submissions
+                 WHERE game_id = ? ORDER BY score DESC LIMIT 1 OFFSET 1`,
+                activeGame.id,
+            );
+            const id = await resolveSubmissionPlayerId(db, row);
+            if (!id) return null;
+            const label = (await (await import('../services/UserProfileService.js')).UserProfileService
+                .getDisplayName(id).catch(() => null)) || row?.iscored_username || 'Runner-up';
+            return { id, label, iscoredName: row?.iscored_username ?? null };
+        };
+
+        // --- 3a. Nominate ---
+        if (disposition?.disposition === 'nominate' && disposition.nominee_discord_id) {
+            const nomineeId = disposition.nominee_discord_id;
+            const nomineeLabel = (await (await import('../services/UserProfileService.js')).UserProfileService
+                .getDisplayName(nomineeId).catch(() => null)) || nomineeId;
+            const roomMember = tournamentRow.game_room_id
+                ? await db.get('SELECT 1 AS ok FROM room_members WHERE room_id = ? AND user_id = ?', tournamentRow.game_room_id, nomineeId)
+                : null;
+            return {
+                pickerId: nomineeId,
+                pickerType: 'WINNER',
+                pickerLabel: nomineeLabel,
+                pickerIscoredName: null,
+                announceExtra: `${winnerLabel} handed their pick to ${nomineeLabel}.`,
+                onboardingNominee: roomMember ? null : nomineeId,
+            };
+        }
+
+        // --- 3b. Forfeit ---
+        if (disposition?.disposition === 'forfeit') {
+            const runnerUp = await resolveRunnerUp();
+            if (!runnerUp) return null;
+            return {
+                pickerId: runnerUp.id,
+                pickerType: 'RUNNER_UP',
+                pickerLabel: runnerUp.label,
+                pickerIscoredName: runnerUp.iscoredName,
+                announceExtra: `${winnerLabel} forfeited the pick — it passes to ${runnerUp.label}.`,
+                onboardingNominee: null,
+            };
+        }
+
+        // --- 5. Dynasty-blocked, no disposition ---
+        if (dynastyBlocked) {
+            const runnerUp = await resolveRunnerUp();
+            if (!runnerUp) return null;
+            return {
+                pickerId: runnerUp.id,
+                pickerType: 'RUNNER_UP',
+                pickerLabel: runnerUp.label,
+                pickerIscoredName: runnerUp.iscoredName,
+                announceExtra: `${winnerLabel} won back-to-back — the dynasty rule passes the pick to ${runnerUp.label}.`,
+                onboardingNominee: null,
+            };
+        }
+
+        // --- 4. Default: today's behavior ---
+        return {
+            pickerId: winnerId,
+            pickerType: 'WINNER',
+            pickerLabel: winnerLabel,
+            pickerIscoredName: winnerIscoredName,
+            announceExtra: null,
+            onboardingNominee: null,
+        };
+    }
+
+    /**
+     * Onboarding hook for a nominee who isn't a room member yet (ROADMAP —
+     * "deliberate onboarding hook"). Posts to the tournament channel with an
+     * @mention + a direct link to the room's Picks page, and DMs the nominee
+     * too when reachable. Never throws — fire-and-forget from the caller.
+     */
+    private async announceNomineeOnboarding(
+        nomineeId: string,
+        tournamentRow: any,
+        channelId: string | null,
+        term: ReturnType<typeof getTerminology>,
+    ): Promise<void> {
+        try {
+            const db = await getDatabase();
+            const room = tournamentRow.game_room_id
+                ? await db.get('SELECT slug, name FROM game_rooms WHERE id = ?', tournamentRow.game_room_id)
+                : null;
+            const roomName = room?.name || 'the room';
+            const link = room?.slug
+                ? `https://arcaid.app/${room.slug}/picks?t=${tournamentUrlSlug(tournamentRow.name)}`
+                : null;
+            const mention = `<@${nomineeId}>`;
+            const copy = `${mention} — you have next pick in **${roomName}**!${link ? ` ${link}` : ''} Log in with your Discord to pick the next ${term.game}.`;
+
+            if (channelId) {
+                await sendChannelMessage(channelId, copy);
+            }
+
+            const { NotificationService } = await import('../services/NotificationService.js');
+            await NotificationService.notify({
+                userId: nomineeId,
+                type: 'turnToPick',
+                message: copy,
+                pushBody: `You have next pick in ${roomName}.`,
+                roomId: tournamentRow.game_room_id,
+                tournamentId: tournamentRow.id,
+                pushUrl: link || undefined,
+            }).catch(() => {});
+        } catch (err) {
+            logError('announceNomineeOnboarding failed (continuing):', err);
         }
     }
 

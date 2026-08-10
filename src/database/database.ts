@@ -2267,6 +2267,54 @@ export async function initDatabase(): Promise<Database> {
             CREATE INDEX IF NOT EXISTS idx_game_comments_hidden ON game_comments(hidden_at);
             CREATE INDEX IF NOT EXISTS idx_global_game_comments_hidden ON global_game_comments(hidden_at);
         ` },
+        // --- Next-win disposition (RTX demo feedback, ROADMAP "Next-win
+        // disposition + dynasty option + rotation-readiness nudge", locked
+        // 2026-08-09) ---
+        // `picker_dispositions` is the tri-state preference a player sets for
+        // "if I win the current slot, what happens to my pick": a row present
+        // means 'nominate' (hand it to `nominee_discord_id`) or 'forfeit'
+        // (pass straight to the runner-up); NO row means the default
+        // 'use-my-queue' behavior — deliberately not a stored enum value, so
+        // clearing a disposition is a plain DELETE. One row per
+        // (tournament, player); the winner-designation chokepoint in
+        // `TournamentEngine.resolveNextPicker` consumes (reads + deletes) the
+        // row atomically so it is a strictly ONE-SHOT preference — the next
+        // rotation reverts to the queue unless the player sets it again.
+        // `allow_dynasty` (default ON = today's behavior) gates whether the
+        // same winner can pick again back-to-back; OFF blocks their 'queue'
+        // path only (nominate/forfeit still honored) and falls to the
+        // runner-up when no disposition is set. `rotation_nudges` dedupes the
+        // "get your pick ready" notification one-per-player-per-rotation —
+        // `rotation_key` is the ISO timestamp of the rotation boundary the
+        // nudge was sent for, so a fresh boundary (next rotation) naturally
+        // allows a fresh nudge without any TTL bookkeeping.
+        { name: '143_next_win_disposition', sql: `
+            CREATE TABLE IF NOT EXISTS picker_dispositions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id TEXT NOT NULL,
+                discord_user_id TEXT NOT NULL,
+                disposition TEXT NOT NULL CHECK(disposition IN ('nominate', 'forfeit')),
+                nominee_discord_id TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(tournament_id, discord_user_id),
+                FOREIGN KEY (tournament_id) REFERENCES tournaments (id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_picker_dispositions_tournament ON picker_dispositions(tournament_id);
+
+            ALTER TABLE tournaments ADD COLUMN allow_dynasty INTEGER NOT NULL DEFAULT 1;
+
+            CREATE TABLE IF NOT EXISTS rotation_nudges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id TEXT NOT NULL,
+                discord_user_id TEXT NOT NULL,
+                rotation_key TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(tournament_id, discord_user_id, rotation_key),
+                FOREIGN KEY (tournament_id) REFERENCES tournaments (id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_rotation_nudges_tournament ON rotation_nudges(tournament_id);
+        ` },
     ];
 
     for (const migration of migrations) {

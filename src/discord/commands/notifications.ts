@@ -10,6 +10,7 @@ const PREF_LABELS: Record<NotificationType, string> = {
     tournamentStarting: 'Tournament Starting',
     rankDethroned: 'Rank Dethroned',
     friendScore: 'Friend Score',
+    rotationReady: 'Rotation Ready',
 };
 
 export const notifications: Command = {
@@ -27,6 +28,7 @@ export const notifications: Command = {
                     { name: 'Toggle: Tournament Starting', value: 'tournamentStarting' },
                     { name: 'Toggle: Rank Dethroned', value: 'rankDethroned' },
                     { name: 'Toggle: Friend Score', value: 'friendScore' },
+                    { name: 'Toggle: Rotation Ready', value: 'rotationReady' },
                     { name: 'Enable all', value: 'enable_all' },
                     { name: 'Disable all', value: 'disable_all' },
                 )),

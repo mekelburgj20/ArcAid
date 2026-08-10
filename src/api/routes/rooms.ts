@@ -34,6 +34,8 @@ import {
     SyncIScoredActionSchema,
     RoomScoresQuerySchema,
     CreateBanSchema,
+    SetPickDispositionSchema,
+    AdminSetPickDispositionSchema,
 } from '../schemas.js';
 import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
@@ -1111,6 +1113,186 @@ router.put('/:roomId/queue/reorder', requireDiscordUser, requireNotBanned, async
         res.json({ success: true });
     } catch (error) {
         logError('API Error (PUT rooms/:roomId/queue/reorder):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// --- Next-win disposition (ROADMAP, locked 2026-08-09) — the Picks page's
+// "If I win next…" control. Self-service only (admin on-behalf lives at
+// /:roomId/admin/tournaments/:tournamentId/pick-disposition below); every
+// route here validates the tournament belongs to this room before touching
+// PickDispositionService.
+router.get('/:roomId/tournaments/:tournamentId/pick-disposition', requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+        const discordId = req.user!.discordId!;
+
+        const tournament = await db.get('SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId);
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        const { PickDispositionService } = await import('../../services/PickDispositionService.js');
+        const disposition = await PickDispositionService.get(tournamentId, discordId);
+        res.json({ disposition: disposition ? { disposition: disposition.disposition, nomineeDiscordId: disposition.nominee_discord_id } : null });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/tournaments/:tournamentId/pick-disposition):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.put('/:roomId/tournaments/:tournamentId/pick-disposition', requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const validationResult = validate(SetPickDispositionSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+        const discordId = req.user!.discordId!;
+        const { disposition, nomineeDiscordId } = validationResult.data;
+
+        const tournament = await db.get(
+            'SELECT id, game_room_id FROM tournaments WHERE id = ? AND game_room_id = ? AND is_active = 1',
+            tournamentId, roomId,
+        );
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        const { PickAwardGate, PICK_AWARD_DISABLED_REPLY } = await import('../../services/PickAwardGate.js');
+        if (!(await PickAwardGate.isEnabled(roomId, tournamentId))) {
+            return res.status(403).json({ error: PICK_AWARD_DISABLED_REPLY });
+        }
+
+        if (disposition === 'nominate' && !nomineeDiscordId) {
+            return res.status(400).json({ error: 'nomineeDiscordId is required for a nominate disposition' });
+        }
+
+        // Best-effort guild-membership check — uncertainty degrades to
+        // allowing the set (design: never block on "we couldn't tell").
+        if (disposition === 'nominate' && nomineeDiscordId) {
+            try {
+                const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+                if (guildId) {
+                    const { getDiscordClient } = await import('../../discord/DiscordClient.js');
+                    const client = getDiscordClient();
+                    if (client?.isReady()) {
+                        const isMember = await client.isMemberOfGuild(guildId, nomineeDiscordId);
+                        if (!isMember) {
+                            return res.status(400).json({ error: 'That user is not a member of this server, so they cannot be nominated.' });
+                        }
+                    }
+                }
+            } catch { /* uncertain — allow the set */ }
+        }
+
+        const { PickDispositionService, SelfNominationError } = await import('../../services/PickDispositionService.js');
+        try {
+            const row = await PickDispositionService.set(tournamentId, discordId, disposition, nomineeDiscordId ?? null);
+            res.json({ disposition: { disposition: row.disposition, nomineeDiscordId: row.nominee_discord_id } });
+        } catch (err) {
+            if (err instanceof SelfNominationError) {
+                return res.status(400).json({ error: err.message, code: 'SELF_NOMINATION' });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/tournaments/:tournamentId/pick-disposition):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/:roomId/tournaments/:tournamentId/pick-disposition', requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+        const discordId = req.user!.discordId!;
+
+        const tournament = await db.get('SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId);
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        const { PickDispositionService } = await import('../../services/PickDispositionService.js');
+        await PickDispositionService.clear(tournamentId, discordId);
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/tournaments/:tournamentId/pick-disposition):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Admin on-behalf variant ("winner said it in chat") — mirrors /my-pick's
+// Discord /nominate-picker set/clear subcommands. Audit-logged explicitly
+// per repo doctrine (auditMiddleware does not fire on router routes).
+router.put('/:roomId/admin/tournaments/:tournamentId/pick-disposition', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const validationResult = validate(AdminSetPickDispositionSchema, req.body);
+        if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
+
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+        const { disposition, nomineeDiscordId, forUserId } = validationResult.data;
+
+        const tournament = await db.get('SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId);
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        if (disposition === 'nominate' && !nomineeDiscordId) {
+            return res.status(400).json({ error: 'nomineeDiscordId is required for a nominate disposition' });
+        }
+
+        const { PickDispositionService, SelfNominationError } = await import('../../services/PickDispositionService.js');
+        try {
+            const row = await PickDispositionService.set(tournamentId, forUserId, disposition, nomineeDiscordId ?? null);
+
+            await AuditService.log({
+                actor: req.user!.discordId || req.user!.username || 'admin',
+                action: 'pick_disposition.set',
+                target_type: 'tournament',
+                target_id: tournamentId,
+                details: JSON.stringify({ roomId, forUserId, disposition, nomineeDiscordId: nomineeDiscordId ?? null }),
+                ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+                correlation_id: req.correlationId || '',
+            });
+
+            res.json({ disposition: { disposition: row.disposition, nomineeDiscordId: row.nominee_discord_id } });
+        } catch (err) {
+            if (err instanceof SelfNominationError) {
+                return res.status(400).json({ error: err.message, code: 'SELF_NOMINATION' });
+            }
+            throw err;
+        }
+    } catch (error) {
+        logError('API Error (PUT rooms/:roomId/admin/tournaments/:tournamentId/pick-disposition):', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+router.delete('/:roomId/admin/tournaments/:tournamentId/pick-disposition/:forUserId', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const db = await getDatabase();
+        const roomId = req.params.roomId as string;
+        const tournamentId = req.params.tournamentId as string;
+        const forUserId = req.params.forUserId as string;
+
+        const tournament = await db.get('SELECT id FROM tournaments WHERE id = ? AND game_room_id = ?', tournamentId, roomId);
+        if (!tournament) return res.status(404).json({ error: 'Tournament not found in this room' });
+
+        const { PickDispositionService } = await import('../../services/PickDispositionService.js');
+        await PickDispositionService.clear(tournamentId, forUserId);
+
+        await AuditService.log({
+            actor: req.user!.discordId || req.user!.username || 'admin',
+            action: 'pick_disposition.clear',
+            target_type: 'tournament',
+            target_id: tournamentId,
+            details: JSON.stringify({ roomId, forUserId }),
+            ip_address: (req.ip || req.socket?.remoteAddress || 'unknown') as string,
+            correlation_id: req.correlationId || '',
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        logError('API Error (DELETE rooms/:roomId/admin/tournaments/:tournamentId/pick-disposition/:forUserId):', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

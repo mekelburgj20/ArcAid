@@ -313,6 +313,70 @@ export default function Picks() {
     fetchPickAlerts();
   };
 
+  // Next-win disposition (ROADMAP, locked 2026-08-09) — "If I win next…"
+  // control for the currently-selected tournament. Scoped to one tournament
+  // at a time via the same selector the rest of the page already uses.
+  const [disposition, setDisposition] = useState<{ disposition: 'nominate' | 'forfeit'; nomineeDiscordId: string | null } | null>(null);
+  const [dispositionLoading, setDispositionLoading] = useState(false);
+  const [nomineeInput, setNomineeInput] = useState('');
+  const [showNomineeInput, setShowNomineeInput] = useState(false);
+
+  const fetchDisposition = useCallback(() => {
+    if (!roomId || !playerToken || !selectedTournamentId) { setDisposition(null); return; }
+    fetch(`/api/rooms/${roomId}/tournaments/${selectedTournamentId}/pick-disposition`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => setDisposition(data?.disposition ?? null))
+      .catch(() => {});
+  }, [roomId, playerToken, selectedTournamentId]);
+
+  useEffect(() => { fetchDisposition(); }, [fetchDisposition]);
+
+  const saveDisposition = async (body: { disposition: 'nominate' | 'forfeit'; nomineeDiscordId?: string }) => {
+    if (!roomId || !playerToken || !selectedTournamentId) return;
+    setDispositionLoading(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/tournaments/${selectedTournamentId}/pick-disposition`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${playerToken}` },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (!res.ok) { toast(result.error || 'Failed to save', 'error'); return; }
+      setDisposition(result.disposition);
+      setShowNomineeInput(false);
+      setNomineeInput('');
+      toast('Saved — applies to your next win only.', 'success');
+    } catch { toast('Failed to save', 'error'); } finally { setDispositionLoading(false); }
+  };
+
+  const clearDisposition = async () => {
+    if (!roomId || !playerToken || !selectedTournamentId) return;
+    setDispositionLoading(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/tournaments/${selectedTournamentId}/pick-disposition`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${playerToken}` },
+      });
+      if (!res.ok) { toast('Failed to clear', 'error'); return; }
+      setDisposition(null);
+      setShowNomineeInput(false);
+      toast('Back to picking from your own queue.', 'success');
+    } catch { toast('Failed to clear', 'error'); } finally { setDispositionLoading(false); }
+  };
+
+  const handleNomineeSubmit = () => {
+    // Accepts a raw Discord snowflake or a pasted <@id>/<@!id> mention.
+    const match = nomineeInput.trim().match(/^<@!?(\d+)>$/);
+    const id = (match ? match[1] : nomineeInput.trim());
+    if (!/^\d{5,25}$/.test(id)) {
+      toast('Enter a valid Discord user ID (or paste an @mention).', 'error');
+      return;
+    }
+    saveDisposition({ disposition: 'nominate', nomineeDiscordId: id });
+  };
+
   const handlePickConfirm = async (tournamentId: string) => {
     if (!roomId || !playerToken) return;
     const res = await fetch(`/api/rooms/${roomId}/pick-game`, {
@@ -558,6 +622,78 @@ export default function Picks() {
           </button>
         </div>
       </div>
+
+      {/* Next-win disposition (ROADMAP, locked 2026-08-09) — "If I win
+          next…" control, scoped to the currently-selected tournament. One
+          preference, no precedence puzzles; applies to the NEXT win only
+          (one-shot — consumed at rotation, then reverts to the default). */}
+      {discordUser && selectedTournamentId && (
+        <div className="mb-6 rounded-lg border border-border bg-surface p-4 sm:p-5">
+          <h2 className="font-display text-sm font-bold text-primary mb-1">If I win next…</h2>
+          <p className="text-xs text-muted mb-3">
+            Applies once, to your next win in this tournament. Default is picking from your own queue.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={clearDisposition}
+              disabled={dispositionLoading || !disposition}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer disabled:cursor-default ${
+                !disposition
+                  ? 'bg-neon-cyan/15 border-neon-cyan/50 text-neon-cyan'
+                  : 'border-border text-muted hover:text-primary hover:border-border/80'
+              }`}
+            >
+              Pick from my queue
+            </button>
+            <button
+              onClick={() => saveDisposition({ disposition: 'forfeit' })}
+              disabled={dispositionLoading}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer disabled:cursor-default ${
+                disposition?.disposition === 'forfeit'
+                  ? 'bg-neon-amber/15 border-neon-amber/50 text-neon-amber'
+                  : 'border-border text-muted hover:text-primary hover:border-border/80'
+              }`}
+            >
+              Forfeit to runner-up
+            </button>
+            <button
+              onClick={() => setShowNomineeInput(v => !v)}
+              disabled={dispositionLoading}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer disabled:cursor-default ${
+                disposition?.disposition === 'nominate'
+                  ? 'bg-neon-purple/15 border-neon-purple/50 text-neon-purple'
+                  : 'border-border text-muted hover:text-primary hover:border-border/80'
+              }`}
+            >
+              Give my pick to…
+            </button>
+          </div>
+          {disposition?.disposition === 'nominate' && !showNomineeInput && (
+            <p className="text-xs text-muted mt-2">
+              Currently set to hand off to <span className="text-primary font-medium">&lt;@{disposition.nomineeDiscordId}&gt;</span>.
+            </p>
+          )}
+          {showNomineeInput && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={nomineeInput}
+                onChange={(e) => setNomineeInput(e.target.value)}
+                placeholder="Discord user ID or @mention"
+                aria-label="Nominee Discord user ID"
+                className="flex-1 min-w-[200px] bg-bg border border-border rounded-lg px-3 py-1.5 text-xs text-primary placeholder:text-faint focus:outline-none focus:border-neon-purple/50"
+              />
+              <button
+                onClick={handleNomineeSubmit}
+                disabled={dispositionLoading || !nomineeInput.trim()}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-neon-purple/40 bg-neon-purple/10 text-neon-purple hover:bg-neon-purple/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pending pick banner */}
       {discordUser && hasPendingPicks && (
