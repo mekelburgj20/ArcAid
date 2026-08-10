@@ -80,13 +80,14 @@ const SELECT_PREFS: PrefDef[] = [
   },
   {
     key: 'SCOREBOARD_RANKINGS_STYLE', label: 'Rankings Card Style',
-    description: 'Match the scoreboard style or pick a distinct treatment for ranking cards.',
+    description: 'Match the scoreboard style or pick a distinct treatment for ranking cards. Ticker is a text strip — card background styles don\'t apply to it.',
     type: 'select',
     options: [
       { value: 'match', label: 'Match Leaderboard' },
       { value: 'plaque', label: 'Plaque (hall-of-fame frame)' },
       { value: 'compact', label: 'Compact List (no chrome)' },
       { value: 'sidebar', label: 'Sidebar Block (narrow column)' },
+      { value: 'ticker', label: 'Scrolling Ticker (top of scoreboard, above the header)' },
     ],
   },
   {

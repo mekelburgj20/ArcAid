@@ -42,8 +42,13 @@ export interface ScoreboardConfig {
    * - `plaque`  — tall, narrow, ornamental hall-of-fame frame.
    * - `compact` — no card chrome; text-only list on the scoreboard background.
    * - `sidebar` — narrow column with abbreviated scores; best beside the grid.
+   * - `ticker`  — full-width scrolling marquee strip replacing the ranking
+   *   cards entirely (not a per-card look — see `RankingsTicker` in
+   *   ScoreboardComponents.tsx and its `tickerMode` branch in
+   *   ScoreboardSurface). Text-only; ranking-card background styles do not
+   *   apply.
    */
-  rankingsStyle: 'match' | 'plaque' | 'compact' | 'sidebar';
+  rankingsStyle: 'match' | 'plaque' | 'compact' | 'sidebar' | 'ticker';
   hideEmpty: boolean;
   requirePhoto: boolean;
   qrMode: string;
@@ -126,7 +131,7 @@ export function deriveScoreboardConfig(config: Record<string, string>, roomName?
     titleSize: config.SCOREBOARD_TITLE_SIZE || 'sm',
     rankingsPosition: config.SCOREBOARD_RANKINGS_POSITION || 'left',
     rankingsSticky: config.SCOREBOARD_RANKINGS_STICKY === 'true',
-    rankingsStyle: (['match', 'plaque', 'compact', 'sidebar'].includes(config.SCOREBOARD_RANKINGS_STYLE || '')
+    rankingsStyle: (['match', 'plaque', 'compact', 'sidebar', 'ticker'].includes(config.SCOREBOARD_RANKINGS_STYLE || '')
       ? config.SCOREBOARD_RANKINGS_STYLE
       : 'match') as ScoreboardConfig['rankingsStyle'],
     hideEmpty: config.SCOREBOARD_HIDE_EMPTY === 'true',

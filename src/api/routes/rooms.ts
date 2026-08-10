@@ -40,6 +40,7 @@ import {
 import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
+import type { StatsWindowFilters } from '../../services/StatsService.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
 // sessions via the registry, never directly.
 import {
@@ -1297,6 +1298,17 @@ router.delete('/:roomId/admin/tournaments/:tournamentId/pick-disposition/:forUse
     }
 });
 
+// v2.9x — shared query-param reader for the two filterable stats endpoints
+// below (enhanced/players, games-activity), so their `type`/`from`/`to`
+// parsing can't drift between routes. Blank/whitespace-only values are
+// treated as absent (a stray `?type=` from a reset UI must not filter).
+function parseStatsWindowFilters(req: { query: Record<string, unknown> }): StatsWindowFilters {
+    const type = typeof req.query.type === 'string' && req.query.type.trim() ? req.query.type.trim() : undefined;
+    const from = typeof req.query.from === 'string' && req.query.from.trim() ? req.query.from.trim() : undefined;
+    const to = typeof req.query.to === 'string' && req.query.to.trim() ? req.query.to.trim() : undefined;
+    return { type, from, to };
+}
+
 // Stats
 router.get('/:roomId/stats/players', async (req, res) => {
     try {
@@ -1327,10 +1339,15 @@ router.get('/:roomId/stats/player/:identifier', async (req, res) => {
 });
 
 // Enhanced stats
+// v2.9x — optional `type` (tournament type) + `from`/`to` (ISO, half-open
+// [from, to)) query params. See StatsService.StatsWindowFilters for the
+// boundary semantics; parseStatsWindowFilters is the shared param reader for
+// this route and games-activity below, so the two can't drift.
 router.get('/:roomId/stats/enhanced/players', async (req, res) => {
     try {
         const { StatsService } = await import('../../services/StatsService.js');
-        const players = await StatsService.getEnhancedAllPlayerStats(req.params.roomId as string);
+        const filters = parseStatsWindowFilters(req);
+        const players = await StatsService.getEnhancedAllPlayerStats(req.params.roomId as string, filters);
         res.json(players);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/stats/enhanced/players):', error);
@@ -1351,10 +1368,12 @@ router.get('/:roomId/stats/overview', async (req, res) => {
 });
 
 // Sprint 7: per-game activity stats for the public Stats page (Games view)
+// v2.9x — same optional type/from/to filters as enhanced/players above.
 router.get('/:roomId/stats/games-activity', async (req, res) => {
     try {
         const { StatsService } = await import('../../services/StatsService.js');
-        const games = await StatsService.getGameActivityStats(req.params.roomId as string);
+        const filters = parseStatsWindowFilters(req);
+        const games = await StatsService.getGameActivityStats(req.params.roomId as string, filters);
         res.json(games);
     } catch (error) {
         logError('API Error (GET rooms/:roomId/stats/games-activity):', error);

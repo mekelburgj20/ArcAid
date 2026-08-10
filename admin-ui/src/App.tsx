@@ -58,6 +58,7 @@ import Lobby from './pages/Lobby';
 import PublicStats from './pages/PublicStats';
 import PublicHistory from './pages/PublicHistory';
 import TournamentDetail from './pages/TournamentDetail';
+import RankingsFullStandings from './pages/RankingsFullStandings';
 import ComparePlayers from './pages/ComparePlayers';
 import MyRooms from './pages/MyRooms';
 import CreateRoom from './pages/CreateRoom';
@@ -231,6 +232,7 @@ function App() {
           <Route path="stats" element={<PublicStats />} />
           <Route path="history" element={<PublicHistory />} />
           <Route path="tournaments/:tournamentId" element={<TournamentDetail />} />
+          <Route path="rankings/:groupId" element={<RankingsFullStandings />} />
           <Route path="compare" element={<ComparePlayers />} />
         </Route>
       </Routes>

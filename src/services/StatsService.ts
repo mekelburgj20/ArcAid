@@ -38,6 +38,30 @@ import type { IdentityCandidates } from './IdentityCandidateService.js';
  */
 const CHAMPION_STREAK_SCAN_LIMIT = 100;
 
+/**
+ * v2.9x — tournament-type + time-window filters for the public Stats page
+ * (RTX demo request: "key in on specific tournament durations (weeks)").
+ *
+ * `type` matches `tournaments.type` (e.g. 'DG', 'WG', 'MG') exactly.
+ * `from`/`to` are ISO date(time) strings forming a HALF-OPEN interval:
+ * `from` is inclusive, `to` is exclusive — `[from, to)`. This avoids
+ * double-counting a game that ends exactly at a window boundary (e.g. the
+ * Monday-00:00 instant that closes "last week" and opens "this week") and
+ * matches how the FE's ISO-week/preset ranges are constructed
+ * (`admin-ui/src/lib/statsWindow.ts`). Both ends are optional and independent
+ * — passing only `from` means "since then", only `to` means "before then".
+ *
+ * Applied uniformly to `g.end_date` (the game/round's completion date) in
+ * `getEnhancedAllPlayerStats`, since every query there already joins
+ * `games g`. `getGameActivityStats` applies the same bounds per-branch to
+ * whichever timestamp that branch actually has (see its own doc comment).
+ */
+export interface StatsWindowFilters {
+    type?: string;
+    from?: string;
+    to?: string;
+}
+
 export class StatsService {
     /**
      * Get comprehensive stats for a player by Discord user ID.
@@ -1150,12 +1174,23 @@ export class StatsService {
     /**
      * Get enhanced stats for all players (with wins, finish position, top-5 rate, streak).
      */
-    static async getEnhancedAllPlayerStats(gameRoomId?: string) {
+    static async getEnhancedAllPlayerStats(gameRoomId?: string, filters?: StatsWindowFilters) {
         const db = await getDatabase();
 
-        const roomJoin = gameRoomId ? 'JOIN tournaments t ON g.tournament_id = t.id' : '';
-        const roomWhere = gameRoomId ? 'AND t.game_room_id = ?' : '';
-        const roomParams = gameRoomId ? [gameRoomId] : [];
+        // v2.9x — `type` needs the tournaments join even in the (currently
+        // unused-in-practice) no-gameRoomId case; every real caller passes a
+        // roomId, but this keeps the filter correct if that ever changes.
+        // See `StatsWindowFilters` doc comment for the `[from, to)` boundary
+        // semantics — both bounds compare against `g.end_date`, which every
+        // query below already has in scope via `roomJoin`/`FROM games g`.
+        const roomJoin = (gameRoomId || filters?.type) ? 'JOIN tournaments t ON g.tournament_id = t.id' : '';
+        const conds: string[] = [];
+        const roomParams: any[] = [];
+        if (gameRoomId) { conds.push('t.game_room_id = ?'); roomParams.push(gameRoomId); }
+        if (filters?.type) { conds.push('t.type = ?'); roomParams.push(filters.type); }
+        if (filters?.from) { conds.push('g.end_date >= ?'); roomParams.push(filters.from); }
+        if (filters?.to) { conds.push('g.end_date < ?'); roomParams.push(filters.to); }
+        const roomWhere = conds.length ? `AND ${conds.join(' AND ')}` : '';
 
         // Get all players with games played and wins
         const players = await db.all(`
@@ -1386,9 +1421,49 @@ export class StatsService {
      * both tables isn't expressible this way, so `players` is an upper bound
      * (a player who submitted tournament + community scores counts twice).
      * Acceptable for a Stats overview page.
+     *
+     * v2.9x — `filters` (see `StatsWindowFilters`). The two UNION branches
+     * have different data shapes (`submissions` is tournament-scoped;
+     * `community_scores` is pinned/freeplay, no tournament at all), so a
+     * single filter can't apply identically to both:
+     *   - `type` matches `tournaments.type`, which only the first branch has.
+     *     When set, the `community_scores` branch is DROPPED entirely rather
+     *     than silently ignoring the filter for rows it can't classify.
+     *   - `from`/`to` (the `[from, to)` window) applies to both branches, but
+     *     against different columns: `g.end_date` for tournament-sourced
+     *     rows (matches `getEnhancedAllPlayerStats`), `cs.created_at` for
+     *     community rows (the only timestamp a pinned score has).
      */
-    static async getGameActivityStats(gameRoomId: string) {
+    static async getGameActivityStats(gameRoomId: string, filters?: StatsWindowFilters) {
         const db = await getDatabase();
+
+        const tConds: string[] = ['t.game_room_id = ?', 's.orphaned_at IS NULL'];
+        const tParams: any[] = [gameRoomId];
+        if (filters?.type) { tConds.push('t.type = ?'); tParams.push(filters.type); }
+        if (filters?.from) { tConds.push('g.end_date >= ?'); tParams.push(filters.from); }
+        if (filters?.to) { tConds.push('g.end_date < ?'); tParams.push(filters.to); }
+
+        const includeCommunity = !filters?.type;
+        const cConds: string[] = ['cs.game_room_id = ?', 'cs.orphaned_at IS NULL'];
+        const cParams: any[] = [gameRoomId];
+        if (filters?.from) { cConds.push('cs.created_at >= ?'); cParams.push(filters.from); }
+        if (filters?.to) { cConds.push('cs.created_at < ?'); cParams.push(filters.to); }
+
+        const communityBranch = includeCommunity ? `
+
+                UNION ALL
+
+                SELECT
+                    cs.game_name AS name,
+                    LOWER(cs.game_name) AS name_key,
+                    COUNT(*) AS submissions,
+                    COUNT(DISTINCT LOWER(cs.iscored_username)) AS players,
+                    MAX(cs.score) AS top_score,
+                    MAX(cs.created_at) AS last_activity
+                FROM community_scores cs
+                WHERE ${cConds.join(' AND ')}
+                GROUP BY LOWER(cs.game_name)` : '';
+
         return db.all(`
             SELECT
                 name,
@@ -1407,27 +1482,12 @@ export class StatsService {
                 FROM submissions s
                 JOIN games g ON g.id = s.game_id
                 JOIN tournaments t ON t.id = g.tournament_id
-                WHERE t.game_room_id = ?
-                  AND s.orphaned_at IS NULL
-                GROUP BY LOWER(g.name)
-
-                UNION ALL
-
-                SELECT
-                    cs.game_name AS name,
-                    LOWER(cs.game_name) AS name_key,
-                    COUNT(*) AS submissions,
-                    COUNT(DISTINCT LOWER(cs.iscored_username)) AS players,
-                    MAX(cs.score) AS top_score,
-                    MAX(cs.created_at) AS last_activity
-                FROM community_scores cs
-                WHERE cs.game_room_id = ?
-                  AND cs.orphaned_at IS NULL
-                GROUP BY LOWER(cs.game_name)
+                WHERE ${tConds.join(' AND ')}
+                GROUP BY LOWER(g.name)${communityBranch}
             )
             GROUP BY name_key
             ORDER BY submissions DESC, last_activity DESC
-        `, gameRoomId, gameRoomId);
+        `, ...tParams, ...(includeCommunity ? cParams : []));
     }
 
     /**

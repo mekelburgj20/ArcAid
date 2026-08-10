@@ -6,6 +6,7 @@ import {
   RankingGroupCard,
   RankingsColumn,
   RankingsRow,
+  RankingsTicker,
   getTitleStyleClass,
   getTitleSizeClass,
 } from '../ScoreboardComponents';
@@ -183,8 +184,20 @@ export default function ScoreboardSurface({
     .filter(lb => !hideEmpty || lb.rankings.length > 0)
     .filter(lb => !trimmedSearch || (lb.displayName || lb.gameName).toLowerCase().includes(trimmedSearch));
 
+  // v2.9x — "ticker" is a full-width marquee strip, not a per-group card, so
+  // it never participates in the inline-with-game-cards grid/sticky-column
+  // layouts the other four rankingsStyle values use. `tickerMode` short-
+  // circuits every position branch below in favor of the two ticker-only
+  // render sites (top/bottom of the card region).
+  const tickerMode = useNewCards && newConfig.rankingsStyle === 'ticker' && rankingGroups.length > 0;
+  // A marquee strip can't be a sidebar column — left/right degrade to bottom
+  // ("degrade sensibly" per the design spec). top/bottom pass through as-is;
+  // any other value (including the 'left' default) also degrades to bottom.
+  // Ticker has exactly ONE position (top of the scoreboard, above the room
+  // header) — the rankings position setting is ignored for this treatment.
+
   // When sticky is off (default), rankings render inline with game cards
-  const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0;
+  const inlineRankings = useNewCards && !newConfig.rankingsSticky && rankingGroups.length > 0 && !tickerMode;
   // QR codes above game cards add extra height — rankings card needs matching top margin
   const qrEnabled = newConfig.qrMode === 'all' || (qrKioskOnlyEnabled && newConfig.qrMode === 'kiosk-only');
   const hasQrTop = useNewCards && qrEnabled && newConfig.qrPosition === 'top-right';
@@ -209,6 +222,18 @@ export default function ScoreboardSurface({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // The pinned rankings ticker sits ABOVE the header zone, outside its
+  // measured box — measured separately and added to the bg offset so the
+  // image still starts below the header's visual bottom.
+  const tickerRef = useRef<HTMLDivElement>(null);
+  const [tickerHeight, setTickerHeight] = useState(0);
+  useEffect(() => {
+    const el = tickerRef.current;
+    if (!el) { setTickerHeight(0); return; }
+    const ro = new ResizeObserver(() => setTickerHeight(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tickerMode]);
 
   const bgBehindTitle = useNewCards ? newConfig.bgBehindTitle : false;
   const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
@@ -308,7 +333,7 @@ export default function ScoreboardSurface({
         <div
           className="absolute pointer-events-none"
           style={{
-            top: bgBehindTitle ? 0 : headerHeight,
+            top: bgBehindTitle ? 0 : headerHeight + tickerHeight,
             left: 0,
             right: 0,
             bottom: 0,
@@ -409,6 +434,20 @@ export default function ScoreboardSurface({
           paddingBottom: scrollPaddingBottom,
         }}
       >
+      {/* Rankings ticker — owner placement (2026-08-10, rev 2): edge-to-edge
+          strip PINNED at the top of the scroll container (sticky, like the
+          nav bar) — always visible while scrolling. Direct child of the
+          scroller (sticky can't escape a parent's bounds, so it can't live
+          inside the header zone); its height is measured separately and
+          added to the bg-image offset. The rankings POSITION setting does
+          not apply to the ticker treatment. z-30 clears the card-layer
+          stack (QR 15 / admin strip 20, see cardStacking.ts). */}
+      {tickerMode && (
+        <div ref={tickerRef} className="sticky top-0 z-30">
+          <RankingsTicker rankingGroups={rankingGroups} slug={slug} />
+        </div>
+      )}
+
       {/* Header zone — bg image starts below this unless fill-entire mode */}
       <div
         ref={headerRef}
@@ -455,15 +494,15 @@ export default function ScoreboardSurface({
       <div className="px-4 sm:px-6 pb-6 scoreboard-mobile-scale" style={{ '--mobile-scale': newConfig.mobileScale } as React.CSSProperties}>
 
       {/* Rankings: top position (only when sticky/separate) */}
-      {!inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
+      {!tickerMode && !inlineRankings && rankingsPosition === 'top' && rankingGroups.length > 0 && (
         <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} renderUnderCard={renderUnderRankingCard} />
       )}
 
       {/* Main content area */}
-      <div className={`flex ${rankingsPosition === 'left' || rankingsPosition === 'right' ? 'flex-col lg:flex-row gap-6 items-stretch lg:items-start' : 'flex-col gap-6'}`}>
+      <div className={`flex ${!tickerMode && (rankingsPosition === 'left' || rankingsPosition === 'right') ? 'flex-col lg:flex-row gap-6 items-stretch lg:items-start' : 'flex-col gap-6'}`}>
 
         {/* Rankings: left position (only when sticky/separate) */}
-        {!inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
+        {!tickerMode && !inlineRankings && rankingsPosition === 'left' && rankingGroups.length > 0 && (
           <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} renderUnderCard={renderUnderRankingCard} />
         )}
 
@@ -541,13 +580,13 @@ export default function ScoreboardSurface({
         )}
 
         {/* Rankings: right position (only when sticky/separate) */}
-        {!inlineRankings && rankingsPosition === 'right' && rankingGroups.length > 0 && (
+        {!tickerMode && !inlineRankings && rankingsPosition === 'right' && rankingGroups.length > 0 && (
           <RankingsColumn rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} sticky={useNewCards && newConfig.rankingsSticky} renderUnderCard={renderUnderRankingCard} />
         )}
       </div>
 
       {/* Rankings: bottom position (only when sticky/separate) */}
-      {!inlineRankings && rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
+      {!tickerMode && !inlineRankings && rankingsPosition === 'bottom' && rankingGroups.length > 0 && (
         <RankingsRow rankingGroups={rankingGroups} cardOpacity={cardOpacity} scoreboardStyle={useNewCards ? newConfig.style : undefined} showcaseThemeName={useNewCards ? newConfig.theme : undefined} rankingsStyle={useNewCards ? newConfig.rankingsStyle : undefined} renderUnderCard={renderUnderRankingCard} />
       )}
 
