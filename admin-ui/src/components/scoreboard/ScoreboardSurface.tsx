@@ -222,6 +222,18 @@ export default function ScoreboardSurface({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // The pinned rankings ticker sits ABOVE the header zone, outside its
+  // measured box — measured separately and added to the bg offset so the
+  // image still starts below the header's visual bottom.
+  const tickerRef = useRef<HTMLDivElement>(null);
+  const [tickerHeight, setTickerHeight] = useState(0);
+  useEffect(() => {
+    const el = tickerRef.current;
+    if (!el) { setTickerHeight(0); return; }
+    const ro = new ResizeObserver(() => setTickerHeight(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tickerMode]);
 
   const bgBehindTitle = useNewCards ? newConfig.bgBehindTitle : false;
   const effectiveBgSize = bgMode === 'fill-entire' ? 'cover' : bgMode === 'repeat' ? 'auto' : bgMode;
@@ -321,7 +333,7 @@ export default function ScoreboardSurface({
         <div
           className="absolute pointer-events-none"
           style={{
-            top: bgBehindTitle ? 0 : headerHeight,
+            top: bgBehindTitle ? 0 : headerHeight + tickerHeight,
             left: 0,
             right: 0,
             bottom: 0,
@@ -422,19 +434,25 @@ export default function ScoreboardSurface({
           paddingBottom: scrollPaddingBottom,
         }}
       >
+      {/* Rankings ticker — owner placement (2026-08-10, rev 2): edge-to-edge
+          strip PINNED at the top of the scroll container (sticky, like the
+          nav bar) — always visible while scrolling. Direct child of the
+          scroller (sticky can't escape a parent's bounds, so it can't live
+          inside the header zone); its height is measured separately and
+          added to the bg-image offset. The rankings POSITION setting does
+          not apply to the ticker treatment. z-30 clears the card-layer
+          stack (QR 15 / admin strip 20, see cardStacking.ts). */}
+      {tickerMode && (
+        <div ref={tickerRef} className="sticky top-0 z-30">
+          <RankingsTicker rankingGroups={rankingGroups} slug={slug} />
+        </div>
+      )}
+
       {/* Header zone — bg image starts below this unless fill-entire mode */}
       <div
         ref={headerRef}
         className="px-4 sm:px-6 pt-6 relative z-[1]"
       >
-      {/* Rankings ticker — owner placement (2026-08-10): the ONE ticker
-          position is the very top of the scoreboard, under the nav and above
-          the room logo/title. Inside the measured header zone deliberately so
-          the bg-image offset math includes the strip. The rankings POSITION
-          setting does not apply to the ticker treatment. */}
-      {tickerMode && (
-        <RankingsTicker rankingGroups={rankingGroups} slug={slug} />
-      )}
       {!titleHidden && (
         <div className={`text-center ${kioskHeaderSpacing ? 'mb-8' : 'mb-4'} overflow-hidden`}>
           <div className={`inline-flex items-center gap-4 max-w-full ${

@@ -1612,7 +1612,7 @@ export function RankingsTicker({ rankingGroups, slug, topN = 5 }: {
   };
 
   return (
-    <div className="w-full rounded-lg border border-border/40 bg-deep/60 mb-6 rankings-ticker-strip" style={{ overflow: 'hidden' }}>
+    <div className="w-full border-b border-border/40 bg-deep/95 backdrop-blur-sm rankings-ticker-strip" style={{ overflow: 'hidden' }}>
       <div ref={trackRef} className="rankings-ticker-track flex items-center h-11">
         {/* Doubled for a seamless loop, same as ScoreboardTicker.tsx */}
         {[...segments, ...segments].map((seg, i) => renderSegment(seg, `${seg.id}-${i}`))}
