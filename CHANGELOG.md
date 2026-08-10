@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.97.0] — unreleased
+
+**Ranking ticker + Stats filters (the last two RTX demo feature asks; shots approved incl. two placement revisions).**
+
+### Added
+- **"Scrolling Ticker" — fifth rankings display treatment** (`SCOREBOARD_RANKINGS_STYLE='ticker'`): an edge-to-edge marquee strip PINNED at the very top of the scoreboard (sticky under the nav, above the room header — owner placement; the rankings position setting doesn't apply), cycling every ranking group's top standings. Pauses on hover, honors `prefers-reduced-motion`, backdrop-blur over scrolling content, zero horizontal overflow, z-order clears the card stack. Clicking a group opens its full standings. Selectable as the admin default (Rankings page) and per-player override (scoreboard preferences); admin Leaderboard + kiosk inherit via `ScoreboardSurface`. Ticker height is measured separately and added to the bg-image offset.
+- **Public full-standings page `/:slug/rankings/:groupId`** (`RankingsFullStandings.tsx`) — the ticker's click-through destination. No public full-standings surface existed at all (rankings were admin-only); uses the existing public rankings endpoint.
+- **Stats page filters**: tournament-type chips + time-window controls (All time / This week / Last week / Last 4 weeks / specific-week picker) — "who did best in week X" is now answerable and shareable (URL-stated `?type=&range=&week=`). BE: `StatsService` window filters (half-open `[from, to)` against tournament end dates, pinned by tests; type filter drops the community-scores branch since pinned scores carry no tournament type), parsed via a shared helper on both stats routes.
+
 ## [2.96.0] — unreleased
 
 **Next-win disposition: nominate/forfeit your pick, the Dynasty option, and the rotation-readiness nudge (RTX demo feedback, owner-designed).**
