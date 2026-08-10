@@ -6,6 +6,8 @@ import PickGameModal from '../components/PickGameModal';
 import LoginButtons from '../components/LoginButtons';
 import PlatformChips from '../components/PlatformChips';
 import GameQuickView from '../components/GameQuickView';
+import MemberAdminPicker, { type PickableMember } from '../components/MemberAdminPicker';
+import { PlayerAvatar } from '../components/ScoreboardComponents';
 import { MysteryAwardIcon } from '../assets/icons/ThemedIcons';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
@@ -320,6 +322,58 @@ export default function Picks() {
   const [dispositionLoading, setDispositionLoading] = useState(false);
   const [nomineeInput, setNomineeInput] = useState('');
   const [showNomineeInput, setShowNomineeInput] = useState(false);
+
+  /**
+   * Nominee room-member picker (v2.97.0 follow-up). `GET /:roomId/members` is
+   * the same public roster `RoomMembers.tsx` reads — lazily fetched once
+   * (first branch-open, or when an existing 'nominate' disposition needs a
+   * name to display) and cached for the page's lifetime. `null` = not fetched
+   * yet, `[]` = fetched-empty-or-failed; both render as "no picker, free-text
+   * only" so a fetch failure degrades silently (no error chrome — the
+   * free-text fallback always works). The Bearer token matters on
+   * 'approval'-policy rooms: roomVisibilityGate 403s tokenless requests
+   * there, and the disposition control only renders for signed-in viewers,
+   * so the token is always available here.
+   */
+  const [roomMembers, setRoomMembers] = useState<PickableMember[] | null>(null);
+  const fetchRoomMembers = useCallback(() => {
+    if (!roomId || roomMembers !== null) return;
+    fetch(`/api/rooms/${roomId}/members`, playerToken ? { headers: { Authorization: `Bearer ${playerToken}` } } : undefined)
+      .then(r => (r.ok ? r.json() : []))
+      .then((data: unknown) => {
+        const list: Array<Record<string, unknown>> = Array.isArray(data) ? data : [];
+        setRoomMembers(list.map((m): PickableMember => ({
+          userId: String(m.userId),
+          displayName: (m.displayName as string | null) ?? (m.username as string | null) ?? null,
+          avatarHash: (m.avatarHash as string | null) ?? null,
+          avatarUrl: (m.avatarUrl as string | null) ?? null,
+        })));
+      })
+      .catch(() => setRoomMembers([]));
+  }, [roomId, roomMembers, playerToken]);
+
+  // Nominable candidates: Discord-snowflake ids only (google:* identities
+  // can't be Discord-nominated — the server nominates via Discord DM/mention)
+  // and never the signed-in viewer (self-nomination is rejected server-side).
+  const nomineeCandidates = useMemo(() => {
+    if (!roomMembers) return [];
+    return roomMembers.filter(m => /^\d{5,25}$/.test(m.userId) && m.userId !== discordUser?.discordId);
+  }, [roomMembers, discordUser]);
+
+  // Best-effort name+avatar resolution for a stored nominee id — falls back
+  // to the raw <@id> rendering (below) when the roster hasn't loaded yet or
+  // the id isn't a current room member.
+  const resolveNominee = (id: string | null): PickableMember | null => {
+    if (!id || !roomMembers) return null;
+    return roomMembers.find(m => m.userId === id) ?? null;
+  };
+
+  // Prefill: an existing 'nominate' disposition needs the roster to resolve a
+  // display name, even if the player never opens the picker branch.
+  useEffect(() => {
+    if (disposition?.disposition === 'nominate') fetchRoomMembers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disposition?.disposition]);
 
   const fetchDisposition = useCallback(() => {
     if (!roomId || !playerToken || !selectedTournamentId) { setDisposition(null); return; }
@@ -657,7 +711,7 @@ export default function Picks() {
               Forfeit to runner-up
             </button>
             <button
-              onClick={() => setShowNomineeInput(v => !v)}
+              onClick={() => { setShowNomineeInput(v => !v); fetchRoomMembers(); }}
               disabled={dispositionLoading}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer disabled:cursor-default ${
                 disposition?.disposition === 'nominate'
@@ -668,28 +722,68 @@ export default function Picks() {
               Give my pick to…
             </button>
           </div>
-          {disposition?.disposition === 'nominate' && !showNomineeInput && (
-            <p className="text-xs text-muted mt-2">
-              Currently set to hand off to <span className="text-primary font-medium">&lt;@{disposition.nomineeDiscordId}&gt;</span>.
-            </p>
-          )}
+          {disposition?.disposition === 'nominate' && !showNomineeInput && (() => {
+            const resolved = resolveNominee(disposition.nomineeDiscordId);
+            return (
+              <p className="text-xs text-muted mt-2 flex items-center flex-wrap gap-1.5">
+                <span>Currently set to hand off to</span>
+                {resolved ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <PlayerAvatar
+                      username={resolved.displayName || resolved.userId}
+                      discordUserId={resolved.userId}
+                      avatarHash={resolved.avatarHash}
+                      avatarUrl={resolved.avatarUrl}
+                      size={16}
+                    />
+                    <span className="text-primary font-medium">{resolved.displayName || resolved.userId}</span>
+                  </span>
+                ) : (
+                  <span className="text-primary font-medium">&lt;@{disposition.nomineeDiscordId}&gt;</span>
+                )}
+                <span>.</span>
+              </p>
+            );
+          })()}
           {showNomineeInput && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <input
-                type="text"
-                value={nomineeInput}
-                onChange={(e) => setNomineeInput(e.target.value)}
-                placeholder="Discord user ID or @mention"
-                aria-label="Nominee Discord user ID"
-                className="flex-1 min-w-[200px] bg-bg border border-border rounded-lg px-3 py-1.5 text-xs text-primary placeholder:text-faint focus:outline-none focus:border-neon-purple/50"
-              />
-              <button
-                onClick={handleNomineeSubmit}
-                disabled={dispositionLoading || !nomineeInput.trim()}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-neon-purple/40 bg-neon-purple/10 text-neon-purple hover:bg-neon-purple/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Save
-              </button>
+            <div className="mt-3 space-y-3">
+              {/* Room-member picker — the common case (nominee already plays
+                  here) is search-and-click. Only rendered once the roster has
+                  loaded AND has an eligible candidate; a fetch failure or an
+                  empty/all-excluded roster falls straight through to the
+                  free-text fallback below with no error chrome. */}
+              {nomineeCandidates.length > 0 && (
+                <MemberAdminPicker
+                  members={nomineeCandidates}
+                  excludeIds={new Set()}
+                  onSelect={(member) => saveDisposition({ disposition: 'nominate', nomineeDiscordId: member.userId })}
+                  label="Pick a room member"
+                />
+              )}
+              <div>
+                <p className="text-[11px] text-faint mb-1">
+                  {nomineeCandidates.length > 0
+                    ? 'Not in the list? Paste their Discord ID or @mention'
+                    : 'Anyone in the Discord server — paste their Discord ID or @mention'}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    value={nomineeInput}
+                    onChange={(e) => setNomineeInput(e.target.value)}
+                    placeholder="Discord user ID or @mention"
+                    aria-label="Nominee Discord user ID"
+                    className="flex-1 min-w-[200px] bg-bg border border-border rounded-lg px-3 py-1.5 text-xs text-primary placeholder:text-faint focus:outline-none focus:border-neon-purple/50"
+                  />
+                  <button
+                    onClick={handleNomineeSubmit}
+                    disabled={dispositionLoading || !nomineeInput.trim()}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-neon-purple/40 bg-neon-purple/10 text-neon-purple hover:bg-neon-purple/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

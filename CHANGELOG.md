@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.98.0] — unreleased
+
+**Picks polish batch: nominee member picker + the deferred test harnesses (v2.96.0/v2.95.1 follow-ups).**
+
+### Added
+- **Nominee member picker on the Picks page** — the "Give my pick to…" branch of the "If I win next…" control now offers a searchable name+avatar picker over the room roster (the common case is search-and-click, no more hand-pasting Discord IDs). `google:*` identities and the signed-in viewer are excluded (neither can be Discord-nominated); the free-text ID/@mention field stays as the explicit fallback since nominees may be any guild member, not just room members (the deliberate onboarding hook). A stored nominee now renders as name + avatar when they're in the roster, falling back to the raw `<@id>` otherwise. The roster fetch carries the player token so approval-policy rooms (whose roster endpoint sits behind `roomVisibilityGate`) get the picker too; any fetch failure degrades silently to free-text-only.
+- **FE test coverage for the disposition control** (`PicksDisposition.test.tsx`, 10 tests): render/hide gating, GET prefill (roster-resolved + unresolved), forfeit/clear, picker nomination with exclusion assertions, free-text valid/invalid paths, roster-failure degrade.
+- **SubmissionSheet component test harness** (`SubmissionSheet.test.tsx`, 5 tests) — the v2.95.1 gap closed: pins the excluded-remembered-device regression (a remembered device the tournament excludes must not be shown or held), allowed-device restore, single-engine/single-device auto-lock, and platforms-fetch-failure resilience.
+
+### Changed
+- **`MemberAdminPicker` gains a select mode** (`onSelect` prop): the component becomes a pure picker — no built-in admin-add POST — with optional label/empty-state copy overrides. Default (admin-add) mode is unchanged; existing tests pass unmodified, 4 new select-mode tests.
+
 ## [2.97.1] — unreleased
 
 **Discord drift-audit fix batch — 9 findings from the systematic slash-command ↔ web audit (owner concern, pre-RTX-demo).**
