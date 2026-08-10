@@ -232,7 +232,7 @@ describe('Picks page — next-win disposition control', () => {
     renderPicks('disp_freetext_room');
 
     fireEvent.click(await screen.findByText('Give my pick to…'));
-    const input = await screen.findByLabelText('Nominee Discord user ID');
+    const input = await screen.findByLabelText('Nominee Discord username or ID');
     fireEvent.change(input, { target: { value: '<@444444444444444444>' } });
     fireEvent.click(screen.getByText('Save'));
 
@@ -246,18 +246,58 @@ describe('Picks page — next-win disposition control', () => {
     });
   });
 
-  it('free-text fallback: invalid input toasts and issues no PUT', async () => {
+  it('free-text fallback: a typed username is sent raw and the server-resolved name renders (v2.98.1)', async () => {
     signIn();
-    const { fetchMock } = stubFetch('disp_freetext_invalid_room');
-    renderPicks('disp_freetext_invalid_room');
+    // Server resolves '@chuckribbits' → id + display name (the guild-member-
+    // but-not-room-member case: '4444…' is NOT in ROSTER, so the rendered
+    // name can only come from the PUT response's nomineeDisplayName).
+    const { fetchMock } = stubFetch('disp_freetext_name_room', {
+      putHandler: () => ({
+        status: 200,
+        body: { disposition: { disposition: 'nominate', nomineeDiscordId: '444444444444444444', nomineeDisplayName: 'ChuckRibbits' } },
+      }),
+    });
+    renderPicks('disp_freetext_name_room');
 
     fireEvent.click(await screen.findByText('Give my pick to…'));
-    const input = await screen.findByLabelText('Nominee Discord user ID');
-    fireEvent.change(input, { target: { value: 'not-a-valid-id' } });
+    const input = await screen.findByLabelText('Nominee Discord username or ID');
+    fireEvent.change(input, { target: { value: '@chuckribbits' } });
     fireEvent.click(screen.getByText('Save'));
 
-    expect(await screen.findByText(/valid Discord user ID/)).toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/pick-disposition') && (c[1] as RequestInit)?.method === 'PUT')).toBe(false);
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(c => String(c[0]).includes('/pick-disposition') && (c[1] as RequestInit)?.method === 'PUT');
+      expect(putCall).toBeTruthy();
+      // Sent raw — resolution is server-side against the linked guild.
+      expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual({
+        disposition: 'nominate',
+        nomineeDiscordId: '@chuckribbits',
+      });
+    });
+    const label = await screen.findByText(/Currently set to hand off to/);
+    const line = label.closest('p')!;
+    expect(within(line).getByText('ChuckRibbits')).toBeInTheDocument();
+    expect(within(line).queryByText(/<@/)).not.toBeInTheDocument();
+  });
+
+  it('free-text fallback: a server rejection (unresolvable name) surfaces the server message', async () => {
+    signIn();
+    const { fetchMock } = stubFetch('disp_freetext_reject_room', {
+      putHandler: () => ({
+        status: 400,
+        body: { error: `Couldn't find a Discord member matching "@nobody" in this room's server. Check the spelling, or paste their numeric Discord ID.` },
+      }),
+    });
+    renderPicks('disp_freetext_reject_room');
+
+    fireEvent.click(await screen.findByText('Give my pick to…'));
+    const input = await screen.findByLabelText('Nominee Discord username or ID');
+    fireEvent.change(input, { target: { value: '@nobody' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(await screen.findByText(/Couldn't find a Discord member/)).toBeInTheDocument();
+    // Disposition unchanged — still no stored nomination.
+    expect(screen.queryByText(/Currently set to hand off to/)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/pick-disposition') && (c[1] as RequestInit)?.method === 'PUT')).toBe(true);
   });
 
   it('member roster fetch failure degrades to free-text-only, no error chrome', async () => {
@@ -268,7 +308,7 @@ describe('Picks page — next-win disposition control', () => {
     fireEvent.click(await screen.findByText('Give my pick to…'));
 
     // Free-text input still present and usable.
-    expect(await screen.findByLabelText('Nominee Discord user ID')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Nominee Discord username or ID')).toBeInTheDocument();
     // No picker (no candidates resolved) and no error text anywhere.
     await waitFor(() => expect(screen.queryByTestId('member-admin-picker')).not.toBeInTheDocument());
     expect(screen.queryByText(/error/i)).not.toBeInTheDocument();

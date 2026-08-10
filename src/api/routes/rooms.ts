@@ -1168,28 +1168,48 @@ router.put('/:roomId/tournaments/:tournamentId/pick-disposition', requireDiscord
             return res.status(400).json({ error: 'nomineeDiscordId is required for a nominate disposition' });
         }
 
-        // Best-effort guild-membership check — uncertainty degrades to
-        // allowing the set (design: never block on "we couldn't tell").
-        if (disposition === 'nominate' && nomineeDiscordId) {
-            try {
-                const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
-                if (guildId) {
-                    const { getDiscordClient } = await import('../../discord/DiscordClient.js');
-                    const client = getDiscordClient();
-                    if (client?.isReady()) {
-                        const isMember = await client.isMemberOfGuild(guildId, nomineeDiscordId);
-                        if (!isMember) {
-                            return res.status(400).json({ error: 'That user is not a member of this server, so they cannot be nominated.' });
+        let nomineeId = nomineeDiscordId ?? null;
+        let nomineeDisplayName: string | null = null;
+        if (disposition === 'nominate' && nomineeId) {
+            const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+            if (!/^\d{5,25}$/.test(nomineeId)) {
+                // Typed username / @handle (field report 2026-08-10: the FE
+                // caption says "@mention" but only a numeric ID or a literal
+                // <@id> string got through) — resolve against the room's
+                // linked guild, same resolver the admin add-by-name and
+                // friends paths use. A hit proves guild membership, so the
+                // best-effort probe below is redundant on this branch. This
+                // check is a HARD gate (unlike the probe): storing an
+                // unresolved name would DM/mention nobody at rotation.
+                const { resolveDiscordMember } = await import('../../utils/discord.js');
+                const member = guildId ? await resolveDiscordMember(nomineeId, guildId) : null;
+                if (!member) {
+                    return res.status(400).json({ error: `Couldn't find a Discord member matching "${nomineeId}" in this room's server. Check the spelling, or paste their numeric Discord ID.` });
+                }
+                nomineeId = member.id;
+                nomineeDisplayName = member.displayName;
+            } else {
+                // Best-effort guild-membership check — uncertainty degrades to
+                // allowing the set (design: never block on "we couldn't tell").
+                try {
+                    if (guildId) {
+                        const { getDiscordClient } = await import('../../discord/DiscordClient.js');
+                        const client = getDiscordClient();
+                        if (client?.isReady()) {
+                            const isMember = await client.isMemberOfGuild(guildId, nomineeId);
+                            if (!isMember) {
+                                return res.status(400).json({ error: 'That user is not a member of this server, so they cannot be nominated.' });
+                            }
                         }
                     }
-                }
-            } catch { /* uncertain — allow the set */ }
+                } catch { /* uncertain — allow the set */ }
+            }
         }
 
         const { PickDispositionService, SelfNominationError } = await import('../../services/PickDispositionService.js');
         try {
-            const row = await PickDispositionService.set(tournamentId, discordId, disposition, nomineeDiscordId ?? null);
-            res.json({ disposition: { disposition: row.disposition, nomineeDiscordId: row.nominee_discord_id } });
+            const row = await PickDispositionService.set(tournamentId, discordId, disposition, nomineeId);
+            res.json({ disposition: { disposition: row.disposition, nomineeDiscordId: row.nominee_discord_id, ...(nomineeDisplayName ? { nomineeDisplayName } : {}) } });
         } catch (err) {
             if (err instanceof SelfNominationError) {
                 return res.status(400).json({ error: err.message, code: 'SELF_NOMINATION' });

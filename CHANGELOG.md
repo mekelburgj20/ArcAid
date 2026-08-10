@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.98.1] — unreleased
+
+**Hotfix: typed-username nominees (owner field report, same-day).**
+
+### Fixed
+- **"Give my pick to…" now accepts a typed Discord username** (`@chuckribbits` or `chuckribbits`). The v2.96.0 free-text field promised "@mention" but only accepted a raw numeric ID or a literal `<@id>` string — typing a username was rejected client-side. Non-numeric input is now sent to the server, which resolves it against the room's linked guild via `resolveDiscordMember` (new sibling of `resolveDiscordUserId` that also returns the display name; the four existing resolver call sites are behavior-unchanged). Resolution is a hard gate — an unresolvable name 400s with a spelled-out message (an unresolved name stored as-is would DM/mention nobody at rotation) — and a successful hit doubles as the guild-membership proof. The PUT response carries `nomineeDisplayName` so the confirmation line renders the person's name (session-local) even when they're not a room member yet. Player route only; the admin on-behalf route and Discord `/my-pick` (which gets real user options from Discord's own picker) are untouched.
+
 ## [2.98.0] — unreleased
 
 **Picks polish batch: nominee member picker + the deferred test harnesses (v2.96.0/v2.95.1 follow-ups).**
