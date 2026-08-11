@@ -54,7 +54,7 @@ export class RoomAccessService {
         // Token may be stale relative to a just-granted admin role or a
         // just-recorded membership row — re-check the DB, not just the JWT.
         //
-        // v2.9x.0 (linked-identity role-sync fix) — expand the token id once
+        // v2.100.0 (linked-identity role-sync fix) — expand the token id once
         // per call so the membership leg checks the WHOLE linked-identity
         // candidate set, not just the raw id the token happens to carry. A
         // membership row may sit on either side of a Google<->Discord link
@@ -87,7 +87,7 @@ export class RoomAccessService {
         if (token.discordId) {
             const adminRoomIds = await AdminService.getRoomsForDiscordUser(token.discordId);
             if (adminRoomIds.includes(roomId)) return 'admin';
-            // v2.9x.0 (linked-identity role-sync fix) — same candidate-set
+            // v2.100.0 (linked-identity role-sync fix) — same candidate-set
             // expansion as canViewRoom above, applied to both the membership
             // and pending-join-request legs.
             const candidates = Array.from(await IdentityLinkService.expandCandidates(token.discordId));

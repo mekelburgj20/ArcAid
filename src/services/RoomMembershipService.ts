@@ -70,7 +70,7 @@ export class RoomMembershipService {
     }
 
     /**
-     * v2.9x.0 (linked-identity role-sync fix) — IN-variant of `isMember` for
+     * v2.100.0 (linked-identity role-sync fix) — IN-variant of `isMember` for
      * a set of candidate ids (a linked-identity expansion — see
      * `IdentityLinkService.expandCandidates`). A membership row may sit on
      * EITHER side of a Google<->Discord link (createLink re-keys

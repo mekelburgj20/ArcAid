@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.100.0] — unreleased
+
+**Linked-identity role sync — one identity, either login (owner field report).**
+
+### Fixed
+- **A linked Google login now gets the same admin affordances as the Discord login.** Field report: a room admin logging in via their linked Google account saw no "Room admin" menu entry. Three causes, all fixed: (1) the FE's linked-login completion branch stored the player token but never seeded the admin-token slot at all (the plain-login branch did); (2) that seeding was guarded by a one-shot "slot is empty" check, so a stale expired token from any previous session silently blocked it forever — now re-seeds whenever the slot is empty or expired, never overwriting a live admin token; (3) the "Room admin" affordance itself was slot-presence-only — it now also derives from the current player token's decoded claims, and self-heals the slot when the player token is admin-grade.
+- **Admin grants now follow the whole identity link, both directions.** `AdminService.getRoomsForDiscordUser` expands the login id across the Google↔Discord link graph (new `IdentityLinkService.expandCandidates`, extracted from `BanService.expandIdentityCandidates` which now delegates — behavior unchanged) before querying `game_room_admins`, so a grant recorded against either side of a link is honored at token issuance, refresh, and `viewer_status`. Previously only the forward canonical resolution ran — a grant added against the `google:*` alias after linking was invisible to both logins.
+- **Membership and pending-join checks are link-aware too**: `RoomAccessService.canViewRoom`/`getViewerStatus` check the full candidate set (new `isMemberAny`/`getPendingStatusAny` IN-variants), so approval-room access resolves correctly whichever linked identity the token carries. Known deliberate non-goal: the dual-slot refresh-token rotation wart is documented, unchanged.
+
 ## [2.99.2] — unreleased
 
 **Flake-family root fix: the v2.24.1 tracker's oldest escape + a single-flight init guard.**

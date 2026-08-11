@@ -184,7 +184,7 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
     };
   }, [resolvedRoomId, playerToken, location.pathname]);
 
-  // Field report fix (v2.9x.0) — the admin affordance ("Room admin" menu
+  // Field report fix (v2.100.0) — the admin affordance ("Room admin" menu
   // item) must derive from the CURRENT login, not just presence of whatever
   // sits in the admin-token slot. Two sources, either qualifies:
   //   1. The admin slot itself, when present AND unexpired.

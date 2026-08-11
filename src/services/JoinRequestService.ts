@@ -125,7 +125,7 @@ export class JoinRequestService {
     }
 
     /**
-     * v2.9x.0 (linked-identity role-sync fix) — IN-variant of
+     * v2.100.0 (linked-identity role-sync fix) — IN-variant of
      * `getPendingStatus` for a linked-identity candidate set (see
      * `IdentityLinkService.expandCandidates`). A join request may have been
      * filed under either side of a Google<->Discord link.

@@ -62,7 +62,7 @@ export class IdentityLinkService {
      * The full link-graph expansion for `userId`: the raw id itself, its
      * canonical resolution, and every provider id linked to either side.
      *
-     * v2.9x.0 (linked-identity role-sync fix) — moved here from
+     * v2.100.0 (linked-identity role-sync fix) — moved here from
      * `BanService.expandIdentityCandidates` (v2.49.0), which now delegates to
      * this method with its public signature/behavior unchanged. Ban
      * enforcement was never the only consumer that needs "every identity this

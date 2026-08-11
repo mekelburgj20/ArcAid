@@ -1,5 +1,5 @@
 /**
- * v2.9x.0 (linked-identity role-sync fix) — shared by both OAuth callbacks'
+ * v2.100.0 (linked-identity role-sync fix) — shared by both OAuth callbacks'
  * normal-login AND linked-login branches (GoogleCallback.tsx, DiscordCallback.tsx).
  *
  * Field report: a user whose Discord account is a room admin logged in via

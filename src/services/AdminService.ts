@@ -77,7 +77,7 @@ export class AdminService {
     }
 
     /**
-     * v2.9x.0 (linked-identity role-sync fix) — link-aware. A room-admin grant
+     * v2.100.0 (linked-identity role-sync fix) — link-aware. A room-admin grant
      * recorded on one side of a Google<->Discord identity link (`createLink`
      * moves `game_room_admins` rows onto the canonical snowflake, but a grant
      * added directly against a pasted `google:*` id via `POST
