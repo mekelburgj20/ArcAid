@@ -19,6 +19,23 @@ function signInAs(discordId: string, username = 'Tester') {
   localStorage.setItem('arcaid_player_user', JSON.stringify({ discordId, username, avatar: null }));
 }
 
+/** Field report fix (v2.9x.0) — signs in as a player whose token ALSO carries
+ * an admin role claim, mirroring what a real room_admin/super_admin login
+ * mints. Returns the token so callers can assert it (or its replacement)
+ * ends up seeded into the admin slot. */
+function signInAsAdmin(discordId: string, role: 'room_admin' | 'super_admin', gameRoomIds: string[], username = 'Admin') {
+  const exp = Math.floor(Date.now() / 1000) + 3600;
+  const token = fakeJwt({ discordId, username, avatar: null, role, gameRoomIds, exp });
+  localStorage.setItem('arcaid_player_token', token);
+  localStorage.setItem('arcaid_player_user', JSON.stringify({ discordId, username, avatar: null }));
+  return token;
+}
+
+function expiredAdminSlotToken(): string {
+  const exp = Math.floor(Date.now() / 1000) - 3600;
+  return fakeJwt({ discordId: 'stale-admin', role: 'room_admin', gameRoomIds: [], exp });
+}
+
 // s21 — the ticker (mounted by PublicLayout on the scoreboard route) joins a
 // lobby socket channel; keep that inert under jsdom.
 vi.mock('../../lib/websocket', () => ({
@@ -404,6 +421,104 @@ describe('PublicLayout', () => {
     it('lights Scores on the room root', async () => {
       renderNavAt('/rtx_pinball');
       await waitFor(async () => expect(await activeNavLabel()).toBe('Scores'));
+    });
+  });
+
+  // Field report fix (v2.9x.0) — the "Room admin" UserMenu item must derive
+  // from the CURRENT login (admin slot OR an admin-y player token for THIS
+  // room), not just presence of whatever token happens to sit in the admin
+  // slot. See PublicLayout.tsx's `hasAdminToken` computation.
+  describe('admin affordance derives from the current login', () => {
+    function fetchPortal(roomId: string, slug: string) {
+      return vi.fn((url: string) => {
+        if (url.startsWith('/api/portal')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ id: roomId, roomId, slug, name: 'RTX Pinball', pick_award_enabled: false }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+    }
+
+    it('guest: no "Room admin" item (LoginButtons render instead of UserMenu)', async () => {
+      vi.stubGlobal('fetch', fetchPortal('room-1', 'rtx_pinball'));
+      renderAt('/rtx_pinball/child');
+      await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
+      expect(screen.queryByLabelText('User menu')).toBeNull();
+      expect(screen.queryByText('Room admin')).toBeNull();
+    });
+
+    it('plain player (non-admin role): signed in, but no "Room admin" item', async () => {
+      signInAs('user-1', 'Justin');
+      vi.stubGlobal('fetch', fetchPortal('room-1', 'rtx_pinball'));
+      renderAt('/rtx_pinball/child');
+      await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
+
+      fireEvent.click(screen.getByLabelText('User menu'));
+      expect(screen.queryByText('Room admin')).toBeNull();
+      // Nothing was seeded into the admin slot for a non-admin role.
+      expect(localStorage.getItem('arcaid_token')).toBeNull();
+    });
+
+    it('admin-y player token, empty admin slot: "Room admin" shows and the slot is seeded', async () => {
+      const token = signInAsAdmin('admin-1', 'room_admin', ['room-1']);
+      vi.stubGlobal('fetch', fetchPortal('room-1', 'rtx_pinball'));
+      renderAt('/rtx_pinball/child');
+      await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
+
+      fireEvent.click(screen.getByLabelText('User menu'));
+      await screen.findByText('Room admin');
+      await waitFor(() => expect(localStorage.getItem('arcaid_token')).toBe(token));
+    });
+
+    it('admin-y player token, EXPIRED admin slot: "Room admin" shows and the stale slot is reseeded', async () => {
+      localStorage.setItem('arcaid_token', expiredAdminSlotToken());
+      const token = signInAsAdmin('admin-2', 'room_admin', ['room-1']);
+      vi.stubGlobal('fetch', fetchPortal('room-1', 'rtx_pinball'));
+      renderAt('/rtx_pinball/child');
+      await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
+
+      fireEvent.click(screen.getByLabelText('User menu'));
+      await screen.findByText('Room admin');
+      await waitFor(() => expect(localStorage.getItem('arcaid_token')).toBe(token));
+    });
+
+    it('room_admin token for a DIFFERENT room: no affordance here, nothing seeded', async () => {
+      signInAsAdmin('admin-3', 'room_admin', ['some-other-room']);
+      vi.stubGlobal('fetch', fetchPortal('room-1', 'rtx_pinball'));
+      renderAt('/rtx_pinball/child');
+      await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
+
+      fireEvent.click(screen.getByLabelText('User menu'));
+      expect(screen.queryByText('Room admin')).toBeNull();
+      expect(localStorage.getItem('arcaid_token')).toBeNull();
+    });
+
+    it('super_admin player token qualifies regardless of gameRoomIds', async () => {
+      const token = signInAsAdmin('admin-4', 'super_admin', []);
+      vi.stubGlobal('fetch', fetchPortal('room-1', 'rtx_pinball'));
+      renderAt('/rtx_pinball/child');
+      await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
+
+      fireEvent.click(screen.getByLabelText('User menu'));
+      await screen.findByText('Room admin');
+      await waitFor(() => expect(localStorage.getItem('arcaid_token')).toBe(token));
+    });
+
+    it('a live, unexpired admin slot for an UNRELATED admin is never overwritten by a non-admin player token', async () => {
+      const existingAdminToken = fakeJwt({ discordId: 'other-admin', role: 'room_admin', gameRoomIds: ['room-1'], exp: Math.floor(Date.now() / 1000) + 3600 });
+      localStorage.setItem('arcaid_token', existingAdminToken);
+      signInAs('user-5', 'Justin'); // plain player, not admin-y
+      vi.stubGlobal('fetch', fetchPortal('room-1', 'rtx_pinball'));
+      renderAt('/rtx_pinball/child');
+      await waitFor(() => expect(screen.getByTestId('roomId')).toHaveTextContent('room-1'));
+
+      // The admin slot itself is live, so the affordance still shows...
+      fireEvent.click(screen.getByLabelText('User menu'));
+      await screen.findByText('Room admin');
+      // ...and the untouched existing admin token is still the one seated.
+      expect(localStorage.getItem('arcaid_token')).toBe(existingAdminToken);
     });
   });
 });

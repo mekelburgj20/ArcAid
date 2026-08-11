@@ -70,6 +70,28 @@ export class RoomMembershipService {
     }
 
     /**
+     * v2.9x.0 (linked-identity role-sync fix) — IN-variant of `isMember` for
+     * a set of candidate ids (a linked-identity expansion — see
+     * `IdentityLinkService.expandCandidates`). A membership row may sit on
+     * EITHER side of a Google<->Discord link (createLink re-keys
+     * `room_members` for rooms only the non-canonical side belonged to, but a
+     * row created directly against the presented id before a later link — or
+     * any future write path that doesn't normalize — can still sit on either
+     * side), so a single-id lookup at login/portal time can miss it.
+     */
+    static async isMemberAny(userIds: string[], roomId: string): Promise<boolean> {
+        const realIds = userIds.filter(isRealUserId);
+        if (realIds.length === 0 || !roomId) return false;
+        const db = await getDatabase();
+        const placeholders = realIds.map(() => '?').join(', ');
+        const row = await db.get(
+            `SELECT 1 FROM room_members WHERE room_id = ? AND user_id IN (${placeholders}) LIMIT 1`,
+            roomId, ...realIds
+        );
+        return !!row;
+    }
+
+    /**
      * Rooms a user belongs to, ordered by most-recent activity. lastActivityAt is
      * the max of submissions.timestamp / community_scores.created_at scoped to the
      * (user, room) pair. Falls back to joined_at when the user has no scores yet

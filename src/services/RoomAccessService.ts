@@ -3,6 +3,7 @@ import { getDatabase } from '../database/database.js';
 import { GameRoomSettingsService } from './GameRoomSettingsService.js';
 import { AdminService } from './AdminService.js';
 import { RoomMembershipService } from './RoomMembershipService.js';
+import { IdentityLinkService } from './IdentityLinkService.js';
 
 export type JoinPolicy = 'open' | 'approval';
 
@@ -52,10 +53,18 @@ export class RoomAccessService {
 
         // Token may be stale relative to a just-granted admin role or a
         // just-recorded membership row — re-check the DB, not just the JWT.
+        //
+        // v2.9x.0 (linked-identity role-sync fix) — expand the token id once
+        // per call so the membership leg checks the WHOLE linked-identity
+        // candidate set, not just the raw id the token happens to carry. A
+        // membership row may sit on either side of a Google<->Discord link
+        // (see RoomMembershipService.isMemberAny's doc comment); the admin
+        // leg (`getRoomsForDiscordUser`) is already link-aware internally.
         if (token.discordId) {
             const adminRoomIds = await AdminService.getRoomsForDiscordUser(token.discordId);
             if (adminRoomIds.includes(roomId)) return true;
-            if (await RoomMembershipService.isMember(token.discordId, roomId)) return true;
+            const candidates = Array.from(await IdentityLinkService.expandCandidates(token.discordId));
+            if (await RoomMembershipService.isMemberAny(candidates, roomId)) return true;
         }
 
         return false;
@@ -78,9 +87,13 @@ export class RoomAccessService {
         if (token.discordId) {
             const adminRoomIds = await AdminService.getRoomsForDiscordUser(token.discordId);
             if (adminRoomIds.includes(roomId)) return 'admin';
-            if (await RoomMembershipService.isMember(token.discordId, roomId)) return 'member';
+            // v2.9x.0 (linked-identity role-sync fix) — same candidate-set
+            // expansion as canViewRoom above, applied to both the membership
+            // and pending-join-request legs.
+            const candidates = Array.from(await IdentityLinkService.expandCandidates(token.discordId));
+            if (await RoomMembershipService.isMemberAny(candidates, roomId)) return 'member';
             const { JoinRequestService } = await import('./JoinRequestService.js');
-            const pending = await JoinRequestService.getPendingStatus(roomId, token.discordId);
+            const pending = await JoinRequestService.getPendingStatusAny(roomId, candidates);
             if (pending) return 'pending';
         }
 

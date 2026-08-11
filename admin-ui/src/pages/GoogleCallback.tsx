@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { setToken } from '../lib/api';
+import { maybeSeedAdminSlot } from '../lib/adminSlotSeed';
 
 /**
  * Google OAuth callback — clone-and-diverge from DiscordCallback.tsx
@@ -152,6 +153,11 @@ export default function GoogleCallback({ onLogin }: { onLogin: () => void }) {
           localStorage.setItem('arcaid_player_token', data.token);
           if (data.refreshToken) localStorage.setItem('arcaid_player_refresh_token', data.refreshToken);
           if (data.user) localStorage.setItem('arcaid_player_user', JSON.stringify(data.user));
+          // Field report fix — a linked login for a room_admin/super_admin
+          // identity must ALSO seed the admin-token slot, same as a plain
+          // player login below, so the "Room admin" affordance appears
+          // regardless of which provider button completed the link.
+          maybeSeedAdminSlot(data.token, decodeJwtPayload(data.token)?.role as string | undefined, data.refreshToken);
           window.dispatchEvent(new Event('arcaid_player_login'));
           setLinkSuccess(true);
           window.setTimeout(() => { window.location.href = '/account/settings'; }, 1200);
@@ -174,12 +180,10 @@ export default function GoogleCallback({ onLogin }: { onLogin: () => void }) {
           // If the same identity is a room_admin or super_admin, also seed
           // the admin-token slot so the UserMenu "Room admin" link appears
           // and /:slug/admin/login auto-bounces past the password form.
-          // Guarded on the slot being empty so a higher-privilege session
-          // already active in this browser isn't silently downgraded.
-          if ((role === 'room_admin' || role === 'super_admin') && !localStorage.getItem('arcaid_token')) {
-            setToken(data.token);
-            if (data.refreshToken) localStorage.setItem('arcaid_admin_refresh_token', data.refreshToken);
-          }
+          // Seeds when the slot is empty OR its existing token has expired —
+          // never overwrites a live, unexpired admin token (it may belong to
+          // a higher-privilege session already active in this browser).
+          maybeSeedAdminSlot(data.token, role, data.refreshToken);
           // Notify ViewerAuthContext
           window.dispatchEvent(new Event('arcaid_player_login'));
 

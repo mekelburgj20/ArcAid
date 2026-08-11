@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { getDatabase } from '../database/database.js';
 import type { LocalAdmin, GameRoomAdmin, SuperAdmin } from '../types/index.js';
+import { IdentityLinkService } from './IdentityLinkService.js';
 
 /** v2.49.0 — `GameRoomAdmin` plus resolved display fields (see
  *  `getRoomDiscordAdmins`'s doc comment). `display_name`/`username` are
@@ -75,11 +76,24 @@ export class AdminService {
         }));
     }
 
+    /**
+     * v2.9x.0 (linked-identity role-sync fix) — link-aware. A room-admin grant
+     * recorded on one side of a Google<->Discord identity link (`createLink`
+     * moves `game_room_admins` rows onto the canonical snowflake, but a grant
+     * added directly against a pasted `google:*` id via `POST
+     * /:roomId/admins/discord` never gets normalized — see rooms.ts's ban
+     * route doc comment) must still be found regardless of which linked
+     * identity is presented at login/refresh time. Expands via the same
+     * link-graph walk `BanService`'s room-ban route already proved out at
+     * rooms.ts:5061-5065 (raw id + canonical + every sibling alias).
+     */
     static async getRoomsForDiscordUser(discordUserId: string): Promise<string[]> {
         const db = await getDatabase();
+        const candidates = Array.from(await IdentityLinkService.expandCandidates(discordUserId));
+        const placeholders = candidates.map(() => '?').join(', ');
         const rows = await db.all(
-            'SELECT game_room_id FROM game_room_admins WHERE discord_user_id = ?',
-            discordUserId
+            `SELECT DISTINCT game_room_id FROM game_room_admins WHERE discord_user_id IN (${placeholders})`,
+            ...candidates
         );
         return rows.map((r: any) => r.game_room_id);
     }
