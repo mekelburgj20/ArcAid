@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.100.1] — unreleased
+
+**Wide desktop layouts for Picks, Stats, and Players (owner request; shots approved).**
+
+### Changed
+- **Picks and Stats pages now use the Scores page's full-width treatment** (gutter padding, no width cap — was a ~896px centered column with huge dead margins on wide monitors). The Picks game table's title column absorbs the growth; stat tiles, search, and filter rows span the width. The Mystery Award banner and "If I win next…" control deliberately keep a centered cap — full-width stranded the Spin button ~1200px from its label.
+- **Players page widened** ~672px → ~1024px (deliberately not full-bleed; a bare name list doesn't benefit).
+
 ## [2.100.0] — unreleased
 
 **Linked-identity role sync — one identity, either login (owner field report).**
