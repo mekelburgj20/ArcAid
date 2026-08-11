@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.99.0] — unreleased
+
+**Nominee typeahead — Discord-style live suggestions (owner request, same-day field iteration on v2.98.x).**
+
+### Added
+- **Live guild-member suggestions in the nominee field**: typing 2+ characters (with or without a leading `@`) in "Give my pick to…" shows matching members of the room's linked Discord guild — name + avatar, prefix-matched by Discord's own member-search API (the same matching Discord's @ typeahead uses), so guild members who've never joined the room appear too. Click a row to save the nomination immediately; the confirmation line renders their name. Debounced ~300ms; results ride the existing 30s guild-search memo cache (`DiscordNicknameResolver`), so typing bursts don't multiply Discord REST traffic. The signed-in viewer is excluded; stale responses are abort-guarded and results render only while the query that produced them is still current. Paste-an-ID and exact-name Save (server-resolved, v2.98.1) are unchanged.
+- New self-service endpoint `GET /:roomId/guild-members/search?q=` (`requireDiscordUser` + ban check, behind `roomVisibilityGate`): <2 chars, no linked guild, or any failure all degrade to an empty list — a typeahead never 500s. New `searchGuildMembers` export on `DiscordNicknameResolver` (thin wrapper over the memoized prefix search; exact-match resolution untouched).
+
 ## [2.98.1] — unreleased
 
 **Hotfix: typed-username nominees (owner field report, same-day).**

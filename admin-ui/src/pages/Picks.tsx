@@ -465,7 +465,11 @@ export default function Picks() {
    * `RAGameSearch`.
    */
   const [debouncedNomineeQuery, setDebouncedNomineeQuery] = useState('');
-  const [fetchedNomineeSuggestions, setFetchedNomineeSuggestions] = useState<NomineeSuggestion[] | null>(null);
+  // Results are stored WITH the query that produced them and rendered only
+  // while that query is still current — otherwise re-opening the field with
+  // a new search briefly renders the previous query's list (or a stale
+  // "No matching" line) until the new fetch lands.
+  const [fetchedNomineeSuggestions, setFetchedNomineeSuggestions] = useState<{ query: string; list: NomineeSuggestion[] } | null>(null);
   const nomineeAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -475,7 +479,9 @@ export default function Picks() {
 
   const trimmedNomineeQuery = debouncedNomineeQuery.trim().replace(/^@/, '');
   const nomineeSearchActive = showNomineeInput && trimmedNomineeQuery.length >= 2;
-  const nomineeSuggestions = nomineeSearchActive ? fetchedNomineeSuggestions : null;
+  const nomineeSuggestions = nomineeSearchActive && fetchedNomineeSuggestions?.query === trimmedNomineeQuery
+    ? fetchedNomineeSuggestions.list
+    : null;
 
   useEffect(() => {
     if (!nomineeSearchActive || !roomId || !playerToken) return;
@@ -490,7 +496,7 @@ export default function Picks() {
       .then((data: { members?: NomineeSuggestion[] }) => {
         if (controller.signal.aborted) return;
         const list = (data.members ?? []).filter(m => m.discordUserId !== discordUser?.discordId);
-        setFetchedNomineeSuggestions(list);
+        setFetchedNomineeSuggestions({ query: trimmedNomineeQuery, list });
       })
       .catch(() => {
         if (!controller.signal.aborted) setFetchedNomineeSuggestions(null);
