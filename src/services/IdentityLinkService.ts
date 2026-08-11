@@ -58,6 +58,40 @@ export class IdentityLinkService {
         );
     }
 
+    /**
+     * The full link-graph expansion for `userId`: the raw id itself, its
+     * canonical resolution, and every provider id linked to either side.
+     *
+     * v2.100.0 (linked-identity role-sync fix) — moved here from
+     * `BanService.expandIdentityCandidates` (v2.49.0), which now delegates to
+     * this method with its public signature/behavior unchanged. Ban
+     * enforcement was never the only consumer that needs "every identity this
+     * login could resolve to" — admin-grant lookups (`AdminService.getRoomsForDiscordUser`)
+     * and room-membership/join-request checks need the identical expansion,
+     * and belong on the identity-graph service, not the ban one.
+     */
+    static async expandCandidates(userId: string): Promise<Set<string>> {
+        const candidates = new Set<string>([userId]);
+
+        const canonical = await IdentityLinkService.resolveCanonical(userId);
+        candidates.add(canonical);
+
+        // Any provider id linked TO this raw id (meaningful if userId is
+        // itself already a canonical/Discord identity with linked aliases).
+        const linkedToRaw = await IdentityLinkService.getLinkForCanonical(userId);
+        for (const link of linkedToRaw) candidates.add(link.provider_user_id);
+
+        // Any provider id linked TO the canonical resolution, when that
+        // differs from the raw id (covers a login presenting the
+        // already-linked non-canonical side).
+        if (canonical !== userId) {
+            const linkedToCanonical = await IdentityLinkService.getLinkForCanonical(canonical);
+            for (const link of linkedToCanonical) candidates.add(link.provider_user_id);
+        }
+
+        return candidates;
+    }
+
     /** Unlink v1 = row delete ONLY. No un-merge — identities diverge from here forward. */
     static async deleteLink(providerUserId: string): Promise<boolean> {
         const db = await getDatabase();

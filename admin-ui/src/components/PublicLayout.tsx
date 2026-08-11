@@ -9,6 +9,8 @@ import { getPortal, invalidatePortal, type Portal } from '../lib/portal';
 import { navSectionForPath, type NavSection } from '../lib/navSections';
 import { getTitleStyleClass } from './ScoreboardComponents';
 import { RoomContext } from '../contexts/RoomContext';
+import { setToken } from '../lib/api';
+import { decodeJwtPayload, isExpiredOrInvalid } from '../lib/adminSlotSeed';
 import UserMenu from './UserMenu';
 import LoginButtons from './LoginButtons';
 import PendingSubmissionWatcher from './PendingSubmissionWatcher';
@@ -182,7 +184,37 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
     };
   }, [resolvedRoomId, playerToken, location.pathname]);
 
-  const hasAdminToken = !!localStorage.getItem('arcaid_token');
+  // Field report fix (v2.100.0) — the admin affordance ("Room admin" menu
+  // item) must derive from the CURRENT login, not just presence of whatever
+  // sits in the admin-token slot. Two sources, either qualifies:
+  //   1. The admin slot itself, when present AND unexpired.
+  //   2. The current player token, when it decodes to a role that's an admin
+  //      HERE — `super_admin` unconditionally, `room_admin` only if this
+  //      room's id is in its `gameRoomIds` claim.
+  // When only #2 qualifies (slot empty/expired but the player token is
+  // admin-y), copy the player token into the admin slot via `setToken` (not
+  // a raw localStorage write — the admin slot's in-memory cache in lib/api.ts
+  // must also see it, since clicking "Room admin" is a client-side route
+  // change, not a full reload) so the click-through actually works. Both
+  // tokens are the identical JWT format minted by the same issuance path
+  // (the OAuth callbacks already write this exact token to both slots for a
+  // fresh login) — only the refresh token stays un-copied (dual-slot refresh
+  // rotation hazard, out of scope here).
+  const adminSlotToken = localStorage.getItem('arcaid_token');
+  const adminSlotLive = !isExpiredOrInvalid(adminSlotToken);
+  const playerClaims = playerToken ? decodeJwtPayload(playerToken) : null;
+  const playerRole = playerClaims?.role as string | undefined;
+  const playerGameRoomIds = Array.isArray(playerClaims?.gameRoomIds) ? (playerClaims!.gameRoomIds as string[]) : [];
+  const playerIsAdminHere = !!playerClaims && (
+    playerRole === 'super_admin' ||
+    (playerRole === 'room_admin' && !!resolvedRoomId && playerGameRoomIds.includes(resolvedRoomId))
+  );
+  const hasAdminToken = adminSlotLive || playerIsAdminHere;
+
+  useEffect(() => {
+    if (adminSlotLive || !playerIsAdminHere || !playerToken) return;
+    setToken(playerToken);
+  }, [adminSlotLive, playerIsAdminHere, playerToken]);
 
   const handleJoinRoom = async () => {
     if (!resolvedRoomId) return;

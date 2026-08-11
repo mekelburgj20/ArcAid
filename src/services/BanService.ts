@@ -118,25 +118,11 @@ export class BanService {
      * candidate set.
      */
     static async expandIdentityCandidates(providerUserId: string): Promise<string[]> {
-        const candidates = new Set<string>([providerUserId]);
-
-        const canonical = await IdentityLinkService.resolveCanonical(providerUserId);
-        candidates.add(canonical);
-
-        // Any provider id linked TO this raw id (meaningful if providerUserId
-        // is itself already a canonical/Discord identity with linked aliases).
-        const linkedToRaw = await IdentityLinkService.getLinkForCanonical(providerUserId);
-        for (const link of linkedToRaw) candidates.add(link.provider_user_id);
-
-        // Any provider id linked TO the canonical resolution, when that
-        // differs from the raw id (covers a login presenting the
-        // already-linked non-canonical side).
-        if (canonical !== providerUserId) {
-            const linkedToCanonical = await IdentityLinkService.getLinkForCanonical(canonical);
-            for (const link of linkedToCanonical) candidates.add(link.provider_user_id);
-        }
-
-        return Array.from(candidates);
+        // v2.9x.0 (linked-identity role-sync fix) — delegates to
+        // `IdentityLinkService.expandCandidates`, now the single source of
+        // truth for this expansion (this method's public signature and
+        // behavior are unchanged; only the implementation moved).
+        return Array.from(await IdentityLinkService.expandCandidates(providerUserId));
     }
 
     private static async computeIsIdentityBanned(providerUserId: string, gameRoomId: string | null): Promise<BanCheckResult> {

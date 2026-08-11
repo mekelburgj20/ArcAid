@@ -124,6 +124,23 @@ export class JoinRequestService {
         return row ? 'pending' : null;
     }
 
+    /**
+     * v2.100.0 (linked-identity role-sync fix) — IN-variant of
+     * `getPendingStatus` for a linked-identity candidate set (see
+     * `IdentityLinkService.expandCandidates`). A join request may have been
+     * filed under either side of a Google<->Discord link.
+     */
+    static async getPendingStatusAny(roomId: string, userIds: string[]): Promise<'pending' | null> {
+        if (userIds.length === 0) return null;
+        const db = await getDatabase();
+        const placeholders = userIds.map(() => '?').join(', ');
+        const row = await db.get(
+            `SELECT 1 FROM join_requests WHERE game_room_id = ? AND user_id IN (${placeholders}) AND status = 'pending' LIMIT 1`,
+            roomId, ...userIds,
+        );
+        return row ? 'pending' : null;
+    }
+
     static async listPending(roomId: string): Promise<JoinRequestRow[]> {
         const db = await getDatabase();
         return db.all(
