@@ -20,6 +20,7 @@ import {
 } from '../lib/allowedProvenance';
 import type { SubmitRank } from '../lib/api';
 import { formatScore } from '../lib/format';
+import { normalizePhotoFile } from '../lib/photoNormalize';
 
 /**
  * Unified submission sheet (Sprint 3 + Sprint 10, plan §10 / §13 / §15;
@@ -156,6 +157,9 @@ export default function SubmissionSheet({
     const [score, setScore] = useState('');
     const [photoFile, setPhotoFile] = useState<File | null>(null);
     const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+    /** Set when a selected photo can't be used (unsupported format that also
+     *  failed client-side re-encode — see `lib/photoNormalize.ts`). */
+    const [photoError, setPhotoError] = useState<string | null>(null);
     const [excludeFromGlobal, setExcludeFromGlobal] = useState(false);
     // v2.5.0: per-score platform stratification. `null` until the resolver
     // endpoint replies. `[]` means the resolver returned no submittable
@@ -337,18 +341,31 @@ export default function SubmissionSheet({
         })();
     }, [commitDraftState, playerToken]);
 
-    const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
+        setPhotoError(null);
+
+        // Unsupported formats (e.g. an iPhone's default `image/heic` capture)
+        // get re-encoded to JPEG on-device before we ever touch the network —
+        // see `lib/photoNormalize.ts` for why.
+        const normalized = await normalizePhotoFile(file);
+        if (!normalized) {
+            setPhotoError("That photo format isn't supported — please use a PNG or JPEG.");
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+        }
+
         if (photoPreview) URL.revokeObjectURL(photoPreview);
-        setPhotoFile(file);
-        setPhotoPreview(URL.createObjectURL(file));
+        setPhotoFile(normalized);
+        setPhotoPreview(URL.createObjectURL(normalized));
     };
 
     const clearPhoto = () => {
         if (photoPreview) URL.revokeObjectURL(photoPreview);
         setPhotoFile(null);
         setPhotoPreview(null);
+        setPhotoError(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
@@ -832,6 +849,9 @@ export default function SubmissionSheet({
                                 )}
                                 {needsPhoto && !photoFile && (
                                     <p className="text-xs text-neon-amber mt-1">A photo is required to submit your score.</p>
+                                )}
+                                {photoError && (
+                                    <p className="text-xs text-neon-amber mt-1">{photoError}</p>
                                 )}
                             </div>
 

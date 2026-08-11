@@ -39,6 +39,7 @@ import {
 } from '../schemas.js';
 import { writeLimiter, pickLimiter, pickAlertsLimiter, guestContentLimiter } from '../rateLimit.js';
 import { isAllowedImage } from '../uploadValidation.js';
+import { withUploadErrors } from '../uploadMiddleware.js';
 import { TournamentEngine } from '../../engine/TournamentEngine.js';
 import type { StatsWindowFilters } from '../../services/StatsService.js';
 // IScoredClient is constructed inside IScoredSessionRegistry; routes acquire
@@ -71,10 +72,11 @@ const router = Router({ mergeParams: true });
 const roomAssetUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 30 * 1024 * 1024 }, // 30 MB
-    fileFilter: (_req, file, cb) => {
+    fileFilter: (req, file, cb) => {
         if (['image/png', 'image/apng', 'image/jpeg', 'image/webp'].includes(file.mimetype)) {
             cb(null, true);
         } else {
+            req._uploadRejectedFile = { mimetype: file.mimetype, originalname: file.originalname };
             cb(new Error('Only PNG, APNG, JPEG, and WebP images are allowed'));
         }
     },
@@ -2005,7 +2007,7 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
 
 // Score submission with photo upload (public, rate-limited)
 // v2.79.0 (login mandate) — every submitter must be logged in (Discord or Google).
-router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser, requireNotBanned, roomAssetUpload.single('photo'), async (req, res) => {
+router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser, requireNotBanned, withUploadErrors(roomAssetUpload.single('photo')), async (req, res) => {
     try {
         const validationResult = validate(ScoreSubmissionSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -2137,7 +2139,7 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
  * to global_scores (subject to room GLOBAL_SCOREBOARD_ENABLED and user exclude_global).
  */
 // v2.79.0 (login mandate) — every submitter must be logged in (Discord or Google).
-router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, requireNotBanned, roomAssetUpload.single('photo'), async (req, res) => {
+router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, requireNotBanned, withUploadErrors(roomAssetUpload.single('photo')), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         // v2.5.0: switched from inline checks to FreeplayScoreSchema so all
@@ -5321,10 +5323,10 @@ router.get('/:roomId/admin/games-for-picker', requireAuth, requireRoomAccess('ro
 });
 
 // Upload a custom style to the global catalogue (room admins can contribute)
-router.post('/:roomId/admin/styles/upload', requireAuth, requireRoomAccess('roomId'), requireNotBanned, roomAssetUpload.fields([
+router.post('/:roomId/admin/styles/upload', requireAuth, requireRoomAccess('roomId'), requireNotBanned, withUploadErrors(roomAssetUpload.fields([
     { name: 'background', maxCount: 1 },
     { name: 'header', maxCount: 1 },
-]), async (req, res) => {
+])), async (req, res) => {
     try {
         const validationResult = validate(StyleUploadSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });
@@ -5611,7 +5613,7 @@ router.get('/:roomId/games/:gameId/style', async (req, res) => {
 // --- Asset Upload Endpoints ---
 
 // Upload background image
-router.post('/:roomId/admin/upload/background', requireAuth, requireRoomAccess('roomId'), roomAssetUpload.single('file'), async (req, res) => {
+router.post('/:roomId/admin/upload/background', requireAuth, requireRoomAccess('roomId'), withUploadErrors(roomAssetUpload.single('file')), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const file = req.file;
@@ -5659,7 +5661,7 @@ router.delete('/:roomId/admin/upload/background', requireAuth, requireRoomAccess
 });
 
 // Upload logo image
-router.post('/:roomId/admin/upload/logo', requireAuth, requireRoomAccess('roomId'), roomAssetUpload.single('file'), async (req, res) => {
+router.post('/:roomId/admin/upload/logo', requireAuth, requireRoomAccess('roomId'), withUploadErrors(roomAssetUpload.single('file')), async (req, res) => {
     try {
         const roomId = req.params.roomId as string;
         const file = req.file;

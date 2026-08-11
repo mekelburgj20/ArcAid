@@ -7,6 +7,7 @@ import { getDatabase } from '../../database/database.js';
 import { requireAuth, requireSuperAdmin } from '../middleware.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
+import { withUploadErrors } from '../uploadMiddleware.js';
 import {
     SettingsSchema,
     BackupRestoreParamsSchema, CreateGameRoomSchema, UpdateGameRoomSchema,
@@ -680,10 +681,11 @@ router.post('/settings', async (req, res) => {
 const styleUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 30 * 1024 * 1024 }, // 30 MB
-    fileFilter: (_req, file, cb) => {
+    fileFilter: (req, file, cb) => {
         if (['image/png', 'image/apng', 'image/jpeg', 'image/webp'].includes(file.mimetype)) {
             cb(null, true);
         } else {
+            req._uploadRejectedFile = { mimetype: file.mimetype, originalname: file.originalname };
             cb(new Error('Only PNG, APNG, JPEG, and WebP images are allowed'));
         }
     },
@@ -701,10 +703,10 @@ router.post('/styles/import', async (req, res) => {
 });
 
 // Upload a custom style (at least one image required)
-router.post('/styles/upload', styleUpload.fields([
+router.post('/styles/upload', withUploadErrors(styleUpload.fields([
     { name: 'background', maxCount: 1 },
     { name: 'header', maxCount: 1 },
-]), async (req, res) => {
+])), async (req, res) => {
     try {
         const validationResult = validate(StyleUploadSchema, req.body);
         if ('error' in validationResult) return res.status(400).json({ error: validationResult.error });

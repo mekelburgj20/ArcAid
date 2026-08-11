@@ -74,7 +74,7 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<RoomSort>('recent');
 
-  const [submissionTarget, setSubmissionTarget] = useState<{ gameName: string; gameStatus?: string } | null>(null);
+  const [submissionTarget, setSubmissionTarget] = useState<{ gameName: string } | null>(null);
   // v2.13.12-style quick-view modal, owned here (not by ScoreCardGrid — see F1).
   const [quickViewLb, setQuickViewLb] = useState<GameLeaderboard | null>(null);
 
@@ -235,7 +235,7 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
         onLoadMore={loadMore}
         emptyState={emptyState}
         linkFor={lb => `/${slug}/games/${encodeURIComponent(lb.gameName)}?tab=room`}
-        onSubmit={lb => setSubmissionTarget({ gameName: lb.gameName, gameStatus: lb.gameStatus })}
+        onSubmit={lb => setSubmissionTarget({ gameName: lb.gameName })}
         onTitleClick={lb => setQuickViewLb(lb)}
       />
 
@@ -244,14 +244,21 @@ export default function RoomScoresView({ roomId, slug, config, roomName, viewerU
       )}
 
       {/* Preserves existing Played-Here submit semantics (kind:'tournament' by
-          gameName) — do NOT "fix" to freeplay; see F3. */}
+          gameName) — do NOT "fix" to freeplay; see F3.
+          `gameStatus` is deliberately NOT threaded through here (owner field
+          report 2026-08-11): its only consumer in SubmissionSheet is the
+          cooldown caption, which is Tournaments-tab context ("won't count
+          toward the active tournament"). On Room Scores every submission is a
+          room-leaderboard post by definition — including games that rotated
+          out of past tournaments (COMPLETED status) — so the caption was pure
+          noise here. Tournaments tab / GameDetail still pass gameStatus and
+          keep the caption; don't change those. */}
       {submissionTarget && roomId && (
         <SubmissionSheet
           target={{
             kind: 'tournament',
             roomId,
             gameName: submissionTarget.gameName,
-            gameStatus: submissionTarget.gameStatus,
             requirePhoto: config.REQUIRE_SCORE_PHOTO === 'true',
           }}
           roomSlug={slug}
