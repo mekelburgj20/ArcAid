@@ -9,6 +9,7 @@ type DiscordRestMember = {
         id: string;
         username: string;
         global_name: string | null;
+        avatar?: string | null;
     };
 };
 
@@ -118,6 +119,36 @@ function pickBestMatch(
         if (m.user.username.toLowerCase() === lower) return { member: m, field: 'username' };
     }
     return null;
+}
+
+export type GuildMemberSuggestion = {
+    discordUserId: string;
+    displayName: string;
+    username: string;
+    avatarHash: string | null;
+};
+
+/**
+ * Discord-style typeahead for the Picks page's nominee field (v2.99.0).
+ * Thin wrapper over the same memoized `fetchMembersByQuery` prefix search
+ * `resolveServerNickname` uses — reuses its 30s cache and limit-10 guild
+ * search, so a typeahead session and an eventual exact-match resolve don't
+ * double the Discord REST traffic.
+ *
+ * `displayName` uses the same nick > globalName > username precedence as
+ * `resolveServerNickname`'s default (`fallbackToGlobal: true`) path.
+ */
+export async function searchGuildMembers(guildId: string, query: string): Promise<GuildMemberSuggestion[]> {
+    const trimmed = query.trim();
+    if (!trimmed || !guildId) return [];
+
+    const members = await fetchMembersByQuery(guildId, trimmed);
+    return members.map((m) => ({
+        discordUserId: m.user.id,
+        displayName: m.nick ?? m.user.global_name ?? m.user.username,
+        username: m.user.username,
+        avatarHash: m.user.avatar ?? null,
+    }));
 }
 
 /** Test-only: clear the memo cache. */

@@ -61,17 +61,24 @@ interface StubOpts {
   members?: unknown[] | null; // null => /members 500s
   putHandler?: (body: { disposition?: string; nomineeDiscordId?: string }) => { status: number; body: unknown };
   deleteHandler?: () => { status: number; body: unknown };
+  /** `GET /:roomId/guild-members/search?q=...` stub — the nominee typeahead. */
+  guildSearchHandler?: (q: string) => { status: number; body: unknown };
 }
 
 /** @param slug unique per test — getPortal/usePickAwardEnabled memoize per slug across tests. */
 function stubFetch(slug: string, opts: StubOpts = {}) {
-  const { disposition = null, members = ROSTER, putHandler, deleteHandler } = opts;
+  const { disposition = null, members = ROSTER, putHandler, deleteHandler, guildSearchHandler } = opts;
   const calls: { url: string; init?: RequestInit }[] = [];
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     calls.push({ url, init });
     const j = (body: unknown, status = 200) => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
     if (url.startsWith('/api/portal')) {
       return j({ id: ROOM_ID, roomId: ROOM_ID, slug, name: 'RTX Pinball', pick_award_enabled: true });
+    }
+    if (url.includes('/guild-members/search')) {
+      const q = new URL(url, 'http://localhost').searchParams.get('q') || '';
+      const result = guildSearchHandler ? guildSearchHandler(q) : { status: 200, body: { members: [] } };
+      return j(result.body, result.status);
     }
     if (url.includes('/pick-disposition')) {
       const method = init?.method ?? 'GET';
@@ -313,5 +320,125 @@ describe('Picks page — next-win disposition control', () => {
     await waitFor(() => expect(screen.queryByTestId('member-admin-picker')).not.toBeInTheDocument());
     expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/fail/i)).not.toBeInTheDocument();
+  });
+
+  // --------------------------------------------------------------------
+  // Nominee typeahead (v2.99.0) — Discord-style live suggestions on the
+  // free-text fallback input, debounced ~300ms. Real timers throughout
+  // (matches this file's existing idiom); `findBy*`'s generous default
+  // wait plus an explicit 2000ms override absorbs the debounce.
+  // --------------------------------------------------------------------
+
+  it('typeahead: typing 2+ chars renders suggestions after the debounce', async () => {
+    signIn();
+    const { fetchMock } = stubFetch('disp_typeahead_room', {
+      guildSearchHandler: (q) => ({
+        status: 200,
+        body: {
+          members: q === 'ch'
+            ? [{ discordUserId: '555566667777888899', displayName: 'Charlie', username: 'charlie', avatarHash: null }]
+            : [],
+        },
+      }),
+    });
+    renderPicks('disp_typeahead_room');
+
+    fireEvent.click(await screen.findByText('Give my pick to…'));
+    const input = await screen.findByLabelText('Nominee Discord username or ID');
+    fireEvent.change(input, { target: { value: 'ch' } });
+
+    const list = await screen.findByTestId('nominee-typeahead', {}, { timeout: 2000 });
+    expect(within(list).getByText('Charlie')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/guild-members/search?q=ch'))).toBe(true);
+  });
+
+  it('typeahead: clicking a suggestion PUTs the numeric id and renders the resolved name', async () => {
+    signIn();
+    const { fetchMock } = stubFetch('disp_typeahead_click_room', {
+      guildSearchHandler: () => ({
+        status: 200,
+        body: { members: [{ discordUserId: '555566667777888899', displayName: 'Charlie', username: 'charlie', avatarHash: null }] },
+      }),
+    });
+    renderPicks('disp_typeahead_click_room');
+
+    fireEvent.click(await screen.findByText('Give my pick to…'));
+    const input = await screen.findByLabelText('Nominee Discord username or ID');
+    fireEvent.change(input, { target: { value: 'ch' } });
+
+    const list = await screen.findByTestId('nominee-typeahead', {}, { timeout: 2000 });
+    fireEvent.click(within(list).getByText('Charlie'));
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(c => String(c[0]).includes('/pick-disposition') && (c[1] as RequestInit)?.method === 'PUT');
+      expect(putCall).toBeTruthy();
+      expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual({
+        disposition: 'nominate',
+        nomineeDiscordId: '555566667777888899',
+      });
+    });
+
+    const label = await screen.findByText(/Currently set to hand off to/);
+    const line = label.closest('p')!;
+    // Not in ROSTER — the name can only come from the client-side stash the
+    // click handler wrote (server PUT response carries no display name here).
+    expect(within(line).getByText('Charlie')).toBeInTheDocument();
+  });
+
+  it('typeahead: a single character does not issue a search request', async () => {
+    signIn();
+    const { fetchMock } = stubFetch('disp_typeahead_short_room', {
+      guildSearchHandler: () => ({ status: 200, body: { members: [] } }),
+    });
+    renderPicks('disp_typeahead_short_room');
+
+    fireEvent.click(await screen.findByText('Give my pick to…'));
+    const input = await screen.findByLabelText('Nominee Discord username or ID');
+    fireEvent.change(input, { target: { value: 'c' } });
+
+    // Let the 300ms debounce window elapse to prove no request was queued.
+    await new Promise((resolve) => { setTimeout(resolve, 400); });
+    expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/guild-members/search'))).toBe(false);
+    expect(screen.queryByTestId('nominee-typeahead')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('nominee-typeahead-empty')).not.toBeInTheDocument();
+  });
+
+  it('typeahead: a completed empty search shows the no-matches line', async () => {
+    signIn();
+    stubFetch('disp_typeahead_empty_room', {
+      guildSearchHandler: () => ({ status: 200, body: { members: [] } }),
+    });
+    renderPicks('disp_typeahead_empty_room');
+
+    fireEvent.click(await screen.findByText('Give my pick to…'));
+    const input = await screen.findByLabelText('Nominee Discord username or ID');
+    fireEvent.change(input, { target: { value: 'zzzz' } });
+
+    expect(await screen.findByTestId('nominee-typeahead-empty', {}, { timeout: 2000 })).toHaveTextContent('No matching Discord members');
+    expect(screen.queryByTestId('nominee-typeahead')).not.toBeInTheDocument();
+  });
+
+  it('typeahead: the signed-in viewer is excluded from suggestions', async () => {
+    signIn(); // discordId 111111111111111111 / "Tester"
+    stubFetch('disp_typeahead_self_room', {
+      guildSearchHandler: () => ({
+        status: 200,
+        body: {
+          members: [
+            { discordUserId: '111111111111111111', displayName: 'Tester', username: 'tester', avatarHash: null },
+            { discordUserId: '222222222222222222', displayName: 'Krobs', username: 'krobs', avatarHash: null },
+          ],
+        },
+      }),
+    });
+    renderPicks('disp_typeahead_self_room');
+
+    fireEvent.click(await screen.findByText('Give my pick to…'));
+    const input = await screen.findByLabelText('Nominee Discord username or ID');
+    fireEvent.change(input, { target: { value: 'te' } });
+
+    const list = await screen.findByTestId('nominee-typeahead', {}, { timeout: 2000 });
+    expect(within(list).getByText('Krobs')).toBeInTheDocument();
+    expect(within(list).queryByText('Tester')).not.toBeInTheDocument();
   });
 });

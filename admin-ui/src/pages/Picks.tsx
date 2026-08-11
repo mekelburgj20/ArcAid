@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, Trophy, Calendar, ChevronDown, ChevronUp, Star, Crosshair, X, Search } from 'lucide-react';
 import MysteryAward from '../components/MysteryAward';
@@ -175,6 +175,14 @@ function tournamentSlug(name: string): string {
 }
 function isUuid(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+/** `GET /:roomId/guild-members/search` result row (nominee typeahead, v2.99.0). */
+interface NomineeSuggestion {
+  discordUserId: string;
+  displayName: string;
+  username: string;
+  avatarHash: string | null;
 }
 
 export default function Picks() {
@@ -441,6 +449,71 @@ export default function Picks() {
     const value = (match ? match[1] : nomineeInput.trim());
     if (!value) return;
     saveDisposition({ disposition: 'nominate', nomineeDiscordId: value });
+  };
+
+  /**
+   * Discord-style live suggestions for the free-text nominee field (v2.99.0).
+   * `nomineeSearchActive` (below) is a plain derived boolean, not state — it
+   * gates both the fetch effect AND the rendered value, so "too short /
+   * branch closed" never needs an effect to reset stored state back to null
+   * (that shape trips `react-hooks/set-state-in-effect`: a setState call at
+   * the top of an effect body, before any async boundary). `fetchedNominee-
+   * Suggestions` only ever holds the last completed-or-failed fetch result;
+   * `nomineeSuggestions` below folds the two together for render. Debounced
+   * ~300ms off `nomineeInput`, with an `AbortController` so a slow earlier
+   * response can't clobber a faster later one — same guard idiom as
+   * `RAGameSearch`.
+   */
+  const [debouncedNomineeQuery, setDebouncedNomineeQuery] = useState('');
+  // Results are stored WITH the query that produced them and rendered only
+  // while that query is still current — otherwise re-opening the field with
+  // a new search briefly renders the previous query's list (or a stale
+  // "No matching" line) until the new fetch lands.
+  const [fetchedNomineeSuggestions, setFetchedNomineeSuggestions] = useState<{ query: string; list: NomineeSuggestion[] } | null>(null);
+  const nomineeAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedNomineeQuery(nomineeInput), 300);
+    return () => window.clearTimeout(t);
+  }, [nomineeInput]);
+
+  const trimmedNomineeQuery = debouncedNomineeQuery.trim().replace(/^@/, '');
+  const nomineeSearchActive = showNomineeInput && trimmedNomineeQuery.length >= 2;
+  const nomineeSuggestions = nomineeSearchActive && fetchedNomineeSuggestions?.query === trimmedNomineeQuery
+    ? fetchedNomineeSuggestions.list
+    : null;
+
+  useEffect(() => {
+    if (!nomineeSearchActive || !roomId || !playerToken) return;
+    nomineeAbortRef.current?.abort();
+    const controller = new AbortController();
+    nomineeAbortRef.current = controller;
+    fetch(`/api/rooms/${roomId}/guild-members/search?q=${encodeURIComponent(trimmedNomineeQuery)}`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+      signal: controller.signal,
+    })
+      .then(r => (r.ok ? r.json() : { members: [] }))
+      .then((data: { members?: NomineeSuggestion[] }) => {
+        if (controller.signal.aborted) return;
+        const list = (data.members ?? []).filter(m => m.discordUserId !== discordUser?.discordId);
+        setFetchedNomineeSuggestions({ query: trimmedNomineeQuery, list });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFetchedNomineeSuggestions(null);
+      });
+    return () => controller.abort();
+  }, [nomineeSearchActive, trimmedNomineeQuery, roomId, playerToken, discordUser]);
+
+  const handleNomineeSuggestionSelect = (suggestion: NomineeSuggestion) => {
+    setFetchedNomineeSuggestions(null);
+    setNomineeInput('');
+    setDebouncedNomineeQuery('');
+    // The PUT response carries no `nomineeDisplayName` for numeric ids (only
+    // the typed-username resolution path returns one) — stash it here so the
+    // "Currently set to hand off to…" confirmation line can render a name
+    // instead of falling back to the raw <@id>.
+    setResolvedNominees(prev => ({ ...prev, [suggestion.discordUserId]: suggestion.displayName }));
+    saveDisposition({ disposition: 'nominate', nomineeDiscordId: suggestion.discordUserId });
   };
 
   const handlePickConfirm = async (tournamentId: string) => {
@@ -795,6 +868,41 @@ export default function Picks() {
                     Save
                   </button>
                 </div>
+                {/* Discord-style typeahead (v2.99.0) — live suggestions as the
+                    player types, sourced from the room's linked guild rather
+                    than the room roster (catches guild members who haven't
+                    played here yet). Purely a fill-and-Save shortcut: picking
+                    a row saves immediately, same as the room-member picker
+                    above. */}
+                {nomineeSuggestions !== null && (
+                  nomineeSuggestions.length > 0 ? (
+                    <div
+                      data-testid="nominee-typeahead"
+                      className="mt-2 max-h-56 overflow-y-auto border border-border rounded divide-y divide-border/40"
+                    >
+                      {nomineeSuggestions.map((s) => (
+                        <button
+                          key={s.discordUserId}
+                          type="button"
+                          onClick={() => handleNomineeSuggestionSelect(s)}
+                          className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-border/20 transition-colors"
+                        >
+                          <PlayerAvatar
+                            username={s.displayName}
+                            discordUserId={s.discordUserId}
+                            avatarHash={s.avatarHash}
+                            size={24}
+                          />
+                          <span className="text-sm text-primary truncate flex-1">{s.displayName}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-faint mt-2" data-testid="nominee-typeahead-empty">
+                      No matching Discord members
+                    </p>
+                  )
+                )}
               </div>
             </div>
           )}

@@ -10,6 +10,15 @@ vi.mock('../utils/discord.js', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../utils/discord.js')>();
     return { ...actual, resolveDiscordMember: resolveDiscordMemberMock };
 });
+
+// The nominee typeahead endpoint (v2.99.0) resolves via `searchGuildMembers`.
+// Mock ONLY that export — `resolveServerNickname` and the memo cache stay
+// real so they're unaffected by this file's mocking.
+const searchGuildMembersMock = vi.hoisted(() => vi.fn());
+vi.mock('../services/DiscordNicknameResolver.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../services/DiscordNicknameResolver.js')>();
+    return { ...actual, searchGuildMembers: searchGuildMembersMock };
+});
 import { setupTestDb, createTestRoom, createTestTournament, createTestGame } from './helpers.js';
 import { getDatabase } from '../database/database.js';
 import { TournamentEngine } from '../engine/TournamentEngine.js';
@@ -533,5 +542,129 @@ describe('Next-win disposition — self-service route', () => {
         expect(res.status).toBe(200);
         expect(res.body.disposition).toEqual({ disposition: 'nominate', nomineeDiscordId: '555566667777888899' });
         expect(resolveDiscordMemberMock).not.toHaveBeenCalled();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Nominee typeahead — `GET /:roomId/guild-members/search` (v2.99.0). Powers
+// the Picks page's Discord-style live suggestions as a player types in the
+// "Give my pick to…" free-text fallback. A typeahead must never 500 — every
+// failure/empty-input branch below degrades to `{ members: [] }`.
+// ---------------------------------------------------------------------------
+describe('Next-win disposition — nominee typeahead (guild-members/search)', () => {
+    beforeEach(async () => {
+        await setupTestDb();
+        searchGuildMembersMock.mockReset();
+    });
+
+    async function createApp() {
+        const express = (await import('express')).default;
+        const app = express();
+        app.use(express.json());
+        const { default: roomsRouter } = await import('../api/routes/rooms.js');
+        app.use('/api/rooms', roomsRouter);
+        return app;
+    }
+
+    it('401s a tokenless request', async () => {
+        const request = (await import('supertest')).default;
+        const app = await createApp();
+        const { roomId } = await setupTournament();
+
+        const res = await request(app).get(`/api/rooms/${roomId}/guild-members/search?q=chuck`);
+
+        expect(res.status).toBe(401);
+        expect(searchGuildMembersMock).not.toHaveBeenCalled();
+    });
+
+    it('a query under 2 characters returns empty and never calls the resolver', async () => {
+        const request = (await import('supertest')).default;
+        const { signToken } = await import('../api/auth.js');
+        const app = await createApp();
+        const { roomId } = await setupTournament();
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-ta');
+        const playerToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'TA1' });
+
+        const res = await request(app)
+            .get(`/api/rooms/${roomId}/guild-members/search?q=c`)
+            .set('Authorization', `Bearer ${playerToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ members: [] });
+        expect(searchGuildMembersMock).not.toHaveBeenCalled();
+    });
+
+    it('no DISCORD_GUILD_ID configured returns empty and never calls the resolver', async () => {
+        const request = (await import('supertest')).default;
+        const { signToken } = await import('../api/auth.js');
+        const app = await createApp();
+        const { roomId } = await setupTournament();
+        const playerToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'TA2' });
+
+        const res = await request(app)
+            .get(`/api/rooms/${roomId}/guild-members/search?q=chuck`)
+            .set('Authorization', `Bearer ${playerToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ members: [] });
+        expect(searchGuildMembersMock).not.toHaveBeenCalled();
+    });
+
+    it('happy path maps resolver results through to the response', async () => {
+        const request = (await import('supertest')).default;
+        const { signToken } = await import('../api/auth.js');
+        const app = await createApp();
+        const { roomId } = await setupTournament();
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-ta');
+        searchGuildMembersMock.mockResolvedValue([
+            { discordUserId: '444455556666777788', displayName: 'ChuckRibbits', username: 'chuckribbits', avatarHash: 'abc123' },
+        ]);
+        const playerToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'TA3' });
+
+        const res = await request(app)
+            .get(`/api/rooms/${roomId}/guild-members/search?q=chuck`)
+            .set('Authorization', `Bearer ${playerToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+            members: [
+                { discordUserId: '444455556666777788', displayName: 'ChuckRibbits', username: 'chuckribbits', avatarHash: 'abc123' },
+            ],
+        });
+        expect(searchGuildMembersMock).toHaveBeenCalledWith('guild-ta', 'chuck');
+    });
+
+    it('strips one leading @ before calling the resolver', async () => {
+        const request = (await import('supertest')).default;
+        const { signToken } = await import('../api/auth.js');
+        const app = await createApp();
+        const { roomId } = await setupTournament();
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-ta');
+        searchGuildMembersMock.mockResolvedValue([]);
+        const playerToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'TA4' });
+
+        const res = await request(app)
+            .get(`/api/rooms/${roomId}/guild-members/search?q=${encodeURIComponent('@chuck')}`)
+            .set('Authorization', `Bearer ${playerToken}`);
+
+        expect(res.status).toBe(200);
+        expect(searchGuildMembersMock).toHaveBeenCalledWith('guild-ta', 'chuck');
+    });
+
+    it('a resolver throw degrades to empty members, never a 500', async () => {
+        const request = (await import('supertest')).default;
+        const { signToken } = await import('../api/auth.js');
+        const app = await createApp();
+        const { roomId } = await setupTournament();
+        await GameRoomSettingsService.set(roomId, 'DISCORD_GUILD_ID', 'guild-ta');
+        searchGuildMembersMock.mockRejectedValue(new Error('discord REST blew up'));
+        const playerToken = signToken({ role: 'player', gameRoomIds: [], discordId: 'TA5' });
+
+        const res = await request(app)
+            .get(`/api/rooms/${roomId}/guild-members/search?q=chuck`)
+            .set('Authorization', `Bearer ${playerToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ members: [] });
     });
 });

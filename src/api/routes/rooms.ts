@@ -1241,6 +1241,32 @@ router.delete('/:roomId/tournaments/:tournamentId/pick-disposition', requireDisc
     }
 });
 
+// Guild-member search typeahead (nominee field, v2.99.0) — powers the Picks
+// page's "Give my pick to…" free-text input with Discord-style live
+// suggestions as the player types. Self-service only (mirrors the
+// self-service pick-disposition routes above, not the admin on-behalf
+// variant below). A typeahead must never surface a 500 — any failure
+// degrades to an empty suggestion list so the paste-an-ID/exact-name
+// fallback (still resolved server-side on Save) keeps working.
+router.get('/:roomId/guild-members/search', requireDiscordUser, requireNotBanned, async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const raw = (req.query.q as string) || '';
+        const q = raw.trim().replace(/^@/, '');
+        if (q.length < 2) return res.json({ members: [] });
+
+        const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+        if (!guildId) return res.json({ members: [] });
+
+        const { searchGuildMembers } = await import('../../services/DiscordNicknameResolver.js');
+        const members = await searchGuildMembers(guildId, q);
+        res.json({ members });
+    } catch (error) {
+        logError('API Error (GET rooms/:roomId/guild-members/search):', error);
+        res.json({ members: [] });
+    }
+});
+
 // Admin on-behalf variant ("winner said it in chat") — mirrors /my-pick's
 // Discord /nominate-picker set/clear subcommands. Audit-logged explicitly
 // per repo doctrine (auditMiddleware does not fire on router routes).
