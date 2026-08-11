@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.99.1] — unreleased
+
+**Fix: approval-room Players page rendered empty for members.**
+
+### Fixed
+- **`RoomMembers.tsx` fetched the roster with no Authorization header**, but `GET /:roomId/members` sits behind `roomVisibilityGate`, which decodes the Bearer token itself and 403s tokenless requests on 'approval'-policy rooms — so even an approved member saw a silently empty Players list (`r.ok ? json : []` swallowed the 403). The page's own doc comment believed the reachability gate (PublicLayout's RoomJoinGate) covered auth; it only controls who sees the page, not what the fetch may read. Fix mirrors v2.98.0's Picks pattern: attach the player Bearer when one exists. Found during the v2.98.0 review; both directions (token attached when signed in, absent when logged out) are now test-pinned.
+
 ## [2.99.0] — unreleased
 
 **Nominee typeahead — Discord-style live suggestions (owner request, same-day field iteration on v2.98.x).**

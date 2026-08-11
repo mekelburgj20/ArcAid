@@ -5,6 +5,7 @@ import PlayerNameLink from '../components/PlayerNameLink';
 import { PlayerAvatar } from '../components/ScoreboardComponents';
 import LoadingState from '../components/LoadingState';
 import { useRoom } from '../contexts/RoomContext';
+import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { getPortal } from '../lib/portal';
 
 /**
@@ -12,10 +13,13 @@ import { getPortal } from '../lib/portal';
  *
  * `GET /:roomId/members` is registered AFTER `roomVisibilityGate` in
  * rooms.ts, so it's automatically public for 'open' rooms and
- * members/admins/super-only for 'approval' rooms — this page never needs to
- * branch on auth itself, it just renders whatever the endpoint returns (a
- * guest hitting an approval room never reaches this page at all: PublicLayout
- * shows RoomJoinGate instead of the Outlet while `isGated` is true).
+ * members/admins/super-only for 'approval' rooms. On 'approval' rooms the
+ * gate decodes the Bearer token ITSELF (there is no cookie/session
+ * fallback), so this fetch must attach the player token when one exists —
+ * without it, even an approved MEMBER's request arrived tokenless, got
+ * 403'd, and the page silently rendered an empty roster (v2.99.1 fix; the
+ * page-reachability gate — PublicLayout's RoomJoinGate — only controls who
+ * SEES the page, not what this fetch is allowed to read).
  *
  * `join_policy` isn't on RoomContext, so this page reads it via
  * `getPortal(slug)` — already fetched (and cached/deduped) by PublicLayout on
@@ -117,6 +121,7 @@ function MemberRow({ slug, mode, entry }: { slug: string; mode: 'approval' | 'op
 export default function RoomMembers() {
   const { slug } = useParams<{ slug: string }>();
   const { roomId } = useRoom();
+  const { playerToken } = useViewerAuth();
   const [members, setMembers] = useState<MemberEntry[]>([]);
   const [mode, setMode] = useState<'approval' | 'open'>('open');
   const [loading, setLoading] = useState(true);
@@ -126,7 +131,7 @@ export default function RoomMembers() {
     let cancelled = false;
     setLoading(true);
     Promise.all([
-      fetch(`/api/rooms/${roomId}/members`).then(r => r.ok ? r.json() : []),
+      fetch(`/api/rooms/${roomId}/members`, playerToken ? { headers: { Authorization: `Bearer ${playerToken}` } } : undefined).then(r => r.ok ? r.json() : []),
       getPortal(slug).then(p => p.join_policy ?? 'open').catch(() => 'open' as const),
     ])
       .then(([m, policy]) => {
@@ -137,7 +142,7 @@ export default function RoomMembers() {
       .catch(() => { if (!cancelled) setMembers([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [roomId, slug]);
+  }, [roomId, slug, playerToken]);
 
   const title = mode === 'approval' ? 'Members' : 'Players';
   const subtitle = mode === 'approval' ? 'Approved members of this room' : "Everyone who's posted a score";
