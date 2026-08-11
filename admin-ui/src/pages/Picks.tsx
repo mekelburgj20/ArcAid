@@ -657,7 +657,7 @@ export default function Picks() {
   // Wait for gate state so we never briefly render Picks UI for a disabled room.
   if (pickAwardLoading) {
     return (
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+      <main className="px-4 sm:px-6 lg:px-10 py-6">
         <div className="flex items-center justify-center py-16">
           <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
         </div>
@@ -668,7 +668,7 @@ export default function Picks() {
   const mysteryAvailable = availableCount >= 2;
 
   return (
-    <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+    <main className="px-4 sm:px-6 lg:px-10 py-6">
       <Link to={`/${slug}`} className="text-muted text-xs hover:text-neon-cyan no-underline transition-colors">
         &larr; Scoreboard
       </Link>
@@ -734,7 +734,12 @@ export default function Picks() {
           button all fought for one flex row and wrapped into a ragged block.
           Phones now get three stacked bands (chip+title / description /
           full-width Spin); sm+ keeps the original single inline row. */}
-      <div className="mb-6 rounded-lg border border-neon-green/30 bg-gradient-to-br from-neon-green/5 to-transparent p-4 sm:p-5">
+      {/* v2.wide-pages — capped (not full-bleed like the table below): at
+          1999px a full-width single-row action card left the icon/title/
+          description bunched left with the Spin button stranded ~1200px away
+          on the far right, an empty card in between. A centered inner cap
+          keeps the control strip readable at any viewport width. */}
+      <div className="max-w-4xl mx-auto mb-6 rounded-lg border border-neon-green/30 bg-gradient-to-br from-neon-green/5 to-transparent p-4 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
           {/* 2-col grid rather than nested flex rows: the description spans
               both columns on phones (full-width, under the chip+title line)
@@ -767,7 +772,7 @@ export default function Picks() {
           preference, no precedence puzzles; applies to the NEXT win only
           (one-shot — consumed at rotation, then reverts to the default). */}
       {discordUser && selectedTournamentId && (
-        <div className="mb-6 rounded-lg border border-border bg-surface p-4 sm:p-5">
+        <div className="max-w-4xl mx-auto mb-6 rounded-lg border border-border bg-surface p-4 sm:p-5">
           <h2 className="font-display text-sm font-bold text-primary mb-1">If I win next…</h2>
           <p className="text-xs text-muted mb-3">
             Applies once, to your next win in this tournament. Default is picking from your own queue.
