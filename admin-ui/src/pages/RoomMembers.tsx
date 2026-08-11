@@ -151,7 +151,7 @@ export default function RoomMembers() {
   if (loading) return <LoadingState message="Loading..." />;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
       <div className="flex items-center gap-2 mb-1">
         <Users size={20} className="text-neon-cyan" />
         <h2 className="font-display text-xl font-bold">{title}</h2>

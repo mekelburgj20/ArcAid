@@ -181,7 +181,7 @@ export default function PublicStats() {
   return (
     <div>
       {/* v2.1.0 Stats Combo — purpose + overview cards above the tabs. */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-2">
+      <div className="px-4 sm:px-6 lg:px-10 pt-6 pb-2">
         <p className="text-xs text-muted mb-4">
           How this room's doing. Pulse of the week above; drill into players and games below.
         </p>
@@ -220,7 +220,7 @@ export default function PublicStats() {
       </div>
 
       {/* Page Header + toggle + search */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-2 flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
+      <div className="px-4 sm:px-6 lg:px-10 pb-2 flex flex-col gap-3 sm:flex-row sm:items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="font-display text-xl font-bold">Stats</h2>
           <div role="tablist" className="flex bg-raised border border-border rounded overflow-hidden">
@@ -267,7 +267,7 @@ export default function PublicStats() {
       {/* v2.9x — tournament-type + time-window filters. Applies to both
           Players and Games views (composes: type AND window). URL-stated —
           see the param handling above. */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-4 flex flex-col gap-2">
+      <div className="px-4 sm:px-6 lg:px-10 pb-4 flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] uppercase tracking-wider text-faint mr-1">Type</span>
           <button
@@ -325,7 +325,7 @@ export default function PublicStats() {
         </div>
       </div>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+      <main className="px-4 sm:px-6 lg:px-10 py-6">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-neon-cyan/30 border-t-neon-cyan rounded-full animate-spin" />
