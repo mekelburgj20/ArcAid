@@ -50,6 +50,7 @@ import {
 } from '../../utils/platformRules.js';
 import { deleteScorePhotoFiles } from '../../utils/scorePhotoCleanup.js';
 import { catalogueTypeMatchesTournamentMode } from '../../utils/tournamentMode.js';
+import { trackBackground } from '../../utils/backgroundTasks.js';
 import { normalizeSubmitterUserId } from '../../services/SubmissionContextService.js';
 import { TournamentService } from '../../services/TournamentService.js';
 import { GameLibraryService } from '../../services/GameLibraryService.js';
@@ -1974,13 +1975,18 @@ router.post('/:roomId/community-scores/:gameName', writeLimiter, requireDiscordU
         // photo_url is a pre-existing URL (not an upload), so no persistentPhotoPath
         // — Playwright fallback will skip the photo copy. API path still syncs.
         const { syncScoreToIScored } = await import('../../services/IScoredSubmitSync.js');
-        syncScoreToIScored({
+        // trackBackground (v2.99.2): this chain was unawaited AND unregistered
+        // since v2.2.2 — it pre-dates the v2.24.1 tracker, whose sweep matched
+        // `.catch(() => {})` / `void X()` patterns but not a bare unawaited
+        // call. The escaped chain's late getDatabase() during a test reset was
+        // the root of the room-visibility-gate / community-scores flake family.
+        trackBackground(syncScoreToIScored({
             roomId,
             gameName,
             username: result.displayName,
             score,
             platform,
-        });
+        }));
 
         res.status(201).json(result);
     } catch (error) {
@@ -2102,14 +2108,15 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // submission paths sync identically. Pass the resolved displayName so the
         // name on iScored matches the name on ArcAid's scoreboard.
         const { syncScoreToIScored } = await import('../../services/IScoredSubmitSync.js');
-        syncScoreToIScored({
+        // trackBackground (v2.99.2) — see the community-scores site's comment.
+        trackBackground(syncScoreToIScored({
             roomId,
             gameName,
             username: effectiveUsername,
             score,
             persistentPhotoPath,
             platform,
-        });
+        }));
 
         res.status(201).json(result);
     } catch (error) {
@@ -2256,14 +2263,15 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
         // v2.2.2: sync to iScored too when the freeplay target matches an ACTIVE
         // tournament game. Closes the "freeplay scores never reach iScored" gap.
         const { syncScoreToIScored } = await import('../../services/IScoredSubmitSync.js');
-        syncScoreToIScored({
+        // trackBackground (v2.99.2) — see the community-scores site's comment.
+        trackBackground(syncScoreToIScored({
             roomId,
             gameName: globalGame.name,
             username: effectiveUsername,
             score,
             persistentPhotoPath,
             platform,
-        });
+        }));
 
         res.status(201).json({
             id: result.id,

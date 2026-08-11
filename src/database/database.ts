@@ -6,12 +6,27 @@ import crypto from 'crypto';
 
 let db: Database | null = null;
 
+// Single-flight guard (v2.99.2). `db` is assigned mid-init — right after
+// `open()`, before the multi-hundred-statement schema+migration sequence —
+// so without this, a concurrent initDatabase()/getDatabase() could either
+// (a) start a SECOND full init (two migration BEGINs on overlapping handles:
+// the test-suite "cannot start a transaction within a transaction" flake
+// family, triggered when an untracked background chain's late getDatabase()
+// landed during a test reset) or (b) be handed the half-migrated handle.
+// Both entry points below return this promise while an init is in flight.
+let initInFlight: Promise<Database> | null = null;
+
 /**
  * Initializes the SQLite database and creates the necessary tables.
  */
 export async function initDatabase(): Promise<Database> {
+    if (initInFlight) return initInFlight;
     if (db) return db;
+    initInFlight = doInitDatabase().finally(() => { initInFlight = null; });
+    return initInFlight;
+}
 
+async function doInitDatabase(): Promise<Database> {
     const dbPath = process.env.DB_PATH || './data/arcaid.db';
     const dbDir = path.dirname(dbPath);
 
@@ -2460,6 +2475,10 @@ async function migrateToMultiRoom(db: Database): Promise<void> {
  * Helper to get the database instance.
  */
 export async function getDatabase(): Promise<Database> {
+    // Must check the in-flight init FIRST: `db` is set mid-init (see the
+    // guard's comment above), so a bare null-check would return a handle the
+    // migration sequence is still mutating.
+    if (initInFlight) return initInFlight;
     if (!db) {
         return await initDatabase();
     }

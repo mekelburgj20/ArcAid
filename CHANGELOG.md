@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.99.2] — unreleased
+
+**Flake-family root fix: the v2.24.1 tracker's oldest escape + a single-flight init guard.**
+
+### Fixed
+- **`syncScoreToIScored` was unawaited, uncaught, and unregistered at all three web submit handlers** (`/submit-score`, `/freeplay-score`, `/community-scores`) since v2.2.2 — it pre-dates the v2.24.1 `trackBackground` registry, whose sweep matched `.catch(() => {})` and `void Service.x()` patterns but not a bare unawaited call. In tests, the escaped chain's late `getDatabase()` (two dynamic-import hops after the 201 response) could land during the next test's DB reset — the root of the twice-seen `room-visibility-gate` / `community-scores-attribution` "cannot start a transaction within a transaction" flake family. All three sites now register with `trackBackground` so the vitest drain waits for them. (Prod impact: none observable — the chain completes normally there; the fix also removes a genuinely unhandled promise rejection path.)
+- **`initDatabase()` gained a single-flight guard** (and `getDatabase()` checks the in-flight init first): `db` is assigned mid-init — after `open()`, before the schema/migration sequence — so overlapping calls could previously start a second full migration run or be handed a half-migrated handle. Any future untracked chain now settles on the one shared init instead of detonating it. Concurrency regression test added (`database-single-flight.test.ts`).
+
 ## [2.99.1] — unreleased
 
 **Fix: approval-room Players page rendered empty for members.**
