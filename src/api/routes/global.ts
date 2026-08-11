@@ -6,6 +6,7 @@ import { writeLimiter, globalSubmitLimiter, authLimiter, roomCreateLimiter, raSe
 import { raSearchHandler, raImportHandler } from '../raCatalogueHandlers.js';
 import { validate } from '../validate.js';
 import { isAllowedImage } from '../uploadValidation.js';
+import { withUploadErrors } from '../uploadMiddleware.js';
 import { UpdatePreferencesSchema, PushSubscriptionSchema, PushUnsubscribeSchema, MAX_SCORE, PublicCreateRoomSchema, GlobalScoreSubmissionSchema } from '../schemas.js';
 import { SettingsService } from '../../services/SettingsService.js';
 import { GameRoomService } from '../../services/GameRoomService.js';
@@ -35,9 +36,10 @@ const router = Router();
 const globalScoreUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 30 * 1024 * 1024 }, // 30MB — matches room submission cap
-    fileFilter: (_req, file, cb) => {
+    fileFilter: (req, file, cb) => {
         const ok = ['image/png', 'image/apng', 'image/jpeg', 'image/webp'].includes(file.mimetype);
         if (ok) return cb(null, true);
+        req._uploadRejectedFile = { mimetype: file.mimetype, originalname: file.originalname };
         cb(new Error('Only PNG, APNG, JPEG, or WebP images allowed.'));
     },
 });
@@ -1025,7 +1027,7 @@ router.get('/portal', async (req, res) => {
 // for the anonymous-claim OAuth handoff; the client stores the same blob in
 // sessionStorage as the primary path. Keyed on the OAuth `state` param so
 // DiscordCallback can replay across browser tabs or devices.
-router.post('/submission-drafts/:stateParam', writeLimiter, globalScoreUpload.single('photo'), async (req, res) => {
+router.post('/submission-drafts/:stateParam', writeLimiter, withUploadErrors(globalScoreUpload.single('photo')), async (req, res) => {
     try {
         const stateParam = req.params.stateParam as string;
         if (!stateParam || stateParam.length > 128) return res.status(400).json({ error: 'invalid stateParam' });
@@ -2249,7 +2251,7 @@ router.get('/submit/platforms', async (req, res) => {
  * `user_mappings` alias for the account. Renames now go through Account
  * Settings (`PATCH /api/users/me/profile`).
  */
-router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNotBanned, globalScoreUpload.single('photo'), async (req, res) => {
+router.post('/global/scores', globalSubmitLimiter, requireDiscordUser, requireNotBanned, withUploadErrors(globalScoreUpload.single('photo')), async (req, res) => {
     try {
         // v2.53.0: promoted from hand-rolled inline parsing to the shared Zod
         // schema, so the global path validates the same shape as the three

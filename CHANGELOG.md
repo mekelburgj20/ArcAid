@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.100.2] — unreleased
+
+**Two owner field reports: mobile photo submissions failing silently + a misplaced cooldown caption.**
+
+### Fixed
+- **iPhone camera photos no longer kill score submissions.** A mobile submission with an attached photo failed with a bare "Submission failed" and zero server logs: the iPhone camera's default HEIC format isn't in the upload allowlist, and multer's rejection bypassed the route handler into Express's default handler — an unlogged plain-text 500 the FE couldn't parse. Two layers: (1) unsupported photo formats are now re-encoded to JPEG **on-device** before upload (`photoNormalize.ts` — Safari decodes HEIC natively, so iPhone photos just work; undecodable formats get an inline error at photo-pick time); (2) new `withUploadErrors` wrapper on **all 8** multer routes (submit-score, freeplay, global scores, submission-drafts, style/background/logo/style-catalogue uploads) turns fileFilter and size-limit rejections into logged JSON 400s with actionable messages ("That image is too large — the limit is 30MB.", format errors by name). Every rejection now logs route + mimetype + size — silent-failure mode closed.
+- **The "won't count toward the active tournament (cooldown)" caption no longer shows on Room Scores submissions.** Games that rotated out of past tournaments carry COMPLETED status, tripping a caption written for the Tournaments tab; on Room Scores every submission is a room-leaderboard post by definition, so it was pure noise. That tab stops threading `gameStatus` into the sheet (its only consumer was the caption); Tournaments tab and GameDetail keep the warning.
+
 ## [2.100.1] — unreleased
 
 **Wide desktop layouts for Picks, Stats, and Players (owner request; shots approved).**

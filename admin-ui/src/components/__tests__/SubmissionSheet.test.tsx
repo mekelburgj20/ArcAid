@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import SubmissionSheet, { type SubmissionTarget } from '../SubmissionSheet';
 import { ViewerAuthProvider } from '../../contexts/ViewerAuthContext';
+import * as photoNormalize from '../../lib/photoNormalize';
 
 /**
  * SubmissionSheet — engine/device derivation + remembered-device restore.
@@ -179,5 +180,57 @@ describe('SubmissionSheet — engine/device derivation', () => {
         // Device section never renders when there are no engine options.
         expect(screen.queryByText('Device')).not.toBeInTheDocument();
         expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    });
+});
+
+/**
+ * Owner field report (2026-08-11) — unsupported photo formats (e.g. an
+ * iPhone's `image/heic` camera default) attempt a client-side JPEG re-encode
+ * via `lib/photoNormalize.ts`'s `normalizePhotoFile`. jsdom has no real
+ * `<canvas>`, so these tests mock `normalizePhotoFile` itself rather than
+ * exercising the real conversion — the module's own test file
+ * (`lib/__tests__/photoNormalize.test.ts`) covers the decision logic, and this
+ * covers the component wiring: success sets the preview, failure shows the
+ * inline error and leaves no file selected.
+ */
+describe('SubmissionSheet — photo format handling', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        localStorage.clear();
+    });
+
+    function selectPhoto(container: HTMLElement, file: File) {
+        const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+        fireEvent.change(input, { target: { files: [file] } });
+        return input;
+    }
+
+    it('a successfully-normalized photo sets the preview (no error shown)', async () => {
+        signIn();
+        const jpeg = new File(['x'], 'photo.jpg', { type: 'image/jpeg' });
+        vi.spyOn(photoNormalize, 'normalizePhotoFile').mockResolvedValue(jpeg);
+        const { container } = renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['real'] }),
+        });
+        await screen.findByText('Real Cabinet');
+
+        selectPhoto(container, new File(['x'], 'IMG_0001.heic', { type: 'image/heic' }));
+
+        await screen.findByAltText('Score photo');
+        expect(screen.queryByText(/format isn't supported/i)).not.toBeInTheDocument();
+    });
+
+    it('a photo that fails normalization shows the inline unsupported-format error, not a preview', async () => {
+        signIn();
+        vi.spyOn(photoNormalize, 'normalizePhotoFile').mockResolvedValue(null);
+        const { container } = renderSheet({
+            platformsResponse: platformsPayload({ submittable: ['real'] }),
+        });
+        await screen.findByText('Real Cabinet');
+
+        selectPhoto(container, new File(['x'], 'IMG_0002.heic', { type: 'image/heic' }));
+
+        expect(await screen.findByText("That photo format isn't supported — please use a PNG or JPEG.")).toBeInTheDocument();
+        expect(screen.queryByAltText('Score photo')).not.toBeInTheDocument();
     });
 });
