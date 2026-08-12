@@ -668,7 +668,11 @@ export default function SubmissionSheet({
                     </div>
                 ) : (
                     <>
-                        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                        {/* overscroll-contain (v2.101.1): without it, a drag
+                            that starts on the sheet can chain into the page
+                            behind it and trigger iOS pull-to-refresh mid-entry
+                            (tester field report — the keyboard fix's sibling). */}
+                        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-4">
                             {cooldown && (
                                 <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-neon-amber/10 border border-neon-amber/30">
                                     <AlertTriangle size={14} className="text-neon-amber flex-shrink-0 mt-0.5" />
