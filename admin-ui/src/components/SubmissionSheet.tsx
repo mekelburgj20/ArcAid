@@ -459,12 +459,20 @@ export default function SubmissionSheet({
     // subtree skips the whole-sheet re-render every keystroke triggers —
     // that only works if these handler identities are stable across renders.
     const handleKeyPress = useCallback((key: string) => {
+        // { preventScroll: true } (v2.102.1, tester field report round 3):
+        // this sheet is a `fixed inset-0` overlay, and iOS Safari's response
+        // to focusing an input inside a fixed layer is to scroll the PAGE
+        // BEHIND it to the top — so every keypress yanked the view to the
+        // top of the page and the player had to scroll back down between
+        // digits. preventScroll keeps the caret in the field without letting
+        // iOS "helpfully" scroll anything into view (the field is already
+        // visible — the tap that produced this keypress was inside the sheet).
         if (activeField === 'name') {
             setPlayerName(prev => prev + key);
-            nameRef.current?.focus();
+            nameRef.current?.focus({ preventScroll: true });
         } else if (activeField === 'score') {
             if (/\d/.test(key)) setScore(prev => prev + key);
-            scoreRef.current?.focus();
+            scoreRef.current?.focus({ preventScroll: true });
         }
     }, [activeField]);
 

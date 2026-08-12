@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.102.1] — unreleased
+
+**Hotfix: numpad round 3 — iOS scroll-to-top on every keypress (tester field report).**
+
+### Fixed
+- **Typing on the numpad no longer yanks the view to the top of the page on iPhone.** Every keypress re-focuses the score field to keep the caret visible; the sheet is a fixed overlay, and iOS Safari's response to focusing an input inside a fixed layer is to scroll the page behind it to the top — so each digit cost a scroll-back-down. Both focus calls now pass `{ preventScroll: true }` (the field is already visible; the tap that produced the keypress was inside the sheet). Desktop was never affected, which is why it survived two rounds of desktop-side review.
+
 ## [2.102.0] — unreleased
 
 **Room membership & admin management UX (owner requests, 2026-08-12).**
