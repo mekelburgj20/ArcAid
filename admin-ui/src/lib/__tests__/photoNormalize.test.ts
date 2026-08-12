@@ -31,14 +31,20 @@ describe('isSupportedPhotoType', () => {
 });
 
 describe('normalizePhotoFile — decision logic', () => {
-    it('returns a supported-type file untouched, without invoking the converter', async () => {
+    it('materializes a supported-type file into memory (same name/type/bytes), without invoking the converter', async () => {
+        // v2.100.4 — no longer a pass-through: iOS Safari's lazy camera-roll
+        // File references truncated uploads mid-stream ("Unexpected end of
+        // form"); reading into a fresh in-memory File at pick time fixes it.
         const file = makeFile('score.png', 'image/png');
         const convert = vi.fn();
 
         const result = await normalizePhotoFile(file, convert);
 
-        expect(result).toBe(file);
         expect(convert).not.toHaveBeenCalled();
+        expect(result).not.toBe(file);
+        expect(result!.name).toBe('score.png');
+        expect(result!.type).toBe('image/png');
+        expect(new Uint8Array(await result!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
     });
 
     it('routes an unsupported-type file through the converter and returns its result', async () => {
@@ -65,9 +71,10 @@ describe('normalizePhotoFile — decision logic', () => {
     it('defaults to the real convertToSupportedPhoto when no converter is injected (still gated by type)', async () => {
         // No mock passed — this exercises the default-parameter wiring only;
         // a supported type short-circuits before the real converter runs, so
-        // this stays canvas-free.
+        // this stays canvas-free (materialization uses arrayBuffer, not canvas).
         const file = makeFile('score.webp', 'image/webp');
         const result = await normalizePhotoFile(file);
-        expect(result).toBe(file);
+        expect(result!.type).toBe('image/webp');
+        expect(new Uint8Array(await result!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
     });
 });

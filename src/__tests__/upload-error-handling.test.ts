@@ -67,6 +67,24 @@ describe('withUploadErrors wrapper', () => {
         expect(res.body).toEqual({ error: 'Only PNG, APNG, JPEG, and WebP images are allowed' });
     });
 
+    it('translates busboy\'s "Unexpected end of form" (truncated multipart stream) into an actionable JSON 400', async () => {
+        // v2.100.4 field evidence: iOS Safari's lazy camera-roll File reference
+        // can truncate the upload mid-stream; the raw busboy message reached
+        // players verbatim ("unexpected end of form"). The wrapper now
+        // translates it; the FE materialization fix addresses the cause.
+        const app = express();
+        const stubMiddleware = (_req: express.Request, _res: express.Response, next: express.NextFunction) => {
+            next(new Error('Unexpected end of form'));
+        };
+        app.post('/upload', withUploadErrors(stubMiddleware), (_req, res) => {
+            res.status(201).json({ ok: true });
+        });
+
+        const res = await request(app).post('/upload').send();
+        expect(res.status).toBe(400);
+        expect(res.body).toEqual({ error: 'The photo upload was interrupted before it finished — please try again.' });
+    });
+
     it('translates any other MulterError code into a generic JSON 400', async () => {
         const app = express();
         const stubMiddleware = (_req: express.Request, _res: express.Response, next: express.NextFunction) => {
