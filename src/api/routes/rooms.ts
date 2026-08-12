@@ -2076,11 +2076,20 @@ router.post('/:roomId/submit-score/:gameName', writeLimiter, requireDiscordUser,
         // Use the resolved displayName so the submission ID and stored name match
         // the community/score_history rows — keeps the leaderboard grouping clean.
         const db = await getDatabase();
+        // v2.100.3: ORDER BY status preference — games RERUN after cooldown, so
+        // one name can match an ACTIVE row AND older COMPLETED rows. Without
+        // the ORDER BY, `LIMIT 1` returned an arbitrary row (SQLite scan order
+        // favors the OLDEST) — the submissions row (which winner resolution
+        // reads at rotation) could land on a long-finished game while every
+        // leaderboard looked right (they read score_history, whose tournament
+        // auto-resolve is ACTIVE-only). Same bug class as the WHO-dunnit
+        // duplicate-DM incident; same fix shape as ScoreSyncPoller's ORDER BY.
         const activeGame = await db.get(`
             SELECT g.id, g.tournament_id FROM games g
             JOIN tournaments t ON t.id = g.tournament_id
             WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
               AND g.status IN ('ACTIVE', 'COMPLETED')
+            ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
             LIMIT 1
         `, gameName, roomId);
         if (activeGame) {
@@ -2236,6 +2245,7 @@ router.post('/:roomId/freeplay-score', writeLimiter, requireDiscordUser, require
             JOIN tournaments t ON t.id = g.tournament_id
             WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
               AND g.status IN ('ACTIVE', 'COMPLETED')
+            ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
             LIMIT 1
         `, globalGame.name, roomId);
         if (activeGame) {

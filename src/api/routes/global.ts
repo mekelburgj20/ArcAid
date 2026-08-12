@@ -1212,6 +1212,7 @@ router.post('/submission-drafts/:stateParam/commit', requireDiscordUser, require
                 JOIN tournaments t ON t.id = g.tournament_id
                 WHERE LOWER(g.name) = LOWER(?) AND t.game_room_id = ?
                   AND g.status IN ('ACTIVE', 'COMPLETED')
+                ORDER BY CASE g.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, g.created_at DESC
                 LIMIT 1
             `, gameName, roomId);
             if (activeGame) {

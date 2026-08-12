@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.100.3] — unreleased
+
+**Hardening: name-keyed submit resolution prefers the ACTIVE game (rerun-safety, owner verification request).**
+
+### Fixed
+- **The three name-keyed submit handlers' `submissions` upsert now resolves games with an explicit ACTIVE-first, newest-COMPLETED-fallback ORDER BY** (`/submit-score`, `/freeplay-score`, and the OAuth draft-commit). Games rerun after cooldown by design, so one name can match an ACTIVE row plus older COMPLETED rows; the previous `LIMIT 1` with no ORDER BY left the choice to the query planner (undefined by SQLite's contract — the WHO-dunnit incident's bug class). A wrong pick would be invisible on every leaderboard (tournament cards read `score_history`, whose tournament auto-resolve is strictly ACTIVE-only and was verified solid) but would land the score on a long-finished game's `submissions` row — **which winner resolution reads at rotation**. Verified on prod that the owner's field-test submission landed correctly; this makes the correctness explicit instead of plan-accidental. Regression test pins the contract.
+
 ## [2.100.2] — unreleased
 
 **Two owner field reports: mobile photo submissions failing silently + a misplaced cooldown caption.**
