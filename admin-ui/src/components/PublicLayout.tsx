@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useParams, useLocation } from 'react-router-dom';
-import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare, Users } from 'lucide-react';
+import { Monitor, Gamepad2, BarChart3, Trophy, MessageSquare, Users, UserPlus } from 'lucide-react';
 import { useViewerAuth } from '../contexts/ViewerAuthContext';
 import { usePickAwardEnabled } from '../hooks/usePickAwardEnabled';
 import { useMyRooms } from '../hooks/useMyRooms';
@@ -331,6 +331,24 @@ export default function PublicLayout({ gameRoomName }: PublicLayoutProps) {
             <Link to={`/${slug}`} className="no-underline hidden sm:block sm:max-w-[220px]" title={roomName}>
               <span className="font-pixel text-neon-cyan text-xs tracking-wider truncate block">{roomName}</span>
             </Link>
+            {/* Visible "Join room" pill (owner request 2026-08-12) — reverses
+                v2.38.0's menu-item-only decision: the UserMenu "Add to My
+                Rooms" item was too buried for testers to find. Open rooms
+                only (approval rooms hard-gate the page with their own Join
+                flow), signed-in non-members only; disappears on join. Kept
+                to one tiny pill so the s20/s21 mobile-header-tightness
+                concern that motivated the original decision still holds. */}
+            {playerToken && resolvedRoomId && !isRoomMember(resolvedRoomId) && joinPolicy !== 'approval' && (
+              <button
+                type="button"
+                onClick={handleJoinRoom}
+                data-testid="nav-join-room"
+                className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium border border-neon-cyan/50 bg-neon-cyan/10 text-neon-cyan hover:bg-neon-cyan/20 transition-colors cursor-pointer touch-manipulation"
+              >
+                <UserPlus size={12} />
+                Join room
+              </button>
+            )}
           </div>
           <div className="flex-1 min-w-0 flex items-center justify-start sm:justify-end gap-0.5 sm:gap-1 overflow-x-auto" data-tour="nav">
             {navItems.map(item => {

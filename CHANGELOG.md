@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.102.0] — unreleased
+
+**Room membership & admin management UX (owner requests, 2026-08-12).**
+
+### Added
+- **Visible "Join room" pill in the room nav** for signed-in non-members on open rooms — reverses v2.38.0's menu-item-only placement (testers couldn't find "Add to My Rooms" buried in the account menu). Disappears on join; approval rooms keep their full-page join gate; kept to one compact pill so the mobile-header-tightness concern behind the original decision still holds.
+- **Guild-wide lookup for "Add Discord Admin"** (Settings → Users): rooms with a linked guild get a live typeahead over the whole Discord server (300ms debounce, avatars, viewer + existing admins excluded) via new admin-gated `GET /:roomId/admin/guild-members/search`; rooms without a guild keep the roster picker. Paste-ID fallback stays (the `google:*` promotion path).
+- **"You've been added as an admin" DM** on admin grant — room name + direct admin-page link, sent fire-and-forget (tracked) so delivery failure never fails the grant. Identity-link-aware: a Google-promoted admin with a linked Discord account still gets the DM; unlinked `google:*` grants skip silently.
+
+### Changed
+- **"Invite Local User" retired from the Users card** — password accounts existed for people without Discord, and login now requires Discord or Google. The Local Admins section renders only when legacy local accounts exist; pending-invite list/cancel kept for legacy rows (backend invite endpoints marked for later retirement).
+
 ## [2.101.1] — unreleased
 
 **Numpad round 2 (tester field report: SoggyBacon, iPhone 14).**

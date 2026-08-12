@@ -521,4 +521,63 @@ describe('PublicLayout', () => {
       expect(localStorage.getItem('arcaid_token')).toBe(existingAdminToken);
     });
   });
+
+  // v2.102.0 (owner request 2026-08-12) — visible nav "Join room" pill for
+  // signed-in non-members on OPEN rooms. Reverses v2.38.0's menu-item-only
+  // placement (testers couldn't find "Add to My Rooms"). Unique slug per test
+  // — getPortal memoizes per slug at module scope.
+  describe('nav Join room pill', () => {
+    function stubPortalAndRooms(slug: string, opts: { joinPolicy?: string; myRooms?: Array<{ roomId: string }> } = {}) {
+      const fetchMock = vi.fn((url: string) => {
+        if (url.startsWith('/api/portal')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              id: `room-${slug}`, roomId: `room-${slug}`, slug, name: 'Join Pill Room',
+              pick_award_enabled: false, join_policy: opts.joinPolicy ?? 'open',
+            }),
+          });
+        }
+        if (url.startsWith('/api/me/rooms')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(opts.myRooms ?? []) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      });
+      vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+      return fetchMock;
+    }
+
+    it('shows for a signed-in non-member on an open room, and joining removes it', async () => {
+      signInAs('777000111222333444');
+      const fetchMock = stubPortalAndRooms('joinpill_open');
+      renderAt('/joinpill_open');
+
+      const pill = await screen.findByTestId('nav-join-room');
+      fireEvent.click(pill);
+
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(c =>
+          String(c[0]).includes('/api/me/rooms/room-joinpill_open') && (c[1] as RequestInit)?.method === 'POST',
+        )).toBe(true);
+      });
+      // Optimistic membership add → the pill unrenders.
+      await waitFor(() => expect(screen.queryByTestId('nav-join-room')).not.toBeInTheDocument());
+    });
+
+    it('hidden for members and for guests', async () => {
+      signInAs('777000111222333555');
+      stubPortalAndRooms('joinpill_member', { myRooms: [{ roomId: 'room-joinpill_member' }] });
+      renderAt('/joinpill_member');
+      await screen.findByText('Privacy');
+      expect(screen.queryByTestId('nav-join-room')).not.toBeInTheDocument();
+    });
+
+    it('hidden on approval rooms (RoomJoinGate owns that flow)', async () => {
+      signInAs('777000111222333666');
+      stubPortalAndRooms('joinpill_approval', { joinPolicy: 'approval' });
+      renderAt('/joinpill_approval');
+      // Non-member on an approval room renders the gate, never the pill.
+      await waitFor(() => expect(screen.queryByTestId('nav-join-room')).not.toBeInTheDocument());
+    });
+  });
 });
