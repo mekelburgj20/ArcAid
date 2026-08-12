@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.101.1] — unreleased
+
+**Numpad round 2 (tester field report: SoggyBacon, iPhone 14).**
+
+### Fixed
+- **Keys now act on press, not release.** Rapid thumb-typing slides slightly between press and lift, so a key could flash its pressed state (applied at press) while the input never arrived (clicks only fire if the lift is still inside the button) — the exact "flashes but won't populate" report. Acting at pointer-down makes the flash and the digit atomic, and shaves the remaining perceived latency.
+- **The bottom key row keeps clear of the iPhone's bottom-edge gesture zone** (`safe-area-inset-bottom` + a 14px floor) — keys flush with the screen edge were getting mistaken for the bottom-edge swipe, refreshing the page mid-entry.
+- The sheet's scroll area contains its overscroll, so a drag that starts on the form can't chain into the page behind it and trigger pull-to-refresh.
+
 ## [2.101.0] — unreleased
 
 **Launch-reset wipe script (owner-signed scope; rehearsed against a prod backup copy).**
