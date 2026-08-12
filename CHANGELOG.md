@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.101.0] — unreleased
+
+**Launch-reset wipe script (owner-signed scope; rehearsed against a prod backup copy).**
+
+### Added
+- **`src/scripts/wipe-test-scores.ts` expanded from the six-table skeleton into the full pre-launch reset** (and moved into `src/` so tsc emits it into the prod image — the old repo-root location never compiled). FK-safe ordered wipe of all score tables + caches + score-derived ledgers (achievements, milestones, lobby/room events, maintenance runs, drafts, reports, suppression tombstones) + ALL games rows + rotation state + merge/anon-identity records + ban content-actions + comments/tips/ratings and their reports; keeps rooms/settings/tournaments/users/members/bans/catalogue/styles/audit-log. Deletes score photos on disk AND in the append-only assets-mirror (a restore would otherwise resurrect them). Optional `WIPE_DEACTIVATE_TOURNAMENTS=yes` stops cron from creating game slots before the board rebuild. Runs `PRAGMA foreign_key_check` + zero-count + kept-table verification and exits non-zero on any mismatch. Rehearsed against a copy of the 2026-08-11 prod backup: all wiped tables 0, kept tables byte-identical counts, FK clean.
+
 ## [2.100.5] — unreleased
 
 **Fix: laggy on-screen numpad on iPhone (owner field report).**
