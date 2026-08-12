@@ -64,9 +64,19 @@ export function withUploadErrors(mw: RequestHandler): RequestHandler {
                 return res.status(400).json({ error: 'Upload failed — please try a different file.' });
             }
 
-            // Plain Error thrown from fileFilter (unsupported mimetype, etc).
+            // Plain Error thrown from fileFilter (unsupported mimetype, etc)
+            // OR a busboy stream-parse error surfaced through multer.
             const message = err instanceof Error ? err.message : 'Upload failed';
             logWarn(`Upload rejected on ${routePath}: ${message}`, { mimetype, size });
+            // busboy's "Unexpected end of form": the request body ended before
+            // the multipart terminator — the classic case is iOS Safari's lazy
+            // camera-roll File reference truncating mid-stream (see the FE's
+            // photoNormalize.ts materialization fix, v2.100.4). Translate the
+            // parser jargon into something a player can act on; the raw
+            // message is preserved in the log line above.
+            if (/unexpected end of form/i.test(message)) {
+                return res.status(400).json({ error: 'The photo upload was interrupted before it finished — please try again.' });
+            }
             return res.status(400).json({ error: message });
         });
     };

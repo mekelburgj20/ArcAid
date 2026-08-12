@@ -28,6 +28,18 @@ export function isSupportedPhotoType(type: string): boolean {
  * Decides whether `file` needs conversion and returns the file to use, or
  * `null` if conversion was needed but failed.
  *
+ * v2.100.4 — supported-type files are MATERIALIZED (read fully into memory)
+ * instead of passed through. Field evidence (2026-08-12, prod log lines
+ * `Upload rejected ... Unexpected end of form {"mimetype":"unknown","size":"0"}`
+ * from two different iPhones): iOS Safari hands the page a LAZY reference to
+ * a camera-roll photo and only reads it from disk while the upload streams —
+ * that read can end early, truncating the multipart body before the file
+ * part arrives (busboy's "Unexpected end of form"). Reading the bytes into a
+ * fresh in-memory File at pick time removes the lazy reference entirely; the
+ * upload then streams from RAM. The canvas-converted path was already
+ * in-memory by construction. Materialization failure falls back to the
+ * original file — a lazy file that MIGHT truncate beats no photo at all.
+ *
  * Kept separate from `convertToSupportedPhoto` so the decision logic (pass
  * through / convert / fail) is unit-testable with the actual canvas-based
  * converter mocked out — jsdom has no real `<canvas>` implementation.
@@ -36,8 +48,22 @@ export async function normalizePhotoFile(
     file: File,
     convert: (file: File) => Promise<File | null> = convertToSupportedPhoto,
 ): Promise<File | null> {
-    if (isSupportedPhotoType(file.type)) return file;
+    if (isSupportedPhotoType(file.type)) return materializePhotoFile(file);
     return convert(file);
+}
+
+/**
+ * Reads `file` fully into memory and returns a fresh `File` over the buffer
+ * (same name/type). See `normalizePhotoFile`'s doc comment for why. Falls
+ * back to the original file if the read fails.
+ */
+export async function materializePhotoFile(file: File): Promise<File> {
+    try {
+        const buf = await file.arrayBuffer();
+        return new File([buf], file.name || 'photo', { type: file.type });
+    } catch {
+        return file;
+    }
 }
 
 /**

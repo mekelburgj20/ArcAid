@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.100.4] — unreleased
+
+**Hotfix: iPhone photo uploads truncating mid-stream ("Unexpected end of form").**
+
+### Fixed
+- **The real cause of the mobile photo-submit failures, caught by v2.100.2's new logging** (prod: 4× `Upload rejected ... Unexpected end of form {"mimetype":"unknown","size":"0"}` from two different iPhones): iOS Safari hands the page a lazy reference to a camera-roll photo and reads it from disk only while the upload streams — the read can end early, truncating the multipart body before the photo bytes arrive. Fix: `photoNormalize` now **materializes every selected photo into memory at pick time** (fresh in-memory `File` over the bytes; the canvas-converted path was already in-memory), so the upload streams from RAM with nothing left to truncate. Materialization failure falls back to the original file.
+- The raw busboy parser message ("Unexpected end of form") reached players verbatim; the upload wrapper now translates it to "The photo upload was interrupted before it finished — please try again." (raw message still logged).
+
 ## [2.100.3] — unreleased
 
 **Hardening: name-keyed submit resolution prefers the ACTIVE game (rerun-safety, owner verification request).**
