@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Delete, ArrowBigUp } from 'lucide-react';
 
 interface OnScreenKeyboardProps {
@@ -22,9 +22,15 @@ const SYMBOL_ROWS = [
   ['.', ',', '/', '?', '<', '>', '~', '`'],
 ];
 
-const keyClass = 'bg-raised border border-border text-primary rounded px-2 py-2.5 text-sm font-medium active:bg-neon-cyan/20 active:border-neon-cyan/50 transition-colors select-none cursor-pointer min-w-[28px] text-center';
+// `touch-manipulation` (v2.100.5, owner iPhone field report): without it, iOS
+// applies its double-tap-to-zoom heuristic to every key — the browser WAITS
+// (up to ~350ms) after each tap to see if a second tap follows before firing
+// the click. Rapid numpad entry felt "laggy" exactly because of that hold.
+// touch-action: manipulation disables the double-tap gesture on the element,
+// so taps fire immediately.
+const keyClass = 'bg-raised border border-border text-primary rounded px-2 py-2.5 text-sm font-medium active:bg-neon-cyan/20 active:border-neon-cyan/50 transition-colors select-none cursor-pointer min-w-[28px] text-center touch-manipulation';
 
-export default function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone }: OnScreenKeyboardProps) {
+function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone }: OnScreenKeyboardProps) {
   const [showSymbols, setShowSymbols] = useState(false);
   const [shift, setShift] = useState(false);
 
@@ -98,3 +104,9 @@ export default function OnScreenKeyboard({ mode, onKeyPress, onBackspace, onDone
     </div>
   );
 }
+
+// memo (v2.100.5): every keypress updates SubmissionSheet state and re-renders
+// its whole ~900-line tree. With the sheet's handlers now useCallback-stable,
+// memo lets the keyboard subtree skip those re-renders entirely — on
+// phone-class CPUs the per-tap render cost was a visible part of the lag.
+export default memo(OnScreenKeyboard);

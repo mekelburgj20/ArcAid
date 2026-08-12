@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.100.5] — unreleased
+
+**Fix: laggy on-screen numpad on iPhone (owner field report).**
+
+### Fixed
+- **Score-keypad taps fire immediately on iOS.** The key buttons lacked `touch-action: manipulation`, so iOS held every tap (up to ~350ms) waiting to rule out a double-tap-to-zoom — rapid score entry felt mushy. Also: the keyboard is now `memo`'d with `useCallback`-stable handlers, so each keystroke re-renders only the score field's ancestors instead of the entire ~900-line submission sheet — a visible per-tap cost on phone-class CPUs.
+
 ## [2.100.4] — unreleased
 
 **Hotfix: iPhone photo uploads truncating mid-stream ("Unexpected end of form").**

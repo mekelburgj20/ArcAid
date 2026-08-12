@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { X, Camera, Trash2, Keyboard, AlertTriangle, LogIn, UserCheck, Trophy } from 'lucide-react';
 import NeonButton from './NeonButton';
@@ -455,7 +455,10 @@ export default function SubmissionSheet({
         return submitScoreNow();
     };
 
-    const handleKeyPress = (key: string) => {
+    // useCallback (v2.100.5): OnScreenKeyboard is memo'd so the keyboard
+    // subtree skips the whole-sheet re-render every keystroke triggers —
+    // that only works if these handler identities are stable across renders.
+    const handleKeyPress = useCallback((key: string) => {
         if (activeField === 'name') {
             setPlayerName(prev => prev + key);
             nameRef.current?.focus();
@@ -463,17 +466,17 @@ export default function SubmissionSheet({
             if (/\d/.test(key)) setScore(prev => prev + key);
             scoreRef.current?.focus();
         }
-    };
+    }, [activeField]);
 
-    const handleBackspace = () => {
+    const handleBackspace = useCallback(() => {
         if (activeField === 'name') setPlayerName(prev => prev.slice(0, -1));
         else if (activeField === 'score') setScore(prev => prev.slice(0, -1));
-    };
+    }, [activeField]);
 
-    const handleDone = () => {
+    const handleDone = useCallback(() => {
         setActiveField(null);
         setShowKeyboard(false);
-    };
+    }, []);
 
     const needsPhoto = photoRequired(target);
     const cooldown = isCooldownLocked(target);
