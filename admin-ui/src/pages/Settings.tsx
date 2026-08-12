@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight } from 'lucide-react';
-import { api } from '../lib/api';
+import { ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { api, getToken, getTokenDiscordId } from '../lib/api';
 import { useRoom } from '../contexts/RoomContext';
 import { useToast } from '../components/Toast';
 import { useTheme, THEMES, type ThemeId } from '../components/ThemeProvider';
@@ -17,7 +17,7 @@ import ScoreboardPreview from '../components/ScoreboardPreview';
 import ImageCropper from '../components/ImageCropper';
 import MemberAdminPicker from '../components/MemberAdminPicker';
 import { resizeImageToMaxBox } from '../lib/imageResize';
-import { getTitleStyleClass, getTitleSizeClass } from '../components/ScoreboardComponents';
+import { getTitleStyleClass, getTitleSizeClass, PlayerAvatar } from '../components/ScoreboardComponents';
 
 /**
  * Validate-credentials button for the iScored Configuration card. Hits the
@@ -60,6 +60,144 @@ function IScoredCredentialsCheck() {
           <span className="text-xs text-neon-magenta">
             ✗ {result.error}{result.username ? ` (tried: ${result.username})` : ''}
           </span>
+        )
+      )}
+    </div>
+  );
+}
+
+/** `GET /:roomId/admin/guild-members/search` result row (admin guild-wide
+ *  typeahead, feature/admin-users-card Task B) — same shape as the Picks
+ *  nominee typeahead's `NomineeSuggestion` (both wrap `searchGuildMembers`). */
+interface GuildMemberSuggestion {
+  discordUserId: string;
+  displayName: string;
+  username: string;
+  avatarHash: string | null;
+}
+
+/**
+ * Guild-wide "Add Discord Admin" typeahead (feature/admin-users-card Task B).
+ *
+ * Mirrors the Picks page's nominee typeahead pattern exactly (300ms debounce,
+ * 2-char minimum, AbortController stale-response guard, query-keyed results)
+ * but searches the room's ENTIRE linked Discord guild via the admin-gated
+ * `GET /:roomId/admin/guild-members/search` route, rather than just the
+ * room roster `<MemberAdminPicker>` reads — so an admin can promote a guild
+ * member who hasn't joined the room in ArcAid yet. Only rendered when the
+ * room has a linked guild (`DISCORD_GUILD_ID` set); rooms without one keep
+ * the existing roster-based `<MemberAdminPicker>` unchanged.
+ */
+function GuildAdminTypeahead({
+  roomId, excludeIds, viewerDiscordId, onAdded, onError,
+}: {
+  roomId: string;
+  /** Discord ids already admins of this room — filtered out of results. */
+  excludeIds: Set<string>;
+  /** The viewing admin's own Discord id (decoded from the admin JWT), or
+   *  null when not applicable (local-admin login) — excluded from results. */
+  viewerDiscordId: string | null;
+  onAdded: (member: GuildMemberSuggestion) => void;
+  onError: (message: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [fetched, setFetched] = useState<{ query: string; list: GuildMemberSuggestion[] } | null>(null);
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedQuery(query), 300);
+    return () => window.clearTimeout(t);
+  }, [query]);
+
+  const trimmedQuery = debouncedQuery.trim().replace(/^@/, '');
+  const searchActive = trimmedQuery.length >= 2;
+  // Results are stored WITH the query that produced them and rendered only
+  // while that query is still current — same idiom as Picks.tsx's nominee
+  // typeahead, so a stale response can't briefly render under a new query.
+  const results = searchActive && fetched?.query === trimmedQuery ? fetched.list : null;
+
+  useEffect(() => {
+    if (!searchActive) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    fetch(`/api/rooms/${roomId}/admin/guild-members/search?q=${encodeURIComponent(trimmedQuery)}`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+      signal: controller.signal,
+    })
+      .then(r => (r.ok ? r.json() : { members: [] }))
+      .then((data: { members?: GuildMemberSuggestion[] }) => {
+        if (controller.signal.aborted) return;
+        setFetched({ query: trimmedQuery, list: data.members ?? [] });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFetched(null);
+      });
+    return () => controller.abort();
+  }, [searchActive, trimmedQuery, roomId]);
+
+  const visible = (results ?? []).filter(
+    m => m.discordUserId !== viewerDiscordId && !excludeIds.has(m.discordUserId),
+  );
+
+  const handlePick = async (member: GuildMemberSuggestion) => {
+    if (addingId) return;
+    setAddingId(member.discordUserId);
+    try {
+      await api.post(`/rooms/${roomId}/admins/discord`, { discord_user_id: member.discordUserId });
+      setQuery('');
+      setDebouncedQuery('');
+      setFetched(null);
+      onAdded(member);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to add admin');
+    } finally {
+      setAddingId(null);
+    }
+  };
+
+  return (
+    <div>
+      <label className="text-xs text-faint block mb-1">Add from Discord server</label>
+      <div className="relative mb-2">
+        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Search Discord server members…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          aria-label="Search Discord server members"
+          className="w-full pl-8 pr-3 py-2 bg-raised border border-border rounded text-primary placeholder-faint text-sm focus:outline-none focus:border-neon-cyan transition-colors"
+        />
+      </div>
+      {results !== null && (
+        visible.length > 0 ? (
+          <div data-testid="guild-admin-typeahead" className="max-h-56 overflow-y-auto border border-border rounded divide-y divide-border/40">
+            {visible.map(m => (
+              <button
+                key={m.discordUserId}
+                type="button"
+                onClick={() => handlePick(m)}
+                disabled={addingId !== null}
+                className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-border/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <PlayerAvatar
+                  username={m.displayName}
+                  discordUserId={m.discordUserId}
+                  avatarHash={m.avatarHash}
+                  size={24}
+                />
+                <span className="text-sm text-primary truncate flex-1">{m.displayName}</span>
+                {addingId === m.discordUserId && <span className="text-xs text-faint flex-shrink-0">Adding…</span>}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-faint text-xs px-1" data-testid="guild-admin-typeahead-empty">
+            No matching Discord server members.
+          </p>
         )
       )}
     </div>
@@ -457,11 +595,7 @@ export default function Settings() {
   const [localAdmins, setLocalAdmins] = useState<LocalAdmin[]>([]);
   const [discordAdmins, setDiscordAdmins] = useState<DiscordAdmin[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
-  const [showInviteForm, setShowInviteForm] = useState(false);
   const [showDiscordForm, setShowDiscordForm] = useState(false);
-  const [inviteDisplayName, setInviteDisplayName] = useState('');
-  const [inviteDiscordId, setInviteDiscordId] = useState('');
-  const [inviting, setInviting] = useState(false);
   const [newDiscordUser, setNewDiscordUser] = useState('');
   const [addingDiscord, setAddingDiscord] = useState(false);
   const [deleteAdminTarget, setDeleteAdminTarget] = useState<LocalAdmin | null>(null);
@@ -471,6 +605,11 @@ export default function Settings() {
   // UI itself lives in <MemberAdminPicker> (member-picker admin add rider) —
   // names + avatars, provider-agnostic (works for `google:*` ids too).
   const [roomMembers, setRoomMembers] = useState<RoomMember[]>([]);
+  // feature/admin-users-card Task B — the viewing admin's own Discord id
+  // (decoded from the admin JWT), used to exclude them from the guild-wide
+  // typeahead's suggestion list. Null for local-admin logins (no Discord
+  // identity on that token).
+  const viewerDiscordId = useMemo(() => getTokenDiscordId(), []);
 
   // Branding upload state
   const [bgUrl, setBgUrl] = useState('');
@@ -501,35 +640,6 @@ export default function Settings() {
       const data = await api.get<RoomMember[]>(`/rooms/${room.roomId}/admin/members`);
       setRoomMembers(data);
     } catch {}
-  };
-
-  const handleInvite = async () => {
-    if (!inviteDisplayName.trim()) { toast('Display name required', 'error'); return; }
-    setInviting(true);
-    try {
-      const result = await api.post<{ id: string; token: string; dmSent: boolean }>(`/rooms/${room.roomId}/admins/invites`, {
-        display_name: inviteDisplayName.trim(),
-        discord_user: inviteDiscordId.trim() || undefined,
-      });
-      const inviteUrl = `${window.location.origin}/invite/${result.token}`;
-      if (result.dmSent) {
-        toast('Invite sent via Discord DM', 'success');
-      } else if (inviteDiscordId.trim()) {
-        toast('Invite created but Discord DM could not be sent. Copy the link to share manually.', 'error');
-      } else {
-        toast('Invite created. Copy the link to share.', 'success');
-      }
-      // Auto-copy to clipboard
-      try { await navigator.clipboard.writeText(inviteUrl); } catch {}
-      setInviteDisplayName('');
-      setInviteDiscordId('');
-      setShowInviteForm(false);
-      fetchInvites();
-    } catch (err: any) {
-      toast(err.message || 'Failed to create invite', 'error');
-    } finally {
-      setInviting(false);
-    }
   };
 
   const handleDeleteAdmin = async () => {
@@ -885,20 +995,38 @@ export default function Settings() {
 
       {showDiscordForm ? (
         <div className="border border-border rounded p-4 space-y-4 mb-6">
-          {/* v2.39.0 — member picker (primary flow): room members are already
-              known to us, so pick from the list rather than typing a
-              username/ID. Excludes users already listed as Discord admins.
-              Names + avatars, provider-agnostic (member-picker admin add rider). */}
-          <MemberAdminPicker
-            roomId={room.roomId}
-            members={roomMembers}
-            excludeIds={new Set(discordAdmins.map(a => a.discord_user_id))}
-            onAdded={(member) => {
-              toast(`${member.displayName || 'Admin'} added.`, 'success');
-              fetchAdmins();
-            }}
-            onError={(message) => toast(message, 'error')}
-          />
+          {/* feature/admin-users-card Task B — when the room has a linked
+              Discord guild, search the whole guild (not just the room roster)
+              via the admin-gated typeahead so a not-yet-a-member can be
+              promoted directly. Rooms without a linked guild fall back to the
+              v2.39.0 room-roster picker unchanged. */}
+          {settings.DISCORD_GUILD_ID?.trim() ? (
+            <GuildAdminTypeahead
+              roomId={room.roomId}
+              excludeIds={new Set(discordAdmins.map(a => a.discord_user_id))}
+              viewerDiscordId={viewerDiscordId}
+              onAdded={(member) => {
+                toast(`${member.displayName || 'Admin'} added.`, 'success');
+                fetchAdmins();
+              }}
+              onError={(message) => toast(message, 'error')}
+            />
+          ) : (
+            /* v2.39.0 — member picker (primary flow): room members are already
+               known to us, so pick from the list rather than typing a
+               username/ID. Excludes users already listed as Discord admins.
+               Names + avatars, provider-agnostic (member-picker admin add rider). */
+            <MemberAdminPicker
+              roomId={room.roomId}
+              members={roomMembers}
+              excludeIds={new Set(discordAdmins.map(a => a.discord_user_id))}
+              onAdded={(member) => {
+                toast(`${member.displayName || 'Admin'} added.`, 'success');
+                fetchAdmins();
+              }}
+              onError={(message) => toast(message, 'error')}
+            />
+          )}
 
           <div>
             <label className="text-xs text-faint block mb-1">Advanced: paste a username or ID</label>
@@ -910,7 +1038,7 @@ export default function Settings() {
               onKeyDown={e => e.key === 'Enter' && handleAddDiscordAdmin()}
               className={inputClass}
             />
-            <p className="text-xs text-faint mt-1">Username or numeric ID — use this for someone not yet a room member. They'll be able to log in via Discord immediately.</p>
+            <p className="text-xs text-faint mt-1">Username or numeric ID — use this for someone not yet a room member. They'll be able to log in via Discord immediately. Also accepts a <code>google:*</code> id to promote a Google-authed member.</p>
             <div className="flex gap-2 mt-2">
               <NeonButton onClick={handleAddDiscordAdmin} disabled={addingDiscord || !newDiscordUser.trim()}>
                 {addingDiscord ? 'Adding...' : 'Add Discord Admin'}
@@ -927,32 +1055,38 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Local Admins (username/password) */}
-      <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Local Admins</p>
-      <p className="text-xs text-faint mb-3">Username/password accounts for users without Discord.</p>
-      {localAdmins.length > 0 ? (
-        <div className="space-y-2 mb-3">
-          {localAdmins.map(admin => (
-            <div key={admin.id} className="flex items-center justify-between bg-raised border border-border rounded px-4 py-2">
-              <div>
-                <span className="text-sm font-medium text-primary">{admin.display_name || admin.username}</span>
-                <span className="text-xs text-faint ml-2">@{admin.username}</span>
+      {/* Local Admins (username/password) — feature/admin-users-card Task A:
+          creation is retired (no more "Invite Local User"), so this section
+          only renders when legacy accounts already exist, purely so a room
+          can still clean them up via the Remove affordance below. */}
+      {localAdmins.length > 0 && (
+        <>
+          <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Local Admins</p>
+          <p className="text-xs text-faint mb-3">Username/password accounts for users without Discord.</p>
+          <div className="space-y-2 mb-3">
+            {localAdmins.map(admin => (
+              <div key={admin.id} className="flex items-center justify-between bg-raised border border-border rounded px-4 py-2">
+                <div>
+                  <span className="text-sm font-medium text-primary">{admin.display_name || admin.username}</span>
+                  <span className="text-xs text-faint ml-2">@{admin.username}</span>
+                </div>
+                <NeonButton
+                  variant="ghost"
+                  className="text-xs px-2 py-1 text-neon-magenta hover:text-neon-magenta"
+                  onClick={() => setDeleteAdminTarget(admin)}
+                >
+                  Remove
+                </NeonButton>
               </div>
-              <NeonButton
-                variant="ghost"
-                className="text-xs px-2 py-1 text-neon-magenta hover:text-neon-magenta"
-                onClick={() => setDeleteAdminTarget(admin)}
-              >
-                Remove
-              </NeonButton>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-faint text-sm mb-3">No local admin accounts.</p>
+            ))}
+          </div>
+        </>
       )}
 
-      {/* Pending invites */}
+      {/* Pending invites — management-only now that creation is retired
+          (Task A). The backend invite endpoints (POST/GET/DELETE
+          /:roomId/admins/invites) are untouched here; they're slated for
+          retirement in a later pass once no room has any pending rows left. */}
       {pendingInvites.length > 0 && (
         <div className="mb-3">
           <p className="text-xs font-display uppercase tracking-wider text-neon-cyan/70 mb-2 pl-2 border-l-2 border-neon-cyan/30">Pending Invites</p>
@@ -985,44 +1119,6 @@ export default function Settings() {
             ))}
           </div>
         </div>
-      )}
-
-      {/* Invite form for local admin */}
-      {showInviteForm ? (
-        <div className="border border-border rounded p-4 space-y-3">
-          <div>
-            <label className="text-xs text-faint block mb-1">Display Name *</label>
-            <input
-              type="text"
-              placeholder="e.g. John Smith"
-              value={inviteDisplayName}
-              onChange={e => setInviteDisplayName(e.target.value)}
-              className={inputClass}
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="text-xs text-faint block mb-1">Discord Username (optional)</label>
-            <input
-              type="text"
-              placeholder="e.g. ChuckRibbits"
-              value={inviteDiscordId}
-              onChange={e => setInviteDiscordId(e.target.value)}
-              className={inputClass}
-            />
-            <p className="text-xs text-faint mt-1">If provided, the invite link will be sent via Discord DM.</p>
-          </div>
-          <div className="flex gap-2">
-            <NeonButton onClick={handleInvite} disabled={inviting || !inviteDisplayName.trim()}>
-              {inviting ? 'Sending...' : 'Send Invite'}
-            </NeonButton>
-            <NeonButton variant="ghost" onClick={() => setShowInviteForm(false)} disabled={inviting}>
-              Cancel
-            </NeonButton>
-          </div>
-        </div>
-      ) : (
-        <NeonButton variant="secondary" onClick={() => setShowInviteForm(true)}>Invite Local User</NeonButton>
       )}
     </NeonCard>
   );

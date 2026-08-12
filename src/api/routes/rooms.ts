@@ -6,7 +6,7 @@ import { getDatabase } from '../../database/database.js';
 import { logInfo, logError, logWarn } from '../../utils/logger.js';
 import { requireAuth, requireRoomAccess, requireDiscordUser, optionalDiscordUser, optionalUser, roomVisibilityGate, requireNotBanned } from '../middleware.js';
 import { validate } from '../validate.js';
-import { isProviderUserId } from '../../utils/identityProvider.js';
+import { isProviderUserId, isDiscordUserId } from '../../utils/identityProvider.js';
 import {
     CreateTournamentSchema, UpdateTournamentSchema, ToggleTournamentActiveSchema,
     SettingsSchema,
@@ -4773,6 +4773,40 @@ router.post('/:roomId/admins/discord', requireAuth, requireRoomAccess('roomId'),
             correlation_id: req.correlationId || '',
         });
 
+        // Fire-and-forget "you've been added as an admin" DM (feature/admin-
+        // users-card Task C) — never blocks or fails the grant itself.
+        // `resolvedId` may itself be a Discord snowflake, OR a `google:*` id
+        // with no DM channel of its own — either way, walk the identity-link
+        // graph the same cheap way `ScoreReportService.sendBanNotification`
+        // does (`BanService.expandIdentityCandidates`, single source of
+        // truth for this expansion) and DM whichever linked alias is a real
+        // Discord id. A `google:*` grant with no linked Discord account finds
+        // none and is silently skipped — same "no DM channel exists" rule
+        // `BanNotificationService` applies.
+        trackBackground((async () => {
+            try {
+                const { BanService } = await import('../../services/BanService.js');
+                const candidates = await BanService.expandIdentityCandidates(resolvedId);
+                const dmTarget = candidates.find(isDiscordUserId);
+                if (!dmTarget) return;
+
+                const db = await getDatabase();
+                const roomRow = await db.get<{ name: string; slug: string }>(
+                    'SELECT name, slug FROM game_rooms WHERE id = ?', roomId,
+                );
+                if (!roomRow) return;
+
+                const { sendDirectMessage } = await import('../../utils/discord.js');
+                const message = [
+                    `\u{1F6E1}\u{FE0F} **You've been added as an admin of "${roomRow.name}"!**`,
+                    `Manage it here: https://arcaid.app/${roomRow.slug}/admin`,
+                ].join('\n');
+                await sendDirectMessage(dmTarget, message, { type: 'admin_added' });
+            } catch (err) {
+                logError('Failed to send admin-added DM (non-fatal — admin grant still applies):', err);
+            }
+        })());
+
         res.json({ success: true });
     } catch (error) {
         logError('API Error (POST rooms/:roomId/admins/discord):', error);
@@ -5203,6 +5237,32 @@ router.get('/:roomId/admin/members', requireAuth, requireRoomAccess('roomId'), a
     } catch (error) {
         logError('API Error (GET rooms/:roomId/admin/members):', error);
         res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Guild-wide member search for the "Add Discord Admin" typeahead
+// (feature/admin-users-card Task B) — the admin-gated twin of the
+// player-facing nominee typeahead above (`GET /:roomId/guild-members/search`).
+// `/admin/members` only lists people already in the room's roster; this lets
+// a room admin promote ANY member of the linked Discord guild, joined or not.
+// Same never-500 contract as its player-facing twin: any failure (short
+// query, no linked guild, resolver throw) degrades to `{ members: [] }`.
+router.get('/:roomId/admin/guild-members/search', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
+    try {
+        const roomId = req.params.roomId as string;
+        const raw = (req.query.q as string) || '';
+        const q = raw.trim().replace(/^@/, '');
+        if (q.length < 2) return res.json({ members: [] });
+
+        const guildId = await GameRoomSettingsService.get(roomId, 'DISCORD_GUILD_ID');
+        if (!guildId) return res.json({ members: [] });
+
+        const { searchGuildMembers } = await import('../../services/DiscordNicknameResolver.js');
+        const members = await searchGuildMembers(guildId, q);
+        res.json({ members });
+    } catch (error) {
+        logWarn(`API Error (GET rooms/:roomId/admin/guild-members/search): ${error instanceof Error ? error.message : String(error)}`);
+        res.json({ members: [] });
     }
 });
 

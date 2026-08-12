@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Settings from '../Settings';
 import { RoomContext } from '../../contexts/RoomContext';
 import { ThemeProvider } from '../../components/ThemeProvider';
 import { ToastProvider } from '../../components/Toast';
+import { setToken } from '../../lib/api';
 import { stubResizeObserver } from '../../test/stubResizeObserver';
 
 stubResizeObserver();
@@ -56,10 +57,16 @@ function renderSettings() {
 
 type FetchArgs = [url: string, init?: RequestInit];
 
-/** Stubs global fetch for the settings GET/POST + the three admin-list GETs
- *  the page fires on mount (all swallowed on error by the component, but
- *  stubbed anyway to keep the console clean and avoid unrelated act() noise). */
-function stubFetch(settingsResponse: Record<string, string>) {
+/** Stubs global fetch for the settings GET/POST + the admin-list GETs the
+ *  page fires on mount (all swallowed on error by the component, but stubbed
+ *  anyway to keep the console clean and avoid unrelated act() noise).
+ *  `opts` lets Users-card tests seed local/Discord admins and the guild-wide
+ *  typeahead's search results without hand-rolling a whole fetch mock. */
+function stubFetch(settingsResponse: Record<string, string>, opts: {
+  localAdmins?: Array<{ id: string; username: string; display_name: string; created_at: string }>;
+  discordAdmins?: Array<{ discord_user_id: string; role: string; display_name: string | null; username: string | null }>;
+  guildMembers?: Array<{ discordUserId: string; displayName: string; username: string; avatarHash: string | null }>;
+} = {}) {
   const fetchMock = vi.fn((...args: FetchArgs) => {
     const [url, init] = args;
     const method = (init?.method || 'GET').toUpperCase();
@@ -67,8 +74,15 @@ function stubFetch(settingsResponse: Record<string, string>) {
     if (url.includes('/settings') && method === 'GET') return j(settingsResponse);
     if (url.includes('/settings') && method === 'POST') return j({ success: true });
     if (url.includes('/admins/invites')) return j([]);
+    // Order matters: the guild-wide search path contains "/admin/" but not
+    // the exact "/admin/members" substring, so it must be checked first.
+    if (url.includes('/admin/guild-members/search')) {
+      if (method === 'POST') return j({ success: true });
+      return j({ members: opts.guildMembers ?? [] });
+    }
     if (url.includes('/admin/members')) return j([]);
-    if (url.includes('/admins')) return j({ localAdmins: [], discordAdmins: [] });
+    if (url.includes('/admins/discord')) return j({ success: true });
+    if (url.includes('/admins')) return j({ localAdmins: opts.localAdmins ?? [], discordAdmins: opts.discordAdmins ?? [] });
     return j({});
   });
   vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
@@ -97,6 +111,15 @@ async function waitForLoaded() {
   // Loading gate flips off once the settings GET resolves.
   await waitFor(() => expect(screen.queryByText('Loading settings...')).not.toBeInTheDocument());
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument());
+}
+
+/** Unsigned fake admin JWT — decode-only on the FE (`getTokenDiscordId`),
+ *  same idiom as PicksDisposition.test.tsx's `fakeJwt`. */
+function b64url(obj: object): string {
+  return btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function fakeAdminJwt(discordId: string): string {
+  return `${b64url({ alg: 'none' })}.${b64url({ role: 'room_admin', discordId })}.sig`;
 }
 
 describe('Settings page — ROOM_LISTED, JOIN_POLICY, AUTO_APPROVE_GUILD_MEMBERS, iScored posture', () => {
@@ -384,6 +407,193 @@ describe('Settings page — ROOM_LISTED, JOIN_POLICY, AUTO_APPROVE_GUILD_MEMBERS
 
       await waitFor(() => expect(lastSavePayload(fetchMock)).not.toBeNull());
       expect(lastSavePayload(fetchMock)!.ISCORED_PASSWORD).toBe('');
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Users card — Local Admins visibility (feature/admin-users-card Task A).
+  // "Invite Local User" and its creation form are retired outright; the
+  // Local Admins section itself now only renders for legacy rooms that
+  // already have accounts, purely so they stay cleanable via Remove.
+  // ---------------------------------------------------------------------
+  describe('Users card — Local Admins visibility (Task A)', () => {
+    it('never renders "Invite Local User" or an invite-creation form', async () => {
+      stubFetch({}, { localAdmins: [{ id: 'la-1', username: 'bob', display_name: 'Bob', created_at: '2026-01-01' }] });
+      renderSettings();
+      await waitForLoaded();
+
+      expect(screen.queryByText('Invite Local User')).not.toBeInTheDocument();
+      expect(screen.queryByText('Display Name *')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('e.g. John Smith')).not.toBeInTheDocument();
+    });
+
+    it('hides the whole Local Admins section (header + empty copy) when no local admin accounts exist', async () => {
+      stubFetch({}, { localAdmins: [] });
+      renderSettings();
+      await waitForLoaded();
+
+      expect(screen.queryByText('Local Admins')).not.toBeInTheDocument();
+      expect(screen.queryByText('No local admin accounts.')).not.toBeInTheDocument();
+      expect(screen.queryByText('Username/password accounts for users without Discord.')).not.toBeInTheDocument();
+    });
+
+    it('shows the Local Admins section with a working Remove affordance when legacy accounts exist', async () => {
+      stubFetch({}, { localAdmins: [{ id: 'la-1', username: 'bob', display_name: 'Bob', created_at: '2026-01-01' }] });
+      renderSettings();
+      await waitForLoaded();
+
+      expect(screen.getByText('Local Admins')).toBeInTheDocument();
+      expect(screen.getByText('Bob')).toBeInTheDocument();
+      expect(screen.getByText('@bob')).toBeInTheDocument();
+
+      const row = screen.getByText('Bob').closest('div')!.parentElement as HTMLElement;
+      fireEvent.click(within(row).getByRole('button', { name: 'Remove' }));
+
+      // Confirm modal gates the actual delete — just prove the affordance
+      // is wired, not the full delete flow (out of scope here).
+      expect(await screen.findByText(/Are you sure you want to remove Bob/)).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Users card — guild-wide admin typeahead (feature/admin-users-card Task
+  // B). When the room has a linked Discord guild, "Add Discord Admin" opens
+  // a Picks-nominee-style typeahead over the WHOLE guild instead of just the
+  // room roster picker. Real timers throughout (matches PicksDisposition's
+  // idiom); `findBy*`'s generous default wait plus an explicit 2000ms
+  // override absorbs the 300ms debounce.
+  // ---------------------------------------------------------------------
+  describe('Users card — guild-wide admin typeahead (Task B)', () => {
+    afterEach(() => setToken(null));
+
+    it('rooms without a linked guild keep the room-roster MemberAdminPicker', async () => {
+      stubFetch({}); // no DISCORD_GUILD_ID
+      renderSettings();
+      await waitForLoaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add Discord Admin' }));
+
+      expect(await screen.findByTestId('member-admin-picker-empty')).toBeInTheDocument();
+      expect(screen.queryByTestId('guild-admin-typeahead')).not.toBeInTheDocument();
+    });
+
+    it('a linked guild swaps in the guild-wide typeahead instead of the roster picker', async () => {
+      stubFetch({ DISCORD_GUILD_ID: 'guild-1' });
+      renderSettings();
+      await waitForLoaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add Discord Admin' }));
+
+      expect(await screen.findByLabelText('Search Discord server members')).toBeInTheDocument();
+      expect(screen.queryByTestId('member-admin-picker')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('member-admin-picker-empty')).not.toBeInTheDocument();
+      // The paste-ID advanced fallback stays available in both modes.
+      expect(screen.getByPlaceholderText('e.g. ChuckRibbits')).toBeInTheDocument();
+    });
+
+    it('typing 2+ chars renders suggestions after the debounce', async () => {
+      stubFetch({ DISCORD_GUILD_ID: 'guild-1' }, {
+        guildMembers: [{ discordUserId: '555566667777888899', displayName: 'Charlie', username: 'charlie', avatarHash: null }],
+      });
+      renderSettings();
+      await waitForLoaded();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Discord Admin' }));
+
+      const input = await screen.findByLabelText('Search Discord server members');
+      fireEvent.change(input, { target: { value: 'ch' } });
+
+      const list = await screen.findByTestId('guild-admin-typeahead', {}, { timeout: 2000 });
+      expect(await within(list).findByText('Charlie', {}, { timeout: 2000 })).toBeInTheDocument();
+    });
+
+    it('a single character does not issue a search request', async () => {
+      const fetchMock = stubFetch({ DISCORD_GUILD_ID: 'guild-1' }, { guildMembers: [] });
+      renderSettings();
+      await waitForLoaded();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Discord Admin' }));
+
+      const input = await screen.findByLabelText('Search Discord server members');
+      fireEvent.change(input, { target: { value: 'c' } });
+
+      // Let the 300ms debounce window elapse to prove no request was queued.
+      await new Promise((resolve) => { setTimeout(resolve, 400); });
+      expect(fetchMock.mock.calls.some(c => String(c[0]).includes('/admin/guild-members/search'))).toBe(false);
+      expect(screen.queryByTestId('guild-admin-typeahead-empty')).not.toBeInTheDocument();
+    });
+
+    it('a completed empty search shows the no-matches line', async () => {
+      stubFetch({ DISCORD_GUILD_ID: 'guild-1' }, { guildMembers: [] });
+      renderSettings();
+      await waitForLoaded();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Discord Admin' }));
+
+      const input = await screen.findByLabelText('Search Discord server members');
+      fireEvent.change(input, { target: { value: 'zzzz' } });
+
+      expect(await screen.findByTestId('guild-admin-typeahead-empty', {}, { timeout: 2000 }))
+        .toHaveTextContent('No matching Discord server members.');
+    });
+
+    it('excludes members who are already Discord admins of this room', async () => {
+      stubFetch({ DISCORD_GUILD_ID: 'guild-1' }, {
+        discordAdmins: [{ discord_user_id: '222222222222222222', role: 'admin', display_name: 'Krobs', username: 'krobs' }],
+        guildMembers: [
+          { discordUserId: '222222222222222222', displayName: 'Krobs', username: 'krobs', avatarHash: null },
+          { discordUserId: '333333333333333333', displayName: 'ChuckRibbits', username: 'chuck', avatarHash: null },
+        ],
+      });
+      renderSettings();
+      await waitForLoaded();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Discord Admin' }));
+
+      const input = await screen.findByLabelText('Search Discord server members');
+      fireEvent.change(input, { target: { value: 'ch' } });
+
+      const list = await screen.findByTestId('guild-admin-typeahead', {}, { timeout: 2000 });
+      expect(within(list).getByText('ChuckRibbits')).toBeInTheDocument();
+      expect(within(list).queryByText('Krobs')).not.toBeInTheDocument();
+    });
+
+    it('excludes the signed-in viewer from suggestions', async () => {
+      setToken(fakeAdminJwt('111111111111111111'));
+      stubFetch({ DISCORD_GUILD_ID: 'guild-1' }, {
+        guildMembers: [
+          { discordUserId: '111111111111111111', displayName: 'ViewerAdmin', username: 'viewer', avatarHash: null },
+          { discordUserId: '222222222222222222', displayName: 'Krobs', username: 'krobs', avatarHash: null },
+        ],
+      });
+      renderSettings();
+      await waitForLoaded();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Discord Admin' }));
+
+      const input = await screen.findByLabelText('Search Discord server members');
+      fireEvent.change(input, { target: { value: 'vi' } });
+
+      const list = await screen.findByTestId('guild-admin-typeahead', {}, { timeout: 2000 });
+      await within(list).findByText('Krobs', {}, { timeout: 2000 });
+      expect(within(list).queryByText('ViewerAdmin')).not.toBeInTheDocument();
+    });
+
+    it('clicking a suggestion POSTs the admin-add endpoint and refreshes the admin list', async () => {
+      const fetchMock = stubFetch({ DISCORD_GUILD_ID: 'guild-1' }, {
+        guildMembers: [{ discordUserId: '555566667777888899', displayName: 'Charlie', username: 'charlie', avatarHash: null }],
+      });
+      renderSettings();
+      await waitForLoaded();
+      fireEvent.click(screen.getByRole('button', { name: 'Add Discord Admin' }));
+
+      const input = await screen.findByLabelText('Search Discord server members');
+      fireEvent.change(input, { target: { value: 'ch' } });
+
+      const list = await screen.findByTestId('guild-admin-typeahead', {}, { timeout: 2000 });
+      fireEvent.click(within(list).getByText('Charlie'));
+
+      await waitFor(() => {
+        const postCall = fetchMock.mock.calls.find(c => String(c[0]).includes('/admins/discord') && (c[1] as RequestInit)?.method === 'POST');
+        expect(postCall).toBeTruthy();
+        expect(JSON.parse((postCall![1] as RequestInit).body as string)).toEqual({ discord_user_id: '555566667777888899' });
+      });
+      expect(await screen.findByText('Charlie added.')).toBeInTheDocument();
     });
   });
 });

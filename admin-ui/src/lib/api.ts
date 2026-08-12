@@ -34,6 +34,24 @@ export function getTokenRole(): string | null {
   }
 }
 
+/** Reads the `discordId` claim from the current admin JWT without verifying
+ * its signature — feature/admin-users-card Task B, so the guild admin
+ * typeahead can exclude the viewer from their own suggestion list. Same
+ * decode-only caveat as `getTokenRole`. Returns null if there's no token,
+ * it can't be decoded, or the admin authenticated via local username/password
+ * (no `discordId` claim in that case). */
+export function getTokenDiscordId(): string | null {
+  if (!authToken) return null;
+  try {
+    const parts = authToken.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.discordId === 'string' ? payload.discordId : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getAnonUserId(): string {
   let id = localStorage.getItem('arcaid_anon_id');
   if (!id) {
