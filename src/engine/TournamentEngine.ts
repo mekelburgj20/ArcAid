@@ -27,6 +27,18 @@ import { resolveSubmissionPlayerId } from '../utils/submissionAttribution.js';
 import { tournamentUrlSlug } from '../utils/tournamentSlug.js';
 
 /**
+ * v2.103.0 — thrown by `activateGame` when the tournament already has an
+ * ACTIVE game of the same name (case-insensitive). Callers surface it as a
+ * friendly "already running" message; anything else propagating it is a bug.
+ */
+export class DuplicateActiveGameError extends Error {
+    constructor(gameName: string) {
+        super(`"${gameName}" is already active in this tournament.`);
+        this.name = 'DuplicateActiveGameError';
+    }
+}
+
+/**
  * Outcome of a single maintenance run, surfaced to the S10 maintenance-run
  * trail. 'error' is recorded by runMaintenance when the work throws.
  */
@@ -111,6 +123,24 @@ export class TournamentEngine {
                 'UPDATE games SET status = ?, end_date = ? WHERE tournament_id = ? AND status = ?',
                 'COMPLETED', new Date().toISOString(), tournamentId, 'ACTIVE'
             );
+        }
+
+        // v2.103.0 — duplicate-activation guard (UAT field incident 2026-08-12:
+        // two players with rotation-granted pick rights picked "Tales from the
+        // Crypt" 5 minutes apart and BOTH activations landed, each creating
+        // its own iScored board; cooldown only inspects FINISHED games, so a
+        // live twin sailed through). This is the one chokepoint every
+        // interactive activation routes through (web pick, admin activate,
+        // Discord /pick-game + /activate-game) — the queued-promotion path in
+        // runMaintenanceWork has its own skip-and-stay-queued twin of this
+        // check. Placed AFTER the completeExisting block so single-slot
+        // rotation (which completes the incumbent first) is unaffected.
+        const activeTwin = await db.get(
+            `SELECT id FROM games WHERE tournament_id = ? AND status = 'ACTIVE' AND LOWER(name) = LOWER(?)`,
+            tournamentId, gameName,
+        );
+        if (activeTwin) {
+            throw new DuplicateActiveGameError(gameName);
         }
 
         // Look up the owning room up-front so the games row carries game_room_id
@@ -790,6 +820,19 @@ export class TournamentEngine {
                 if (!stillEligible) {
                     logWarn(`   -> Skipping queued game "${queuedRow.name}" — no longer eligible (cooldown). Removing from queue.`);
                     await db.run('DELETE FROM games WHERE id = ?', queuedRow.id);
+                    continue;
+                }
+
+                // v2.103.0 duplicate-activation guard, queued-promotion twin of
+                // activateGame's check: a same-name game already ACTIVE means
+                // this row stays QUEUED (not deleted — it activates naturally
+                // once the twin completes and cooldown allows).
+                const activeTwin = await db.get(
+                    `SELECT id FROM games WHERE tournament_id = ? AND status = 'ACTIVE' AND LOWER(name) = LOWER(?)`,
+                    tournamentId, queuedRow.name,
+                );
+                if (activeTwin) {
+                    logWarn(`   -> Skipping queued game "${queuedRow.name}" — a same-name game is already ACTIVE in this tournament. Leaving it queued.`);
                     continue;
                 }
 
@@ -1625,9 +1668,14 @@ export class TournamentEngine {
         const disposition = await PickDispositionService.consume(tournamentRow.id, winnerId);
 
         const resolveRunnerUp = async (): Promise<{ id: string; label: string; iscoredName: string | null } | null> => {
+            // orphaned_at IS NULL (v2.103.0): ban-hidden scores must not
+            // resurface as the runner-up — same leak class the Discord drift
+            // audit closed in /list-winners et al. Pre-existing gap here,
+            // mirrored (and now fixed in lockstep) in pickgame.ts's live
+            // forfeit path.
             const row = await db.get(
                 `SELECT iscored_username, discord_user_id, submitted_by_user_id FROM submissions
-                 WHERE game_id = ? ORDER BY score DESC LIMIT 1 OFFSET 1`,
+                 WHERE game_id = ? AND orphaned_at IS NULL ORDER BY score DESC LIMIT 1 OFFSET 1`,
                 activeGame.id,
             );
             const id = await resolveSubmissionPlayerId(db, row);
@@ -1699,8 +1747,13 @@ export class TournamentEngine {
      * "deliberate onboarding hook"). Posts to the tournament channel with an
      * @mention + a direct link to the room's Picks page, and DMs the nominee
      * too when reachable. Never throws — fire-and-forget from the caller.
+     *
+     * Public (was private pre-v2.10x /pick-game consolidation): the live
+     * pass-pick path in `pickgame.ts` reuses this exact pathway for a
+     * non-room-member target, same as the disposition-driven nominate branch
+     * above — one onboarding hook, not a fork.
      */
-    private async announceNomineeOnboarding(
+    public async announceNomineeOnboarding(
         nomineeId: string,
         tournamentRow: any,
         channelId: string | null,

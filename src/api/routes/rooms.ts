@@ -996,6 +996,18 @@ router.post('/:roomId/pick-game', pickLimiter, requireDiscordUser, requireNotBan
         const activeGames = await engine.getActiveGames(tournamentId);
         const hasOpenSlot = activeGames.length < maxSlots;
 
+        // v2.103.0 duplicate-activation guard — mirrors the Discord
+        // /pick-game check exactly (UAT incident: same game picked twice in
+        // 5 minutes → twin ACTIVE rows + twin iScored boards). Rejecting
+        // before any side effect preserves the player's pick rights.
+        const activeTwin = await db.get(
+            `SELECT id FROM games WHERE tournament_id = ? AND status = 'ACTIVE' AND LOWER(name) = LOWER(?)`,
+            tournamentId, gameLibEntry.name,
+        );
+        if (activeTwin) {
+            return res.status(409).json({ error: `"${gameLibEntry.name}" is already running in ${tournament.name} — pick a different game.`, code: 'ALREADY_ACTIVE' });
+        }
+
         if (pendingPick) {
             // User has a win pick — fulfil it
             if (hasOpenSlot) {
@@ -1273,9 +1285,10 @@ router.get('/:roomId/guild-members/search', requireDiscordUser, requireNotBanned
     }
 });
 
-// Admin on-behalf variant ("winner said it in chat") — mirrors /my-pick's
-// Discord /nominate-picker set/clear subcommands. Audit-logged explicitly
-// per repo doctrine (auditMiddleware does not fire on router routes).
+// Admin on-behalf variant ("winner said it in chat") — mirrors /pick-game's
+// forfeit/pass-pick disposition semantics via the Discord /nominate-picker
+// set/clear subcommands. Audit-logged explicitly per repo doctrine
+// (auditMiddleware does not fire on router routes).
 router.put('/:roomId/admin/tournaments/:tournamentId/pick-disposition', requireAuth, requireRoomAccess('roomId'), async (req, res) => {
     try {
         const validationResult = validate(AdminSetPickDispositionSchema, req.body);
@@ -3816,7 +3829,20 @@ router.post('/:roomId/tournaments/:id/activate-game', requireAuth, requireRoomAc
 
         await db.exec('BEGIN TRANSACTION');
         try {
-            const game = await engine.activateGame(tournamentId, gameName, styleId, iscoredId, false);
+            let game;
+            try {
+                game = await engine.activateGame(tournamentId, gameName, styleId, iscoredId, false);
+            } catch (err) {
+                // v2.103.0 — duplicate-activation guard: surface the friendly
+                // message instead of a 500 (the admin can Deactivate the twin
+                // first if a re-activation is genuinely intended).
+                const { DuplicateActiveGameError } = await import('../../engine/TournamentEngine.js');
+                if (err instanceof DuplicateActiveGameError) {
+                    await db.exec('ROLLBACK');
+                    return res.status(409).json({ error: err.message, code: 'ALREADY_ACTIVE' });
+                }
+                throw err;
+            }
             await db.exec('COMMIT');
             logInfo(`Admin activated game: ${gameName} for tournament ${tournamentId}`);
             res.json({ success: true, gameId: game.id });

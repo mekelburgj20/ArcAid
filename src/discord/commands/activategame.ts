@@ -147,6 +147,13 @@ export const activategame: Command = {
                 await db.exec('COMMIT');
             } catch (dbError) {
                 await db.exec('ROLLBACK');
+                // v2.103.0 duplicate-activation guard — friendly reply, not
+                // the generic error path.
+                const { DuplicateActiveGameError } = await import('../../engine/TournamentEngine.js');
+                if (dbError instanceof DuplicateActiveGameError) {
+                    await interaction.editReply(`${dbError.message} Deactivate it first if you mean to restart it.`);
+                    return;
+                }
                 throw dbError;
             }
 
