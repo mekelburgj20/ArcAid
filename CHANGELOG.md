@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.105.0] — unreleased
+
+**Style-system revamp Phase 0: honesty fixes — the admin style editor and viewer prefs now tell the truth about what each control does.**
+
+### Fixed
+- **New rooms rendered the legacy card path while the style picker falsely showed Banner as active.** `GameRoomService.create` now seeds `SCOREBOARD_STYLE='banner'` so every new room starts on the modern card system (interim default — Phase 1 flips this to the new Arcade style). Pre-existing unset rooms get an amber "legacy card system" notice in the picker instead of a false-active tile.
+- **Viewer preferences modal showed `undefined` for theme names** (read a nonexistent `.label` instead of `.name`).
+- **QR size input defaulted to 24 while the renderer's actual fallback is 30** — aligned to 30.
+- **Viewer Zoom range (50–200) disagreed with the admin picker's (50–150)** — aligned to 50–150.
+
+### Removed
+- Unreachable "Global Card Styles" card in Settings (backend keys retained and registered in `managedKeys`).
+- Dead `SCOREBOARD_CARDS_PER_ROW` control (key unread by any renderer).
+- Duplicate `MAX_SCORES` numeric control in the Advanced section (kept the primary).
+- Inert "Game title enhance" toggle from both the admin editor and viewer prefs (no renderer reads it).
+
+### Changed
+- Legacy `SCOREBOARD_BG_FILL` relabeled "Card Background Fill (legacy)" to end the collision with the modern card-background control.
+- `REQUIRE_SCORE_PHOTO` moved out of Appearance into the Game Room card — it's a submission policy, not a style.
+- Context-aware hiding: "Rankings position" hides when rankings style is `ticker` (ticker pins to top); QR controls grouped under a "never shows on phones" caption (inert ≤640px by design since v2.104.0).
+- Mobile Density control re-parented into the Advanced section it visually belonged to.
+- `SCOREBOARD_RANKINGS_STYLE` and `ADMIN_THEME` registered in `managedKeys`.
+
+New coverage: `StyleThemePicker.test.tsx` (unset-style honesty, active-tile logic, legacy notice, ticker-hide). Backend 1686 / admin-ui 685 green.
+
 ## [2.104.2] — unreleased
 
 **Fix: rankings were blind to every web-submitted score (owner field report: ticker empty despite 18 UAT scores).**

@@ -15,9 +15,17 @@ interface StyleThemePickerProps {
 }
 
 export default function StyleThemePicker({ settings, onChange }: StyleThemePickerProps) {
+  // Style-system revamp P0 (honesty fix): an unset SCOREBOARD_STYLE means this
+  // room is still on the legacy GameCard render path (see ScoreboardSurface's
+  // `useNewCards = !!config.SCOREBOARD_STYLE`) — falling back to 'banner' here
+  // for display purposes previously made the Banner tile look active/selected
+  // when nothing had actually been chosen. Only pre-existing rooms (created
+  // before the P0 create-room seed fix) can hit this state now.
+  const styleIsUnset = !settings.SCOREBOARD_STYLE;
   const currentStyle = (settings.SCOREBOARD_STYLE || 'banner') as ScoreboardStyle;
   const currentTheme = settings.SCOREBOARD_THEME || DEFAULT_SHOWCASE_THEME;
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const rankingsIsTicker = settings.SCOREBOARD_RANKINGS_STYLE === 'ticker';
 
   const handleStyleSelect = (style: ScoreboardStyle) => {
     onChange('SCOREBOARD_STYLE', style);
@@ -37,12 +45,18 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
 
   return (
     <div className="space-y-4">
+      {styleIsUnset && (
+        <div className="px-3 py-2 rounded border border-neon-amber/30 bg-neon-amber/10 text-xs text-neon-amber">
+          This room is on the legacy card system — pick a card style to switch to the current one.
+        </div>
+      )}
+
       {/* Style selector */}
       <div>
         <label className="text-xs text-muted block mb-2">Card Style</label>
         <div className="grid grid-cols-3 gap-2">
           {(['banner', 'showcase', 'minimal'] as ScoreboardStyle[]).map(style => {
-            const isActive = currentStyle === style;
+            const isActive = !styleIsUnset && currentStyle === style;
             const Icon = STYLE_ICONS[style];
             const meta = STYLE_LABELS[style];
             return (
@@ -159,34 +173,42 @@ export default function StyleThemePicker({ settings, onChange }: StyleThemePicke
             </select>
           </div>
 
-          {/* QR Mode */}
-          <div className="flex items-center gap-3">
-            <label className="w-48 shrink-0 text-sm text-muted">QR codes</label>
-            <select
-              value={settings.SCOREBOARD_QR_MODE || 'disabled'}
-              onChange={e => onChange('SCOREBOARD_QR_MODE', e.target.value)}
-              className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
-            >
-              <option value="disabled">Disabled</option>
-              <option value="kiosk-only">Kiosk only</option>
-              <option value="all">All scoreboards</option>
-            </select>
+          {/* QR codes — grouped: QR never shows on phones (inert <=640px by design, v2.104.0) */}
+          <div>
+            <p className="text-[10px] text-faint uppercase tracking-wider mb-1">QR codes — never show on phones</p>
+            <div className="flex items-center gap-3">
+              <label className="w-48 shrink-0 text-sm text-muted">QR codes</label>
+              <select
+                value={settings.SCOREBOARD_QR_MODE || 'disabled'}
+                onChange={e => onChange('SCOREBOARD_QR_MODE', e.target.value)}
+                className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
+              >
+                <option value="disabled">Disabled</option>
+                <option value="kiosk-only">Kiosk only</option>
+                <option value="all">All scoreboards</option>
+              </select>
+            </div>
           </div>
 
-          {/* Rankings position */}
-          <div className="flex items-center gap-3">
-            <label className="w-48 shrink-0 text-sm text-muted">Rankings position</label>
-            <select
-              value={settings.SCOREBOARD_RANKINGS_POSITION || 'left'}
-              onChange={e => onChange('SCOREBOARD_RANKINGS_POSITION', e.target.value)}
-              className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
-            >
-              <option value="left">Left sidebar</option>
-              <option value="right">Right sidebar</option>
-              <option value="top">Above cards</option>
-              <option value="bottom">Below cards</option>
-            </select>
-          </div>
+          {/* Rankings position — inert when rankings style is 'ticker' (pins to top) */}
+          {!rankingsIsTicker && (
+            <div className="flex items-center gap-3">
+              <label className="w-48 shrink-0 text-sm text-muted">Rankings position</label>
+              <select
+                value={settings.SCOREBOARD_RANKINGS_POSITION || 'left'}
+                onChange={e => onChange('SCOREBOARD_RANKINGS_POSITION', e.target.value)}
+                className="flex-1 px-3 py-1.5 bg-raised text-primary border border-border rounded text-sm"
+              >
+                <option value="left">Left sidebar</option>
+                <option value="right">Right sidebar</option>
+                <option value="top">Above cards</option>
+                <option value="bottom">Below cards</option>
+              </select>
+            </div>
+          )}
+          {rankingsIsTicker && (
+            <p className="text-[10px] text-faint">Ticker pins to the top — position doesn't apply</p>
+          )}
 
           {/* Zoom */}
           <div className="flex items-center gap-3">

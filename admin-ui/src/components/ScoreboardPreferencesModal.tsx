@@ -38,14 +38,19 @@ const STYLE_OPTIONS: { value: ScoreboardStyle; label: string; description: strin
 
 const THEME_OPTIONS = Object.entries(SHOWCASE_THEMES).map(([id, cfg]) => ({
   value: id,
-  label: (cfg as any).label || id,
-  description: (cfg as any).description || '',
+  // Style-system revamp P0 (honesty fix): ShowcaseThemeConfig's field is
+  // `name`, not `label` — viewers were seeing raw theme ids here.
+  label: cfg.name || id,
+  description: cfg.description || '',
 }));
 
+// Style-system revamp P0 (honesty fix): SCOREBOARD_GAME_TITLE_ENHANCE is read
+// only by the legacy deriveCardProps path — it does nothing on any room using
+// a card style (which is now every room, post P0 seed fix). Removed from both
+// admin Settings and here until Phase 1 retires the legacy derivation.
 const TOGGLE_PREFS: PrefDef[] = [
   { key: 'SCOREBOARD_HIDE_EMPTY', label: 'Hide Empty Games', description: 'Hide game cards with no scores from the scoreboard', type: 'toggle' },
   { key: 'SCOREBOARD_TITLE_HIDDEN', label: 'Hide Game Room Title', description: 'Hide the game room name/heading on the scoreboard', type: 'toggle' },
-  { key: 'SCOREBOARD_GAME_TITLE_ENHANCE', label: 'Enhance Game Title Visibility', description: 'Add a dark backdrop behind game title text for readability', type: 'toggle' },
   { key: 'SCOREBOARD_CARD_BG_FILL', label: 'Card Background Fill', description: 'Game background images fill the entire card for an immersive look', type: 'toggle' },
   { key: 'SCOREBOARD_RANKINGS_STICKY', label: 'Always Visible Rankings', description: 'Keep the Overall Rankings card pinned on screen', type: 'toggle' },
   { key: 'SCOREBOARD_SHOW_TIMER', label: 'Show Countdown Timer', description: 'Display time remaining until next rotation', type: 'toggle' },
@@ -117,6 +122,11 @@ const SELECT_PREFS: PrefDef[] = [
   },
 ];
 
+// Style-system revamp P0 (item 11) — QR controls are inert on phones (<=640px
+// by design, v2.104.0); grouped under one caption instead of scattered.
+const QR_SELECT_KEYS = new Set(['SCOREBOARD_QR_MODE', 'SCOREBOARD_QR_POSITION']);
+const QR_ADVANCED_KEYS = new Set(['SCOREBOARD_QR_SIZE', 'SCOREBOARD_QR_OVERLAP_PX']);
+
 const ADVANCED_NUMBER_PREFS: PrefDef[] = [
   { key: 'SCOREBOARD_MAX_SCORES', label: 'Scores Per Card', description: 'Maximum visible scores per game card', type: 'number', min: 1, max: 50 },
   { key: 'SCOREBOARD_MIN_SCORES', label: 'Min Card Height (scores)', description: 'Minimum card height expressed as score rows', type: 'number', min: 1, max: 50 },
@@ -131,7 +141,10 @@ const MOBILE_PREFS: PrefDef[] = [
   { key: 'SCOREBOARD_MOBILE_SCALE', label: 'Mobile Density', description: 'Shrink cards to fit more on screen (0.3-1.0). Default 1.0 = full size, matching desktop.', type: 'number', min: 0.3, max: 1.0, step: 0.1 },
 ];
 
-const ZOOM_PREF: PrefDef = { key: 'SCOREBOARD_ZOOM', label: 'Zoom', type: 'range', min: 50, max: 200, suffix: '%' };
+// Style-system revamp P0 (item 5): range aligned to match StyleThemePicker's
+// admin control (50-150) — was 50-200 here, letting a viewer set a zoom value
+// the room's own admin-facing control couldn't reach.
+const ZOOM_PREF: PrefDef = { key: 'SCOREBOARD_ZOOM', label: 'Zoom', type: 'range', min: 50, max: 150, suffix: '%' };
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
@@ -230,6 +243,7 @@ export default function ScoreboardPreferencesModal({
   const hasOverride = (key: string) => key in prefs && prefs[key] !== undefined;
 
   const currentStyle = (getEffective('SCOREBOARD_STYLE') || 'banner') as ScoreboardStyle;
+  const rankingsIsTicker = getEffective('SCOREBOARD_RANKINGS_STYLE') === 'ticker';
 
   // ── Reset button ────────────────────────────────────────────────────────
 
@@ -443,7 +457,16 @@ export default function ScoreboardPreferencesModal({
 
             {/* ── Selects ──────────────────────────────────────────── */}
             <div className="border-t border-border pt-2 mt-2">
-              {SELECT_PREFS.map(renderSelect)}
+              {SELECT_PREFS.filter(d => !QR_SELECT_KEYS.has(d.key) && !(d.key === 'SCOREBOARD_RANKINGS_POSITION' && rankingsIsTicker)).map(renderSelect)}
+              {rankingsIsTicker && (
+                <p className="text-[10px] text-faint py-1">Ticker pins to the top — position doesn't apply</p>
+              )}
+            </div>
+
+            {/* ── QR codes (grouped — inert on phones, v2.104.0) ────── */}
+            <div className="border-t border-border pt-2 mt-2">
+              <p className="text-[10px] text-faint uppercase tracking-wider mb-1">QR codes — never show on phones</p>
+              {SELECT_PREFS.filter(d => QR_SELECT_KEYS.has(d.key)).map(renderSelect)}
             </div>
 
             {/* ── Zoom slider ──────────────────────────────────────── */}
@@ -476,7 +499,12 @@ export default function ScoreboardPreferencesModal({
               </button>
               {advancedOpen && (
                 <div className="mt-1 space-y-0">
-                  {ADVANCED_NUMBER_PREFS.map(renderNumber)}
+                  {ADVANCED_NUMBER_PREFS.filter(d => !QR_ADVANCED_KEYS.has(d.key)).map(renderNumber)}
+
+                  <div className="border-t border-border/50 pt-2 mt-2">
+                    <span className="text-xs text-muted uppercase tracking-wider">QR codes — never show on phones</span>
+                  </div>
+                  {ADVANCED_NUMBER_PREFS.filter(d => QR_ADVANCED_KEYS.has(d.key)).map(renderNumber)}
 
                   <div className="border-t border-border/50 pt-2 mt-2">
                     <span className="text-xs text-muted uppercase tracking-wider">Mobile</span>

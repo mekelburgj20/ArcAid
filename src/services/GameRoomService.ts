@@ -84,6 +84,18 @@ export class GameRoomService {
                 id, 'ISCORED_ENABLED', 'false',
             );
 
+            // Style-system revamp P0 (honesty fix, 2026-08-13): seed a real
+            // default card style so the room renders the modern card path
+            // immediately instead of silently falling back to the legacy
+            // GameCard path while StyleThemePicker falsely shows Banner as
+            // active. 'banner' is an INTERIM value — P1 flips the seeded
+            // default to the new Arcade style once it ships. Existing rooms
+            // are untouched here; auto-converting them is P1's migration.
+            await db.run(
+                `INSERT INTO game_room_settings (game_room_id, key, value) VALUES (?, ?, ?)`,
+                id, 'SCOREBOARD_STYLE', 'banner',
+            );
+
             // Standalone-room Phase 1 (v2.32.0): a pure-web room has no Discord
             // guild, so it additionally starts with Discord off too. Admins can
             // still flip it back on later via Settings > Integrations.
