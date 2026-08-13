@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.104.1] — unreleased
+
+**Hotfix: the mobile score-font bump only applied on the Tournaments tab (owner field report).**
+
+### Fixed
+- The v2.104.0 `.sb-row-name`/`.sb-row-score` mobile font rules lived in `ScoreboardSurface`'s page-local stylesheet — which only mounts on the Tournaments tab. The same card components render on the Room Scores and Global tabs *outside* the surface, so the bigger fonts never reached them (the owner's UAT flow lives on Room Scores — "my score font size looks the same"). Rules moved to the global stylesheet: one definition, every surface. The QR suppression has no such gap (Room Scores cards hardcode QR off), and scale-to-fit is component-level so it always worked everywhere.
+
 ## [2.104.0] — unreleased
 
 **Mobile touch & readability batch (four owner asks, shots approved incl. one revision).**

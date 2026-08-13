@@ -1790,3 +1790,16 @@ select option {
   color: #fff2c2;
   font-weight: 700;
 }
+
+/* Mobile score-row typography (v2.104.0, relocated here in v2.104.1).
+   Lives in the GLOBAL stylesheet — not ScoreboardSurface's page-local
+   <style> — because the shared card components (BannerCard / ShowcaseCard's
+   ScoreList / MinimalCard / legacy GameCard) also render on the Room Scores
+   and Global tabs OUTSIDE the surface, where a surface-local rule never
+   mounts (owner field report: fonts unchanged on Room Scores). Overflow is
+   handled in code, not here: every sb-row-name renders through <FitRowName>
+   (scale-to-fit, no wrap, no ellipsis). Desktop sizing untouched. */
+@media (max-width: 640px) {
+  .sb-row-name  { font-size: 15px !important; }
+  .sb-row-score { font-size: 16px !important; }
+}
