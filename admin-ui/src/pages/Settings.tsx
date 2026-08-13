@@ -275,6 +275,10 @@ const CATEGORIES: Record<string, string[]> = {
 };
 
 // Toggles that render inside the Scoreboard Display card
+// Style-system revamp P0 (honesty fix, item 9): SCOREBOARD_GAME_TITLE_ENHANCE
+// removed — it's read only by the legacy deriveCardProps path, so it does
+// nothing on any room using a card style (every room, post the P0 seed fix).
+// Stays honored in the legacy derivation until Phase 1 retires it.
 const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
   'SCOREBOARD_HIDE_EMPTY': {
     label: 'Hide Empty Games',
@@ -284,10 +288,6 @@ const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; d
     label: 'Hide Game Room Title',
     description: 'When enabled, the game room name/heading (e.g., "Arcaid_Demo") is hidden on the public leaderboard.',
   },
-  'SCOREBOARD_GAME_TITLE_ENHANCE': {
-    label: 'Enhance Game Title Visibility',
-    description: 'When enabled, adds a dark backdrop behind game title text for readability on busy backgrounds.',
-  },
   'SCOREBOARD_CARD_BG_FILL': {
     label: 'Card Background Fill',
     description: 'When enabled, game background images fill the entire card behind scores for an immersive look.',
@@ -296,6 +296,13 @@ const SCOREBOARD_TOGGLES: Record<string, { label: string; description: string; d
     label: 'Always Visible Rankings',
     description: 'When enabled, the Overall Rankings card stays pinned on screen and does not scroll away.',
   },
+};
+
+// Style-system revamp P0 (item 10): REQUIRE_SCORE_PHOTO is submission policy,
+// not appearance — moved out of SCOREBOARD_TOGGLES into its own card that
+// renders inside the 'Game Room' category. Label/description/behavior
+// unchanged.
+const GAME_ROOM_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
   'REQUIRE_SCORE_PHOTO': {
     label: 'Require Photo with Score Submission',
     description: 'When enabled, players must include a photo when submitting scores from the leaderboard.',
@@ -313,14 +320,6 @@ const KIOSK_TOGGLES: Record<string, { label: string; description: string; defaul
     label: 'Kiosk Auto-Scroll',
     description: 'When the card row is wider than the screen (e.g. with Kiosk Zoom set for TV distance), slowly scroll it back and forth so every card gets screen time.',
     defaultOn: true,
-  },
-};
-
-// Toggles that render inside the Global Card Styles card
-const GLOBAL_CARD_TOGGLES: Record<string, { label: string; description: string; defaultOn?: boolean }> = {
-  GLOBAL_CARD_STYLES_ENABLED: {
-    label: 'Enable Global Card Styles',
-    description: 'When enabled, the color settings below override individual game card styles on the leaderboard.',
   },
 };
 
@@ -397,7 +396,7 @@ const AUTO_APPROVE_GUILD_META = {
 const TOGGLE_DEFAULTS: Record<string, boolean> = {
   ...Object.fromEntries(Object.entries(SCOREBOARD_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
   ...Object.fromEntries(Object.entries(KIOSK_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
-  ...Object.fromEntries(Object.entries(GLOBAL_CARD_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
+  ...Object.fromEntries(Object.entries(GAME_ROOM_TOGGLES).map(([k, v]) => [k, !!v.defaultOn])),
   ...Object.fromEntries(Object.entries(TOGGLE_SETTINGS).map(([k, v]) => [k, !!v.defaultOn])),
   SCOREBOARD_MOBILE_VERTICAL: true,
   SCOREBOARD_LOGO_ENABLED: true,
@@ -435,12 +434,14 @@ const SETTING_LABELS: Record<string, { label: string; description: string }> = {
   SCOREBOARD_TITLE_SIZE: { label: 'Title Size', description: 'Font size for the leaderboard title. Default: small.' },
   SCOREBOARD_CARD_OPACITY: { label: 'Card Transparency', description: 'Opacity of score cards and ranking cards. 100% = fully opaque (default), 0% = fully transparent.' },
   SCOREBOARD_LAYOUT: { label: 'Layout Mode', description: 'Score card layout: scroll (horizontal scrolling, default) or grid (CSS grid with rows and columns).' },
-  SCOREBOARD_CARDS_PER_ROW: { label: 'Cards Per Row (Grid)', description: 'Number of score cards per row in grid mode. Range: 2-8. Default: 4. Only applies in grid layout.' },
   SCOREBOARD_CARD_SIZE: { label: 'Card Size', description: 'Card width preset: small (240px), medium (288px, default), or large (360px).' },
   SCOREBOARD_RANKINGS_POSITION: { label: 'Rankings Position', description: 'Where overall rankings are displayed: left (default), right, top, bottom, or hidden.' },
   SCOREBOARD_GAME_COLUMNS: { label: 'Game Columns (Grid)', description: 'Number of game cards per row in grid mode. Auto: fills based on card size. 2-Column: exactly 2 cards per row on desktop, 1 on mobile.' },
   SCOREBOARD_CARD_LAYOUT: { label: 'Card Layout', description: 'Controls the layout of game cards. Banner: full-width artwork header. Compact: small thumbnail with title. Wheel: image centered above card. Sidebar: image left of game title.' },
-  SCOREBOARD_BG_FILL: { label: 'Card Background Fill', description: 'When enabled, the game background image fills the entire card behind the layout with glass-panel styling for readability.' },
+  // v2.104.x style-system revamp P0 (item 6): relabeled to disambiguate from
+  // the modern-path SCOREBOARD_CARD_BG_FILL toggle, which rendered under the
+  // identical "Card Background Fill" label.
+  SCOREBOARD_BG_FILL: { label: 'Card Background Fill (legacy)', description: 'When enabled, the game background image fills the entire card behind the layout with glass-panel styling for readability.' },
   SCOREBOARD_BG_SIZE: { label: 'Card Background Sizing', description: 'How game background images are sized. Cover: fills area (may crop). Contain: fits entirely (no crop). Tile: repeats the image as a pattern.' },
   SCOREBOARD_WHEEL_SCALE: { label: 'Wheel Icon Size', description: 'Size of wheel icons in Wheel header mode. Default: 150. Only applies when Card Header Style is set to Wheel.' },
   SCOREBOARD_SCORE_STYLE: { label: 'Score Entry Style', description: 'How score entries are styled on cards. Glass: frosted panel behind scores. Shadow/Outlined/Glow: text effects with no panel, letting background images show through.' },
@@ -912,6 +913,7 @@ export default function Settings() {
     ...Object.values(CATEGORIES).flat(),
     ...Object.keys(SCOREBOARD_TOGGLES),
     ...Object.keys(KIOSK_TOGGLES),
+    ...Object.keys(GAME_ROOM_TOGGLES),
     ...Object.keys(TOGGLE_SETTINGS),
     // v2.39.0 — rendered as its own 2-option select, not a boolean toggle.
     JOIN_POLICY_KEY,
@@ -923,6 +925,12 @@ export default function Settings() {
     'SCOREBOARD_TITLE', 'SCOREBOARD_TITLE_STYLE', 'SCOREBOARD_TITLE_SIZE',
     // Theme (managed in Theme card)
     'UI_THEME',
+    // Style-system revamp P0 (item 13) — ADMIN_THEME is managed via the Theme
+    // card's "Admin Theme" select (saved through /me/preferences, not
+    // handleChange), and SCOREBOARD_RANKINGS_STYLE is managed via the
+    // Rankings page's Display Style control. Both leaked as raw text inputs
+    // in "Other" once a room had them set.
+    'ADMIN_THEME', 'SCOREBOARD_RANKINGS_STYLE',
     // Platforms (managed in Platforms card)
     'PLATFORMS',
     // New style system advanced settings
@@ -932,13 +940,17 @@ export default function Settings() {
     'SCOREBOARD_MOBILE_VERTICAL', 'SCOREBOARD_MOBILE_SCALE',
     // New style system core keys
     'SCOREBOARD_STYLE', 'SCOREBOARD_THEME', 'SCOREBOARD_MAX_SCORES', 'SCOREBOARD_SHOW_TIMER',
-    // Legacy/removed — no longer surfaced
-    'SCOREBOARD_CARDS_PER_ROW',
     // v2.56.0 — the room-level pick-award gate was removed (winner-picks is a
     // per-tournament setting now). Migration 126 deletes the rows, but a room
     // whose settings were cached/read before that must not surface the dead key
     // as a raw text input in the "Other" card.
     'ENABLE_GAME_PICK_AWARD',
+    // Style-system revamp P0 (item 3) — the "Global Card Styles" admin card
+    // was unreachable dead UI (CATEGORIES has no such key) and has been
+    // deleted; these 4 color/CSS keys still exist on the backend for legacy
+    // rooms read by deriveCardProps until Phase 1 retires that path, so they
+    // must stay hidden from "Other" rather than surface as raw text inputs.
+    'GLOBAL_CARD_CSS_TITLE', 'GLOBAL_CARD_CSS_SCORES', 'GLOBAL_CARD_CSS_BOX', 'GLOBAL_CARD_BG_COLOR',
   ]);
   const uncategorizedKeys = Object.keys(settings).filter(k => !managedKeys.has(k));
 
@@ -1305,11 +1317,16 @@ export default function Settings() {
               <div className="pt-3 mt-3 border-t border-border/30 space-y-3">
                 <p className="text-xs font-display uppercase tracking-wider text-muted">Advanced</p>
                 {[
-                  { key: 'SCOREBOARD_MAX_SCORES', label: 'Scores Per Card', defaultVal: '5', description: 'Maximum visible scores per game card' },
+                  // Style-system revamp P0 (item 5): SCOREBOARD_MAX_SCORES
+                  // duplicate removed — the modern-path control lives in
+                  // StyleThemePicker's "Scores per card" select above.
                   { key: 'SCOREBOARD_MIN_SCORES', label: 'Min Card Height (scores)', defaultVal: '20', description: 'Minimum card height expressed as score rows' },
                   { key: 'SCOREBOARD_CARD_SPACING', label: 'Card Spacing (px)', defaultVal: '24', description: 'Gap between game cards in pixels' },
                   { key: 'SCOREBOARD_TITLE_FONT_SIZE', label: 'Title Font Size (px)', defaultVal: '0', description: '0 = style default. Override game title font size.' },
-                  { key: 'SCOREBOARD_QR_SIZE', label: 'QR Code Size (px)', defaultVal: '24', description: 'Size of QR codes on game cards. Default: 24.' },
+                  // Style-system revamp P0 (item 7): default aligned to 30 to
+                  // match the renderer's actual fallback (scoreboardConfig.ts) —
+                  // this input previously showed 24, drifted from reality.
+                  { key: 'SCOREBOARD_QR_SIZE', label: 'QR Code Size (px)', defaultVal: '30', description: 'Size of QR codes on game cards. Default: 30.' },
                 ].map(({ key, label, defaultVal, description }) => (
                   <div key={key} className="flex items-center justify-between gap-4">
                     <div>
@@ -1372,23 +1389,25 @@ export default function Settings() {
                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.SCOREBOARD_MOBILE_VERTICAL === 'false' ? 'translate-x-1' : 'translate-x-6'}`} />
                   </button>
                 </div>
-              </div>
 
-              {/* Mobile Density (S21: shrink is now opt-in; 1.0 = full size default) */}
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <label className="text-sm font-medium text-primary">Mobile Density</label>
-                  <p className="text-xs text-muted">Shrink cards to fit more on screen (0.3–1.0). Default 1.0 = full size, matching desktop.</p>
+                {/* Mobile Density (S21: shrink is now opt-in; 1.0 = full size default)
+                    Style-system revamp P0 (item 12): moved inside the Advanced
+                    <div> it belongs to — was previously rendering just outside it. */}
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-primary">Mobile Density</label>
+                    <p className="text-xs text-muted">Shrink cards to fit more on screen (0.3–1.0). Default 1.0 = full size, matching desktop.</p>
+                  </div>
+                  <input
+                    type="number"
+                    min="0.3"
+                    max="1"
+                    step="0.05"
+                    value={settings.SCOREBOARD_MOBILE_SCALE || '1.0'}
+                    onChange={e => handleChange('SCOREBOARD_MOBILE_SCALE', e.target.value)}
+                    className="w-20 rounded bg-deep border border-border px-2 py-1 text-sm text-primary"
+                  />
                 </div>
-                <input
-                  type="number"
-                  min="0.3"
-                  max="1"
-                  step="0.05"
-                  value={settings.SCOREBOARD_MOBILE_SCALE || '1.0'}
-                  onChange={e => handleChange('SCOREBOARD_MOBILE_SCALE', e.target.value)}
-                  className="w-20 rounded bg-deep border border-border px-2 py-1 text-sm text-primary"
-                />
               </div>
 
               {/* Show more styles — legacy preset selector + fine-grained controls */}
@@ -1608,10 +1627,12 @@ export default function Settings() {
                 );
               })}
 
-              {/* Inline toggle for Global Card Styles */}
-              {category === 'Global Card Styles' && (
+              {/* Inline toggle for Game Room (style-system revamp P0, item 10 —
+                  REQUIRE_SCORE_PHOTO is submission policy, relocated here out
+                  of the appearance card; label/description/behavior unchanged) */}
+              {category === 'Game Room' && (
                 <div className="pt-3 mt-3 border-t border-border/30 space-y-4">
-                  {Object.entries(GLOBAL_CARD_TOGGLES).map(([key, { label, description, defaultOn }]) => {
+                  {Object.entries(GAME_ROOM_TOGGLES).map(([key, { label, description, defaultOn }]) => {
                     const isOn = settings[key] !== undefined ? settings[key] === 'true' : !!defaultOn;
                     return (
                       <div key={key} className="flex items-center justify-between gap-4">
