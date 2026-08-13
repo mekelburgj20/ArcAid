@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning follo
 
 ---
 
+## [2.104.0] — unreleased
+
+**Mobile touch & readability batch (four owner asks, shots approved incl. one revision).**
+
+### Changed
+- **Score-row names + scores are bigger on phones** (≤640px) across all four card families — a defaults change, no new setting; desktop untouched. Overflow handling is new: an overlong name now **scales down to fit one line** (`FitRowName` — measures natural width vs. available space and shrinks by exactly the needed ratio, floor 0.5) — owner revision over the first-draft wrapping (uneven rows) and the old ellipsis (banned by doctrine). Names that fit render completely untouched, on desktop too (where this also retires the old ellipsis truncation).
+- **Avatar + username are one unit** on Banner-card pill rows (the avatar was absolutely-positioned at the pill edge while the name centered — they drifted apart at full-bleed mobile widths).
+- **QR codes never render on mobile viewports** — unconditional, even with the room's QR toggle on (the phone is the scanner, not the billboard). Single chokepoint in `ScoreboardSurface` (`useIsMobileViewport`): every QR-driving value and its reserved layout space collapses together, so no leftover gaps. Desktop/kiosk QR behavior byte-identical (shot-verified).
+- **The numeric keypad is ~30% larger** (owner Android report: "my fingers type the wrong button") — grid 240px → 320px, taller keys, larger digits; each key now clears the ~44px minimum touch-target both phone platforms recommend. The alpha keyboard is unchanged (its 10-key rows wouldn't fit a 320px viewport at that size); all recent keypad fixes (press-registration, safe-area, scroll-lock) untouched.
+
 ## [2.103.0] — unreleased
 
 **`/pick-game` consolidation (owner-designed) + duplicate-activation guard (UAT incident).**

@@ -472,17 +472,12 @@ export default function ScoreboardSurface({
              desktop base the way sb-fs-* is; the ask was "bigger than
              today, on every family," not "preserve each family's relative
              ratio." Desktop sizing is untouched (no rule outside this
-             media query). No-ellipsis doctrine: every sb-row-name call site
-             is a 'truncate' (nowrap+ellipsis) span on desktop — at the
-             bigger mobile size that clips MORE characters than today, so
-             this forces wrapping instead (matching the doctrine's "prefer
-             wrapping" instruction) rather than shipping a worse ellipsis. */
-          .sb-row-name  {
-            font-size: 15px !important;
-            white-space: normal !important;
-            overflow-wrap: break-word !important;
-            word-break: break-word !important;
-          }
+             media query). Overflow handling is NOT here anymore: every
+             sb-row-name call site now renders through <FitRowName>, which
+             scales an overlong name down to fit ONE line (owner revision
+             2026-08-13 — wrapping made row heights uneven; ellipsis is
+             banned by doctrine). Names that fit are untouched. */
+          .sb-row-name  { font-size: 15px !important; }
           .sb-row-score { font-size: 16px !important; }
         }
       `}</style>

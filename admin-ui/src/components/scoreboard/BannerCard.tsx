@@ -4,6 +4,7 @@ import { Lock, Plus, Minus, BadgeCheck } from 'lucide-react';
 import type { GameLeaderboard, RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, formatCountdown, GameQRCode, getTitleStyleClass, playerName } from '../ScoreboardComponents';
 import PlayerNameLink from '../PlayerNameLink';
+import FitRowName from './FitRowName';
 import GameInfoPopup from './GameInfoPopup';
 import { useScoreExpand } from './useScoreExpand';
 import { qrBottomMetrics } from '../../lib/scoreboardConfig';
@@ -278,12 +279,14 @@ export default function BannerCard({
                             avatarUrl={entry.avatar_url}
                             size={16}
                           />
-                          <PlayerNameLink
-                            slug={slug}
-                            entry={entry}
-                            onClick={e => e.stopPropagation()}
-                            className="text-[11px] sb-row-name truncate text-secondary no-underline hover:text-neon-cyan transition-colors min-w-0"
-                          />
+                          <FitRowName className="text-[11px] sb-row-name min-w-0">
+                            <PlayerNameLink
+                              slug={slug}
+                              entry={entry}
+                              onClick={e => e.stopPropagation()}
+                              className="text-secondary no-underline hover:text-neon-cyan transition-colors"
+                            />
+                          </FitRowName>
                           {entry.verified && (
                             <span className="inline-flex items-center text-neon-green flex-shrink-0" title="Verified by an admin" aria-label="Verified score">
                               <BadgeCheck size={11} />

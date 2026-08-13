@@ -1,6 +1,7 @@
 import { Plus, Minus, BadgeCheck } from 'lucide-react';
 import type { RankedEntry } from '../ScoreboardComponents';
 import { PlayerAvatar, playerName } from '../ScoreboardComponents';
+import FitRowName from './FitRowName';
 import PlayerNameLink from '../PlayerNameLink';
 import type { ScoreHistoryEntry } from './useScoreExpand';
 import { formatScore } from '../../lib/format';
@@ -103,36 +104,31 @@ export default function ScoreList({
 
               {/* Name — v2.13.16: PlayerNameLink opens quick-view modal on
                   click; modifier-click falls through to full page. */}
+              {/* FitRowName owns the clamp (flex:1) and scales an overlong
+                  name down to fit one line — no wrap, no ellipsis. */}
               {slug ? (
-                <PlayerNameLink
-                  slug={slug}
-                  entry={entry}
-                  onClick={e => e.stopPropagation()}
-                  className="sb-row-name"
-                  style={{
-                    flex: 1,
-                    fontSize: '13px',
+                <FitRowName origin="left" className="sb-row-name" style={{ flex: 1, fontSize: '13px' }}>
+                  <PlayerNameLink
+                    slug={slug}
+                    entry={entry}
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      color: nameColor,
+                      fontFamily: fontFamily || monoFontFamily,
+                      textDecoration: 'none',
+                      pointerEvents: 'auto',
+                    }}
+                  />
+                </FitRowName>
+              ) : (
+                <FitRowName origin="left" className="sb-row-name" style={{ flex: 1, fontSize: '13px' }}>
+                  <span style={{
                     color: nameColor,
                     fontFamily: fontFamily || monoFontFamily,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    textDecoration: 'none',
-                    pointerEvents: 'auto',
-                  }}
-                />
-              ) : (
-                <span className="sb-row-name" style={{
-                  flex: 1,
-                  fontSize: '13px',
-                  color: nameColor,
-                  fontFamily: fontFamily || monoFontFamily,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {playerName(entry)}
-                </span>
+                  }}>
+                    {playerName(entry)}
+                  </span>
+                </FitRowName>
               )}
 
               {/* Verified checkmark */}
