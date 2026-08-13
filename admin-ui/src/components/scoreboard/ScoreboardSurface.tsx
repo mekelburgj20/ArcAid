@@ -476,9 +476,14 @@ export default function ScoreboardSurface({
              sb-row-name call site now renders through <FitRowName>, which
              scales an overlong name down to fit ONE line (owner revision
              2026-08-13 — wrapping made row heights uneven; ellipsis is
-             banned by doctrine). Names that fit are untouched. */
-          .sb-row-name  { font-size: 15px !important; }
-          .sb-row-score { font-size: 16px !important; }
+             banned by doctrine). Names that fit are untouched.
+
+             v2.104.1: the .sb-row-name/.sb-row-score font rules MOVED to
+             index.css — this style block only mounts with ScoreboardSurface
+             (the Tournaments tab), but the same card components render on
+             the Room Scores + Global tabs OUTSIDE the surface (owner field
+             report: "my score font size looks the same" — they were on Room
+             Scores). Global stylesheet = every surface, one definition. */
         }
       `}</style>
 
